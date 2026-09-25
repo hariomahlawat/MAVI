@@ -1,15 +1,15 @@
 # S1.4 B3 — Asynchronous Vision Completion Finalization
 
 **Date:** 2026-09-25  
-**Status:** Proposed implementation plan for owner review  
+**Status:** Architecture frozen for implementation after independent review  
 **Base:** `main@daba6505976e4eb6ba2c17e5110833d1c920095f`  
 **Trigger:** S1.4 PR B authoritative Linux B3 evidence at `bb331c6825569b32ed280cfde21d6527071a7fb0`
 
 ## 1. Problem
 
-S1.4 B3 has exposed a product-architecture bottleneck rather than a qualification-tooling problem.
+S1.4 B3 exposed a product-architecture bottleneck rather than a qualification-tooling problem.
 
-At the current completion boundary, `ProcessingResultStore.CompleteAsync`:
+Today `ProcessingResultStore.CompleteAsync`:
 
 1. starts a PostgreSQL transaction;
 2. locks the `vision_jobs` row `FOR UPDATE`;
@@ -19,444 +19,846 @@ At the current completion boundary, `ProcessingResultStore.CompleteAsync`:
 6. performs EF persistence;
 7. allocates the visibility sequence;
 8. marks the VisionJob, ProcessingRun and VideoAsset complete;
-9. commits the transaction;
+9. commits;
 10. only then returns to the worker.
 
-The worker HTTP client has a 30 s default request timeout. S1.4 therefore requires at least 2× headroom: worst-case completion ≤ 15 s.
+The worker HTTP client has a 30 s default request timeout. S1.4 requires 2× headroom: worst-case synchronous completion ≤ 15 s.
 
 The authoritative Linux B3 run at the 10,000-Track / 50,000-object envelope measured:
 
 - p50 ≈ 104 s;
 - max ≈ 190.8 s;
 - 50,000 durable evidence publications;
-- roughly 100,000 relational rows in the completion graph.
+- roughly 100,000 relational rows.
 
-A throwaway experiment reducing redundant directory/fsync work still measured roughly 63–80 s. EF persistence alone consumed approximately 12–15 s. Therefore the existing synchronous design cannot credibly reach the 15 s request bound through local tuning.
+A throwaway fsync-reduction prototype still measured roughly 63–80 s. EF persistence alone consumed roughly 12–15 s. The current synchronous design therefore cannot credibly satisfy the 15 s request bound through local tuning.
 
-This is not a reason to increase the worker timeout or weaken B3. The worker request is carrying work that does not belong on the synchronous request path.
+The repair must remove the product coupling, not weaken qualification.
 
 ## 2. Decision
 
 Split **completion submission** from **platform finalization**.
 
-The worker remains responsible for producing and staging the bounded, deterministic completion 3.0 result.
+### 2.1 Worker responsibility
 
-The platform completion endpoint becomes responsible only for:
+The worker:
 
-- validating the caller, lease, attempt and body;
-- computing/verifying the completion digest using the existing validator;
-- durably recording one finalization intent plus a durable copy of the completion manifest;
-- fencing the VisionJob so the attempt cannot be leased or completed again;
-- returning an acknowledgement to the worker within the existing bounded request envelope.
+- produces the bounded deterministic Evidence Set and completion body;
+- stages referenced artefacts under its attempt-scoped staging path;
+- submits completion protocol **3.1**;
+- receives a truthful durable hand-off acknowledgement;
+- does not delete current-attempt staging after a `Finalizing` acknowledgement;
+- does not poll finalization.
 
-A platform-owned background finalizer then performs:
+### 2.2 Platform submission responsibility
 
-- re-validation of the durable manifest and completion digest;
-- sealing worker-staged artefacts into the accepted-evidence root;
-- relational persistence;
-- visibility-sequence allocation;
-- atomic publication of the completed run;
-- retry/recovery after host/process loss.
+The synchronous completion endpoint performs only bounded control-plane work:
 
-The expensive work therefore no longer runs under the worker's HTTP request or under a long-lived `vision_jobs FOR UPDATE` lock.
+- validate caller, lease, attempt and body;
+- compute the existing completion digest;
+- persist the exact accepted completion payload atomically in PostgreSQL;
+- transition the VisionJob from `Leased` to `Finalizing`;
+- return within the existing bounded request envelope.
 
-### Required state
+It does **not**:
 
-Add an explicit `VisionJobStatus.Finalizing`.
+- seal accepted evidence;
+- create the Track / Observation / Artifact graph;
+- allocate the completion visibility sequence;
+- report the run Completed.
 
-`ProcessingRunStatus` remains `Running` until finalization commits. The run becomes `Completed` only when accepted evidence and the relational graph are authoritative.
+### 2.3 Platform finalizer responsibility
 
-The user-facing processing projection should distinguish **Finalizing** from active inference. Do not report the run as Completed early.
+A platform-owned background finalizer:
 
-## 3. Why this is the smallest sound change
+- claims a `Finalizing` VisionJob using PostgreSQL fencing;
+- revalidates the retained completion payload;
+- seals worker-staged artefacts outside the final publication transaction;
+- persists the relational graph;
+- allocates the visibility sequence;
+- atomically publishes the run as Completed;
+- recovers after host/process loss.
 
-Rejected shortcuts:
+## 3. State model
 
-### Increase the worker timeout
+Add:
 
-Rejected. It turns a measured product bottleneck into a configuration workaround and leaves a very long database/file-system critical path.
+`VisionJobStatus.Finalizing`
 
-### Continue fsync micro-optimisation until B3 passes
+The lifecycle becomes:
 
-Rejected. Measurement shows that removing most redundant sync calls is insufficient. It also risks weakening ADR-006 durability for little benefit.
+`Queued → Leased → Finalizing → Completed | Failed`
 
-### Seal outside the transaction but keep the HTTP request synchronous
+Existing `Leased → Failed` and attempt exhaustion remain.
 
-Rejected. The worker still waits tens of seconds/minutes, and process-loss recovery becomes ambiguous without durable finalization state.
+### 3.1 Ownership
 
-### Bulk/parallel rewrite first
+- `Queued → Leased`: ProcessingOrchestrator.
+- `Leased → Finalizing`: worker completion submission transaction.
+- claim/reclaim while `Finalizing`: platform finalizer lifecycle.
+- `Finalizing → Completed`: finalizer publication transaction.
+- `Finalizing → Failed`: finalizer deterministic failure or exhausted transient retries.
 
-Rejected for the first repair slice. Bulk COPY and parallel sealing may improve throughput later, but they are not required to remove the correctness/timeout coupling. Implement the lifecycle split first, measure it, and optimize the finalizer only if operational latency still warrants it.
+The finalizer claim is **sub-state**, not another public status.
 
-## 4. Durable finalization intent
+### 3.2 ProcessingRun and VideoAsset
 
-Do **not** persist the entire worst-case completion body as a large PostgreSQL JSON column.
+`ProcessingRunStatus` remains `Running` until final publication.
 
-Introduce a platform-owned finalization-manifest root, physically separate from worker-writable staging. It is not accepted evidence and is never exposed to operators.
+`VideoAsset` remains in its processing state until final publication.
 
-Canonical key:
+This avoids rippling a new ProcessingRun status through search, analytics and content queries that already rely on `Completed` as the fact-bearing boundary.
 
-`finalization/{jobId}/attempt-NNNN/completion.json`
+The public status projection must nevertheless expose a distinct phase such as:
 
-Submission writes one bounded manifest file containing the completion request required for deterministic re-validation. The file is written create-once, with:
+`phase = processing | finalizing | completed | failed`
+
+Operators must never see a finished worker represented as still performing inference.
+
+## 4. Durable hand-off: PostgreSQL payload row
+
+The finalization hand-off must be a **single-resource atomic transaction**.
+
+Do not introduce a filesystem finalization-manifest root.
+
+Persist the exact accepted completion body in PostgreSQL as bounded binary content.
+
+### 4.1 Shape
+
+Introduce a dedicated table/entity conceptually equivalent to:
+
+`VisionFinalizationPayload`
+
+Key:
+
+- `JobId`
+- `AttemptCount`
+
+Fields:
+
+- exact request bytes (`bytea`);
+- byte length;
+- SHA-256 of request bytes;
+- completion digest;
+- created/accepted timestamp.
+
+The exact schema names are implementation details.
+
+### 4.2 Bounds
+
+The row is bounded by the existing completion request/body limits.
+
+The current worst-shape evidence is within the existing contract envelope; no new larger completion-body allowance is introduced for this repair.
+
+### 4.3 Persistence discipline
+
+Use bounded raw SQL / binary parameter handling for the large payload path where appropriate. Do not require EF to track or materialize the payload as a large object graph during ordinary status queries.
+
+PostgreSQL/TOAST, WAL, backup/restore and transactional atomicity become the durability mechanism.
+
+### 4.4 Cleanup
+
+The payload row remains until the VisionJob is terminal.
+
+After `Completed` or terminal `Failed`, payload cleanup may occur in its own short transaction.
+
+If cleanup is delayed, the payload is bounded retained garbage, not a correctness failure.
+
+## 5. Completion protocol 3.1
+
+Do not reinterpret the existing 3.0 exchange.
+
+Version the completion **exchange** to 3.1.
+
+### 5.1 Request
+
+The 3.1 request carries the same semantic completion content as 3.0 unless implementation requires a narrowly scoped additive field.
+
+The version itself provides the compatibility fence.
+
+The existing platform capability endpoint advertises supported completion versions.
+
+A 3.1 worker must not silently fall back to 3.0.
+
+### 5.2 Response
+
+The 3.1 response explicitly includes state:
+
+- `finalizing`
+- `completed`
+
+and fields such as:
 
 - schema version;
 - job id;
-- attempt count;
-- byte length;
-- SHA-256;
-- completion digest.
+- processing run id;
+- state;
+- accepted-at UTC;
+- completed-at UTC only when actually Completed;
+- tracks accepted only when authoritative, or clearly defined submitted count if separately named.
 
-The VisionJob persists only the manifest identity/facts required to recover it, for example:
+Do not populate `CompletedAtUtc` for a hand-off acknowledgement.
 
-- `FinalizationManifestKey`;
-- `FinalizationManifestSha256`;
-- `FinalizationManifestSizeBytes`;
-- `CompletionDigest`;
-- `FinalizationQueuedAtUtc`.
+### 5.3 Replay
 
-The exact names are an implementation detail; the persisted semantics are not.
+- `Leased` + valid new 3.1 submission → `Finalizing`.
+- `Finalizing` + same attempt + same digest → idempotent `finalizing`.
+- `Completed` + same digest → idempotent `completed`.
+- same attempt with a different digest → conflict.
+- different attempt → conflict/fenced according to the existing attempt rules.
 
-The manifest publication follows the same dual-resource failure discipline already established by B4:
+### 5.4 Worker staging
 
-- manifest created, DB commit fails with confirmed rollback → compensate the new manifest;
-- commit outcome ambiguous → retain the manifest; it is unreferenced and not operator-readable;
-- process loss after manifest publication but before DB commit → unreferenced manifest may be janitored later;
-- DB commit succeeds → the Finalizing row is the authority.
+A `finalizing` response means the platform durably owns the hand-off but still needs current-attempt staging.
 
-Do not reuse the accepted-evidence root for the manifest.
+The worker must therefore not run the existing successful-completion staging release path for a Finalizing acknowledgement.
 
-## 5. Submission transaction
+The worker may terminate normally after hand-off.
 
-The synchronous completion request should hold `FOR UPDATE` only for bounded control-plane work.
+## 6. Submission transaction
 
-Under the short transaction:
+The synchronous completion path holds `FOR UPDATE` only for bounded submission work.
+
+Under one PostgreSQL transaction:
 
 1. lock VisionJob;
 2. verify schema / job id / worker id / lease token / attempt;
 3. reject expired or superseded lease;
 4. validate the body using the existing `VisionResultValidator`;
 5. compute the existing completion digest;
-6. handle exact replay:
-   - Completed + same digest → existing successful completion response;
-   - Finalizing + same digest and same attempt → idempotent accepted/finalizing response;
-   - different digest → completion conflict;
-7. durably publish the finalization manifest;
-8. transition Leased → Finalizing;
-9. persist manifest facts + completion digest;
-10. commit;
-11. return acknowledgement.
+6. handle replay/conflict rules;
+7. insert the exact bounded payload row;
+8. transition `Leased → Finalizing`;
+9. persist completion digest and finalization acceptance time;
+10. clear/consume worker-lease authority as defined by the domain transition;
+11. commit;
+12. return the 3.1 acknowledgement.
 
-No accepted evidence is sealed here.
+No accepted evidence is sealed.
 
-No Track / Observation / Artifact graph is created here.
+No Track / Observation / Artifact graph is created.
 
-No visibility sequence is allocated here.
+No visibility sequence is allocated.
 
-The transition to Finalizing consumes the worker lease authority. Once committed, that VisionJob cannot be reclaimed by another worker attempt.
+Because the payload row and state transition are in the same database transaction:
 
-## 6. Worker contract
+- there is no state where authoritative `Finalizing` references a missing filesystem manifest;
+- there is no manifest-without-row compensation race;
+- ambiguous commit resolves atomically to either pre-handoff or handed-off state.
 
-Do not pretend Finalizing means Completed.
+## 7. Finalizer claims and fencing
 
-Introduce an additive completion-response evolution rather than overloading `CompletedAtUtc`.
-
-Preferred shape:
-
-- the platform continues to accept completion request schema 3.0;
-- response contract gains an explicit state, e.g. `finalizing | completed`, under a versioned/additive response shape;
-- a newly accepted submission returns Finalizing;
-- an exact replay after finalization returns Completed with final counts/time;
-- an exact replay while finalization is still pending returns Finalizing.
-
-The Python worker treats a durable Finalizing acknowledgement as successful hand-off. It must **not** delete the current attempt's staging after that acknowledgement; platform finalization/janitor owns cleanup.
-
-The worker may terminate normally after hand-off. It does not poll finalization.
-
-If changing the existing response shape cannot be done safely/additively, introduce a completion response schema 3.1 while keeping the request body at 3.0. Do not silently reinterpret the existing `CompletedAtUtc`.
-
-## 7. Finalizer lifecycle and fencing
-
-Use the established platform `BackgroundService` precedent from Scene Analytics, but keep the capability semantics VisionJob-specific.
+Use the established PostgreSQL claim/reclaim pattern already proven by Scene Analytics, but keep the semantics VisionJob-specific.
 
 A `VisionFinalizationHostedService` in the API host runs a bounded reconciliation/execution loop.
 
-Finalizer ownership must be crash-safe and multi-host safe. Keep the additional state minimal:
+### 7.1 Claim fields
 
-- finalization attempt/count;
-- claim owner/token hash or equivalent opaque claim;
+Persist minimal finalizer claim state on the VisionJob or a tightly bound finalization record:
+
+- finalization attempt count;
+- claim token hash;
 - claim expiry;
-- last error / terminal failure if retries are exhausted.
+- last heartbeat/extension time where useful;
+- last safe error;
+- terminal failure facts.
 
-Claiming uses PostgreSQL `FOR UPDATE SKIP LOCKED` or the repository's established equivalent.
+### 7.2 Claiming
 
-The finalizer's claim is distinct from the worker lease. The worker lease is finished once Finalizing is committed.
+Claim using `FOR UPDATE SKIP LOCKED` or the repository's established equivalent.
 
-A stale finalizer may continue file IO after its claim expires, so publication remains create-once and the final database commit must re-check finalizer ownership before publishing state.
+Reclaim is allowed only when:
 
-## 8. Finalization algorithm
+- status is `Finalizing`;
+- no live claim exists, or the claim expired;
+- finalization attempts remain.
 
-For one claimed Finalizing VisionJob:
+A reclaim rotates the claim token/hash.
 
-1. read and SHA-verify the platform-owned manifest;
-2. deserialize and re-run `VisionResultValidator`;
-3. verify the recomputed completion digest equals the VisionJob's stored digest;
-4. seal every referenced staged artefact through `IAcceptedEvidenceStore`;
-5. retain the accepted-key mapping;
-6. build the same Track / Observation / Artifact graph as today;
-7. start the short publication transaction;
-8. lock/re-check the VisionJob and finalizer claim;
-9. confirm status is still Finalizing and digest/attempt match;
-10. persist the graph;
-11. allocate the completion visibility sequence;
-12. mark VisionJob Completed, ProcessingRun Completed and VideoAsset Processed;
-13. commit;
-14. remove the finalization manifest and eligible staging as best-effort cleanup after authority is committed.
+### 7.3 Claim extension
 
-Important: sealing occurs **outside** the final publication transaction.
+Sealing may exceed one fixed claim duration.
 
-Because accepted keys are deterministic and create-once, a retry after process loss reuses already sealed identical objects rather than duplicating them.
+The active finalizer must extend its claim between bounded sealing batches using a short conditional update that proves:
 
-The final transaction still owns the relational visibility boundary: no Track, Observation or Artifact row is visible before the authoritative completion commit.
+- job id;
+- status `Finalizing`;
+- current claim token/hash.
 
-## 9. Failure semantics
+A stale finalizer may continue file IO after losing ownership, but cannot extend or publish.
 
-The architecture must preserve or improve B4 semantics.
+### 7.4 Maximum duration
 
-### Failure before Finalizing commit
+Introduce a product-level `MaximumFinalizationDurationSeconds`.
 
-The worker receives failure and may retry under the existing lease rules. A newly created manifest is compensated when rollback is confirmed.
+The mechanism is part of F1–F3.
 
-### Process loss after Finalizing commit, before sealing
+Do **not** choose the final production value merely to make qualification pass.
 
-The background reconciler reclaims Finalizing and starts/restarts finalization from the durable manifest.
+After repaired-architecture measurement, freeze the value using:
 
-### Process loss during sealing
+- operational requirements;
+- observed worst-case performance;
+- recovery margin.
 
-Already-created accepted objects remain unreferenced. Retry reuses/adopts the deterministic accepted keys after integrity verification.
+Authoritative B3 requalification occurs only after that value is frozen.
 
-### Sealing integrity failure
+Exceeding the enforced maximum fails closed through the finalization failure path.
 
-Finalization fails closed. No relational graph is published.
+## 8. Accepted-evidence publication rule
 
-This is not a worker retry: the worker has already handed off the result. The VisionJob transitions Finalizing → Failed with a finalization-specific safe error code and the ProcessingRun/VideoAsset failure path is applied consistently.
+The asynchronous finalizer must **never compensate by deleting accepted evidence** that it created.
 
-### Process loss after all sealing, before publication transaction
+Once concurrent/stale claimants can adopt deterministic create-once accepted keys, creator-based compensation is unsafe.
 
-Retry sees/adopts the sealed objects and publishes once.
+Failure sequence to prohibit:
 
-### Database commit ambiguity
+1. finalizer A creates accepted key K;
+2. A loses ownership;
+3. finalizer B adopts K by verified size/SHA;
+4. A later fails elsewhere;
+5. A deletes K because it originally created it;
+6. B publishes a relational reference to a missing object.
 
-Keep the current conservative rule: never delete evidence when rollback cannot be confirmed. Exact retry reconciles against the authoritative row/digest.
+Therefore:
 
-### Exact duplicate completion POST
+- accepted publication remains deterministic, create-once and hash/size verified;
+- retries adopt existing identical objects;
+- conflicting existing bytes fail closed;
+- failed/restarted finalization may leave unreferenced accepted objects;
+- unreferenced objects are an orphan/retention cost, never served without relational references;
+- orphan cleanup remains a separate retention concern and must not be added to F1–F3.
 
-- Finalizing + same worker attempt/digest → idempotent Finalizing response.
-- Completed + same digest → idempotent Completed response.
-- Any different digest → conflict.
+The existing synchronous path may keep its current behavior until replaced, but the new asynchronous path has no accepted-evidence compensation deletion.
 
-## 10. Staging and janitor ownership
+## 9. Finalization algorithm
 
-The current janitor assumes Completed/Failed are terminal and a Leased attempt may be fenced by a later attempt.
+For one valid claimed `Finalizing` job:
 
-It must learn Finalizing:
+1. read the exact payload bytes from PostgreSQL;
+2. verify payload length/SHA and deserialize;
+3. re-run `VisionResultValidator`;
+4. verify the recomputed completion digest equals the stored digest;
+5. seal every referenced staged artefact through `IAcceptedEvidenceStore`;
+6. adopt already-existing identical accepted keys as normal retry behavior;
+7. periodically extend the finalizer claim between bounded batches;
+8. build the same Track / Observation / Artifact graph as today in memory;
+9. start the publication transaction;
+10. lock/re-read VisionJob;
+11. verify status `Finalizing`, claim token, attempt and digest;
+12. insert/persist the relational graph and representative fix-up;
+13. **then** acquire the exclusive ProcessingVisibilityBarrier;
+14. allocate the visibility sequence;
+15. transition VisionJob to Completed;
+16. mark ProcessingRun Completed and assign visibility sequence;
+17. mark VideoAsset Processed;
+18. commit;
+19. perform terminal cleanup best-effort after authority is committed.
 
-- the current Finalizing attempt's staging is **not deletable**;
-- older attempts remain deletable under existing fencing rules;
-- after Completed/Failed, normal grace-based cleanup applies;
-- unknown or inconsistent Finalizing metadata fails closed: preserve and log.
+### 9.1 Transaction ordering invariant
 
-The worker's successful-completion fast-path cleanup must change so a Finalizing acknowledgement never deletes the current attempt.
+Do not acquire the exclusive visibility barrier before the large graph persistence work.
 
-## 11. Performance contract after the architecture change
+The ordering is intentionally:
 
-Do not simply delete B3's timing gate.
+`job lock → graph persistence → visibility barrier → sequence/state publication → commit`
 
-Replace the obsolete synchronous sealing criterion with two independently measured product-quality criteria.
+This preserves current snapshot/search behavior and minimizes exclusive visibility-lock hold time.
 
-### B3-A — submission latency
+### 9.2 Partial visibility
 
-Worst-case 10,000-Track / 50,000-object completion submission, using the real validator and durable manifest publication:
+No Track, Observation or Artifact row from the finalization becomes authoritative before the publication transaction commits.
+
+Existing read/search/analytics paths continue to require Completed/fact-bearing run state.
+
+## 10. Failure semantics
+
+### 10.1 Before submission commit
+
+Nothing authoritative changed.
+
+The worker may retry under existing lease/attempt rules.
+
+### 10.2 Ambiguous submission commit
+
+Because payload + `Finalizing` transition are one PostgreSQL transaction, retry observes one of:
+
+- still Leased → submit normally;
+- Finalizing + same digest/attempt → idempotent hand-off.
+
+No cross-resource repair is required.
+
+### 10.3 Process loss after Finalizing commit
+
+Another finalizer claims/reclaims and continues from the PostgreSQL payload.
+
+### 10.4 Process loss mid-seal
+
+Already sealed accepted objects remain unreferenced.
+
+The next finalizer adopts them after integrity verification.
+
+No deletion occurs.
+
+### 10.5 Process loss after sealing, before publication
+
+Same recovery: revalidate, adopt, then publish once.
+
+### 10.6 Publication transaction ambiguity
+
+PostgreSQL atomicity leaves either:
+
+- Finalizing with no published relational graph; or
+- Completed with the committed graph.
+
+A stale caller must re-read authoritative state before further action.
+
+### 10.7 Deterministic finalization failure
+
+Add a domain transition:
+
+`VisionJob.FailFinalization(...)`
+
+valid only from `Finalizing`.
+
+Deterministic failures fail immediately, including:
+
+- payload missing/corrupt;
+- completion payload digest mismatch;
+- staged artifact missing;
+- staged artifact integrity mismatch;
+- accepted-key content conflict.
+
+Use distinct safe codes such as:
+
+- `vision_finalization_payload_missing`
+- `vision_finalization_payload_integrity_failed`
+- `vision_finalization_artifact_missing`
+- `vision_finalization_artifact_integrity_failed`
+
+The exact list should remain bounded and contract-tested.
+
+### 10.8 Transient finalization failure
+
+Transient IO/database/host errors are retried within:
+
+- claim/reclaim rules;
+- maximum finalization attempts;
+- maximum finalization duration.
+
+When exhausted, fail with a distinct finalization-exhausted code.
+
+The corresponding ProcessingRun and VideoAsset use their existing failed-processing transitions consistently.
+
+A later operator/user reprocess creates a new ProcessingRun and VisionJob through the existing path.
+
+### 10.9 Orphan accounting
+
+On a finalization failure after sealing began, record/log:
+
+- number of accepted objects created/adopted where known;
+- bytes sealed where known.
+
+This provides a measurable retention signal without adding an orphan collector to this repair.
+
+## 11. Staging and janitor ownership
+
+`StagingJanitor` must explicitly understand `Finalizing`.
+
+Rules:
+
+- current `Finalizing` attempt staging is **not deletable**;
+- attempts below the current authoritative attempt remain reclaimable under existing fencing;
+- no later attempt can supersede a Finalizing VisionJob;
+- Completed/Failed retain existing grace-based cleanup;
+- malformed/inconsistent Finalizing metadata → preserve and log fail-closed;
+- old binaries must not encounter Finalizing during supported deployment rollback.
+
+The worker's successful-completion fast path must not delete current-attempt staging after a 3.1 Finalizing acknowledgement.
+
+## 12. Operator/status semantics
+
+The status API must expose that the system is finalizing.
+
+Keep ProcessingRun `Running`, but project the VisionJob phase.
+
+Web/operator UI should render a clear Finalizing state distinct from inference/processing.
+
+No arbitrary progress percentage should be fabricated for finalization.
+
+If a finalization error occurs, surface a safe finalization-specific failure category rather than implying detector/tracker inference failed.
+
+## 13. API-host placement and concurrency
+
+For this repair, keep finalization in the platform API host.
+
+Reasons:
+
+- the host already owns platform/background responsibilities;
+- Scene Analytics and staging janitor establish the precedent;
+- current Windows/IIS deployment already depends on the host being continuously available;
+- introducing another executable is unnecessary for correctness.
+
+Initial concurrency:
+
+`MaxConcurrentFinalizations = 1`
+
+Qualification/measurement must record:
+
+- API request latency during worst-case finalization;
+- process RSS;
+- finalization duration;
+- claim-extension behavior.
+
+If measured operator/API contention is unacceptable, a separate platform finalizer process is a later evolution using the same database protocol.
+
+Do not introduce it pre-emptively.
+
+## 14. B3 qualification after the repair
+
+Do not weaken B3.
+
+Split it into synchronous hand-off quality and asynchronous finalization quality.
+
+### 14.1 B3-A — submission latency
+
+Worst-case 10,000-Track / 50,000-object completion 3.1 submission using:
+
+- real validator;
+- real PostgreSQL payload insert;
+- real `Leased → Finalizing` transition.
+
+Required:
 
 - n ≥ 30;
 - warm-up excluded;
 - ≥ 3 repeats;
 - min / p50 / p95 / max;
-- real supported Development filesystems;
-- both CPU OS variants;
-- **max ≤ 15 s**, preserving 2× headroom against the 30 s worker timeout.
+- both qualified CPU OS variants;
+- **max ≤ 15 s**.
 
-This is the direct successor to the current B3 bound.
+This preserves 2× headroom against the 30 s worker request timeout.
 
-### B3-B — asynchronous finalization
+### 14.2 B3-B — finalization duration
 
-Measure separately:
+A product-enforced `MaximumFinalizationDurationSeconds` must exist before authoritative qualification.
 
-- sealing time;
-- relational-persistence time;
-- final publication transaction time;
-- end-to-end Finalizing → Completed;
-- claim/recovery after injected process loss;
-- lock-hold time for the publication transaction;
-- throughput at 10,000 Tracks / 50,000 objects.
+Its value is frozen only after repaired-architecture measurement and review.
 
-Do not invent a finalization latency threshold merely to obtain PASS.
+Authoritative B3-B then requires:
 
-For the first implementation, retain the measured finalization time as an explicit operational baseline and require:
-
-- no worker/request timeout dependency;
+- worst-case Finalizing → Completed within **½ of the enforced maximum** on each qualified OS variant;
+- no worker process dependency;
 - no worker lease dependency;
-- bounded finalizer claim with successful recovery;
-- no long-lived `vision_jobs FOR UPDATE` across sealing;
-- exact eventual completion under the full envelope;
+- successful claim extension;
+- recovery after process loss;
 - no partial relational visibility;
-- deterministic replay/adoption.
+- deterministic retry/adoption;
+- bounded finalizer attempts;
+- full 10,000-Track / 50,000-object completion.
 
-After the first real measurements on the repaired architecture, set an operator-facing finalization SLO only if the evidence justifies it. Do not choose one in advance without a product basis.
+This is a product safety limit, not an operator-facing SLO.
 
-## 12. Implementation slices
+### 14.3 Publication transaction / visibility barrier
 
-Keep this repair isolated from S2 work.
+Record:
+
+- graph persistence time;
+- final publication transaction time;
+- exclusive visibility-lock hold time.
+
+The visibility-lock hold must not regress above the corresponding post-graph publication phase measured on the pre-repair baseline without explicit review.
+
+Do not set a synthetic numeric lock limit without measurement.
+
+### 14.4 Recovery qualification
+
+Inject loss at:
+
+- after hand-off commit;
+- before first seal;
+- mid-seal;
+- after seal before publication;
+- during/around publication commit;
+- after Completed before cleanup.
+
+Each must converge to exactly one authoritative terminal state under the configured claim/reconcile bounds.
+
+### 14.5 Worker independence
+
+Kill/stop the worker immediately after the Finalizing acknowledgement.
+
+Platform finalization must still complete.
+
+### 14.6 Staging retention
+
+Staging must remain available throughout Finalizing and be reclaimed only under terminal-state authority.
+
+Record retention against:
+
+`MaximumFinalizationDuration + terminal janitor grace`
+
+### 14.7 Operational baseline
+
+Record, but do not initially gate on arbitrary new thresholds:
+
+- API p95 latency while one worst-case finalization runs;
+- API-host RSS;
+- finalizer throughput;
+- accepted-evidence orphan bytes under injected failures.
+
+A later operational SLO may be frozen from product needs plus measurements.
+
+## 15. Compatibility and deployment
+
+Adding `Finalizing` to a string-persisted enum introduces binary compatibility risk.
+
+### 15.1 Migration
+
+Migration may add:
+
+- payload table;
+- nullable finalizer claim fields;
+- finalization timestamps/error fields.
+
+Adding an enum string does not need a PostgreSQL enum migration because the status is string-converted, but old binaries cannot safely interpret the new value.
+
+### 15.2 Deployment order
+
+Supported deployment:
+
+1. apply migration;
+2. deploy platform binaries that understand Finalizing everywhere;
+3. advertise completion 3.1;
+4. deploy 3.1 worker;
+5. only then allow new Finalizing jobs.
+
+Old 3.0 workers continue using the old synchronous path only if the platform deliberately continues to advertise/accept 3.0 during the transition.
+
+No worker silently switches protocols.
+
+### 15.3 Rollback
+
+Do not roll platform binaries back to a version that cannot parse Finalizing while any Finalizing row exists.
+
+Operational rollback requires:
+
+- drain/finish all Finalizing jobs; or
+- restore to a state before 3.1 was enabled.
+
+Document this explicitly.
+
+### 15.4 In-flight jobs
+
+An in-flight `Leased` job completes according to the protocol version its worker/platform pair negotiated.
+
+Do not reinterpret an existing 3.0 completion as 3.1 hand-off.
+
+## 16. Implementation slices
+
+Keep this repair isolated from S2.
 
 ### F1 — architecture/contracts/domain
 
-- amend ADR-006 for asynchronous finalization ownership;
-- amend S1.4 B3 criterion as §11 above;
-- add Finalizing state and domain transitions;
-- define the additive completion acknowledgement;
-- define finalization-manifest options/root and bounds;
-- migrations/configuration;
-- domain and contract tests.
+- amend ADR-006:
+  - asynchronous finalization ownership;
+  - accepted-evidence no-deletion rule in the async path;
+  - orphan semantics;
+- amend S1.4 B3 qualification criteria;
+- add `Finalizing` domain transition;
+- add `FailFinalization`;
+- add finalizer claim fields/policy;
+- define completion exchange 3.1;
+- add payload table/migration;
+- status projection/UI contract for Finalizing;
+- domain/contract/migration tests.
 
 No background execution yet.
 
-### F2 — durable submission
+### F2 — atomic submission
 
-- extract today's large completion path into:
-  - bounded submission service;
-  - reusable finalization executor;
-- implement durable manifest publication;
-- Leased → Finalizing transaction;
-- exact replay semantics;
-- worker handling of Finalizing acknowledgement;
-- stop worker cleanup of the current submitted attempt;
-- submission timing tests.
+- implement exact PostgreSQL payload persistence;
+- `Leased → Finalizing` atomic transaction;
+- exact replay/conflict rules;
+- 3.1 response;
+- worker 3.1 support;
+- worker current-staging retention after hand-off;
+- submission timing tests;
+- version-skew tests.
 
-At the end of F2, no result may be falsely reported Completed.
+At F2 completion, no Finalizing result may be reported Completed.
 
-### F3 — finalizer + recovery
+### F3 — finalizer and recovery
 
 - hosted service;
-- claim/reclaim/fencing;
-- revalidation;
+- claim/reclaim/token rotation;
+- claim extension;
+- maximum attempts/duration;
+- payload revalidation;
 - seal outside publication transaction;
-- existing graph persistence;
-- short publication transaction;
-- failure transitions;
+- no accepted-evidence compensation deletion;
+- final graph publication;
+- visibility-barrier ordering;
+- Finalizing failure semantics;
 - janitor Finalizing rules;
+- status/UI phase;
 - process-loss/replay tests.
 
 ### F4 — B3 requalification
 
-On the final merged SHA:
+After F1–F3 merge and configuration freeze:
 
-- run B3-A on Linux and Windows;
-- run full finalization measurements;
-- run commit/process-loss fault matrix;
-- rerun all S1 units invalidated by the behavior-bearing changes;
-- only then resume B1/B2/B5/disconnected closure work.
+- choose the new exact `main` SHA;
+- run B3-A Linux and Windows;
+- measure repaired B3-B and freeze finalization maximum;
+- re-run authoritative B3-B after the value is frozen if required;
+- run fault matrix;
+- rerun every S1 unit invalidated by the final behavior-bearing diff;
+- only then resume B1/B2/B5/disconnected closure.
 
-Do not optimize database insertion or parallelize sealing in F1–F3 unless measurement after decoupling demonstrates an operational problem independent of the old HTTP timeout.
+Do not perform expensive S1 qualification on an intermediate SHA that F1–F3 will invalidate.
 
-## 13. Required tests
-
-At minimum:
+## 17. Required tests
 
 ### Domain
 
-- Leased → Finalizing only under valid current lease/attempt;
-- Finalizing cannot be leased/heartbeated/worker-failed;
+- valid `Leased → Finalizing`;
+- invalid/expired/stale lease cannot hand off;
+- Finalizing cannot be worker-leased, heartbeated or worker-failed;
 - Finalizing → Completed;
 - Finalizing → Failed;
-- exact digest replay rules.
+- finalizer claim rotation/expiry;
+- maximum attempts/duration;
+- exact digest replay.
 
-### Submission API
+### Submission
 
-- worst-shape request does not seal accepted evidence synchronously;
-- manifest is hash/size bound;
-- accepted response does not claim Completed;
-- duplicate same digest is idempotent;
+- payload row + Finalizing transition are atomic;
+- request rollback leaves neither;
+- ambiguous commit is resolved by replay;
+- same-digest duplicate is idempotent;
 - different digest conflicts;
-- rollback compensation;
-- ambiguous DB commit retains unreferenced manifest;
-- request cancellation before commit leaves no authoritative Finalizing state.
+- no accepted evidence is sealed synchronously;
+- no graph/visibility publication occurs synchronously;
+- 3.1 response never claims Completed when only handed off;
+- old/new protocol skew fails safely.
 
 ### Finalizer
 
+- payload SHA/length verification;
 - process loss before first seal;
 - process loss mid-seal;
-- process loss after sealing before DB publication;
-- expired finalizer claim and reclaim;
-- stale finalizer cannot publish;
-- integrity mismatch fails closed;
-- exact retry adopts already sealed objects;
-- no partial Tracks/Observations/Artifacts before publication;
-- final visibility sequence allocated only at final commit;
-- final publication is idempotent.
+- loss after all seals before publication;
+- expired claim reclaim;
+- stale claim cannot extend;
+- stale claim cannot publish;
+- current claim extends between batches;
+- retry adopts existing identical accepted objects;
+- conflicting accepted object fails closed;
+- **no retry/failure path deletes accepted objects**;
+- deterministic finalization failure;
+- transient retry/exhaustion;
+- no partial relational visibility;
+- final publication idempotent;
+- visibility barrier is acquired after graph persistence.
 
 ### Janitor
 
 - Finalizing current attempt preserved;
-- older fenced attempts reclaimed;
-- Completed/Failed grace behavior unchanged;
-- malformed/inconsistent state preserved and logged.
+- earlier fenced attempts reclaimed;
+- Completed/Failed grace unchanged;
+- malformed Finalizing state preserved/logged;
+- payload row terminal cleanup is idempotent.
 
 ### Worker
 
-- Finalizing acknowledgement ends the attempt successfully;
-- current staging is retained after hand-off;
-- no fallback to older completion protocol;
-- transport timeout still fails safely before acknowledgement.
+- advertises/requires 3.1 for async hand-off;
+- Finalizing acknowledgement ends worker attempt successfully;
+- current staging is retained;
+- Completed replay is accepted;
+- no protocol fallback;
+- timeout before acknowledgement fails safely.
 
-## 14. Qualification/invalidation consequence
+### Status/UI
 
-PR #86 has already moved `main` to:
+- Finalizing shown distinctly from inference;
+- counts remain final-only where authoritative;
+- finalization failure is not labelled detector/tracker failure.
+
+### Qualification guards
+
+- B3-A measures real payload insert and transition;
+- B3-B full envelope uses real store/DB;
+- claim-loss/process-loss mutants are discriminated;
+- checker cannot PASS B3 from B3-A alone.
+
+## 18. Cold-review invariants
+
+Implementation must preserve all of these:
+
+1. Python/model components never write operational PostgreSQL directly.
+2. Worker staging remains worker-writable but not authoritative.
+3. Accepted evidence remains platform-owned and hash/size verified.
+4. No accepted evidence from the async path is deleted merely because the creating finalizer failed.
+5. No relational intelligence is authoritative before the final publication commit.
+6. Finalizing is truthful and operator-visible.
+7. A stale finalizer may perform harmless create-once IO but cannot publish.
+8. Worker protocol skew cannot delete staging needed by a finalizer.
+9. Completion replay remains deterministic and conflict-safe.
+10. PostgreSQL is the authority for both durable hand-off and finalizer fencing.
+11. No distributed lock or generic workflow system is added.
+12. Qualification remains tied to field correctness, not paperwork.
+
+## 19. Qualification/invalidation consequence
+
+PR #86 moved `main` to:
 
 `daba6505976e4eb6ba2c17e5110833d1c920095f`
 
-That commit is not the final S1.4 measured SHA.
+This is not the final S1.4 measured SHA.
 
-The B3 architecture implementation changes behavior-bearing platform, worker and qualification surfaces. Therefore the existing interim evidence in PR #87 remains historical evidence only.
+PR #87 remains an interim historical evidence record for the old measured SHA.
 
-After the final B3 implementation merges, choose that new `main` commit as the measured SHA and re-run every S1 unit required by the S1.4 invalidation map. Do not try to carry forward B4 PASS or the Linux B1 probe merely to save time if the checker says they are invalidated.
+F1–F3 change behavior-bearing platform, worker and qualification surfaces. After the complete architecture repair merges:
 
-## 15. Non-goals
+- select the new exact `main` SHA;
+- apply the S1.4 invalidation map;
+- re-run every invalidated unit;
+- do not carry forward prior PASS results merely to save time.
 
-This repair does not:
+## 20. Explicit non-goals
 
-- change Evidence Set selection/scoring;
-- change model/runtime qualification;
-- implement S2 attributes;
-- add a generic AI-job framework;
-- redesign accepted-evidence storage format;
-- introduce a new database bulk-ingest package;
-- weaken ADR-006 integrity;
-- make staged worker files operator-readable;
-- declare any existing S1 evidence PASS on the new SHA.
+Do not add in F1–F3:
 
-## 16. Acceptance for the architecture repair
+- bulk COPY solely to chase the old request timeout;
+- parallel sealing solely to chase the old request timeout;
+- a separate finalizer executable;
+- a generic AI/job/workflow framework;
+- a second public status hierarchy;
+- distributed locks outside PostgreSQL;
+- a filesystem finalization manifest/root;
+- a new orphan-evidence collector;
+- a new accepted-evidence storage format;
+- S2 attribute functionality;
+- Evidence Set selector/scorer changes.
 
-The repair is ready for S1.4 requalification when:
+Bulk insert, parallel sealing or a separate process may be considered later only if repaired-architecture measurements show an independent operational need.
 
-1. a worst-case submission no longer seals/persists the 50,000-object graph synchronously;
-2. submission satisfies the existing 15 s max bound on both qualified CPU OS variants;
-3. Finalizing state is visible and truthful;
-4. finalization survives process loss at every boundary above;
-5. accepted evidence remains create-once, integrity-verified and platform-owned;
-6. relational intelligence becomes visible atomically only at final commit;
-7. no long-lived row lock spans sealing;
-8. worker staging cannot be deleted while authoritative finalization still needs it;
-9. exact replay remains deterministic and conflict-safe;
-10. full Task 10 / Quality Gate / S1 fault tests are green.
+## 21. Acceptance for implementation freeze
 
-The architectural objective is not to make the qualification checker green. It is to make the real completion path reliable at the product's declared 10,000-Track envelope.
+The architecture is ready for implementation when the plan and ADRs agree that:
+
+1. hand-off is one PostgreSQL transaction;
+2. completion protocol 3.1 fences mixed-version behavior;
+3. `Finalizing` is explicit and truthful;
+4. accepted-evidence compensation deletion is prohibited in the async path;
+5. finalizer claims rotate and extend;
+6. stale finalizers cannot publish;
+7. deterministic and transient finalization failures are distinct;
+8. publication ordering keeps the visibility barrier late;
+9. current-attempt staging survives Finalizing;
+10. B3-A retains the 15 s synchronous bound;
+11. B3-B has an enforced maximum-duration mechanism whose final value is frozen from product requirements plus measurement before authoritative requalification;
+12. implementation remains limited to F1–F3 before requalification.
+
+The objective is not to make the qualification checker green. It is to make the real completion path reliable, recoverable and truthful at MAVI's declared 10,000-Track envelope.
