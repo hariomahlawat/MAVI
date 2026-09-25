@@ -1,9 +1,10 @@
 # MAVI Stage 2 — S1.4 B3 F4: Qualification and Closure Implementation Plan
 
-**Status:** Proposed implementation-grade plan for F4, revision 1. Documentation only. Nothing in this document is evidence; no verdict changes; no measurement was run to write it. It is reviewed independently before F4 execution begins.
+**Status:** Proposed implementation-grade plan for F4, revision 2. Documentation only. Nothing in this document is evidence; no verdict changes; no measurement was run to write it. It is reviewed independently before F4 execution begins.
+**Revision 2 (2026-09-25):** amended after the independent cold review of revision 1 (`94f7cb3`). One P1: the B3-B visibility-barrier hold is now measured from the acquisition of the completion-exclusive advisory lock to the observed commit, never from the job row lock (§9.2.1). One P2: graph persistence is measured directly around `FinalizationGraphPersistence.AddAsync`, and no metric is derived by subtraction (§9.2.2). One P2: the operator-UI Finalizing gap is a sequencing prerequisite of M2 (Path A, §6.1, §15.3). Two hygiene items: the frozen F3 plan lands on `main` docs-only before F4-A (§6.1 step D0), and PR #87 is closed as historical, never consumed (§6.1 step H1). Every other rule of revision 1 is kept.
 **Date:** 2026-09-25
 **Starting state:** `main@480afb0fac0150b6b4f77402ce7c31575580d911` (the merge of PR #92, S1.4 B3 F3).
-**Parent plans:** `docs/superpowers/plans/2026-09-24-stage2-s1-4-hardening-qualification-implementation.md` (the S1.4 plan, §7.4 and §8 as amended on 2026-09-25); `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md` (the B3 plan, §14, §16 F4, §17 qualification guards, §19, §21); the F3 plan `docs/superpowers/plans/2026-09-25-s1-4-b3-f3-finalizer-recovery-implementation.md` §17 (F4 hand-off), which at `480afb0` exists only on branch `docs/s1-4-b3-f3-finalizer-plan` at `44e1f7b` (§2.5, §30).
+**Parent plans:** `docs/superpowers/plans/2026-09-24-stage2-s1-4-hardening-qualification-implementation.md` (the S1.4 plan, §7.4 and §8 as amended on 2026-09-25); `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md` (the B3 plan, §14, §16 F4, §17 qualification guards, §19, §21); the F3 plan `docs/superpowers/plans/2026-09-25-s1-4-b3-f3-finalizer-recovery-implementation.md` §17 (F4 hand-off), which at `480afb0` exists only on branch `docs/s1-4-b3-f3-finalizer-plan` at `44e1f7b` and lands on `main` in step D0 before F4-A (§2.5, §6.1).
 **Governing acceptance:** `docs/reviews/2026-09-23-visual-attributes-acceptance.md` B1–B6.
 **Scope:** F4 only: repair the qualification harness and checker for the repaired architecture, freeze the finalizer configuration from measurement, produce the authoritative S1.4 evidence on one exact `main` SHA, and write the closure record.
 **Non-goals:** §27.
@@ -72,11 +73,12 @@ A genuine product failure found during F4 (a bound violated, a crash-matrix row 
 
 ### 2.4 Web client and Finalizing (survey finding)
 
-`src/web/mavi-web/src/api/videos.ts` types `PROCESSING_PHASES = ['queued','processing','finalizing','completed','failed']`. **No component reads `phase`.** `ProcessingPage.tsx` renders `run.status` (Running/Completed/Failed) and `videoStatus`; the label logic is `isActiveStatus(run.status) ? 'Progress' : run.status`. No web test mentions `finalizing`. So an operator watching the Processing page during Finalizing sees "Running / Progress", and the API's truthful `phase` is not shown. This is recorded here as a survey fact; its consequence for B5 is in §15 and §30 (P1 open question: it is a product gap F4 must not fix).
+`src/web/mavi-web/src/api/videos.ts` types `PROCESSING_PHASES = ['queued','processing','finalizing','completed','failed']`. **No component reads `phase`.** `ProcessingPage.tsx` renders `run.status` (Running/Completed/Failed) and `videoStatus`; the label logic is `isActiveStatus(run.status) ? 'Progress' : run.status`. No web test mentions `finalizing`. So an operator watching the Processing page during Finalizing sees "Running / Progress", and the API's truthful `phase` is not shown. This is a product gap F4 must not fix inside its harness or evidence work. Because B5 requires a distinct Finalizing state (§15.3), closure depends on a small separate UI product PR that lands before M2 (Path A, §6.1 step U1).
 
 ### 2.5 Documentation state
 
-- `docs/runbooks/vision-runtime-model-component-lifecycle.md` and the B3 plan reference the F3 plan by its `docs/superpowers/plans/…f3-finalizer-recovery-implementation.md` path. That file is not on `main`; it is on `origin/docs/s1-4-b3-f3-finalizer-plan` (`44e1f7b`). F4 cites it by branch and SHA; merging it is an owner decision (§30).
+- `docs/runbooks/vision-runtime-model-component-lifecycle.md` and the B3 plan reference the F3 plan by its `docs/superpowers/plans/…f3-finalizer-recovery-implementation.md` path. That file is not on `main`; it is on `origin/docs/s1-4-b3-f3-finalizer-plan` (`44e1f7b`). **Decision:** step D0 (§6.1) lands the reviewed, frozen document on `main` docs-only, byte-identical to the blob at `44e1f7b`, before F4-A opens. It is not behavior-bearing and invalidates nothing. The alternative (rewriting every reference to cite branch and SHA) is kept only as a fallback if the owner declines D0.
+- PR #87 (open, unmerged) holds superseded interim evidence at `bb331c6`. **Decision:** step H1 (§6.1) closes it unmerged as a historical record, keeps its branch as the archive, and the checker refuses any artifact outside `evidence/<measured-sha12>/` (§22), so F4 cannot consume it.
 - The S1.4 plan §7.4/§8 amendments and B3 plan §14/§16/§19/§21 already define B3-A, B3-B, the freeze order and the invalidation consequence. This plan does not restate them as new rules; where it is more specific, §29 records why.
 
 ---
@@ -130,6 +132,7 @@ Not touched by F1–F3: `src/vision/mavi_vision/{evidence,quality,tracking,pipel
 | B6 | FAIL (3 unapproved skips) | **Completely.** Workflow changed (PR #86), worker package changed. | | Dispatch Task 10 at the final SHA, both variants (§16). |
 | Disconnected | OPEN | **Completely.** Worker, platform and web changed; the Runtime Bundle must be built from the final SHA. | | §19. |
 | Windows halves of B1/B2/B3 | absent | absent | No host. | §18. |
+| Prerequisite product changes before M2 | n/a | **F4-C** (configuration, `src/platform/**`, possibly the worker default) invalidates B3, B4, B5, B6 and DISCONNECTED; **U1** (Finalizing UI, `src/web/mavi-web/src/**`) invalidates B5 and DISCONNECTED. | Both merge before M2, so their invalidation is absorbed: nothing is measured authoritatively before them. | M2 is chosen after both (§7.1). |
 
 Nothing from `bb331c6` is reusable as a PASS. The `bb331c6` record remains what it is: an interim historical record for a superseded SHA, cited by the closure record as history only.
 
@@ -138,20 +141,28 @@ Nothing from `bb331c6` is reusable as a PASS. The `bb331c6` record remains what 
 ## 5. Qualification architecture
 
 ```
+D0    Docs: frozen F3 plan onto main (byte-identical to 44e1f7b)  ──merge──►  main
+        ▼
 F4-A  Harness PR (tools/qualification, tests/, docs)  ──merge──►  M1 (main)
         │ exploratory B3-A/B3-B on M1 (non-authoritative; both OS where available)
+        │ freeze decision written from the exploratory outputs (§10)
         ▼
-F4-C  Configuration freeze PR (appsettings, worker default, runbook)  ──merge──►  M2 (main)
-        │
+U1    Finalizing UI product PR (src/web only; Path A)  ──merge──►  main
+        ▼
+F4-C  Configuration/activation freeze PR (appsettings, worker default, runbook)  ──merge──►  M2 (main)
+        │   M2 = first main commit containing F4-A, U1 and F4-C (§7.1); nothing product-bearing after it
         ▼  authoritative execution at M2, in the §25 order:
         │  exact-head CI (Quality Gate, Task 10 dispatch, Task 17) → B4 → B3-A → B3-B →
         │  crash harness → B1 → B2 → B5 → disconnected → B6 retention
         ▼
 F4-E  Evidence PR (docs/qualification/stage2-s1 only)  ──merge──►  M3 (closure SHA)
+        │ H1: PR #87 closed unmerged as historical (at F4-E opening, before closure)
         │ diff M2..M3 must be docs-only; post-merge workflows on M3
         ▼
       closure record (§26), acceptance register, roadmaps
 ```
+
+U1 may merge before F4-A or between F4-A and F4-C; it must merge before M2. If the owner chooses Path B (no U1), the flow is the same without U1 and closure stays OPEN (§6.1).
 
 Principles:
 
@@ -167,17 +178,31 @@ Principles:
 
 | PR | Content | Behavior-bearing? | Evidence allowed on its branch? |
 |---|---|---|---|
+| **D0 Docs housekeeping** (branch `docs/s1-4-b3-f3-plan-on-main`) | The F3 plan file, byte-identical to `git show 44e1f7b:docs/superpowers/plans/2026-09-25-s1-4-b3-f3-finalizer-recovery-implementation.md` (blob hash compared in the PR). Nothing else. | No. | Not applicable. |
 | **F4-A Harness** (branch `feature/s1-4-b3-f4-harness`) | Slices F4.1–F4.7 (§24): checker/schema redesign, B3-A harness, B3-B harness, crash/recovery harness, API-contention prober, B5 record v2 and visual-QA states, storage-class/host probes, disconnected runbook. Tests first, mutants recorded in the PR. | Yes (evidence tooling, `tests/*`, `tools/qualification/*`). No product code. | **No.** Diagnostic runs to prove the harness works are allowed and are never retained as evidence. |
-| **F4-C Configuration freeze** (branch `feature/s1-4-b3-f4-config-freeze`) | `appsettings.json` `VisionFinalization` values (and `Enabled` if so decided), worker `completion_schema_version` default (if so decided), runbook table, ADR-006 §7 status line. | **Yes, product behavior.** The only F4 slice that changes production behaviour. | **No.** Its merge commit M2 is the measurement SHA. |
+| **U1 Finalizing UI** (separate product PR, not part of F4; Path A) | `src/web/mavi-web/src/**` only: surface the existing API `phase == "finalizing"`, distinguish Finalizing visually and in text from generic Running, keep Processing/Completed/Failed semantics, focused UI tests. No backend or finalizer change. | **Yes, product behavior** (web). Invalidates B5 and DISCONNECTED. | **No.** |
+| **F4-C Configuration freeze** (branch `feature/s1-4-b3-f4-config-freeze`) | `appsettings.json` `VisionFinalization` values (and `Enabled` if so decided), worker `completion_schema_version` default (if so decided), runbook table, ADR-006 §7 status line. | **Yes, product behavior.** The only F4 slice that changes production behaviour. | **No.** Its merge commit is M2 when U1 is already on `main` (§7.1). |
 | **F4-E Evidence** (branch `evidence/s1-4-f4-<sha12>`) | `docs/qualification/stage2-s1/` only: record, summary, retained files. | No. | It *is* the evidence, produced at M2 on the qualified hosts, committed as files. |
 | **Closure follow-up** | Post-merge run identities, closure block, register and roadmap edits. Docs only. | No. | Post-merge verification only. |
 
 Rules:
 
 1. F4-A merges before any authoritative measurement (S1.4 plan §13). If review of F4-A changes a harness after exploratory runs, those runs are discarded.
-2. If F4-C changes nothing (§10.4 case "defaults are the frozen values"), M1 is the measurement SHA and F4-C is a docs-only record of the decision. The choice is written into the freeze decision before authoritative execution starts.
+2. If F4-C changes nothing (§10.4 case "defaults are the frozen values"), F4-C is a docs-only record of the decision and M2 is the first `main` commit that contains F4-A and U1. The choice is written into the freeze decision before authoritative execution starts.
 3. Any commit to a §2.1 path after M2 and before M3, other than F4-E's own `docs/qualification/**` files, restarts §25 for the units the checker maps it to (`closure_rerun_required`).
 4. A product defect found at any point stops execution; its fix is a separate PR; the measurement SHA moves; §25 restarts for the affected units.
+5. UI work is never folded into F4-A, F4-C or F4-E. U1 is its own reviewed product PR.
+
+### 6.1 Prerequisite and housekeeping steps
+
+| Step | When | What | Effect on evidence |
+|---|---|---|---|
+| **D0** | before F4-A opens | Land the frozen F3 plan on `main` docs-only (table above). Fallback if the owner declines: one docs-only PR rewriting every `main`-tree reference to `docs/s1-4-b3-f3-finalizer-plan@44e1f7b`. | none (docs) |
+| **U1** (Path A, default) | after or alongside F4-A, **before M2** | The Finalizing UI product PR (table above). Its tests include: a Processing page row for a job with `phase == "finalizing"` shows a Finalizing label that is not "Running"/"Progress"; `completed` shows counts; `failed` with a `vision_finalization_*` code is not labelled as an inference failure; the existing Processing/Completed/Failed tests still pass. | invalidates B5, DISCONNECTED; absorbed because M2 follows it |
+| **Path B** (owner explicitly declines U1) | recorded before M2 | F4 still executes every unit. B5 stays **OPEN** on `finalizingStateDistinct`, S1.4 does **not** close and the closure record remains OPEN. B5 is never redefined to pass without a distinct Finalizing state. | none |
+| **H1** | when F4-E opens, and in any case before the closure record is written | Close PR #87 unmerged with a comment (by the owner) stating it is superseded, non-authoritative interim evidence at `bb331c6`; keep its branch as the archive. Merging it docs-only is acceptable only for a stated archival reason, and then under `docs/qualification/stage2-s1/history/bb331c6/`, which the checker never accepts as evidence (§22). | none; the checker refuses `bb331c6` artifacts |
+
+The default execution path is Path A.
 
 ---
 
@@ -185,7 +210,9 @@ Rules:
 
 ### 7.1 Choosing the measurement SHA
 
-- M2 = the merge commit of F4-C on `main` (or M1 if F4-C is docs-only). It is recorded in the evidence record's `measuredSha` before the first authoritative command runs.
+- M1 = the merge commit of F4-A on `main`. It is used only for exploratory measurement (§10.4).
+- M2 = the first merge commit on `main` that contains F4-A, U1 (Path A) and F4-C, and after which no product-bearing change affecting qualification merges before measurement completes. In the default order it is the F4-C merge commit. It is recorded in the evidence record's `measuredSha` before the first authoritative command runs.
+- M3 = the merge commit of F4-E; the closure SHA (§7.5).
 - The SHA must be reachable from `main` (`verify_measured_shas`), a merge commit and not a branch head.
 - An immutable tag `qual/s1-4/<M2>` is created at M2 for Task 10 dispatch (S1.4 plan §10.1).
 
@@ -270,7 +297,7 @@ Linux CPU and Windows CPU Development hosts (§17, §18), PostgreSQL 18 local to
 
 ### 9.1 What is measured
 
-The full path: 3.1 hand-off → `Finalizing` → hosted finalizer claim → payload load and revalidation → batched sealing with claim extensions → graph construction → publication transaction → `Completed`, at the same 10,000-Track / 50,000-object envelope with really staged objects, through the **real** `VisionFinalizationHostedService` (not a test-driven cycle, not a mocked finalizer), the real lifecycle, executor, accepted-evidence store and PostgreSQL, with the **frozen configuration** read from `appsettings.json` (the harness does not inject options; it passes `VisionFinalization:Enabled=true` only).
+The full path: 3.1 hand-off → `Finalizing` → hosted finalizer claim → payload load and revalidation → batched sealing with claim extensions → in-memory graph build → publication transaction (row lock, relational graph persistence, visibility barrier, sequence, terminal transitions, save, commit) → `Completed`, at the same 10,000-Track / 50,000-object envelope with really staged objects, through the **real** `VisionFinalizationHostedService` (not a test-driven cycle, not a mocked finalizer), the real lifecycle, executor, accepted-evidence store and PostgreSQL, with the **frozen configuration** read from `appsettings.json` (the harness does not inject options; it passes `VisionFinalization:Enabled=true` only).
 
 ### 9.2 Harness: `S1FinalizationEnvelopeTests`
 
@@ -280,18 +307,63 @@ Per sample (one full finalization):
 
 1. Fresh database and evidence root; stage 50,000 objects; hand off (B3-A path; its wall time is recorded too).
 2. `t0 = FinalizationAcceptedAtUtc`. Poll `/api/health` and the job row until `Completed` (or terminal failure, which fails the sample and the run).
-3. Collect timings from the executor's event 1504 (captured logger provider) and the lifecycle (a scoped `IVisionFinalizationLifecycle` decorator registered by the harness that timestamps `ClaimNextAsync`, `LoadInputsAsync`, `ExtendClaimAsync`, `PublishAsync`; production code is not changed):
-   - claim acquisition latency: first `ClaimNextAsync` success − `t0` (bounded below by the poll interval; recorded as such);
-   - payload load, hash and revalidation: `LoadInputsAsync` duration plus the executor's payload checks (from the extension before IO);
-   - sealing wall (`seal` in 1504), per-batch wall (between consecutive `ExtendClaimAsync` calls), extension count (must equal `ceil(50000 / SealingBatchSize)` + 1);
-   - adoption: `Sealing.Adopted` (0 on a clean sample; > 0 only in the crash harness);
-   - graph construction (`FinalizationGraphBuilder`, timed inside the decorator around `PublishAsync`'s builder call is not possible without touching production code, so it is measured as `PublishAsync` duration minus the SQL time captured by `SqlTrace`; recorded as derived);
-   - publication transaction (`publish` in 1504), and the **visibility-barrier hold**: from the `FOR UPDATE` on the job row in `PublishAsync` to commit, from `SqlTrace` timestamps;
-   - total hand-off-to-publication: `CompletedAtUtc − t0`;
-   - longest single SQL statement (from `SqlTrace`), compared with `CommandTimeoutSeconds` at the SHA.
+3. Record the **publication timeline** and the other intervals from test-only instrumentation (§9.2.1, §9.2.2). Every interval is the difference of two directly observed timestamps on one monotonic clock; **no metric is derived by subtracting one interval from another.** The executor's event 1504 (captured logger provider) is retained as a cross-check only, never as the source of a metric:
+   - claim acquisition latency: first successful `ClaimNextAsync` return − `t0` (bounded below by the poll interval; recorded as such);
+   - payload load: `LoadInputsAsync` entry → return (decorator);
+   - payload revalidation and sealing-plan build: `LoadInputsAsync` return → first `ExtendClaimAsync` entry (the executor's payload checks, `Revalidate`, and `EvidenceSealingPlan.Build` run in exactly that bracket; the decorator proves no other lifecycle call occurs in it; the metric is named for both and is not split by subtraction);
+   - sealing wall: first `ExtendClaimAsync` return → last `ExtendClaimAsync` return; per-batch wall between consecutive extension returns; extension count (must equal `ceil(50000 / SealingBatchSize)` + 1);
+   - adoption: `Sealing.Adopted` from the outcome (0 on a clean sample; > 0 only in the crash harness);
+   - in-memory graph build, relational graph persistence, publication transaction and visibility-barrier hold: §9.2.1 and §9.2.2;
+   - total hand-off-to-publication: the UTC wall time the transaction interceptor records beside the *commit completed* ticks (§9.2.1) − `t0`, cross-checked against the job's `CompletedAtUtc`;
+   - longest single SQL statement: max over intercepted commands of executed − executing, compared with `CommandTimeoutSeconds` at the SHA.
 4. Sample the API host RSS every second during the run (peak, mean, baseline); record.
 5. Run the API-contention prober (§20) concurrently.
 6. **Premature visibility probe:** every second while `Finalizing`, `GET /api/videos/{id}/processing` must show `phase == "finalizing"` with `tracksCreated` unchanged from the hand-off view, the Track search for the run must return zero results, and any Track-detail URL must be 404; the first poll after `Completed` must show the counts. Any premature row is an integrity failure of the sample.
+
+#### 9.2.1 Publication transaction and visibility-barrier hold
+
+The F3 publication path (`VisionFinalizationLifecycle.PublishAsync`) runs, in one transaction: (1) begin; (2) `SELECT * FROM vision_jobs WHERE id = … FOR UPDATE` and the identity checks; (3) the run/video reads and the no-graph check (`Tracks.AnyAsync`); (4) `FinalizationGraphPersistence.AddAsync` (tracking of the whole graph plus one `SaveChangesAsync`); (5) `ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync`, which executes `SELECT pg_advisory_xact_lock(1296127561, 1412505908)` through `ExecuteSqlRawAsync`; (6) `AllocateSequenceAsync` (a raw `DbCommand`, invisible to EF interceptors); (7) the terminal transitions; (8) the final `SaveChangesAsync`; (9) `CommitAsync`. **The job row lock (2) is not the visibility barrier (5).** The barrier is what blocks first-page search and other publications, and it is acquired only after graph persistence.
+
+**Metric definition.** `b3b.visibility-barrier-hold-ms` = *commit completed* − *barrier acquired*, for the publication transaction that committed. `b3b.visibility-barrier-wait-ms` = *barrier acquired* − *barrier command started* (time spent waiting for the lock, recorded). `b3b.publish-transaction-ms` = *commit completed* − *transaction begun*.
+
+**Instrumentation seam (test-only, registered through `ApiTestFactory.ConfigureDbContext` → `AddInterceptors`, as `FinalizationWorld` already does for `SqlTrace`; production code unchanged):**
+
+- `PublicationTimelineCommandInterceptor : DbCommandInterceptor` overriding the `…Executing`/`…Executed` and `CommandFailed` pairs for reader, non-query and scalar commands. For each command it records `Stopwatch.GetTimestamp()` at executing and at executed, the `CommandText`, `eventData.CommandId`, `eventData.ConnectionId`, `eventData.Context` identity, and the `DbTransaction` instance (`command.Transaction`).
+- `PublicationTimelineTransactionInterceptor : DbTransactionInterceptor` overriding `TransactionStarted`, `TransactionCommitting`, `TransactionCommitted`, `TransactionRolledBack` and `TransactionFailed` (sync and async). It records the ticks, the UTC wall time, `eventData.TransactionId`, `eventData.ConnectionId` and the `DbTransaction` instance. `TransactionCommittedAsync` fires only after `DbTransaction.CommitAsync` has returned successfully, which is after PostgreSQL acknowledged `COMMIT`: that is *commit completed*.
+- `PublicationTimelineSaveChangesInterceptor : SaveChangesInterceptor` overriding `SavingChanges`, `SavedChanges` and `SaveChangesFailed` (sync and async), recording timestamp and context identity.
+- The lifecycle decorator records `PublishAsync` entry/return and the returned `VisionFinalizationTransition`.
+
+**Identifying the barrier command.** A command is the barrier acquisition when its `CommandText`, whitespace-normalised, equals exactly `SELECT pg_advisory_xact_lock(1296127561, 1412505908)` (the `PublicationExclusiveSql` constant; the harness reads the constant's value by reflection at start and fails if it cannot, so a changed key cannot silently stop matching). The shared variant `pg_advisory_xact_lock_shared(…)` (search) never matches. The scene-activation path uses the same SQL, but the Scene Analytics host is off in the harness and the command must also belong to the publication transaction (below), so it cannot be confused.
+
+**Acquisition versus start.** `pg_advisory_xact_lock` returns only when the lock is granted, so the command's *executed* timestamp (`NonQueryExecutedAsync`) is *barrier acquired*; its *executing* timestamp is *barrier command started*. The two are recorded separately and never substituted for each other.
+
+**Correlation to one transaction.** A publication timeline is the set of events whose `DbTransaction` instance is reference-equal to the one started inside a `PublishAsync` entry/return window of the decorator, on the same `ConnectionId` and `TransactionId`. That transaction must contain, in this order: the `FOR UPDATE` on `vision_jobs` whose parameter equals the claimed job id (*row lock acquired* = its executed timestamp), the first `SavingChanges`/`SavedChanges` pair (graph persistence), exactly one barrier command, the second `SavingChanges`/`SavedChanges` pair, then `TransactionCommitting` and `TransactionCommitted`. Any other shape (a second barrier command, a missing `FOR UPDATE`, events from another transaction interleaved on that transaction instance) makes the sample an integrity failure, not a metric.
+
+**Exclusion of failed transactions.** Only a timeline that ends in `TransactionCommitted` **and** whose `PublishAsync` returned `Published` yields hold, wait and publish-transaction values. A timeline ending in `TransactionRolledBack`, `TransactionFailed`, `SaveChangesFailed` or a non-`Published` transition is retained in the output under `rejectedTimelines` with its reason and is excluded from every successful-hold statistic. In a clean B3-B sample a rejected timeline is itself a sample failure (a clean run publishes once); in the crash harness they are expected and reported separately.
+
+**Ordering invariant (asserted per sample by the harness, recomputed by the checker):** `rowLockAcquired < graphPersistenceStart ≤ graphPersistenceEnd < barrierCommandStarted ≤ barrierAcquired < commitCompleted`, so the hold is always at most `commitCompleted − graphPersistenceEnd` and never includes graph persistence. The raw timestamps (ticks, with `Stopwatch.Frequency`) are retained per sample; the output's `holdMs` must equal the checker's recomputation from them.
+
+**Proof the metric is not the row-lock interval.** Two discriminators ship with the harness (F4.3):
+
+1. *Delay injection (ordinary suite, small envelope).* `BarrierHoldExcludesGraphPersistence`: a test-only command interceptor sleeps 750 ms in the executing hook of the graph's first `INSERT INTO tracks` batch. Assert that the measured hold grows by less than 100 ms against a run without the delay, while *commit completed − row lock acquired* grows by at least 750 ms. A harness that timed from the row lock fails this test.
+2. *Mutant (recorded in the F4-A PR).* Replace the hold start timestamp with `rowLockAcquired`. Expected: `BarrierHoldExcludesGraphPersistence` fails, the harness's ordering invariant fails, and the checker test `test_b3b_barrier_hold_is_recomputed_from_barrier_acquisition` refuses an output whose `holdMs` equals `commitCompleted − rowLockAcquired`.
+
+**Pre-repair reference (B3 plan §14.3).** The B3 plan asks for no regression above the corresponding post-graph publication phase of the pre-repair path. That phase was not retained with this instrument at `bb331c6`, and the ≈ 2 s figure in PR #87 is a prototype observation of a different interval, so it is **not** used. Instead the same interceptors measure the synchronous `ProcessingResultStore` completion (unchanged by F3, same graph-then-barrier order) at M2 with the gate off and a 3.0 worst-shape request: one repeat of at least 5 samples, informational, `b3b.reference-sync-barrier-hold-ms.<variant>`. A B3-B hold above the reference max is reported for review, not auto-failed.
+
+#### 9.2.2 Graph build versus graph persistence
+
+Four different quantities, each with its own producer:
+
+| Quantity | Where it runs | Start timestamp | End timestamp | Metric |
+|---|---|---|---|---|
+| In-memory graph build | `FinalizationGraphBuilder.Build` in the executor, after the last extension and before `PublishAsync` | last `ExtendClaimAsync` return (decorator) | `PublishAsync` entry (decorator) | `b3b.graph-build-ms.<variant>`, informational |
+| Relational graph persistence | `FinalizationGraphPersistence.AddAsync` inside the publication transaction | executed timestamp of the no-graph check (`SELECT EXISTS … FROM tracks WHERE processing_run_id = …`), the last command before `AddAsync` | executing timestamp of the barrier command, the first command after `AddAsync` | `b3b.graph-persistence-ms.<variant>`, recorded (required by B3 plan §14.3) |
+| Graph `SaveChanges` | the one `SaveChangesAsync` inside `AddAsync` | first `SavingChanges` in the publication transaction | its `SavedChanges` | `b3b.graph-savechanges-ms.<variant>`, recorded |
+| Publication transaction / barrier hold | §9.2.1 | | | `b3b.publish-transaction-ms`, `b3b.visibility-barrier-hold-ms` |
+
+The bracket for graph persistence contains only `AddAsync`. The harness proves it per sample: every command and `SaveChanges` event observed between its two endpoints belongs to the first `SavingChanges`/`SavedChanges` pair, and the pair lies inside the bracket. The graph-build bracket is proven likewise: no lifecycle call and no intercepted command occurs between its endpoints. A sample that violates either proof fails. Graph build is informational only; graph persistence is required.
+
+Discriminators (F4.3): `GraphPersistenceIsMeasuredAroundAddAsync` (ordinary suite): with the 750 ms delay on the graph `INSERT`, `graph-persistence-ms` grows by at least 750 ms and `graph-build-ms` grows by less than 100 ms; without the delay `graph-persistence-ms > 0` and `graph-savechanges-ms ≤ graph-persistence-ms`. Checker tests refuse an output whose `graphPersistenceMs` is zero, is missing its raw endpoints, or equals `publishTransactionMs − Σ(SQL)` or any other value not equal to the recomputation from its two endpoints.
 
 Envelope: `MAVI_S1_ENVELOPE_SAMPLES` (default 10 per repeat), `MAVI_S1_ENVELOPE_REPEATS` (3), `MAVI_S1_ENVELOPE_WARMUP` (1). Minimum authoritative: **n ≥ 30 total across ≥ 3 repeats**, warm-up excluded, per S1.4 plan §12. Budget: at the development host's ≈ 1.2 ms per sealed object plus ≈ 15 s graph persistence (PR #87 engineering observations), one sample is ≈ 90–150 s; 33 samples ≈ 1–1.5 h per OS. Throughput = 10,000 Tracks / total wall per sample and objects / seal wall, recorded.
 
@@ -306,13 +378,17 @@ Concurrency behaviour (recorded): one repeat hands off two jobs back to back wit
 | `b3b.premature-visibility-observed.<variant>` | `== 0` | pass/fail |
 | `b3b.publications-per-job.<variant>` | `== 1` | pass/fail |
 | `b3b.longest-statement-ms.<variant>` | `≤ CommandTimeoutSeconds × 1000` at the SHA | pass/fail |
-| `b3b.seal-wall-ms`, `b3b.publish-transaction-ms`, `b3b.visibility-barrier-hold-ms`, `b3b.claim-acquisition-ms`, `b3b.payload-revalidation-ms`, `b3b.graph-construction-ms` (each `.<variant>`) | timing, recorded; the barrier hold is compared with the pre-repair post-graph phase (≈ 2 s second `SaveChangesAsync` at `bb331c6`, an engineering observation) and a regression above it is reported for review, not auto-failed (B3 plan §14.3) | recorded |
+| `b3b.publication-timeline-valid.<variant>` | every successful sample has a complete §9.2.1 timeline satisfying the ordering invariant, and the §9.2.2 bracket proofs hold; `== samples` | pass/fail |
+| `b3b.visibility-barrier-hold-ms.<variant>` | timing from *barrier acquired* to *commit completed* (§9.2.1), recomputed from raw timestamps; compared with `b3b.reference-sync-barrier-hold-ms.<variant>` and a hold above the reference max is reported for review, not auto-failed (B3 plan §14.3) | recorded |
+| `b3b.graph-persistence-ms.<variant>`, `b3b.graph-savechanges-ms.<variant>` | timing around `FinalizationGraphPersistence.AddAsync` (§9.2.2); must be > 0 | recorded (required present) |
+| `b3b.seal-wall-ms`, `b3b.publish-transaction-ms`, `b3b.visibility-barrier-wait-ms`, `b3b.claim-acquisition-ms`, `b3b.payload-load-ms`, `b3b.payload-revalidation-and-plan-ms`, `b3b.graph-build-ms` (each `.<variant>`) | timing, recorded, each from two direct timestamps | recorded |
+| `b3b.reference-sync-barrier-hold-ms.<variant>` | synchronous-path reference with the same instrument (§9.2.1), n ≥ 5 | recorded |
 | `b3b.api-host-rss-peak-bytes.<variant>`, `b3b.throughput-tracks-per-s.<variant>`, `b3b.throughput-objects-per-s.<variant>` | recorded | recorded |
 | `b3b.orphan-bytes-after-faults.<variant>` | from the crash harness (§11), recorded | recorded |
 
 "Worker independence": the harness never runs a worker process; the hand-off is issued by the test client and nothing of it survives the response. The crash harness adds the real-worker-process variant (§11 row 1).
 
-No mocked finalizer, no in-memory shortcut: the harness registers only the timing decorator and the captured logger; the checker requires `hostedServiceUsed == true` and `optionsSource == "appsettings.json"` in the output and refuses an output whose `configuration` differs from `appsettings.json` at the SHA.
+No mocked finalizer, no in-memory shortcut: the harness registers only the timing decorator, the three timeline interceptors of §9.2.1 and the captured logger; the checker requires `hostedServiceUsed == true` and `optionsSource == "appsettings.json"` in the output and refuses an output whose `configuration` differs from `appsettings.json` at the SHA.
 
 ---
 
@@ -351,8 +427,8 @@ The B3-B criterion (`T_max ≤ ½ Max`) is satisfied by construction of the rule
 
 1. Merge F4-A → M1. Run exploratory B3-A and B3-B on each available OS. These outputs are retained under `docs/qualification/stage2-s1/exploratory/<M1-sha12>/` in the F4-C PR, labelled non-authoritative (`authoritative: false`, reason `exploratory-configuration-freeze`).
 2. Apply §10.2. Write the freeze decision (§10.6).
-3. If any value differs from the shipped default: F4-C commits `appsettings.json`, the runbook configuration paragraph and, if decided, the activation defaults (§10.5). Merge → M2. **A configuration commit changes behaviour; M2 is a new exact SHA and every authoritative measurement happens there.**
-4. If no value differs: F4-C is docs-only (the decision and exploratory outputs); M1 is the measurement SHA; §7.5 still applies.
+3. If any value differs from the shipped default: F4-C commits `appsettings.json`, the runbook configuration paragraph and, if decided, the activation defaults (§10.5). Merge after U1 (Path A), so that its merge commit is M2 (§7.1). **A configuration commit changes behaviour; M2 is a new exact SHA and every authoritative measurement happens there.** The freeze never lands after authoritative measurement has started.
+4. If no value differs: F4-C is docs-only (the decision and exploratory outputs); M2 is the first `main` commit containing F4-A and U1; §7.5 still applies.
 5. Authoritative B3-B at M2 with the frozen values, both OS. If it fails its criterion, stop and report; do not re-freeze from the authoritative run.
 
 ### 10.5 Activation defaults (decision required)
@@ -459,7 +535,12 @@ Two clips (MOT17-02-FRCNN, MOT17-13-FRCNN) through `Video → import → VisionJ
 
 Viewports 1366×768, 1440×900, 1920×1080, ≈ 2560×1080 through `tools/web-visual-qa` with new states `processing-finalizing`, `processing-failed-finalization` in `states.mjs` (fixture data driven by the API shapes), plus the existing Evidence Set states over real footage. Visual-QA record schema `s1-b5-visual-qa-v2` adds items `finalizingStateDistinct`, `failedFinalizationDistinct`, `noPrematureCounts`.
 
-**Known gap (§2.4).** At `480afb0` the Processing page renders `run.status`, never `phase`; a Finalizing job is shown as Running/Progress. Unless that changes in a separate product slice before M2, `finalizingStateDistinct` cannot pass in the real UI and B5 stays OPEN on that item. F4 does not add UI code. §30 question 2.
+**Sequencing prerequisite (§2.4, §6.1).** At `480afb0` the Processing page renders `run.status`, never `phase`; a Finalizing job is shown as Running/Progress, so `finalizingStateDistinct` cannot pass on current `main`. The plan therefore depends on U1:
+
+- **Path A (default).** U1, a small separate reviewed web PR, lands before M2. It surfaces the existing `phase == "finalizing"`, distinguishes Finalizing from Running in text and visually (not by colour alone, UI/UX specification §26), preserves Processing/Completed/Failed semantics, adds focused UI tests, and changes no backend. It invalidates B5 and DISCONNECTED, which is absorbed because M2 follows it. F4-A may build the visual-QA states before U1 merges, but authoritative B5 and disconnected evidence come only from M2. The `processing-finalizing` visual-QA state asserts the Finalizing label is present and the Running/Progress label is absent.
+- **Path B (owner explicitly declines U1).** Every other unit still executes. B5 stays **OPEN** on `finalizingStateDistinct`, S1.4 does **not** close, and the closure record remains OPEN. The criterion is not relaxed.
+
+F4 itself adds no UI code.
 
 ---
 
@@ -546,7 +627,7 @@ docs/qualification/stage2-s1/
   .gitattributes                              # binary/large handling as in PR #87
 ```
 
-Every harness output (machine-readable, JSON) carries: `schema`, `status` (`complete`), `authoritative` + `nonAuthoritativeReasons`, `runId`, `environment`, `host`, `variant`, `configuration` (platform harnesses), `shape` (tracks, observations, objects, bytes), `commands` (argv and env names used), `startedAtUtc`/`finishedAtUtc`, `samples` (raw per-sample values), `stats` (`n`, `min`, `p50`, `p95`, `max`, `p50RunSpreadMs`, `warmupExcluded`, `repeats`), and, for the record, its SHA-256 in `retainedArtifacts`. Record additions: `frozenConfiguration` (the `VisionFinalization` values, `effectiveBoundSeconds`, `activationDefault`), `hosts.*.storageClassEvidence`, `hosts.*.dotnetRuntime`, `hosts.*.postgresVersion`, `hosts.*.pythonVersion`; new artifact ids `b3a.hand-off-output.<variant>`, `b3b.finalization-output.<variant>`, `b3.crash-matrix-output.<variant>`, `b4.completion-v3-1-example`, `disconnected.dependency-diff`, `disconnected.connect-trace`.
+Every harness output (machine-readable, JSON) carries: `schema`, `status` (`complete`), `authoritative` + `nonAuthoritativeReasons`, `runId`, `environment`, `host`, `variant`, `configuration` (platform harnesses), `shape` (tracks, observations, objects, bytes), `commands` (argv and env names used), `startedAtUtc`/`finishedAtUtc`, `samples` (raw per-sample values), `stats` (`n`, `min`, `p50`, `p95`, `max`, `p50RunSpreadMs`, `warmupExcluded`, `repeats`), and, for the record, its SHA-256 in `retainedArtifacts`. The B3-B output additionally carries, per sample, `publicationTimeline` (`stopwatchFrequency`, raw ticks for `transactionBegun`, `rowLockAcquired`, `graphPersistenceStart`, `graphSavingChanges`, `graphSavedChanges`, `graphPersistenceEnd`, `barrierCommandStarted`, `barrierAcquired`, `finalSavingChanges`, `finalSavedChanges`, `commitStarted`, `commitCompleted`, the transaction and connection ids, the barrier `CommandText`, the `PublishAsync` transition), `graphBuildBracket` (`lastExtensionReturned`, `publishEntered`), `bracketProofs` (booleans with the offending event if false), and `rejectedTimelines`; derived millisecond values are present for readability only and are recomputed by the checker. Record additions: `frozenConfiguration` (the `VisionFinalization` values, `effectiveBoundSeconds`, `activationDefault`), `hosts.*.storageClassEvidence`, `hosts.*.dotnetRuntime`, `hosts.*.postgresVersion`, `hosts.*.pythonVersion`; new artifact ids `b3a.hand-off-output.<variant>`, `b3b.finalization-output.<variant>`, `b3.crash-matrix-output.<variant>`, `b4.completion-v3-1-example`, `disconnected.dependency-diff`, `disconnected.connect-trace`.
 
 Keys are added only where §22 names them; naming follows the existing `<unit>.<metric>.<variant>` convention and the existing schema's `additionalProperties: false` discipline.
 
@@ -573,6 +654,11 @@ Add:
 | Artifact from another run: every B3 artifact's `runId` must equal the `environment.runId` inside the file and the run it cites | `artifact_run_mismatch` | file from a different run id refused |
 | SHA mismatch | existing `head_sha_mismatch`, `unit_sha_unbound`, plus `environment.gitSha` inside every output | output at another SHA refused |
 | Windows reused from Linux | `variant` field + byte-identity refusal + `junit_variant_reused` analog for harness outputs (`output_variant_reused`) | Linux file copied under the Windows id refused |
+| Visibility-barrier hold recomputed from raw ticks: `(commitCompleted − barrierAcquired) / frequency`; ordering invariant of §9.2.1; barrier `CommandText` equals the exclusive-lock SQL at the measured SHA (read with `git show` from `ProcessingVisibilityBarrier.cs`); only committed, `Published` timelines counted | `barrier_hold_unbound`, `publication_timeline_invalid` | `test_b3b_barrier_hold_is_recomputed_from_barrier_acquisition`: an output whose hold equals `commitCompleted − rowLockAcquired` refused; ordering violated refused; a shared-lock `CommandText` refused; a rolled-back timeline counted as a hold refused; a timeline with no `commitCompleted` refused |
+| Graph persistence recomputed from its two endpoints; > 0; bracket proof true; `graph-savechanges ≤ graph-persistence`; no metric of §9.3 is accepted without both raw endpoints | `graph_persistence_unbound`, `metric_without_producer` | zero refused; value equal to `publishTransactionMs − Σ SQL` (subtraction mutant) refused; missing endpoints refused; bracket proof false refused |
+| Every measurement of a platform harness must equal the checker's recomputation from the output's raw samples/timestamps; a typed-in value that disagrees is refused | `metric_without_producer` | record value edited by 1 ms refused |
+| Stale or historical evidence: every retained artifact of a PASS unit must lie under `docs/qualification/stage2-s1/evidence/<measured-sha12>/` (or the closure SHA's), never `evidence/bb331c6/`, `history/` or `exploratory/` | `artifact_not_from_measured_sha` | a `bb331c6` JUnit cited refused; an exploratory B3-B output cited refused |
+| B5 PASS requires `finalizingStateDistinct` passed in the visual-QA record on the measured SHA; Path B is recorded as OPEN | `b5_record_invalid` | item false or absent refused |
 
 Every rule ships with its negative test in `tools/qualification/tests/test_s1_evidence.py` and is mutation-tested during F4-A review (each rule's condition inverted or removed must fail at least one test; the PR records the mutant list). `s1_evidence.py` remains standard library + `jsonschema`.
 
@@ -601,6 +687,14 @@ Every rule ships with its negative test in `tools/qualification/tests/test_s1_ev
 
 Each slice: files; tests first; invariants; commands; production behaviour changed?; evidence invalidated; authoritative measurement allowed yet?
 
+### D0 Frozen F3 plan onto `main` (docs, before F4-A)
+- **Files:** `docs/superpowers/plans/2026-09-25-s1-4-b3-f3-finalizer-recovery-implementation.md`, created from `git show 44e1f7b:<path>`; the PR states the blob hash and that `git hash-object` of the new file equals it.
+- **Production behaviour:** no. **Invalidates:** nothing. **Authoritative:** not applicable.
+
+### U1 Finalizing UI (separate product PR, not F4; Path A, before M2)
+- **Files:** `src/web/mavi-web/src/features/processing/*` (and shared status components only if needed), with focused tests. No backend change.
+- **Production behaviour:** **yes** (web). **Invalidates:** B5, DISCONNECTED. **Authoritative:** no; M2 follows it.
+
 ### F4.1 Checker and schema redesign (F4-A)
 - **Files:** `tools/qualification/s1_evidence.py`, `s1-qualification-evidence.schema.json`, `tests/test_s1_evidence.py`, fixtures (a complete fixture record with B3-A/B3-B/crash/frozen-configuration blocks; sample outputs), `docs/qualification/2026-09-24-s1-4-harness-a.md` (a §2 addendum for the new rules).
 - **Tests first:** every §22 negative test written red before the rule; `test_a_complete_record_passes_with_no_finding` updated.
@@ -616,9 +710,9 @@ Each slice: files; tests first; invariants; commands; production behaviour chang
 - **Production behaviour:** no. **Authoritative:** no (diagnostic only).
 
 ### F4.3 B3-B envelope harness and API-contention prober (F4-A)
-- **Files:** `S1FinalizationEnvelopeTests.cs`, `Qualification/FinalizationTimingDecorator.cs` (test-only `IVisionFinalizationLifecycle` decorator), `Qualification/ApiContentionProber.cs`, `SqlTrace` timestamping; `ApiTestFactory` gains `ConfigurationOverrides` only if needed to pass `Enabled=true` with appsettings values (it already sets `VisionFinalization:Enabled` from `EnableAsynchronousFinalization`).
-- **Tests first:** ordinary facts: the extension-count formula; the premature-visibility probe fails a sample when a Track row is inserted by hand during Finalizing (mutant-proof); the decorator changes no outcome (executor tests pass with it registered).
-- **Invariants:** real hosted service; options from appsettings; no product change; the decorator adds timestamps only.
+- **Files:** `S1FinalizationEnvelopeTests.cs`, `Qualification/FinalizationTimingDecorator.cs` (test-only `IVisionFinalizationLifecycle` decorator), `Qualification/PublicationTimelineInterceptors.cs` (the command, transaction and save-changes interceptors of §9.2.1), `Qualification/PublicationTimeline.cs` (correlation, ordering invariant, bracket proofs, rejected timelines), `Qualification/ApiContentionProber.cs`; `ApiTestFactory` gains `ConfigurationOverrides` only if needed to pass `Enabled=true` with appsettings values (it already sets `VisionFinalization:Enabled` from `EnableAsynchronousFinalization`).
+- **Tests first:** ordinary facts at a small envelope: `BarrierHoldExcludesGraphPersistence` and `GraphPersistenceIsMeasuredAroundAddAsync` (the 750 ms delay discriminators of §9.2.1/§9.2.2); `ATimelineWithoutCommitIsRejected` (a `CommitFaults`-style interceptor makes commit throw; the timeline lands in `rejectedTimelines` and yields no hold); `TheBarrierCommandIsTheExclusiveLockConstant` (reflection read of `PublicationExclusiveSql`; a shared-lock command is not matched); `TheReferenceSynchronousPathIsTimedWithTheSameInstrument`; the extension-count formula; the premature-visibility probe fails a sample when a Track row is inserted by hand during Finalizing; the decorator and interceptors change no outcome (the executor and publication tests pass with them registered). Mutants recorded in the PR: hold start replaced by `rowLockAcquired`; graph persistence computed by subtraction from `PublishAsync`; commit end replaced by `TransactionCommitting`.
+- **Invariants:** real hosted service; options from appsettings; no product change; decorator and interceptors add timestamps only.
 - **Commands:** `MAVI_QUALIFICATION=1 … dotnet test … --filter "FullyQualifiedName~S1FinalizationEnvelopeTests"`; diagnostic at `MAVI_S1_ENVELOPE_TRACKS=500`.
 - **Production behaviour:** no. **Authoritative:** no.
 
@@ -630,7 +724,7 @@ Each slice: files; tests first; invariants; commands; production behaviour chang
 - **Production behaviour:** no. **Authoritative:** no.
 
 ### F4.5 B5 record v2 and visual-QA states (F4-A)
-- **Files:** `s1_evidence.py` B5 rules, schema `s1-b5-real-video-record-v2`/`s1-b5-visual-qa-v2` in the checker's expectations, `tools/web-visual-qa/states.mjs` (+ fixtures), README.
+- **Files:** `s1_evidence.py` B5 rules, schema `s1-b5-real-video-record-v2`/`s1-b5-visual-qa-v2` in the checker's expectations, `tools/web-visual-qa/states.mjs` (+ fixtures), README. No `src/web` change: the distinct Finalizing rendering is U1's (§6.1).
 - **Tests first:** checker negatives; visual-QA state self-test (`--states processing-finalizing --keep`).
 - **Production behaviour:** no. **Authoritative:** no.
 
@@ -649,20 +743,22 @@ Each slice: files; tests first; invariants; commands; production behaviour chang
 - **Files:** `docs/qualification/stage2-s1/f4-configuration-freeze.md`, `exploratory/<M1>/…`, `src/platform/Mavi.Api/appsettings.json`, optionally `src/vision/mavi_vision/common/settings.py` (worker default) and its tests (`test_the_default_worker_emits_the_synchronous_completion` etc. flip), runbook table, `VisionFinalizationOptionsTests` if defaults change, ADR-006 §7 status line.
 - **Tests first:** options tests for the frozen values (validation rules hold: `ClaimExtensionSeconds ≤ ClaimSeconds ≤ MaximumFinalizationDurationSeconds`); worker default tests.
 - **Invariants:** values derived by §10.2 from retained exploratory outputs; no other product change.
-- **Production behaviour:** **yes** (timing values; possibly activation defaults). **Invalidates:** B3, B4, B5, DISCONNECTED (platform), B3/B4/B5/B6/DISCONNECTED (worker default). **Authoritative:** no on this branch; its merge M2 is the measurement SHA.
+- **Production behaviour:** **yes** (timing values; possibly activation defaults). **Invalidates:** B3, B4, B5, DISCONNECTED (platform), B3/B4/B5/B6/DISCONNECTED (worker default). **Authoritative:** no on this branch; it merges after U1, and its merge commit is M2 (§7.1).
 
 ### F4.9 Authoritative execution at M2 (no code)
 - §25 order, on the Linux and Windows hosts and the isolated host; outputs staged outside Git, then copied into `evidence/<M2>/` with hashes.
 - **Authoritative:** yes.
 
 ### F4.10 Evidence PR, closure and post-merge (F4-E)
-- **Files:** `docs/qualification/stage2-s1/**` only; then, after merge, the closure block, `docs/reviews/2026-09-23-visual-attributes-acceptance.md` B1–B6 rows, both capability roadmaps, PR #87 disposition note.
+- **Files:** `docs/qualification/stage2-s1/**` only; then, after merge, the closure block, `docs/reviews/2026-09-23-visual-attributes-acceptance.md` B1–B6 rows, both capability roadmaps, the PR #87 disposition note (step H1: closed unmerged as historical).
 - **Gate:** `s1_evidence.py check` reports `s1-evidence-record-valid` with the verdicts; the checker's diff rule on M2..M3; post-merge workflows on M3.
 - **Production behaviour:** no.
 
 ---
 
 ## 25. Authoritative execution order (at M2)
+
+Preconditions, in order: D0 merged; F4-A merged (M1); exploratory B3-A/B3-B at M1 and the freeze decision; U1 merged (Path A) or Path B recorded; F4-C merged; M2 fixed per §7.1. If any product-bearing change merges after M2 before step 12, the affected units restart.
 
 1. Record `measuredSha = M2` and the host blocks (probed). Create tag `qual/s1-4/<M2>`.
 2. Exact-head CI: Quality Gate `push` run on M2 (retain TRX/JUnit), Task 10 dispatched on the tag (retain per-variant JUnit and records), Task 17. Verify `head_sha`.
@@ -675,8 +771,8 @@ Each slice: files; tests first; invariants; commands; production behaviour chang
 9. **B5** real-video path on Linux (two clips through the real worker, activated), visual QA at four widths, fixture failed-finalization item.
 10. **Disconnected** run (bundle from M2, isolated host, probes, trace).
 11. **B6** retention from step 2; reconcile the profile SHA.
-12. Assemble the record; `s1_evidence.py check`; write the summary; open F4-E.
-13. Merge F4-E → M3; run/verify post-merge workflows on M3; write the closure block; second `check`.
+12. Assemble the record; `s1_evidence.py check`; write the summary; open F4-E; step H1 (owner closes PR #87 unmerged as historical).
+13. Merge F4-E → M3; run/verify post-merge workflows on M3; write the closure block; second `check`; confirm H1 is done before the closure record is final.
 
 Any stop condition at a step halts the sequence; the record is committed in its current state as OPEN/FAIL with the reason (a truthful partial record is preferred to a delayed complete one).
 
@@ -692,7 +788,7 @@ Any stop condition at a step halts the sequence; the record is committed in its 
 4. Host identity per host (Linux, Windows, disconnected): CPU, cores, RAM, OS/build, filesystems, storage class with evidence, .NET, Python, PostgreSQL, isolation method.
 5. B1–B6 and disconnected verdict table with the unit's measured SHA and artifact ids.
 6. B3-A statistics per variant (n, repeats, min/p50/p95/max, spread, bound, headroom) and the release proof.
-7. B3-B statistics per variant for every §9.3 metric, the extension count, throughput, RSS peak, barrier hold versus the pre-repair observation.
+7. B3-B statistics per variant for every §9.3 metric, kept as distinct fields: in-memory graph build, relational graph persistence and its `SaveChanges`, publication transaction, visibility-barrier wait and hold (from barrier acquisition to observed commit), the synchronous-path reference hold measured with the same instrument; the extension count, throughput and RSS peak.
 8. Frozen configuration, effective bound, activation default decision, freeze-document reference.
 9. Crash-matrix outcome: H rows with kill points and adoption counts; I rows with test names; the D row statement; orphan bytes.
 10. API contention: baseline versus during, per endpoint; errors (0).
@@ -700,12 +796,13 @@ Any stop condition at a step halts the sequence; the record is committed in its 
 12. Non-claims: Production qualification; CUDA/E2E (pending or recorded); model accuracy; Visual Attributes; S2; the RTMDet record unchanged; the shipped default configuration if not activated (§10.5); Windows halves if absent.
 13. Unresolved items and open questions with owners.
 14. Independent cold-review reference and the acceptance-register update.
+15. Prerequisites: D0 merge SHA, U1 merge SHA (or the recorded Path B decision, with B5 OPEN), F4-C merge SHA, and PR #87's disposition (closed unmerged as historical, never cited as evidence).
 
 ---
 
 ## 27. Non-goals
 
-No S2 capability binding, attributes, OCR/ANPR or ReID; no selector/scorer/profile change; no model accuracy or CUDA work; no workflow engine, separate finalizer process, distributed lock, orphan collector or accepted-evidence format change; no bulk COPY or parallel sealing (B3 plan §20: only if repaired-architecture measurement shows an independent operational need, and then as a separate reviewed slice, never inside F4); no UI change (§15.3 gap is reported, not fixed); no edit to `models/qualifications/*`; no edit to PR #87; no new dependency (`config/dependencies/offline-dependency-policy-v1.json` untouched; a harness needing one is redesigned). A genuine product failure stops F4 and is reported.
+No S2 capability binding, attributes, OCR/ANPR or ReID; no selector/scorer/profile change; no model accuracy or CUDA work; no workflow engine, separate finalizer process, distributed lock, orphan collector or accepted-evidence format change; no bulk COPY or parallel sealing (B3 plan §20: only if repaired-architecture measurement shows an independent operational need, and then as a separate reviewed slice, never inside F4); no UI change inside F4 (the Finalizing rendering is the separate U1 product PR, §6.1); no edit to `models/qualifications/*`; no edit to PR #87's content (it is closed unmerged as historical in step H1); no new dependency (`config/dependencies/offline-dependency-policy-v1.json` untouched; a harness needing one is redesigned). A genuine product failure stops F4 and is reported.
 
 ---
 
@@ -715,10 +812,14 @@ F4 is complete when:
 
 1. F4-A is merged with every §22 rule discrimination-tested and the §11 harness mutants recorded as killed.
 2. The freeze decision exists, its values are in `appsettings.json` at M2 (or the docs-only case is recorded), and the effective bound is stated.
+2a. D0 is merged, so no `main`-tree reference to the F3 plan dangles.
+2b. U1 is merged before M2 (Path A), or Path B is recorded and the closure record is OPEN with B5 OPEN on `finalizingStateDistinct`.
+2c. The B3-B barrier hold and graph persistence are recomputed by the checker from retained raw timestamps, and the §9.2.1/§9.2.2 discriminators and mutants are recorded as killed.
+2d. PR #87 is closed unmerged as historical (or merged under `history/` for a stated archival reason), and no `bb331c6` artifact is cited.
 3. The evidence record at M2 passes `s1_evidence.py check` against the repository with every unit's verdict truthful; B3 PASS requires B3-A and B3-B on both variants, the crash matrix, the frozen configuration and no premature visibility.
 4. The measured→closure diff is docs-only, or every affected unit was re-measured on M3.
 5. Post-merge Quality Gate, Task 10 and Task 17 on M3 are green with verified `head_sha`.
-6. The closure record (§26), the acceptance register and the roadmaps agree; S1 is marked complete only if B1–B6 and the disconnected unit are all PASS. Otherwise the record states exactly what is OPEN and why, and S1 stays open.
+6. The closure record (§26), the acceptance register and the roadmaps agree; S1 is marked complete only if B1–B6 and the disconnected unit are all PASS, which includes B5's `finalizingStateDistinct`. Otherwise the record states exactly what is OPEN and why, and S1 stays open.
 7. The independent cold review of the executed record raises no P1/P2.
 
 ---
@@ -740,7 +841,7 @@ F4 is complete when:
 | 11 | Storage class typed in (`network` at `bb331c6` was an assumption) | Host identity unmeasured | P2 | §17.2, §18.3 probes and evidence field; `unknown` needs evidence |
 | 12 | Disconnected run on the pre-activation path | Would prove the retired path offline | P1 | §19 step 2 activation in the install configuration; checker `activated: true` |
 | 13 | Hidden dependency introduced by F1–F3 | Finalizer in-process, no policy change; but dynamic proof absent | P2 | §19 step 5 static diff + connect trace artifacts required |
-| 14 | UI does not show Finalizing (§2.4) | B5 truthfulness cannot pass; F4 must not fix it | P1 (product gap, reported) | §15.3, §30 Q2; B5 stays OPEN on that item rather than being redefined |
+| 14 | UI does not show Finalizing (§2.4) | B5 truthfulness cannot pass; F4 must not fix it | P1 (product gap) | Revision 2: U1 is a sequencing prerequisite of M2 (Path A, §6.1, §15.3); Path B keeps closure OPEN; the criterion is never relaxed |
 | 15 | B1 carried forward because "nothing relevant changed" | Record binding and Windows absence make that unsound | P2 | §12 full rerun |
 | 16 | B2 completion-peak term measured against 3.0 | F2 already moved it to 3.1; verify via its tests | P3 | §13 cites the Task-10 harness step |
 | 17 | Checker passes B3 from B3-A alone / B3-B alone / one OS | B3 plan §17 guard | P1 | §22 explicit refusals and tests |
@@ -748,24 +849,44 @@ F4 is complete when:
 | 19 | Timing decorator or prober changes production behaviour | Would measure a different system | P2 | §9.2: test-only decorator registered by the harness; executor tests pass with it; production code untouched (§27) |
 | 20 | Closure diff includes a late "small" product fix | Would break §7.5 | P1 | Checker `closure_rerun_required`; §6 rule 3 |
 | 21 | Task 10 run superseded by cancel-in-progress on `main` | `head_sha` drift | P2 | Tag dispatch (§7.1, §16) |
-| 22 | The F3 plan cited by the runbook is not on `main` | Dangling reference; reviewers cannot find §17 | P2 (docs) | §2.5 cites branch and SHA; §30 Q4 |
+| 22 | The F3 plan cited by the runbook is not on `main` | Dangling reference; reviewers cannot find §17 | P2 (docs) | Revision 2: step D0 lands it byte-identical before F4-A |
 | 23 | Two-host crash rows need two API processes on one host: port and evidence-root collisions | Harness infra risk | P3 | §11 note: child processes with distinct ports, shared DB and evidence root, in `tests/` |
 | 24 | B3-B budget underestimated (n ≥ 30 full finalizations per OS) | ≈ 1.5–2 h per OS is acceptable; if a sample exceeds 10 min the envelope is slower than assumed | P3 | §9.2 budget stated; §10.2 stop rule on the bound |
 | 25 | `MaxConcurrentFinalizations` frozen without justification | Task asks for justification | P3 | §10.2 keep 1 unless contention evidence and product need |
 
-No P1 remains unaddressed inside the plan; the P1 items 6 and 14 are decisions and product gaps that F4 surfaces and cannot resolve (§30).
+### 29.1 Cold self-review of revision 2
+
+| # | Attack surface | Finding | Sev | Resolution |
+|---|---|---|---|---|
+| 26 | Barrier timestamp starts too early | Revision 1 timed from the job `FOR UPDATE`, which includes graph persistence | P1 (review) | §9.2.1: start = executed timestamp of the exact exclusive-lock command; delay discriminator and row-lock mutant; checker recomputation |
+| 27 | Commit not actually observed | A `SaveChanges` or `TransactionCommitting` end would miss the server acknowledgement | P2 | End = `TransactionCommitted` (after `CommitAsync` returns); mutant "commit end = committing" recorded in F4.3 |
+| 28 | Barrier command misidentified (shared lock, scene activation, a second transaction) | Would time the wrong lock | P2 | Exact constant read by reflection and by `git show` in the checker; shared variant never matches; Scene Analytics host off; transaction-instance correlation with the job's `FOR UPDATE` |
+| 29 | Rolled-back or ambiguous publications counted in the hold | Would mix failed work into a success metric | P2 | Only `TransactionCommitted` + `Published`; others in `rejectedTimelines`; checker test |
+| 30 | Graph persistence confused with graph build | Revision 1 subtracted SQL time from `PublishAsync` | P2 (review) | §9.2.2: four quantities, four producers, bracket proofs; subtraction mutant refused |
+| 31 | Any metric computed by subtraction | Hidden in revision 1 for graph construction | P2 | §9.2 step 3: every interval is two direct timestamps; checker `metric_without_producer` |
+| 32 | A harness metric with no direct producer | The pre-repair "≈ 2 s" barrier comparison was a prototype number | P2 | Replaced by a same-instrument synchronous-path reference at M2 (§9.2.1) |
+| 33 | Checker trusts typed-in metric values | Values could be edited after the run | P2 | §22: every platform-harness value recomputed from raw samples/ticks |
+| 34 | UI change landing after M2 | Would invalidate B5 and disconnected after measurement | P1 | §7.1 M2 definition requires U1; §25 preconditions; restart rule |
+| 35 | Config freeze landing after measurement | Would measure unfrozen values | P1 | §10.4 step 3: F4-C merges before M2; never after authoritative measurement starts |
+| 36 | B5 allowed to PASS without distinct Finalizing UI | Criterion quietly relaxed | P1 | §15.3 Path A/B; §22 B5 rule; §28 item 6 |
+| 37 | PR #87 consumed as evidence | Stale `bb331c6` files cited | P2 | Step H1; §22 `artifact_not_from_measured_sha` |
+| 38 | Frozen F3 plan still dangling | References unresolved during F4 | P2 (docs) | Step D0 before F4-A; §28 item 2a |
+| 39 | Delay-injection discriminator itself flaky on a slow host | A 750 ms sleep against a 100 ms tolerance | P3 | Runs at a small envelope in the ordinary suite; the tolerance is an order of magnitude below the injected delay; if flaky, raise the delay, never the tolerance |
+| 40 | Sequence allocation (raw `DbCommand`) invisible to EF interceptors | Not needed for the hold's endpoints, but a gap in the timeline | P3 | Recorded as not observable; it lies between two observed events (barrier acquired, final `SavingChanges`), so the hold is unaffected |
+
+No P1 remains unaddressed inside the plan. The remaining decisions (activation default; Path A versus Path B; the Windows and disconnected hosts) are owner decisions that F4 surfaces and cannot take (§30).
 
 ---
 
 ## 30. Open questions and stop-and-report items
 
-**Decisions required before F4-C merges**
+**Decisions required before M2**
 
 1. **Activation default.** Does F4-C set `VisionFinalization:Enabled = true` and the worker default `3.1` (recommended, §10.5)? If not, the closure non-claims must state that the shipped default is not B3-qualified.
-2. **Finalizing in the operator UI.** `ProcessingPage.tsx` shows `run.status`, never `phase` (§2.4). Either a separate small UI slice lands before M2 (then it is a `src/web` change and B5 is measured after it), or B5 closes OPEN on `finalizingStateDistinct`. F4 does not add UI code.
+2. **Finalizing in the operator UI.** Default: Path A, U1 lands before M2 (§6.1, §15.3). The owner may explicitly choose Path B; then B5 stays OPEN on `finalizingStateDistinct`, S1.4 does not close and the closure record stays OPEN. F4 does not add UI code.
 3. **Windows host.** A qualified Windows x64 Development host is required for B1/B2/B3 Windows halves. If none can be provided, S1.4 cannot close under the current plan; reducing the variant set is a plan amendment for the owner.
-4. **F3 plan document.** Merge `docs/s1-4-b3-f3-finalizer-plan` (`44e1f7b`) so the runbook and B3 plan references resolve, or amend those references.
-5. **PR #87.** Keep open as a historical record, close it, or merge it as history: an owner decision; F4 cites it either way and never edits it.
+4. **F3 plan document.** Default: D0 lands the frozen file byte-identical before F4-A. Fallback only if the owner declines: rewrite the references to cite branch and SHA.
+5. **PR #87.** Default: H1, the owner closes it unmerged as historical when F4-E opens; its branch stays as the archive; F4 never cites it as evidence and the checker refuses its artifacts. Docs-only merge under `history/` only for a stated archival reason.
 6. **Disconnected host and variant.** Which isolated host (Linux recommended) and who executes the operator steps.
 
-**Stop-and-report conditions during execution** (in addition to the S1.4 plan §14 and B3 plan §14): B3-A max > 15 s on either variant; B3-B total max > ½ frozen `Max`, or the §10.2 rule yields `Max` above the development default or an effective bound above 24 h; any premature visibility; publications per job ≠ 1; a crash-matrix H row that does not converge or adopts fewer objects than were sealed; an API 5xx or timeout during finalization; a non-loopback connect attempt in the disconnected trace; a B1 mismatch; a B2 bound violation; any `pipelineProfileSha256` drift; a hidden dependency; any P1/P2 in the independent review of the executed record. Each stops F4, is reported with the retained output, and is repaired outside F4 on its own SHA.
+**Stop-and-report conditions during execution** (in addition to the S1.4 plan §14 and B3 plan §14): B3-A max > 15 s on either variant; B3-B total max > ½ frozen `Max`, or the §10.2 rule yields `Max` above the development default or an effective bound above 24 h; any premature visibility; publications per job ≠ 1; a crash-matrix H row that does not converge or adopts fewer objects than were sealed; an API 5xx or timeout during finalization; a non-loopback connect attempt in the disconnected trace; a B1 mismatch; a B2 bound violation; any `pipelineProfileSha256` drift; a hidden dependency; a publication timeline that violates the §9.2.1 ordering or the §9.2.2 bracket proofs; any P1/P2 in the independent review of the executed record. Each stops F4, is reported with the retained output, and is repaired outside F4 on its own SHA.
