@@ -53,6 +53,13 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool EnableAsynchronousFinalization { get; init; }
 
+    /// <summary>
+    /// Whether the hosted finalizer's loop runs. Off by default: a loop claiming and
+    /// publishing Finalizing jobs on its own schedule would race every finalizer test that
+    /// drives the lifecycle by hand. Host tests turn it on and drive one cycle themselves.
+    /// </summary>
+    public bool EnableVisionFinalizationHost { get; init; }
+
     /// <summary>Use an existing media root instead of a fresh temporary one.</summary>
     public string? MediaRootOverride { get; init; }
 
