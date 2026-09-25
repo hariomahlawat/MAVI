@@ -31,6 +31,7 @@ import hashlib
 import ipaddress
 import json
 import math
+import posixpath
 import re
 import subprocess
 import sys
@@ -38,7 +39,7 @@ import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
 from datetime import datetime
 from fnmatch import fnmatchcase
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 SCHEMA_PATH = Path(__file__).resolve().with_name("s1-qualification-evidence.schema.json")
@@ -329,6 +330,16 @@ def worker_request_timeout_bounds_ms(text: str | None = None) -> tuple[float, fl
     if match is None:
         raise RuntimeError("worker_request_timeout_setting_not_found")
     return float(match.group(1)) * 1000.0, float(match.group(2)) * 1000.0
+
+# F4 plan §10.5 and closure criterion 2: the qualified shipped path is completion 3.1.
+QUALIFIED_WORKER_COMPLETION_VERSION = "3.1"
+
+
+def worker_completion_default(text: str) -> str | None:
+    """The default of ``WorkerSettings.completion_schema_version`` in ``text``."""
+    match = re.search(r'completion_schema_version: Literal\[[^\]]*\] = "([0-9.]+)"', text)
+    return match.group(1) if match else None
+
 
 TRAJECTORY_CHUNK_POINTS = 4096  # mavi_vision.video.trajectory_spool.DEFAULT_CHUNK_POINTS
 # --------------------------------------------------------------------------- B3 (F4 plan §8, §9, §11)
@@ -1519,6 +1530,15 @@ class _Checker:
             self.fail("B3", "frozen_configuration_mismatch", f"effectiveBoundSeconds {block['effectiveBoundSeconds']} is not Max + Claim + Poll = {expected_bound}")
         if block["activationDefault"] != committed.get("Enabled"):
             self.fail("B3", "frozen_configuration_mismatch", f"activationDefault {block['activationDefault']} is not the committed Enabled {committed.get('Enabled')!r}")
+        # B3 qualifies the activated path, so it may pass only where that path is the shipped
+        # default (F4 plan §10.5, closure criterion 2): the platform finalizer on, and the
+        # worker emitting 3.1. A record that merely agrees with a disabled default is refused.
+        if committed.get("Enabled") is not True:
+            self.fail("B3", "activation_default_unqualified", f"{APPSETTINGS_RELATIVE} at {measured_sha} ships VisionFinalization:Enabled = {committed.get('Enabled')!r}, not true")
+        settings = self.source_at(measured_sha, WORKER_SETTINGS_RELATIVE)
+        worker_default = worker_completion_default(settings.decode("utf-8")) if settings is not None else None
+        if worker_default != QUALIFIED_WORKER_COMPLETION_VERSION:
+            self.fail("B3", "activation_default_unqualified", f"{WORKER_SETTINGS_RELATIVE} at {measured_sha} defaults completion_schema_version to {worker_default!r}, not {QUALIFIED_WORKER_COMPLETION_VERSION!r}")
         return committed
 
     def _b3_outputs(self, measured_sha: str) -> None:
@@ -1932,8 +1952,14 @@ class _Checker:
         cited.update(self.record["measurements"][mid].get("artifact") for mid in unit["measurements"] if mid in self.record["measurements"])
         for artifact_id in sorted(a for a in cited if a):
             artifact = self.record["retainedArtifacts"].get(artifact_id)
-            if artifact is not None and not artifact["path"].startswith(prefixes):
-                self.fail(name, "artifact_not_from_measured_sha", f"{artifact_id} is retained at {artifact['path']}, not under {' or '.join(prefixes)}")
+            if artifact is None:
+                continue
+            path = artifact["path"]
+            # Compared as a normalized relative path: "<sha12>/../../history/..." is outside.
+            normalized = posixpath.normpath(path)
+            escapes = "\\" in path or path.startswith("/") or ".." in PurePosixPath(path).parts or normalized != path
+            if escapes or not normalized.startswith(prefixes):
+                self.fail(name, "artifact_not_from_measured_sha", f"{artifact_id} is retained at {path}, not under {' or '.join(prefixes)}")
 
     def _b5_records(self, measured_sha: str) -> None:
         """The real-video clip count is the retained record's verified clips."""

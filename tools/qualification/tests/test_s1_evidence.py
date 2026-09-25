@@ -7,11 +7,13 @@ everything, or accepts everything, fails this suite.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
 import json
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -176,6 +178,23 @@ def required_disconnected_artifacts() -> tuple:
     return UNIT_REQUIREMENTS["DISCONNECTED"].artifacts
 
 
+def _measured_source(relative: str) -> bytes:
+    """A committed source as the fixture's measured SHA holds it: this checkout's,
+    with the F4-C activation (plan §10.5) applied, since B3 may pass only where the
+    activated 3.1 / Finalizing path is the shipped default."""
+    data = (REPO_ROOT / relative).read_bytes()
+    if relative == s1_evidence.APPSETTINGS_RELATIVE:
+        document = json.loads(data)
+        document["VisionFinalization"]["Enabled"] = True
+        return json.dumps(document, indent=2).encode("utf-8")
+    if relative == s1_evidence.WORKER_SETTINGS_RELATIVE:
+        text = data.decode("utf-8")
+        activated = re.sub(r'(completion_schema_version: Literal\[[^\]]*\] = )"[0-9.]+"', r'\g<1>"3.1"', text)
+        assert s1_evidence.worker_completion_default(activated) == "3.1"
+        return activated.encode("utf-8")
+    return data
+
+
 def on_main_repo(root: Path) -> str:
     """A git repository at ``root`` whose ``main`` holds one commit; its SHA."""
     root.mkdir(parents=True, exist_ok=True)
@@ -187,7 +206,7 @@ def on_main_repo(root: Path) -> str:
     # The committed sources the checker reads at the measured SHA.
     for relative in MEASURED_SOURCES:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
-        (root / relative).write_bytes((REPO_ROOT / relative).read_bytes())
+        (root / relative).write_bytes(_measured_source(relative))
     git("add", "measured.txt", *MEASURED_SOURCES)
     git("commit", "-qm", "measured")
     return git("rev-parse", "HEAD")
@@ -252,11 +271,42 @@ LIVE_POINTS = [[4, 50_000_000.0], [8, 51_000_000.0], [16, 53_000_000.0], [32, 57
 def codes(record: dict, **options) -> set[tuple[str, str]]:
     # Rule tests are structural unless they supply a repository to verify against.
     options.setdefault("structural_only", "repo_root" not in options)
-    return {(finding.unit, finding.code) for finding in check_record(record, **options)}
+    if "repo_root" in options:
+        return {(finding.unit, finding.code) for finding in check_record(record, **options)}
+    with fixture_checkout():
+        return {(finding.unit, finding.code) for finding in check_record(record, **options)}
+
+
+_ACTIVATED_SOURCES: list[Path] = []
+
+
+def activated_sources() -> Path:
+    """A directory holding the measured sources as the fixture's measured SHA holds
+    them (see ``_measured_source``), for checks run without a materialized repository."""
+    if not _ACTIVATED_SOURCES:
+        root = Path(tempfile.mkdtemp(prefix="s1-evidence-sources-"))
+        for relative in MEASURED_SOURCES:
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).write_bytes(_measured_source(relative))
+        _ACTIVATED_SOURCES.append(root)
+    return _ACTIVATED_SOURCES[0]
+
+
+@contextlib.contextmanager
+def fixture_checkout():
+    """A check without a repository reads committed sources from the checkout; within
+    this, the checkout is the fixture's measured sources."""
+    saved = s1_evidence.REPO_ROOT
+    s1_evidence.REPO_ROOT = activated_sources()
+    try:
+        yield
+    finally:
+        s1_evidence.REPO_ROOT = saved
 
 
 def structural(record: dict) -> list:
-    return check_record(record, structural_only=True)
+    with fixture_checkout():
+        return check_record(record, structural_only=True)
 
 
 TRX_TEST_TYPE = "13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b"
@@ -352,7 +402,7 @@ FREQUENCY = 1_000_000  # the fixture's Stopwatch.Frequency: microsecond ticks
 
 
 def _committed_configuration() -> dict:
-    return json.loads((REPO_ROOT / s1_evidence.APPSETTINGS_RELATIVE).read_text(encoding="utf-8"))["VisionFinalization"]
+    return json.loads(_measured_source(s1_evidence.APPSETTINGS_RELATIVE))["VisionFinalization"]
 
 
 def _barrier_sql() -> str:
@@ -594,7 +644,7 @@ def materialize(record: dict, root: Path) -> dict:
     # accepted baseline, the worker settings).
     for relative in MEASURED_SOURCES:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
-        (root / relative).write_bytes((REPO_ROOT / relative).read_bytes())
+        (root / relative).write_bytes(_measured_source(relative))
     baseline = root / s1_evidence.B1_BASELINE_RELATIVE
     if "b1.cross-variant-comparison" in record["retainedArtifacts"]:
         _write_artifact(root, record["retainedArtifacts"]["b1.cross-variant-comparison"], _b1_comparison(record, baseline))
@@ -2563,7 +2613,8 @@ def test_unreadable_settings_at_the_measured_sha_refuse_b3(tmp_path: Path) -> No
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
     checker = s1_evidence._Checker(complete_record(), root, verify_git=True)
     checker._b3_bounds({"b3.worker-request-timeout-ms": {"value": 1.0}}, head)
-    assert [f.code for f in checker.findings] == ["worker_timeout_unbound"]
+    # The unreadable settings also leave the worker's completion default unproven.
+    assert sorted(f.code for f in checker.findings) == ["activation_default_unqualified", "worker_timeout_unbound"]
     assert sha != head
 
 
@@ -2951,3 +3002,65 @@ def test_the_command_timeout_is_the_shipped_runtimes_at_the_measured_sha(tmp_pat
     git("commit", "-qam", "timeout")
     configured = git("rev-parse", "HEAD")
     assert checker._runtime_command_timeout_seconds(configured) == 120
+
+
+def _commit_edit(root: Path, relative: str, edit) -> str:
+    path = root / relative
+    path.write_text(edit(path.read_text(encoding="utf-8")), encoding="utf-8")
+    git = lambda *args: subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()  # noqa: E731
+    git("commit", "-qam", f"edit {relative}")
+    return git("rev-parse", "HEAD")
+
+
+def test_b3_needs_the_activated_path_to_be_the_shipped_default(tmp_path: Path) -> None:
+    # F4 plan §10.5, closure criterion 2: B3 qualifies Enabled=true with a 3.1 worker, so it
+    # passes only where both are the committed defaults, however the harness ran.
+    root = tmp_path / "repo"
+    measured = on_main_repo(root)
+    checker = s1_evidence._Checker(with_sha(complete_record(), measured), root, verify_git=True)
+    checker._frozen_configuration(measured)
+    assert not [f for f in checker.findings if f.code == "activation_default_unqualified"]
+
+    def disabled(text: str) -> str:
+        document = json.loads(text)
+        document["VisionFinalization"]["Enabled"] = False
+        return json.dumps(document, indent=2)
+
+    off = _commit_edit(root, s1_evidence.APPSETTINGS_RELATIVE, disabled)
+    record = with_sha(complete_record(), off)
+    record["frozenConfiguration"]["activationDefault"] = False  # agrees with the disabled default
+    checker = s1_evidence._Checker(record, root, verify_git=True)
+    checker._frozen_configuration(off)
+    assert [f.code for f in checker.findings] == ["activation_default_unqualified"]
+
+    _commit_edit(root, s1_evidence.APPSETTINGS_RELATIVE, lambda text: text.replace('"Enabled": false', '"Enabled": true', 1))
+    worker_3_0 = _commit_edit(root, s1_evidence.WORKER_SETTINGS_RELATIVE,
+                              lambda text: re.sub(r'(completion_schema_version: Literal\[[^\]]*\] = )"3\.1"', r'\g<1>"3.0"', text))
+    checker = s1_evidence._Checker(with_sha(complete_record(), worker_3_0), root, verify_git=True)
+    checker._frozen_configuration(worker_3_0)
+    assert [f.code for f in checker.findings] == ["activation_default_unqualified"]
+    assert "3.0" in checker.findings[0].detail
+
+
+def test_the_worker_completion_default_is_read_from_the_settings_source() -> None:
+    text = (REPO_ROOT / s1_evidence.WORKER_SETTINGS_RELATIVE).read_text(encoding="utf-8")
+    assert s1_evidence.worker_completion_default(text) in ("3.0", "3.1")
+    assert s1_evidence.worker_completion_default(_measured_source(s1_evidence.WORKER_SETTINGS_RELATIVE).decode()) == "3.1"
+    assert s1_evidence.worker_completion_default("nothing here") is None
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "{evidence}../../history/b3a.json",  # traverses out of the measured-SHA folder
+        "{evidence}records/../../other/b3a.json",
+        "{evidence}./records/b3a.json",  # not normalized
+        "{evidence}records\\b3a.json",
+        "/{evidence}records/b3a.json",
+    ],
+)
+def test_an_artifact_path_that_escapes_the_measured_sha_folder_is_refused(path: str) -> None:
+    record = complete_record()
+    artifact = record["retainedArtifacts"]["b3a.hand-off-output.linux-x86_64-cpu"]
+    artifact["path"] = path.format(evidence=EVIDENCE)
+    assert ("B3", "artifact_not_from_measured_sha") in codes(record)
