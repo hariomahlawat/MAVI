@@ -174,6 +174,8 @@ Version the completion **exchange** to 3.1.
 
 The 3.1 request carries the same semantic completion content as 3.0 unless implementation requires a narrowly scoped additive field.
 
+**3.1 is a wire/exchange version, not a new Evidence Set digest version.** The validator maps both completion 3.0 and 3.1 bodies to the existing canonical `CompletionSchema.V3` semantic shape and therefore to the existing domain tag `mavi:vision-completion-digest:v3`. No selector/evidence meaning changed, so inventing digest v4 would be incorrect. Tests must prove byte-equivalent 3.0/3.1 semantic payloads produce the same v3 completion digest after normalization.
+
 The version itself provides the compatibility fence.
 
 The existing platform capability endpoint advertises supported completion versions.
@@ -202,8 +204,9 @@ Do not populate `CompletedAtUtc` for a hand-off acknowledgement.
 ### 5.3 Replay
 
 - `Leased` + valid new 3.1 submission → `Finalizing`.
-- `Finalizing` + same attempt + same digest → idempotent `finalizing`.
-- `Completed` + same digest → idempotent `completed`.
+- `Finalizing` + same authenticated worker capability + same attempt + same digest → idempotent `finalizing`.
+- `Completed` + same authenticated worker capability + same attempt + same digest → idempotent `completed`.
+- Finalizing/Completed replay with a token that does not match the capability stored from the accepted hand-off → conflict.
 - same attempt with a different digest → conflict.
 - different attempt → conflict/fenced according to the existing attempt rules.
 
@@ -230,9 +233,10 @@ Under one PostgreSQL transaction:
 7. insert the exact bounded payload row;
 8. transition `Leased → Finalizing`;
 9. persist completion digest and finalization acceptance time;
-10. clear/consume worker-lease authority as defined by the domain transition;
-11. commit;
-12. return the 3.1 acknowledgement.
+10. end the worker lease **semantically** by entering Finalizing, but preserve `LeaseOwner`, `LeaseTokenHash` and `AttemptCount` until terminal state so an exact duplicate completion after an ambiguous HTTP outcome can still authenticate against the capability that originally handed off the job;
+11. the stored lease expiry is no longer authority for heartbeat/fail/re-lease once status is Finalizing; those operations reject by status;
+12. commit;
+13. return the 3.1 acknowledgement.
 
 No accepted evidence is sealed.
 
@@ -242,6 +246,7 @@ No visibility sequence is allocated.
 
 Because the payload row and state transition are in the same database transaction:
 
+- the accepted worker capability facts needed for exact replay remain on the VisionJob through Finalizing/Completed; Finalizing status, not lease expiry, prevents further worker lifecycle authority;
 - there is no state where authoritative `Finalizing` references a missing filesystem manifest;
 - there is no manifest-without-row compensation race;
 - ambiguous commit resolves atomically to either pre-handoff or handed-off state.
@@ -654,6 +659,17 @@ An in-flight `Leased` job completes according to the protocol version its worker
 
 Do not reinterpret an existing 3.0 completion as 3.1 hand-off.
 
+### 15.5 Digest compatibility
+
+Completion 3.1 is intentionally normalized to the existing semantic `CompletionSchema.V3` and digest-v3 domain because the Track Evidence Set content has not changed.
+
+Required compatibility tests:
+
+- equivalent 3.0 and 3.1 bodies normalize to the same validated v3 semantic result and completion digest;
+- 3.1 remains distinguishable at the HTTP contract/capability layer;
+- a 3.0 worker can never receive a Finalizing acknowledgement;
+- a 3.1 worker can never fall back to the synchronous 3.0 protocol.
+
 ## 16. Implementation slices
 
 Keep this repair isolated from S2.
@@ -729,7 +745,8 @@ Do not perform expensive S1 qualification on an intermediate SHA that F1–F3 wi
 - Finalizing → Failed;
 - finalizer claim rotation/expiry;
 - maximum attempts/duration;
-- exact digest replay.
+- exact digest replay;
+- Finalizing/Completed replay authenticates with the retained original worker capability even after the original lease expiry, while heartbeat/fail/re-lease remain prohibited by status.
 
 ### Submission
 
@@ -741,7 +758,8 @@ Do not perform expensive S1 qualification on an intermediate SHA that F1–F3 wi
 - no accepted evidence is sealed synchronously;
 - no graph/visibility publication occurs synchronously;
 - 3.1 response never claims Completed when only handed off;
-- old/new protocol skew fails safely.
+- old/new protocol skew fails safely;
+- 3.0 and 3.1 semantic v3 bodies share the pinned digest-v3 behavior after normalization.
 
 ### Finalizer
 
