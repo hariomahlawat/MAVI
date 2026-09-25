@@ -236,13 +236,15 @@ public sealed class VisionJob
     }
 
     /// <summary>
-    /// <c>Finalizing → Failed</c>: a deterministic finalization failure, or transient failures
-    /// exhausted. The code is finalization-scoped, never a worker inference code, and the
-    /// hand-off facts stay for audit.
+    /// <c>Finalizing → Failed</c>, by the platform finalizer that holds the live claim at
+    /// <paramref name="nowUtc"/>: a deterministic finalization failure, or transient failures
+    /// exhausted. Fenced like <see cref="CompleteFinalization"/>: a claimant whose claim expired
+    /// or was rotated away cannot terminate the recovery attempt that superseded it. The code is
+    /// finalization-scoped, never a worker inference code, and the hand-off facts stay for audit.
     /// </summary>
-    public void FailFinalization(string code, string? details, DateTimeOffset nowUtc)
+    public void FailFinalization(ReadOnlySpan<byte> claimToken, string code, string? details, DateTimeOffset nowUtc)
     {
-        if (Status != VisionJobStatus.Finalizing) throw Invalid();
+        if (!FinalizationOwnedBy(claimToken, nowUtc)) throw Invalid();
         if (!IsFinalizationFailureCode(code) || details?.Length > 4000) throw Invalid();
 
         Status = VisionJobStatus.Failed;

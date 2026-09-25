@@ -196,7 +196,9 @@ public sealed class VisionFinalizationDomainTests
         Assert.False(VisionJob.Create(Guid.CreateVersion7(), "phase1", Now).CanAuthenticateCompletionReplay("worker-a", true, 0));
 
         var failed = FinalizingJob();
-        failed.FailFinalization("vision_finalization_payload_invalid", null, Now.AddMinutes(1));
+        var (token, hash) = ClaimToken();
+        failed.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        failed.FailFinalization(token, "vision_finalization_payload_invalid", null, Now.AddMinutes(1));
         Assert.False(failed.CanAuthenticateCompletionReplay("worker-a", true, 1));
     }
 
@@ -360,7 +362,7 @@ public sealed class VisionFinalizationDomainTests
         var (token, hash) = ClaimToken();
         job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
 
-        job.FailFinalization("vision_finalization_attempts_exhausted", "seal timed out", Now.AddMinutes(2));
+        job.FailFinalization(token, "vision_finalization_attempts_exhausted", "seal timed out", Now.AddMinutes(2));
 
         Assert.Equal(VisionJobStatus.Failed, job.Status);
         Assert.Equal("vision_finalization_attempts_exhausted", job.FailureCode);
@@ -388,11 +390,46 @@ public sealed class VisionFinalizationDomainTests
     {
         Assert.False(VisionJob.IsFinalizationFailureCode(code));
         var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
 
-        Assert.Throws<DomainValidationException>(() => job.FailFinalization(code!, null, Now.AddMinutes(1)));
+        Assert.Throws<DomainValidationException>(() => job.FailFinalization(token, code!, null, Now.AddMinutes(1)));
 
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
         Assert.Null(job.FailureCode);
+        Assert.Null(job.FinalizationLastErrorCode);
+        Assert.True(job.FinalizationOwnedBy(token, Now.AddMinutes(2)), "a rejected failure keeps the live claim");
+    }
+
+    [Fact]
+    public void FailFinalizationRefusesAnExpiredWrongOrRotatedAwayClaim()
+    {
+        var job = FinalizingJob();
+        var (first, firstHash) = ClaimToken(1);
+        var (second, secondHash) = ClaimToken(2);
+        var claimed = Now.AddMinutes(1);
+        job.ClaimFinalization(firstHash, claimed, TimeSpan.FromMinutes(5), 3);
+
+        // Wrong token, and the right token after its claim expired.
+        Assert.Throws<DomainValidationException>(() => job.FailFinalization(second, "vision_finalization_seal_io", null, claimed.AddMinutes(1)));
+        Assert.Throws<DomainValidationException>(() => job.FailFinalization(first, "vision_finalization_seal_io", null, claimed.AddMinutes(5)));
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+        Assert.Null(job.FailureCode);
+
+        // A's claim expired and B reclaimed with a rotated token: stale A cannot terminate B's attempt.
+        job.ClaimFinalization(secondHash, claimed.AddMinutes(6), TimeSpan.FromMinutes(5), 3);
+        Assert.Throws<DomainValidationException>(() => job.FailFinalization(first, "vision_finalization_seal_io", "stale A", claimed.AddMinutes(7)));
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+        Assert.Null(job.FailureCode);
+        Assert.Null(job.FinalizationLastErrorCode);
+        Assert.True(job.FinalizationOwnedBy(second, claimed.AddMinutes(7)));
+
+        job.FailFinalization(second, "vision_finalization_seal_io", "B gave up", claimed.AddMinutes(7));
+        Assert.Equal(VisionJobStatus.Failed, job.Status);
+        Assert.Equal("vision_finalization_seal_io", job.FailureCode);
+        Assert.Equal("B gave up", job.FailureDetails);
+        Assert.Null(job.FinalizationClaimTokenHash);
+        Assert.Throws<DomainValidationException>(() => job.FailFinalization(second, "vision_finalization_seal_io", null, claimed.AddMinutes(8)));
     }
 
     [Fact]
@@ -407,16 +444,22 @@ public sealed class VisionFinalizationDomainTests
     public void FailFinalizationBoundsDetailsAndRequiresFinalizing()
     {
         var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
         Assert.Throws<DomainValidationException>(() =>
-            job.FailFinalization("vision_finalization_payload_invalid", new string('d', 4001), Now.AddMinutes(1)));
+            job.FailFinalization(token, "vision_finalization_payload_invalid", new string('d', 4001), Now.AddMinutes(1)));
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
 
-        job.FailFinalization("vision_finalization_payload_invalid", new string('d', 4000), Now.AddMinutes(1));
+        job.FailFinalization(token, "vision_finalization_payload_invalid", new string('d', 4000), Now.AddMinutes(1));
         Assert.Equal(VisionJobStatus.Failed, job.Status);
 
+        // Not Finalizing, and Finalizing without any claim: neither can be failed.
         var leased = LeasedJob();
-        Assert.Throws<DomainValidationException>(() => leased.FailFinalization("vision_finalization_payload_invalid", null, Now));
+        Assert.Throws<DomainValidationException>(() => leased.FailFinalization(token, "vision_finalization_payload_invalid", null, Now));
         Assert.Equal(VisionJobStatus.Leased, leased.Status);
+        var unclaimed = FinalizingJob();
+        Assert.Throws<DomainValidationException>(() => unclaimed.FailFinalization(token, "vision_finalization_payload_invalid", null, Now.AddMinutes(1)));
+        Assert.Equal(VisionJobStatus.Finalizing, unclaimed.Status);
     }
 
     // -- synchronous completion is untouched --------------------------------------------------
