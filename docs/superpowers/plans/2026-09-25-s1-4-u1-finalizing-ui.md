@@ -24,7 +24,9 @@
 - **Fetch:** `getProcessingStatus(id)` returns `ProcessingStatus = { videoStatus, latestRun }`.
 - **Detail page:** `ProcessingPage` uses it directly.
 - **Ledgers:** `ProcessingQueuePage` and `VideosPage` read it through `features/videos/useVideoProcessing.ts`, one query per video on the shared cache key.
-- **Polling:** `isProcessingActive` in `api/videos.ts` polls while `latestRun.status` is `Queued` or `Running`. A Finalizing run is `Running`, so the page keeps polling until publication. **This is correct and must not change.**
+- **Polling:** `processingPollInterval` (`api/videos.ts`) returns 2 s when `isProcessingActive` or `isAnalyticsPending` holds, otherwise `false`.
+  - `isProcessingActive` polls while `latestRun.status` is `Queued` or `Running`. A Finalizing run is `Running`, so it keeps polling until publication. **This is correct and must not change.**
+  - `isAnalyticsPending` is true whenever `latestRun.analyticsReadiness === 'Pending'`, **whatever the run's status**. §1.7 shows why that matters for a failed run.
 - **Nothing in `src/` reads `phase` today.** The field is typed and fetched but unused. Verified: no occurrence of `.phase` outside the type.
 
 ### 1.2 Processing detail (`features/processing/ProcessingPage.tsx`)
@@ -47,6 +49,22 @@
   - a text line `Run: {run.status}` appears only when `coarse(run.status) !== coarse(row.processingStatus)` (§16).
   - A Finalizing job reads **"Processing" + a moving bar**. A finalization failure reads "Failed" + the code.
 - **`VideosPage.tsx`, l. 199–229:** the same cell shape without the divergent line. A Finalizing job reads "Processing" + bar.
+- **`VideosPage.tsx` only queries active rows** (l. 72–78):
+
+  ```ts
+  const activeIds = useMemo(
+    () => rows.filter((row) => isActiveStatus(row.processingStatus)).map((row) => row.id),
+    [rows],
+  );
+  const processing = useVideoProcessing(activeIds);
+  ```
+
+  `isActiveStatus` is true for `Queued`, `Processing` and `Running` only. A finalization failure's video is `Failed`, so its row issues **no** `getProcessingStatus` request, and `run`, `run.phase` and `run.failureCode` are all unavailable to that row. So on Videos:
+  - `isFinalizationFailure(run)` can never be true in production;
+  - the existing failure-code branch (l. 226, `row.processingStatus === 'Failed' && run?.failureCode`) is **already dead in production** today, because no Failed row has a `run`.
+
+  Its component tests pass only because `getProcessingStatus` is mocked module-wide. None of them asserts which ids are requested.
+- **`ProcessingQueuePage.tsx` queries every row** (l. 79, `useVideoProcessing(ids)`), so its failed rows already carry `run`. Nothing in its lookup changes.
 - Queue bucket ordering (`bucketFor`) uses the video status: a Finalizing job stays in the active bucket, which is correct.
 
 ### 1.4 Shared status seam (`shared/status/status.ts`)
@@ -72,6 +90,21 @@
 - `features/videos/VideosPage.test.tsx`: one badge per row (l. 97).
 - `shared/status/status.test.ts`: the tone and label tables.
 - `api/videos.test.ts`: the polling policy.
+
+
+### 1.7 A failed run's analytics readiness can be `Pending`, and then it polls every 2 s indefinitely
+
+Verified in the platform at `9f9163f`:
+- `VideoEndpoints.cs:79–81` embeds `SceneAnalyticsStatusService.GetReadinessAsync(run)` in **every** latest run.
+- `GetReadinessAsync` (`SceneAnalyticsStatusService.cs:118–128`) looks up the run's camera with `GetRunCameraAsync`, which has **no status filter** (`SceneAnalyticsStatusReader.cs:11–16`). It then calls `SceneAnalyticsReadinessRule.Derive`.
+- `Derive` returns `Pending` when the camera has an active, enabled scene revision and the run has **no** analysis unit (`SceneAnalyticsReadinessRule.cs:69–74`).
+- Units are only ever queued for Completed, visible runs (`ListAnalysableRunsAsync`, `SceneAnalyticsStatusReader.cs:64–69`). A Failed run therefore never gets one.
+
+Result: a failed run on an analytics-configured camera reports `analyticsReadiness: 'Pending'` **permanently**. `processingPollInterval` then returns `2_000`, so its query re-requests every two seconds for as long as the page is open.
+- The existing guard `stops for terminal/non-active state Failed/Failed` (`api/videos.test.ts`) uses `analyticsReadiness: 'NotConfigured'`, so it does not catch this.
+- The same loop already runs today on the Processing queue, which queries failed rows, and on the Processing detail page of such a video.
+
+This is pre-existing, and U1 does not cause it. But U1's Videos correction (§2.2) begins querying Failed rows. Without the one-line policy correction in §3 step 2, U1 would add that same indefinite polling loop to every failed row on Videos. The correction therefore belongs in U1. It is web-only, and the server's readiness derivation is not touched (§8).
 
 ---
 
@@ -102,6 +135,22 @@ This follows the same §16 rule the queue already applies: one badge (the video'
 - **Finalization failure:** badge "Failed" and code (unchanged), plus the text line **`Run: Finalization failed`**.
 - Everything else is unchanged.
 
+**Videos must fetch the latest run for Failed rows.** Today it fetches only active rows (§1.3), which makes the finalization-failure line impossible. The corrected lookup set is:
+
+| Video status | Latest run fetched on Videos | Why |
+|---|---|---|
+| `Queued`, `Processing` | yes (unchanged) | live progress; Finalizing detection |
+| **`Failed`** | **yes (new)** | `phase` and `failureCode` are needed to tell a finalization failure from an ordinary one, and to show the code the cell already intends to show |
+| `Processed`, `NotQueued` | **no** (unchanged) | nothing in the cell depends on the run; no new request per row |
+
+**Fetch once, do not poll.** A Failed row's query is fetched once, when it first enters the query set; it does not keep polling:
+- Its `refetchInterval` is `processingPollInterval(data)`. After the §3 step 2 correction, that is `false` for a Failed video with a Failed run, **whatever its analytics readiness**, because a non-Completed run never gets analytics (§1.7).
+- The query client's defaults (`app/queryClient.ts`: `staleTime: 5_000`, `refetchOnWindowFocus: false`) add no other refetch loop.
+- The query is fetched again only when the row leaves and re-enters the set, or when the `videoProcessing(id)` key is invalidated. Retry does that through its existing `onSettled`.
+- A Retry that queues a new run moves the video to `Queued`. The row is then active, and polls through `isProcessingActive` exactly as today.
+
+**Failed-row lookup errors.** The existing "Live status unavailable" line stays gated on `active` (l. 202). A Failed row's status is not live, so a failed lookup degrades to today's rendering: the `Failed` badge, with no code and no run line. There is no new error UI.
+
 **Why the ledgers are in U1.** Master §6.1 states U1's test as "a Processing page **row** for a job with `phase == "finalizing"` shows a Finalizing label that is not Running/Progress". A detail-only change would leave the two ledgers rendering a Finalizing job as "Processing" with a moving bar. They are the same untruthful state on the surfaces operators scan. It is a few lines each through the same helpers.
 
 ---
@@ -116,6 +165,18 @@ This follows the same §16 rule the queue already applies: one badge (the video'
      - add `isFinalizationFailure(run)`: `run?.phase === 'failed' && (run.failureCode ?? '').startsWith(prefix)`.
 
      These are the **only** places the phase string and the prefix are tested. Every surface calls these two predicates, so the matching cannot drift between surfaces.
+   - **`api/videos.ts`, polling correction (§1.7):** `isAnalyticsPending` becomes
+
+     ```ts
+     return status?.latestRun?.status === 'Completed' && status.latestRun.analyticsReadiness === 'Pending';
+     ```
+
+     The function's own doc comment already scopes it to "analytics for the finished run". This makes the code match it.
+     - It has no effect on a Queued or Running run (Finalizing included), which poll through `isProcessingActive` anyway.
+     - It has no effect on a Completed run with `Pending` readiness, which keeps polling (the existing Slice 4 test).
+     - It only stops the indefinite 2 s loop on a Failed or Cancelled run that reports `Pending`.
+
+     No other polling rule changes.
    - **`shared/status/status.ts`:**
      - `toneForStatus('Finalizing') → 'active'`;
      - `labelForStatus('Finalizing')` stays `'Finalizing'` (default passthrough);
@@ -130,7 +191,28 @@ This follows the same §16 rule the queue already applies: one badge (the video'
 
    Nothing else on the page changes: Context Bar, retry, counts, analytics panel and polling stay as they are.
 4. **`ProcessingQueuePage.tsx` and `VideosPage.tsx`:** suppress the inline bar when `isFinalizing(run)`, and add the `Run: Finalizing` / `Run: Finalization failed` text line. In the queue it slots into the existing `divergent` line.
-5. **Validation (§7)**, then the U1 PR: web-only, template sections, and the visual-QA enumeration (§26 "Reporting").
+5. **`VideosPage.tsx` lookup set (§2.2).** Add one module-local predicate beside the page, with no export and no new file:
+
+   ```ts
+   // Rows whose cell reads the latest run: live progress while active, and the
+   // failure kind and code once failed. Fetched, not polled, once terminal.
+   function needsRunStatus(status: string): boolean {
+     return isActiveStatus(status) || status === 'Failed';
+   }
+   ```
+
+   Then change the id set, keeping `activeIds`' `useMemo` shape and renaming it to match its meaning:
+
+   ```ts
+   const runStatusIds = useMemo(
+     () => rows.filter((row) => needsRunStatus(row.processingStatus)).map((row) => row.id),
+     [rows],
+   );
+   const processing = useVideoProcessing(runStatusIds);
+   ```
+
+   The per-row `active` flag (l. 201) keeps gating the inline bar and the "Live status unavailable" line exactly as today. The Processing queue's lookup is not touched.
+6. **Validation (§7)**, then the U1 PR: web-only, template sections, and the visual-QA enumeration (§26 "Reporting").
 
 ---
 
@@ -140,18 +222,18 @@ All under `src/web/mavi-web/src/`:
 
 | File | Change |
 |---|---|
-| `api/videos.ts` | prefix constant, `isFinalizing`, `isFinalizationFailure` |
-| `api/videos.test.ts` | predicate truth table; polling guard |
+| `api/videos.ts` | prefix constant, `isFinalizing`, `isFinalizationFailure`; `isAnalyticsPending` scoped to Completed runs (§1.7) |
+| `api/videos.test.ts` | predicate truth table; polling guards (§5.1 tests 3, 3a) |
 | `shared/status/status.ts` | `'Finalizing' → 'active'`; `FINALIZATION_FAILED_LABEL` |
 | `shared/status/status.test.ts` | the two vocabulary entries |
 | `features/processing/ProcessingPage.tsx` | panel badge, primary line, failure copy (§3 step 3) |
 | `features/processing/ProcessingPage.test.tsx` | §5.3 tests |
 | `features/processing/ProcessingQueuePage.tsx` | bar suppression and run text line |
 | `features/processing/ProcessingQueuePage.test.tsx` | §5.4 tests |
-| `features/videos/VideosPage.tsx` | bar suppression and run text line |
-| `features/videos/VideosPage.test.tsx` | §5.4 tests |
+| `features/videos/VideosPage.tsx` | bar suppression and run text line; `needsRunStatus` lookup set (§3 step 5) |
+| `features/videos/VideosPage.test.tsx` | §5.4 tests, including the lookup-path tests 14–16 |
 
-Ten files. **Nothing** outside `src/web/mavi-web/src/**` changes: no CSS token, no new component, no dependency, no `tools/web-visual-qa/**`.
+Still ten files: the lookup correction and the polling correction fit inside files already listed. **Nothing** outside `src/web/mavi-web/src/**` changes: no CSS token, no new component, no dependency, no `tools/web-visual-qa/**`.
 
 ---
 
@@ -166,7 +248,8 @@ Each test below either fails on `main` (**red**) or is a **guard** that passes b
    - `phase: 'failed'` + `null`;
    - `phase: 'finalizing'` + a `vision_finalization_*` code (not failed);
    - `phase: 'failed'` + `vision_finalization` (no underscore) and `xvision_finalization_a` (prefix, not substring).
-3. **guard.** `isProcessingActive` stays true for the Finalizing fixture (`status: Running`), so polling continues until publication.
+3. **guard.** `isProcessingActive` stays true for the Finalizing fixture (`status: Running`), so polling continues until publication. This holds for every `analyticsReadiness`, `Pending` included.
+3a. **red.** `processingPollInterval` is `false` for video `Failed` + run `Failed` + `analyticsReadiness: 'Pending'`, for both a `vision_finalization_*` and an ordinary code. It is still `2_000` for `Processed` + `Completed` + `Pending` (the existing Slice 4 test, unchanged). On `main` the first returns `2_000` (§1.7).
 
 ### 5.2 `shared/status/status.test.ts`
 4. **red.** `toneForStatus('Finalizing') === 'active'`; `labelForStatus('Finalizing') === 'Finalizing'`.
@@ -196,6 +279,31 @@ The page is driven with the exact F4-A fixture shapes (§1.5) plus variants.
 11. **red.** A Finalizing row shows the text `Run: Finalizing`, has no `progressbar` in its cell, and still carries **exactly one badge** (the existing one-badge tests pass).
 12. **red.** A finalization-failure row shows `Run: Finalization failed` and the code. A `worker_watchdog_timeout` row shows no such line (**guard** for relabelling every failure).
 13. **guard.** The existing ordering, bucket and divergence tests pass unchanged.
+
+### 5.5 Videos lookup path (`VideosPage.test.tsx`): proves the production query, not an injected run
+
+These tests exercise the real `VideosPage` → `useVideoProcessing` → `getProcessingStatus` path. `getProcessingStatus` is the file's existing module mock (`vi.mock('../../api/videos', …)`). It is given a **per-id** implementation (`mockImplementation(async (id) => byId[id])`), so the only way a row can obtain a run is for the page to request that id. No run is passed to the component, and no hook is stubbed.
+
+Fixtures: the file's existing `processed` (`Processed`), `failed` (`Failed`) and `fresh` (`NotQueued`) videos from `listVideos`.
+
+14. **red. A Failed row is queried; Processed and NotQueued rows are not.**
+    - After the table renders, `await waitFor(() => expect(getProcessingStatus).toHaveBeenCalledWith(failed.id, expect.anything()))`.
+    - `getProcessingStatus` was **not** called with `processed.id` or `fresh.id`.
+
+    On `main` the first assertion fails, because `activeIds` excludes `Failed`. It is the direct discriminator against the current lookup.
+15. **red. Finalization failure through the real lookup.** `byId[failed.id]` is `{ videoStatus: 'Failed', latestRun: { …, status: 'Failed', phase: 'failed', failureCode: 'vision_finalization_staging_missing', analyticsReadiness: 'Pending' } }`. Within the `dock-night.mp4` row:
+    - `await findByText('Run: Finalization failed')`;
+    - the code `vision_finalization_staging_missing` is visible in `<code>`;
+    - still exactly one badge, `data-status="Failed"`;
+    - no `progressbar`.
+
+    **Fetched once, not polled:** the test runs under `vi.useFakeTimers({ shouldAdvanceTime: true })`. After the row settles it runs `await vi.advanceTimersByTimeAsync(10_000)`, which covers five poll periods, then asserts `getProcessingStatus` was called with `failed.id` **exactly once**. Readiness is deliberately `Pending` (§1.7), so this also fails if the §3 step 2 polling correction is missing.
+16. **guard-red. An ordinary failure stays ordinary.** The same shape with `failureCode: 'worker_watchdog_timeout'`:
+    - the row shows `worker_watchdog_timeout` in `<code>`. This is the existing failure rendering, and it is red on `main` only because the Failed row was never queried;
+    - `queryByText(/Finalization failed/)` in the row is `null`;
+    - one `Failed` badge, no `progressbar`, no `Run:` line.
+
+The existing Videos tests (ordering, one badge per row, actions, filters, empty and unavailable states) must pass **unchanged**. Their module-wide default `getProcessingStatus` → `{ videoStatus: 'Processed', latestRun: null }` now also answers the Failed row, which then renders exactly as today.
 
 The tests assert what the operator reads, via Testing Library queries on text, role and `data-status`. They do not assert class names, so a restyle cannot fake them.
 
@@ -257,6 +365,8 @@ No .NET, worker or qualification suite needs to run for U1: it touches none of t
 - `tools/web-visual-qa/**`, including `states.mjs` and the F4-A states' `expectText`/`forbidText`; the qualification harness; `tools/qualification/**`; the checker; F4-A criteria.
 - F4-C: no `appsettings.json`, no worker default, no activation, no frozen values, no runbook activation text.
 - The Context Bar video badge, the retry semantics, polling (`isProcessingActive`), the Scene analytics panel, CSS tokens and components.
+- The platform's analytics-readiness derivation (`GetReadinessAsync` / `SceneAnalyticsReadinessRule`), even though it reports `Pending` for runs that can never be analysed (§1.7). U1 corrects only the web polling policy. Whether the API should report a different readiness for non-Completed runs is a separate, backend question, and is **not** decided here.
+- The Processing queue's lookup set (it already queries every row), the `useVideoProcessing` hook and `app/queryClient.ts`.
 - **Pre-existing, noted, not changed:** a failed run's counts read "Final count after completion" for **every** failure kind. Changing that alters non-finalization failures, which is outside U1. It is not contradictory with the new copy, since the run did not complete; if wanted, it is a separate UI slice.
 - **Pre-existing, noted, not changed:** the progress bar tone for non-finalizing runs is chosen locally from `run.status` (`ProcessingPage.tsx:300`), predating §8.2's centralisation. U1 does not refactor it.
 
@@ -278,9 +388,17 @@ No .NET, worker or qualification suite needs to run for U1: it touches none of t
 | 10 | Ledgers still lie | tests 11 and 12 | P2 |
 | 11 | A second badge per row (§16) | the existing one-badge tests plus test 11 | P2 |
 | 12 | Status tone mapped locally (§8.2) | `'Finalizing'` tone lives in `shared/status` | P3 |
-| 13 | Over-engineering | two predicates, one tone entry, one label constant; no module, framework or component | P3 |
+| 13 | Over-engineering | two predicates, one tone entry, one label constant, one module-local `needsRunStatus`, one condition added to `isAnalyticsPending`; no module, framework, hook or component | P3 |
 | 14 | Polling stops during Finalizing | test 3 | P2 |
 | 15 | Leak into F4-C | no config, worker or runbook change; the scope list in the PR | P1 |
+| 16 | Videos Failed rows still not queried | §3 step 5 `needsRunStatus`; test 14 asserts the `getProcessingStatus(failed.id, …)` call and is red against `activeIds` | P2 |
+| 17 | Finalization failure works only because a run is injected in tests | tests 14–16 give `getProcessingStatus` a per-id implementation; a row can only show a run the page requested | P2 |
+| 18 | Every failed video starts polling indefinitely | §3 step 2 scopes `isAnalyticsPending` to Completed runs; test 3a (unit) and test 15 (exactly one request over 10 s with `Pending` readiness) | P2 |
+| 19 | Processed or NotQueued rows gain live queries | `needsRunStatus` admits only active and `Failed`; test 14 asserts no request for `processed.id` or `fresh.id` | P3 |
+| 20 | Ordinary failure relabelled on Videos | test 16 | P2 |
+| 21 | Queue behaviour changes unnecessarily | queue lookup untouched; its only behaviour change is the §2.2 run line, plus Failed/`Pending` rows no longer polling (a fix, covered by test 3a); existing queue tests unchanged | P3 |
+| 22 | Finalizing polling semantics change | `isProcessingActive` untouched; test 3 covers every readiness | P2 |
+| 23 | F4-A visual criteria change | `tools/web-visual-qa/**` outside the diff; the states are run unmodified (§6) | P1 |
 
 ---
 
@@ -290,7 +408,7 @@ U1 is ready to merge when all of these hold:
 1. every §5 red test was seen red before the change, and every test is green after;
 2. `typecheck`, the full web suite and `npm run build` are green;
 3. the two F4-A visual states fail before and pass after at all four widths, **unmodified**, and the regression set passes, with the enumerated pass in the PR (§26);
-4. the diff is confined to the ten files of §4;
+4. the diff is confined to the ten files of §4. On Videos, `getProcessingStatus` is requested for Queued, Processing and Failed rows only, and a Failed row is requested once, not polled (tests 14, 15);
 5. `verify_repo` passes and exact-head CI is green;
 6. an independent Gate B cold review raises no P1/P2;
 7. it is merged with a merge commit **before** F4-C opens. Its merge SHA is recorded for the M2 declaration (execution plan §14).
