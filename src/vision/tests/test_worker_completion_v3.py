@@ -43,11 +43,14 @@ from mavi_vision.worker.client import (
 
 
 ROOT = Path(__file__).resolve().parents[3]
-GOLDEN = ROOT / "contracts/examples/vision-job-complete-v3.example.json"
-SCHEMA = ROOT / "contracts/schemas/vision-job-complete-v3.schema.json"
+# Since S1.4 F2 the worker emits completion 3.1: the 3.0 body under the
+# asynchronous exchange version (the 3.1 example and schema are the 3.0 ones
+# with only the version changed, which tools/verify_repo.py enforces).
+GOLDEN = ROOT / "contracts/examples/vision-job-complete-v3.1.example.json"
+SCHEMA = ROOT / "contracts/schemas/vision-job-complete-v3.1.schema.json"
 LEASE_EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
 # The platform's completion body cap is 48 MiB; plan §7 keeps the worst-shape
-# 3.0 body under 40 MiB so the envelope has headroom.
+# 3.x body under 40 MiB so the envelope has headroom.
 WORST_SHAPE_BODY_BUDGET = 40 * 1024 * 1024
 
 
@@ -182,17 +185,31 @@ def _accounting_from(wire: dict) -> EvidenceAccounting:
     )
 
 
-def _response_for(body: dict, version: str = "3.0") -> httpx.Response:
-    return httpx.Response(
-        200,
-        json={
-            "schemaVersion": version,
-            "jobId": body["jobId"],
-            "processingRunId": "018fa7b6-2b31-7f42-9f33-9fd9f6fdd762",
-            "tracksAccepted": len(body["tracks"]),
-            "completedAtUtc": "2026-09-24T00:00:00Z",
-        },
-    )
+def _response_for(body: dict, version: str = "3.1", state: str = "finalizing") -> httpx.Response:
+    """A completion acknowledgement: the 3.1 hand-off by default, or a
+    synchronous-style (2.0/3.0) echo for the version-skew tests."""
+    if version != "3.1":
+        return httpx.Response(
+            200,
+            json={
+                "schemaVersion": version,
+                "jobId": body["jobId"],
+                "processingRunId": "018fa7b6-2b31-7f42-9f33-9fd9f6fdd762",
+                "tracksAccepted": len(body["tracks"]),
+                "completedAtUtc": "2026-09-24T00:00:00Z",
+            },
+        )
+    payload = {
+        "schemaVersion": "3.1",
+        "jobId": body["jobId"],
+        "processingRunId": "018fa7b6-2b31-7f42-9f33-9fd9f6fdd762",
+        "state": state,
+        "acceptedAtUtc": "2026-09-24T00:00:00Z",
+        "tracksSubmitted": len(body["tracks"]),
+    }
+    if state == "completed":
+        payload["completedAtUtc"] = "2026-09-24T00:01:30Z"
+    return httpx.Response(200, json=payload)
 
 
 def _run(tmp_path: Path, handler, action, *, worker_id: str = "gpu-sdd-01"):
@@ -243,15 +260,26 @@ def _capabilities(payload: object, status: int = 200):
     return handler
 
 
-def test_capability_probe_accepts_a_platform_listing_completion_3(tmp_path: Path) -> None:
+def test_capability_probe_accepts_a_platform_listing_completion_3_1(tmp_path: Path) -> None:
     capabilities = _run(
         tmp_path,
         _capabilities(
-            {"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.0"], "future": 1}
+            {"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1"], "future": 1}
         ),
         lambda client: client.get_contract_capabilities(),
     )
-    assert capabilities.completion_schema_versions == ("2.0", "3.0")
+    assert capabilities.completion_schema_versions == ("2.0", "3.1")
+
+
+def test_a_platform_listing_only_completion_3_0_is_unsupported(tmp_path: Path) -> None:
+    """Version skew, new worker against a pre-F2 platform: the worker never
+    submits 3.0, so a platform that lists 3.0 but not 3.1 keeps it not-ready."""
+    with pytest.raises(PlatformContractUnsupported):
+        _run(
+            tmp_path,
+            _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.0"]}),
+            lambda client: client.get_contract_capabilities(),
+        )
 
 
 @pytest.mark.parametrize(
@@ -317,7 +345,7 @@ def test_worker_body_is_byte_equivalent_to_the_golden_example(tmp_path: Path) ->
 
     assert captured == [_golden()]
     body = captured[0]
-    assert body["schemaVersion"] == "3.0"
+    assert body["schemaVersion"] == "3.1"
     assert all("representative" not in track for track in body["tracks"])
     # The golden's accounting is the worker's exact input, so it must survive
     # untouched, including omitted candidates that have no observation.
@@ -356,8 +384,8 @@ def test_contract_rejection_raises_unsupported_and_sends_nothing_else(tmp_path: 
 
     assert raised.value.status_code == 400
     assert raised.value.code == "worker_contract_version_unsupported"
-    # Exactly one request, and it was 3.0: no retry and no 2.0 fallback.
-    assert [body["schemaVersion"] for body in requests] == ["3.0"]
+    # Exactly one request, and it was 3.1: no retry and no 3.0 or 2.0 fallback.
+    assert [body["schemaVersion"] for body in requests] == ["3.1"]
 
 
 def test_an_invalid_local_body_is_refused_before_anything_is_sent(tmp_path: Path, monkeypatch) -> None:
@@ -394,11 +422,51 @@ def test_other_bad_requests_are_not_contract_rejections(tmp_path: Path) -> None:
     assert raised.value.code == "completion_invalid"
 
 
-def test_a_2_0_completion_echo_is_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize("version", ["2.0", "3.0"])
+def test_a_synchronous_completion_echo_is_rejected(tmp_path: Path, version: str) -> None:
+    """A 2.0/3.0-style completion response is not a hand-off acknowledgement."""
     def handler(request: httpx.Request) -> httpx.Response:
-        return _response_for(json.loads(request.content), version="2.0")
+        return _response_for(json.loads(request.content), version=version)
 
     with pytest.raises(WorkerApiError, match="unexpected version"):
+        _complete_golden(tmp_path, handler)
+
+
+def test_a_finalizing_acknowledgement_is_the_hand_off(tmp_path: Path) -> None:
+    acknowledged = _complete_golden(tmp_path, lambda request: _response_for(json.loads(request.content)))
+
+    assert acknowledged.state == "finalizing"
+    assert acknowledged.tracks_submitted == len(_golden()["tracks"])
+    assert acknowledged.completed_at_utc is None
+    assert str(acknowledged.job_id) == _golden()["jobId"]
+
+
+def test_a_completed_acknowledgement_is_an_idempotent_replay(tmp_path: Path) -> None:
+    acknowledged = _complete_golden(
+        tmp_path, lambda request: _response_for(json.loads(request.content), state="completed")
+    )
+
+    assert acknowledged.state == "completed"
+    assert acknowledged.completed_at_utc is not None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload.update(completedAtUtc="2026-09-24T00:01:30Z"),  # finalizing with a completion time
+        lambda payload: payload.update(state="completed"),  # completed without one
+        lambda payload: payload.update(tracksAccepted=payload.pop("tracksSubmitted")),  # the retired name
+        lambda payload: payload.update(state="published"),
+        lambda payload: payload.update(jobId="018fa7b6-2b31-7f42-9f33-9fd9f6fdd7ff"),  # another job
+    ],
+)
+def test_a_malformed_or_foreign_acknowledgement_is_refused(tmp_path: Path, mutate) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _response_for(json.loads(request.content)).json()
+        mutate(payload)
+        return httpx.Response(200, json=payload)
+
+    with pytest.raises(WorkerApiError):
         _complete_golden(tmp_path, handler)
 
 

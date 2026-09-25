@@ -34,7 +34,7 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task ContractProbeAdvertisesControlPlaneAndBothCompletionVersions()
+    public async Task ContractProbeAdvertisesControlPlaneAndTheLiveCompletionVersions()
     {
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
@@ -45,7 +45,8 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Assert.True(JsonElement.DeepEquals(
-            JsonDocument.Parse("""{"schemaVersion":"2.0","completionSchemaVersions":["2.0","3.0"]}""").RootElement,
+            // F2 (plan §15.2): 2.0 unchanged, 3.1 live, 3.0 retired and not advertised.
+            JsonDocument.Parse("""{"schemaVersion":"2.0","completionSchemaVersions":["2.0","3.1"]}""").RootElement,
             body.RootElement));
     }
 
@@ -73,7 +74,7 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
 
     [Theory]
     [InlineData("1.0")]
-    [InlineData("3.1")]
+    [InlineData("3.0")] // retired with F2; never reinterpreted as 3.1
     [InlineData("4.0")]
     public async Task CompletionRejectsUnacceptedVersions(string version)
     {
@@ -108,7 +109,7 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
         using var client = factory.CreateClient();
-        var body = "{\"schemaVersion\":\"3.0\",\"tracks\":[{\"observations\":[" +
+        var body = "{\"schemaVersion\":\"3.1\",\"tracks\":[{\"observations\":[" +
                    string.Join(',', Enumerable.Repeat("{}", 5)) + "]}]}";
 
         using var response = await client.PostAsync(
@@ -168,13 +169,13 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
         }).ToArray();
         var role = new VisionEvidenceRoleAccountingContract(int.MaxValue, int.MaxValue, int.MaxValue, long.MaxValue, long.MaxValue);
         var request = new VisionJobCompleteRequest(
-            "3.0", jobId, new string('w', 128), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 9999, longOffset, longOffset,
+            "3.1", jobId, new string('w', 128), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 9999, longOffset, longOffset,
             null, tracks, new VisionEvidenceAccountingContract(role, role, role, role));
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(request, Json).LongLength;
 
         // The provenance block is bounded separately and far below 1 MiB.
-        output.WriteLine($"Worst-shape completion 3.0 body without provenance: {bytes:N0} bytes ({bytes / 1024.0 / 1024.0:F2} MiB).");
+        output.WriteLine($"Worst-shape completion 3.1 body without provenance: {bytes:N0} bytes ({bytes / 1024.0 / 1024.0:F2} MiB).");
         Assert.True(bytes <= 32L * 1024 * 1024, $"Worst shape {bytes} bytes exceeds the 32 MiB plan stop condition.");
         Assert.True(bytes <= WorkerContractRules.MaximumCompletionRequestBodyBytes - 8L * 1024 * 1024);
     }

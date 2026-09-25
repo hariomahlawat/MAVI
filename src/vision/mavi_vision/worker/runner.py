@@ -154,7 +154,6 @@ class WorkerRunner:
         attempt_completed_sink: (
             Callable[[AttemptCompletion], Awaitable[None]] | None
         ) = None,
-        staging_cleaner: Callable[[UUID, int], None] | None = None,
     ) -> None:
         if heartbeat_interval_seconds <= 0:
             raise ValueError("heartbeat_interval_seconds must be positive")
@@ -190,7 +189,6 @@ class WorkerRunner:
         self._duration_clock = duration_clock
         self._host_power_request = host_power_request
         self._attempt_completed_sink = attempt_completed_sink
-        self._staging_cleaner = staging_cleaner
         self._fatal_termination_active = False
         self._platform_contract_confirmed = False
         self._platform_contract_reported = False
@@ -202,7 +200,7 @@ class WorkerRunner:
 
     @property
     def platform_contract_confirmed(self) -> bool:
-        """True while the platform is known to accept completion 3.0."""
+        """True while the platform is known to accept completion 3.1."""
         return self._platform_contract_confirmed
 
     async def run_once(self) -> bool:
@@ -216,7 +214,7 @@ class WorkerRunner:
             raise
 
     async def _confirm_platform_contract(self) -> bool:
-        """Plan §23: never lease before the platform lists completion 3.0.
+        """Plan §23: never lease before the platform lists completion 3.1.
 
         Probed before **every** lease (one small GET per poll), so a platform
         swapped for an older one between leases is noticed before a job is
@@ -232,7 +230,7 @@ class WorkerRunner:
             if not self._platform_contract_reported:
                 _LOGGER.error(
                     "Vision worker not ready: vision_platform_contract_unsupported "
-                    "(the platform does not accept completion 3.0); no job is leased"
+                    "(the platform does not accept completion 3.1); no job is leased"
                 )
                 self._platform_contract_reported = True
             return False
@@ -393,7 +391,7 @@ class WorkerRunner:
 
             elapsed_seconds = max(0.0, self._duration_clock() - processing_started)
             processing_duration_ms = int(round(elapsed_seconds * 1000.0))
-            await self._api_client.complete(
+            acknowledgement = await self._api_client.complete(
                 lease,
                 result,
                 processing_duration_ms,
@@ -401,13 +399,13 @@ class WorkerRunner:
                 authorize_publish=completion_guard.check_owned,
             )
         except PlatformContractUnsupported:
-            # The platform rejected completion 3.0 after confirming it (for
+            # The platform rejected completion 3.1 after confirming it (for
             # example a downgrade). Terminal for this attempt: no retry of the
-            # completion and no v2 fallback. The staging stays for the next
-            # attempt's cleanup or the platform janitor.
+            # completion and no 3.0/2.0 fallback. The staging stays for the
+            # next attempt's cleanup or the platform janitor.
             self._platform_contract_confirmed = False
             _LOGGER.error(
-                "Vision job %s attempt %s: platform rejected completion 3.0",
+                "Vision job %s attempt %s: platform rejected completion 3.1",
                 lease.job_id,
                 lease.attempt_count,
             )
@@ -419,7 +417,7 @@ class WorkerRunner:
             return True
         except CompletionPayloadInvalid:
             # Nothing was sent: the worker's own result does not form a valid
-            # 3.0 body (for example more Tracks than the contract carries).
+            # 3.1 body (for example more Tracks than the contract carries).
             # Retrying would rebuild the same body, so the attempt fails.
             _LOGGER.error(
                 "Vision job %s attempt %s produced an invalid completion body",
@@ -435,10 +433,22 @@ class WorkerRunner:
         except LeaseLostError as exc:
             raise WorkerApiError("lease ownership lost") from exc
 
-        await self._release_accepted_staging(lease)
+        # The hand-off is authoritative from here (S1.4 B3 plan §5.4, §11): the
+        # platform durably holds the result and finalizes it in the background.
+        # This attempt's staging is the finalizer's input, so the worker never
+        # deletes it after acknowledgement; superseded attempts are reclaimed
+        # by the next attempt's cleanup or the platform janitor. A "completed"
+        # acknowledgement is the idempotent replay of an already published job.
+        # The worker does not poll for the transition.
+        _LOGGER.info(
+            "Vision job %s attempt %s handed off: state=%s",
+            lease.job_id,
+            lease.attempt_count,
+            getattr(acknowledgement, "state", "finalizing"),
+        )
 
-        # The attempt is authoritative from here. Telemetry describes it and
-        # cannot change it, so a failing sink is logged and nothing more.
+        # Telemetry describes the attempt and cannot change it, so a failing
+        # sink is logged and nothing more.
         if self._attempt_completed_sink is not None:
             try:
                 await self._attempt_completed_sink(
@@ -457,31 +467,6 @@ class WorkerRunner:
                     lease.attempt_count,
                 )
         return True
-
-    async def _release_accepted_staging(self, lease: VisionJobLease) -> None:
-        """Remove this attempt's staging once the platform has accepted it.
-
-        The platform seals every accepted artefact into its own evidence root
-        before it acknowledges completion, so nothing references this staging
-        any more. This is only the fast path: the platform's staging janitor
-        (ADR-006 section 6) reclaims it anyway if the worker dies first, so a
-        failure here is logged and never changes the accepted attempt.
-        """
-        if self._staging_cleaner is None:
-            return
-        try:
-            await asyncio.to_thread(
-                self._staging_cleaner,
-                lease.job_id,
-                lease.attempt_count,
-            )
-        except Exception:
-            _LOGGER.warning(
-                "Staging cleanup after accepted completion failed for job %s "
-                "attempt %s; the platform staging janitor will reclaim it",
-                lease.job_id,
-                lease.attempt_count,
-            )
 
     async def _process_with_lease_heartbeats(
         self,

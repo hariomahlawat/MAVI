@@ -104,14 +104,15 @@ public sealed class CompletionExchange31Tests
     }
 
     [Fact]
-    public void StagedAcceptanceLists()
+    public void LiveAcceptanceLists()
     {
-        // F1: the endpoint keeps accepting 2.0 and 3.0; 3.1 is defined, not yet accepted.
-        Assert.Equal(["2.0", "3.0"], WorkerContractRules.CompletionSchemaVersions);
-        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0"));
-        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1"));
+        // F2 (plan §15.2): 2.0 unchanged, 3.0 retired, 3.1 accepted and advertised.
+        Assert.Equal(["2.0", "3.1"], WorkerContractRules.CompletionSchemaVersions);
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("2.0"));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0"));
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1"));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion(null));
 
-        // F2 flips to: 2.0 unchanged, 3.0 retired, 3.1 accepted.
         Assert.Equal(["2.0", "3.1"], WorkerContractRules.AsynchronousCompletionSchemaVersions);
         Assert.Equal("3.1", WorkerContractRules.CompletionSchemaVersionV31);
         Assert.True(WorkerContractRules.IsKnownCompletionSchemaVersion("2.0"));

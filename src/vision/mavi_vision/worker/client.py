@@ -22,9 +22,9 @@ from mavi_vision.common.control_plane import (
     VisionEvidenceAccounting,
     VisionEvidenceRoleAccounting,
     VisionGpuIdentity,
-    VisionJobCompleteResponse,
     VisionJobCompleteV3,
     VisionJobFail,
+    VisionJobFinalizationResponse,
     VisionJobHeartbeat,
     VisionJobHeartbeatResponse,
     VisionJobLease,
@@ -40,7 +40,10 @@ from mavi_vision.runtime.provenance import RuntimeProvenance
 _SAFE_PROBLEM_CODE: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$", re.ASCII)
 
 # The completion contract this worker emits; the platform must advertise it.
-COMPLETION_SCHEMA_VERSION: Final = "3.0"
+# 3.1 is the asynchronous exchange (S1.4 B3 plan §5): the same Evidence Set
+# body as 3.0, answered by a durable hand-off. There is no fallback to 3.0 or
+# 2.0, whatever the platform advertises.
+COMPLETION_SCHEMA_VERSION: Final = "3.1"
 _CONTRACT_VERSION_UNSUPPORTED: Final = "worker_contract_version_unsupported"
 
 
@@ -72,7 +75,7 @@ class PlatformContractUnsupported(WorkerApiError):
 
 
 class CompletionPayloadInvalid(ValueError):
-    """The worker's own result does not form a valid completion 3.0 body.
+    """The worker's own result does not form a valid completion 3.1 body.
 
     Not a control-plane error: nothing was sent. The attempt is failed
     explicitly instead of being retried into the same result (a poison job).
@@ -92,11 +95,12 @@ class WorkerApiClient:
         )
 
     async def get_contract_capabilities(self) -> VisionContractCapabilities:
-        """``GET /api/vision/contract``; raises unless completion 3.0 is accepted.
+        """``GET /api/vision/contract``; raises unless completion 3.1 is accepted.
 
         A transport failure is an ordinary ``WorkerApiError`` (the platform may
         be starting); a definite answer that is missing, malformed or lacks
-        ``"3.0"`` is ``PlatformContractUnsupported``.
+        ``"3.1"`` is ``PlatformContractUnsupported``. A platform that lists only
+        3.0 (pre-F2) is unsupported: this worker never submits 3.0.
         """
         try:
             response = await self._http_client.get(
@@ -120,7 +124,7 @@ class WorkerApiClient:
             ) from exc
         if COMPLETION_SCHEMA_VERSION not in capabilities.completion_schema_versions:
             raise PlatformContractUnsupported(
-                "platform does not accept completion 3.0",
+                "platform does not accept completion 3.1",
                 status_code=response.status_code,
             )
         return capabilities
@@ -182,7 +186,14 @@ class WorkerApiClient:
         provenance: RuntimeProvenance,
         *,
         authorize_publish: Callable[[], None] | None = None,
-    ) -> VisionJobCompleteResponse:
+    ) -> VisionJobFinalizationResponse:
+        """Submit completion 3.1 and return the platform's hand-off acknowledgement.
+
+        ``finalizing`` is success: the platform durably holds the result and
+        owns sealing and publication from here. ``completed`` is the idempotent
+        replay of a job the platform already published. The worker does not
+        poll for the transition.
+        """
         if result.job_id != lease.job_id:
             raise WorkerApiError("vision result does not belong to leased job")
         if processing_duration_ms < 0:
@@ -191,7 +202,7 @@ class WorkerApiClient:
         try:
             request = self._completion_request(lease, result, processing_duration_ms, provenance)
         except ValidationError as exc:
-            raise CompletionPayloadInvalid("vision result is not a valid completion 3.0 body") from exc
+            raise CompletionPayloadInvalid("vision result is not a valid completion 3.1 body") from exc
         body = request.model_dump_json(by_alias=True)
         if authorize_publish is not None:
             authorize_publish()
@@ -240,7 +251,7 @@ class WorkerApiClient:
             evidenceAccounting=self._map_accounting(result.evidence_accounting),
         )
 
-    async def _send_completion(self, lease: VisionJobLease, body: str) -> VisionJobCompleteResponse:
+    async def _send_completion(self, lease: VisionJobLease, body: str) -> VisionJobFinalizationResponse:
         response = await self._post(
             f"/api/vision/jobs/{lease.job_id}/complete",
             body,
@@ -250,17 +261,22 @@ class WorkerApiClient:
             and self._safe_problem_code(response) == _CONTRACT_VERSION_UNSUPPORTED
         ):
             # Defence in depth behind the startup probe: never retried and
-            # never re-sent as 2.0.
+            # never re-sent as 3.0 or 2.0.
             raise PlatformContractUnsupported(
-                "platform rejected completion 3.0",
+                "platform rejected completion 3.1",
                 status_code=response.status_code,
                 code=_CONTRACT_VERSION_UNSUPPORTED,
             )
         self._raise_for_status(response)
-        completed = VisionJobCompleteResponse.model_validate_json(response.content)
-        if completed.schema_version != COMPLETION_SCHEMA_VERSION:
-            raise WorkerApiError("platform answered completion with an unexpected version")
-        return completed
+        try:
+            acknowledged = VisionJobFinalizationResponse.model_validate_json(response.content)
+        except ValidationError as exc:
+            # A synchronous-style (2.0/3.0) completion echo is not a hand-off
+            # acknowledgement; the worker does not guess what happened.
+            raise WorkerApiError("platform answered completion with an unexpected version") from exc
+        if acknowledged.job_id != lease.job_id:
+            raise WorkerApiError("platform acknowledged a different job")
+        return acknowledged
 
     async def aclose(self) -> None:
         await self._http_client.aclose()

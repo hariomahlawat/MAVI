@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from mavi_vision.common.analytical import VisionProcessingResult
-from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
+from mavi_vision.common.control_plane import (
+    VisionJobFinalizationResponse,
+    VisionJobHeartbeatResponse,
+    VisionJobLease,
+)
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
 from mavi_vision.runtime.errors import (
@@ -973,100 +977,69 @@ def test_the_sink_is_not_called_for_a_failed_attempt(tmp_path: Path) -> None:
     assert client.failures[0][0] == "vision_processing_failed"
 
 
-# Post-completion staging release (S1.2b W5)
-def _runner_with_cleaner(tmp_path: Path, lease, processor, cleaner) -> tuple[WorkerRunner, object]:
+# Staging after the completion 3.1 hand-off (S1.4 B3 F2, plan §5.4, §11)
+class FinalizingWorkerApiClient(FakeWorkerApiClient):
+    """Answers completion with a real 3.1 acknowledgement in the given state."""
+
+    def __init__(self, leased_job: VisionJobLease | None, state: str = "finalizing") -> None:
+        super().__init__(leased_job)
+        self.state = state
+
+    async def complete(self, lease, result, processing_duration_ms, provenance, *, authorize_publish=None):
+        await super().complete(lease, result, processing_duration_ms, provenance, authorize_publish=authorize_publish)
+        payload = {
+            "schemaVersion": "3.1",
+            "jobId": str(lease.job_id),
+            "processingRunId": str(lease.processing_run_id),
+            "state": self.state,
+            "acceptedAtUtc": "2026-09-25T08:00:00Z",
+            "tracksSubmitted": len(result.tracks),
+        }
+        if self.state == "completed":
+            payload["completedAtUtc"] = "2026-09-25T08:01:30Z"
+        return VisionJobFinalizationResponse.model_validate_json(json.dumps(payload))
+
+
+def _stage_current_attempt(tmp_path: Path, lease: VisionJobLease) -> Path:
+    from mavi_vision.storage.artifact_store import StagingArtifactStore
+
+    StagingArtifactStore(tmp_path, lease.job_id, lease.attempt_count).append_bytes("spool/t.traj", b"x")
+    return tmp_path / "staging" / str(lease.job_id) / f"attempt-{lease.attempt_count:04d}" / "spool" / "t.traj"
+
+
+@pytest.mark.parametrize("state", ["finalizing", "completed"])
+def test_current_attempt_staging_survives_the_hand_off(tmp_path: Path, state: str, caplog) -> None:
+    """The retained staging is the platform finalizer's input: a ``finalizing``
+    acknowledgement (or the ``completed`` replay of one) never deletes it."""
+    lease = make_lease()
     media = tmp_path / "videos" / "input.mp4"
     media.parent.mkdir(exist_ok=True)
     media.write_bytes(b"video")
-    client = FakeWorkerApiClient(lease)
+    staged = _stage_current_attempt(tmp_path, lease)
+    client = FinalizingWorkerApiClient(lease, state)
     runner = WorkerRunner(
         client,
         LocalMediaStore(tmp_path),
         2.0,
-        processor,
-        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
-        staging_cleaner=cleaner,
-    )
-    return runner, client
-
-
-def test_runner_cleans_own_staging_after_accepted_completion(tmp_path: Path) -> None:
-    lease = make_lease()
-    calls: list[tuple[object, int]] = []
-    runner, client = _runner_with_cleaner(
-        tmp_path,
-        lease,
         RecordingProcessor(make_result(lease)),
-        lambda job_id, attempt: (calls.append((job_id, attempt)), client.events.append("cleanup")),
+        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
     )
 
-    assert asyncio.run(runner.run_once()) is True
-
-    assert calls == [(lease.job_id, lease.attempt_count)]
-    # Only after the platform accepted the completion.
-    assert client.events.index("complete") < client.events.index("cleanup")
-
-
-def test_cleanup_failure_does_not_fail_attempt(tmp_path: Path, caplog) -> None:
-    lease = make_lease()
-
-    def failing_cleaner(job_id, attempt) -> None:
-        raise OSError("device busy")
-
-    runner, client = _runner_with_cleaner(
-        tmp_path, lease, RecordingProcessor(make_result(lease)), failing_cleaner
-    )
-
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         assert asyncio.run(runner.run_once()) is True
 
-    assert "complete" in client.events
+    assert client.events[-1] == "complete"
     assert client.failures == []
-    assert any("staging janitor will reclaim" in r.message for r in caplog.records)
+    assert staged.exists()
+    assert any(f"handed off: state={state}" in r.message for r in caplog.records)
 
 
-def test_staging_is_not_released_for_a_failed_attempt(tmp_path: Path) -> None:
-    lease = make_lease()
-    calls: list[object] = []
-    runner, client = _runner_with_cleaner(
-        tmp_path,
-        lease,
-        RecordingProcessor(error=VideoProcessingError("decode_failed")),
-        lambda job_id, attempt: calls.append(job_id),
-    )
-
-    asyncio.run(runner.run_once())
-
-    # Failed attempts clean themselves inside the processor; the runner's
-    # fast path belongs to accepted completions only.
-    assert calls == []
-    assert client.failures[0][0] == "vision_processing_failed"
-
-
-def test_staging_is_not_released_after_lease_loss(tmp_path: Path) -> None:
-    lease = make_lease()
-    calls: list[object] = []
-    runner, client = _runner_with_cleaner(
-        tmp_path,
-        lease,
-        RecordingProcessor(error=LeaseLostError()),
-        lambda job_id, attempt: calls.append(job_id),
-    )
-
-    with pytest.raises(WorkerApiError, match="lease ownership lost"):
-        asyncio.run(runner.run_once())
-
-    # A stale attempt deletes nothing: its staging belongs to the next attempt's
-    # superseded-attempt cleanup or the platform janitor.
-    assert calls == []
-    assert "complete" not in client.events
-
-
-def test_composed_runner_releases_exactly_the_accepted_attempt(tmp_path: Path) -> None:
+def test_the_runner_has_no_post_hand_off_staging_cleaner(tmp_path: Path) -> None:
+    """Mutation guard: nothing on the runner or its composition can delete the
+    current attempt after acknowledgement; the only deletions left are the
+    pipeline's superseded-attempt cleanup and the platform janitor."""
     from types import SimpleNamespace
-    from uuid import uuid4
 
-    from mavi_vision.storage.artifact_store import StagingArtifactStore
     from mavi_vision.worker.main import build_runner
 
     settings = SimpleNamespace(
@@ -1076,14 +1049,33 @@ def test_composed_runner_releases_exactly_the_accepted_attempt(tmp_path: Path) -
         request_timeout_seconds=30.0,
         watchdog_grace_seconds=10.0,
     )
-    job_id, other_job = uuid4(), uuid4()
-    for job, attempt in ((job_id, 1), (job_id, 2), (other_job, 2)):
-        StagingArtifactStore(tmp_path, job, attempt).append_bytes("spool/t.traj", b"x")
-
     runner = build_runner(settings, client=None)  # type: ignore[arg-type]
-    runner._staging_cleaner(job_id, 2)
 
-    staging = tmp_path / "staging"
-    assert not (staging / str(job_id) / "attempt-0002").exists()
-    assert (staging / str(job_id) / "attempt-0001" / "spool" / "t.traj").exists()
-    assert (staging / str(other_job) / "attempt-0002" / "spool" / "t.traj").exists()
+    assert not hasattr(runner, "_staging_cleaner")
+    assert not hasattr(runner, "_release_accepted_staging")
+    with pytest.raises(TypeError):
+        WorkerRunner(FakeWorkerApiClient(None), LocalMediaStore(tmp_path), 2.0, None, staging_cleaner=lambda j, a: None)
+
+
+def test_staging_is_kept_after_lease_loss_too(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    staged = _stage_current_attempt(tmp_path, lease)
+    client = FakeWorkerApiClient(lease)
+    runner = WorkerRunner(
+        client,
+        LocalMediaStore(tmp_path),
+        2.0,
+        RecordingProcessor(error=LeaseLostError()),
+        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+    )
+
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
+        asyncio.run(runner.run_once())
+
+    # A stale attempt deletes nothing: its staging belongs to the next attempt's
+    # superseded-attempt cleanup or the platform janitor.
+    assert staged.exists()
+    assert "complete" not in client.events

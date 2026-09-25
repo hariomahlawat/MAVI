@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<VideoImportService>();
         services.AddScoped<IProcessingOrchestrator, ProcessingOrchestrator>();
         services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
+        services.AddScoped<IVisionFinalizationSubmissionStore, VisionFinalizationSubmissionStore>();
         services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
         services.AddScoped<TrackSearchService>();
         services.AddScoped<ISceneConfigurationRepository, SceneConfigurationRepository>();

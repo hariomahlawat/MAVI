@@ -49,7 +49,10 @@ public sealed class ProcessingResultStore(
         if (job is null)
             return VisionCompletionResult.Failure("vision_job_not_found");
 
-        if (!WorkerContractRules.IsAcceptedCompletionSchemaVersion(request.SchemaVersion) ||
+        // Since F2 this synchronous path serves completion 2.0 only: 3.1 is the durable
+        // hand-off (VisionFinalizationSubmissionStore) and 3.0 is retired at the endpoint.
+        // The v3 sealing/graph code below stays for the finalizer to lift in F3.
+        if (request.SchemaVersion != WorkerContractRules.CompletionSchemaVersionV2 ||
             request.JobId != jobId ||
             !string.Equals(request.WorkerId, workerId, StringComparison.Ordinal) ||
             !string.Equals(request.LeaseToken, leaseToken, StringComparison.Ordinal))

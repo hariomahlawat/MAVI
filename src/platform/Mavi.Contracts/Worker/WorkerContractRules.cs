@@ -21,20 +21,20 @@ public static class WorkerContractRules
 
     /// <summary>
     /// Completion versions this platform accepts at <c>POST …/complete</c> and advertises at
-    /// <c>GET /api/vision/contract</c>, in ascending order. F1 of the asynchronous-finalization
-    /// repair defines 3.1 without accepting it: acceptance switches to
-    /// <see cref="AsynchronousCompletionSchemaVersions"/> when F2 lands the hand-off, and 3.0
-    /// retires with it (plan §15.2).
+    /// <c>GET /api/vision/contract</c>, in ascending order. Since F2 of the
+    /// asynchronous-finalization repair this is <see cref="AsynchronousCompletionSchemaVersions"/>:
+    /// 2.0 unchanged (synchronous), 3.1 answered by a durable hand-off, and 3.0 retired
+    /// (plan §15.2). A 3.0 body is refused with <c>worker_contract_version_unsupported</c> and
+    /// is never reinterpreted as 3.1.
     /// </summary>
-    public static IReadOnlyList<string> CompletionSchemaVersions { get; } =
-        [CompletionSchemaVersionV2, CompletionSchemaVersionV3];
+    public static IReadOnlyList<string> CompletionSchemaVersions => AsynchronousCompletionSchemaVersions;
 
-    /// <summary>The set F2 enables: 2.0 unchanged, 3.1 asynchronous, 3.0 retired.</summary>
+    /// <summary>The live set since F2: 2.0 unchanged, 3.1 asynchronous, 3.0 retired.</summary>
     public static IReadOnlyList<string> AsynchronousCompletionSchemaVersions { get; } =
         [CompletionSchemaVersionV2, CompletionSchemaVersionV31];
 
     public static bool IsAcceptedCompletionSchemaVersion(string? value) =>
-        value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3;
+        value is CompletionSchemaVersionV2 or CompletionSchemaVersionV31;
 
     /// <summary>Every completion version the platform can read, accepted or not.</summary>
     public static bool IsKnownCompletionSchemaVersion(string? value) =>
