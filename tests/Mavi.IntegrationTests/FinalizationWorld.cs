@@ -107,13 +107,17 @@ internal sealed class FinalizationWorld : IDisposable
     public sealed record HandOff(HttpClient Client, VisionJobLeaseContract Lease, VisionJobCompleteRequest Request, VisionJobFinalizationResponse Ack);
 
     /// <summary>Seeds a video, leases it, stages one Track's evidence and posts the 3.1 hand-off.</summary>
-    public async Task<HandOff> HandOffAsync(string workerId = "gpu-sdd-01", string[]? roles = null, string cameraCode = "CAM-COMPLETE")
+    public Task<HandOff> HandOffAsync(string workerId = "gpu-sdd-01", string[]? roles = null, string cameraCode = "CAM-COMPLETE") =>
+        HandOffAsync(lease => VisionFinalizationSubmissionApiTests.BuildRequestAsync(Factory, lease, roles ?? AllRoles), workerId, cameraCode);
+
+    /// <summary>Seeds a video, leases it, builds the body for that lease and posts the 3.1 hand-off.</summary>
+    public async Task<HandOff> HandOffAsync(Func<VisionJobLeaseContract, Task<VisionJobCompleteRequest>> build, string workerId = "gpu-sdd-01", string cameraCode = "CAM-COMPLETE")
     {
         var videoId = await SeedVideoAsync(cameraCode);
         var client = Factory.CreateClient();
         (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
         var lease = await VisionResultCompletionApiTests.LeaseAsync(client, workerId);
-        var request = await VisionFinalizationSubmissionApiTests.BuildRequestAsync(Factory, lease, roles ?? AllRoles);
+        var request = await build(lease);
         using var response = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request);
         var body = await response.Content.ReadAsStringAsync();
         Assert.True(response.StatusCode == HttpStatusCode.OK, body);
