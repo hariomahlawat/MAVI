@@ -5,8 +5,8 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from typing import Any
-from uuid import UUID
 
+from uuid import UUID
 from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.pipeline.production_processor import ProductionVisionProcessor
 from mavi_vision.runtime.activity import InferenceActivity
@@ -62,6 +62,10 @@ def build_runner(
     media_root = settings.media_root
 
     def release_attempt_staging(job_id: UUID, attempt_count: int) -> None:
+        # Fast path after a synchronous 3.0 completion only. After a 3.1 hand-off
+        # (S1.4 B3 F2) the runner keeps the current attempt's staging: it is the
+        # platform finalizer's input. Superseded attempts are still removed by the
+        # next attempt's pipeline and by the platform staging janitor (ADR-006 §6).
         StagingArtifactStore(media_root, job_id, attempt_count).cleanup()
 
     return WorkerRunner(

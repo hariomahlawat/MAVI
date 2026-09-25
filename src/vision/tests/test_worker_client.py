@@ -222,6 +222,8 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == f"/api/vision/jobs/{expected.job_id}/complete"
         payload = json.loads(request.content)
+        # Default settings: the synchronous 3.0 completion, until the F3 release
+        # sets MAVI_COMPLETION_SCHEMA_VERSION=3.1 (S1.4 B3 plan §15.2).
         assert payload["schemaVersion"] == "3.0"
         assert payload["jobId"] == str(expected.job_id)
         assert payload["workerId"] == expected.worker_id

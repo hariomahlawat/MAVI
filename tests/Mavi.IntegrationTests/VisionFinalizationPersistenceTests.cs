@@ -286,22 +286,23 @@ public sealed class VisionFinalizationPersistenceTests(PostgresFixture fixture)
     // -- F1 runtime posture -------------------------------------------------------------------
 
     [Fact]
-    public async Task EndpointStillRejects31AndProbeStillAdvertises20And30()
+    public async Task EndpointRejectsRetired30AndProbeAdvertises20And31WhenActivated()
     {
-        using var factory = new ApiTestFactory { Clock = new MutableTimeProvider(Now) };
+        using var factory = new ApiTestFactory { Clock = new MutableTimeProvider(Now), EnableAsynchronousFinalization = true };
         await factory.ResetAndMigrateAsync();
         var videoId = await VisionResultCompletionApiTests.SeedVideoAsync(factory);
         using var client = factory.CreateClient();
         (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
         var lease = await VisionResultCompletionApiTests.LeaseAsync(client, "gpu-sdd-01");
-        var request = await VisionResultCompletionV3ApiTests.BuildRequestAsync(factory, lease, ["representative"]);
+        var request = await VisionFinalizationSubmissionApiTests.BuildRequestAsync(factory, lease, ["representative"]);
 
-        using var rejected = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request with { SchemaVersion = "3.1" });
+        // A 3.0 worker that reaches the endpoint anyway is refused, not reinterpreted as 3.1 (plan §15.4).
+        using var rejected = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request with { SchemaVersion = "3.0" });
 
         Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
         Assert.Contains("worker_contract_version_unsupported", await rejected.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         using var probe = await client.GetAsync("/api/vision/contract");
-        Assert.Contains("\"completionSchemaVersions\":[\"2.0\",\"3.0\"]", await probe.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("\"completionSchemaVersions\":[\"2.0\",\"3.1\"]", await probe.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
         Assert.Equal(VisionJobStatus.Leased, (await db.VisionJobs.SingleAsync()).Status);

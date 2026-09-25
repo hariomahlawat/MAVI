@@ -34,8 +34,10 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task ContractProbeAdvertisesControlPlaneAndBothCompletionVersions()
+    public async Task ContractProbeAdvertisesControlPlaneAndBothSynchronousCompletionVersionsByDefault()
     {
+        // The default (F2-only) deployment: asynchronous finalization is not activated, so the
+        // probe still lists the synchronous 2.0 and 3.0 and never 3.1 (plan §15.2).
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
         using var client = factory.CreateClient();
@@ -72,12 +74,15 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData("1.0")]
-    [InlineData("3.1")]
-    [InlineData("4.0")]
-    public async Task CompletionRejectsUnacceptedVersions(string version)
+    [InlineData("1.0", false)]
+    [InlineData("3.1", false)] // not activated: no job may enter Finalizing without a finalizer
+    [InlineData("4.0", false)]
+    [InlineData("1.0", true)]
+    [InlineData("3.0", true)] // retired at activation; never reinterpreted as 3.1
+    [InlineData("4.0", true)]
+    public async Task CompletionRejectsUnacceptedVersions(string version, bool asynchronousFinalization)
     {
-        using var factory = new ApiTestFactory();
+        using var factory = new ApiTestFactory { EnableAsynchronousFinalization = asynchronousFinalization };
         await factory.ResetAndMigrateAsync();
         using var client = factory.CreateClient();
 
@@ -108,7 +113,7 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
         using var client = factory.CreateClient();
-        var body = "{\"schemaVersion\":\"3.0\",\"tracks\":[{\"observations\":[" +
+        var body = "{\"schemaVersion\":\"3.1\",\"tracks\":[{\"observations\":[" +
                    string.Join(',', Enumerable.Repeat("{}", 5)) + "]}]}";
 
         using var response = await client.PostAsync(
@@ -168,13 +173,13 @@ public sealed class WorkerContractV3Tests(ITestOutputHelper output)
         }).ToArray();
         var role = new VisionEvidenceRoleAccountingContract(int.MaxValue, int.MaxValue, int.MaxValue, long.MaxValue, long.MaxValue);
         var request = new VisionJobCompleteRequest(
-            "3.0", jobId, new string('w', 128), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 9999, longOffset, longOffset,
+            "3.1", jobId, new string('w', 128), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 9999, longOffset, longOffset,
             null, tracks, new VisionEvidenceAccountingContract(role, role, role, role));
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(request, Json).LongLength;
 
         // The provenance block is bounded separately and far below 1 MiB.
-        output.WriteLine($"Worst-shape completion 3.0 body without provenance: {bytes:N0} bytes ({bytes / 1024.0 / 1024.0:F2} MiB).");
+        output.WriteLine($"Worst-shape completion 3.1 body without provenance: {bytes:N0} bytes ({bytes / 1024.0 / 1024.0:F2} MiB).");
         Assert.True(bytes <= 32L * 1024 * 1024, $"Worst shape {bytes} bytes exceeds the 32 MiB plan stop condition.");
         Assert.True(bytes <= WorkerContractRules.MaximumCompletionRequestBodyBytes - 8L * 1024 * 1024);
     }

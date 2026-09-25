@@ -8,6 +8,7 @@ using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Mavi.Infrastructure.Persistence.Repositories;
 
@@ -17,6 +18,7 @@ public sealed class ProcessingResultStore(
     ILeaseCapabilityService leaseCapabilities,
     VisionResultValidator validator,
     IAcceptedEvidenceStore acceptedEvidenceStore,
+    IOptions<VisionFinalizationOptions> finalizationOptions,
     ILogger<ProcessingResultStore> logger) : IProcessingResultStore
 {
     private static readonly Action<ILogger, Guid, Exception?> LogRollbackConfirmationFailure =
@@ -49,8 +51,14 @@ public sealed class ProcessingResultStore(
         if (job is null)
             return VisionCompletionResult.Failure("vision_job_not_found");
 
-        if (!WorkerContractRules.IsAcceptedCompletionSchemaVersion(request.SchemaVersion) ||
-            request.JobId != jobId ||
+        // The synchronous path: completion 2.0 always, and 3.0 until asynchronous finalization
+        // is activated (VisionFinalization:Enabled), at which point 3.0 is retired and 3.1 is
+        // the durable hand-off (VisionFinalizationSubmissionStore). The v3 sealing/graph code
+        // below is what the F3 finalizer lifts.
+        if (request.SchemaVersion != WorkerContractRules.CompletionSchemaVersionV2 &&
+            (request.SchemaVersion != WorkerContractRules.CompletionSchemaVersionV3 || finalizationOptions.Value.Enabled))
+            return VisionCompletionResult.Failure("vision_result_invalid");
+        if (request.JobId != jobId ||
             !string.Equals(request.WorkerId, workerId, StringComparison.Ordinal) ||
             !string.Equals(request.LeaseToken, leaseToken, StringComparison.Ordinal))
             return VisionCompletionResult.Failure("vision_result_invalid");

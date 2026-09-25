@@ -46,6 +46,13 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     /// </summary>
     public bool EnableStagingJanitorHost { get; init; }
 
+    /// <summary>
+    /// The S1.4 B3 activation gate (<c>VisionFinalization:Enabled</c>). Off by default, as in
+    /// a deployment of F2 alone: completion 2.0/3.0 synchronous, 3.1 refused. The F2 hand-off
+    /// suites turn it on to exercise the path the F3 release activates.
+    /// </summary>
+    public bool EnableAsynchronousFinalization { get; init; }
+
     /// <summary>Use an existing media root instead of a fresh temporary one.</summary>
     public string? MediaRootOverride { get; init; }
 
@@ -88,6 +95,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["MediaProcessing:VerifyOnStartup"] = "false",
                 ["SceneAnalytics:Enabled"] = EnableSceneAnalyticsHost ? "true" : "false",
                 ["StagingJanitor:Enabled"] = EnableStagingJanitorHost ? "true" : "false",
+                ["VisionFinalization:Enabled"] = EnableAsynchronousFinalization ? "true" : "false",
                 ["TrackSearch:CursorSigningKey"] = CursorSigningKey,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),

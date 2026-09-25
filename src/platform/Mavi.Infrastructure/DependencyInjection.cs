@@ -42,6 +42,7 @@ public static class DependencyInjection
         services.AddScoped<VideoImportService>();
         services.AddScoped<IProcessingOrchestrator, ProcessingOrchestrator>();
         services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
+        services.AddScoped<IVisionFinalizationSubmissionStore, VisionFinalizationSubmissionStore>();
         services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
         services.AddScoped<TrackSearchService>();
         services.AddScoped<ISceneConfigurationRepository, SceneConfigurationRepository>();
@@ -111,6 +112,10 @@ public static class DependencyInjection
             .Validate(x => x.LeaseSeconds is >= 1 and <= 86400, "VisionProcessing:LeaseSeconds must be between 1 and 86400.")
             .Validate(x => x.HeartbeatExtensionSeconds is >= 1 and <= 86400,
                 "VisionProcessing:HeartbeatExtensionSeconds must be between 1 and 86400.")
+            .ValidateOnStart();
+        // S1.4 B3 activation gate: off until the F3 finalizer exists (plan §15.2).
+        services.AddOptions<VisionFinalizationOptions>()
+            .Bind(configuration.GetSection(VisionFinalizationOptions.SectionName))
             .ValidateOnStart();
         services.AddSceneAnalyticsOptions(configuration);
         services.AddTrackSearchOptions(configuration);

@@ -548,26 +548,36 @@ def measure_completion_peak(result: VisionProcessingResult) -> dict[str, int]:
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.append(len(request.content))
+        # The platform's completion 3.1 hand-off acknowledgement (S1.4 B3 F2): the
+        # worker's peak is measured up to the acknowledged submission, not publication.
         return httpx.Response(
             200,
             json={
-                "schemaVersion": "3.0",
+                "schemaVersion": "3.1",
                 "jobId": str(result.job_id),
                 "processingRunId": "01920000-0000-7000-8000-000000000001",
-                "tracksAccepted": len(result.tracks),
-                "completedAtUtc": "2026-09-24T00:00:00Z",
+                "state": "finalizing",
+                "acceptedAtUtc": "2026-09-24T00:00:00Z",
+                "tracksSubmitted": len(result.tracks),
             },
         )
 
     async def invoke() -> None:
         with tempfile.TemporaryDirectory() as media_root:
-            settings = WorkerSettings(api_base_url="https://mavi-api.local", worker_id=golden["workerId"], media_root=Path(media_root))
+            # The harness exercises the S1.4 B3 F2 hand-off explicitly: the worker
+            # gate is set to 3.1 here, matching the fake platform's acknowledgement.
+            settings = WorkerSettings(
+                api_base_url="https://mavi-api.local",
+                worker_id=golden["workerId"],
+                media_root=Path(media_root),
+                completion_schema_version="3.1",
+            )
             client = WorkerApiClient(settings, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
             try:
                 response = await client.complete(lease, result, 1, provenance)
             finally:
                 await client.aclose()
-        if response.tracks_accepted != len(result.tracks):
+        if response.state != "finalizing" or response.tracks_submitted != len(result.tracks):
             raise RuntimeError("completion_peak_response_mismatch")
 
     gc.collect()

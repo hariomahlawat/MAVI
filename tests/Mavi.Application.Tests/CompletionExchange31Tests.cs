@@ -104,14 +104,31 @@ public sealed class CompletionExchange31Tests
     }
 
     [Fact]
-    public void StagedAcceptanceLists()
+    public void AcceptanceListsFollowTheActivationGate()
     {
-        // F1: the endpoint keeps accepting 2.0 and 3.0; 3.1 is defined, not yet accepted.
-        Assert.Equal(["2.0", "3.0"], WorkerContractRules.CompletionSchemaVersions);
-        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0"));
-        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1"));
+        // Not activated (F2 alone): 2.0 and 3.0 synchronous, 3.1 refused.
+        Assert.Equal(["2.0", "3.0"], WorkerContractRules.CompletionSchemaVersions(false));
+        Assert.Equal(["2.0", "3.0"], WorkerContractRules.SynchronousCompletionSchemaVersions);
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("2.0", false));
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0", false));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1", false));
 
-        // F2 flips to: 2.0 unchanged, 3.0 retired, 3.1 accepted.
+        // Activated with F3 (plan §15.2): 2.0 unchanged, 3.0 retired, 3.1 accepted and advertised.
+        Assert.Equal(["2.0", "3.1"], WorkerContractRules.CompletionSchemaVersions(true));
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("2.0", true));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0", true));
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1", true));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion(null, true));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion(null, false));
+
+        // Advertisement and acceptance are one decision: in both states exactly the advertised
+        // versions are accepted, over every version the platform knows.
+        foreach (var activated in new[] { false, true })
+            foreach (var version in new[] { "2.0", "3.0", "3.1" })
+                Assert.Equal(
+                    WorkerContractRules.CompletionSchemaVersions(activated).Contains(version),
+                    WorkerContractRules.IsAcceptedCompletionSchemaVersion(version, activated));
+
         Assert.Equal(["2.0", "3.1"], WorkerContractRules.AsynchronousCompletionSchemaVersions);
         Assert.Equal("3.1", WorkerContractRules.CompletionSchemaVersionV31);
         Assert.True(WorkerContractRules.IsKnownCompletionSchemaVersion("2.0"));

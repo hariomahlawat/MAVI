@@ -457,12 +457,16 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
         ),
         artifacts=tuple(f"{SEALING_OUTPUT_ARTIFACT}.{variant}" for variant in QUALIFIED_CPU_VARIANTS),
     ),
-    # §8: Python/.NET agreement, replay and both non-compensable windows.
+    # §8: Python/.NET agreement, replay and the commit boundary. Since S1.4 B3 F2 the
+    # synchronous v3 suite covers the default (not activated) platform and the completion
+    # 3.1 hand-off suite the activated one; F4 re-derives the B4 set with the finalizer's
+    # publication and recovery suites.
     "B4": UnitRequirement(
         suites=(
             "src/vision/tests/test_worker_completion_v3.py",
             "tests/Mavi.Application.Tests/CompletionDigestGoldenTests",
             "tests/Mavi.IntegrationTests/VisionResultCompletionV3ApiTests",
+            "tests/Mavi.IntegrationTests/VisionFinalizationSubmissionApiTests",
             "tests/Mavi.IntegrationTests/VisionResultCompletionApiTests",
             "tests/Mavi.IntegrationTests/VisionResultCompletionCommitFailureTests",
         ),

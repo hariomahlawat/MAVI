@@ -923,14 +923,17 @@ class VisionEvidenceAccounting(ControlPlaneModel):
 
 
 class VisionJobCompleteV3(_CompletionModel):
-    """Completion 3.0 with the Track Evidence Set (S1.2a contract; S1.2 plan §7).
+    """Completion 3.x with the Track Evidence Set (S1.2a contract; S1.2 plan §7).
 
-    Field names and bounds mirror ``contracts/schemas/vision-job-complete-v3``;
-    the contract tests validate this model's output against that schema and the
-    golden example, so the two cannot drift silently.
+    Field names and bounds mirror ``contracts/schemas/vision-job-complete-v3``
+    and ``-v3.1`` (the same body; 3.1 is the asynchronous exchange version of
+    S1.4 B3 §5, answered by :class:`VisionJobFinalizationResponse`). The
+    contract tests validate this model's output against the schema and the
+    golden example, so the two cannot drift silently. The worker emits 3.1
+    only; 3.0 remains readable for the shared conformance corpora.
     """
 
-    schema_version: Literal["3.0"]
+    schema_version: Literal["3.0", "3.1"]
     job_id: UUID
     worker_id: WorkerId
     lease_token: LeaseToken
@@ -1005,11 +1008,38 @@ class VisionContractCapabilities(ControlPlaneModel):
 
 
 class VisionJobCompleteResponse(ControlPlaneModel):
+    """The synchronous completion acknowledgement (2.0; 3.0 retired with S1.4 F2)."""
+
     schema_version: Literal["2.0", "3.0"]
     job_id: UUID
     processing_run_id: UUID
     tracks_accepted: int = Field(ge=0)
     completed_at_utc: CanonicalUtcDateTime
+
+
+class VisionJobFinalizationResponse(ControlPlaneModel):
+    """Completion 3.1 acknowledgement (S1.4 B3 plan §5.2; ``vision-job-finalization-response-v3.1``).
+
+    ``finalizing`` means the platform durably owns the hand-off and still has
+    to seal and publish; ``completed`` is the exact replay of a job the
+    platform already published. ``tracks_submitted`` is the validated Track
+    count of the accepted body, never a published count. ``completed_at_utc``
+    is present only with ``completed``.
+    """
+
+    schema_version: Literal["3.1"]
+    job_id: UUID
+    processing_run_id: UUID
+    state: Literal["finalizing", "completed"]
+    accepted_at_utc: CanonicalUtcDateTime
+    tracks_submitted: int = Field(ge=0, le=10_000)
+    completed_at_utc: CanonicalUtcDateTime | None = None
+
+    @model_validator(mode="after")
+    def validate_state_shape(self) -> "VisionJobFinalizationResponse":
+        if (self.state == "completed") != (self.completed_at_utc is not None):
+            raise ValueError("completedAtUtc is present exactly when state is completed")
+        return self
 
 
 class WorkerHealth(ControlPlaneModel):

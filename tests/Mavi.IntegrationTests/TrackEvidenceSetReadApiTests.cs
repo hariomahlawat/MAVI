@@ -32,28 +32,24 @@ public sealed class TrackEvidenceSetReadApiTests
     // --- valid shapes ---------------------------------------------------------------
 
     [Fact]
-    public async Task AV3TrackCompletedThroughTheRealWritePathReadsBackAsItsFullEvidenceSet()
+    public async Task AFullEvidenceSetReadsBackInRankOrderWithEveryStoredFact()
     {
+        // Since F2 the completion 3.1 request only hands off (no Track rows); the relational
+        // Evidence Set is published by the F3 finalizer. The read contract is exercised on the
+        // seeded relational shape that publication produces.
         using var factory = new ApiTestFactory { Clock = new MutableTimeProvider(CompletedAt) };
         await factory.ResetAndMigrateAsync();
-        var videoId = await VisionResultCompletionApiTests.SeedVideoAsync(factory);
-        using var client = factory.CreateClient();
-        (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
-        var lease = await VisionResultCompletionApiTests.LeaseAsync(client, "gpu-sdd-01");
-        var request = await VisionResultCompletionV3ApiTests.BuildRequestAsync(
-            factory, lease, ["representative", "near-view", "early-diverse", "late-diverse"]);
-        (await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request)).EnsureSuccessStatusCode();
+        var video = await SeedBaseVideoAsync(factory);
+        var seeded = await AddTrackWithEvidenceSetAsync(factory, video, CompletedAt, FullSet, new RepresentativePointer.RankZero());
 
         List<Observation> persisted;
-        Guid trackId;
         using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
-            trackId = (await db.Tracks.SingleAsync()).Id;
-            persisted = await db.Observations.OrderBy(x => x.EvidenceRank).ToListAsync();
+            persisted = await db.Observations.Where(x => x.TrackId == seeded.TrackId).OrderBy(x => x.EvidenceRank).ToListAsync();
         }
 
-        var detail = await client.GetFromJsonAsync<TrackDetailResponse>($"/api/tracks/{trackId:D}");
+        var detail = await GetDetailAsync(factory, seeded.TrackId);
 
         Assert.NotNull(detail);
         Assert.Equal(["Representative", "NearView", "EarlyDiverse", "LateDiverse"], detail.Observations.Select(x => x.EvidenceRole));

@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from mavi_vision.common.analytical import VisionProcessingResult
-from mavi_vision.common.control_plane import VisionJobHeartbeatResponse, VisionJobLease
+from mavi_vision.common.control_plane import (
+    VisionJobCompleteResponse,
+    VisionJobFinalizationResponse,
+    VisionJobHeartbeatResponse,
+    VisionJobLease,
+)
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 from mavi_vision.pipeline.process_video import VideoProcessingError
 from mavi_vision.runtime.errors import (
@@ -973,48 +978,126 @@ def test_the_sink_is_not_called_for_a_failed_attempt(tmp_path: Path) -> None:
     assert client.failures[0][0] == "vision_processing_failed"
 
 
-# Post-completion staging release (S1.2b W5)
-def _runner_with_cleaner(tmp_path: Path, lease, processor, cleaner) -> tuple[WorkerRunner, object]:
+# Staging after the completion 3.1 hand-off (S1.4 B3 F2, plan §5.4, §11)
+class FinalizingWorkerApiClient(FakeWorkerApiClient):
+    """Answers completion with a real 3.1 acknowledgement in the given state."""
+
+    def __init__(self, leased_job: VisionJobLease | None, state: str = "finalizing") -> None:
+        super().__init__(leased_job)
+        self.state = state
+
+    async def complete(self, lease, result, processing_duration_ms, provenance, *, authorize_publish=None):
+        await super().complete(lease, result, processing_duration_ms, provenance, authorize_publish=authorize_publish)
+        payload = {
+            "schemaVersion": "3.1",
+            "jobId": str(lease.job_id),
+            "processingRunId": str(lease.processing_run_id),
+            "state": self.state,
+            "acceptedAtUtc": "2026-09-25T08:00:00Z",
+            "tracksSubmitted": len(result.tracks),
+        }
+        if self.state == "completed":
+            payload["completedAtUtc"] = "2026-09-25T08:01:30Z"
+        return VisionJobFinalizationResponse.model_validate_json(json.dumps(payload))
+
+
+def _stage_current_attempt(tmp_path: Path, lease: VisionJobLease) -> Path:
+    from mavi_vision.storage.artifact_store import StagingArtifactStore
+
+    StagingArtifactStore(tmp_path, lease.job_id, lease.attempt_count).append_bytes("spool/t.traj", b"x")
+    return tmp_path / "staging" / str(lease.job_id) / f"attempt-{lease.attempt_count:04d}" / "spool" / "t.traj"
+
+
+@pytest.mark.parametrize("state", ["finalizing", "completed"])
+def test_current_attempt_staging_survives_the_hand_off(tmp_path: Path, state: str, caplog) -> None:
+    """The retained staging is the platform finalizer's input: a ``finalizing``
+    acknowledgement (or the ``completed`` replay of one) never deletes it."""
+    lease = make_lease()
     media = tmp_path / "videos" / "input.mp4"
     media.parent.mkdir(exist_ok=True)
     media.write_bytes(b"video")
-    client = FakeWorkerApiClient(lease)
+    staged = _stage_current_attempt(tmp_path, lease)
+    client = FinalizingWorkerApiClient(lease, state)
     runner = WorkerRunner(
         client,
         LocalMediaStore(tmp_path),
         2.0,
-        processor,
-        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
-        staging_cleaner=cleaner,
-    )
-    return runner, client
-
-
-def test_runner_cleans_own_staging_after_accepted_completion(tmp_path: Path) -> None:
-    lease = make_lease()
-    calls: list[tuple[object, int]] = []
-    runner, client = _runner_with_cleaner(
-        tmp_path,
-        lease,
         RecordingProcessor(make_result(lease)),
-        lambda job_id, attempt: (calls.append((job_id, attempt)), client.events.append("cleanup")),
+        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
     )
 
-    assert asyncio.run(runner.run_once()) is True
+    with caplog.at_level(logging.INFO):
+        assert asyncio.run(runner.run_once()) is True
 
-    assert calls == [(lease.job_id, lease.attempt_count)]
-    # Only after the platform accepted the completion.
-    assert client.events.index("complete") < client.events.index("cleanup")
+    assert client.events[-1] == "complete"
+    assert client.failures == []
+    assert staged.exists()
+    assert any(f"handed off: state={state}" in r.message for r in caplog.records)
 
 
-def test_cleanup_failure_does_not_fail_attempt(tmp_path: Path, caplog) -> None:
+class SynchronousWorkerApiClient(FakeWorkerApiClient):
+    """Answers completion with a synchronous 3.0 acknowledgement (gate off)."""
+
+    async def complete(self, lease, result, processing_duration_ms, provenance, *, authorize_publish=None):
+        await super().complete(lease, result, processing_duration_ms, provenance, authorize_publish=authorize_publish)
+        return VisionJobCompleteResponse.model_validate_json(json.dumps({
+            "schemaVersion": "3.0",
+            "jobId": str(lease.job_id),
+            "processingRunId": str(lease.processing_run_id),
+            "tracksAccepted": len(result.tracks),
+            "completedAtUtc": "2026-09-25T08:00:00Z",
+        }))
+
+
+def test_the_cleaner_runs_only_after_a_synchronous_completion(tmp_path: Path) -> None:
+    """Mutation guard for the activation boundary: the same runner with the
+    same cleaner releases the attempt after a 3.0 completion (the platform
+    sealed in the request) and never after a 3.1 hand-off."""
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+
+    def run(client) -> list[tuple[object, int]]:
+        calls: list[tuple[object, int]] = []
+        runner = WorkerRunner(
+            client,
+            LocalMediaStore(tmp_path),
+            2.0,
+            RecordingProcessor(make_result(client.leased_job)),
+            runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+            staging_cleaner=lambda job_id, attempt: (calls.append((job_id, attempt)), client.events.append("cleanup")),
+        )
+        assert asyncio.run(runner.run_once()) is True
+        return calls
+
     lease = make_lease()
+    synchronous = SynchronousWorkerApiClient(lease)
+    assert run(synchronous) == [(lease.job_id, lease.attempt_count)]
+    assert synchronous.events.index("complete") < synchronous.events.index("cleanup")
+
+    for state in ("finalizing", "completed"):
+        finalizing = FinalizingWorkerApiClient(make_lease(), state)
+        assert run(finalizing) == []
+        assert "cleanup" not in finalizing.events
+
+
+def test_cleanup_failure_after_a_synchronous_completion_does_not_fail_the_attempt(tmp_path: Path, caplog) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
 
     def failing_cleaner(job_id, attempt) -> None:
         raise OSError("device busy")
 
-    runner, client = _runner_with_cleaner(
-        tmp_path, lease, RecordingProcessor(make_result(lease)), failing_cleaner
+    client = SynchronousWorkerApiClient(lease)
+    runner = WorkerRunner(
+        client,
+        LocalMediaStore(tmp_path),
+        2.0,
+        RecordingProcessor(make_result(lease)),
+        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+        staging_cleaner=failing_cleaner,
     )
 
     with caplog.at_level(logging.WARNING):
@@ -1023,43 +1106,6 @@ def test_cleanup_failure_does_not_fail_attempt(tmp_path: Path, caplog) -> None:
     assert "complete" in client.events
     assert client.failures == []
     assert any("staging janitor will reclaim" in r.message for r in caplog.records)
-
-
-def test_staging_is_not_released_for_a_failed_attempt(tmp_path: Path) -> None:
-    lease = make_lease()
-    calls: list[object] = []
-    runner, client = _runner_with_cleaner(
-        tmp_path,
-        lease,
-        RecordingProcessor(error=VideoProcessingError("decode_failed")),
-        lambda job_id, attempt: calls.append(job_id),
-    )
-
-    asyncio.run(runner.run_once())
-
-    # Failed attempts clean themselves inside the processor; the runner's
-    # fast path belongs to accepted completions only.
-    assert calls == []
-    assert client.failures[0][0] == "vision_processing_failed"
-
-
-def test_staging_is_not_released_after_lease_loss(tmp_path: Path) -> None:
-    lease = make_lease()
-    calls: list[object] = []
-    runner, client = _runner_with_cleaner(
-        tmp_path,
-        lease,
-        RecordingProcessor(error=LeaseLostError()),
-        lambda job_id, attempt: calls.append(job_id),
-    )
-
-    with pytest.raises(WorkerApiError, match="lease ownership lost"):
-        asyncio.run(runner.run_once())
-
-    # A stale attempt deletes nothing: its staging belongs to the next attempt's
-    # superseded-attempt cleanup or the platform janitor.
-    assert calls == []
-    assert "complete" not in client.events
 
 
 def test_composed_runner_releases_exactly_the_accepted_attempt(tmp_path: Path) -> None:
@@ -1087,3 +1133,27 @@ def test_composed_runner_releases_exactly_the_accepted_attempt(tmp_path: Path) -
     assert not (staging / str(job_id) / "attempt-0002").exists()
     assert (staging / str(job_id) / "attempt-0001" / "spool" / "t.traj").exists()
     assert (staging / str(other_job) / "attempt-0002" / "spool" / "t.traj").exists()
+
+
+def test_staging_is_kept_after_lease_loss_too(tmp_path: Path) -> None:
+    lease = make_lease()
+    media = tmp_path / "videos" / "input.mp4"
+    media.parent.mkdir(exist_ok=True)
+    media.write_bytes(b"video")
+    staged = _stage_current_attempt(tmp_path, lease)
+    client = FakeWorkerApiClient(lease)
+    runner = WorkerRunner(
+        client,
+        LocalMediaStore(tmp_path),
+        2.0,
+        RecordingProcessor(error=LeaseLostError()),
+        runtime_provenance_provider=lambda: PROVENANCE_SENTINEL,
+    )
+
+    with pytest.raises(WorkerApiError, match="lease ownership lost"):
+        asyncio.run(runner.run_once())
+
+    # A stale attempt deletes nothing: its staging belongs to the next attempt's
+    # superseded-attempt cleanup or the platform janitor.
+    assert staged.exists()
+    assert "complete" not in client.events

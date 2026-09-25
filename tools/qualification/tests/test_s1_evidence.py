@@ -1515,7 +1515,7 @@ def test_a_closure_must_be_a_later_commit_on_main(tmp_path: Path) -> None:
 def test_shared_test_support_invalidates_the_units_citing_its_project() -> None:
     cited = {
         "B2": {"src/vision/tests/test_track_lifecycle.py"},
-        "B4": {"tests/Mavi.IntegrationTests/VisionResultCompletionV3ApiTests"},
+        "B4": {"tests/Mavi.IntegrationTests/VisionFinalizationSubmissionApiTests"},
         "B5": {"src/web/mavi-web"},
     }
     assert invalidated_units(["src/vision/tests/conftest.py"], cited)["src/vision/tests/conftest.py"] == {"B2"}
