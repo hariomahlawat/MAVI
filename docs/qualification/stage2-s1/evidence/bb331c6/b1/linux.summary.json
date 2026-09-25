@@ -1,0 +1,3761 @@
+{
+  "provenance": {
+    "model_id": "rtmdet-m-coco-phase1",
+    "model_version": "1.0.0",
+    "model_manifest_sha256": "0049875d8190af7f268b4613cba99afef8a9f0d39a64471fd84f9ab0bc8d8d7d",
+    "checkpoint_sha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
+    "resolved_config_sha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+    "pipeline_profile_id": "phase1-detection-tracking-v1",
+    "pipeline_profile_version": "1.2.0-candidate",
+    "pipeline_profile_sha256": "503225be736d9622ed110aa69e49a83dde4ae02c858d5e8fa41e527b1c4b23fb",
+    "qualification_id": "rtmdet-m-coco-phase1-v1",
+    "qualification_sha256": "7d7083d902f8a8ff4a8ebe4d114fd03255b1b0c0192461357b584a1a01f3e7b9",
+    "verification_status": "unverified",
+    "runtime_profile_id": "mmdetection-phase1-v1",
+    "runtime_profile_sha256": "b3c59ac4e535d5e2e7356fef55f5266937e56751207f37a06dd13140b01c6873",
+    "runtime_variant": "linux-x86_64-cpu",
+    "platform_lock_sha256": null,
+    "detector_backend": "mmdetection",
+    "dependency_versions": {
+      "python": "3.12.14",
+      "torch": "2.6.0+cpu",
+      "torchvision": "0.21.0+cpu",
+      "mmcv": "2.1.0",
+      "mmengine": "0.10.7",
+      "mmdet": "3.3.0",
+      "trackers": "2.6.0",
+      "supervision": "0.30.2",
+      "scipy": "1.18.1",
+      "numpy": "2.5.3",
+      "opencv": "5.0.0",
+      "opencvPython": "5.0.0.93",
+      "av": "16.1.0",
+      "pillow": "11.3.0"
+    },
+    "ffmpeg_version": null,
+    "platform": {
+      "system": "Linux",
+      "release": "6.18.44-fc-v37",
+      "version": "#1 SMP PREEMPT_DYNAMIC @0",
+      "machine": "x86_64",
+      "processor": "x86_64",
+      "python_version": "3.12.14",
+      "python_implementation": "CPython",
+      "python_build": [
+        "main",
+        "Aug 13 2026 02:47:42"
+      ],
+      "python_compiler": "GCC 13.3.0"
+    },
+    "configured_device_policy": "cpu",
+    "configured_device_index": 0,
+    "actual_device": "cpu",
+    "gpu": null,
+    "mavi_build": "s1-4-pr-b-b1",
+    "mavi_commit": "bb331c6825569b32ed280cfde21d6527071a7fb0",
+    "frame_policy": "every-frame",
+    "tracker_parameters": {
+      "reference_frame_rate": 30.0,
+      "track_activation_threshold": 0.7,
+      "high_confidence_threshold": 0.6,
+      "minimum_iou_threshold": 0.1,
+      "minimum_consecutive_frames": 2,
+      "lost_track_buffer_seconds": 1.0
+    },
+    "device_resolution_reason": null,
+    "input_colour_space": "RGB"
+  },
+  "clips": [
+    {
+      "clip": "MOT17-02-FRCNN",
+      "sha256": "e07f9a54ea82e77fcdc23880df9047dbfefe7e297c212fef1ccacf484647f33a",
+      "sizeBytes": 105652679,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "mjpeg",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30.0,
+        "frames": 600,
+        "durationSeconds": 20.0
+      },
+      "framesProcessed": 600,
+      "processingSeconds": 199.96,
+      "tracks": [
+        {
+          "trackId": "person-000001",
+          "objectClass": "person",
+          "candidateFrames": 381,
+          "durationMs": 12667,
+          "qualifiedFrames": 185,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 270146,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 9,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 9085,
+            "near-view": 9451,
+            "early-diverse": 5445,
+            "late-diverse": 4733
+          },
+          "cropPixels": {
+            "representative": [
+              137,
+              335,
+              0
+            ],
+            "near-view": [
+              160,
+              376,
+              0
+            ],
+            "early-diverse": [
+              97,
+              270,
+              0
+            ],
+            "late-diverse": [
+              98,
+              427,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000002",
+          "objectClass": "person",
+          "candidateFrames": 465,
+          "durationMs": 15800,
+          "qualifiedFrames": 1,
+          "representativeQualified": true,
+          "fallbackToQualified": true,
+          "representativeSelectionMicro": 240593,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 3,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3999
+          },
+          "cropPixels": {
+            "representative": [
+              75,
+              276,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000003",
+          "objectClass": "person",
+          "candidateFrames": 66,
+          "durationMs": 2166,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 254566,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 1,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 6803
+          },
+          "cropPixels": {
+            "representative": [
+              147,
+              344,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000004",
+          "objectClass": "person",
+          "candidateFrames": 571,
+          "durationMs": 19000,
+          "qualifiedFrames": 193,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 310897,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 10,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 18016,
+            "near-view": 18806,
+            "early-diverse": 7788,
+            "late-diverse": 10447
+          },
+          "cropPixels": {
+            "representative": [
+              203,
+              484,
+              0
+            ],
+            "near-view": [
+              231,
+              481,
+              0
+            ],
+            "early-diverse": [
+              119,
+              323,
+              0
+            ],
+            "late-diverse": [
+              148,
+              373,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000005",
+          "objectClass": "person",
+          "candidateFrames": 422,
+          "durationMs": 14033,
+          "qualifiedFrames": 142,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 270060,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 8,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 9496,
+            "near-view": 6819,
+            "early-diverse": 4763
+          },
+          "cropPixels": {
+            "representative": [
+              171,
+              331,
+              0
+            ],
+            "near-view": [
+              123,
+              291,
+              0
+            ],
+            "early-diverse": [
+              90,
+              249,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000006",
+          "objectClass": "person",
+          "candidateFrames": 105,
+          "durationMs": 3466,
+          "qualifiedFrames": 25,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 240439,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 3,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3939,
+            "near-view": 4744
+          },
+          "cropPixels": {
+            "representative": [
+              82,
+              255,
+              0
+            ],
+            "near-view": [
+              95,
+              260,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000007",
+          "objectClass": "person",
+          "candidateFrames": 23,
+          "durationMs": 733,
+          "qualifiedFrames": 13,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 253785,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 2,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 5907,
+            "near-view": 6091
+          },
+          "cropPixels": {
+            "representative": [
+              80,
+              355,
+              0
+            ],
+            "near-view": [
+              82,
+              360,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000008",
+          "objectClass": "person",
+          "candidateFrames": 260,
+          "durationMs": 8800,
+          "qualifiedFrames": 175,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 251306,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 6,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3275,
+            "near-view": 3662,
+            "early-diverse": 2876,
+            "late-diverse": 2529
+          },
+          "cropPixels": {
+            "representative": [
+              70,
+              162,
+              0
+            ],
+            "near-view": [
+              76,
+              195,
+              0
+            ],
+            "early-diverse": [
+              59,
+              176,
+              0
+            ],
+            "late-diverse": [
+              64,
+              170,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000009",
+          "objectClass": "person",
+          "candidateFrames": 199,
+          "durationMs": 6600,
+          "qualifiedFrames": 107,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 300613,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 6,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 14698,
+            "near-view": 11982,
+            "early-diverse": 13528,
+            "late-diverse": 12438
+          },
+          "cropPixels": {
+            "representative": [
+              184,
+              503,
+              0
+            ],
+            "near-view": [
+              151,
+              504,
+              0
+            ],
+            "early-diverse": [
+              164,
+              535,
+              0
+            ],
+            "late-diverse": [
+              157,
+              534,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000010",
+          "objectClass": "person",
+          "candidateFrames": 284,
+          "durationMs": 9667,
+          "qualifiedFrames": 204,
+          "representativeQualified": true,
+          "fallbackToQualified": true,
+          "representativeSelectionMicro": 296316,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 16,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 14623,
+            "near-view": 16250,
+            "early-diverse": 14707,
+            "late-diverse": 6084
+          },
+          "cropPixels": {
+            "representative": [
+              189,
+              429,
+              0
+            ],
+            "near-view": [
+              218,
+              422,
+              0
+            ],
+            "early-diverse": [
+              183,
+              387,
+              0
+            ],
+            "late-diverse": [
+              113,
+              287,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000011",
+          "objectClass": "person",
+          "candidateFrames": 116,
+          "durationMs": 3833,
+          "qualifiedFrames": 79,
+          "representativeQualified": true,
+          "fallbackToQualified": true,
+          "representativeSelectionMicro": 259094,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 13,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 7409,
+            "near-view": 7970,
+            "early-diverse": 10312,
+            "late-diverse": 4505
+          },
+          "cropPixels": {
+            "representative": [
+              127,
+              328,
+              0
+            ],
+            "near-view": [
+              147,
+              325,
+              0
+            ],
+            "early-diverse": [
+              150,
+              294,
+              0
+            ],
+            "late-diverse": [
+              78,
+              269,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000012",
+          "objectClass": "person",
+          "candidateFrames": 98,
+          "durationMs": 3233,
+          "qualifiedFrames": 61,
+          "representativeQualified": true,
+          "fallbackToQualified": true,
+          "representativeSelectionMicro": 274789,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 12,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 11048,
+            "near-view": 8029,
+            "early-diverse": 6587
+          },
+          "cropPixels": {
+            "representative": [
+              175,
+              354,
+              0
+            ],
+            "near-view": [
+              140,
+              361,
+              0
+            ],
+            "early-diverse": [
+              95,
+              320,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000013",
+          "objectClass": "person",
+          "candidateFrames": 79,
+          "durationMs": 2600,
+          "qualifiedFrames": 41,
+          "representativeQualified": true,
+          "fallbackToQualified": true,
+          "representativeSelectionMicro": 278396,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 12,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 11158,
+            "near-view": 9206,
+            "early-diverse": 6658
+          },
+          "cropPixels": {
+            "representative": [
+              184,
+              325,
+              0
+            ],
+            "near-view": [
+              158,
+              331,
+              0
+            ],
+            "early-diverse": [
+              115,
+              287,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000014",
+          "objectClass": "person",
+          "candidateFrames": 153,
+          "durationMs": 5067,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 215775,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 3,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 28005
+          },
+          "cropPixels": {
+            "representative": [
+              345,
+              700,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000015",
+          "objectClass": "person",
+          "candidateFrames": 29,
+          "durationMs": 1467,
+          "qualifiedFrames": 15,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 252669,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 2,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3264,
+            "near-view": 3526
+          },
+          "cropPixels": {
+            "representative": [
+              88,
+              147,
+              0
+            ],
+            "near-view": [
+              93,
+              144,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000016",
+          "objectClass": "person",
+          "candidateFrames": 151,
+          "durationMs": 5000,
+          "qualifiedFrames": 3,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 294596,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 1,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 12329
+          },
+          "cropPixels": {
+            "representative": [
+              158,
+              536,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000017",
+          "objectClass": "person",
+          "candidateFrames": 145,
+          "durationMs": 4800,
+          "qualifiedFrames": 86,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 253168,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 5,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 5743,
+            "near-view": 7403,
+            "early-diverse": 3855,
+            "late-diverse": 4741
+          },
+          "cropPixels": {
+            "representative": [
+              94,
+              304,
+              0
+            ],
+            "near-view": [
+              115,
+              302,
+              0
+            ],
+            "early-diverse": [
+              75,
+              248,
+              0
+            ],
+            "late-diverse": [
+              104,
+              240,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000018",
+          "objectClass": "person",
+          "candidateFrames": 135,
+          "durationMs": 4467,
+          "qualifiedFrames": 131,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 266438,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 4,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 7562,
+            "near-view": 5991,
+            "early-diverse": 6559,
+            "late-diverse": 5664
+          },
+          "cropPixels": {
+            "representative": [
+              118,
+              280,
+              0
+            ],
+            "near-view": [
+              97,
+              281,
+              0
+            ],
+            "early-diverse": [
+              107,
+              275,
+              0
+            ],
+            "late-diverse": [
+              112,
+              260,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000019",
+          "objectClass": "person",
+          "candidateFrames": 99,
+          "durationMs": 3267,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 289625,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 1,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 11514
+          },
+          "cropPixels": {
+            "representative": [
+              170,
+              557,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000020",
+          "objectClass": "person",
+          "candidateFrames": 21,
+          "durationMs": 667,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 146688,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 1,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 4770
+          },
+          "cropPixels": {
+            "representative": [
+              126,
+              254,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000021",
+          "objectClass": "person",
+          "candidateFrames": 73,
+          "durationMs": 2400,
+          "qualifiedFrames": 70,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 249900,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 5,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 5037,
+            "near-view": 5397,
+            "early-diverse": 5834
+          },
+          "cropPixels": {
+            "representative": [
+              77,
+              306,
+              0
+            ],
+            "near-view": [
+              139,
+              293,
+              0
+            ],
+            "early-diverse": [
+              105,
+              286,
+              0
+            ]
+          }
+        }
+      ],
+      "encoderCalls": 123,
+      "encoderRefusedByCap": {},
+      "accounting": {
+        "representative": {
+          "candidates": 21,
+          "admitted": 21,
+          "omitted": 0,
+          "candidate_bytes": 197680,
+          "admitted_bytes": 197680
+        },
+        "near-view": {
+          "candidates": 15,
+          "admitted": 15,
+          "omitted": 0,
+          "candidate_bytes": 125327,
+          "admitted_bytes": 125327
+        },
+        "early-diverse": {
+          "candidates": 12,
+          "admitted": 12,
+          "omitted": 0,
+          "candidate_bytes": 88912,
+          "admitted_bytes": 88912
+        },
+        "late-diverse": {
+          "candidates": 8,
+          "admitted": 8,
+          "omitted": 0,
+          "candidate_bytes": 51141,
+          "admitted_bytes": 51141
+        }
+      },
+      "peakRssKiB": 785720
+    },
+    {
+      "clip": "MOT17-13-FRCNN",
+      "sha256": "4ee19cc9b6792f63f4053305f7da1dde6f077ff4293fade23810575c3117a17e",
+      "sizeBytes": 175317278,
+      "media": {
+        "container": "mov,mp4,m4a,3gp,3g2,mj2",
+        "codec": "mjpeg",
+        "width": 1920,
+        "height": 1080,
+        "fps": 25.0,
+        "frames": 750,
+        "durationSeconds": 30.0
+      },
+      "framesProcessed": 750,
+      "processingSeconds": 223.2,
+      "tracks": [
+        {
+          "trackId": "person-000001",
+          "objectClass": "person",
+          "candidateFrames": 42,
+          "durationMs": 1640,
+          "qualifiedFrames": 26,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 240045,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 3,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2164,
+            "near-view": 2879
+          },
+          "cropPixels": {
+            "representative": [
+              60,
+              127,
+              0
+            ],
+            "near-view": [
+              68,
+              154,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000002",
+          "objectClass": "person",
+          "candidateFrames": 33,
+          "durationMs": 1280,
+          "qualifiedFrames": 28,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 255740,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 4,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2215,
+            "near-view": 3211
+          },
+          "cropPixels": {
+            "representative": [
+              53,
+              128,
+              0
+            ],
+            "near-view": [
+              73,
+              163,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000003",
+          "objectClass": "person",
+          "candidateFrames": 120,
+          "durationMs": 4760,
+          "qualifiedFrames": 101,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 268816,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 9,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2062,
+            "near-view": 5555
+          },
+          "cropPixels": {
+            "representative": [
+              42,
+              115,
+              0
+            ],
+            "near-view": [
+              104,
+              247,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000004",
+          "objectClass": "person",
+          "candidateFrames": 186,
+          "durationMs": 7440,
+          "qualifiedFrames": 149,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 248936,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 10,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1583,
+            "near-view": 4433,
+            "early-diverse": 1690,
+            "late-diverse": 1898
+          },
+          "cropPixels": {
+            "representative": [
+              40,
+              105,
+              0
+            ],
+            "near-view": [
+              94,
+              235,
+              0
+            ],
+            "early-diverse": [
+              41,
+              104,
+              0
+            ],
+            "late-diverse": [
+              42,
+              129,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000005",
+          "objectClass": "person",
+          "candidateFrames": 11,
+          "durationMs": 520,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 22387,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 1,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1580
+          },
+          "cropPixels": {
+            "representative": [
+              50,
+              156,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000006",
+          "objectClass": "person",
+          "candidateFrames": 44,
+          "durationMs": 1720,
+          "qualifiedFrames": 38,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 265328,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 4,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2101,
+            "near-view": 2687,
+            "early-diverse": 2905
+          },
+          "cropPixels": {
+            "representative": [
+              44,
+              124,
+              0
+            ],
+            "near-view": [
+              55,
+              136,
+              0
+            ],
+            "early-diverse": [
+              56,
+              147,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000007",
+          "objectClass": "person",
+          "candidateFrames": 11,
+          "durationMs": 400,
+          "qualifiedFrames": 6,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 153590,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 2,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2852,
+            "near-view": 3190
+          },
+          "cropPixels": {
+            "representative": [
+              63,
+              193,
+              0
+            ],
+            "near-view": [
+              75,
+              193,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000008",
+          "objectClass": "person",
+          "candidateFrames": 119,
+          "durationMs": 4720,
+          "qualifiedFrames": 73,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 272896,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 7,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3665,
+            "near-view": 7058
+          },
+          "cropPixels": {
+            "representative": [
+              75,
+              148,
+              0
+            ],
+            "near-view": [
+              111,
+              306,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000009",
+          "objectClass": "person",
+          "candidateFrames": 120,
+          "durationMs": 4760,
+          "qualifiedFrames": 63,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 272379,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 6,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3237,
+            "near-view": 6296,
+            "early-diverse": 5916
+          },
+          "cropPixels": {
+            "representative": [
+              64,
+              146,
+              0
+            ],
+            "near-view": [
+              110,
+              242,
+              0
+            ],
+            "early-diverse": [
+              93,
+              281,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000010",
+          "objectClass": "person",
+          "candidateFrames": 103,
+          "durationMs": 4080,
+          "qualifiedFrames": 49,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 254891,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 5,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3380,
+            "near-view": 3997,
+            "early-diverse": 2357
+          },
+          "cropPixels": {
+            "representative": [
+              77,
+              165,
+              0
+            ],
+            "near-view": [
+              70,
+              248,
+              0
+            ],
+            "early-diverse": [
+              55,
+              172,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000011",
+          "objectClass": "person",
+          "candidateFrames": 88,
+          "durationMs": 3480,
+          "qualifiedFrames": 51,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 249556,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 8,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3337,
+            "near-view": 8784
+          },
+          "cropPixels": {
+            "representative": [
+              69,
+              200,
+              0
+            ],
+            "near-view": [
+              162,
+              332,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000012",
+          "objectClass": "person",
+          "candidateFrames": 4,
+          "durationMs": 120,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 31604,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 1,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1922
+          },
+          "cropPixels": {
+            "representative": [
+              44,
+              185,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000013",
+          "objectClass": "person",
+          "candidateFrames": 46,
+          "durationMs": 1800,
+          "qualifiedFrames": 35,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 251642,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 5,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3895,
+            "near-view": 5752
+          },
+          "cropPixels": {
+            "representative": [
+              75,
+              193,
+              0
+            ],
+            "near-view": [
+              98,
+              326,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000014",
+          "objectClass": "person",
+          "candidateFrames": 46,
+          "durationMs": 1800,
+          "qualifiedFrames": 17,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 237931,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 2,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3195,
+            "near-view": 3058
+          },
+          "cropPixels": {
+            "representative": [
+              77,
+              205,
+              0
+            ],
+            "near-view": [
+              71,
+              205,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000015",
+          "objectClass": "person",
+          "candidateFrames": 7,
+          "durationMs": 240,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 54074,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 1,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 5589
+          },
+          "cropPixels": {
+            "representative": [
+              160,
+              184,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000016",
+          "objectClass": "person",
+          "candidateFrames": 43,
+          "durationMs": 1680,
+          "qualifiedFrames": 38,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 252129,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 3,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 4135,
+            "near-view": 5521
+          },
+          "cropPixels": {
+            "representative": [
+              92,
+              191,
+              0
+            ],
+            "near-view": [
+              96,
+              269,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000017",
+          "objectClass": "person",
+          "candidateFrames": 29,
+          "durationMs": 1120,
+          "qualifiedFrames": 25,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 247141,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 4,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3300,
+            "near-view": 4507
+          },
+          "cropPixels": {
+            "representative": [
+              68,
+              202,
+              0
+            ],
+            "near-view": [
+              94,
+              276,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000018",
+          "objectClass": "person",
+          "candidateFrames": 46,
+          "durationMs": 1800,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 68267,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 2,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 6899
+          },
+          "cropPixels": {
+            "representative": [
+              191,
+              310,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000019",
+          "objectClass": "person",
+          "candidateFrames": 38,
+          "durationMs": 1480,
+          "qualifiedFrames": 25,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 241464,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 9,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3349,
+            "near-view": 7903
+          },
+          "cropPixels": {
+            "representative": [
+              83,
+              203,
+              0
+            ],
+            "near-view": [
+              149,
+              341,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000020",
+          "objectClass": "person",
+          "candidateFrames": 29,
+          "durationMs": 1120,
+          "qualifiedFrames": 17,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 256337,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 3,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 4971,
+            "near-view": 5558
+          },
+          "cropPixels": {
+            "representative": [
+              98,
+              246,
+              0
+            ],
+            "near-view": [
+              106,
+              283,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000021",
+          "objectClass": "person",
+          "candidateFrames": 53,
+          "durationMs": 2080,
+          "qualifiedFrames": 35,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 228897,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 8,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2873,
+            "near-view": 4011
+          },
+          "cropPixels": {
+            "representative": [
+              77,
+              173,
+              0
+            ],
+            "near-view": [
+              102,
+              243,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000022",
+          "objectClass": "person",
+          "candidateFrames": 49,
+          "durationMs": 1920,
+          "qualifiedFrames": 32,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 240782,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 6,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3114,
+            "near-view": 5155
+          },
+          "cropPixels": {
+            "representative": [
+              76,
+              195,
+              0
+            ],
+            "near-view": [
+              114,
+              235,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000023",
+          "objectClass": "person",
+          "candidateFrames": 68,
+          "durationMs": 2680,
+          "qualifiedFrames": 33,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 188872,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 6,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 5803,
+            "near-view": 7738,
+            "early-diverse": 7048
+          },
+          "cropPixels": {
+            "representative": [
+              121,
+              274,
+              0
+            ],
+            "near-view": [
+              162,
+              277,
+              0
+            ],
+            "early-diverse": [
+              112,
+              317,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000024",
+          "objectClass": "person",
+          "candidateFrames": 71,
+          "durationMs": 2800,
+          "qualifiedFrames": 64,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 250214,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 7,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1710,
+            "near-view": 3414
+          },
+          "cropPixels": {
+            "representative": [
+              43,
+              110,
+              0
+            ],
+            "near-view": [
+              86,
+              182,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000025",
+          "objectClass": "person",
+          "candidateFrames": 35,
+          "durationMs": 1360,
+          "qualifiedFrames": 0,
+          "representativeQualified": false,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 121234,
+          "heldBeforeResolve": [
+            "representative"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 1,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1794
+          },
+          "cropPixels": {
+            "representative": [
+              61,
+              174,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000026",
+          "objectClass": "person",
+          "candidateFrames": 144,
+          "durationMs": 5720,
+          "qualifiedFrames": 101,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 260151,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 10,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1852,
+            "near-view": 3951,
+            "early-diverse": 2007
+          },
+          "cropPixels": {
+            "representative": [
+              45,
+              106,
+              0
+            ],
+            "near-view": [
+              110,
+              196,
+              0
+            ],
+            "early-diverse": [
+              45,
+              133,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "person-000027",
+          "objectClass": "person",
+          "candidateFrames": 23,
+          "durationMs": 880,
+          "qualifiedFrames": 23,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 255991,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 4,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1712,
+            "near-view": 2323
+          },
+          "cropPixels": {
+            "representative": [
+              40,
+              113,
+              0
+            ],
+            "near-view": [
+              58,
+              130,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000001",
+          "objectClass": "vehicle",
+          "candidateFrames": 431,
+          "durationMs": 17200,
+          "qualifiedFrames": 412,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 263473,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "encodeAttempts": 9,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2078,
+            "near-view": 3825,
+            "late-diverse": 1288
+          },
+          "cropPixels": {
+            "representative": [
+              85,
+              65,
+              0
+            ],
+            "near-view": [
+              142,
+              110,
+              0
+            ],
+            "late-diverse": [
+              56,
+              42,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000002",
+          "objectClass": "vehicle",
+          "candidateFrames": 332,
+          "durationMs": 13240,
+          "qualifiedFrames": 314,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 310500,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "encodeAttempts": 16,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 15888,
+            "near-view": 20374,
+            "late-diverse": 14336
+          },
+          "cropPixels": {
+            "representative": [
+              301,
+              312,
+              0
+            ],
+            "near-view": [
+              479,
+              270,
+              0
+            ],
+            "late-diverse": [
+              345,
+              251,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000003",
+          "objectClass": "vehicle",
+          "candidateFrames": 378,
+          "durationMs": 15080,
+          "qualifiedFrames": 161,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 264245,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 5,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2786,
+            "near-view": 2937,
+            "early-diverse": 1964,
+            "late-diverse": 990
+          },
+          "cropPixels": {
+            "representative": [
+              137,
+              58,
+              0
+            ],
+            "near-view": [
+              150,
+              61,
+              0
+            ],
+            "early-diverse": [
+              82,
+              59,
+              0
+            ],
+            "late-diverse": [
+              40,
+              31,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000004",
+          "objectClass": "vehicle",
+          "candidateFrames": 146,
+          "durationMs": 5800,
+          "qualifiedFrames": 127,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 270979,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 8,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 3760,
+            "near-view": 8559,
+            "early-diverse": 4110,
+            "late-diverse": 5775
+          },
+          "cropPixels": {
+            "representative": [
+              177,
+              79,
+              0
+            ],
+            "near-view": [
+              297,
+              126,
+              0
+            ],
+            "early-diverse": [
+              168,
+              101,
+              0
+            ],
+            "late-diverse": [
+              202,
+              128,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000005",
+          "objectClass": "vehicle",
+          "candidateFrames": 208,
+          "durationMs": 8280,
+          "qualifiedFrames": 182,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 292015,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "encodeAttempts": 15,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 11781,
+            "near-view": 14295,
+            "late-diverse": 5193
+          },
+          "cropPixels": {
+            "representative": [
+              352,
+              182,
+              0
+            ],
+            "near-view": [
+              398,
+              237,
+              0
+            ],
+            "late-diverse": [
+              175,
+              119,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000006",
+          "objectClass": "vehicle",
+          "candidateFrames": 140,
+          "durationMs": 5560,
+          "qualifiedFrames": 124,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 270133,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 11,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1626,
+            "near-view": 4492,
+            "early-diverse": 1755
+          },
+          "cropPixels": {
+            "representative": [
+              67,
+              51,
+              0
+            ],
+            "near-view": [
+              173,
+              126,
+              0
+            ],
+            "early-diverse": [
+              74,
+              55,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000007",
+          "objectClass": "vehicle",
+          "candidateFrames": 72,
+          "durationMs": 3120,
+          "qualifiedFrames": 65,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 277947,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 7,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1470,
+            "near-view": 2831
+          },
+          "cropPixels": {
+            "representative": [
+              57,
+              49,
+              0
+            ],
+            "near-view": [
+              116,
+              83,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000008",
+          "objectClass": "vehicle",
+          "candidateFrames": 20,
+          "durationMs": 760,
+          "qualifiedFrames": 16,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 248480,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 2,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1838,
+            "near-view": 1723
+          },
+          "cropPixels": {
+            "representative": [
+              77,
+              66,
+              0
+            ],
+            "near-view": [
+              77,
+              65,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000009",
+          "objectClass": "vehicle",
+          "candidateFrames": 236,
+          "durationMs": 9400,
+          "qualifiedFrames": 234,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 286233,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse",
+            "late-diverse"
+          ],
+          "encodeAttempts": 12,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1581,
+            "near-view": 2824,
+            "early-diverse": 2323,
+            "late-diverse": 1588
+          },
+          "cropPixels": {
+            "representative": [
+              55,
+              55,
+              0
+            ],
+            "near-view": [
+              109,
+              100,
+              0
+            ],
+            "early-diverse": [
+              81,
+              86,
+              0
+            ],
+            "late-diverse": [
+              57,
+              58,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000010",
+          "objectClass": "vehicle",
+          "candidateFrames": 148,
+          "durationMs": 5880,
+          "qualifiedFrames": 45,
+          "representativeQualified": true,
+          "fallbackToQualified": true,
+          "representativeSelectionMicro": 231852,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 7,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 2196,
+            "near-view": 4381
+          },
+          "cropPixels": {
+            "representative": [
+              117,
+              82,
+              0
+            ],
+            "near-view": [
+              197,
+              130,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000011",
+          "objectClass": "vehicle",
+          "candidateFrames": 99,
+          "durationMs": 3920,
+          "qualifiedFrames": 25,
+          "representativeQualified": true,
+          "fallbackToQualified": true,
+          "representativeSelectionMicro": 285679,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative"
+          ],
+          "admitted": [
+            "representative"
+          ],
+          "encodeAttempts": 16,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": "near-duplicate-of-representative",
+          "cropBytes": {
+            "representative": 11158
+          },
+          "cropPixels": {
+            "representative": [
+              354,
+              213,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000012",
+          "objectClass": "vehicle",
+          "candidateFrames": 142,
+          "durationMs": 5640,
+          "qualifiedFrames": 38,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 229725,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "early-diverse"
+          ],
+          "encodeAttempts": 4,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1424,
+            "near-view": 3819,
+            "early-diverse": 1502
+          },
+          "cropPixels": {
+            "representative": [
+              93,
+              54,
+              0
+            ],
+            "near-view": [
+              178,
+              117,
+              0
+            ],
+            "early-diverse": [
+              82,
+              59,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000013",
+          "objectClass": "vehicle",
+          "candidateFrames": 106,
+          "durationMs": 4200,
+          "qualifiedFrames": 20,
+          "representativeQualified": true,
+          "fallbackToQualified": true,
+          "representativeSelectionMicro": 258596,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 12,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 6422,
+            "near-view": 7638
+          },
+          "cropPixels": {
+            "representative": [
+              278,
+              155,
+              0
+            ],
+            "near-view": [
+              295,
+              169,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000014",
+          "objectClass": "vehicle",
+          "candidateFrames": 191,
+          "durationMs": 7600,
+          "qualifiedFrames": 172,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 277324,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "resolved": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "admitted": [
+            "representative",
+            "near-view",
+            "late-diverse"
+          ],
+          "encodeAttempts": 14,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1219,
+            "near-view": 5318,
+            "late-diverse": 2422
+          },
+          "cropPixels": {
+            "representative": [
+              55,
+              39,
+              0
+            ],
+            "near-view": [
+              238,
+              129,
+              0
+            ],
+            "late-diverse": [
+              123,
+              72,
+              0
+            ]
+          }
+        },
+        {
+          "trackId": "vehicle-000015",
+          "objectClass": "vehicle",
+          "candidateFrames": 152,
+          "durationMs": 6040,
+          "qualifiedFrames": 91,
+          "representativeQualified": true,
+          "fallbackToQualified": false,
+          "representativeSelectionMicro": 247653,
+          "heldBeforeResolve": [
+            "representative",
+            "near-view"
+          ],
+          "resolved": [
+            "representative",
+            "near-view"
+          ],
+          "admitted": [
+            "representative",
+            "near-view"
+          ],
+          "encodeAttempts": 8,
+          "unadmissibleByRole": {},
+          "supplementalUnqualified": 0,
+          "nearViewDropCause": null,
+          "cropBytes": {
+            "representative": 1728,
+            "near-view": 4027
+          },
+          "cropPixels": {
+            "representative": [
+              76,
+              65,
+              0
+            ],
+            "near-view": [
+              204,
+              120,
+              0
+            ]
+          }
+        }
+      ],
+      "encoderCalls": 277,
+      "encoderRefusedByCap": {},
+      "accounting": {
+        "representative": {
+          "candidates": 42,
+          "admitted": 42,
+          "omitted": 0,
+          "candidate_bytes": 151244,
+          "admitted_bytes": 151244
+        },
+        "near-view": {
+          "candidates": 36,
+          "admitted": 36,
+          "omitted": 0,
+          "candidate_bytes": 194024,
+          "admitted_bytes": 194024
+        },
+        "early-diverse": {
+          "candidates": 11,
+          "admitted": 11,
+          "omitted": 0,
+          "candidate_bytes": 33577,
+          "admitted_bytes": 33577
+        },
+        "late-diverse": {
+          "candidates": 8,
+          "admitted": 8,
+          "omitted": 0,
+          "candidate_bytes": 33490,
+          "admitted_bytes": 33490
+        }
+      },
+      "peakRssKiB": 785720
+    }
+  ],
+  "perClip": [
+    {
+      "label": "MOT17-02-FRCNN",
+      "candidateFrames": 3875,
+      "tracks": 21,
+      "distributions": {
+        "sharpness": {
+          "min": 0.005745,
+          "p10": 0.026183,
+          "p25": 0.036976,
+          "p50": 0.052631,
+          "p75": 0.06674,
+          "p90": 0.081184,
+          "max": 0.227526
+        },
+        "area": {
+          "min": 0.000372,
+          "p10": 0.004973,
+          "p25": 0.00987,
+          "p50": 0.01754,
+          "p75": 0.036001,
+          "p90": 0.060022,
+          "max": 0.291306
+        },
+        "edge_margin": {
+          "min": 0.0,
+          "p10": 0.0,
+          "p25": 0.035319,
+          "p50": 0.210615,
+          "p75": 0.326361,
+          "p90": 0.367844,
+          "max": 0.438278
+        },
+        "confidence": {
+          "min": 0.059332,
+          "p10": 0.137636,
+          "p25": 0.488832,
+          "p50": 0.702968,
+          "p75": 0.762598,
+          "p90": 0.797911,
+          "max": 0.860894
+        },
+        "occlusion_iou": {
+          "min": 0.0,
+          "p10": 0.0,
+          "p25": 0.0,
+          "p50": 0.050249,
+          "p75": 0.146767,
+          "p90": 0.257053,
+          "max": 0.645145
+        }
+      },
+      "passRates": {
+        "confidence": 0.7461,
+        "sharpness": 0.5461,
+        "edgeMargin": 0.8095,
+        "occlusion": 0.9326,
+        "allFloors": 0.3951
+      },
+      "occlusionDiagnostics": {
+        "occlusionIouAllDetections": {
+          "min": 0.001074,
+          "p10": 0.262024,
+          "p25": 0.428368,
+          "p50": 0.556529,
+          "p75": 0.616656,
+          "p90": 0.641052,
+          "max": 1.0
+        },
+        "blockedCandidates": 261,
+        "rescuedFromQualityV1": 3137,
+        "otherThreeFloorsPassed": 0.4031,
+        "qualityV1OcclusionPass": 0.1231,
+        "qualityV1AllFloors": 0.0472
+      },
+      "tracksWithQualifiedFrame": 17,
+      "fallbackRepresentatives": 4,
+      "fallbackToQualifiedTransitions": 5,
+      "fallbackByClass": {
+        "person": {
+          "tracks": 21,
+          "fallback": 4
+        }
+      },
+      "roleCoverage": {
+        "near-view": 0.7143,
+        "early-diverse": 0.5714,
+        "late-diverse": 0.381,
+        "allFour": 0.381
+      },
+      "roleCoverageAmongTracksWithQualifiedFrame": {
+        "near-view": 0.8824,
+        "early-diverse": 0.7059,
+        "late-diverse": 0.4706,
+        "allFour": 0.4706
+      },
+      "passRatesByClass": {
+        "person": {
+          "candidateFrames": 3875,
+          "confidence": 0.7461,
+          "sharpness": 0.5461,
+          "edgeMargin": 0.8095,
+          "occlusion": 0.9326,
+          "allFloors": 0.3951
+        }
+      },
+      "candidateFramesPerTrack": {
+        "min": 21,
+        "p10": 29,
+        "p25": 79,
+        "p50": 135,
+        "p75": 260,
+        "p90": 422,
+        "max": 571
+      },
+      "trackDurationMs": {
+        "min": 667,
+        "p10": 1467,
+        "p25": 2600,
+        "p50": 4467,
+        "p75": 8800,
+        "p90": 14033,
+        "max": 19000
+      },
+      "fallbackDespiteQualifiedFrame": 0,
+      "emptyEvidenceTracks": 0,
+      "supplementalUnqualified": 0,
+      "nearViewResolveDrops": {
+        "held": 15,
+        "dropped": 0,
+        "causes": {
+          "near-duplicate-of-representative": 0,
+          "other": 0
+        }
+      },
+      "encodeAttemptsPerTrack": {
+        "mean": 5.857,
+        "median": 5,
+        "max": 16,
+        "total": 123
+      },
+      "reEncodesPerTrack": {
+        "mean": 3.143,
+        "median": 2,
+        "max": 12
+      },
+      "unadmissibleTotal": 0,
+      "cropBytes": {
+        "representative": {
+          "min": 3264,
+          "p10": 3939,
+          "p25": 5037,
+          "p50": 7562,
+          "p75": 11514,
+          "p90": 14698,
+          "max": 28005
+        },
+        "near-view": {
+          "min": 3526,
+          "p10": 3662,
+          "p25": 5991,
+          "p50": 7403,
+          "p75": 9206,
+          "p90": 16250,
+          "max": 18806
+        },
+        "early-diverse": {
+          "min": 2876,
+          "p10": 3855,
+          "p25": 5445,
+          "p50": 6587,
+          "p75": 7788,
+          "p90": 13528,
+          "max": 14707
+        },
+        "late-diverse": {
+          "min": 2529,
+          "p10": 4505,
+          "p25": 4733,
+          "p50": 5664,
+          "p75": 6084,
+          "p90": 10447,
+          "max": 12438
+        }
+      },
+      "cropLongEdgePx": {
+        "representative": {
+          "min": 147,
+          "p10": 254,
+          "p25": 280,
+          "p50": 331,
+          "p75": 429,
+          "p90": 536,
+          "max": 700
+        },
+        "near-view": {
+          "min": 144,
+          "p10": 195,
+          "p25": 291,
+          "p50": 325,
+          "p75": 361,
+          "p90": 481,
+          "max": 504
+        },
+        "early-diverse": {
+          "min": 176,
+          "p10": 248,
+          "p25": 270,
+          "p50": 287,
+          "p75": 320,
+          "p90": 387,
+          "max": 535
+        },
+        "late-diverse": {
+          "min": 170,
+          "p10": 240,
+          "p25": 260,
+          "p50": 287,
+          "p75": 373,
+          "p90": 427,
+          "max": 534
+        }
+      }
+    },
+    {
+      "label": "MOT17-13-FRCNN",
+      "candidateFrames": 4409,
+      "tracks": 42,
+      "distributions": {
+        "sharpness": {
+          "min": 0.010299,
+          "p10": 0.044916,
+          "p25": 0.061871,
+          "p50": 0.088912,
+          "p75": 0.119423,
+          "p90": 0.141236,
+          "max": 0.192751
+        },
+        "area": {
+          "min": 0.000319,
+          "p10": 0.001516,
+          "p25": 0.002802,
+          "p50": 0.00601,
+          "p75": 0.012813,
+          "p90": 0.026977,
+          "max": 0.099048
+        },
+        "edge_margin": {
+          "min": 0.0,
+          "p10": 0.002177,
+          "p25": 0.110017,
+          "p50": 0.221717,
+          "p75": 0.354949,
+          "p90": 0.422175,
+          "max": 0.476207
+        },
+        "confidence": {
+          "min": 0.051455,
+          "p10": 0.223349,
+          "p25": 0.627448,
+          "p50": 0.730408,
+          "p75": 0.806238,
+          "p90": 0.848802,
+          "max": 0.895224
+        },
+        "occlusion_iou": {
+          "min": 0.0,
+          "p10": 0.0,
+          "p25": 0.0,
+          "p50": 0.0,
+          "p75": 0.062119,
+          "p90": 0.197043,
+          "max": 0.997744
+        }
+      },
+      "passRates": {
+        "confidence": 0.8435,
+        "sharpness": 0.8573,
+        "edgeMargin": 0.8905,
+        "occlusion": 0.9374,
+        "allFloors": 0.6929
+      },
+      "occlusionDiagnostics": {
+        "occlusionIouAllDetections": {
+          "min": 0.0,
+          "p10": 0.482144,
+          "p25": 0.619167,
+          "p50": 0.933705,
+          "p75": 0.970033,
+          "p90": 0.986571,
+          "max": 1.0
+        },
+        "blockedCandidates": 276,
+        "rescuedFromQualityV1": 3924,
+        "otherThreeFloorsPassed": 0.6949,
+        "qualityV1OcclusionPass": 0.0474,
+        "qualityV1AllFloors": 0.0336
+      },
+      "tracksWithQualifiedFrame": 37,
+      "fallbackRepresentatives": 5,
+      "fallbackToQualifiedTransitions": 3,
+      "fallbackByClass": {
+        "person": {
+          "tracks": 27,
+          "fallback": 5
+        },
+        "vehicle": {
+          "tracks": 15,
+          "fallback": 0
+        }
+      },
+      "roleCoverage": {
+        "near-view": 0.8571,
+        "early-diverse": 0.2619,
+        "late-diverse": 0.1905,
+        "allFour": 0.0952
+      },
+      "roleCoverageAmongTracksWithQualifiedFrame": {
+        "near-view": 0.973,
+        "early-diverse": 0.2973,
+        "late-diverse": 0.2162,
+        "allFour": 0.1081
+      },
+      "passRatesByClass": {
+        "person": {
+          "candidateFrames": 1608,
+          "confidence": 0.8371,
+          "sharpness": 0.8595,
+          "edgeMargin": 0.8228,
+          "occlusion": 0.9341,
+          "allFloors": 0.6399
+        },
+        "vehicle": {
+          "candidateFrames": 2801,
+          "confidence": 0.8472,
+          "sharpness": 0.8561,
+          "edgeMargin": 0.9293,
+          "occlusion": 0.9393,
+          "allFloors": 0.7233
+        }
+      },
+      "candidateFramesPerTrack": {
+        "min": 4,
+        "p10": 20,
+        "p25": 38,
+        "p50": 71,
+        "p75": 144,
+        "p90": 208,
+        "max": 431
+      },
+      "trackDurationMs": {
+        "min": 120,
+        "p10": 760,
+        "p25": 1480,
+        "p50": 2800,
+        "p75": 5720,
+        "p90": 8280,
+        "max": 17200
+      },
+      "fallbackDespiteQualifiedFrame": 0,
+      "emptyEvidenceTracks": 0,
+      "supplementalUnqualified": 0,
+      "nearViewResolveDrops": {
+        "held": 37,
+        "dropped": 1,
+        "causes": {
+          "near-duplicate-of-representative": 1,
+          "other": 0
+        }
+      },
+      "encodeAttemptsPerTrack": {
+        "mean": 6.595,
+        "median": 6.0,
+        "max": 16,
+        "total": 277
+      },
+      "reEncodesPerTrack": {
+        "mean": 4.19,
+        "median": 3.5,
+        "max": 14
+      },
+      "unadmissibleTotal": 0,
+      "cropBytes": {
+        "representative": {
+          "min": 1219,
+          "p10": 1581,
+          "p25": 1794,
+          "p50": 2786,
+          "p75": 3760,
+          "p90": 6422,
+          "max": 15888
+        },
+        "near-view": {
+          "min": 1723,
+          "p10": 2831,
+          "p25": 3211,
+          "p50": 4433,
+          "p75": 5752,
+          "p90": 8559,
+          "max": 20374
+        },
+        "early-diverse": {
+          "min": 1502,
+          "p10": 1690,
+          "p25": 1755,
+          "p50": 2323,
+          "p75": 4110,
+          "p90": 5916,
+          "max": 7048
+        },
+        "late-diverse": {
+          "min": 990,
+          "p10": 1288,
+          "p25": 1588,
+          "p50": 2422,
+          "p75": 5193,
+          "p90": 5775,
+          "max": 14336
+        }
+      },
+      "cropLongEdgePx": {
+        "representative": {
+          "min": 55,
+          "p10": 76,
+          "p25": 110,
+          "p50": 156,
+          "p75": 200,
+          "p90": 278,
+          "max": 354
+        },
+        "near-view": {
+          "min": 77,
+          "p10": 136,
+          "p25": 173,
+          "p50": 235,
+          "p75": 277,
+          "p90": 332,
+          "max": 479
+        },
+        "early-diverse": {
+          "min": 74,
+          "p10": 82,
+          "p25": 82,
+          "p50": 133,
+          "p75": 172,
+          "p90": 281,
+          "max": 317
+        },
+        "late-diverse": {
+          "min": 40,
+          "p10": 56,
+          "p25": 58,
+          "p50": 129,
+          "p75": 175,
+          "p90": 202,
+          "max": 345
+        }
+      }
+    }
+  ],
+  "combined": {
+    "label": "combined",
+    "candidateFrames": 8284,
+    "tracks": 63,
+    "distributions": {
+      "sharpness": {
+        "min": 0.005745,
+        "p10": 0.030607,
+        "p25": 0.046523,
+        "p50": 0.066142,
+        "p75": 0.094583,
+        "p90": 0.12769,
+        "max": 0.227526
+      },
+      "area": {
+        "min": 0.000319,
+        "p10": 0.002141,
+        "p25": 0.00429,
+        "p50": 0.010644,
+        "p75": 0.022458,
+        "p90": 0.044073,
+        "max": 0.291306
+      },
+      "edge_margin": {
+        "min": 0.0,
+        "p10": 4.2e-05,
+        "p25": 0.071664,
+        "p50": 0.219059,
+        "p75": 0.337008,
+        "p90": 0.395044,
+        "max": 0.476207
+      },
+      "confidence": {
+        "min": 0.051455,
+        "p10": 0.170032,
+        "p25": 0.596373,
+        "p50": 0.717597,
+        "p75": 0.782882,
+        "p90": 0.83121,
+        "max": 0.895224
+      },
+      "occlusion_iou": {
+        "min": 0.0,
+        "p10": 0.0,
+        "p25": 0.0,
+        "p50": 0.018188,
+        "p75": 0.110091,
+        "p90": 0.2343,
+        "max": 0.997744
+      }
+    },
+    "passRates": {
+      "confidence": 0.7979,
+      "sharpness": 0.7117,
+      "edgeMargin": 0.8526,
+      "occlusion": 0.9352,
+      "allFloors": 0.5536
+    },
+    "occlusionDiagnostics": {
+      "occlusionIouAllDetections": {
+        "min": 0.0,
+        "p10": 0.335424,
+        "p25": 0.513789,
+        "p50": 0.62142,
+        "p75": 0.941654,
+        "p90": 0.977031,
+        "max": 1.0
+      },
+      "blockedCandidates": 537,
+      "rescuedFromQualityV1": 7061,
+      "otherThreeFloorsPassed": 0.5584,
+      "qualityV1OcclusionPass": 0.0828,
+      "qualityV1AllFloors": 0.04
+    },
+    "tracksWithQualifiedFrame": 54,
+    "fallbackRepresentatives": 9,
+    "fallbackToQualifiedTransitions": 8,
+    "fallbackByClass": {
+      "person": {
+        "tracks": 48,
+        "fallback": 9
+      },
+      "vehicle": {
+        "tracks": 15,
+        "fallback": 0
+      }
+    },
+    "roleCoverage": {
+      "near-view": 0.8095,
+      "early-diverse": 0.3651,
+      "late-diverse": 0.254,
+      "allFour": 0.1905
+    },
+    "roleCoverageAmongTracksWithQualifiedFrame": {
+      "near-view": 0.9444,
+      "early-diverse": 0.4259,
+      "late-diverse": 0.2963,
+      "allFour": 0.2222
+    },
+    "passRatesByClass": {
+      "person": {
+        "candidateFrames": 5483,
+        "confidence": 0.7728,
+        "sharpness": 0.638,
+        "edgeMargin": 0.8134,
+        "occlusion": 0.9331,
+        "allFloors": 0.4669
+      },
+      "vehicle": {
+        "candidateFrames": 2801,
+        "confidence": 0.8472,
+        "sharpness": 0.8561,
+        "edgeMargin": 0.9293,
+        "occlusion": 0.9393,
+        "allFloors": 0.7233
+      }
+    },
+    "candidateFramesPerTrack": {
+      "min": 4,
+      "p10": 23,
+      "p25": 44,
+      "p50": 99,
+      "p75": 151,
+      "p90": 332,
+      "max": 571
+    },
+    "trackDurationMs": {
+      "min": 120,
+      "p10": 760,
+      "p25": 1720,
+      "p50": 3480,
+      "p75": 5800,
+      "p90": 12667,
+      "max": 19000
+    },
+    "fallbackDespiteQualifiedFrame": 0,
+    "emptyEvidenceTracks": 0,
+    "supplementalUnqualified": 0,
+    "nearViewResolveDrops": {
+      "held": 52,
+      "dropped": 1,
+      "causes": {
+        "near-duplicate-of-representative": 1,
+        "other": 0
+      }
+    },
+    "encodeAttemptsPerTrack": {
+      "mean": 6.349,
+      "median": 6,
+      "max": 16,
+      "total": 400
+    },
+    "reEncodesPerTrack": {
+      "mean": 3.841,
+      "median": 2,
+      "max": 14
+    },
+    "unadmissibleTotal": 0,
+    "cropBytes": {
+      "representative": {
+        "min": 1219,
+        "p10": 1626,
+        "p25": 2101,
+        "p50": 3380,
+        "p75": 6803,
+        "p90": 11781,
+        "max": 28005
+      },
+      "near-view": {
+        "min": 1723,
+        "p10": 2879,
+        "p25": 3662,
+        "p50": 5318,
+        "p75": 7738,
+        "p90": 9451,
+        "max": 20374
+      },
+      "early-diverse": {
+        "min": 1502,
+        "p10": 1755,
+        "p25": 2357,
+        "p50": 4763,
+        "p75": 6587,
+        "p90": 10312,
+        "max": 14707
+      },
+      "late-diverse": {
+        "min": 990,
+        "p10": 1588,
+        "p25": 2422,
+        "p50": 4741,
+        "p75": 5775,
+        "p90": 12438,
+        "max": 14336
+      }
+    },
+    "cropLongEdgePx": {
+      "representative": {
+        "min": 55,
+        "p10": 85,
+        "p25": 128,
+        "p50": 193,
+        "p75": 310,
+        "p90": 355,
+        "max": 700
+      },
+      "near-view": {
+        "min": 77,
+        "p10": 142,
+        "p25": 182,
+        "p50": 248,
+        "p75": 325,
+        "p90": 376,
+        "max": 504
+      },
+      "early-diverse": {
+        "min": 74,
+        "p10": 82,
+        "p25": 147,
+        "p50": 249,
+        "p75": 287,
+        "p90": 323,
+        "max": 535
+      },
+      "late-diverse": {
+        "min": 40,
+        "p10": 58,
+        "p25": 129,
+        "p50": 240,
+        "p75": 287,
+        "p90": 427,
+        "max": 534
+      }
+    }
+  }
+}
