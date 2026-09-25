@@ -463,6 +463,74 @@ def _timeline(repeat: int, index: int) -> dict:
     }
 
 
+def _delayed_second_hand_off(d: dict) -> None:
+    """The second hand-off accepted only after the first completed: nothing overlapped,
+    although a (typed) snapshot still claims so."""
+    jobs = d["concurrency"]["jobs"]
+    jobs[1]["acceptedAtUtc"] = "2026-09-25T09:20:01.0000000+00:00"
+    d["concurrency"]["overlapSnapshot"]["second"]["acceptedAtUtc"] = jobs[1]["acceptedAtUtc"]
+
+
+def _visibility() -> dict:
+    ids = ["01a0d877-581c-7cc1-b69d-9b37681b294b", "01a0d877-581c-7cc1-b69d-9b37681b294c", "01a0d877-581c-7cc1-b69d-9b37681b294d"]
+    # Twelve raw Finalizing probes; the last four inside the publication window, reading detail.
+    snapshots = [
+        {"dbStatus": "Finalizing", "apiPhase": "finalizing", "apiTracksCreated": 0, "searchHits": 0, "trackRows": 0,
+         "detailStatuses": [404, 404, 404] if index >= 8 else []}
+        for index in range(12)
+    ]
+    return {
+        "probes": 12, "phaseProbes": 12, "publishedCountProbes": 12, "searchProbes": 12, "trackRowProbes": 12,
+        "detailProbes": 4, "violations": {check: 0 for check in s1_evidence.VISIBILITY_CHECKS},
+        "detailTrackIds": ids, "detailAfterPublication": [200, 200, 200], "snapshots": snapshots,
+    }
+
+
+def _raw_violation(d: dict, check: str, **fields) -> None:
+    """One raw probe shows ``fields``; every tally and summary is kept consistent with it,
+    so only the recomputation from the raw probes can refuse it."""
+    sample = _sample(d)
+    sample["visibility"]["snapshots"][9].update(fields)
+    sample["visibility"]["violations"][check] += 1
+    sample["prematureVisibilityObserved"] += 1
+
+
+def _drop_probe_fields(d: dict) -> None:
+    """No probe observed the job Finalizing, and every count says so."""
+    visibility = _sample(d)["visibility"]
+    visibility.update(snapshots=[], probes=0, phaseProbes=0, publishedCountProbes=0, searchProbes=0, trackRowProbes=0, detailProbes=0)
+    _sample(d)["prematureVisibilityProbes"] = 0
+
+
+def _drop_detail_reads(d: dict) -> None:
+    """The detail probe removed: no raw probe read detail, and the counts agree."""
+    visibility = _sample(d)["visibility"]
+    for snapshot in visibility["snapshots"]:
+        snapshot["detailStatuses"] = []
+    visibility["detailProbes"] = 0
+
+
+def _concurrency(configuration: dict) -> dict:
+    return {
+        "maxConcurrentFinalizations": configuration["MaxConcurrentFinalizations"],
+        "jobs": [
+            {"finalState": "Completed", "publications": 1, "sequenceAllocations": 1,
+             "acceptedAtUtc": "2026-09-25T09:00:00.1000000+00:00", "completedAtUtc": "2026-09-25T09:20:00.0000000+00:00"},
+            {"finalState": "Completed", "publications": 1, "sequenceAllocations": 1,
+             "acceptedAtUtc": "2026-09-25T09:00:04.2000000+00:00", "completedAtUtc": "2026-09-25T09:40:00.0000000+00:00"},
+        ],
+        "liveClaimSamples": [0, 1, 1, 0, 1, 0], "maxLiveClaims": 1, "secondClaimedBeforeFirstPublished": False,
+        "overlapObserved": True,
+        "overlapSnapshot": {
+            "atUtc": "2026-09-25T09:00:05.0000000+00:00",
+            "first": {"status": "Finalizing", "claimLive": True, "acceptedAtUtc": "2026-09-25T09:00:00.1000000+00:00", "payloadRows": 1},
+            "second": {"status": "Finalizing", "claimed": False, "acceptedAtUtc": "2026-09-25T09:00:04.2000000+00:00", "payloadRows": 1},
+            "liveClaims": 1,
+        },
+        "overlapSnapshots": 20,
+    }
+
+
 def _b3b_samples() -> list:
     batch = _committed_configuration()["SealingBatchSize"]
     samples = []
@@ -476,6 +544,7 @@ def _b3b_samples() -> list:
             "graphBuildBracket": {"lastExtensionReturned": base - 400_000, "publishEntered": base - 100},
             "bracketProofs": {proof: True for proof in s1_evidence.BRACKET_PROOFS},
             "publications": 1, "sequenceAllocations": 1, "runVisibilitySequence": 40 + index, "prematureVisibilityObserved": 0,
+            "prematureVisibilityProbes": 12, "visibility": _visibility(),
             "extensionCount": -(-50_000 // batch) + 1, "createdObjects": 50_000, "adoptedObjects": 0,
             "longestCommandMs": 1200.0, "claimAcquisitionMs": 4000.0, "payloadLoadMs": 800.0,
             "payloadRevalidationAndPlanMs": 1500.0, "sealWallMs": 60_000.0, "perBatchWallMs": [240.0, 250.0],
@@ -532,11 +601,7 @@ def _b3b_output(record: dict, variant: str) -> str:
         "hostedServiceUsed": True, "optionsSource": "appsettings.json", "configuration": configuration,
         "barrierCommandText": _barrier_sql(), "effectiveCommandTimeoutSeconds": 30,
         "rejectedTimelines": [],
-        "concurrency": {
-            "maxConcurrentFinalizations": configuration["MaxConcurrentFinalizations"],
-            "jobs": [{"finalState": "Completed", "publications": 1, "sequenceAllocations": 1} for _ in range(2)],
-            "liveClaimSamples": [0, 1, 1, 0, 1, 0], "maxLiveClaims": 1, "secondClaimedBeforeFirstPublished": False,
-        },
+        "concurrency": _concurrency(configuration),
         "reference": {"samples": [{"publicationTimeline": _timeline(9, index)} for index in range(5)]},
         "samples": _b3b_samples(),
     })
@@ -2683,6 +2748,44 @@ def _ticks(d: dict, index: int = 3) -> dict:
         (lambda d: d["concurrency"]["jobs"][1].update(publications=2), "concurrency_integrity_failed"),
         (lambda d: d["concurrency"]["jobs"][0].update(sequenceAllocations=2), "concurrency_integrity_failed"),
         (lambda d: d["concurrency"]["jobs"][0].update(finalState="Failed"), "concurrency_integrity_failed"),
+        # §9.2 overlap: observed, recomputed from the retained snapshot and times, never trusted.
+        (lambda d: d["concurrency"].update(overlapObserved=False, overlapSnapshot=None), "concurrency_integrity_failed"),  # none observed
+        (lambda d: d["concurrency"].update(overlapSnapshot=None), "concurrency_integrity_failed"),  # flag typed in, no snapshot
+        (lambda d: d["concurrency"]["overlapSnapshot"]["second"].update(claimed=True), "concurrency_integrity_failed"),  # second held a claim
+        (lambda d: d["concurrency"]["overlapSnapshot"]["first"].update(claimLive=False), "concurrency_integrity_failed"),  # nothing running
+        (lambda d: d["concurrency"]["overlapSnapshot"]["first"].update(status="Completed"), "concurrency_integrity_failed"),  # only one Finalizing
+        (lambda d: d["concurrency"]["overlapSnapshot"]["second"].update(status="Leased"), "concurrency_integrity_failed"),  # not yet handed off
+        (lambda d: d["concurrency"]["overlapSnapshot"]["second"].update(payloadRows=0), "concurrency_integrity_failed"),  # not durable
+        (lambda d: d["concurrency"]["overlapSnapshot"]["second"].update(acceptedAtUtc=None), "concurrency_integrity_failed"),
+        (_delayed_second_hand_off, "concurrency_integrity_failed"),  # second hand-off after the first completed
+        (lambda d: d["concurrency"]["overlapSnapshot"].update(atUtc="2026-09-25T09:30:00+00:00"), "concurrency_integrity_failed"),  # after the first completed
+        (lambda d: d["concurrency"]["overlapSnapshot"]["first"].update(acceptedAtUtc="2026-09-25T08:00:00+00:00"), "concurrency_integrity_failed"),  # another job
+        (lambda d: d["concurrency"].update(overlapSnapshots=0), "concurrency_integrity_failed"),
+        (lambda d: d["concurrency"].pop("overlapSnapshot"), "concurrency_integrity_failed"),
+        # §9.2 step 6 visibility, recomputed from the raw probes: each check its own violation.
+        (lambda d: _raw_violation(d, "wrongPhase", apiPhase="processing"), "b3b_output_mismatch"),  # DB Finalizing, API "processing"
+        (lambda d: _raw_violation(d, "wrongPhase", apiPhase="queued"), "b3b_output_mismatch"),
+        (lambda d: _raw_violation(d, "publishedCount", apiTracksCreated=10_000), "b3b_output_mismatch"),
+        (lambda d: _raw_violation(d, "search", searchHits=1), "b3b_output_mismatch"),
+        (lambda d: _raw_violation(d, "trackRows", trackRows=1), "b3b_output_mismatch"),
+        (lambda d: _raw_violation(d, "detail", detailStatuses=[404, 200, 404]), "b3b_output_mismatch"),  # an unpublished Track readable
+        # A counter that hides a violation its raw probe shows is not the producer's.
+        (lambda d: _sample(d)["visibility"]["snapshots"][3].update(apiPhase="processing"), "metric_without_producer"),
+        # ...even when the summary agrees and only the per-check record hides it.
+        (lambda d: (_sample(d)["visibility"]["snapshots"][3].update(apiPhase="processing"), _sample(d).update(prematureVisibilityObserved=1)), "metric_without_producer"),
+        (lambda d: _sample(d)["visibility"].update(phaseProbes=11), "metric_without_producer"),
+        (lambda d: _sample(d)["visibility"].update(detailProbes=7), "metric_without_producer"),
+        (lambda d: _sample(d).update(prematureVisibilityProbes=99), "metric_without_producer"),
+        # Which checks ran must be provable, or the zero is refused.
+        (lambda d: _sample(d).pop("visibility"), "premature_visibility_unproven"),
+        (lambda d: _sample(d)["visibility"].pop("snapshots"), "premature_visibility_unproven"),  # a counter without raw probes
+        (_drop_probe_fields, "premature_visibility_unproven"),  # the probe never ran
+        (_drop_detail_reads, "premature_visibility_unproven"),  # the detail probe removed
+        (lambda d: _sample(d)["visibility"]["snapshots"][0].pop("apiPhase"), "premature_visibility_unproven"),  # phase not read
+        (lambda d: _sample(d)["visibility"]["snapshots"][0].update(dbStatus="Completed"), "premature_visibility_unproven"),
+        (lambda d: _sample(d)["visibility"]["snapshots"][9].update(detailStatuses=[404]), "premature_visibility_unproven"),
+        (lambda d: _sample(d)["visibility"].update(detailTrackIds=[]), "premature_visibility_unproven"),
+        (lambda d: _sample(d)["visibility"].update(detailAfterPublication=[404, 404, 404]), "premature_visibility_unproven"),  # not real Tracks
         (lambda d: d["reference"].update(samples=d["reference"]["samples"][:4]), "reference_incomplete"),
         (lambda d: d["reference"]["samples"][0]["publicationTimeline"]["ticks"].pop("barrierAcquired"), "reference_incomplete"),
         (lambda d: d.update(rejectedTimelines=[{"reason": "TransactionRolledBack"}]), "publication_timeline_invalid"),
@@ -3064,3 +3167,23 @@ def test_an_artifact_path_that_escapes_the_measured_sha_folder_is_refused(path: 
     artifact = record["retainedArtifacts"]["b3a.hand-off-output.linux-x86_64-cpu"]
     artifact["path"] = path.format(evidence=EVIDENCE)
     assert ("B3", "artifact_not_from_measured_sha") in codes(record)
+
+
+@pytest.mark.parametrize(
+    ("check", "fields"),
+    [
+        ("wrongPhase", {"apiPhase": "processing"}),  # the status projection regressed while the job is Finalizing
+        ("publishedCount", {"apiTracksCreated": 1}),
+        ("search", {"searchHits": 1}),
+        ("trackRows", {"trackRows": 1}),
+        ("detail", {"detailStatuses": [404, 200, 404]}),
+    ],
+)
+def test_each_premature_read_is_refused_by_its_own_recomputed_check(tmp_path: Path, check: str, fields: dict) -> None:
+    # Only the raw probe changes, and every count agrees with it: the refusal must come
+    # from recomputing that check, not from a summary.
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, B3B, lambda d: _raw_violation(d, check, **fields))
+    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.unit == "B3"]
+    assert any(f.code == "b3b_output_mismatch" and f"{check} violation" in f.detail for f in findings), findings
+    assert not any(f.code == "metric_without_producer" for f in findings), findings

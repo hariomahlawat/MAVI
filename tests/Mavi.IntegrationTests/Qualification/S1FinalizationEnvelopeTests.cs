@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Mavi.Application.Abstractions.Storage;
 using Mavi.Application.Modules.Intelligence;
+using Mavi.Contracts.Api.Processing;
 using Mavi.Contracts.Worker;
 using Mavi.Domain.Processing;
 using Mavi.Infrastructure.Persistence;
@@ -57,6 +58,134 @@ public sealed class S1FinalizationEnvelopeTests
         Assert.False(recorder.IsBarrier(recorder.SharedBarrierSql));
         Assert.Contains("_shared", recorder.SharedBarrierSql, StringComparison.Ordinal);
         Assert.False(recorder.IsBarrier("SELECT * FROM vision_jobs WHERE id = $1 FOR UPDATE"));
+    }
+
+    [Theory]
+    [InlineData("Finalizing", ProcessingPhases.Finalizing, 0, 0, 0, 404, null)]
+    [InlineData("Finalizing", ProcessingPhases.Processing, 0, 0, 0, 404, VisibilityChecks.WrongPhase)]
+    [InlineData("Finalizing", ProcessingPhases.Queued, 0, 0, 0, 404, VisibilityChecks.WrongPhase)]
+    [InlineData("Finalizing", ProcessingPhases.Completed, 0, 0, 0, 404, VisibilityChecks.WrongPhase)]
+    [InlineData("Finalizing", ProcessingPhases.Finalizing, 7, 0, 0, 404, VisibilityChecks.PublishedCount)]
+    [InlineData("Finalizing", ProcessingPhases.Finalizing, 0, 1, 0, 404, VisibilityChecks.Search)]
+    [InlineData("Finalizing", ProcessingPhases.Finalizing, 0, 0, 1, 404, VisibilityChecks.TrackRows)]
+    [InlineData("Finalizing", ProcessingPhases.Finalizing, 0, 0, 0, 200, VisibilityChecks.Detail)]
+    [InlineData("Completed", ProcessingPhases.Processing, 7, 1, 1, 200, null)]  // after publication nothing is premature
+    public void EveryPrematureReadIsItsOwnViolation(string dbStatus, string apiPhase, int tracksCreated, int searchHits, long trackRows, int detailStatus, string? expected)
+    {
+        var snapshot = new VisibilitySnapshot(dbStatus, apiPhase, tracksCreated, searchHits, trackRows, [404, detailStatus]);
+        Assert.Equal(expected is null ? [] : [expected], VisibilityChecks.Violations(snapshot));
+
+        // The tally counts only Finalizing snapshots, and detail only where it was read.
+        var tally = new VisibilityTally();
+        tally.Add(snapshot, [Guid.CreateVersion7()]);
+        tally.Add(snapshot with { DetailStatuses = [] }, []);
+        Assert.Equal(dbStatus == "Finalizing" ? 2 : 0, tally.Probes);
+        Assert.Equal(dbStatus == "Finalizing" ? 1 : 0, tally.DetailProbes);
+        Assert.Equal(expected is null ? 0 : 2 - (expected == VisibilityChecks.Detail ? 1 : 0), tally.Total);
+    }
+
+    [Fact]
+    public async Task ThePrematureVisibilityProbeReadsEveryRealApiWhileTheJobIsFinalizing()
+    {
+        var log = new LifecycleCallLog();
+        var hold = new HoldGraphInsert();
+        using var world = await FinalizationWorld.CreateAsync(
+            overrideServices: services => FinalizationTimingDecorator.Register(services, log),
+            configureDbContext: builder => builder.AddInterceptors(hold));
+        var handOff = await world.HandOffAsync(lease => StagedRequestAsync(world, lease, 3));
+        var jobId = handOff.Lease.JobId;
+        var (_, _, video) = await world.StateAsync(jobId);
+        using var client = world.Factory.CreateClient();
+        Task<VisibilitySnapshot> ProbeAsync(IReadOnlyList<Guid> ids) =>
+            VisibilityChecks.ProbeAsync(world.Factory.ConnectionString, client, video.Id, video.CameraId, jobId, ids);
+
+        // After the hand-off, before any graph exists: the status API must say exactly
+        // "finalizing" (a "processing" projection fails here), and no Track id exists yet.
+        var early = await ProbeAsync(log.PendingTracks(jobId));
+        Assert.True(early.DuringFinalizing);
+        Assert.Equal(ProcessingPhases.Finalizing, early.ApiPhase);
+        Assert.Empty(early.DetailStatuses);
+        Assert.Empty(VisibilityChecks.Violations(early));
+
+        // Inside the publication: the graph is built and its ids noted, its transaction open.
+        var cycle = world.Host().RunCycleAsync(CancellationToken.None);
+        await hold.Entered.Task.WaitAsync(TimeSpan.FromMinutes(1));
+        var ids = log.PendingTracks(jobId);
+        Assert.Equal(3, ids.Count);
+        var inside = await ProbeAsync(ids);
+        Assert.True(inside.DuringFinalizing);
+        Assert.Equal(ProcessingPhases.Finalizing, inside.ApiPhase);
+        Assert.Equal([404, 404, 404], inside.DetailStatuses);
+        Assert.Empty(VisibilityChecks.Violations(inside));
+        var tally = new VisibilityTally();
+        tally.Add(early, []);
+        tally.Add(inside, ids);
+        Assert.Equal((2, 1, 0), (tally.Probes, tally.DetailProbes, tally.Total));
+
+        hold.Release.TrySetResult();
+        await cycle;
+        Assert.Equal(VisionJobStatus.Completed, (await world.JobAsync(jobId)).Status);
+        // The same ids are real Tracks now: the detail API exposes each of them, so the 404s
+        // above withheld Tracks that exist, not ids that never would.
+        var after = await ProbeAsync(ids);
+        Assert.False(after.DuringFinalizing);
+        Assert.Equal([200, 200, 200], after.DetailStatuses);
+        Assert.Equal(ProcessingPhases.Completed, after.ApiPhase);
+    }
+
+    [Fact]
+    public async Task OverlapIsASecondDurableUnclaimedHandOffBehindALiveFirstClaim()
+    {
+        using var world = await FinalizationWorld.CreateAsync();
+        var first = (await world.HandOffAsync(lease => StagedRequestAsync(world, lease, 2), cameraCode: "CAM-OVERLAP-1")).Lease.JobId;
+        var second = (await world.HandOffAsync(lease => StagedRequestAsync(world, lease, 2), cameraCode: "CAM-OVERLAP-2")).Lease.JobId;
+        var connection = world.Factory.ConnectionString;
+        DateTimeOffset Now() => world.Clock.GetUtcNow();
+
+        // Two Finalizing jobs, but no finalization running: not the limit being exercised.
+        Assert.False((await OverlapSnapshot.TakeAsync(connection, first, second, Now())).IsOverlap);
+
+        var claim = await world.ClaimAsync();
+        Assert.Equal(first, claim!.JobId);  // claims follow acceptance order
+        var overlap = await OverlapSnapshot.TakeAsync(connection, first, second, Now());
+        Assert.True(overlap.IsOverlap);
+        Assert.Equal((true, false, 1L, 1L, 1L), (overlap.FirstClaimLive, overlap.SecondClaimed, overlap.FirstPayloadRows, overlap.SecondPayloadRows, overlap.LiveClaims));
+
+        // The second holding a claim too is two finalizations, not one waiting.
+        var (_, hash) = FinalizationWorld.Token(7);
+        await world.SetClaimTripleAsync(second, hash, Now().AddMinutes(5), Now());
+        var both = await OverlapSnapshot.TakeAsync(connection, first, second, Now());
+        Assert.True(both.SecondClaimed);
+        Assert.Equal(2, both.LiveClaims);
+        Assert.False(both.IsOverlap);
+        await world.SetClaimTripleAsync(second, null, null, null);
+        Assert.True((await OverlapSnapshot.TakeAsync(connection, first, second, Now())).IsOverlap);
+
+        // An expired first claim is not a running finalization.
+        var expired = await OverlapSnapshot.TakeAsync(connection, first, second, Now().AddHours(1));
+        Assert.False(expired.FirstClaimLive);
+        Assert.False(expired.IsOverlap);
+    }
+
+    [Fact]
+    public async Task ASecondHandOffAfterTheFirstCompletedIsNoOverlap()
+    {
+        using var world = await FinalizationWorld.CreateAsync();
+        var first = (await world.HandOffAsync(lease => StagedRequestAsync(world, lease, 2), cameraCode: "CAM-LATE-1")).Lease.JobId;
+        await world.Host().RunCycleAsync(CancellationToken.None);
+        Assert.Equal(VisionJobStatus.Completed, (await world.JobAsync(first)).Status);
+        world.Clock.Advance(TimeSpan.FromSeconds(1));
+        // The deliberately delayed second hand-off.
+        var second = (await world.HandOffAsync(lease => StagedRequestAsync(world, lease, 2), cameraCode: "CAM-LATE-2")).Lease.JobId;
+        var connection = world.Factory.ConnectionString;
+
+        var snapshot = await OverlapSnapshot.TakeAsync(connection, first, second, world.Clock.GetUtcNow());
+        Assert.Equal((nameof(VisionJobStatus.Completed), nameof(VisionJobStatus.Finalizing)), (snapshot.FirstStatus, snapshot.SecondStatus));
+        Assert.False(snapshot.IsOverlap);
+        // The retained times say so independently: the second was accepted after the first completed.
+        var (_, firstCompleted) = await HandOffTimesAsync(connection, first);
+        var (secondAccepted, _) = await HandOffTimesAsync(connection, second);
+        Assert.True(secondAccepted > firstCompleted, $"{secondAccepted:O} vs {firstCompleted:O}");
     }
 
     [Fact]
@@ -269,6 +398,41 @@ public sealed class S1FinalizationEnvelopeTests
         }
     }
 
+    /// <summary>
+    /// Holds the publication's first graph INSERT until released, so a test can read the APIs
+    /// while the publication transaction is open (test-only).
+    /// </summary>
+    private sealed class HoldGraphInsert : DbCommandInterceptor
+    {
+        private int _fired;
+
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            await MaybeHoldAsync(command, cancellationToken);
+            return result;
+        }
+
+        public override async ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            await MaybeHoldAsync(command, cancellationToken);
+            return result;
+        }
+
+        private async Task MaybeHoldAsync(DbCommand command, CancellationToken cancellationToken)
+        {
+            if (PublicationScope.Current is not null
+                && command.CommandText.Contains("INSERT INTO tracks", StringComparison.Ordinal)
+                && Interlocked.Exchange(ref _fired, 1) == 0)
+            {
+                Entered.TrySetResult();
+                await Release.Task.WaitAsync(TimeSpan.FromMinutes(2), cancellationToken);
+            }
+        }
+    }
+
     /// <summary>Makes the first publication's commit call fail before it reaches PostgreSQL.</summary>
     private sealed class FailFirstPublicationCommit : DbTransactionInterceptor
     {
@@ -473,19 +637,20 @@ public sealed class S1FinalizationEnvelopeTests
         var options = context.Configuration;
         var ceiling = TimeSpan.FromSeconds((int)options["MaximumFinalizationDurationSeconds"] + (int)options["ClaimSeconds"] + (int)options["PollIntervalSeconds"] + 60);
         var rss = new List<long>();
-        var premature = 0;
-        var probes = 0;
+        var visibility = new VisibilityTally();
         var deadline = DateTime.UtcNow + ceiling;
         VisionJobStatus status;
         while (true)
         {
             rss.Add(Process.GetCurrentProcess().WorkingSet64);
-            premature += await PrematureVisibilityAsync(factory, client, videoId, cameraId, jobId);
-            probes++;
+            var pending = log.PendingTracks(jobId);
+            visibility.Add(await VisibilityChecks.ProbeAsync(factory.ConnectionString, client, videoId, cameraId, jobId, pending), pending);
             status = (await StateAsync(factory, jobId)).Status;
             if (status is VisionJobStatus.Completed or VisionJobStatus.Failed) break;
             Assert.True(DateTime.UtcNow < deadline, "the job did not reach a terminal state within the effective bound");
-            await Task.Delay(1000);
+            // Once the graph is built the ids exist and the publication window is short: probe
+            // it closely enough to read Track detail inside it.
+            await Task.Delay(pending.Count > 0 ? 100 : 1000);
         }
 
         prober.Phase("after");
@@ -497,6 +662,12 @@ public sealed class S1FinalizationEnvelopeTests
         Assert.Equal(trackCount, afterStatus.TracksCreated);
 
         var contention = prober.Result();
+        var detailAfterPublication = new List<int>();
+        foreach (var trackId in log.PendingTracks(jobId))
+        {
+            using var detail = await client.GetAsync($"/api/tracks/{trackId}");
+            detailAfterPublication.Add((int)detail.StatusCode);
+        }
 
         var calls = log.For(jobId);
         var timelines = recorder.Analyze(jobId);
@@ -534,8 +705,10 @@ public sealed class S1FinalizationEnvelopeTests
             // allocate from the same sequence, outside any publication scope).
             ["sequenceAllocations"] = sequences.In(timeline.Scope),
             ["runVisibilitySequence"] = await RunVisibilitySequenceAsync(factory.ConnectionString, jobId),
-            ["prematureVisibilityObserved"] = premature,
-            ["prematureVisibilityProbes"] = probes,
+            // Which visibility checks ran, and what each found (the checker needs them all).
+            ["visibility"] = visibility.ToOutput(detailAfterPublication),
+            ["prematureVisibilityObserved"] = visibility.Total,
+            ["prematureVisibilityProbes"] = visibility.Probes,
             ["extensionCount"] = extensions.Count,
             ["createdObjects"] = created,
             ["adoptedObjects"] = adopted,
@@ -569,12 +742,18 @@ public sealed class S1FinalizationEnvelopeTests
     internal const string LiveClaimsSql =
         "SELECT count(*) FROM vision_jobs WHERE status = 'Finalizing' AND finalization_claim_token_hash IS NOT NULL AND finalization_claim_expires_at_utc > now()";
 
-    /// <summary>
-    /// F4 plan §9.2 concurrency behaviour (an integrity check, not a timing): two worst-shape jobs
+    /// <summary>F4 plan §9.2 concurrency behaviour: an integrity check, not a timing.</summary>
+    /// <remarks>
+    /// Two worst-shape jobs
     /// handed off back to back under <c>MaxConcurrentFinalizations</c> from configuration. Live
     /// claims are sampled throughout; with a limit of one, the second job must stay unclaimed
-    /// until the first has published, and both must publish exactly once.
-    /// </summary>
+    /// until the first has published, and both must publish exactly once. None of that means
+    /// anything unless the two actually overlapped, so the sampler also retains the first
+    /// atomic snapshot (<see cref="OverlapSnapshot"/>) in which the first job is Finalizing under
+    /// a live claim while the second, already durably handed off, is Finalizing and unclaimed;
+    /// and each job's accepted and completed times, so the checker can refuse a run in which the
+    /// second hand-off came after the first had already completed.
+    /// </remarks>
     private static async Task<object> ConcurrencyOnceAsync(string mediaRoot, string evidenceRoot, int trackCount, SequenceAllocationObserver sequences)
     {
         Empty(mediaRoot);
@@ -603,24 +782,23 @@ public sealed class S1FinalizationEnvelopeTests
 
         var samples = new List<long>();
         var secondClaimedBeforeFirstPublished = false;
+        OverlapSnapshot? overlap = null;
+        var overlapSnapshots = 0;
         using var cancel = new CancellationTokenSource();
         var sampler = Task.Run(async () =>
         {
             while (!cancel.IsCancellationRequested)
             {
-                await using var connection = new NpgsqlConnection(factory.ConnectionString);
-                await connection.OpenAsync();
-                // One statement, one snapshot: the live claims, the first job's status, and whether
-                // the second job has ever been claimed.
-                await using var command = new NpgsqlCommand(
-                    "SELECT (" + LiveClaimsSql + "), (SELECT status FROM vision_jobs WHERE id = $1)," +
-                    " (SELECT finalization_claim_token_hash IS NOT NULL OR finalization_attempt_count > 0 FROM vision_jobs WHERE id = $2)", connection);
-                command.Parameters.AddWithValue(first);
-                command.Parameters.AddWithValue(second);
-                await using var reader = await command.ExecuteReaderAsync();
-                await reader.ReadAsync();
-                samples.Add(reader.GetInt64(0));
-                if (reader.GetString(1) != nameof(VisionJobStatus.Completed) && reader.GetBoolean(2)) secondClaimedBeforeFirstPublished = true;
+                // One statement, one snapshot of both jobs and the live claims.
+                var snapshot = await OverlapSnapshot.TakeAsync(factory.ConnectionString, first, second);
+                samples.Add(snapshot.LiveClaims);
+                if (snapshot.FirstStatus != nameof(VisionJobStatus.Completed) && snapshot.SecondClaimed) secondClaimedBeforeFirstPublished = true;
+                if (snapshot.IsOverlap)
+                {
+                    overlap ??= snapshot;
+                    overlapSnapshots++;
+                }
+
                 await Task.Delay(50);
             }
         });
@@ -650,12 +828,15 @@ public sealed class S1FinalizationEnvelopeTests
         {
             var published = recorder.Analyze(jobId).Where(t => t.Committed).ToList();
             var publishes = log.For(jobId).Count(c => c.Method == nameof(IVisionFinalizationLifecycle.PublishAsync) && c.Result == "Published");
+            var (acceptedAtUtc, completedAtUtc) = await HandOffTimesAsync(factory.ConnectionString, jobId);
             jobs.Add(new
             {
                 jobId,
                 finalState = (await StateAsync(factory, jobId)).Status.ToString(),
                 publications = publishes,
                 sequenceAllocations = published.Sum(t => sequences.In(t.Scope)),
+                acceptedAtUtc,
+                completedAtUtc,
             });
         }
 
@@ -666,7 +847,23 @@ public sealed class S1FinalizationEnvelopeTests
             liveClaimSamples = samples,
             maxLiveClaims = samples.DefaultIfEmpty(0).Max(),
             secondClaimedBeforeFirstPublished,
+            // Observed, never assumed: null unless a snapshot showed the overlap.
+            overlapObserved = overlap is not null,
+            overlapSnapshot = overlap?.ToOutput(),
+            overlapSnapshots,
         };
+    }
+
+    /// <summary>The job's durable hand-off time and its completion time, from the database.</summary>
+    internal static async Task<(DateTimeOffset? AcceptedAtUtc, DateTimeOffset? CompletedAtUtc)> HandOffTimesAsync(string connectionString, Guid jobId)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("SELECT finalization_accepted_at_utc, completed_at_utc FROM vision_jobs WHERE id = $1", connection);
+        command.Parameters.AddWithValue(jobId);
+        await using var reader = await command.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return (reader.IsDBNull(0) ? null : reader.GetFieldValue<DateTimeOffset>(0), reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1));
     }
 
     private static async Task<object> ReferenceOnceAsync(string mediaRoot, string evidenceRoot, int trackCount)
@@ -715,33 +912,5 @@ public sealed class S1FinalizationEnvelopeTests
         using var document = JsonDocument.Parse(await client.GetStringAsync($"/api/videos/{videoId}/processing"));
         var run = document.RootElement.GetProperty("latestRun");
         return new RunStatus(run.GetProperty("phase").GetString()!, run.GetProperty("tracksCreated").GetInt32());
-    }
-
-    /// <summary>
-    /// One premature-visibility probe (F4 plan §9.2 step 6): while the job is Finalizing, the
-    /// status API says <c>finalizing</c> with no counts, the Track search returns nothing, and no
-    /// Track row of the run is committed. Returns the number of violations seen.
-    /// </summary>
-    private static async Task<int> PrematureVisibilityAsync(ApiTestFactory factory, HttpClient client, Guid videoId, Guid cameraId, Guid jobId)
-    {
-        var violations = 0;
-        var status = await ProcessingAsync(client, videoId);
-        using var search = JsonDocument.Parse(await client.GetStringAsync($"/api/tracks?cameraId={cameraId}"));
-        var searchHits = search.RootElement.GetProperty("items").GetArrayLength();
-        await using var connection = new NpgsqlConnection(factory.ConnectionString);
-        await connection.OpenAsync();
-        // One statement, one snapshot: the job's status and the run's committed Track rows.
-        await using var command = new NpgsqlCommand(
-            "SELECT j.status, (SELECT count(*) FROM tracks t WHERE t.processing_run_id = j.processing_run_id) FROM vision_jobs j WHERE j.id = $1", connection);
-        command.Parameters.AddWithValue(jobId);
-        await using var reader = await command.ExecuteReaderAsync();
-        await reader.ReadAsync();
-        var jobStatus = reader.GetString(0);
-        var trackRows = reader.GetInt64(1);
-        if (status.Phase == "finalizing" && status.TracksCreated != 0) violations++;
-        if (jobStatus == nameof(VisionJobStatus.Finalizing) && trackRows != 0) violations++;
-        // The search ran before the snapshot: a hit while the job is still Finalizing is premature.
-        if (jobStatus == nameof(VisionJobStatus.Finalizing) && searchHits != 0) violations++;
-        return violations;
     }
 }

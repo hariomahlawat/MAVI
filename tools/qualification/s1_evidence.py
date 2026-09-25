@@ -278,6 +278,134 @@ DISCONNECTED_OUTCOMES = (
 )
 
 
+# F4 plan §9.2 step 6, §15.2: every check a Finalizing snapshot must pass. The harness
+# classifies each probe on the job's authoritative database status, read after the API reads.
+VISIBILITY_CHECKS = ("wrongPhase", "publishedCount", "search", "trackRows", "detail")
+VISIBILITY_PROBE_FIELDS = ("phaseProbes", "publishedCountProbes", "searchProbes", "trackRowProbes")
+
+
+VISIBILITY_SNAPSHOT_FIELDS = ("dbStatus", "apiPhase", "apiTracksCreated", "searchHits", "trackRows", "detailStatuses")
+
+
+def snapshot_violations(snapshot: dict[str, Any]) -> list[str]:
+    """The checks one raw Finalizing probe fails (the harness's VisibilityChecks rules):
+    read after the API calls, the database said Finalizing, so every API read must
+    show the run unpublished."""
+    violations = []
+    if snapshot["apiPhase"] != "finalizing":
+        violations.append("wrongPhase")
+    if snapshot["apiTracksCreated"] != 0:
+        violations.append("publishedCount")
+    if snapshot["searchHits"] != 0:
+        violations.append("search")
+    if snapshot["trackRows"] != 0:
+        violations.append("trackRows")
+    if any(status != 404 for status in snapshot["detailStatuses"]):
+        violations.append("detail")
+    return violations
+
+
+def visibility_problems(sample: dict[str, Any]) -> list[tuple[str, str]]:
+    """Which premature-visibility checks did not run, or ran and failed, recomputed
+    from the retained raw probes. Zero violations mean nothing unless every check
+    ran on every Finalizing probe and Track detail was read during the publication
+    window with the ids of the Tracks that were then published."""
+    block = sample.get("visibility")
+    if not isinstance(block, dict):
+        return [("premature_visibility_unproven", "no visibility block: which checks ran is unknown")]
+    snapshots = block.get("snapshots")
+    if not isinstance(snapshots, list) or not snapshots:
+        return [("premature_visibility_unproven", "no raw probe observed the job Finalizing")]
+    if any(not isinstance(snap, dict) or any(field not in snap for field in VISIBILITY_SNAPSHOT_FIELDS) or not isinstance(snap["detailStatuses"], list) for snap in snapshots):
+        return [("premature_visibility_unproven", f"a retained probe lacks one of {VISIBILITY_SNAPSHOT_FIELDS}")]
+    problems: list[tuple[str, str]] = []
+    if any(snap["dbStatus"] != "Finalizing" for snap in snapshots):
+        problems.append(("premature_visibility_unproven", "a retained probe was not taken while the job was Finalizing"))
+    ids = block.get("detailTrackIds")
+    after = block.get("detailAfterPublication")
+    if not isinstance(ids, list) or not ids:
+        problems.append(("premature_visibility_unproven", "no Track id was probed through the detail API"))
+    elif not isinstance(after, list) or len(after) != len(ids) or any(status != 200 for status in after):
+        problems.append(("premature_visibility_unproven", f"the probed Track ids are not readable after publication ({after!r}): they are not the published Tracks"))
+    detail_probes = [snap for snap in snapshots if snap["detailStatuses"]]
+    if not detail_probes:
+        problems.append(("premature_visibility_unproven", "Track detail was never read while the job was Finalizing"))
+    elif isinstance(ids, list) and any(len(snap["detailStatuses"]) != len(ids) for snap in detail_probes):
+        problems.append(("premature_visibility_unproven", "a detail probe did not read every probed Track id"))
+    recomputed = {check: 0 for check in VISIBILITY_CHECKS}
+    for snap in snapshots:
+        for check in snapshot_violations(snap):
+            recomputed[check] += 1
+    for check in VISIBILITY_CHECKS:
+        if recomputed[check]:
+            problems.append(("b3b_output_mismatch", f"premature visibility: {recomputed[check]} {check} violation(s) while Finalizing"))
+    # The tally and the summary fields are the raw probes' and cannot disagree with them.
+    probes = len(snapshots)
+    tally = {field: block.get(field) for field in ("probes", *VISIBILITY_PROBE_FIELDS)}
+    if any(value != probes for value in tally.values()) or block.get("detailProbes") != len(detail_probes):
+        problems.append(("metric_without_producer", f"the probe counts {tally}, detailProbes {block.get('detailProbes')!r} are not the {probes} retained probes ({len(detail_probes)} with detail)"))
+    if block.get("violations") != recomputed:
+        problems.append(("metric_without_producer", f"violations {block.get('violations')!r} are not the recomputation {recomputed} from the retained probes"))
+    if sample.get("prematureVisibilityObserved") != sum(recomputed.values()) or sample.get("prematureVisibilityProbes") != probes:
+        problems.append(("metric_without_producer", "prematureVisibilityObserved/Probes are not the retained probes'"))
+    return problems
+
+
+def is_overlap(snapshot: dict[str, Any] | None) -> bool:
+    """The retained atomic snapshot shows the limit exercised: both hand-offs durable,
+    the first Finalizing under a live claim, the second Finalizing and never claimed."""
+    if not isinstance(snapshot, dict):
+        return False
+    first, second = snapshot.get("first") or {}, snapshot.get("second") or {}
+    return (
+        first.get("status") == "Finalizing" and first.get("claimLive") is True and bool(first.get("acceptedAtUtc"))
+        and isinstance(first.get("payloadRows"), int) and first["payloadRows"] > 0
+        and second.get("status") == "Finalizing" and second.get("claimed") is False and bool(second.get("acceptedAtUtc"))
+        and isinstance(second.get("payloadRows"), int) and second["payloadRows"] > 0
+    )
+
+
+def _instant(text: Any) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(text).replace("Z", "+00:00")) if text else None
+    except ValueError:
+        return None
+
+
+def overlap_problems(block: dict[str, Any], limit: Any) -> list[str]:
+    """F4 plan §9.2: with a limit of one, the run must show the second job waiting
+    behind a running first, recomputed from the retained snapshot and hand-off
+    times, never taken from the overlapObserved flag."""
+    problems: list[str] = []
+    snapshot = block.get("overlapSnapshot")
+    observed = is_overlap(snapshot)
+    if block.get("overlapObserved") is not observed:
+        problems.append(f"overlapObserved {block.get('overlapObserved')!r} is not what its retained snapshot shows ({observed})")
+    if limit != 1:
+        return problems
+    if not observed:
+        problems.append("no overlap exercised: no retained snapshot shows the second job Finalizing and unclaimed behind a live first claim")
+        return problems
+    jobs = block["jobs"]
+    if not isinstance(jobs, list) or len(jobs) != 2:
+        problems.append("no overlap exercised: the hand-off times of two jobs are not retained")
+        return problems
+    first_completed, second_accepted = _instant(jobs[0].get("completedAtUtc")), _instant(jobs[1].get("acceptedAtUtc"))
+    at = _instant(snapshot.get("atUtc"))
+    # The snapshot must lie after the second hand-off and before the first completed; if the
+    # second was accepted only after the first completed, no instant does.
+    if first_completed is None or second_accepted is None or at is None or not second_accepted <= at < first_completed:
+        problems.append(
+            f"no overlap exercised: the snapshot at {snapshot.get('atUtc')} is not between the second hand-off "
+            f"({jobs[1].get('acceptedAtUtc')}) and the first completion ({jobs[0].get('completedAtUtc')})")
+    for index, key in ((0, "first"), (1, "second")):
+        if _instant(snapshot[key].get("acceptedAtUtc")) != _instant(jobs[index].get("acceptedAtUtc")):
+            problems.append(f"the overlap snapshot's {key} job is not job {index}'s hand-off")
+    if not isinstance(block.get("overlapSnapshots"), int) or block["overlapSnapshots"] < 1:
+        problems.append("overlapSnapshots does not count the observed overlap")
+    return problems
+
+
 def concurrency_problems(block: dict[str, Any], configuration: dict[str, Any]) -> list[str]:
     """F4 plan §9.2: two jobs handed off back to back under the configured
     MaxConcurrentFinalizations; at most that many live claims throughout, the second
@@ -301,6 +429,7 @@ def concurrency_problems(block: dict[str, Any], configuration: dict[str, Any]) -
         problems.append(f"{block['maxLiveClaims']} live claims exceeded MaxConcurrentFinalizations {limit}")
     if limit == 1 and block["secondClaimedBeforeFirstPublished"] is not False:
         problems.append("the second job was claimed before the first published")
+    problems.extend(overlap_problems(block, limit))
     return problems
 
 
@@ -1728,6 +1857,7 @@ class _Checker:
                     problems.append(("b3b_output_mismatch", f"{where}: the API-host RSS series is missing or its peak is not its maximum"))
                 if not isinstance(sample["apiProcessCpuSeconds"], (int, float)):
                     problems.append(("b3b_output_mismatch", f"{where}: the API-process CPU time is missing"))
+                problems.extend((code, f"{where}: {detail}") for code, detail in visibility_problems(sample))
                 run_sequence = sample["runVisibilitySequence"]
                 for label, holds in (
                     ("more or fewer than one publication", sample["publications"] == 1),

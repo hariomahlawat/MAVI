@@ -52,6 +52,10 @@ internal sealed class FinalizationTimingDecorator(IVisionFinalizationLifecycle i
 
     public async Task<VisionFinalizationTransition> PublishAsync(VisionFinalizationClaim claim, ValidatedVisionResult result, FinalizationGraphPlan graph, CancellationToken cancellationToken)
     {
+        // The ids the publication will commit (assigned in memory at graph build; no Track id
+        // exists anywhere before this), so the premature-visibility probe can ask the real
+        // Track-detail API for a Track that is about to exist but must not be readable yet.
+        log.NotePendingTracks(claim.JobId, graph.Tracks.Select(t => t.Track.Id).ToList());
         PublicationScope.Enter();
         try
         {
@@ -84,6 +88,20 @@ internal sealed record LifecycleCall(string Method, Guid? JobId, long EnterTicks
 internal sealed class LifecycleCallLog
 {
     private readonly ConcurrentQueue<LifecycleCall> _calls = new();
+    private readonly ConcurrentDictionary<Guid, IReadOnlyList<Guid>> _pendingTracks = new();
+
+    /// <summary>
+    /// Records, at PublishAsync entry, up to three of the Track ids the publication will
+    /// commit: the first, the middle and the last.
+    /// </summary>
+    public void NotePendingTracks(Guid jobId, IReadOnlyList<Guid> trackIds)
+    {
+        if (trackIds.Count == 0) return;
+        _pendingTracks[jobId] = trackIds.Count <= 3 ? [.. trackIds] : [trackIds[0], trackIds[trackIds.Count / 2], trackIds[^1]];
+    }
+
+    /// <summary>The Track ids noted for <paramref name="jobId"/>'s latest PublishAsync, or none yet.</summary>
+    public IReadOnlyList<Guid> PendingTracks(Guid jobId) => _pendingTracks.TryGetValue(jobId, out var ids) ? ids : [];
 
     public void Add(LifecycleCall call) => _calls.Enqueue(call);
 
