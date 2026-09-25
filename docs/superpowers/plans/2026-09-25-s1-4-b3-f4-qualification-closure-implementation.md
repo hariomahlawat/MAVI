@@ -2,6 +2,7 @@
 
 **Status:** Proposed implementation-grade plan for F4, revision 2. Documentation only. Nothing in this document is evidence; no verdict changes; no measurement was run to write it. It is reviewed independently before F4 execution begins.
 **Revision 2 (2026-09-25):** amended after the independent cold review of revision 1 (`94f7cb3`). One P1: the B3-B visibility-barrier hold is now measured from the acquisition of the completion-exclusive advisory lock to the observed commit, never from the job row lock (§9.2.1). One P2: graph persistence is measured directly around `FinalizationGraphPersistence.AddAsync`, and no metric is derived by subtraction (§9.2.2). One P2: the operator-UI Finalizing gap is a sequencing prerequisite of M2 (Path A, §6.1, §15.3). Two hygiene items: the frozen F3 plan lands on `main` docs-only before F4-A (§6.1 step D0), and PR #87 is closed as historical, never consumed (§6.1 step H1). Every other rule of revision 1 is kept.
+**Owner decisions recorded (2026-09-25):** (1) the qualified shipped path becomes completion 3.1 / Finalizing: F4-C sets `VisionFinalization:Enabled = true` and the worker default `completion_schema_version = "3.1"`, subject to the F4 configuration-freeze measurements (§10.5); (2) Path A: the Finalizing UI PR (U1) lands before M2 (§6.1).
 **Date:** 2026-09-25
 **Starting state:** `main@480afb0fac0150b6b4f77402ce7c31575580d911` (the merge of PR #92, S1.4 B3 F3).
 **Parent plans:** `docs/superpowers/plans/2026-09-24-stage2-s1-4-hardening-qualification-implementation.md` (the S1.4 plan, §7.4 and §8 as amended on 2026-09-25); `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md` (the B3 plan, §14, §16 F4, §17 qualification guards, §19, §21); the F3 plan `docs/superpowers/plans/2026-09-25-s1-4-b3-f3-finalizer-recovery-implementation.md` §17 (F4 hand-off), which at `480afb0` exists only on branch `docs/s1-4-b3-f3-finalizer-plan` at `44e1f7b` and lands on `main` in step D0 before F4-A (§2.5, §6.1).
@@ -132,7 +133,7 @@ Not touched by F1–F3: `src/vision/mavi_vision/{evidence,quality,tracking,pipel
 | B6 | FAIL (3 unapproved skips) | **Completely.** Workflow changed (PR #86), worker package changed. | | Dispatch Task 10 at the final SHA, both variants (§16). |
 | Disconnected | OPEN | **Completely.** Worker, platform and web changed; the Runtime Bundle must be built from the final SHA. | | §19. |
 | Windows halves of B1/B2/B3 | absent | absent | No host. | §18. |
-| Prerequisite product changes before M2 | n/a | **F4-C** (configuration, `src/platform/**`, possibly the worker default) invalidates B3, B4, B5, B6 and DISCONNECTED; **U1** (Finalizing UI, `src/web/mavi-web/src/**`) invalidates B5 and DISCONNECTED. | Both merge before M2, so their invalidation is absorbed: nothing is measured authoritatively before them. | M2 is chosen after both (§7.1). |
+| Prerequisite product changes before M2 | n/a | **F4-C** (configuration and activation in `src/platform/**`, the worker default in `src/vision/mavi_vision/common/settings.py`) invalidates B3, B4, B5, B6 and DISCONNECTED; **U1** (Finalizing UI, `src/web/mavi-web/src/**`) invalidates B5 and DISCONNECTED. | Both merge before M2, so their invalidation is absorbed: nothing is measured authoritatively before them. | M2 is chosen after both (§7.1). |
 
 Nothing from `bb331c6` is reusable as a PASS. The `bb331c6` record remains what it is: an interim historical record for a superseded SHA, cited by the closure record as history only.
 
@@ -169,7 +170,7 @@ Principles:
 - **Two harness kinds, one checker.** .NET harnesses (`tests/Mavi.IntegrationTests/Qualification/`) measure the platform (B3-A, B3-B, crash, API contention); Python harnesses (`tools/qualification/`) measure the worker (B1, B2) and derive counts. The checker (`s1_evidence.py`) is the only thing that says PASS, and it says it only against retained, hash-verified files on a repository.
 - **Every number has a producer.** No value in the record is typed in. B3-A/B3-B stats are recomputed from the harness output's raw samples by the checker; B1 counts from `s1_b1.py`; B2 values from `derive`; suite counts from TRX/JUnit.
 - **Identity is measured, not declared.** Git SHA, clean tree, OS, CPU, cores, RAM, filesystem, storage class, .NET, PostgreSQL version and the finalizer configuration are captured by the harness process and compared with the record's host and configuration blocks.
-- **The activated configuration is what B3 qualifies.** B3-A, B3-B, the crash harness, B5's real-video path and the disconnected run execute with `VisionFinalization:Enabled = true` and `MAVI_COMPLETION_SCHEMA_VERSION = 3.1`. Whether that becomes the shipped default is the F4-C decision (§10.5, §30).
+- **The activated configuration is what B3 qualifies.** B3-A, B3-B, the crash harness, B5's real-video path and the disconnected run execute with `VisionFinalization:Enabled = true` and `MAVI_COMPLETION_SCHEMA_VERSION = 3.1`. By owner decision this becomes the shipped default in F4-C, subject to the freeze measurements (§10.5).
 - **B3 needs both halves.** The checker cannot PASS B3 from B3-A alone or B3-B alone (B3 plan §17 guard), nor from one OS.
 
 ---
@@ -181,14 +182,14 @@ Principles:
 | **D0 Docs housekeeping** (branch `docs/s1-4-b3-f3-plan-on-main`) | The F3 plan file, byte-identical to `git show 44e1f7b:docs/superpowers/plans/2026-09-25-s1-4-b3-f3-finalizer-recovery-implementation.md` (blob hash compared in the PR). Nothing else. | No. | Not applicable. |
 | **F4-A Harness** (branch `feature/s1-4-b3-f4-harness`) | Slices F4.1–F4.7 (§24): checker/schema redesign, B3-A harness, B3-B harness, crash/recovery harness, API-contention prober, B5 record v2 and visual-QA states, storage-class/host probes, disconnected runbook. Tests first, mutants recorded in the PR. | Yes (evidence tooling, `tests/*`, `tools/qualification/*`). No product code. | **No.** Diagnostic runs to prove the harness works are allowed and are never retained as evidence. |
 | **U1 Finalizing UI** (separate product PR, not part of F4; Path A) | `src/web/mavi-web/src/**` only: surface the existing API `phase == "finalizing"`, distinguish Finalizing visually and in text from generic Running, keep Processing/Completed/Failed semantics, focused UI tests. No backend or finalizer change. | **Yes, product behavior** (web). Invalidates B5 and DISCONNECTED. | **No.** |
-| **F4-C Configuration freeze** (branch `feature/s1-4-b3-f4-config-freeze`) | `appsettings.json` `VisionFinalization` values (and `Enabled` if so decided), worker `completion_schema_version` default (if so decided), runbook table, ADR-006 §7 status line. | **Yes, product behavior.** The only F4 slice that changes production behaviour. | **No.** Its merge commit is M2 when U1 is already on `main` (§7.1). |
+| **F4-C Configuration freeze** (branch `feature/s1-4-b3-f4-config-freeze`) | `appsettings.json` `VisionFinalization` frozen values and `Enabled = true`, worker `completion_schema_version` default `"3.1"` (§10.5), runbook table and deployment order, ADR-006 §7 status line. | **Yes, product behavior.** The only F4 slice that changes production behaviour. | **No.** Its merge commit is M2 when U1 is already on `main` (§7.1). |
 | **F4-E Evidence** (branch `evidence/s1-4-f4-<sha12>`) | `docs/qualification/stage2-s1/` only: record, summary, retained files. | No. | It *is* the evidence, produced at M2 on the qualified hosts, committed as files. |
 | **Closure follow-up** | Post-merge run identities, closure block, register and roadmap edits. Docs only. | No. | Post-merge verification only. |
 
 Rules:
 
 1. F4-A merges before any authoritative measurement (S1.4 plan §13). If review of F4-A changes a harness after exploratory runs, those runs are discarded.
-2. If F4-C changes nothing (§10.4 case "defaults are the frozen values"), F4-C is a docs-only record of the decision and M2 is the first `main` commit that contains F4-A and U1. The choice is written into the freeze decision before authoritative execution starts.
+2. F4-C always changes production behaviour, because it ships the activation (§10.5) even if every timing default is kept. Its merge commit, after U1, is M2. The freeze decision is written before F4-C opens.
 3. Any commit to a §2.1 path after M2 and before M3, other than F4-E's own `docs/qualification/**` files, restarts §25 for the units the checker maps it to (`closure_rerun_required`).
 4. A product defect found at any point stops execution; its fix is a separate PR; the measurement SHA moves; §25 restarts for the affected units.
 5. UI work is never folded into F4-A, F4-C or F4-E. U1 is its own reviewed product PR.
@@ -202,7 +203,7 @@ Rules:
 | **Path B** (owner explicitly declines U1) | recorded before M2 | F4 still executes every unit. B5 stays **OPEN** on `finalizingStateDistinct`, S1.4 does **not** close and the closure record remains OPEN. B5 is never redefined to pass without a distinct Finalizing state. | none |
 | **H1** | when F4-E opens, and in any case before the closure record is written | Close PR #87 unmerged with a comment (by the owner) stating it is superseded, non-authoritative interim evidence at `bb331c6`; keep its branch as the archive. Merging it docs-only is acceptable only for a stated archival reason, and then under `docs/qualification/stage2-s1/history/bb331c6/`, which the checker never accepts as evidence (§22). | none; the checker refuses `bb331c6` artifacts |
 
-The default execution path is Path A.
+**Owner decision (2026-09-25): Path A.** U1 lands before M2. Path B remains described only as the consequence if U1 cannot be delivered; it is not the plan.
 
 ---
 
@@ -427,13 +428,19 @@ The B3-B criterion (`T_max ≤ ½ Max`) is satisfied by construction of the rule
 
 1. Merge F4-A → M1. Run exploratory B3-A and B3-B on each available OS. These outputs are retained under `docs/qualification/stage2-s1/exploratory/<M1-sha12>/` in the F4-C PR, labelled non-authoritative (`authoritative: false`, reason `exploratory-configuration-freeze`).
 2. Apply §10.2. Write the freeze decision (§10.6).
-3. If any value differs from the shipped default: F4-C commits `appsettings.json`, the runbook configuration paragraph and, if decided, the activation defaults (§10.5). Merge after U1 (Path A), so that its merge commit is M2 (§7.1). **A configuration commit changes behaviour; M2 is a new exact SHA and every authoritative measurement happens there.** The freeze never lands after authoritative measurement has started.
-4. If no value differs: F4-C is docs-only (the decision and exploratory outputs); M2 is the first `main` commit containing F4-A and U1; §7.5 still applies.
+3. F4-C commits `appsettings.json` (the frozen timing values, whether or not they differ from the development defaults, and `Enabled = true`), the worker default `"3.1"`, and the runbook configuration and deployment-order paragraphs (§10.5). Merge after U1 (Path A), so that its merge commit is M2 (§7.1). **A configuration commit changes behaviour; M2 is a new exact SHA and every authoritative measurement happens there.** The freeze never lands after authoritative measurement has started.
+4. If the exploratory measurements fail the activation gate of §10.5, F4-C is not opened: F4 stops and reports.
 5. Authoritative B3-B at M2 with the frozen values, both OS. If it fails its criterion, stop and report; do not re-freeze from the authoritative run.
 
-### 10.5 Activation defaults (decision required)
+### 10.5 Activation defaults (owner decision: ship 3.1 / Finalizing)
 
-The shipped default (`Enabled=false`, worker `3.0`) is the path that failed B3. F4 qualifies the activated configuration. The plan recommends that F4-C also sets `Enabled: true` in `appsettings.json` and the worker default to `"3.1"`, with the runbook's activation sequence as the deployment procedure, so that the qualified configuration and the shipped default coincide. If the owner decides to keep the default off, the closure record must say in its non-claims that the shipped default configuration is not B3-qualified and that B3 PASS applies to the activated configuration only. This is §30 question 1.
+The shipped default at `480afb0` (`Enabled=false`, worker `3.0`) is the path that failed B3. **Owner decision (2026-09-25): the qualified shipped path becomes completion 3.1 / Finalizing, subject to the freeze measurements.** F4-C therefore sets, together with the frozen timing values:
+
+- `src/platform/Mavi.Api/appsettings.json`: `VisionFinalization:Enabled = true`;
+- `src/vision/mavi_vision/common/settings.py`: `completion_schema_version` default `"3.1"`, with the worker tests that pin the default flipped (`test_the_default_worker_emits_the_synchronous_completion`, `test_the_default_worker_refuses_a_hand_off_acknowledgement`, `test_the_default_worker_accepts_the_pre_activation_platform`, `test_a_platform_listing_only_completion_3_1_is_unsupported_for_the_default_worker` become their 3.1 counterparts), and the activation-gate tests (`VisionFinalizationActivationGateTests`) updated only where they assert the shipped default;
+- the runbook: the activation sequence (platform hosts first, then workers) becomes the normal deployment order for this release, and the drain-before-disable procedure becomes the rollback path.
+
+"Subject to the freeze measurements" means: the activation lands in F4-C only if the exploratory B3-A and B3-B at M1 meet their criteria under the §10.2 rules (B3-A max ≤ 15 s on each available OS; B3-B max within ½ of the derived `MaximumFinalizationDurationSeconds`; no §30 stop condition such as a derived `Max` above the development default, an effective bound above 24 h, premature visibility or more than one publication). If any of those fails, F4-C does not activate: F4 stops and reports, and the activation is re-decided after a separate product repair. With the activation shipped, B3 PASS, the disconnected run and B5's real-video path all describe the shipped default, and the §26 non-claim about an unactivated default does not apply.
 
 ### 10.6 Freeze decision document
 
@@ -740,10 +747,10 @@ Each slice: files; tests first; invariants; commands; production behaviour chang
 **F4-A PR review gate:** all mutants killed and listed; `dotnet build MAVI.sln --configuration Release` warning-free; `python tools/verify_repo.py`; full `Mavi.IntegrationTests` serial run green (the new harnesses skip); `tools/qualification/tests` green on the qualified Task-10 job (both variants) via the PR's own Task-10 run. Merge → **M1**.
 
 ### F4.8 Exploratory measurement and configuration freeze (F4-C)
-- **Files:** `docs/qualification/stage2-s1/f4-configuration-freeze.md`, `exploratory/<M1>/…`, `src/platform/Mavi.Api/appsettings.json`, optionally `src/vision/mavi_vision/common/settings.py` (worker default) and its tests (`test_the_default_worker_emits_the_synchronous_completion` etc. flip), runbook table, `VisionFinalizationOptionsTests` if defaults change, ADR-006 §7 status line.
+- **Files:** `docs/qualification/stage2-s1/f4-configuration-freeze.md`, `exploratory/<M1>/…`, `src/platform/Mavi.Api/appsettings.json` (frozen values, `Enabled = true`), `src/vision/mavi_vision/common/settings.py` (worker default `"3.1"`) and the default-pinning tests listed in §10.5, `VisionFinalizationActivationGateTests` where it asserts the shipped default, runbook table and deployment order, `VisionFinalizationOptionsTests` if defaults change, ADR-006 §7 status line.
 - **Tests first:** options tests for the frozen values (validation rules hold: `ClaimExtensionSeconds ≤ ClaimSeconds ≤ MaximumFinalizationDurationSeconds`); worker default tests.
 - **Invariants:** values derived by §10.2 from retained exploratory outputs; no other product change.
-- **Production behaviour:** **yes** (timing values; possibly activation defaults). **Invalidates:** B3, B4, B5, DISCONNECTED (platform), B3/B4/B5/B6/DISCONNECTED (worker default). **Authoritative:** no on this branch; it merges after U1, and its merge commit is M2 (§7.1).
+- **Production behaviour:** **yes** (timing values and the 3.1 / Finalizing activation). **Invalidates:** B3, B4, B5, DISCONNECTED (platform), B3/B4/B5/B6/DISCONNECTED (worker default). **Authoritative:** no on this branch; it merges after U1, and its merge commit is M2 (§7.1).
 
 ### F4.9 Authoritative execution at M2 (no code)
 - §25 order, on the Linux and Windows hosts and the isolated host; outputs staged outside Git, then copied into `evidence/<M2>/` with hashes.
@@ -793,7 +800,7 @@ Any stop condition at a step halts the sequence; the record is committed in its 
 9. Crash-matrix outcome: H rows with kill points and adoption counts; I rows with test names; the D row statement; orphan bytes.
 10. API contention: baseline versus during, per endpoint; errors (0).
 11. Invalidation map applied (§4) and the reruns performed.
-12. Non-claims: Production qualification; CUDA/E2E (pending or recorded); model accuracy; Visual Attributes; S2; the RTMDet record unchanged; the shipped default configuration if not activated (§10.5); Windows halves if absent.
+12. Non-claims: Production qualification; CUDA/E2E (pending or recorded); model accuracy; Visual Attributes; S2; the RTMDet record unchanged; the shipped default configuration only if the activation did not land (§10.5; by owner decision it is expected to land); Windows halves if absent.
 13. Unresolved items and open questions with owners.
 14. Independent cold-review reference and the acceptance-register update.
 15. Prerequisites: D0 merge SHA, U1 merge SHA (or the recorded Path B decision, with B5 OPEN), F4-C merge SHA, and PR #87's disposition (closed unmerged as historical, never cited as evidence).
@@ -811,7 +818,7 @@ No S2 capability binding, attributes, OCR/ANPR or ReID; no selector/scorer/profi
 F4 is complete when:
 
 1. F4-A is merged with every §22 rule discrimination-tested and the §11 harness mutants recorded as killed.
-2. The freeze decision exists, its values are in `appsettings.json` at M2 (or the docs-only case is recorded), and the effective bound is stated.
+2. The freeze decision exists, its values and `Enabled = true` are in `appsettings.json` at M2, the worker default is `"3.1"` at M2, and the effective bound is stated.
 2a. D0 is merged, so no `main`-tree reference to the F3 plan dangles.
 2b. U1 is merged before M2 (Path A), or Path B is recorded and the closure record is OPEN with B5 OPEN on `finalizingStateDistinct`.
 2c. The B3-B barrier hold and graph persistence are recomputed by the checker from retained raw timestamps, and the §9.2.1/§9.2.2 discriminators and mutants are recorded as killed.
@@ -833,7 +840,7 @@ F4 is complete when:
 | 3 | B3-B with test-injected options rather than the frozen file | Would qualify a configuration nobody ships | P1 | §9.1 options from `appsettings.json`; checker `frozen_configuration_mismatch` via `git show` |
 | 4 | Freeze tuned to pass the ½ criterion | The rule for `Max` satisfies it by construction | P2 (acknowledged) | §10.3 states it and requires the arithmetic; the criterion's value is the margin, and re-freezing from the authoritative run is forbidden (§10.4 item 5) |
 | 5 | Config freeze commit measured on the wrong SHA | Exploratory at M1 mistaken for authoritative | P1 | §6 rule 2, §10.4, `authoritative: false` with reason on exploratory outputs; the checker refuses non-authoritative outputs |
-| 6 | Shipped default still synchronous after closure | B3 PASS would describe a configuration the product does not run by default | P1 (decision) | §10.5 recommendation + mandatory non-claim; §30 Q1 |
+| 6 | Shipped default still synchronous after closure | B3 PASS would describe a configuration the product does not run by default | P1 (decision) | Owner decision: F4-C ships 3.1 / Finalizing, gated on the freeze measurements (§10.5); if the gate fails, F4 stops rather than shipping an unqualified default |
 | 7 | Windows evidence reused from Linux | Copy under another id | P2 | §22 byte-identity refusal + `variant` inside every output |
 | 8 | Crash matrix "covered" only by clock-injected integration tests | Real process loss never exercised | P2 | §11 H rows with real kills at the envelope; D row stated honestly |
 | 9 | Premature visibility judged only by the automated publication test | A regression in a read endpoint would pass | P2 | §9.2 step 6 live probe during every B3-B sample; §15.2 `prematureVisibilityAbsent` |
@@ -874,7 +881,7 @@ F4 is complete when:
 | 39 | Delay-injection discriminator itself flaky on a slow host | A 750 ms sleep against a 100 ms tolerance | P3 | Runs at a small envelope in the ordinary suite; the tolerance is an order of magnitude below the injected delay; if flaky, raise the delay, never the tolerance |
 | 40 | Sequence allocation (raw `DbCommand`) invisible to EF interceptors | Not needed for the hold's endpoints, but a gap in the timeline | P3 | Recorded as not observable; it lies between two observed events (barrier acquired, final `SavingChanges`), so the hold is unaffected |
 
-No P1 remains unaddressed inside the plan. The remaining decisions (activation default; Path A versus Path B; the Windows and disconnected hosts) are owner decisions that F4 surfaces and cannot take (§30).
+No P1 remains unaddressed inside the plan. The activation default and Path A are decided (§10.5, §6.1). The remaining owner decisions are the Windows and disconnected hosts (§30).
 
 ---
 
@@ -882,8 +889,8 @@ No P1 remains unaddressed inside the plan. The remaining decisions (activation d
 
 **Decisions required before M2**
 
-1. **Activation default.** Does F4-C set `VisionFinalization:Enabled = true` and the worker default `3.1` (recommended, §10.5)? If not, the closure non-claims must state that the shipped default is not B3-qualified.
-2. **Finalizing in the operator UI.** Default: Path A, U1 lands before M2 (§6.1, §15.3). The owner may explicitly choose Path B; then B5 stays OPEN on `finalizingStateDistinct`, S1.4 does not close and the closure record stays OPEN. F4 does not add UI code.
+1. **Activation default. Decided (2026-09-25):** F4-C ships `VisionFinalization:Enabled = true` and the worker default `3.1`, subject to the freeze measurements (§10.5).
+2. **Finalizing in the operator UI. Decided (2026-09-25): Path A.** U1 lands before M2 (§6.1, §15.3). If U1 cannot be delivered, B5 stays OPEN on `finalizingStateDistinct` and S1.4 does not close. F4 does not add UI code.
 3. **Windows host.** A qualified Windows x64 Development host is required for B1/B2/B3 Windows halves. If none can be provided, S1.4 cannot close under the current plan; reducing the variant set is a plan amendment for the owner.
 4. **F3 plan document.** Default: D0 lands the frozen file byte-identical before F4-A. Fallback only if the owner declines: rewrite the references to cite branch and SHA.
 5. **PR #87.** Default: H1, the owner closes it unmerged as historical when F4-E opens; its branch stays as the archive; F4 never cites it as evidence and the checker refuses its artifacts. Docs-only merge under `history/` only for a stated archival reason.
