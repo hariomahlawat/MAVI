@@ -183,9 +183,9 @@ public sealed class VisionFinalizationDomainTests
         Assert.False(job.CanAuthenticateCompletionReplay("worker-a", true, 2));
         Assert.False(job.CanAuthenticateCompletionReplay("Worker-A", true, 1));
 
-        var (_, hash) = ClaimToken();
+        var (token, hash) = ClaimToken();
         job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
-        job.CompleteFinalization(Now.AddMinutes(2));
+        job.CompleteFinalization(token, Now.AddMinutes(2));
         Assert.True(job.CanAuthenticateCompletionReplay("worker-a", true, 1));
     }
 
@@ -297,14 +297,14 @@ public sealed class VisionFinalizationDomainTests
     public void CompleteFinalizationIsClaimDependentAndLeaseIndependent()
     {
         var job = FinalizingJob();
-        var (_, hash) = ClaimToken();
+        var (token, hash) = ClaimToken();
         var afterLease = Now.Add(Lease).AddHours(1);
 
-        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(afterLease));
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, afterLease));
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
 
         job.ClaimFinalization(hash, afterLease, TimeSpan.FromMinutes(5), 3);
-        job.CompleteFinalization(afterLease.AddMinutes(1));
+        job.CompleteFinalization(token, afterLease.AddMinutes(1));
 
         Assert.Equal(VisionJobStatus.Completed, job.Status);
         Assert.Equal(afterLease.AddMinutes(1), job.CompletedAtUtc);
@@ -314,17 +314,40 @@ public sealed class VisionFinalizationDomainTests
         Assert.Null(job.FinalizationClaimTokenHash);
         Assert.Null(job.FinalizationClaimExpiresAtUtc);
         Assert.Equal(1, job.FinalizationAttemptCount);
-        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(afterLease.AddMinutes(2)));
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, afterLease.AddMinutes(2)));
+    }
+
+    [Fact]
+    public void CompleteFinalizationRefusesAnExpiredWrongOrRotatedAwayClaim()
+    {
+        var job = FinalizingJob();
+        var (first, firstHash) = ClaimToken(1);
+        var (second, secondHash) = ClaimToken(2);
+        var claimed = Now.AddMinutes(1);
+        job.ClaimFinalization(firstHash, claimed, TimeSpan.FromMinutes(5), 3);
+
+        // Wrong token, and the right token after its claim expired.
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(second, claimed.AddMinutes(1)));
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(first, claimed.AddMinutes(5)));
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+
+        // Claimant B reclaims after A's expiry: A's token can no longer publish, B's can.
+        job.ClaimFinalization(secondHash, claimed.AddMinutes(6), TimeSpan.FromMinutes(5), 3);
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(first, claimed.AddMinutes(7)));
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+        job.CompleteFinalization(second, claimed.AddMinutes(7));
+        Assert.Equal(VisionJobStatus.Completed, job.Status);
     }
 
     [Fact]
     public void CompleteFinalizationRefusesACompletionBeforeAcceptance()
     {
+        // A claim whose window somehow precedes the accepted time cannot publish before it.
         var job = FinalizingJob();
-        var (_, hash) = ClaimToken();
-        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        var (token, hash) = ClaimToken();
+        job.ClaimFinalization(hash, Now.AddSeconds(10), TimeSpan.FromMinutes(5), 3);
 
-        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(Now.AddSeconds(29)));
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, Now.AddSeconds(29)));
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
     }
 
@@ -334,7 +357,7 @@ public sealed class VisionFinalizationDomainTests
     public void FailFinalizationIsTerminalKeepsTheHandOffFactsAndClearsTheClaim()
     {
         var job = FinalizingJob();
-        var (_, hash) = ClaimToken();
+        var (token, hash) = ClaimToken();
         job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
 
         job.FailFinalization("vision_finalization_attempts_exhausted", "seal timed out", Now.AddMinutes(2));
@@ -350,7 +373,7 @@ public sealed class VisionFinalizationDomainTests
         Assert.Null(job.FinalizationClaimExpiresAtUtc);
         Assert.False(job.CanLease(Now.AddDays(1), 3));
         Assert.False(job.CanClaimFinalization(Now.AddDays(1), 3));
-        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(Now.AddMinutes(3)));
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, Now.AddMinutes(3)));
     }
 
     [Theory]

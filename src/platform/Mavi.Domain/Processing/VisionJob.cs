@@ -218,18 +218,19 @@ public sealed class VisionJob
     }
 
     /// <summary>
-    /// <c>Finalizing → Completed</c>, by the platform finalizer that holds the live claim. The
-    /// worker lease plays no part; the claim token is verified by the caller against
-    /// <see cref="FinalizationOwnedBy"/> inside the publication transaction.
+    /// <c>Finalizing → Completed</c>, by the platform finalizer that holds the live claim at
+    /// <paramref name="nowUtc"/>. The worker lease plays no part. A claimant whose claim expired
+    /// or was rotated away cannot publish: the transition verifies the token itself, like
+    /// <see cref="ExtendFinalizationClaim"/>, instead of trusting the caller to have checked.
     /// </summary>
-    public void CompleteFinalization(DateTimeOffset completedAtUtc)
+    public void CompleteFinalization(ReadOnlySpan<byte> claimToken, DateTimeOffset nowUtc)
     {
-        if (Status != VisionJobStatus.Finalizing || FinalizationClaimTokenHash is null) throw Invalid();
-        if (completedAtUtc.ToUniversalTime() < FinalizationAcceptedAtUtc) throw Invalid();
+        if (!FinalizationOwnedBy(claimToken, nowUtc)) throw Invalid();
+        if (nowUtc.ToUniversalTime() < FinalizationAcceptedAtUtc) throw Invalid();
 
         Status = VisionJobStatus.Completed;
         ProgressPercent = 100;
-        CompletedAtUtc = completedAtUtc.ToUniversalTime();
+        CompletedAtUtc = nowUtc.ToUniversalTime();
         FinalizationClaimTokenHash = null;
         FinalizationClaimExpiresAtUtc = null;
     }
