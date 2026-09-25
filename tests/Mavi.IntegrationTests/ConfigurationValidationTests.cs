@@ -50,6 +50,10 @@ public sealed class ConfigurationValidationTests
     [InlineData("VisionProcessing:MaximumAttempts", "0")]
     [InlineData("VisionProcessing:LeaseSeconds", "0")]
     [InlineData("VisionProcessing:HeartbeatExtensionSeconds", "0")]
+    [InlineData("VisionFinalization:ClaimSeconds", "0")]
+    [InlineData("VisionFinalization:ClaimExtensionSeconds", "301")]
+    [InlineData("VisionFinalization:MaximumFinalizationDurationSeconds", "299")]
+    [InlineData("VisionFinalization:MaxConcurrentFinalizations", "0")]
     public void InvalidConfigurationIsRejected(string key, string value)
     {
         using var provider = BuildProvider(new Dictionary<string, string?> { [key] = value });
@@ -62,7 +66,20 @@ public sealed class ConfigurationValidationTests
             _ = provider.GetRequiredService<IOptions<LocalizationOptions>>().Value;
             _ = provider.GetRequiredService<IOptions<VisionProcessingOptions>>().Value;
             _ = provider.GetRequiredService<IOptions<TrackSearchOptions>>().Value;
+            _ = provider.GetRequiredService<IOptions<VisionFinalizationOptions>>().Value;
         });
+    }
+
+    [Fact]
+    public void ADisabledFinalizationSectionIsStillValidated()
+    {
+        using var provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["VisionFinalization:Enabled"] = "false",
+            ["VisionFinalization:ClaimSeconds"] = "0",
+        });
+
+        Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<VisionFinalizationOptions>>().Value);
     }
 
     [Fact]
