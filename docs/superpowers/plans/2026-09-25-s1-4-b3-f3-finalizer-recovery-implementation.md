@@ -4,6 +4,8 @@
 
 **Governing plan:** `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md` (the "B3 plan"). Where this document and the B3 plan disagree, the B3 plan governs and this document must be corrected.
 
+**Amendment 1 (2026-09-25, commit after `71ea11c`):** resolves the cold-review findings P1 (absolute finalization deadline not enforced against claim extension), P2 (rollback needs a PostgreSQL-derived Finalizing count in health) and P2 (malformed claim metadata must fail closed). Sections amended: 3, 5.2–5.4, 6.1, 6.2, 6.6, 6.8, 6.9, 7.1, 7.2, 7.5, 8.6, 8.7, 11, 13.3, 14, 15.1, 15.3, 16 (slices 1, 4, 6, 7, 10), 17, 19, 20.
+
 **Governing ADRs:** ADR-006 §1–§7 (platform-owned accepted evidence; asynchronous finalization ownership), ADR-008 (API host on the operational plane), ADR-011 decision 1 (background services live in the API host).
 
 ---
@@ -42,17 +44,20 @@ These restate the B3 plan §18 cold-review invariants and ADR-006 §7 in the for
 | I10 | The current Finalizing attempt's staging is never reclaimed by the janitor; superseded attempts remain reclaimable; malformed state fails closed. | `StagingJanitor.Evaluate` Finalizing case (new). |
 | I11 | Status is truthful: `phase = finalizing` while Finalizing, run `Running`, video `Processing`, counts unpublished; `completed` only after the publication commit. | F1 `ProcessingPhaseRule`; F3 changes nothing here and adds tests that prove it under the running finalizer. |
 | I12 | No AI/worker output becomes authoritative without platform validation: the payload is re-validated by `VisionResultValidator` and its digest recomputed before any sealing. | Payload integrity step §6.4. |
+| I13 | The absolute finalization deadline `FinalizationAcceptedAtUtc + MaximumFinalizationDuration` is authoritative: no claim is created and no claim is extended at or after it. A claim live at the deadline expires naturally and is then exhausted. Total wall clock is bounded by `MaximumFinalizationDuration + one claim lifetime`. | `VisionJob.FinalizationDeadline`, `CanClaimFinalization`, `ExtendFinalizationClaim` (domain); the claim and reconciliation SQL predicates derive from the same policy value. |
+| I14 | Claim ownership metadata has exactly three canonical states (Unclaimed, Claimed-live, Claimed-expired). Anything else is malformed and fails closed: never claimed, never exhausted, never repaired, always logged. | `VisionJob.FinalizationClaimStateAt(now)`; SQL predicates select only canonical states; reconciliation reports malformed rows. |
 
 ## 4. Current-state code survey (at `26b44f5`)
 
 ### 4.1 Domain — `src/platform/Mavi.Domain/Processing/VisionJob.cs`
 
-Present and reused unchanged by F3:
+Present at `26b44f5` (F3 reuses these; amendment 1 changes the signatures of `CanClaimFinalization` and `ExtendFinalizationClaim` in slice 1 to carry the maximum duration, §5.4):
 
 - `CanClaimFinalization(nowUtc, maximumFinalizationAttempts)`: Finalizing ∧ attempts remain ∧ (no claim ∨ claim expired).
 - `ClaimFinalization(byte[] claimTokenHash, nowUtc, TimeSpan claimDuration, int max)`: increments `FinalizationAttemptCount`, stores the SHA-256 hash, sets `FinalizationClaimExpiresAtUtc = now + duration` and `FinalizationClaimExtendedAtUtc = now`.
 - `FinalizationOwnedBy(ReadOnlySpan<byte> claimToken, nowUtc)`: Finalizing ∧ 32-byte hash present ∧ unexpired ∧ fixed-time SHA-256 equality.
-- `ExtendFinalizationClaim(token, nowUtc, extension)`: requires `FinalizationOwnedBy`; sets expiry `= now + extension`.
+- `ExtendFinalizationClaim(token, nowUtc, extension)`: requires `FinalizationOwnedBy`; sets expiry `= now + extension`. **Has no deadline check** (amendment 1 adds one).
+- `CanClaimFinalization(nowUtc, max)`: **has no duration bound** and treats `FinalizationClaimExpiresAtUtc == null` as claimable without checking the hash (amendment 1 replaces it with the paired canonical-state check).
 - `NoteFinalizationError(code)`: Finalizing ∧ bounded finalization code; sets `FinalizationLastErrorCode`. **Not claim-fenced** (see §8.5 for how F3 uses it safely).
 - `CompleteFinalization(token, nowUtc)`: requires `FinalizationOwnedBy` and `nowUtc ≥ FinalizationAcceptedAtUtc`; → Completed; clears hash/expiry.
 - `FailFinalization(token, code, details, nowUtc)`: requires `FinalizationOwnedBy`; bounded code (`vision_finalization_` prefix, ≤64, `[a-z0-9_]`) and details ≤4000; → Failed; sets `FailureCode`, `FailureDetails`, `FinalizationLastErrorCode`, `CompletedAtUtc`; clears hash/expiry.
@@ -155,12 +160,19 @@ Queued → Leased → Finalizing → Completed
 
 ### 5.2 Finalizer claim sub-state (within Finalizing)
 
-| Sub-state | Persisted facts | Who may act |
+Ownership metadata is the triple (`FinalizationClaimTokenHash`, `FinalizationClaimExpiresAtUtc`, `FinalizationClaimExtendedAtUtc`). The aggregate writes all three together in every transition (`BeginFinalization` clears all three; `ClaimFinalization` sets all three; `ExtendFinalizationClaim` and `ReleaseFinalizationClaim` update expiry and extended-at while keeping the hash), so only three canonical states are reachable through the domain:
+
+| Canonical state | Persisted facts | Who may act |
 |---|---|---|
-| **Unclaimed** | `FinalizationClaimTokenHash = null`, `FinalizationClaimExpiresAtUtc = null` (fresh from hand-off) | Any finalizer host: `ClaimFinalization` if attempts remain and duration not exhausted. |
-| **Claimed (live)** | hash set, `ExpiresAtUtc > now` | Only the holder of the token whose hash matches: extend, complete, fail. Others: nothing (row is skipped or found not claimable). |
-| **Claimed (expired)** | hash set, `ExpiresAtUtc ≤ now` | Any finalizer host: reclaim (rotates token, increments attempt). Old holder: nothing. |
-| **Exhausted** | no live claim ∧ (`FinalizationAttemptCount ≥ MaximumFinalizationAttempts` ∨ `now − FinalizationAcceptedAtUtc ≥ MaximumFinalizationDuration`) | Platform reconciliation only: `ExhaustFinalization` → Failed with `vision_finalization_exhausted`. |
+| **Unclaimed** | hash `null` ∧ expiry `null` ∧ extended-at `null` (fresh from hand-off) | Any finalizer host: `ClaimFinalization` if attempts remain and `now < deadline` (§5.4). |
+| **Claimed, live** | hash (32 bytes) ∧ expiry ∧ extended-at all present ∧ `expiry > now` | Only the holder of the token whose hash matches: extend (only while `now < deadline`), complete, fail, note. Others: nothing. |
+| **Claimed, expired** | all three present ∧ `expiry ≤ now` | Any finalizer host: reclaim (rotates token, increments attempt) if attempts remain and `now < deadline`. Old holder: nothing. |
+| **Malformed** (non-canonical) | any other combination: hash without expiry, expiry without hash, either without extended-at, extended-at alone, or a hash that is not 32 bytes | **Nobody.** Not claimable, not exhaustible, not modified. Reported as an invariant violation (§7.5, event 1512) and counted in health (§6.9) for operator investigation. |
+| **Exhausted** (derived) | canonical Unclaimed or Claimed-expired ∧ (`FinalizationAttemptCount ≥ MaximumFinalizationAttempts` ∨ `now ≥ deadline`) | Platform reconciliation only: `ExhaustFinalization` → Failed with `vision_finalization_exhausted`. |
+
+The domain exposes this classification once, as `VisionJob.FinalizationClaimStateAt(DateTimeOffset nowUtc)` returning `FinalizationClaimState { Unclaimed, Live, Expired, Malformed }`; `CanClaimFinalization`, `FinalizationOwnedBy`, `ExhaustFinalization` and the lifecycle all consult it rather than re-deriving null checks. `FinalizationOwnedBy` returns `false` for Malformed (it already requires a 32-byte hash and a non-null future expiry, so today's implementation is fail-closed for ownership; F3 makes the classification explicit and shared).
+
+The database (`ck_vision_jobs_finalization_claim_token_hash`) already refuses a hash that is not 32 bytes but does **not** pair the three columns. Malformed state is therefore reachable only by direct database manipulation. §8.7 records the decision that code-level fail-closed handling is sufficient for F3 and that no pairing constraint is added.
 
 ### 5.3 New domain transition: `ExhaustFinalization`
 
@@ -173,8 +185,8 @@ Preconditions (all proven from the aggregate's own state, all required, any fail
 
 1. `Status == Finalizing`.
 2. `FinalizationAcceptedAtUtc` is not null (a Finalizing row always has it; `ck_vision_jobs_finalizing_facts`).
-3. **No live claim**: `FinalizationClaimTokenHash is null || FinalizationClaimExpiresAtUtc is null || FinalizationClaimExpiresAtUtc <= now`.
-4. **Exhaustion condition**: `FinalizationAttemptCount >= maximumFinalizationAttempts` **or** `now − FinalizationAcceptedAtUtc >= maximumFinalizationDuration`.
+3. **Canonical no-live-claim state**: `FinalizationClaimStateAt(now)` is `Unclaimed` or `Expired`. `Live` throws (a live claimant is never overridden); `Malformed` throws (fail closed; the row is left for the operator). This is a paired-state check, not a loose `hash == null || expiry == null || expiry <= now` disjunction.
+4. **Exhaustion condition**: `FinalizationAttemptCount >= maximumFinalizationAttempts` **or** `now >= FinalizationDeadline(maximumFinalizationDuration)` (§5.4).
 5. `maximumFinalizationAttempts >= 1`, `maximumFinalizationDuration > TimeSpan.Zero`.
 
 Effects: `Status = Failed`; `FailureCode = "vision_finalization_exhausted"`; `FailureDetails = null` (the last transient code is already in `FinalizationLastErrorCode`; details are deliberately not synthesised); `CompletedAtUtc = now`; `FinalizationClaimTokenHash = null`; `FinalizationClaimExpiresAtUtc = null`. Hand-off facts (`LeaseOwner`, `LeaseTokenHash`, `AttemptCount`, `CompletionDigest`, `FinalizationAcceptedAtUtc`, `FinalizationAttemptCount`, `FinalizationLastErrorCode`) are retained for audit and replay conflict detection.
@@ -183,12 +195,14 @@ It takes **no token**. There is nothing a stale claimant can present to it, and 
 
 ### 5.4 `MaximumFinalizationDurationSeconds` semantics
 
-- **Start timestamp:** `FinalizationAcceptedAtUtc` (the hand-off commit's authority time). It is the only timestamp that exists before any claim and survives every reclaim, so it is the only one that bounds total wall-clock recovery.
+- **Absolute deadline.** `FinalizationDeadline(TimeSpan maximumFinalizationDuration) = FinalizationAcceptedAtUtc + maximumFinalizationDuration`, computed by the aggregate from the hand-off commit's authority time. It is the only timestamp that exists before any claim and survives every reclaim, so it is the only one that bounds total wall-clock recovery. It is authoritative for every rule below.
 - **Authoritative state:** the persisted row under `FOR UPDATE`, evaluated against `TimeProvider.GetUtcNow()` of the platform host. Never a claimant's remembered start time.
-- **When another claim is allowed:** `CanClaimFinalization` is extended in F3 to also require `now − FinalizationAcceptedAtUtc < MaximumFinalizationDuration` (a new overload; the F1 two-argument overload stays for compatibility and delegates with `TimeSpan.MaxValue`). The claim `SELECT` predicate carries the same bound (§7.1) so an exhausted job is never selected-then-skipped.
-- **When retry stops:** at the first reconciliation pass that observes no live claim and either bound exceeded.
-- **A live claim is never cut short by the duration bound.** A claimant that started legitimately keeps its claim until expiry; the duration bound only stops **new** claims. This is deliberate: cutting a live claim mid-publication would create exactly the stale-publisher race the fence exists to prevent. Consequently the effective worst-case wall clock is `MaximumFinalizationDuration + ClaimSeconds + (extension granularity)`, and F4 must freeze the value with that in mind.
-- **Production value:** not decided here. The mechanism ships with a development default that is generous (see §13.2) and F4 freezes the production value from measurement (B3 plan §16 F4, §21 item 11).
+- **New claims** (`CanClaimFinalization(now, maximumAttempts, maximumDuration)`, a new overload; the F1 two-argument overload is retired in slice 1 so that no caller can bypass the deadline): require `now < FinalizationDeadline`. The claim `SELECT` predicate (§7.1) carries the same bound expressed as `finalization_accepted_at_utc > {now − maximumDuration}`, which is the same inequality rearranged, with `now` and `maximumDuration` taken from the same policy and clock the domain check receives, so an exhausted job is never selected-then-skipped and SQL cannot drift from the domain.
+- **Extension** (`ExtendFinalizationClaim(token, now, extension, maximumDuration)`, signature amended in slice 1): requires ownership **and** `now < FinalizationDeadline`. At or after the deadline the aggregate refuses, so a claimant cannot renew ownership indefinitely by `seal → extend → seal → extend`. The claim's existing expiry is not shortened.
+- **A live claim is never revoked underneath filesystem work or publication.** The deadline stops new claims and extensions only. The claim that is live when the deadline passes expires naturally at its already-granted expiry; `CompleteFinalization` and `FailFinalization` remain permitted for that claimant while its claim is live (they are fenced by ownership, not by the deadline), so a finalization that is in its final seconds can still publish legitimately.
+- **When retry stops:** at the first reconciliation pass that observes a canonical no-live-claim state and either bound exceeded. After the deadline no host can create a claim (`CanClaimFinalization` and the SQL predicate both refuse), so once the last live claim expires the job is exhausted on the next cycle.
+- **Bounded tail.** The last extension that can be granted is one requested at `now < deadline`, which sets `expiry = now + ClaimExtension < deadline + ClaimExtension`; a first claim taken at `now < deadline` sets `expiry < deadline + ClaimDuration`. Therefore no claim is live after `deadline + max(ClaimDuration, ClaimExtension)`, and the job is Failed (exhausted) no later than `deadline + max(ClaimDuration, ClaimExtension) + PollInterval`. This is the bound F4 measures against (§17).
+- **Production value:** not decided here. The mechanism ships with a generous development default (§6.1) and F4 freezes the production value from measurement (B3 plan §16 F4, §21 item 11), including the tail above.
 
 ## 6. Component design
 
@@ -211,11 +225,11 @@ PayloadCleanupGraceSeconds            int       default 0       range [0, 86400]
 Validation (`.Validate(...)` chain, `ValidateOnStart`):
 
 - every range above;
-- `ClaimExtensionSeconds >= 30` and `ClaimExtensionSeconds <= ClaimSeconds * 4` (an extension is a lease renewal, not a way to hold a job indefinitely between batches);
-- `MaximumFinalizationDurationSeconds >= ClaimSeconds` (otherwise no claim could ever be legal);
+- `ClaimExtensionSeconds >= 30` and `ClaimExtensionSeconds <= ClaimSeconds` (an extension renews for at most one claim duration; with the deadline rule of §5.4 the tail is then exactly `MaximumFinalizationDuration + ClaimSeconds`);
+- `MaximumFinalizationDurationSeconds >= ClaimSeconds` (otherwise no claim could ever be legal); the option's XML remarks and `appsettings.json` comment state the effective bound `MaximumFinalizationDurationSeconds + ClaimSeconds`;
 - `Enabled == false` → the rest is still validated (a misconfigured but disabled section fails fast at start, the same way `StagingJanitorOptions.IsValid` does).
 
-A single `ToPolicy()` (`VisionFinalizationPolicy` record: `ClaimDuration`, `ClaimExtension`, `MaximumAttempts`, `MaximumDuration`, `SealingBatchSize`) is passed into the lifecycle so tests can construct policies without configuration.
+A single `ToPolicy()` (`VisionFinalizationPolicy` record: `ClaimDuration`, `ClaimExtension`, `MaximumAttempts`, `MaximumDuration`, `SealingBatchSize`) is passed into the lifecycle so tests can construct policies without configuration. `MaximumDuration` is the single source for the deadline in SQL and in the domain (§5.4).
 
 ### 6.2 `IVisionFinalizationLifecycle` (Application abstraction) / `VisionFinalizationLifecycle` (Infrastructure)
 
@@ -223,16 +237,17 @@ The transactional half. Every method opens its own short transaction on a cleare
 
 ```csharp
 Task<VisionFinalizationClaim?>        ClaimNextAsync(VisionFinalizationPolicy policy, CancellationToken ct);          // §7.1
-Task<VisionFinalizationClaimStatus>   ExtendClaimAsync(VisionFinalizationClaim claim, VisionFinalizationPolicy p, CancellationToken ct); // §7.2 → Live | Lost
+Task<VisionFinalizationClaimStatus>   ExtendClaimAsync(VisionFinalizationClaim claim, VisionFinalizationPolicy p, CancellationToken ct); // §7.2 → Live | DeadlineReached | Lost
 Task<VisionFinalizationPayloadSnapshot?> LoadPayloadAsync(VisionFinalizationClaim claim, CancellationToken ct);       // §7.3 (read-only, AsNoTracking, no lock)
 Task<VisionFinalizationTransition>    PublishAsync(VisionFinalizationClaim claim, FinalizationGraphPlan plan, CancellationToken ct);      // §7.4 → Published | Stale | Retry(code) | Fail(code)
 Task<VisionFinalizationTransition>    FailAsync(VisionFinalizationClaim claim, string code, string? details, CancellationToken ct);       // §7.6 (claim-fenced)
 Task<VisionFinalizationTransition>    NoteTransientAsync(VisionFinalizationClaim claim, string code, bool releaseClaim, CancellationToken ct); // §7.7
-Task<int>                             ExhaustAbandonedAsync(VisionFinalizationPolicy policy, CancellationToken ct);   // §7.5
+Task<VisionFinalizationReconciliation> ExhaustAbandonedAsync(VisionFinalizationPolicy policy, CancellationToken ct);  // §7.5 → (Exhausted, MalformedJobIds)
+Task<VisionFinalizationCounts>        CountAsync(CancellationToken ct);                                               // §6.9 (read-only: Finalizing rows, live claims, malformed rows, oldest accepted-at)
 Task<int>                             CleanUpPayloadsAsync(int batchSize, TimeSpan grace, CancellationToken ct);      // §7.8
 ```
 
-`VisionFinalizationClaim` = `(Guid JobId, Guid ProcessingRunId, Guid VideoAssetId, int AttemptCount /*worker attempt*/, int FinalizationAttemptCount, ReadOnlyMemory<byte> ClaimToken, DateTimeOffset ClaimExpiresAtUtc, string CompletionDigest, DateTimeOffset AcceptedAtUtc)`. The raw token exists in this record and nowhere else; it is never logged, never serialised, and the record is not `ToString`-able with the token (override `ToString` to omit it, as `SceneAnalysisClaim` should).
+`VisionFinalizationClaim` = `(Guid JobId, Guid ProcessingRunId, Guid VideoAssetId, int AttemptCount /*worker attempt*/, int FinalizationAttemptCount, ReadOnlyMemory<byte> ClaimToken, DateTimeOffset ClaimExpiresAtUtc, DateTimeOffset FinalizationDeadlineUtc, string CompletionDigest, DateTimeOffset AcceptedAtUtc)`. `FinalizationDeadlineUtc` is informational for logging and for the executor's decision in §6.6; the authority is always the aggregate's own computation under lock. The raw token exists in this record and nowhere else; it is never logged, never serialised, and the record is not `ToString`-able with the token (override `ToString` to omit it, as `SceneAnalysisClaim` should).
 
 ### 6.3 `VisionFinalizationExecutor` (Infrastructure)
 
@@ -277,10 +292,14 @@ for each batch of SealingBatchSize units:
     seal each unit (no transaction open)
     status = lifecycle.ExtendClaimAsync(claim)     // §7.2, its own short transaction
     if status == Lost → stop: outcome Lost (no failure written, nothing published)
+    if status == DeadlineReached → stop sealing (§ below)
 ```
+
+- **Deadline reached during sealing** (`DeadlineReached`): the claim is still live until its current expiry but can never be renewed. The executor starts **no further batch** and attempts **no further extension**. If every sealing unit is already sealed it proceeds to `PublishAsync`, which is fenced by the live claim and by `CompleteFinalization` (a claim that expires before commit yields `Stale`, nothing written). If sealing is incomplete it stops with outcome `DeadlineReached` (log 1513), writes nothing, and lets the claim expire; reconciliation then exhausts the job (§7.5). Continuing to seal past the deadline would be harmless create-once IO but would spend host IO on a job that can no longer be claimed again, so it is not done.
 
 - Extension is **after** each batch, so the claim is revalidated at most `SealingBatchSize` objects apart. With the defaults (200 objects, ≈ 20 ms per seal in the S1.4 B3 measurement) that is roughly every 4 s against a 300 s claim; a 10,000-Track set (≈ 40,000 objects) extends ≈ 200 times.
 - If the claim **expires during** a batch (host paused, slow disk), the seals of that batch are harmless create-once IO (I3, B3 plan §18.7). The next `ExtendClaimAsync` returns Lost and the executor stops without writing anything.
+- Extension is never attempted when the executor already knows `now ≥ claim.FinalizationDeadlineUtc` (it would be refused); the aggregate is still the authority when it is attempted.
 - Extension failure due to a transient database error: retried once after `PollIntervalSeconds`; if it still fails, treat as Lost (the claim may legitimately be reclaimed by another host; this host must assume it is stale).
 - Before the first batch the executor also extends once, so a claim that spent its initial duration waiting in the `MaxConcurrentFinalizations` queue is refreshed or found lost before IO begins.
 
@@ -296,10 +315,11 @@ Nothing about the plan is visible outside the publication transaction: it is bui
 
 `BackgroundService` in `src/platform/Mavi.Api/Finalization/`, registered in `Program.cs` after the janitor, following `SceneAnalyticsHostedService`:
 
-- `Enabled == false` → log 1500 (Information) and return. Nothing else runs.
+- `Enabled == false` → log 1500 (Information); the service then runs a **read-only** loop that refreshes the health counts (§6.9) once at start and every `PollIntervalSeconds`, and nothing else: no claim, no reconciliation, no cleanup. This keeps `FinalizingJobs` truthful in both gate states so that a stranded row after a premature disable is visible, without turning a disabled finalizer into a hidden one (it never writes).
 - Startup: one immediate cycle (recovery of Finalizing rows left by a previous process), then `PeriodicTimer(PollIntervalSeconds, timeProvider)`.
 - One cycle (`public RunCycleAsync(ct)` seam):
-  1. Reconciliation: `ExhaustAbandonedAsync` (own scope). Logged when `> 0`.
+  1. Reconciliation: `ExhaustAbandonedAsync` (own scope). Exhausted count logged when `> 0`; each malformed job id logged once per host lifetime (1512).
+  1a. Health refresh: `CountAsync` (same scope, read-only), published to the monitor (§6.9).
   2. Payload cleanup: `CleanUpPayloadsAsync` (own scope; bounded batch).
   3. Execution: up to `MaxConcurrentFinalizations` **concurrent** `Task`s, each: own `AsyncScope` → `ClaimNextAsync` → if null stop spawning → `VisionFinalizationExecutor.ExecuteAsync(claim)`; `Task.WhenAll`. A `SemaphoreSlim(MaxConcurrentFinalizations)` bounds the in-flight count across cycles so a long finalization in cycle N does not let cycle N+1 exceed the bound.
 - Cancellation: the host stop token is passed to every step. The executor treats `OperationCanceledException` with the stop token as **Lost-equivalent**: it stops without writing a failure; the claim expires and another host (or this host after restart) reclaims. Shutdown therefore never terminally fails a job.
@@ -310,7 +330,25 @@ Nothing about the plan is visible outside the publication transaction: it is bui
 
 ### 6.9 Health (`/api/health`)
 
-Add `VisionFinalizationHealth(Enabled, InFlight, LastCycleUtc, LastCycleClaimed, LastCycleExhausted, OldestFinalizingAcceptedAtUtc?)` to `PlatformHealthDetails` via an `IVisionFinalizationMonitor` singleton updated by the host (the `IStagingJanitorMonitor` pattern). Read-only; no new endpoint.
+Add `VisionFinalizationHealth` to `PlatformHealthDetails` via an `IVisionFinalizationMonitor` singleton updated by the host (the `IStagingJanitorMonitor`/`StagingJanitorHealth` pattern in `Application/Abstractions/Storage/IStagingJanitor.cs`). Read-only; no new endpoint. Serialised with the existing camelCase policy, so the runbook refers to `visionFinalization.finalizingJobs`.
+
+```
+VisionFinalizationHealth(
+    bool            Enabled,
+    int             FinalizingJobs,                  // COUNT(*) FROM vision_jobs WHERE status = 'Finalizing' — PostgreSQL state, all hosts
+    int             LiveClaims,                      // of those, canonical Claimed-live at count time
+    int             MalformedClaims,                 // of those, non-canonical ownership metadata (§5.2)
+    DateTimeOffset? OldestFinalizingAcceptedAtUtc,
+    DateTimeOffset? CountsRefreshedAtUtc,            // null until the first successful CountAsync
+    int             InFlight,                        // this host's executions in progress
+    DateTimeOffset? LastCycleUtc,
+    int             LastCycleClaimed,
+    int             LastCycleExhausted)
+```
+
+- **Source of `FinalizingJobs`:** one `SELECT count(*) … WHERE status = 'Finalizing'` (plus the live/malformed/oldest aggregates in the same statement) by `IVisionFinalizationLifecycle.CountAsync`, `AsNoTracking`, no lock, no transaction. It is the database's answer, never derived from in-flight work, so it is correct across every API host.
+- **Refresh:** every cycle while enabled (step 1a in §6.8), and every `PollIntervalSeconds` in the read-only loop while disabled. A failed count leaves the previous snapshot and its `CountsRefreshedAtUtc` untouched, so a stale value is recognisable.
+- **Before the first refresh** (`CountsRefreshedAtUtc == null`) the counts are reported as `0` with the null timestamp; the runbook requires a non-null timestamp within the last two poll intervals before trusting `FinalizingJobs == 0`.
 
 ## 7. Transaction boundaries
 
@@ -322,19 +360,25 @@ Every transaction below: `db.ChangeTracker.Clear()` then `BeginTransactionAsync`
 SELECT * FROM vision_jobs
 WHERE status = 'Finalizing'
   AND finalization_attempt_count < {policy.MaximumAttempts}
-  AND finalization_accepted_at_utc > {nowUtc - policy.MaximumDuration}
-  AND (finalization_claim_expires_at_utc IS NULL OR finalization_claim_expires_at_utc <= {nowUtc})
+  AND finalization_accepted_at_utc > {nowUtc - policy.MaximumDuration}          -- now < deadline (§5.4)
+  AND (   (finalization_claim_token_hash IS NULL                                -- canonical Unclaimed
+           AND finalization_claim_expires_at_utc IS NULL
+           AND finalization_claim_extended_at_utc IS NULL)
+       OR (finalization_claim_token_hash IS NOT NULL                            -- canonical Claimed, expired
+           AND finalization_claim_expires_at_utc IS NOT NULL
+           AND finalization_claim_extended_at_utc IS NOT NULL
+           AND finalization_claim_expires_at_utc <= {nowUtc}))
 ORDER BY finalization_accepted_at_utc, id
 FOR UPDATE SKIP LOCKED LIMIT 1
 ```
 
-Uses `ix_vision_jobs_finalizing_claim`. Then in the same transaction: load `ProcessingRun` and `VideoAsset` (plain reads; they are not locked because nothing else mutates them while the job is Finalizing — the orchestrator's lease query selects only Queued/Leased rows and its fail path requires Leased), generate 32 random bytes, `job.ClaimFinalization(SHA256(token), now, ClaimDuration, MaximumAttempts)` (the domain re-checks `CanClaimFinalization`, including the new duration bound), `SaveChangesAsync`, **commit**. Return the claim record. The row lock is held only for the claim write.
+Uses `ix_vision_jobs_finalizing_claim`. Malformed rows (§5.2) match neither disjunct and are never selected. The predicate is a pre-filter only: the domain (`ClaimFinalization` → `CanClaimFinalization(now, MaximumAttempts, MaximumDuration)` → `FinalizationClaimStateAt(now)`) re-proves every condition on the locked row with the same `nowUtc` and policy, and a `DomainValidationException` here rolls back and logs 1512 (the SQL and domain disagreeing is itself an invariant violation, and a test in §15.3 drives the boundary instant `now == deadline` through both). Then in the same transaction: load `ProcessingRun` and `VideoAsset` (plain reads; they are not locked because nothing else mutates them while the job is Finalizing — the orchestrator's lease query selects only Queued/Leased rows and its fail path requires Leased), generate 32 random bytes, `job.ClaimFinalization(SHA256(token), now, ClaimDuration, MaximumAttempts)` (the domain re-checks `CanClaimFinalization`, including the new duration bound), `SaveChangesAsync`, **commit**. Return the claim record. The row lock is held only for the claim write.
 
 If `run.Status != Running || video.ProcessingStatus != Processing` the job is in a state the hand-off never produces. The claim is still taken (it consumes an attempt) and the executor fails it deterministically with `vision_finalization_context_invalid` (§9.1). Refusing to claim would make `LIMIT 1 … SKIP LOCKED` return the same row every cycle; claiming keeps the selection predicate simple and the outcome auditable (event 1512).
 
 ### 7.2 Extension (`ExtendClaimAsync`)
 
-Row lock, `job.ExtendFinalizationClaim(token, now, ClaimExtension)`; on `DomainValidationException` → rollback, `Lost`. `SaveChangesAsync`, commit, `Live` with the new expiry. Held for one `UPDATE`.
+Row lock, `job.ExtendFinalizationClaim(token, now, ClaimExtension, MaximumDuration)`; on `DomainValidationException` → rollback, then classify for the caller without writing: if `job.FinalizationOwnedBy(token, now)` is true (ownership intact, so the refusal was the deadline) → `DeadlineReached`; otherwise → `Lost`. `SaveChangesAsync`, commit, `Live` with the new expiry. Held for one `UPDATE`. The aggregate is the only place the deadline rule for extension lives; the lifecycle merely names the reason.
 
 ### 7.3 Payload load (`LoadPayloadAsync`)
 
@@ -367,14 +411,24 @@ Row-lock discipline: the job row is locked for the whole of §7.4, which is the 
 ```sql
 SELECT * FROM vision_jobs
 WHERE status = 'Finalizing'
-  AND (finalization_claim_expires_at_utc IS NULL OR finalization_claim_expires_at_utc <= {nowUtc})
+  AND (   (finalization_claim_token_hash IS NULL                                -- canonical Unclaimed
+           AND finalization_claim_expires_at_utc IS NULL
+           AND finalization_claim_extended_at_utc IS NULL)
+       OR (finalization_claim_token_hash IS NOT NULL                            -- canonical Claimed, expired
+           AND finalization_claim_expires_at_utc IS NOT NULL
+           AND finalization_claim_extended_at_utc IS NOT NULL
+           AND finalization_claim_expires_at_utc <= {nowUtc}))
   AND (finalization_attempt_count >= {policy.MaximumAttempts}
-       OR finalization_accepted_at_utc <= {nowUtc - policy.MaximumDuration})
+       OR finalization_accepted_at_utc <= {nowUtc - policy.MaximumDuration})    -- now >= deadline (§5.4)
 ORDER BY finalization_accepted_at_utc, id
 FOR UPDATE SKIP LOCKED LIMIT {batch}
 ```
 
-For each row: `job.ExhaustFinalization(now, MaximumAttempts, MaximumDuration)` (the domain re-proves every predicate from the locked row), `run.MarkFailed("vision_finalization_exhausted", null, now)`, `video.MarkProcessingFailed()`. `SaveChangesAsync`, commit. A job whose live claimant is publishing right now is row-locked and **skipped**; a job whose claim is live is excluded by the predicate and re-proven by the domain. Payload rows are not deleted here (§7.8).
+The same canonical-state disjunction as §7.1 (shared as one SQL fragment constant in the lifecycle so the two cannot drift), with the exhaustion condition instead of the claimability condition. A live claim is excluded; a malformed row is excluded.
+
+In the same method, before the locking query, a **read-only** query lists Finalizing rows whose ownership metadata is non-canonical (the complement of the disjunction above, restricted to `status = 'Finalizing'`), returned as `MalformedJobIds` for the host to log once per job per host lifetime (1512) and for health (`MalformedClaims`). Nothing is written to them.
+
+For each row: `job.ExhaustFinalization(now, MaximumAttempts, MaximumDuration)` (the domain re-proves every predicate from the locked row, including the canonical no-live-claim state; `Malformed` throws, rolls back and is logged), `run.MarkFailed("vision_finalization_exhausted", null, now)`, `video.MarkProcessingFailed()`. `SaveChangesAsync`, commit. A job whose live claimant is publishing right now is row-locked and **skipped**; a job whose claim is live is excluded by the predicate and re-proven by the domain. Payload rows are not deleted here (§7.8).
 
 `run.MarkFailed` requires the run not Completed/Cancelled and `video.MarkProcessingFailed` requires Queued/Processing: both hold for a Finalizing job by the hand-off preconditions. If either throws, the transaction rolls back, event 1512 is logged and the row is left for an operator — nothing is inferred.
 
@@ -425,7 +479,22 @@ Every write that changes the outcome (`ExtendFinalizationClaim`, `CompleteFinali
 
 F3 never calls it without first proving ownership in the same transaction (§7.7). It is not made claim-fenced in the domain because a legitimate use exists for the platform (reconciliation may want to record `vision_finalization_exhausted` before failing), but the F3 executor only ever calls it via `NoteTransientAsync`. A domain test in §15.1 pins `NoteTransientAsync`'s ownership check via the lifecycle, and a mutant that removes the check must be caught.
 
-### 8.6 Where row locks are required and where they must not be held
+### 8.6 The deadline is enforced at the authority boundary
+
+The deadline rule lives in the aggregate: `CanClaimFinalization(now, maxAttempts, maxDuration)` and `ExtendFinalizationClaim(token, now, extension, maxDuration)` both call `FinalizationDeadline(maxDuration)` and refuse at `now >= deadline`. The executor never computes it for a decision that writes; the lifecycle passes the policy's `MaximumDuration` and the platform clock, and the SQL pre-filters use the same two values rearranged (`accepted_at > now − maxDuration`). There is therefore one definition of "before the deadline" (`now < accepted_at + maxDuration`) and two expressions of it that are tested to agree at the boundary instant. Proof of the bounded tail is in §5.4.
+
+### 8.7 Malformed ownership metadata fails closed; no schema change
+
+Decision: F3 adds **no** pairing check constraint over the three claim columns. Justification:
+
+- every writer of the three columns is the `VisionJob` aggregate, which sets or clears them together (§5.2), so malformed state is reachable only by direct database manipulation, which is outside the threat model the fence addresses (the same assumption ADR-006 §7 makes for the payload digest);
+- the fail-closed rule is what protects correctness, and it is enforced in code at every consumer: `FinalizationClaimStateAt` in the domain, the canonical-state disjunction in both SQL predicates, and `FinalizationOwnedBy` (which already refuses a missing expiry or a wrong-length hash);
+- a constraint would not change recoverability: malformed rows are preserved for the operator either way, and a constraint would only convert a (hypothetical) corrupting write into a failed write;
+- a migration would re-open the F1 schema, require the `Down` guard to be revisited and cost a migration test cycle for a defence-in-depth gain, which the plan records as a candidate hardening migration after F4 rather than a silent addition.
+
+If, during implementation, any code path other than the aggregate is found to write these columns, that is a stop-and-report condition and the pairing constraint becomes required.
+
+### 8.8 Where row locks are required and where they must not be held
 
 Required: claim (§7.1), extension (§7.2), publication (§7.4), exhaustion (§7.5), deterministic failure (§7.6), transient note (§7.7). Must not be held: payload load (§7.3), payload hashing/decoding/validation (§6.4), sealing (§6.5), graph building (§6.7), payload cleanup (§7.8, which locks payload rows only), orphan/metric logging.
 
@@ -512,6 +581,10 @@ Legend: DB = `vision_jobs` row (and run/video); Ev = accepted-evidence root; Nex
 | 20 | Reconciliation races a live publisher | publisher holds row lock; reconciliation skips | — | next pass finds Completed | `completed` | Completed |
 | 21 | Stale claimant attempts `FailAsync` | fenced → Stale; nothing written | — | live claimant proceeds | — | live claimant's outcome |
 | 22 | Host shutdown mid-seal | claim live; nothing written | partial | reclaim after expiry (or immediately after restart if expired) | `finalizing` | Completed |
+| 23 | Deadline passes while a claim is live and sealing is incomplete | Finalizing, claim live until its granted expiry; extension refused (`DeadlineReached`) | partial | executor stops (1513); claim expires naturally; reconciliation → `exhausted` | `finalizing` → `failed` | Failed no later than deadline + ClaimSeconds + PollInterval |
+| 24 | Deadline passes while a claim is live and sealing is complete | as 23 | complete | executor publishes under its live claim; if the claim expires before commit → Stale, then as 23 | `finalizing` → `completed` or `failed` | Completed within the tail, else exhausted |
+| 25 | Deadline passes while unclaimed or expired | Finalizing | any | no host can claim (§7.1 predicate + domain); reconciliation → `exhausted` | → `failed` | Failed |
+| 26 | Malformed claim metadata (hash without expiry, or expiry without hash) | Finalizing, non-canonical | any | not claimed, not exhausted, not modified; 1512 once per host; `MalformedClaims` in health | `finalizing` (indefinitely, visibly) | Operator investigation |
 
 ## 12. Staging and janitor rules
 
@@ -551,7 +624,16 @@ Ordering hazard: the janitor and the finalizer read the row at different instant
 
 ### 13.3 Rollback
 
-Setting `Enabled=false` stops **new** hand-offs (the probe reverts to 3.0) and also stops the finalizer, so Finalizing rows must be drained first. Decision: the service runs iff `Enabled` (running it whenever Finalizing rows exist would be a hidden behaviour, rejected). The runbook's rollback step is: set workers to 3.0 first (they fail closed at the probe), wait until `/api/health` shows zero Finalizing jobs, then set `Enabled=false`. Health exposes `finalizingJobs` for this. Documented in the runbook slice.
+Setting `Enabled=false` stops **new** hand-offs (the probe reverts to 3.0) and also stops claiming, extension, reconciliation and cleanup, so Finalizing rows must be drained first. Decision: the finalizer writes iff `Enabled` (running it whenever Finalizing rows exist would be a hidden behaviour, rejected); while disabled it only refreshes the health counts (§6.8).
+
+Runbook procedure, using the health contract of §6.9:
+
+1. Set every worker to `MAVI_COMPLETION_SCHEMA_VERSION=3.0` and restart them. They fail closed at the probe (the platform still advertises 3.1), so no new hand-off can occur.
+2. Poll `GET /api/health` until `visionFinalization.finalizingJobs == 0` **and** `visionFinalization.countsRefreshedAtUtc` is within the last two `PollIntervalSeconds`, on **every** API host. `finalizingJobs` is the PostgreSQL row count, so one host's answer covers the deployment, but each host's `enabled` is checked to confirm the gate is uniform.
+3. If `visionFinalization.malformedClaims > 0`, stop and investigate: those rows will never drain on their own (§5.2).
+4. Set `VisionFinalization:Enabled=false` on every API host and restart. The probe reverts to `["2.0","3.0"]`.
+
+A pre-F1 binary is never deployed while Finalizing rows exist (migration `Down` refuses, B3 plan §15.3).
 
 ## 14. Observability
 
@@ -571,11 +653,12 @@ Event ids 1500–1519 (`LoggerMessage` in the hosted service and lifecycle; ≤6
 | 1509 | Warning | orphan accounting after failure (job, created count, created bytes, adopted count) |
 | 1510 | Info | payload rows cleaned (count) |
 | 1511 | Error | cycle failed (exception) |
-| 1512 | Error | invariant (context invalid / graph exists / run transition refused) |
+| 1512 | Error | invariant (context invalid / graph exists / run transition refused / SQL–domain disagreement / **malformed claim metadata**, once per job per host lifetime) |
+| 1513 | Warning | finalization deadline reached with a live claim (job, finalization attempt, sealed/total units, claim expiry); no further extension |
 
 Never logged: token, token hash, lease token, storage paths, exception messages from the filesystem (log the exception type only, as `runner.py:811` does on the worker side).
 
-Metrics (via the existing `IVisionFinalizationMonitor` snapshot in health, and the 1504 line for offline analysis; no new metrics library): in-flight, claimed/published/failed/exhausted per cycle, oldest Finalizing age, last publish duration, last seal duration. F4 records baseline API p95 latency, host RSS and throughput with the finalizer active (B3 plan §13); F3 only ensures the numbers are emitted.
+Metrics (via the `IVisionFinalizationMonitor` snapshot in health, and the 1504 line for offline analysis; no new metrics library): `finalizingJobs`, `liveClaims`, `malformedClaims`, oldest Finalizing accepted-at, counts timestamp, in-flight, claimed/exhausted per cycle, last publish duration, last seal duration. F4 records baseline API p95 latency, host RSS and throughput with the finalizer active (B3 plan §13); F3 only ensures the numbers are emitted.
 
 ## 15. Test matrix
 
@@ -590,7 +673,14 @@ Every critical test lists the **mutant** it must kill (a compile-safe single cha
 | `ExhaustFinalizationTakesNoTokenAndCannotPublish` | (structural: signature has no token; status is Failed not Completed) |
 | `ExhaustFinalizationRetainsHandOffFacts` | clear `CompletionDigest` |
 | `ExhaustFinalizationOnlyFromFinalizing` | allow from Leased |
-| `CanClaimFinalizationHonoursTheDurationBound` | drop the duration term |
+| `CanClaimFinalizationHonoursTheDurationBound` (`NoNewClaimAfterMaximumFinalizationDuration`: at `now == deadline` and after, not claimable; at `deadline − 1 tick`, claimable) | drop the duration term; change `<` to `<=` |
+| `ClaimCanBeExtendedBeforeMaximumFinalizationDuration` | — (positive control) |
+| `ClaimCannotBeExtendedAfterMaximumFinalizationDuration` (live claim, `now == deadline` → throws; `now > deadline` → throws; expiry unchanged) | remove the deadline check in `ExtendFinalizationClaim` |
+| `DurationExceededLiveClaimIsNotKilledImmediately` (`FinalizationOwnedBy` true after the deadline while `expiry > now`; `CompleteFinalization` still succeeds) | make `FinalizationOwnedBy` consult the deadline |
+| `DurationExceededLiveClaimExpiresThenExhaustionApplies` (after the deadline: `ExhaustFinalization` throws while live; succeeds once `now ≥ expiry`) | drop the live-claim check |
+| `ClaimStateClassificationIsCanonical` (theory over all 8 null-combinations × hash length: exactly three canonical states; all others `Malformed`) | treat hash-without-expiry as `Unclaimed` (the OR mutant) |
+| `MalformedClaimIsNotClaimableNotExhaustibleNotOwned` (hash without expiry; expiry without hash; missing extended-at) | change the paired check back to `||` semantics |
+| `CanonicalExpiredClaimIsReclaimable` | — (positive control) |
 | `ReleaseFinalizationClaimIsFencedAndMakesTheJobReclaimable` | remove `FinalizationOwnedBy` check; set expiry to `now + 1s` instead of `now` |
 | `ExhaustedCodeIsInTheClosedVocabulary` | rename the code |
 
@@ -616,6 +706,15 @@ New files: `VisionFinalizationLifecycleTests.cs`, `VisionFinalizationExecutorTes
 | `VisibilityBarrierIsAcquiredAfterGraphPersistence` (SQL capture: advisory lock statement after the bulk INSERTs) | ordering §7.4 | move step 10 before step 8 |
 | `ClaimIsExclusiveUnderConcurrency` (two lifecycles claim concurrently 20×; exactly one wins each) | I2 | drop `SKIP LOCKED`/`FOR UPDATE` |
 | `ExpiredClaimIsReclaimedWithARotatedToken` (`MutableTimeProvider`) | rotation | keep old hash |
+| `NoNewClaimAfterMaximumFinalizationDuration` (lifecycle: advance past the deadline; `ClaimNextAsync` returns null; SQL capture shows the row not selected) | §7.1 / I13 | drop the accepted-at term from the SQL |
+| `ClaimSqlAndDomainAgreeAtTheDeadlineInstant` (row accepted at T; clock = T + MaximumDuration exactly: SQL does not select; forcing a domain claim on the locked row throws) | §8.6 | change either inequality |
+| `ClaimCannotBeExtendedAfterMaximumFinalizationDuration` (lifecycle: `ExtendClaimAsync` → `DeadlineReached`; expiry unchanged; ownership still true) | §7.2 | remove the deadline from `ExtendFinalizationClaim` |
+| `DurationExceededLiveClaimIsNotKilledImmediately` (reconciliation returns 0 while the claim is live past the deadline) | §5.4 item 4 | let reconciliation ignore live claims |
+| `DurationExceededLiveClaimExpiresThenReconciliationExhausts` (advance to expiry; reconciliation → `exhausted`, run/video Failed; no new claim was possible in between) | §5.4 | — |
+| `ExecutorStopsSealingWhenTheDeadlineIsReached` (batch size 2, 6 units, deadline passes after batch 1: 1513 logged, ≤ 4 units sealed, nothing published, job still Finalizing) | §6.6 | keep sealing |
+| `ExecutorPublishesAfterTheDeadlineIfSealingWasComplete` (deadline passes after the last batch: publication succeeds under the live claim) | §6.6 | refuse publication after the deadline |
+| `MalformedClaimIsNeverClaimedOrExhausted` (raw `UPDATE` sets hash without expiry, and separately expiry without hash, and separately clears extended-at: `ClaimNextAsync` null, reconciliation 0, row bytes unchanged, 1512 logged once across two cycles, `malformedClaims == 1` in health) | §5.2 / I14 | OR-semantics in either predicate |
+| `CanonicalExpiredClaimIsReclaimable` (positive control for the previous row) | §5.2 | — |
 | `StaleClaimantCannotPublish` (claim A; advance clock; claim B; A calls `PublishAsync` → Stale, nothing written; B publishes) | I3 | remove step 4/13 fence |
 | `StaleClaimantCannotFail` | I3 | remove fence in `FailFinalization` use |
 | `StaleClaimantCannotNoteTransient` | §8.5 | remove ownership check in `NoteTransientAsync` |
@@ -640,6 +739,11 @@ New files: `VisionFinalizationLifecycleTests.cs`, `VisionFinalizationExecutorTes
 | `HostShutdownDoesNotFailTheJob` (cancel during sealing; row still Finalizing; no failure code) | §6.8 | write failure on cancel |
 | `HostIdlesWhenDisabled` (`Enabled=false`; seeded Finalizing row untouched; 1500 logged) | §13 | — |
 | `HostedServiceIsRegisteredWhenEnabled` | §13.2 | drop registration |
+| `HealthExposesTheFinalizingRowCount` (`finalizingJobs` equals a raw `COUNT(*)`; `countsRefreshedAtUtc` set after one cycle) | §6.9 | derive from in-flight |
+| `FinalizingJobsCountIncreasesAfterHandOff` (3.1 POST ×2 → cycle count step → 2) | §6.9 | — |
+| `FinalizingJobsCountReturnsToZeroAfterPublishFailAndExhaust` (three jobs: one publishes, one fails deterministically, one is exhausted → 0) | §6.9 | — |
+| `FinalizingJobsTransitionsToZeroAfterDrain` (host enabled, two Finalizing rows, no new hand-offs; cycles until `finalizingJobs == 0`; then `Enabled=false` factory shows 0 with a refreshed timestamp) | §13.3 | stop counting when disabled |
+| `DisabledHostRefreshesCountsButWritesNothing` (`Enabled=false`, seeded Finalizing row: count 1, row untouched, no claim, 1500 logged) | §6.8 | — |
 | `WorkerDeathAfterHandOffDoesNotMatter` (3.1 POST; never touch the worker again; cycle → Completed; replay 3.1 → `completed`) | §15 request item | — |
 | `ReplayAfterPublicationReportsCompleted` (F2 replay branch end-to-end) | §4.4 | — |
 | `JanitorPreservesTheCurrentFinalizingAttempt` / `JanitorReclaimsSupersededAttemptsOfAFinalizingJob` / `JanitorPreservesMalformedFinalizingState` / `JanitorNoLongerReports1406ForFinalizing` / `JanitorTerminalGraceUnchangedAfterFinalization` | §12 | delete current attempt |
@@ -668,8 +772,8 @@ Each slice is one reviewable commit (or a small PR if the owner prefers) on `fea
 
 - **Files:** `src/platform/Mavi.Domain/Processing/VisionJob.cs`; `tests/Mavi.Domain.Tests/VisionFinalizationDomainTests.cs`.
 - **Tests first:** §15.1 (8 tests).
-- **Work:** `ExhaustFinalization`, `ReleaseFinalizationClaim`, `CanClaimFinalization(now, max, maxDuration)` overload; `vision_finalization_exhausted` constant.
-- **Invariants proven:** I3 (release fenced), I9 (exhaustion cannot publish, needs no token).
+- **Work:** `FinalizationDeadline(maxDuration)`, `FinalizationClaimStateAt(now)` + `FinalizationClaimState`, `ExhaustFinalization` (canonical no-live-claim), `ReleaseFinalizationClaim`, `CanClaimFinalization(now, max, maxDuration)` replacing the two-argument overload, `ExtendFinalizationClaim(token, now, extension, maxDuration)` replacing the three-argument signature (both retirements are compile-time breaking on purpose: no caller may bypass the deadline); `vision_finalization_exhausted` constant.
+- **Invariants proven:** I3 (release fenced), I9 (exhaustion cannot publish, needs no token), I13 (deadline refuses claim and extension), I14 (canonical states; malformed fails closed).
 - **Validate:** `dotnet test tests/Mavi.Domain.Tests`.
 - **Stays disabled:** everything; no host code yet.
 
@@ -693,8 +797,8 @@ Each slice is one reviewable commit (or a small PR if the owner prefers) on `fea
 ### Slice 4 — Lifecycle: claim, extend, load, note, fail, exhaust, cleanup
 
 - **Files:** new `Application/Modules/Intelligence/IVisionFinalizationLifecycle.cs` (+ claim/transition records); new `Infrastructure/Persistence/Repositories/VisionFinalizationLifecycle.cs`; `DependencyInjection.cs` (scoped registration); `tests/Mavi.IntegrationTests/VisionFinalizationLifecycleTests.cs`.
-- **Tests first:** claim exclusivity, rotation, stale extend/fail/note, reconciliation (skip live, skip locked, cannot publish), cleanup idempotence, no-lock payload load (SQL capture shows no `FOR UPDATE`).
-- **Invariants proven:** I1, I2, I3, I9, §8.6 lock discipline.
+- **Tests first:** claim exclusivity, rotation, stale extend/fail/note, deadline (no new claim; SQL–domain boundary agreement; `DeadlineReached`), reconciliation (skip live, skip locked, cannot publish, duration-exceeded live claim not killed then exhausted after expiry), malformed rows (never selected, reported, unchanged), `CountAsync`, cleanup idempotence, no-lock payload load (SQL capture shows no `FOR UPDATE`).
+- **Invariants proven:** I1, I2, I3, I9, I13, I14, §8.8 lock discipline.
 - **Validate:** `--filter "FullyQualifiedName~VisionFinalizationLifecycle"`.
 - **Stays disabled:** publication (`PublishAsync` lands in slice 5), host.
 
@@ -709,16 +813,16 @@ Each slice is one reviewable commit (or a small PR if the owner prefers) on `fea
 ### Slice 6 — Executor: payload integrity, sealing batches, extension, failure classes, orphan accounting
 
 - **Files:** new `Infrastructure/Finalization/VisionFinalizationExecutor.cs` (+ `SealingOutcome` classification); `tests/Mavi.IntegrationTests/VisionFinalizationExecutorTests.cs`; architecture test in `tests/Mavi.Domain.Tests/ArchitectureBoundaryTests.cs` or a new `tests/Mavi.IntegrationTests/VisionFinalizationBoundaryTests.cs` asserting no F3 type references `DeleteAcceptedAsync`.
-- **Tests first:** §15.3 payload/staging/conflict/transient/adopt/lost-mid-seal/extension cadence/no-delete/log hygiene.
-- **Invariants proven:** I6, I7, I12, §6.6.
+- **Tests first:** §15.3 payload/staging/conflict/transient/adopt/lost-mid-seal/extension cadence/deadline-reached (stop sealing; publish only if complete)/no-delete/log hygiene.
+- **Invariants proven:** I6, I7, I12, I13 (executor side), §6.6.
 - **Validate:** `--filter "FullyQualifiedName~VisionFinalizationExecutor"`.
 - **Stays disabled:** host.
 
 ### Slice 7 — Hosted service, health, registration
 
 - **Files:** new `Api/Finalization/VisionFinalizationHostedService.cs`, `IVisionFinalizationMonitor`/state; `Api/Program.cs`; `Application/Health/GetPlatformHealth.cs` (+ `PlatformHealthDetails`); `tests/Mavi.IntegrationTests/ApiTestFactory.cs` (`EnableVisionFinalizationHost` switch, off by default); `VisionFinalizationHostTests.cs`, `HealthApiTests.cs`.
-- **Tests first:** startup recovery, concurrency bound, shutdown does not fail, disabled idles, registered when enabled, health shape.
-- **Invariants proven:** I8, §6.8.
+- **Tests first:** startup recovery, concurrency bound, shutdown does not fail, disabled refreshes counts but writes nothing, registered when enabled, health shape including `finalizingJobs`/`liveClaims`/`malformedClaims`/`countsRefreshedAtUtc`, count transitions (hand-off up; publish/fail/exhaust to zero; drain to zero).
+- **Invariants proven:** I8, §6.8, §6.9.
 - **Validate:** `--filter "FullyQualifiedName~VisionFinalizationHost|FullyQualifiedName~HealthApi"`.
 - **Stays disabled:** production `Enabled` remains `false` in `appsettings.json`.
 
@@ -738,7 +842,7 @@ Each slice is one reviewable commit (or a small PR if the owner prefers) on `fea
 
 ### Slice 10 — Docs and records
 
-- **Files:** B3 plan §16 "F3 implementation record"; ADR-006 §7 status line (F3 landed; no rule change); `docs/runbooks/vision-runtime-model-component-lifecycle.md` (activation sequence §13.1, rollback drain rule §13.3, health fields, event ids); `contracts/README.md` if any finalization failure code is surfaced to the worker (none expected); `config/dependencies/offline-dependency-policy-v1.json` **unchanged** (no new dependency — assert in the PR description).
+- **Files:** B3 plan §16 "F3 implementation record"; ADR-006 §7 status line (F3 landed; no rule change); `docs/runbooks/vision-runtime-model-component-lifecycle.md` (activation sequence §13.1, rollback drain procedure §13.3 naming `visionFinalization.finalizingJobs`, `countsRefreshedAtUtc` and `malformedClaims`, the effective duration bound `MaximumFinalizationDurationSeconds + ClaimSeconds`, health fields, event ids 1500–1513, and the malformed-claim operator procedure: investigate, never repair automatically); `contracts/README.md` if any finalization failure code is surfaced to the worker (none expected); `config/dependencies/offline-dependency-policy-v1.json` **unchanged** (no new dependency — assert in the PR description).
 - **Validate:** `python tools/verify_repo.py`; `pytest tools/phase1/tests` (known environmental failures noted in the PR).
 
 Slices 1–3 are independent and may be reviewed in any order; 4 depends on 1 and 3; 5 on 4 and 2; 6 on 5; 7 on 6; 8 is independent; 9 on 7 and 8; 10 last.
@@ -751,7 +855,7 @@ Not part of F3. After F3 merges and the configuration values in §6.1 are review
 2. Replace the B3 synchronous harness (`S1SealingScaleTests` posting 3.0; checker `completion_headroom_insufficient`/sealing-wall metrics) with B3-A (3.1 hand-off request bound, 15 s, real payload insert and transition) and B3-B (hand-off → publication wall clock through the real host, lifecycle and DB).
 3. Run B3-A on Linux and Windows.
 4. Measure asynchronous finalization at the 10,000-Track envelope: seal duration, publish transaction duration, extension count, host RSS, API p95 latency under concurrent finalization, throughput, orphan bytes after the fault matrix.
-5. Freeze `MaximumFinalizationDurationSeconds` (and `ClaimSeconds`/`ClaimExtensionSeconds`/`SealingBatchSize`) from product requirements plus measurement, remembering §5.4's `+ ClaimSeconds` tail.
+5. Freeze `MaximumFinalizationDurationSeconds` (and `ClaimSeconds`/`ClaimExtensionSeconds`/`SealingBatchSize`) from product requirements plus measurement. The B3-B bound F4 asserts is the **enforced** bound of §5.4: a job is Completed or Failed no later than `FinalizationAcceptedAtUtc + MaximumFinalizationDuration + ClaimSeconds + PollInterval`, and the crash-matrix mutants for rows 23–25 must show the deadline refusing extension and claim, not merely the executor choosing to stop.
 6. Re-run authoritative B3-B after the freeze.
 7. Run the crash matrix (§11) as discriminated mutants in the checker's B3 proving set.
 8. Re-run every S1 unit the F1–F3 diff invalidates (B1/B2/B4/B5/B6, disconnected) per the invalidation map; do not carry forward prior PASS results.
@@ -769,6 +873,8 @@ F3 is complete when all of the following hold on the implementation branch:
 2. `dotnet build MAVI.sln --configuration Release` is warning-free; `python tools/verify_repo.py` passes; the full .NET test suites pass serially against `mavi_test`.
 3. `VisionFinalization:Enabled` is still `false` in `appsettings.json`; with it `true` in a test factory, a 3.1 hand-off is published by one host cycle and the §11 matrix rows are covered by tests.
 4. No F3 code references `IAcceptedEvidenceStore.DeleteAcceptedAsync` (architecture test).
+4a. The deadline mutants (`ClaimCannotBeExtendedAfterMaximumFinalizationDuration`, `NoNewClaimAfterMaximumFinalizationDuration`) and the malformed-state OR-mutant were applied and killed.
+4b. `/api/health` exposes `visionFinalization.finalizingJobs` from PostgreSQL and the runbook rollback procedure names it.
 5. No schema change and no new dependency (`offline-dependency-policy-v1.json` untouched).
 6. The runbook documents activation (§13.1), the drain-before-disable rollback rule (§13.3) and the health fields.
 7. §19.3 below is confirmed by the reviewer.
@@ -783,7 +889,7 @@ F3 is complete when all of the following hold on the implementation branch:
 
 ### 19.3 Reviewer confirmation list
 
-The reviewer of the last F3 slice confirms in the PR: no production code path deletes accepted evidence; no token reaches a log or row; every outcome-changing write is fenced by `FinalizationOwnedBy` under `FOR UPDATE`; exhaustion is a separate, tokenless, failure-only transition; the janitor never selects the current Finalizing attempt; the synchronous 2.0/3.0 path is behaviourally unchanged.
+The reviewer of the last F3 slice confirms in the PR: no production code path deletes accepted evidence; no token reaches a log or row; every outcome-changing write is fenced by `FinalizationOwnedBy` under `FOR UPDATE`; exhaustion is a separate, tokenless, failure-only transition that requires a canonical no-live-claim state; no code path can claim or extend at or after the finalization deadline; malformed claim metadata is never claimed, exhausted or modified; the janitor never selects the current Finalizing attempt; the synchronous 2.0/3.0 path is behaviourally unchanged.
 
 ## 20. Self-review (cold, as a non-author)
 
@@ -808,8 +914,24 @@ Attack surfaces from the request, with the finding, severity, and the amendment 
 | Janitor deleting Finalizing staging | See "staging disappearance"; plus the Leased→Finalizing ordering hazard. | P3 | §12 hazard analysis; test. |
 | Rollback / version skew | Disabling the gate while Finalizing rows exist strands them because the service runs iff `Enabled`. | **P2** | §13.3 drain rule (workers to 3.0 first, wait for zero Finalizing in health, then disable); health exposes `finalizingJobs`; runbook slice. Rejected alternative: auto-run when rows exist (hidden behaviour). |
 | Duration bound cutting a live claim | An earlier draft let reconciliation exhaust on duration regardless of a live claim, creating a stale-publisher race at the boundary. | **P1** (design) | §5.4/§5.3: the duration bound stops *new* claims only; exhaustion requires no live claim; tail documented for F4. |
-| Extension outside the publication transaction holding a lock | Extension is its own transaction; nothing holds the row lock during IO. | — | §8.6. |
+| Duration bound not enforced against extension (cold review, amendment 1) | The first version let a live claimant extend forever past the duration, so reconciliation could never act and no maximum was enforced. | **P1** | §5.4/§8.6: `ExtendFinalizationClaim` takes the maximum duration and refuses at the absolute deadline; `CanClaimFinalization` and both SQL predicates share the same inequality; the live claim expires naturally; tail is `MaximumDuration + ClaimSeconds`. Tests and mutants in §15.1/§15.3. |
+| Rollback needs a count health does not expose (cold review, amendment 1) | §13.3 referenced a `finalizingJobs` field §6.9 did not define. | **P2** | §6.9 defines `FinalizingJobs` (PostgreSQL `COUNT(*)`), `LiveClaims`, `MalformedClaims`, `CountsRefreshedAtUtc`; refreshed every cycle and, read-only, while disabled; runbook procedure in §13.3; tests in §15.3. |
+| Malformed claim metadata read as unclaimed (cold review, amendment 1) | `hash == null \|\| expiry == null \|\| expiry <= now` treated hash-without-expiry as unclaimed and therefore claimable/exhaustible. | **P2** | §5.2 canonical states via `FinalizationClaimStateAt`; paired-state SQL disjunction shared by §7.1/§7.5; malformed rows never selected, reported once (1512) and counted in health; §8.7 justifies no schema change. Tests and the OR-mutant in §15.1/§15.3. |
+| Extension outside the publication transaction holding a lock | Extension is its own transaction; nothing holds the row lock during IO. | — | §8.8. |
 | Payload load under lock | A 100 MB bytea read under `FOR UPDATE` would block reconciliation and extension for the read's duration. | P3 | §7.3 unlocked, `AsNoTracking`. |
+
+### 20.1 Cold self-review after amendment 1
+
+1. **Can any claimant extend forever beyond the maximum duration?** No. `ExtendFinalizationClaim` refuses when `now ≥ FinalizationAcceptedAtUtc + MaximumDuration`, inside the aggregate, under the row lock, with the platform clock. The last grant is before the deadline and adds at most `ClaimExtension ≤ ClaimSeconds`.
+2. **Can exhaustion act while a valid live claim exists?** No. The reconciliation SQL excludes canonical live claims, `SKIP LOCKED` skips a row its owner is writing, and `ExhaustFinalization` throws on `Live` from the locked row.
+3. **Can malformed ownership metadata be interpreted as unclaimed?** No. Unclaimed requires all three columns null; both SQL predicates and `FinalizationClaimStateAt` use paired checks; malformed rows are excluded from selection and throw in the domain.
+4. **Can an expired but canonical claim be safely reclaimed?** Yes, while attempts remain and before the deadline: `ClaimFinalization` rotates the token so the old holder fails every fence.
+5. **Can rollback be verified using the defined health contract?** Yes. `finalizingJobs` is the PostgreSQL row count with a refresh timestamp, available while enabled and (read-only) while disabled; §13.3 is written against those exact fields.
+6. **Can two API hosts still safely contend for one Finalizing job?** Yes. `FOR UPDATE SKIP LOCKED` on claim and reconciliation, token rotation, and fenced writes are unchanged; the deadline and canonical-state predicates only narrow what either host may select.
+7. **Does the plan still preserve the no-delete rule?** Yes. Nothing in the amendment touches sealing or evidence; the architecture test and I6 stand.
+8. **Does any correction require a migration or ADR amendment?** No migration: the deadline and canonical states use existing columns; §8.7 records why no pairing constraint is added. No ADR amendment: ADR-006 §7 already requires a bounded, fenced claim and says nothing that the amendment contradicts.
+
+Residual: the effective bound is `MaximumFinalizationDuration + ClaimSeconds`, not `MaximumFinalizationDuration` alone. This is inherent to "never revoke a live claim underneath filesystem work" and is stated in the option remarks, the runbook and the F4 bound (§17), so the frozen production value can absorb it.
 
 **Unresolved P1/P2:** none. The operational split-brain (two hosts with different gates) is mitigated, not eliminated, and is recorded as a runbook rule rather than a code control; it is P2 operational and accepted by the B3 plan §15.
 
