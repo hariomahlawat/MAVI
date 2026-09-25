@@ -44,11 +44,17 @@ public sealed class ProcessingOrchestrator(
                          where run.VideoAssetId == videoId
                          join job in db.VisionJobs.AsNoTracking() on run.Id equals job.ProcessingRunId
                          orderby run.QueuedAtUtc descending, run.Id descending
-                         select new ProcessingRunStatusView(run.Id, run.Status.ToString(), job.Pipeline, run.PipelineVersion,
-                             run.WorkerId, run.QueuedAtUtc, run.StartedAtUtc, run.CompletedAtUtc,
-                             job.ProgressPercent, job.AttemptCount, job.FailureCode ?? run.ErrorCode,
-                             run.FramesProcessed, run.TracksCreated)).FirstOrDefaultAsync(cancellationToken);
-        return new(true, video.ProcessingStatus.ToString(), row);
+                         select new
+                         {
+                             View = new ProcessingRunStatusView(run.Id, run.Status.ToString(), job.Pipeline, run.PipelineVersion,
+                                 run.WorkerId, run.QueuedAtUtc, run.StartedAtUtc, run.CompletedAtUtc,
+                                 job.ProgressPercent, job.AttemptCount, job.FailureCode ?? run.ErrorCode,
+                                 run.FramesProcessed, run.TracksCreated),
+                             JobStatus = job.Status,
+                         }).FirstOrDefaultAsync(cancellationToken);
+        // The phase comes from the job, never the run: a Finalizing job's run is still Running.
+        return new(true, video.ProcessingStatus.ToString(),
+            row is null ? null : row.View with { Phase = ProcessingPhaseRule.FromJobStatus(row.JobStatus) });
     }
 
     public async Task<ProcessingRunAttestationSource?> GetCompletedRunAttestationAsync(

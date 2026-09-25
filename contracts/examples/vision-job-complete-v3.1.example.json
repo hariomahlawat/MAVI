@@ -1,0 +1,196 @@
+{
+  "schemaVersion": "3.1",
+  "jobId": "018fa7b6-2b31-7f42-9f33-9fd9f6fdd761",
+  "workerId": "gpu-sdd-01",
+  "leaseToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "attemptCount": 1,
+  "framesProcessed": 4,
+  "processingDurationMs": 1250,
+  "provenance": {
+    "modelId": "rtmdet-m-coco-phase1",
+    "modelVersion": "1",
+    "modelManifestSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "checkpointSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "resolvedConfigSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "pipelineProfileId": "phase1-detection-tracking",
+    "pipelineProfileVersion": "1",
+    "pipelineProfileSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "qualificationId": null,
+    "qualificationSha256": null,
+    "verificationStatus": "unverified",
+    "runtimeProfileId": "mmdetection-phase1-v1",
+    "runtimeProfileSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "runtimeVariant": "linux-x86_64-cpu",
+    "platformLockSha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "detectorBackend": "mmdetection",
+    "dependencyVersions": {
+      "python": "3.12.14",
+      "trackers": "2.6.0"
+    },
+    "ffmpegVersion": null,
+    "platform": {
+      "system": "Linux",
+      "release": "6.8.0",
+      "version": "qualified-host",
+      "machine": "x86_64",
+      "processor": "x86_64",
+      "pythonVersion": "3.12.14",
+      "pythonImplementation": "CPython",
+      "pythonBuild": [
+        "main",
+        "Sep 1 2026"
+      ],
+      "pythonCompiler": "GCC 13.3.0"
+    },
+    "configuredDevicePolicy": "cpu",
+    "configuredDeviceIndex": 0,
+    "actualDevice": "cpu",
+    "gpu": null,
+    "maviBuild": "task13-example",
+    "maviCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "framePolicy": "every-frame",
+    "trackerParameters": {
+      "referenceFrameRate": 30,
+      "trackActivationThreshold": 0.25,
+      "highConfidenceThreshold": 0.1,
+      "minimumIouThreshold": 0.2,
+      "minimumConsecutiveFrames": 2,
+      "lostTrackBufferSeconds": 1
+    },
+    "inputColourSpace": "RGB",
+    "deviceResolutionReason": "explicit_cpu"
+  },
+  "tracks": [
+    {
+      "trackId": "person-000001",
+      "objectClass": "person",
+      "startOffsetMs": 0,
+      "endOffsetMs": 120,
+      "detectionCount": 4,
+      "meanConfidence": 0.9,
+      "maxConfidence": 0.95,
+      "trajectoryArtifact": {
+        "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/attempt-0001/trajectories/person-000001.msgpack",
+        "mediaType": "application/msgpack",
+        "sizeBytes": 128,
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "observations": [
+        {
+          "role": "representative",
+          "rank": 0,
+          "offsetMs": 40,
+          "sourceFrameNumber": 1,
+          "confidence": 0.9,
+          "qualityScore": 0.88,
+          "selectionScore": 0.88,
+          "boundingBox": {
+            "x": 0.1,
+            "y": 0.2,
+            "width": 0.3,
+            "height": 0.5
+          },
+          "crop": {
+            "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/attempt-0001/evidence/person-000001-representative.jpg",
+            "mediaType": "image/jpeg",
+            "sizeBytes": 1234,
+            "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        },
+        {
+          "role": "near-view",
+          "rank": 1,
+          "offsetMs": 80,
+          "sourceFrameNumber": 2,
+          "confidence": 0.95,
+          "qualityScore": 0.91,
+          "selectionScore": 0.91,
+          "boundingBox": {
+            "x": 0.12,
+            "y": 0.18,
+            "width": 0.34,
+            "height": 0.56
+          },
+          "crop": {
+            "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/attempt-0001/evidence/person-000001-near-view.jpg",
+            "mediaType": "image/jpeg",
+            "sizeBytes": 2345,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "role": "early-diverse",
+          "rank": 2,
+          "offsetMs": 0,
+          "sourceFrameNumber": 0,
+          "confidence": 0.85,
+          "qualityScore": 0.7,
+          "selectionScore": 0.7,
+          "boundingBox": {
+            "x": 0.05,
+            "y": 0.25,
+            "width": 0.28,
+            "height": 0.45
+          },
+          "crop": {
+            "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/attempt-0001/evidence/person-000001-early-diverse.jpg",
+            "mediaType": "image/jpeg",
+            "sizeBytes": 3456,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        {
+          "role": "late-diverse",
+          "rank": 3,
+          "offsetMs": 120,
+          "sourceFrameNumber": 3,
+          "confidence": 0.88,
+          "qualityScore": 0.75,
+          "selectionScore": 0.75,
+          "boundingBox": {
+            "x": 0.2,
+            "y": 0.22,
+            "width": 0.3,
+            "height": 0.5
+          },
+          "crop": {
+            "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd761/attempt-0001/evidence/person-000001-late-diverse.jpg",
+            "mediaType": "image/jpeg",
+            "sizeBytes": 4567,
+            "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        }
+      ]
+    }
+  ],
+  "evidenceAccounting": {
+    "representative": {
+      "candidates": 1,
+      "admitted": 1,
+      "omitted": 0,
+      "candidateBytes": 1234,
+      "admittedBytes": 1234
+    },
+    "near-view": {
+      "candidates": 2,
+      "admitted": 1,
+      "omitted": 1,
+      "candidateBytes": 4690,
+      "admittedBytes": 2345
+    },
+    "early-diverse": {
+      "candidates": 1,
+      "admitted": 1,
+      "omitted": 0,
+      "candidateBytes": 3456,
+      "admittedBytes": 3456
+    },
+    "late-diverse": {
+      "candidates": 1,
+      "admitted": 1,
+      "omitted": 0,
+      "candidateBytes": 4567,
+      "admittedBytes": 4567
+    }
+  }
+}

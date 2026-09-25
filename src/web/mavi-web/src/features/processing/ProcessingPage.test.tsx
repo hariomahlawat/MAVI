@@ -76,6 +76,7 @@ describe('ProcessingPage', () => {
         framesProcessed: 0,
         tracksCreated: 0,
         analyticsReadiness: 'NotConfigured',
+        phase: 'processing',
       },
     });
     vi.mocked(queueProcessing).mockResolvedValue({ processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21432' });
@@ -140,7 +141,7 @@ describe('ProcessingPage', () => {
       return {
         processingRunId: runId, status: 'Completed', pipeline: 'phase1-detection-tracking', pipelineVersion: 'phase1-v1', workerId: 'worker-a',
         queuedAtUtc: '2026-09-09T02:30:00Z', startedAtUtc: '2026-09-09T02:30:02Z', completedAtUtc: '2026-09-09T02:35:02Z', progressPercent: 100,
-        attemptCount: 1, failureCode: null, framesProcessed: 1500, tracksCreated: 6, analyticsReadiness: readiness,
+        attemptCount: 1, failureCode: null, framesProcessed: 1500, tracksCreated: 6, analyticsReadiness: readiness, phase: 'completed',
       };
     }
 
@@ -274,6 +275,7 @@ describe('ProcessingPage', () => {
         framesProcessed: 0,
         tracksCreated: 0,
         analyticsReadiness: 'NotConfigured',
+        phase: 'processing',
       },
     });
     const divergent = render();
@@ -342,6 +344,7 @@ describe('ProcessingPage', () => {
         framesProcessed: 0,
         tracksCreated: 0,
         analyticsReadiness: 'NotConfigured',
+        phase: 'failed',
       },
     });
     render();
@@ -381,6 +384,7 @@ describe('ProcessingPage', () => {
         framesProcessed: 6_000,
         tracksCreated: 3,
         analyticsReadiness: 'NotConfigured',
+        phase: 'processing',
       },
     });
     const running = renderWithApp(<ProcessingPage />, {
@@ -409,6 +413,7 @@ describe('ProcessingPage', () => {
         framesProcessed: 15_000,
         tracksCreated: 42,
         analyticsReadiness: 'NotConfigured',
+        phase: 'completed',
       },
     });
     renderWithApp(<ProcessingPage />, {

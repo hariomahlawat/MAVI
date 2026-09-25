@@ -114,7 +114,7 @@ public sealed class CompletionDigestGoldenTests
         return document.ToJsonString().Replace($"\"{placeholder}\"", token, StringComparison.Ordinal);
     }
 
-    private static string FindRepositoryRoot()
+    internal static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "MAVI.sln"))) directory = directory.Parent;

@@ -164,3 +164,41 @@ public sealed record VisionJobCompleteResponse(
     Guid ProcessingRunId,
     int TracksAccepted,
     [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))] DateTimeOffset CompletedAtUtc);
+
+/// <summary>
+/// The completion 3.1 acknowledgement: a truthful hand-off, never a completion claim.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <paramref name="State"/> is <c>finalizing</c> when the platform durably holds the accepted
+/// body and still owns the work of sealing and publishing it, and <c>completed</c> only when the
+/// run is authoritative. <paramref name="CompletedAtUtc"/> is present only with <c>completed</c>
+/// and is omitted from the JSON otherwise; a hand-off carries <paramref name="AcceptedAtUtc"/>.
+/// </para>
+/// <para>
+/// <paramref name="TracksSubmitted"/> is the validated Track count of the accepted body. It is
+/// named for what it is: the finalizer publishes exactly that count or fails closed, so it is
+/// the same number in both states, but it is not a statement that rows exist yet.
+/// </para>
+/// </remarks>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record VisionJobFinalizationResponse(
+    string SchemaVersion,
+    Guid JobId,
+    Guid ProcessingRunId,
+    string State,
+    [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))] DateTimeOffset AcceptedAtUtc,
+    int TracksSubmitted,
+    [property: JsonConverter(typeof(UtcDateTimeOffsetJsonConverter))]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DateTimeOffset? CompletedAtUtc = null)
+{
+    public static VisionJobFinalizationResponse Finalizing(Guid jobId, Guid processingRunId, DateTimeOffset acceptedAtUtc, int tracksSubmitted) =>
+        new(WorkerContractRules.CompletionSchemaVersionV31, jobId, processingRunId,
+            WorkerContractRules.FinalizationStateFinalizing, acceptedAtUtc, tracksSubmitted);
+
+    public static VisionJobFinalizationResponse Completed(
+        Guid jobId, Guid processingRunId, DateTimeOffset acceptedAtUtc, int tracksSubmitted, DateTimeOffset completedAtUtc) =>
+        new(WorkerContractRules.CompletionSchemaVersionV31, jobId, processingRunId,
+            WorkerContractRules.FinalizationStateCompleted, acceptedAtUtc, tracksSubmitted, completedAtUtc);
+}

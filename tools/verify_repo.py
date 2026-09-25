@@ -52,6 +52,8 @@ REQUIRED_PATHS = [
     "contracts/schemas/vision-job-lease-v2.schema.json",
     "contracts/schemas/vision-job-complete-v2.schema.json",
     "contracts/schemas/vision-job-complete-v3.schema.json",
+    "contracts/schemas/vision-job-complete-v3.1.schema.json",
+    "contracts/schemas/vision-job-finalization-response-v3.1.schema.json",
     "contracts/schemas/worker-health-v2.schema.json",
     "config/acceptance/phase1-acceptance-v1.json",
     "config/acceptance/phase1-supported-updates-v1.json",
@@ -836,6 +838,7 @@ def check_contracts(errors: list[str]) -> None:
         "vision-job-lease-request-v2", "vision-job-lease-v2", "vision-job-heartbeat-v2",
         "vision-job-heartbeat-response-v2", "vision-job-fail-v2", "vision-job-complete-v2", "worker-health-v2",
         "vision-job-complete-v3",
+        "vision-job-complete-v3.1", "vision-job-finalization-response-v3.1",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -878,6 +881,19 @@ def check_completion_v3_contract(errors: list[str]) -> None:
             fail(f"Invalid completion v3 vector was accepted by the schema: {vector['name']}", errors)
         if vector["rejectedBy"] == "validator" and not schema_valid:
             fail(f"Completion v3 vector '{vector['name']}' must be schema-valid so it exercises the platform validator.", errors)
+
+    # Completion 3.1 is the 3.0 body under the asynchronous exchange version and nothing
+    # else (S1.4 B3 plan section 5.1): the schemas may differ only in title and version.
+    v31 = json.loads((schemas / "vision-job-complete-v3.1.schema.json").read_text())
+    expected = json.loads(json.dumps(v3))
+    expected["title"] = "vision-job-complete-v3.1"
+    expected["properties"]["schemaVersion"] = {"const": "3.1"}
+    if v31 != expected:
+        fail("Completion v3.1 schema must equal v3 apart from its title and schemaVersion const.", errors)
+    example_v3 = (ROOT / "contracts/examples/vision-job-complete-v3.example.json").read_text(encoding="utf-8")
+    example_v31 = (ROOT / "contracts/examples/vision-job-complete-v3.1.example.json").read_text(encoding="utf-8")
+    if example_v31 != example_v3.replace('"schemaVersion": "3.0"', '"schemaVersion": "3.1"', 1):
+        fail("Completion v3.1 example must be the v3 golden example with only its schemaVersion changed.", errors)
 
     digest = json.loads((ROOT / "contracts/test-vectors/vision-job-complete-v3-digest.json").read_text())
     example_sha = hashlib.sha256((ROOT / digest["example"]).read_bytes()).hexdigest()

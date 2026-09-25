@@ -11,13 +11,45 @@ public static class WorkerContractRules
     public const string SchemaVersion = "2.0";
     public const string CompletionSchemaVersionV2 = "2.0";
     public const string CompletionSchemaVersionV3 = "3.0";
+    /// <summary>
+    /// Completion exchange 3.1 (S1.4 B3 asynchronous finalization plan §5): the same
+    /// Evidence Set body as 3.0, answered with a durable hand-off (<see cref="VisionJobFinalizationResponse"/>)
+    /// instead of a synchronous completion. A wire version only: it normalizes to the 3.0
+    /// semantic shape and digest domain.
+    /// </summary>
+    public const string CompletionSchemaVersionV31 = "3.1";
 
-    /// <summary>Completion versions this platform accepts, in ascending order.</summary>
+    /// <summary>
+    /// Completion versions this platform accepts at <c>POST …/complete</c> and advertises at
+    /// <c>GET /api/vision/contract</c>, in ascending order. F1 of the asynchronous-finalization
+    /// repair defines 3.1 without accepting it: acceptance switches to
+    /// <see cref="AsynchronousCompletionSchemaVersions"/> when F2 lands the hand-off, and 3.0
+    /// retires with it (plan §15.2).
+    /// </summary>
     public static IReadOnlyList<string> CompletionSchemaVersions { get; } =
         [CompletionSchemaVersionV2, CompletionSchemaVersionV3];
 
+    /// <summary>The set F2 enables: 2.0 unchanged, 3.1 asynchronous, 3.0 retired.</summary>
+    public static IReadOnlyList<string> AsynchronousCompletionSchemaVersions { get; } =
+        [CompletionSchemaVersionV2, CompletionSchemaVersionV31];
+
     public static bool IsAcceptedCompletionSchemaVersion(string? value) =>
         value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3;
+
+    /// <summary>Every completion version the platform can read, accepted or not.</summary>
+    public static bool IsKnownCompletionSchemaVersion(string? value) =>
+        value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3 or CompletionSchemaVersionV31;
+
+    /// <summary>Whether a completion version is answered by a hand-off rather than a completion.</summary>
+    public static bool IsAsynchronousCompletionSchemaVersion(string? value) =>
+        value is CompletionSchemaVersionV31;
+
+    /// <summary>Wire values of <see cref="VisionJobFinalizationResponse.State"/>.</summary>
+    public const string FinalizationStateFinalizing = "finalizing";
+    public const string FinalizationStateCompleted = "completed";
+
+    public static bool IsFinalizationState(string? value) =>
+        value is FinalizationStateFinalizing or FinalizationStateCompleted;
 
     public const int MaximumCompletionTracks = 10_000;
     // Re-derived for completion 3.0 (four observation descriptors per Track). The

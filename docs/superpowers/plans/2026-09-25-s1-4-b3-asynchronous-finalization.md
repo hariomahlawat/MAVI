@@ -197,7 +197,7 @@ and fields such as:
 - state;
 - accepted-at UTC;
 - completed-at UTC only when actually Completed;
-- `tracksAccepted`: the validated Track count of the accepted body, in both states. It is deterministic from the body the platform durably holds; the finalizer publishes exactly that count or fails closed, so it never changes between `finalizing` and `completed`.
+- `tracksSubmitted`: the validated Track count of the accepted body, in both states. It is deterministic from the body the platform durably holds; the finalizer publishes exactly that count or fails closed, so it never changes between `finalizing` and `completed`. (F1 named it `tracksSubmitted`, not `tracksAccepted`: in a `finalizing` acknowledgement nothing is published yet, and the 3.0 response's `tracksAccepted` meant a published count.)
 
 Do not populate `CompletedAtUtc` for a hand-off acknowledgement.
 
@@ -690,6 +690,16 @@ Keep this repair isolated from S2.
 - domain/contract/migration tests.
 
 No background execution yet.
+
+**F1 implementation record (2026-09-25, branch `feature/s1-4-b3-f1-finalization-contracts-domain` from `main@c829510`).**
+
+- Domain: `VisionJobStatus.Finalizing`; `VisionJob.BeginFinalization(workerId, leaseTokenMatches, attemptCount, authorityNowUtc, completionDigest)` (canonical digest, live lease at authority time, attempt match; keeps `LeaseOwner`/`LeaseTokenHash`/`AttemptCount`/`LeaseExpiresAtUtc`; sets `FinalizationAcceptedAtUtc`); `CanAuthenticateCompletionReplay` (§5.3, lease expiry not consulted); finalizer claim `CanClaimFinalization`/`ClaimFinalization` (32-byte token SHA-256 hash, rotates per claim, bounded attempts)/`FinalizationOwnedBy` (fixed-time compare)/`ExtendFinalizationClaim`/`NoteFinalizationError`; `CompleteFinalization(completedAtUtc)` (needs a claim, not a lease); `FailFinalization(code, details, nowUtc)` from Finalizing only, codes `vision_finalization_[a-z0-9_]+` ≤ 64 chars. Heartbeat, worker fail, re-lease and exhaustion are refused for Finalizing by status. The synchronous `Complete` path is untouched.
+- Payload: `VisionFinalizationPayload` (JobId, AttemptCount, exact `Payload` bytes, `PayloadLength`, `PayloadSha256`, `CompletionDigest`, `AcceptedAtUtc`), bounded by `WorkerContractRules.MaximumCompletionRequestBodyBytes`; no navigation to or from `VisionJob`, so status and lease queries never load it.
+- Persistence: migration `20260925020849_AddVisionFinalization` adds six nullable/defaulted `vision_jobs` columns, `vision_finalization_payloads` (PK `(job_id, attempt_count)`, FK cascade, checks on attempt, `payload_length = octet_length(payload)` ≤ 50331648, SHA-256 and digest format), partial index `ix_vision_jobs_finalizing_claim` (`status = 'Finalizing'`), checks `ck_vision_jobs_finalization_attempts`, `ck_vision_jobs_finalization_claim_token_hash`, `ck_vision_jobs_finalizing_facts` (a Finalizing row has digest, accepted time, lease owner, lease token hash and attempt ≥ 1). `Down` refuses while any job is Finalizing or a payload of an unfinished job exists (§15.3).
+- Contracts: `WorkerContractRules.CompletionSchemaVersionV31 = "3.1"`, `AsynchronousCompletionSchemaVersions = ["2.0", "3.1"]`, `IsKnownCompletionSchemaVersion`, `IsAsynchronousCompletionSchemaVersion`, finalization states; `VisionJobFinalizationResponse` (§5.2, `completedAtUtc` omitted unless `completed`); schemas/examples `vision-job-complete-v3.1` (the 3.0 schema with only title and version const changed, enforced by `verify_repo.py`) and `vision-job-finalization-response-v3.1`. The validator maps 3.1 to `CompletionSchema.V3`; the golden 3.0 example with `schemaVersion` swapped to 3.1 produces the pinned v3 digest.
+- Staged acceptance: the completion endpoint still accepts only 2.0 and 3.0 and the probe still advertises `["2.0","3.0"]` (`CompletionSchemaVersions` unchanged). F2 switches the endpoint and probe to `AsynchronousCompletionSchemaVersions`, which retires 3.0 and leaves 2.0 unchanged.
+- Status: `ProcessingRunStatusResponse.phase` (`queued|processing|finalizing|completed|failed`, `ProcessingPhaseRule.FromJobStatus`) beside the unchanged run `status`; no `ProcessingRunStatus.Finalizing`; `progressPercent` stays the job's value (100 after hand-off) and counters stay zero until publication.
+- Not in F1: the submission transaction, endpoint raw-body capture (minimal-API model binding drops the exact bytes, so F2 must read the body itself before deserializing), worker 3.1, the finalizer, janitor Finalizing rules, UI rendering, B3 measurement.
 
 ### F2 — atomic submission
 

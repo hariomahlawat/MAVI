@@ -16,6 +16,16 @@ public sealed class VisionJobConfiguration : IEntityTypeConfiguration<VisionJob>
             t.HasCheckConstraint(
                 "ck_vision_jobs_completion_digest",
                 "completion_digest IS NULL OR completion_digest ~ '^[0-9a-f]{64}$'");
+            t.HasCheckConstraint("ck_vision_jobs_finalization_attempts", "finalization_attempt_count >= 0");
+            t.HasCheckConstraint(
+                "ck_vision_jobs_finalization_claim_token_hash",
+                "finalization_claim_token_hash IS NULL OR octet_length(finalization_claim_token_hash) = 32");
+            // A Finalizing row keeps the facts a duplicate completion authenticates against and
+            // the digest the finalizer verifies (plan §6); the database refuses to lose them.
+            t.HasCheckConstraint(
+                "ck_vision_jobs_finalizing_facts",
+                "status <> 'Finalizing' OR (completion_digest IS NOT NULL AND finalization_accepted_at_utc IS NOT NULL " +
+                "AND lease_owner IS NOT NULL AND lease_token_hash IS NOT NULL AND attempt_count >= 1)");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).HasColumnName("id");
@@ -34,10 +44,19 @@ public sealed class VisionJobConfiguration : IEntityTypeConfiguration<VisionJob>
         builder.Property(x => x.FailureDetails).HasColumnName("failure_details").HasMaxLength(4000);
         builder.Property(x => x.CompletionDigest).HasColumnName("completion_digest").HasMaxLength(64);
         builder.Property(x => x.LeaseTokenHash).HasColumnName("lease_token_hash").HasColumnType("bytea");
+        builder.Property(x => x.FinalizationAcceptedAtUtc).HasColumnName("finalization_accepted_at_utc");
+        builder.Property(x => x.FinalizationAttemptCount).HasColumnName("finalization_attempt_count").HasDefaultValue(0);
+        builder.Property(x => x.FinalizationClaimTokenHash).HasColumnName("finalization_claim_token_hash").HasColumnType("bytea");
+        builder.Property(x => x.FinalizationClaimExpiresAtUtc).HasColumnName("finalization_claim_expires_at_utc");
+        builder.Property(x => x.FinalizationClaimExtendedAtUtc).HasColumnName("finalization_claim_extended_at_utc");
+        builder.Property(x => x.FinalizationLastErrorCode).HasColumnName("finalization_last_error_code").HasMaxLength(64);
 
         builder.HasOne<ProcessingRun>().WithOne().HasForeignKey<VisionJob>(x => x.ProcessingRunId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(x => new { x.Status, x.AvailableAtUtc });
         builder.HasIndex(x => x.LeaseExpiresAtUtc).HasDatabaseName("ix_vision_jobs_expired_lease")
             .HasFilter("status = 'Leased'");
+        // The finalizer's claim query: Finalizing rows whose claim is absent or expired.
+        builder.HasIndex(x => x.FinalizationClaimExpiresAtUtc).HasDatabaseName("ix_vision_jobs_finalizing_claim")
+            .HasFilter("status = 'Finalizing'");
     }
 }

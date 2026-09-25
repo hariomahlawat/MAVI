@@ -16,6 +16,7 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<VideoAsset> VideoAssets => Set<VideoAsset>();
     public DbSet<ProcessingRun> ProcessingRuns => Set<ProcessingRun>();
     public DbSet<VisionJob> VisionJobs => Set<VisionJob>();
+    public DbSet<VisionFinalizationPayload> VisionFinalizationPayloads => Set<VisionFinalizationPayload>();
     public DbSet<Track> Tracks => Set<Track>();
     public DbSet<Observation> Observations => Set<Observation>();
     public DbSet<VisualAttribute> VisualAttributes => Set<VisualAttribute>();
