@@ -548,14 +548,17 @@ def measure_completion_peak(result: VisionProcessingResult) -> dict[str, int]:
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.append(len(request.content))
+        # The platform's completion 3.1 hand-off acknowledgement (S1.4 B3 F2): the
+        # worker's peak is measured up to the acknowledged submission, not publication.
         return httpx.Response(
             200,
             json={
-                "schemaVersion": "3.0",
+                "schemaVersion": "3.1",
                 "jobId": str(result.job_id),
                 "processingRunId": "01920000-0000-7000-8000-000000000001",
-                "tracksAccepted": len(result.tracks),
-                "completedAtUtc": "2026-09-24T00:00:00Z",
+                "state": "finalizing",
+                "acceptedAtUtc": "2026-09-24T00:00:00Z",
+                "tracksSubmitted": len(result.tracks),
             },
         )
 
@@ -567,7 +570,7 @@ def measure_completion_peak(result: VisionProcessingResult) -> dict[str, int]:
                 response = await client.complete(lease, result, 1, provenance)
             finally:
                 await client.aclose()
-        if response.tracks_accepted != len(result.tracks):
+        if response.state != "finalizing" or response.tracks_submitted != len(result.tracks):
             raise RuntimeError("completion_peak_response_mismatch")
 
     gc.collect()
