@@ -2054,6 +2054,7 @@ def _task10_step_commands() -> dict[str, tuple[str, ...]]:
         if match is None:
             continue
         prefix = "src/vision/" if re.search(r"^        working-directory: src/vision\s*$", step, re.M) else ""
+        step = re.sub(r"--deselect \S+", "", step)  # deselected node ids are not run
         paths = re.findall(r"(?<![\w/])((?:src/vision/)?tests/test_\w+\.py|tools/qualification/tests)(?![\w/])", step)
         found[match.group(1)] = tuple(dict.fromkeys(path if path.startswith(("src/", "tools/")) else prefix + path for path in paths))
     return found

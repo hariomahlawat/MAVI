@@ -210,6 +210,64 @@ def test_task10_triggers_on_and_qualifies_the_whole_s1_surface() -> None:
     assert "MAVI_RUNTIME_VARIANT: ${{ matrix.runtime-variant }}" in workflow
 
 
+def test_probe_tests_needing_the_ml_graph_run_after_it_is_installed() -> None:
+    """S1.4 §3: a test that imports torch or mmengine must not skip in the
+    pre-install tooling step, and must run in the post-install step, so the
+    qualified job neither reports an unapproved skip nor leaves it unexecuted."""
+    import ast
+    import re
+
+    probe_tests = Path(__file__).parent / "test_runtime_probe.py"
+    tree = ast.parse(probe_tests.read_text(encoding="utf-8"))
+    needs_ml = {
+        f"src/vision/tests/test_runtime_probe.py::{node.name}"
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name.startswith("test")
+        and any(
+            isinstance(call, ast.Call)
+            and ast.unparse(call.func) == "pytest.importorskip"
+            and isinstance(call.args[0], ast.Constant)
+            and call.args[0].value.split(".")[0] in {"torch", "mmengine", "mmcv", "mmdet"}
+            for call in ast.walk(node)
+        )
+    }
+    assert needs_ml, "the probe suite has no ML-dependent tests; the step split is obsolete"
+
+    workflow = (
+        Path(__file__).parents[3] / ".github" / "workflows" / "task10-runtime-qualification.yml"
+    ).read_text(encoding="utf-8")
+
+    def step(name: str) -> str:
+        return workflow.split(f"- name: {name}", 1)[1].split("\n      - name:", 1)[0]
+
+    tooling = step("Run runtime qualification tooling unit tests")
+    real_torch = step("Test real PyTorch restricted checkpoint loading")
+    selected = set(re.findall(r"(src/vision/tests/test_runtime_probe\.py::\w+)", real_torch))
+    assert selected == needs_ml
+    assert " -k " not in real_torch
+
+    # What the tooling step actually collects, with its exact arguments from the
+    # repository root: a --deselect that matches no node id would be a no-op.
+    import subprocess
+    import sys
+
+    command = tooling.split("python -m pytest", 1)[1].split("-o junit_suite_name", 1)[0].split()
+    repository = Path(__file__).parents[3]
+    collected = subprocess.run(
+        [sys.executable, "-m", "pytest", *command, "--collect-only", "-o", "addopts=", "-p", "no:cacheprovider"],
+        cwd=repository, capture_output=True, text=True, check=True,
+    ).stdout
+    collected_probe = {
+        "src/vision/" + line.strip()
+        for line in collected.splitlines()
+        if line.strip().startswith("tests/test_runtime_probe.py::")
+    }
+    assert collected_probe, collected
+    assert not collected_probe & needs_ml, sorted(collected_probe & needs_ml)
+    assert f"({len(needs_ml)} deselected)" in collected, collected.splitlines()[-1:]
+
+
 def test_task12_linux_native_bundle_is_bound_to_qualified_host_abi() -> None:
     workflow_path = (
         Path(__file__).parents[3]
