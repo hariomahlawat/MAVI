@@ -121,7 +121,7 @@ The finalization hand-off must be a **single-resource atomic transaction**.
 
 Do not introduce a filesystem finalization-manifest root.
 
-Persist the exact accepted completion body in PostgreSQL as bounded binary content.
+Persist a canonical semantic finalization payload in PostgreSQL as bounded binary content. The retained payload must exclude the authenticated HTTP envelope: never persist the raw `leaseToken`, and do not persist `workerId` inside the payload. Exact replay authentication remains on the `VisionJob` through `LeaseOwner`, `LeaseTokenHash` and `AttemptCount`.
 
 ### 4.1 Shape
 
@@ -136,7 +136,7 @@ Key:
 
 Fields:
 
-- exact request bytes (`bytea`);
+- canonical semantic finalization payload bytes (`bytea`), containing only schema/job/attempt/result/provenance/evidence facts required for deterministic re-validation;
 - byte length;
 - SHA-256 of request bytes;
 - completion digest;
@@ -152,7 +152,7 @@ The current worst-shape evidence is within the existing contract envelope; no ne
 
 ### 4.3 Persistence discipline
 
-Use bounded raw SQL / binary parameter handling for the large payload path where appropriate. Do not require EF to track or materialize the payload as a large object graph during ordinary status queries.
+Use bounded raw SQL / binary parameter handling for the large payload path where appropriate. Do not require EF to track or materialize the payload as a large object graph during ordinary status queries. The payload serializer is platform-owned and must omit authentication capabilities (`workerId`, raw `leaseToken`). A discriminating test must prove a recognizable lease token cannot occur in retained bytes.
 
 PostgreSQL/TOAST, WAL, backup/restore and transactional atomicity become the durability mechanism.
 
@@ -340,7 +340,7 @@ The existing synchronous path may keep its current behavior until replaced, but 
 
 For one valid claimed `Finalizing` job:
 
-1. read the exact payload bytes from PostgreSQL;
+1. read the canonical semantic payload bytes from PostgreSQL;
 2. verify payload length/SHA and deserialize;
 3. re-run `VisionResultValidator`;
 4. verify the recomputed completion digest equals the stored digest;
@@ -703,7 +703,7 @@ No background execution yet.
 
 ### F2 — atomic submission
 
-- implement exact PostgreSQL payload persistence;
+- implement canonical semantic PostgreSQL payload persistence with the worker authentication envelope stripped before persistence;
 - `Leased → Finalizing` atomic transaction;
 - exact replay/conflict rules;
 - 3.1 response;
@@ -762,7 +762,7 @@ Do not perform expensive S1 qualification on an intermediate SHA that F1–F3 wi
 
 ### Submission
 
-- payload row + Finalizing transition are atomic;
+- payload row + Finalizing transition are atomic;\n- retained payload contains no raw lease token or worker id;
 - request rollback leaves neither;
 - ambiguous commit is resolved by replay;
 - same-digest duplicate is idempotent;
@@ -836,7 +836,7 @@ Implementation must preserve all of these:
 7. A stale finalizer may perform harmless create-once IO but cannot publish.
 8. Worker protocol skew cannot delete staging needed by a finalizer.
 9. Completion replay remains deterministic and conflict-safe.
-10. PostgreSQL is the authority for both durable hand-off and finalizer fencing.
+10. PostgreSQL is the authority for both durable hand-off and finalizer fencing; persisted finalization bytes contain no bearer capability.
 11. No distributed lock or generic workflow system is added.
 12. Qualification remains tied to field correctness, not paperwork.
 
