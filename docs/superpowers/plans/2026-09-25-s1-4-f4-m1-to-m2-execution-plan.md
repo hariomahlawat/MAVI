@@ -267,8 +267,8 @@ No value is chosen by intuition. Every value below is a fixed function of the re
 | `S_batch_max` | max of every `perBatchWallMs` element (consecutive extension returns; each includes one extension round trip) |
 | `G_max` | max of `(graphBuildBracket.publishEntered − graphBuildBracket.lastExtensionReturned) / publicationTimeline.stopwatchFrequency` (last extension → `PublishAsync` entry) |
 | `P_max` | max of `(commitCompleted − transactionBegun) / stopwatchFrequency` from `publicationTimeline.ticks` (the checker's `publishTransactionMs`) |
-| `L_first` | max over samples of `payloadLoadMs + payloadRevalidationAndPlanMs + max(perBatchWallMs of that sample)`. The last term conservatively covers two segments M1 does not retain separately: claim return → load entry, and the initial `ExtendClaimAsync` round trip. Each is of the order of one extension round trip, which every per-batch wall contains. |
 | `T_max` | max of `acceptedAtUtc → publicationTimeline.commitCompletedUtc` (the checker's `totalMs`) |
+| first-claim interval | **not retained at M1.** It runs from claim return to the return of the initial `ExtendClaimAsync`. M1 keeps neither the claim-return → `LoadInputsAsync`-entry gap nor the initial extension's round trip, so no exact or tighter value is derived from it. It is bounded above by `T_max` (§7.3). |
 | `S_batch_p95`, `T_p95` | nearest-rank p95 over the same pooled samples; recorded only, used by no rule |
 | extension overhead | **not observable at M1**: the outputs retain no per-extension round trip. Recorded as "not measured". |
 
@@ -296,11 +296,19 @@ This **corrects** master §10.2, whose `ClaimExtensionSeconds` rule sizes only t
 
 ### 7.3 ClaimSeconds
 
-`C_req = max(ClaimExtensionSeconds, 4 × L_first, 4 × P_max)`
+`ClaimSeconds = max(300, ClaimExtensionSeconds, ceilTo(4 × T_max, 60))`
 
-`ClaimSeconds = max(300, ceilTo(C_req, 60))`
+The initial claim, granted for `ClaimSeconds`, must survive from claim return to the return of the initial extension. M1 does not retain that interval exactly (§7.0). Every sample's first-claim interval nonetheless lies inside its own `[acceptedAtUtc, commitCompleted]`, because the claim is taken after the hand-off is accepted and the initial extension returns before the publication commits. So the interval is at most `T` for that sample, and at most `T_max` overall. `4 × T_max` is therefore a proven upper bound for the measured attempts, with the same 4× margin.
 
-`ClaimSeconds ≥ ClaimExtensionSeconds` holds by construction, as the options validator requires. The initial claim must survive claim → load → revalidation → initial extension.
+A later attempt's re-claim runs the same pre-extension work (payload load, revalidation, plan); adoption happens only after the initial extension. The measured bound is not a proof for such an attempt, but it is applied to it with the same margin.
+
+This bound is conservative. A tighter `ClaimSeconds` needs a future harness revision that retains the exact interval.
+
+The same containment gives `S_batch_max ≤ T_max` and `G_max + P_max ≤ T_max`. Graph build ends at `PublishAsync` entry and the publication transaction begins after it, both inside that window. Hence, in real time, `ceilTo(E_req, 30) ≤ ceilTo(4 × T_max, 60)`, and in practice `ClaimSeconds = max(300, ceilTo(4 × T_max, 60))`.
+
+`ClaimSeconds ≥ ClaimExtensionSeconds`, which the options validator requires, holds unconditionally because `ClaimExtensionSeconds` is a term of the `max`. It does not rely on that argument, whose inputs come from two clocks.
+
+The master's `4 × L_first` and `4 × P_max` terms are replaced: the first because `L_first` is not retained, the second because the bound above dominates it.
 
 ### 7.4 MaximumFinalizationAttempts
 
@@ -338,24 +346,34 @@ Lowering `MaximumFinalizationDurationSeconds` toward `M_req` would therefore exh
 
 `M_req ≥ 2 × T_max`, so the M1 stop `M_bound ≤ 21600` already implies `T_max ≤ 10,800 s = ½ × MaximumFinalizationDurationSeconds`. At M1 the "B3-B max ≤ ½ derived Max" gate is therefore implied by construction and is not independent evidence. It becomes an independent test only at M2, on new measurements against the frozen values.
 
+With §7.3 the `M_bound` stop is in fact tighter. `21600` is a multiple of 300, so `M_bound ≤ 21600` exactly when `3 × (ClaimSeconds + 2 × T_max) ≤ 21600`. With `ClaimSeconds = max(300, ceilTo(4 × T_max, 60))`, that holds **if and only if `T_max ≤ 1200 s`**:
+- at `T_max = 1200 s`, `4800 + 2400 = 7200`;
+- above it, `ClaimSeconds ≥ 4860` and `2 × T_max > 2400`.
+
+This is a consequence of the conservative `ClaimSeconds`, stated here rather than discovered after measurement. It is an activation stop, not a B3 acceptance criterion: B3-A and B3-B at M2 are unchanged (master §8.4, §9.3). The master's own estimate is `T` ≈ 90–150 s (§9.2).
+
 The freeze document states this. Values are never re-frozen from M2 results (§14).
 
 ### 7.10 Illustrative arithmetic (not a measurement)
 
-For `S_batch_max = 1.2 s`, `G_max = 4 s`, `P_max = 22 s`, `L_first = 6 s`, `T_max = 150 s`:
+For `S_batch_max = 1.2 s`, `G_max = 4 s`, `P_max = 22 s`, `T_max = 150 s` (all seconds, already converted from ms):
 
 | Value | Arithmetic | Frozen |
 |---|---|---|
-| `ClaimExtensionSeconds` | `E_req = 4 × max(1.2, 26) = 104` → `ceilTo(104, 30) = 120`; `max(300, 120)` | 300 |
-| `ClaimSeconds` | `C_req = max(300, 24, 88) = 300` → `ceilTo(300, 60) = 300`; `max(300, 300)` | 300 |
-| `MaximumFinalizationDurationSeconds` | `M_req = max(3 × (300 + 300), 300) = 1800` → `M_bound = 1800 ≤ 21600` | 21600 |
-| Effective bound | `21600 + 300 + 5 = 21905` | 21905 s ≈ 6.08 h |
+| `ClaimExtensionSeconds` | `E_req = 4 × max(1.2, 4 + 22) = 104` → `ceilTo(104, 30) = 120`; `max(300, 120)` | 300 |
+| `ClaimSeconds` | `4 × 150 = 600` → `ceilTo(600, 60) = 600`; `max(300, 300, 600)` | 600 |
+| `MaximumFinalizationDurationSeconds` | `M_req = max(3 × (600 + 2 × 150), 2 × 150) = 2700` → `M_bound = 2700 ≤ 21600` | 21600 |
+| Effective bound | `21600 + 600 + 5 = 22205` | 22205 s ≈ 6.17 h |
 
 With `P_max = 80 s` instead:
-- `E_req = 4 × 84 = 336` → `ClaimExtensionSeconds = 360`.
-- `C_req = max(360, 24, 320) = 360` → `ClaimSeconds = 360`.
-- `M_req = 3 × (360 + 300) = 1980` → `M_bound = 2100`; `MaximumFinalizationDurationSeconds = 21600`.
-- Effective bound: `21600 + 360 + 5 = 21965` s.
+- `E_req = 4 × max(1.2, 84) = 336` → `ceilTo(336, 30) = 360` → `ClaimExtensionSeconds = 360`.
+- `ClaimSeconds = max(300, 360, 600) = 600`.
+- `M_req = 2700` → `MaximumFinalizationDurationSeconds = 21600`.
+- Effective bound: `22205` s.
+
+At `T_max = 1250 s`:
+- `ClaimSeconds = ceilTo(5000, 60) = 5040`;
+- `M_req = 3 × (5040 + 2500) = 22620` → `M_bound = 22800 > 21600`: **stop** (§7.9).
 
 ---
 
@@ -400,8 +418,9 @@ It must include:
 - host identity per exploratory OS;
 - paths and SHA-256 of retained exploratory outputs;
 - explicit non-authoritative label;
-- `S_batch_max`, `G_max`, `P_max`, `L_first`, `T_max` (per OS and pooled, with the governing OS of each), `S_batch_p95`, `T_p95`;
-- extension overhead recorded as "not measured at M1" (§7.0);
+- `S_batch_max`, `G_max`, `P_max`, `T_max` (per OS and pooled, with the governing OS of each), `S_batch_p95`, `T_p95`;
+- extension overhead and the first-claim interval recorded as "not retained at M1" (§7.0). The statement that `ClaimSeconds` uses the conservative `4 × T_max` bound, and that a tighter value needs a harness that retains the exact interval;
+- the `T_max ≤ 1200 s` activation-stop consequence (§7.9);
 - the §6.1 checker evaluations and their (empty) findings;
 - the `exploratory-manifest.json` path and SHA-256;
 - rule-by-rule arithmetic;
@@ -525,28 +544,62 @@ Do not remove 2.0 compatibility unless separately planned.
 
 ### 11.3 Deployment and rollback documentation
 
-**Activation retires completion 3.0 at the platform, by design** (`WorkerContractRules.AsynchronousCompletionSchemaVersions` is `["2.0", "3.1"]`). An activated platform advertises and accepts 2.0 and 3.1 only. A 3.0 worker fails closed at the probe and leases nothing, and a live 3.0 completion is refused with `worker_contract_version_unsupported`. F4-C keeps 2.0 and does not claim that 3.0 remains accepted.
+**Activation retires completion 3.0 at the platform, by design** (`WorkerContractRules.AsynchronousCompletionSchemaVersions` is `["2.0", "3.1"]`). An activated platform advertises and accepts 2.0 and 3.1 only. A 3.0 worker fails closed at the probe, and a live 3.0 completion is refused with `worker_contract_version_unsupported`. F4-C keeps 2.0 and does not claim that 3.0 remains accepted.
 
-F4-C updates the runbook's "Asynchronous finalization (S1.4 B3 F3): activation, rollback, health" section only to say that `Enabled = true` and worker `3.1` are now the shipped defaults. It keeps every existing safety step in substance:
-- the same value on every API host, checked on each host's health;
-- the intended probe pause for 3.0 workers between platform and worker activation;
-- `finalizingJobs == 0` **and** `countsRefreshedAtUtc` within the last two `PollIntervalSeconds` before disabling;
-- stop if `malformedClaims > 0`.
+The completion contract changes between `["2.0","3.0"]` and `["2.0","3.1"]`, and restarting a fleet of API hosts is not atomic. **No worker may lease while the hosts could disagree.** For example, a 3.0 worker that probed a gate-off host and leased would have its completion refused by a gate-on host (`worker_contract_version_unsupported`). Rollback has the inverse race.
 
-It also states the staged path now that the shipped default activates on deployment. For a multi-host rollout, deploy with an explicit machine-configuration override `VisionFinalization:Enabled = false` on every host, then remove the override on every host.
+The worker fleet is therefore stopped for the whole contract change in both directions:
+- it is started only after every host has been verified directly on the new contract;
+- load-balancer affinity is never relied on.
 
-Normal rollout:
-1. deploy the platform on every API host;
-2. confirm `enabled` on every host's health;
-3. deploy workers defaulting to 3.1.
+The runbook's "Asynchronous finalization (S1.4 B3 F3): activation, rollback, health" section carries exactly the sequences below. They were amended on `main` by this plan's PR, so F4-C changes only the statement of the shipped defaults: `Enabled = true`, worker `3.1`, and the frozen values.
 
-Rollback:
-1. set every worker to completion 3.0 (they fail closed at the probe, so no new hand-off arrives);
-2. wait until `finalizingJobs == 0` with `countsRefreshedAtUtc` fresh;
-3. require `malformedClaims == 0`;
-4. only then disable async finalization on every host.
+**Activation**
 
-Never disable the gate while Finalizing rows remain.
+1. **Platform on the new binary, gate held off.**
+   - Deploy the platform binary on every API host with `VisionFinalization:Enabled = false`. Where the binary's shipped default is `true`, hold it `false` with a machine-configuration override (`appsettings.<environment>.machine.json` or `MAVI_MACHINE_CONFIG`).
+   - On **each host directly**, not through the load balancer, confirm three things:
+     - `GET /api/health` shows `details.visionFinalization.enabled = false`, with no options validation error;
+     - `GET /api/vision/contract` lists `completionSchemaVersions` exactly `["2.0","3.0"]`;
+     - `malformedClaims == 0`.
+   - Workers keep running on 3.0 during this step.
+2. **Quiesce the worker fleet.** Stop every worker and keep it stopped: disable any service-manager restart, and confirm on every worker host that no worker process runs.
+   - A job a stopped worker had leased returns to the queue when its lease expires.
+   - Only that attempt's inference is lost.
+3. **Change the contract on every host.** Set `VisionFinalization:Enabled = true`, or remove the override, on every API host. Restart every host.
+4. **Verify every host.** On each host directly:
+   - `details.visionFinalization.enabled = true`;
+   - `completionSchemaVersions` exactly `["2.0","3.1"]`;
+   - `malformedClaims == 0`.
+
+   Do not continue until every host passes.
+5. **Start workers on 3.1.** Set `MAVI_COMPLETION_SCHEMA_VERSION = 3.1` (or install the worker package whose default is 3.1) on every worker and start them.
+   - Each worker probes the contract before every lease.
+   - Confirm in each worker's log that its first lease followed a probe listing `"3.1"`, with no `vision_platform_contract_unsupported`.
+6. **Watch the finalizer.** In `details.visionFinalization`:
+   - `finalizingJobs` rises with hand-offs and falls as jobs publish;
+   - `liveClaims` stays at most the number of hosts × `MaxConcurrentFinalizations`;
+   - `malformedClaims` stays 0.
+
+**Rollback**
+
+1. **Quiesce the worker fleet.** Stop every worker and keep it stopped, as in activation step 2.
+   - Every API host stays **enabled**, so the finalizer keeps draining.
+   - No new hand-off can arrive.
+   - A hand-off that landed as a worker stopped is a `Finalizing` row, which step 2 drains.
+2. **Drain.** Poll `GET /api/health` until `details.visionFinalization.finalizingJobs == 0` **and** `countsRefreshedAtUtc` is within the last two `PollIntervalSeconds`.
+   - Any host will do: the count is PostgreSQL's row count across the deployment.
+   - Confirm `enabled = true` on each host while draining.
+3. **Malformed claims.** If `malformedClaims > 0`, stop: those rows never drain on their own (below).
+4. **Change the contract on every host.** Set `VisionFinalization:Enabled = false` on every API host (a machine-configuration override where the shipped default is `true`). Restart every host.
+5. **Verify every host.** On each host directly:
+   - `details.visionFinalization.enabled = false`;
+   - `completionSchemaVersions` exactly `["2.0","3.0"]`.
+
+   Do not continue until every host passes.
+6. **Start workers on 3.0.** Set `MAVI_COMPLETION_SCHEMA_VERSION = 3.0` on every worker and start them. Confirm in each worker's log that its first lease followed a probe listing `"3.0"`.
+
+Never disable the gate while `Finalizing` rows remain, and never start a worker while any host is unverified.
 
 ### 11.4 F4-C boundaries
 
@@ -720,3 +773,11 @@ The next plan after this one is not another architecture plan. It is the existin
 | A6 | P2 | §14 allowed a post-M2 config change "if rerun" (a re-freeze from authoritative results); the ½-Max gate's constructional nature was not stated; harness changes between M1 and M2 were not addressed | §14 no re-freeze; §7.9 transparency; §4.1 and §14 harness freeze and M1→M2 diff rule |
 | A7 | P2 | U1 could skip the failed-finalization distinction ("when the contract supplies it", though it does) and could edit the F4-A visual-QA expectations | §10.1 exact signal and file scope; §10.3 unmodified F4-A states |
 | A8 | P2 | Rollout and rollback text omitted that activation retires 3.0, the every-host rule, count freshness, and the staged path once the default activates | §11.2, §11.3 |
+
+### 17.1 Second repair pass (review of `1042d43`)
+
+| # | Sev | Defect in `1042d43` | Correction |
+|---|---|---|---|
+| A9 | P1 | The governing master §10.2 still held the batch-only `ClaimExtensionSeconds ≥ 4 × S_batch_max`, contradicting §7.2. | Master §10.1, §10.2, §10.6 and §10.7 amended to §7.2 and the never-lower policy |
+| A10 | P2 | `L_first` used `max(perBatchWallMs)` as a proxy for unretained intervals without proof that it bounds them. | Proxy removed; §7.3 `ClaimSeconds = max(300, ClaimExtensionSeconds, ceilTo(4 × T_max, 60))` by containment; §7.9 states the resulting `T_max ≤ 1200 s` stop |
+| A11 | P2 | Activation and rollback let workers lease while API hosts restarted one by one, a mixed `["2.0","3.0"]` / `["2.0","3.1"]` window. | §11.3 and the runbook: the worker fleet is stopped for the whole contract change; every host is verified directly before workers start |
