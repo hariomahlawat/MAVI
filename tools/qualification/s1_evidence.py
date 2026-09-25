@@ -202,7 +202,14 @@ APPROVED_PAIRED_SKIPS: dict[tuple[str, str], frozenset[str]] = {
     }),
     # PR A's own process-memory probes (tools/qualification/tests/test_s1_memory.py):
     # each platform's probe is exercised on that platform only.
-    ("tools/qualification/tests", _WINDOWS): frozenset({"test_linux_probe_reads_this_process"}),
+    ("tools/qualification/tests", _WINDOWS): frozenset({
+        "test_linux_probe_reads_this_process",
+        # S1.4 B3 F4 §17.2: the Linux storage-class probe reads a synthetic sysfs tree
+        # (symlinks, "8:1" names) that cannot exist on Windows; each passes on Linux.
+        "test_the_linux_storage_class_is_read_from_the_mounts_block_device",
+        "test_a_network_filesystem_is_network_and_an_unknown_mount_is_unknown",
+        "test_the_longest_matching_mount_wins",
+    }),
     ("tools/qualification/tests", _LINUX): frozenset({"test_windows_probe_reads_commit_charge"}),
 }
 

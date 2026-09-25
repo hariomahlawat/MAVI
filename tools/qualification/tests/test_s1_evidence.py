@@ -2852,3 +2852,35 @@ def test_the_disconnected_bindings_are_required(artifact: str) -> None:
 ])
 def test_only_loopback_connect_targets_are_local(address: str, loopback: bool) -> None:
     assert s1_evidence.is_loopback_address(address) is loopback
+
+
+@pytest.mark.parametrize("artifact", ["b3a.hand-off-output", "b3b.finalization-output", "b3.crash-matrix-output"])
+def test_a_b3_output_that_names_the_other_variant_is_refused(tmp_path: Path, artifact: str) -> None:
+    # Its bytes differ from the Linux output (another host), so only the variant field betrays it.
+    record = materialize(complete_record(), tmp_path)
+    _rewrite_json(record, tmp_path, f"{artifact}.windows-x86_64-cpu", lambda d: d.update(variant="linux-x86_64-cpu"))
+    findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.unit == "B3" and "ran on linux-x86_64-cpu" in f.detail]
+    assert findings
+
+
+def test_the_15_s_hand_off_cap_holds_when_half_the_worker_timeout_is_looser(tmp_path: Path) -> None:
+    # F4 plan §8.4: the bound is min(15 s, timeout/2). With a 60 s worker default,
+    # timeout/2 is 30 s, so only the 15 s cap can refuse a 20 s hand-off.
+    assert s1_evidence.HANDOFF_BOUND_MS == 15_000.0
+    measured = _settings_repo(tmp_path / "repo", "60.0")
+    record = with_sha(complete_record(), measured)
+    checker = s1_evidence._Checker(record, tmp_path / "repo", verify_git=True)
+    variant = s1_evidence.QUALIFIED_CPU_VARIANTS[0]
+    metric = f"{s1_evidence.HANDOFF_WALL_METRIC}.{variant}"
+    host = record["measurements"][f"B3:{metric}"]["host"]
+    for hand_off_max, refused in ((20_000.0, True), (15_000.0, False)):
+        checker.findings.clear()
+        checker._b3_bounds(
+            {
+                "b3.worker-request-timeout-ms": {"value": 60_000.0},
+                metric: {"metric": metric, "host": host, "stats": {"max": hand_off_max}},
+            },
+            measured,
+        )
+        assert any(f.code == "hand_off_bound_violated" for f in checker.findings) is refused, hand_off_max
+        assert not any(f.code in ("worker_timeout_unbound", "worker_timeout_out_of_range") for f in checker.findings)

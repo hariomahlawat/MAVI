@@ -2096,6 +2096,43 @@ const OCCUPANCY_METRIC = `(() => {
   return true;
 })()`;
 
+/**
+ * S1.4 B3 F4 plan §15.3: the asynchronous completion's operator states, as fixture data in
+ * the shapes `GET /api/videos/{id}/processing` returns. `phase` is the truthful API field;
+ * `status` stays `Running` while the platform finalizes (ProcessingRunStatus has no
+ * Finalizing), which is why a UI that renders `status` alone shows Finalizing as Running.
+ */
+const FINALIZING_STATUS = {
+  videoStatus: 'Processing',
+  latestRun: {
+    processingRunId: 'eeeeeeee-eeee-7eee-8eee-eeeeeeeeeeee',
+    status: 'Running',
+    pipeline: 'phase1-detection-tracking',
+    pipelineVersion: 'phase1-v1',
+    workerId: 'worker-a',
+    queuedAtUtc: '2026-09-14T04:05:00Z',
+    startedAtUtc: '2026-09-14T04:05:10Z',
+    completedAtUtc: null,
+    progressPercent: 100,
+    attemptCount: 1,
+    failureCode: null,
+    framesProcessed: 0,
+    tracksCreated: 0,
+    analyticsReadiness: 'NotConfigured',
+    phase: 'finalizing',
+  },
+};
+const FAILED_FINALIZATION_STATUS = {
+  videoStatus: 'Failed',
+  latestRun: {
+    ...FINALIZING_STATUS.latestRun,
+    status: 'Failed',
+    completedAtUtc: '2026-09-14T04:21:00Z',
+    failureCode: 'vision_finalization_staging_missing',
+    phase: 'failed',
+  },
+};
+
 export const STATES = [
   // --- Ledger-summary: Overview, the one Ledger permitted to stay capped. ---
   { name: 'overview', path: '/', fullWidth: false, archetype: 'ledger-summary' },
@@ -2242,6 +2279,26 @@ export const STATES = [
   {
     name: 'processing-detail-failed', path: `/processing/${FAILED_VIDEO}`, fullWidth: false,
     archetype: 'record', settleMs: 1200, expectText: 'worker_watchdog_timeout',
+  },
+  {
+    // S1.4 B3 F4 plan §15.3 (B5 `finalizingStateDistinct`, `noPrematureCounts`): a job the
+    // platform is finalizing reads as Finalizing, not as a generic running job, and shows no
+    // count before publication. This is the acceptance of the separate U1 UI PR; on a UI that
+    // renders only `status` it FAILS, and that failure is the truthful B5 result, not a
+    // harness defect. Fixture data only: never real-video evidence.
+    name: 'processing-finalizing', path: `/processing/${LONG_VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1200,
+    api: { [`/api/videos/${LONG_VIDEO}/processing`]: FINALIZING_STATUS },
+    expectText: ['Finalizing', 'Final count after completion'],
+    forbidText: 'Progress',
+  },
+  {
+    // B5 `failedFinalizationDistinct`: a finalization failure is presented as such, never as
+    // an inference failure. Expected to fail until U1, like the state above.
+    name: 'processing-failed-finalization', path: `/processing/${FAILED_VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1200,
+    api: { [`/api/videos/${FAILED_VIDEO}/processing`]: FAILED_FINALIZATION_STATUS },
+    expectText: ['vision_finalization_staging_missing', 'Finalization failed'],
   },
   {
     name: 'processing-detail-unavailable', path: `/processing/${VIDEO}`, fullWidth: false,
