@@ -103,6 +103,38 @@ Completion 3.0 carries the Track Evidence Set (up to four role-tagged observatio
 - Platform binary **after 3.0 completions exist**: unsupported — roll the worker back to 2.0 first; the preceding binary cannot map the new role values.
 - Migration down: refused while any non-Representative observation exists; it never deletes evidence bytes.
 
+## Asynchronous finalization (S1.4 B3 F3): activation, rollback, health
+
+The platform finalizer (`VisionFinalizationHostedService`, in the API host) consumes completion 3.1 hand-offs: it claims a `Finalizing` job, revalidates the retained payload, seals the attempt's staged evidence into the accepted root, publishes the Track/Observation/Artifact graph under the completion barrier and moves the job, run and video to their terminal state. PostgreSQL is the only authority for hand-off, ownership, attempts, the deadline and publication; no lock file, no separate process. Design: `docs/superpowers/plans/2026-09-25-s1-4-b3-f3-finalizer-recovery-implementation.md`.
+
+**Production default is off.** `VisionFinalization:Enabled = false` and the worker's `MAVI_COMPLETION_SCHEMA_VERSION = 3.0`. While off, the platform advertises and accepts 2.0 and 3.0 synchronously, refuses 3.1, no job can enter `Finalizing`, and the finalizer host only refreshes its read-only health counts (event 1500). Activation is a controlled step after F3 review; do not flip it as part of a routine deployment.
+
+**Activation sequence** (F3 plan §13.1):
+
+1. Deploy the F3 platform binary with `VisionFinalization:Enabled = false`. Confirm `GET /api/health` shows `details.visionFinalization.enabled = false` and the process started without an options validation error (the section is validated even while disabled).
+2. Set `VisionFinalization:Enabled = true` on **every** API host and restart them. The probe now lists `["2.0","3.1"]`, 3.0 is refused (`worker_contract_version_unsupported`), and the finalizer polls. All hosts must carry the same value: a host with the gate off refuses 3.1 and finalizes nothing; a host with it on advertises 3.1. Check `enabled` on each host's health.
+3. Set `MAVI_COMPLETION_SCHEMA_VERSION = 3.1` on every worker and restart them. Between steps 2 and 3 the 3.0 workers fail closed at the probe and lease nothing: that brief pause is intended, not a fallback.
+4. Watch `details.visionFinalization`: `finalizingJobs` rises with hand-offs and falls as jobs publish; `liveClaims` is at most the number of hosts × `MaxConcurrentFinalizations`; `malformedClaims` must stay 0.
+
+**Rollback / disable** (F3 plan §13.3). Disabling the gate stops new hand-offs **and** the finalizer, so `Finalizing` rows must be drained first:
+
+1. Set every worker back to `MAVI_COMPLETION_SCHEMA_VERSION = 3.0` and restart. They fail closed at the probe (the platform still advertises 3.1), so no new hand-off can arrive.
+2. Poll `GET /api/health` until `details.visionFinalization.finalizingJobs == 0` **and** `countsRefreshedAtUtc` is within the last two `PollIntervalSeconds` (on any host: the count is PostgreSQL's row count across the deployment; confirm `enabled` on each host).
+3. If `malformedClaims > 0`, stop: those rows never drain on their own (below).
+4. Set `VisionFinalization:Enabled = false` on every API host and restart. The probe reverts to `["2.0","3.0"]`.
+
+A pre-F1 platform binary is never deployed while `Finalizing` rows or unfinished payload rows exist: the `AddVisionFinalization` migration's `Down` refuses.
+
+**Configuration** (`VisionFinalization`): `Enabled` (false), `MaxConcurrentFinalizations` (1: the host shares the API process), `PollIntervalSeconds` (5), `ClaimSeconds` (300), `ClaimExtensionSeconds` (300; must not exceed `ClaimSeconds`), `MaximumFinalizationAttempts` (3), `MaximumFinalizationDurationSeconds` (21600), `SealingBatchSize` (200), `PayloadCleanupGraceSeconds` (0). The timing values are development defaults; F4 freezes the production values from measurement. **Effective bound:** the absolute deadline `FinalizationAcceptedAtUtc + MaximumFinalizationDurationSeconds` stops new claims and extensions, but a claim that is live at the deadline runs to its granted expiry, so a job is Completed or Failed no later than `MaximumFinalizationDurationSeconds + ClaimSeconds` after its hand-off (plus one poll interval for reconciliation to observe it). After that, reconciliation fails the job with `vision_finalization_exhausted` (the run and video fail with the same code); reprocessing creates a new run and job as usual.
+
+**Failure codes** (`FailureCode` on the job and `ErrorCode` on the run; never a detector/tracker code): deterministic `vision_finalization_payload_missing`, `vision_finalization_payload_integrity_failed`, `vision_finalization_payload_invalid`, `vision_finalization_staging_missing`, `vision_finalization_staging_integrity_failed`, `vision_finalization_evidence_conflict`, `vision_finalization_context_invalid`; reconciliation `vision_finalization_exhausted`; transient (recorded in `FinalizationLastErrorCode`, retried) `vision_finalization_io_transient`, `vision_finalization_db_transient`, `vision_finalization_publication_ambiguous`. A job that failed after sealing began leaves accepted objects under `evidence/{jobId}/attempt-NNNN/` that no publication references (event 1509 gives their count and bytes); the finalizer never deletes accepted evidence (ADR-006 §7) and no collector exists yet.
+
+**Malformed claim metadata** (`malformedClaims > 0`, event 1512 once per job per host): a `Finalizing` row whose claim columns are not all null and not all present (`finalization_claim_token_hash`, `finalization_claim_expires_at_utc`, `finalization_claim_extended_at_utc`). Only a direct database edit produces it. The finalizer never claims, exhausts or repairs such a row. Investigate how it arose; to release it, restore a canonical state by hand (all three columns `NULL` makes it claimable again if attempts and the deadline permit) and let the next cycle decide, or fail it deliberately with the platform's usual failure transitions.
+
+**Health.** `GET /api/health` exposes `details.visionFinalization.{enabled,finalizingJobs,liveClaims,malformedClaims,oldestFinalizingAcceptedAtUtc,countsRefreshedAtUtc,inFlight,lastCycleUtc,lastCycleClaimed,lastCycleExhausted,lastCyclePayloadsCleaned}`. The first five come from PostgreSQL (`vision_jobs` where `status = 'Finalizing'`) and are refreshed every cycle, and every poll interval while disabled; `countsRefreshedAtUtc` is `null` until the first successful count. The rest are this host's own.
+
+**Events.** 1500 disabled (counts-only mode); 1501 started; 1502 claimed; 1503 claim extended (Debug); 1504 published (tracks, objects created/adopted and bytes, seal/publish/total timings, hand-off-to-publish latency); 1505 deterministic failure (Warning); 1506 transient noted, claim released (Warning); 1507 claim lost, nothing written (Warning); 1508 reconciliation exhausted N jobs (Error); 1509 orphan accounting after a failure (Warning); 1510 payload rows cleaned; 1511 cycle failed (Error; exception type only); 1512 malformed claim metadata or an unexhaustable row (Error, once per job per host); 1513 deadline reached with a live claim (Warning); 1514 stopped for host shutdown, nothing written. No event carries a claim token, lease token, storage path or exception message.
+
 ## Staging reclamation
 
 The platform reclaims worker attempt staging (`{MediaStorage:RootPath}/staging/{jobId}/attempt-NNNN`) with the `vision_jobs` row as its **sole authority**. The worker's own cleanup after completion and at the next lease remains a fast path; the janitor bounds retention when the worker dies or never runs again. It never enumerates outside `staging/`, never opens the evidence root, and deletes handle-relatively without following any symbolic link, junction or reparse point (a linked job or attempt directory is refused and logged).
@@ -112,6 +144,7 @@ The platform reclaims worker attempt staging (`{MediaStorage:RootPath}/staging/{
 | `Completed` / `Failed` | every canonical attempt once `CompletedAtUtc + GraceMinutes` has passed, then the empty job directory |
 | `Cancelled` (nothing produces it today) | as terminal; logged once (1405) |
 | `Leased` | attempts `k < AttemptCount` immediately; never the current or a later attempt |
+| `Finalizing` | as `Leased`: the current attempt is the finalizer's input and survives until the job is terminal (ADR-006 §7); a later attempt is preserved and logged once (1401) |
 | `Queued`, `AttemptCount = 0` | preserved; any staging logged once (1401) |
 | `Queued`, `AttemptCount > 0` (unreachable) | invariant violation (1406, Error); nothing deleted |
 | no row | only after `UnknownJobGraceHours` of directory inactivity (1409, Warning) |

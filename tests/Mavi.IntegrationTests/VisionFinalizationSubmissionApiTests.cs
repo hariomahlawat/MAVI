@@ -215,7 +215,7 @@ public sealed class VisionFinalizationSubmissionApiTests
             var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
             var job = await db.VisionJobs.SingleAsync();
             claimHash = SHA256.HashData(RandomNumberGenerator.GetBytes(32));
-            job.ClaimFinalization(claimHash, clock.GetUtcNow(), TimeSpan.FromMinutes(5), 3);
+            job.ClaimFinalization(claimHash, clock.GetUtcNow(), TimeSpan.FromMinutes(5), 3, TimeSpan.FromHours(6));
             await db.SaveChangesAsync();
         }
 
@@ -253,7 +253,7 @@ public sealed class VisionFinalizationSubmissionApiTests
             var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
             var job = await db.VisionJobs.SingleAsync();
             var token = RandomNumberGenerator.GetBytes(32);
-            job.ClaimFinalization(SHA256.HashData(token), completedAt, TimeSpan.FromMinutes(5), 3);
+            job.ClaimFinalization(SHA256.HashData(token), completedAt, TimeSpan.FromMinutes(5), 3, TimeSpan.FromHours(6));
             job.CompleteFinalization(token, completedAt);
             var run = await db.ProcessingRuns.SingleAsync();
             run.MarkCompleted(4, 1, 1250, completedAt);

@@ -10,6 +10,7 @@ using Mavi.Application.Modules.SceneAnalytics.Configuration;
 using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
 using Mavi.Application.Modules.SceneAnalytics.Aggregates;
 using Mavi.Infrastructure.SceneAnalytics;
+using Mavi.Infrastructure.Finalization;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Security;
 using Mavi.Infrastructure.Persistence;
@@ -43,6 +44,10 @@ public static class DependencyInjection
         services.AddScoped<IProcessingOrchestrator, ProcessingOrchestrator>();
         services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
         services.AddScoped<IVisionFinalizationSubmissionStore, VisionFinalizationSubmissionStore>();
+        services.AddScoped<IVisionFinalizationLifecycle, VisionFinalizationLifecycle>();
+        services.AddSingleton<VisionFinalizationExecutor>();
+        services.AddSingleton<VisionFinalizationState>();
+        services.AddSingleton<IVisionFinalizationMonitor>(provider => provider.GetRequiredService<VisionFinalizationState>());
         services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
         services.AddScoped<TrackSearchService>();
         services.AddScoped<ISceneConfigurationRepository, SceneConfigurationRepository>();
@@ -114,9 +119,12 @@ public static class DependencyInjection
                 "VisionProcessing:HeartbeatExtensionSeconds must be between 1 and 86400.")
             .ValidateOnStart();
         // S1.4 B3 activation gate: off until the F3 finalizer exists (plan §15.2).
+        // Validated whether or not the gate is on, so a misconfigured but disabled section
+        // fails at start rather than on the day it is enabled (F3 plan §6.1).
         services.AddOptions<VisionFinalizationOptions>()
             .Bind(configuration.GetSection(VisionFinalizationOptions.SectionName))
             .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<VisionFinalizationOptions>, VisionFinalizationOptionsValidator>();
         services.AddSceneAnalyticsOptions(configuration);
         services.AddTrackSearchOptions(configuration);
         services.AddOptions<LocalizationOptions>()
@@ -138,6 +146,16 @@ public static class DependencyInjection
         string.Equals(extension, extension.ToLowerInvariant(), StringComparison.Ordinal) &&
         extension.IndexOfAny(['/', '\\']) < 0;
 
+}
+
+internal sealed class VisionFinalizationOptionsValidator : IValidateOptions<VisionFinalizationOptions>
+{
+    public ValidateOptionsResult Validate(string? name, VisionFinalizationOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var problems = options.Validate();
+        return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
+    }
 }
 
 internal sealed class LocalizationOptionsValidator(ITimeZoneService timeZones) : IValidateOptions<LocalizationOptions>

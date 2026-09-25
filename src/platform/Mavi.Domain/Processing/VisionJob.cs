@@ -10,6 +10,11 @@ public sealed class VisionJob
     private const int Sha256ByteLength = 32;
     /// <summary>Every finalization failure code carries this prefix, so it is never read as an inference failure.</summary>
     public const string FinalizationFailureCodePrefix = "vision_finalization_";
+    /// <summary>
+    /// The terminal code of platform reconciliation (<see cref="ExhaustFinalization"/>): no live
+    /// claim remained and no further claim was permitted (F3 plan §5.3).
+    /// </summary>
+    public const string FinalizationExhaustedFailureCode = "vision_finalization_exhausted";
 
     private VisionJob() { }
 
@@ -162,23 +167,66 @@ public sealed class VisionJob
         attemptCount == AttemptCount &&
         CompletionDigest is not null;
 
-    public bool CanClaimFinalization(DateTimeOffset nowUtc, int maximumFinalizationAttempts) =>
+    /// <summary>
+    /// The absolute finalization deadline, <c>FinalizationAcceptedAtUtc + maximumFinalizationDuration</c>
+    /// (F3 plan §5.4): the one instant that exists before any claim and survives every reclaim.
+    /// <see langword="null"/> before the hand-off.
+    /// </summary>
+    public DateTimeOffset? FinalizationDeadline(TimeSpan maximumFinalizationDuration) =>
+        maximumFinalizationDuration > TimeSpan.Zero && FinalizationAcceptedAtUtc is { } accepted
+            ? accepted.Add(maximumFinalizationDuration)
+            : null;
+
+    /// <summary>
+    /// The strict rule every creation or prolongation of ownership shares: <c>now &lt; deadline</c>.
+    /// At the deadline instant itself it is already false.
+    /// </summary>
+    public bool IsBeforeFinalizationDeadline(DateTimeOffset nowUtc, TimeSpan maximumFinalizationDuration) =>
+        FinalizationDeadline(maximumFinalizationDuration) is { } deadline && nowUtc.ToUniversalTime() < deadline;
+
+    /// <summary>
+    /// The canonical classification of the ownership metadata triple (F3 plan §5.2). The aggregate
+    /// writes the three columns together, so only <see cref="FinalizationClaimState.Unclaimed"/>,
+    /// <see cref="FinalizationClaimState.Live"/> and <see cref="FinalizationClaimState.Expired"/>
+    /// are reachable through it; anything else is <see cref="FinalizationClaimState.Malformed"/>
+    /// and fails closed everywhere: never claimed, never exhausted, never owned, never repaired.
+    /// </summary>
+    public FinalizationClaimState FinalizationClaimStateAt(DateTimeOffset nowUtc)
+    {
+        if (FinalizationClaimTokenHash is null && FinalizationClaimExpiresAtUtc is null && FinalizationClaimExtendedAtUtc is null)
+            return FinalizationClaimState.Unclaimed;
+        if (FinalizationClaimTokenHash is { Length: Sha256ByteLength } &&
+            FinalizationClaimExpiresAtUtc is { } expiresAtUtc &&
+            FinalizationClaimExtendedAtUtc is not null)
+            return expiresAtUtc > nowUtc.ToUniversalTime() ? FinalizationClaimState.Live : FinalizationClaimState.Expired;
+        return FinalizationClaimState.Malformed;
+    }
+
+    /// <summary>
+    /// Whether a finalizer may take (or retake) ownership now: Finalizing, attempts remaining,
+    /// strictly before the deadline, and a canonical unclaimed or expired claim.
+    /// </summary>
+    public bool CanClaimFinalization(DateTimeOffset nowUtc, int maximumFinalizationAttempts, TimeSpan maximumFinalizationDuration) =>
         Status == VisionJobStatus.Finalizing &&
         maximumFinalizationAttempts >= 1 &&
         FinalizationAttemptCount < maximumFinalizationAttempts &&
-        (FinalizationClaimExpiresAtUtc is null || FinalizationClaimExpiresAtUtc <= nowUtc.ToUniversalTime());
+        IsBeforeFinalizationDeadline(nowUtc, maximumFinalizationDuration) &&
+        FinalizationClaimStateAt(nowUtc) is FinalizationClaimState.Unclaimed or FinalizationClaimState.Expired;
 
     /// <summary>
     /// A finalizer takes (or, after expiry, retakes) ownership. Every claim rotates the token,
-    /// so a claimant that lost its claim can no longer prove ownership with the old token.
+    /// so a claimant that lost its claim can no longer prove ownership with the old token. The
+    /// transition proves the deadline itself: a caller that bypassed the SQL pre-filter is refused
+    /// here (F3 plan §8.6).
     /// </summary>
     public void ClaimFinalization(
         byte[] claimTokenHash,
         DateTimeOffset nowUtc,
         TimeSpan claimDuration,
-        int maximumFinalizationAttempts)
+        int maximumFinalizationAttempts,
+        TimeSpan maximumFinalizationDuration)
     {
-        if (!CanClaimFinalization(nowUtc, maximumFinalizationAttempts)) throw Invalid();
+        if (!CanClaimFinalization(nowUtc, maximumFinalizationAttempts, maximumFinalizationDuration)) throw Invalid();
         if (claimTokenHash is not { Length: Sha256ByteLength } || claimDuration <= TimeSpan.Zero) throw Invalid();
 
         var now = nowUtc.ToUniversalTime();
@@ -188,12 +236,15 @@ public sealed class VisionJob
         FinalizationClaimExtendedAtUtc = now;
     }
 
-    /// <summary>Whether <paramref name="claimToken"/> is the live finalizer claim of this job.</summary>
+    /// <summary>
+    /// Whether <paramref name="claimToken"/> is the live finalizer claim of this job. Ownership is
+    /// independent of the deadline: a claim that was live when the deadline passed stays live until
+    /// its granted expiry and may still publish or fail (F3 plan §5.4).
+    /// </summary>
     public bool FinalizationOwnedBy(ReadOnlySpan<byte> claimToken, DateTimeOffset nowUtc)
     {
         if (Status != VisionJobStatus.Finalizing) return false;
-        if (FinalizationClaimTokenHash is not { Length: Sha256ByteLength }) return false;
-        if (FinalizationClaimExpiresAtUtc is null || FinalizationClaimExpiresAtUtc <= nowUtc.ToUniversalTime()) return false;
+        if (FinalizationClaimStateAt(nowUtc) != FinalizationClaimState.Live) return false;
         if (claimToken.Length != FinalizationClaimTokenByteLength) return false;
 
         Span<byte> actual = stackalloc byte[Sha256ByteLength];
@@ -201,12 +252,34 @@ public sealed class VisionJob
         return CryptographicOperations.FixedTimeEquals(actual, FinalizationClaimTokenHash);
     }
 
-    /// <summary>The live claimant keeps ownership across a long seal; a lost claim cannot be extended.</summary>
-    public void ExtendFinalizationClaim(ReadOnlySpan<byte> claimToken, DateTimeOffset nowUtc, TimeSpan extension)
+    /// <summary>
+    /// The live claimant keeps ownership across a long seal; a lost claim cannot be extended, and
+    /// neither can a live one at or after the deadline: repeated extension can never push a claim
+    /// indefinitely past <c>MaximumFinalizationDuration</c> (F3 plan §5.4).
+    /// </summary>
+    public void ExtendFinalizationClaim(
+        ReadOnlySpan<byte> claimToken,
+        DateTimeOffset nowUtc,
+        TimeSpan extension,
+        TimeSpan maximumFinalizationDuration)
     {
         if (!FinalizationOwnedBy(claimToken, nowUtc) || extension <= TimeSpan.Zero) throw Invalid();
+        if (!IsBeforeFinalizationDeadline(nowUtc, maximumFinalizationDuration)) throw Invalid();
         var now = nowUtc.ToUniversalTime();
         FinalizationClaimExpiresAtUtc = now.Add(extension);
+        FinalizationClaimExtendedAtUtc = now;
+    }
+
+    /// <summary>
+    /// The live claimant gives its claim up now (a transient failure it will not retry itself), so
+    /// the next cycle may reclaim without waiting out the granted duration. The hash stays: the
+    /// row is a canonical expired claim, never an unclaimed one, and the old token proves nothing.
+    /// </summary>
+    public void ReleaseFinalizationClaim(ReadOnlySpan<byte> claimToken, DateTimeOffset nowUtc)
+    {
+        if (!FinalizationOwnedBy(claimToken, nowUtc)) throw Invalid();
+        var now = nowUtc.ToUniversalTime();
+        FinalizationClaimExpiresAtUtc = now;
         FinalizationClaimExtendedAtUtc = now;
     }
 
@@ -231,8 +304,7 @@ public sealed class VisionJob
         Status = VisionJobStatus.Completed;
         ProgressPercent = 100;
         CompletedAtUtc = nowUtc.ToUniversalTime();
-        FinalizationClaimTokenHash = null;
-        FinalizationClaimExpiresAtUtc = null;
+        ClearFinalizationClaim();
     }
 
     /// <summary>
@@ -252,8 +324,37 @@ public sealed class VisionJob
         FailureDetails = details;
         FinalizationLastErrorCode = code;
         CompletedAtUtc = nowUtc.ToUniversalTime();
+        ClearFinalizationClaim();
+    }
+
+    /// <summary>
+    /// <c>Finalizing → Failed</c> by platform reconciliation, never by a claimant (F3 plan §5.3,
+    /// §7.5). Tokenless and failure-only: it proves from the row alone that no live claim exists
+    /// (a canonical unclaimed or expired claim; a live or malformed one throws) and that no further
+    /// claim is permitted (attempts or the absolute deadline exhausted). It cannot publish, and it
+    /// is the only way the final permitted claimant's crash ends. Hand-off facts stay for audit.
+    /// </summary>
+    public void ExhaustFinalization(DateTimeOffset nowUtc, int maximumFinalizationAttempts, TimeSpan maximumFinalizationDuration)
+    {
+        if (Status != VisionJobStatus.Finalizing || FinalizationAcceptedAtUtc is null) throw Invalid();
+        if (maximumFinalizationAttempts < 1 || maximumFinalizationDuration <= TimeSpan.Zero) throw Invalid();
+        if (FinalizationClaimStateAt(nowUtc) is not (FinalizationClaimState.Unclaimed or FinalizationClaimState.Expired)) throw Invalid();
+        var attemptsExhausted = FinalizationAttemptCount >= maximumFinalizationAttempts;
+        var durationExhausted = !IsBeforeFinalizationDeadline(nowUtc, maximumFinalizationDuration);
+        if (!attemptsExhausted && !durationExhausted) throw Invalid();
+
+        Status = VisionJobStatus.Failed;
+        FailureCode = FinalizationExhaustedFailureCode;
+        FailureDetails = null;
+        CompletedAtUtc = nowUtc.ToUniversalTime();
+        ClearFinalizationClaim();
+    }
+
+    private void ClearFinalizationClaim()
+    {
         FinalizationClaimTokenHash = null;
         FinalizationClaimExpiresAtUtc = null;
+        FinalizationClaimExtendedAtUtc = null;
     }
 
     public static bool IsFinalizationFailureCode(string? code) =>

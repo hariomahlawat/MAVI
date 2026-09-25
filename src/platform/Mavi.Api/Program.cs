@@ -1,5 +1,6 @@
 using System.Reflection;
 using Mavi.Api.Endpoints;
+using Mavi.Api.Finalization;
 using Mavi.Api.Middleware;
 using Mavi.Api.SceneAnalytics;
 using Mavi.Api.Storage;
@@ -7,6 +8,7 @@ using Mavi.Application.Abstractions.Storage;
 using Mavi.Api.Startup;
 using Mavi.Application.Health;
 using Mavi.Application;
+using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.Media;
 using Mavi.Infrastructure;
 using Microsoft.AspNetCore.Http.Features;
@@ -25,6 +27,10 @@ builder.Services.AddHostedService<SceneAnalyticsHostedService>();
 // Platform-owned reclamation of worker attempt staging (ADR-006 §6, S1.2 §6.5).
 // The VisionJob row is its sole authority; StagingJanitor:Enabled turns it off.
 builder.Services.AddHostedService<StagingJanitorHostedService>();
+// The asynchronous finalizer (S1.4 B3 F3): claims Finalizing hand-offs, seals evidence and
+// publishes the graph. VisionFinalization:Enabled gates it together with completion 3.1; while
+// off it only refreshes the Finalizing counts for /api/health.
+builder.Services.AddHostedService<VisionFinalizationHostedService>();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -53,7 +59,7 @@ app.UseVisionCompletionRequestLimits();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor) =>
+app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor, IVisionFinalizationMonitor visionFinalization) =>
 {
     var assembly = typeof(Program).Assembly;
     var version = assembly.GetName().Version?.ToString() ?? "0.1.0";
@@ -64,7 +70,7 @@ app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor) =>
     metadata.TryGetValue("MaviBuild", out var build);
     metadata.TryGetValue("MaviCommit", out var commit);
     return Results.Ok(GetPlatformHealth.Execute(
-        version, build, commit, new PlatformHealthDetails(stagingJanitor.Current)));
+        version, build, commit, new PlatformHealthDetails(stagingJanitor.Current, visionFinalization.Current)));
 });
 
 app.MapHealthChecks("/health/live");

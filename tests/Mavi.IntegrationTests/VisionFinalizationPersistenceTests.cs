@@ -254,7 +254,7 @@ public sealed class VisionFinalizationPersistenceTests(PostgresFixture fixture)
 
         var job = await db.VisionJobs.SingleAsync(x => x.Id == seeded.Id);
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
-        job.ClaimFinalization(SHA256.HashData(token), Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(SHA256.HashData(token), Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, TimeSpan.FromHours(6));
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
 

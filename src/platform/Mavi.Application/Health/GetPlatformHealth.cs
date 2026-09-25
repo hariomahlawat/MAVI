@@ -1,4 +1,5 @@
 using Mavi.Application.Abstractions.Storage;
+using Mavi.Application.Modules.Intelligence;
 
 namespace Mavi.Application.Health;
 
@@ -11,7 +12,7 @@ public sealed record PlatformHealth(
     PlatformHealthDetails? Details = null);
 
 /// <summary>Operational details of platform background services (additive).</summary>
-public sealed record PlatformHealthDetails(StagingJanitorHealth StagingJanitor);
+public sealed record PlatformHealthDetails(StagingJanitorHealth StagingJanitor, VisionFinalizationHealth? VisionFinalization = null);
 
 public static class GetPlatformHealth
 {
