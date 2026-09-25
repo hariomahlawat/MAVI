@@ -3,7 +3,6 @@ using Mavi.Application.Abstractions.Storage;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Contracts.Worker;
 using Mavi.Domain.Common;
-using Mavi.Domain.Intelligence;
 using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Microsoft.EntityFrameworkCore;
@@ -150,122 +149,21 @@ public sealed class ProcessingResultStore(
         {
             // Defence in depth: the validator already bounds admitted crop bytes;
             // the store refuses to seal past the run quota even if it were bypassed.
-            if (result.Schema == CompletionSchema.V3)
-            {
-                long admittedCropBytes = 0;
-                foreach (var track in result.Tracks)
-                    foreach (var observation in track.Observations)
-                        admittedCropBytes += observation.Crop.SizeBytes;
-                if (admittedCropBytes > WorkerContractRules.MaximumCompletionEvidenceCropBytes)
-                    return VisionCompletionResult.Failure("vision_result_invalid");
-            }
+            if (EvidenceSealingPlan.ExceedsAdmittedCropQuota(result))
+                return VisionCompletionResult.Failure("vision_result_invalid");
 
-            foreach (var track in result.Tracks)
+            // The shared plan: crops in rank order, then the trajectory, track by track.
+            // Compensation below removes every newly sealed object in reverse on failure.
+            foreach (var unit in EvidenceSealingPlan.Build(jobId, result))
             {
-                // Crops in rank order, then the trajectory (the historical v2 order,
-                // kept for both versions); compensation below removes every newly
-                // sealed object in reverse on failure.
-                foreach (var observation in track.Observations)
-                {
-                    var cropAcceptedKey = result.Schema == CompletionSchema.V2
-                        ? AcceptedEvidenceKey(jobId, result.AttemptCount, "thumbnails", track.TrackId,
-                            observation.Crop.Sha256, "jpg")
-                        : AcceptedEvidenceKey(jobId, result.AttemptCount, "crops",
-                            $"{track.TrackId}-{VisionResultValidator.RoleToken(observation.Role)}",
-                            observation.Crop.Sha256, "jpg");
-                    var cropFailure = await SealAsync(
-                        observation.Crop, cropAcceptedKey, newlySealedKeys, acceptedStorageKeys, cancellationToken);
-                    if (cropFailure is not null)
-                        return VisionCompletionResult.Failure(cropFailure);
-                }
-
-                var trajectoryAcceptedKey = AcceptedEvidenceKey(
-                    jobId,
-                    result.AttemptCount,
-                    "trajectories",
-                    track.TrackId,
-                    track.TrajectoryArtifact.Sha256,
-                    "msgpack");
-                var trajectoryFailure = await SealAsync(
-                    track.TrajectoryArtifact, trajectoryAcceptedKey, newlySealedKeys, acceptedStorageKeys, cancellationToken);
-                if (trajectoryFailure is not null)
-                    return VisionCompletionResult.Failure(trajectoryFailure);
+                var failure = await SealAsync(unit, newlySealedKeys, acceptedStorageKeys, cancellationToken);
+                if (failure is not null)
+                    return VisionCompletionResult.Failure(failure);
             }
 
         var createdAtUtc = timeProvider.GetUtcNow();
-        // v2 crops keep the historical Thumbnail type; v3 crops are EvidenceCrop.
-        var cropArtifactType = result.Schema == CompletionSchema.V2 ? ArtifactType.Thumbnail : ArtifactType.EvidenceCrop;
-        var graph = new List<(Track Track, Observation Representative)>(result.Tracks.Count);
-
-        for (var index = 0; index < result.Tracks.Count; index++)
-        {
-            var accepted = result.Tracks[index];
-
-            var trajectoryArtifact = Artifact.Create(
-                ArtifactType.TrackTrajectory,
-                acceptedStorageKeys[accepted.TrajectoryArtifact.StorageKey],
-                accepted.TrajectoryArtifact.MediaType,
-                accepted.TrajectoryArtifact.SizeBytes,
-                accepted.TrajectoryArtifact.Sha256,
-                createdAtUtc: createdAtUtc);
-
-            var track = Track.Create(
-                run.Id,
-                video.Id,
-                index + 1,
-                accepted.ObjectClass,
-                accepted.StartOffsetMs,
-                accepted.EndOffsetMs,
-                video.RecordingStartUtc,
-                accepted.DetectionCount,
-                accepted.MeanConfidence,
-                accepted.MaxConfidence,
-                createdAtUtc);
-            track.AttachTrajectoryArtifact(trajectoryArtifact.Id);
-            db.Artifacts.Add(trajectoryArtifact);
-            db.Tracks.Add(track);
-
-            Observation? representative = null;
-            foreach (var validated in accepted.Observations)
-            {
-                var cropArtifact = Artifact.Create(
-                    cropArtifactType,
-                    acceptedStorageKeys[validated.Crop.StorageKey],
-                    validated.Crop.MediaType,
-                    validated.Crop.SizeBytes,
-                    validated.Crop.Sha256,
-                    createdAtUtc: createdAtUtc);
-
-                var observation = Observation.Create(
-                    track.Id,
-                    validated.Role,
-                    validated.SourceFrameNumber,
-                    validated.OffsetMs,
-                    video.RecordingStartUtc,
-                    checked((float)validated.X),
-                    checked((float)validated.Y),
-                    checked((float)validated.Width),
-                    checked((float)validated.Height),
-                    validated.Confidence,
-                    validated.QualityScore,
-                    validated.Rank,
-                    validated.SelectionScore,
-                    createdAtUtc);
-                observation.AttachEvidenceArtifact(cropArtifact.Id);
-
-                db.Artifacts.Add(cropArtifact);
-                db.Observations.Add(observation);
-                if (validated.Role == ObservationType.Representative)
-                    representative = observation;
-            }
-
-            graph.Add((track, representative!));
-        }
-
-        await db.SaveChangesAsync(cancellationToken);
-
-        foreach (var (track, observation) in graph)
-            track.AttachRepresentativeObservation(observation.Id);
+        var graph = FinalizationGraphBuilder.Build(result, acceptedStorageKeys, run.Id, video.Id, video.RecordingStartUtc, createdAtUtc);
+        await FinalizationGraphPersistence.AddAsync(db, graph, cancellationToken);
 
         // Publish completion through a database-owned monotonic visibility
         // sequence. Completion takes the exclusive advisory lock immediately
@@ -376,34 +274,24 @@ public sealed class ProcessingResultStore(
     }
 
     private async Task<string?> SealAsync(
-        ValidatedArtifactDescriptor descriptor,
-        string acceptedKey,
+        EvidenceSealingUnit unit,
         List<string> newlySealedKeys,
         Dictionary<string, string> acceptedStorageKeys,
         CancellationToken cancellationToken)
     {
         var sealedResult = await acceptedEvidenceStore.SealAsync(
-            descriptor.StorageKey,
-            acceptedKey,
-            descriptor.SizeBytes,
-            descriptor.Sha256,
+            unit.SourceStorageKey,
+            unit.AcceptedStorageKey,
+            unit.ExpectedSizeBytes,
+            unit.ExpectedSha256,
             cancellationToken);
         if (sealedResult.CreatedNew && sealedResult.StorageKey is { } createdKey)
             newlySealedKeys.Add(createdKey);
         var failure = MapSealFailure(sealedResult.Status);
         if (failure is null)
-            acceptedStorageKeys.Add(descriptor.StorageKey, sealedResult.StorageKey ?? acceptedKey);
+            acceptedStorageKeys.Add(unit.SourceStorageKey, sealedResult.StorageKey ?? unit.AcceptedStorageKey);
         return failure;
     }
-
-    private static string AcceptedEvidenceKey(
-        Guid jobId,
-        int attemptCount,
-        string category,
-        string trackId,
-        string sha256,
-        string extension) =>
-        $"evidence/{jobId:D}/attempt-{attemptCount:0000}/{category}/{trackId}-{sha256}.{extension}";
 
     private static string? MapSealFailure(AcceptedEvidenceSealStatus status) => status switch
     {
