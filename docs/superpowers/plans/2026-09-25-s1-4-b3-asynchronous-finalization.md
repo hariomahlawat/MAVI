@@ -197,7 +197,7 @@ and fields such as:
 - state;
 - accepted-at UTC;
 - completed-at UTC only when actually Completed;
-- tracks accepted only when authoritative, or clearly defined submitted count if separately named.
+- `tracksAccepted`: the validated Track count of the accepted body, in both states. It is deterministic from the body the platform durably holds; the finalizer publishes exactly that count or fails closed, so it never changes between `finalizing` and `completed`.
 
 Do not populate `CompletedAtUtc` for a hand-off acknowledgement.
 
@@ -638,7 +638,7 @@ Supported deployment:
 4. deploy 3.1 worker;
 5. only then allow new Finalizing jobs.
 
-Old 3.0 workers continue using the old synchronous path only if the platform deliberately continues to advertise/accept 3.0 during the transition.
+**Decision:** the platform stops advertising and accepting completion 3.0 in the same release that introduces 3.1 (F2). A 3.0 worker then refuses at the existing capability probe (`PlatformContractUnsupported`), which is the established no-fallback behaviour; it does not reach the synchronous v3 path. This removes the measured-failing synchronous v3 sealing path from the platform rather than keeping two live v3 completion paths, and it makes the qualified completion path unambiguous. Development installs deploy platform and worker together, so no supported topology needs a 3.0 transition window. Completion 2.0 handling is unchanged. Reversing this decision is an owner call and would keep `ProcessingResultStore.CompleteAsync`'s v3 branch in service, with its own B3 exposure.
 
 No worker silently switches protocols.
 
@@ -655,7 +655,7 @@ Document this explicitly.
 
 ### 15.4 In-flight jobs
 
-An in-flight `Leased` job completes according to the protocol version its worker/platform pair negotiated.
+A job leased by a 3.0 worker that is still processing when the platform stops accepting 3.0 (§15.2) cannot complete: its `POST …/complete` is refused with `worker_contract_version_unsupported`, the worker fails the attempt closed (`vision_worker_contract_unsupported`, the existing `PlatformContractUnsupported` path in `runner.py`), and the job is re-leased by a 3.1 worker under the existing attempt rules. The Development upgrade stops the worker before the platform, so this case does not arise on the supported path; it is stated so that no implementation adds a 3.0 fallback to avoid it.
 
 Do not reinterpret an existing 3.0 completion as 3.1 hand-off.
 
@@ -722,6 +722,8 @@ At F2 completion, no Finalizing result may be reported Completed.
 
 ### F4 — B3 requalification
 
+The S1.4 evidence checker's B3 requirement set (`tools/qualification/s1_evidence.py`: the sealing wall-time metrics, `completion_headroom_insufficient`, the sealing-output binding) and `S1SealingScaleTests` encode the pre-repair synchronous criterion. They are evidence tooling under S1.4 §2.1 and are replaced in F4 by B3-A/B3-B measurement and binding, with discrimination tests as Harness A required. Until then the checker correctly reports the old criterion as FAIL.
+
 After F1–F3 merge and configuration freeze:
 
 - choose the new exact `main` SHA;
@@ -759,7 +761,8 @@ Do not perform expensive S1 qualification on an intermediate SHA that F1–F3 wi
 - no graph/visibility publication occurs synchronously;
 - 3.1 response never claims Completed when only handed off;
 - old/new protocol skew fails safely;
-- 3.0 and 3.1 semantic v3 bodies share the pinned digest-v3 behavior after normalization.
+- after F2 a 3.0 completion is refused at the capability probe and at `POST …/complete` (`worker_contract_version_unsupported`), and 2.0 is unchanged;
+- 3.0 and 3.1 semantic v3 bodies share the pinned digest-v3 behavior after normalization (the raw `schemaVersion` string is not a digest input; only the `CompletionSchema`-selected domain tag is).
 
 ### Finalizer
 
@@ -867,7 +870,7 @@ Bulk insert, parallel sealing or a separate process may be considered later only
 The architecture is ready for implementation when the plan and ADRs agree that:
 
 1. hand-off is one PostgreSQL transaction;
-2. completion protocol 3.1 fences mixed-version behavior;
+2. completion protocol 3.1 fences mixed-version behavior, and 3.0 is retired with it;
 3. `Finalizing` is explicit and truthful;
 4. accepted-evidence compensation deletion is prohibited in the async path;
 5. finalizer claims rotate and extend;

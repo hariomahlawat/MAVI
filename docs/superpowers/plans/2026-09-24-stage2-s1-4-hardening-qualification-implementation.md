@@ -438,6 +438,8 @@ Record:
 - the real-store end-to-end completion time at worst-case object count has at least 2× headroom against the worker `request_timeout_seconds` (§7.4);
 - scale execution reveals no unbounded algorithm and no N+1 artifact-content read.
 
+> **Amendment 2026-09-25 (S1.4 B3 asynchronous finalization).** The authoritative Linux measurement at `main@bb331c6` failed this criterion (max 190.8 s against 15 s; `docs/qualification/stage2-s1/s1-qualification-summary.md`). The repair is the architecture in `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md`: completion becomes a bounded durable hand-off (`Leased → Finalizing`) and sealing/persistence move to a platform finalizer. Once that architecture is merged, §7.4 and the third B3 PASS bullet are measured as that plan's **B3-A** (worst-shape submission, real payload insert and transition, max ≤ 15 s, 2× headroom against `request_timeout_seconds`, both CPU variants) and **B3-B** (finalization within ½ of the product-enforced `MaximumFinalizationDurationSeconds`, recovery, worker independence, no partial visibility, publication-lock timing, and the longest single statement within the Npgsql command timeout). Item 2 of §7.4 (the 120 s lease) no longer binds finalization, which holds no worker lease. Stop condition 15 applies to B3-A. The checker's B3 requirements and `S1SealingScaleTests` are evidence tooling under §2.1 and change with that architecture (its F1/F4), never in PR B. Until it merges, this criterion stands as written and the `bb331c6` result is FAIL.
+
 ---
 
 ## 8. B4 — v3 contract, digest, persistence and rollback
@@ -481,6 +483,8 @@ Two partial-failure windows are **by design not compensated**, and B4 must prove
 - v3 replay is idempotent;
 - every *compensable* partial failure leaves neither partially published DB intelligence nor uncompensated newly sealed accepted evidence;
 - the two non-compensable windows above are proven never to publish or serve evidence, and their residual orphans are recorded.
+
+> **Amendment 2026-09-25 (S1.4 B3 asynchronous finalization).** In the asynchronous path of `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md` §8, the finalizer never deletes accepted evidence, because a stale claimant's compensation could delete an object a live claimant has adopted. There, the fourth bullet reads: every partial failure leaves no partially published DB intelligence and no authoritative reference to a missing accepted object; newly sealed objects left by a failed finalization are orphans under ADR-006 §5, never served, and their count/bytes are recorded (that plan §10.9). The compensation clause continues to apply to the synchronous completion 2.0 path only. The windows above gain the submission-transaction and publication-transaction ambiguity cases of that plan §10.2 and §10.6, which resolve atomically in PostgreSQL.
 
 ---
 
