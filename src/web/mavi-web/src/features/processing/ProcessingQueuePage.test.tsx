@@ -164,6 +164,44 @@ describe('ProcessingQueuePage', () => {
     await waitFor(() => expect(row.querySelectorAll('.badge')).toHaveLength(1));
   });
 
+  it('names a Finalizing run as Finalizing and draws no inference bar for it (U1)', async () => {
+    vi.mocked(listVideos).mockResolvedValue([running]);
+    vi.mocked(getProcessingStatus).mockImplementation(async () =>
+      ({ videoStatus: 'Processing', latestRun: run('Running', { phase: 'finalizing', progressPercent: 100 }) }));
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+
+    const row = within(await screen.findByRole('table')).getAllByRole('row')[1];
+    const cell = within(row).getAllByRole('cell')[1];
+    expect(await within(cell).findByText('Run: Finalizing')).toBeInTheDocument();
+    expect(within(cell).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(within(cell).queryByText(/Running/)).not.toBeInTheDocument();
+    expect(row.querySelectorAll('.badge')).toHaveLength(1);
+    expect(within(cell).getByText('Processing')).toHaveAttribute('data-status', 'Processing');
+  });
+
+  it('names a finalization failure beside its code, and leaves an ordinary failure unlabelled (U1)', async () => {
+    const other = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21427', 'Failed');
+    vi.mocked(listVideos).mockResolvedValue([failed, other]);
+    vi.mocked(getProcessingStatus).mockImplementation(async (id) => ({
+      videoStatus: 'Failed',
+      latestRun: run('Failed', {
+        phase: 'failed',
+        failureCode: id === failed.id ? 'vision_finalization_staging_missing' : 'worker_watchdog_timeout',
+      }),
+    }));
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+
+    const rows = within(await screen.findByRole('table')).getAllByRole('row').slice(1);
+    const [finalization, ordinary] = rows.map((row) => within(row).getAllByRole('cell')[1]);
+    expect(await within(finalization).findByText('Run: Finalization failed')).toBeInTheDocument();
+    expect(within(finalization).getByText('vision_finalization_staging_missing').tagName).toBe('CODE');
+
+    expect(await within(ordinary).findByText('worker_watchdog_timeout')).toBeInTheDocument();
+    expect(within(ordinary).queryByText(/Finalization failed/)).not.toBeInTheDocument();
+    expect(within(ordinary).queryByText(/^Run:/)).not.toBeInTheDocument();
+    for (const row of rows) expect(row.querySelectorAll('.badge')).toHaveLength(1);
+  });
+
   it('states analytics readiness as text in its own column, never as a second badge (Slice 4)', async () => {
     const stale = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21425', 'Processed');
     const pending = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21426', 'Processed');

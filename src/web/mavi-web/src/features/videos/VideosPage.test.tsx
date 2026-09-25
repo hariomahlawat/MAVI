@@ -1,9 +1,9 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
-import { getProcessingStatus, listVideos, queueProcessing, type VideoAsset } from '../../api/videos';
+import { getProcessingStatus, listVideos, queueProcessing, type ProcessingRunStatus, type ProcessingStatus, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
 import VideosPage from './VideosPage';
 
@@ -222,5 +222,121 @@ describe('VideosPage', () => {
     renderWithApp(<VideosPage />, { route: '/videos' });
     expect(await screen.findByText('No videos imported yet')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Import the first video' })).toHaveAttribute('href', '/import');
+  });
+});
+
+/** A latest run, as `GET /api/videos/{id}/processing` returns it. */
+function run(extra: Partial<ProcessingRunStatus>): ProcessingRunStatus {
+  return {
+    processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431', status: 'Failed', pipeline: 'phase1-detection-tracking', pipelineVersion: 'phase1-v1',
+    workerId: 'worker-a', queuedAtUtc: '2026-09-14T03:02:00Z', startedAtUtc: '2026-09-14T03:02:02Z', completedAtUtc: '2026-09-14T03:09:02Z',
+    progressPercent: 100, attemptCount: 1, failureCode: null, framesProcessed: 0, tracksCreated: 0, analyticsReadiness: 'NotConfigured', phase: 'failed',
+    ...extra,
+  };
+}
+
+/**
+ * U1. These go through the page's real lookup — VideosPage → useVideoProcessing
+ * → getProcessingStatus — with one answer per video id, so a row can only show
+ * a run the page actually asked for. Nothing is handed to a row directly.
+ */
+describe('VideosPage latest-run lookup (U1)', () => {
+  const active = video('018f3f5a-2f70-7a2b-8a12-2d02f4c21424', { originalFileName: 'gate-live.mp4', processingStatus: 'Processing', recordingStartUtc: '2026-09-11T02:00:00Z' });
+
+  function answer(byId: Record<string, ProcessingStatus>) {
+    vi.mocked(getProcessingStatus).mockImplementation(async (id) => {
+      const status = byId[id];
+      if (!status) throw new Error(`the page requested ${id}, which this test never expected it to`);
+      return status;
+    });
+  }
+
+  const requestsFor = (id: string) => vi.mocked(getProcessingStatus).mock.calls.filter(([requested]) => requested === id).length;
+
+  async function statusCell(fileName: string): Promise<HTMLElement> {
+    const row = (await screen.findByText(fileName)).closest('tr') as HTMLElement;
+    return within(row).getAllByRole('cell')[4];
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    vi.mocked(listVideos).mockResolvedValue([fresh, failed, processed, active]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('requests the latest run for Failed and active rows, and never for Processed or NotQueued rows', async () => {
+    answer({
+      [failed.id]: { videoStatus: 'Failed', latestRun: run({ failureCode: 'worker_watchdog_timeout' }) },
+      [active.id]: { videoStatus: 'Processing', latestRun: run({ status: 'Running', phase: 'processing', progressPercent: 40, completedAtUtc: null }) },
+    });
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    await screen.findByRole('table');
+
+    await waitFor(() => expect(getProcessingStatus).toHaveBeenCalledWith(failed.id, expect.anything()));
+    await waitFor(() => expect(getProcessingStatus).toHaveBeenCalledWith(active.id, expect.anything()));
+    expect(getProcessingStatus).not.toHaveBeenCalledWith(processed.id, expect.anything());
+    expect(getProcessingStatus).not.toHaveBeenCalledWith(fresh.id, expect.anything());
+  });
+
+  it('names a finalization failure it looked up, keeps its code, and does not keep polling the terminal row', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    answer({
+      // Pending readiness on a failed run is what the platform reports for a
+      // camera with analytics enabled: it must not become a polling loop.
+      [failed.id]: {
+        videoStatus: 'Failed',
+        latestRun: run({ failureCode: 'vision_finalization_staging_missing', analyticsReadiness: 'Pending' }),
+      },
+      [active.id]: { videoStatus: 'Processing', latestRun: run({ status: 'Running', phase: 'processing', progressPercent: 40, completedAtUtc: null }) },
+    });
+    renderWithApp(<VideosPage />, { route: '/videos' });
+
+    const cell = await statusCell('dock-night.mp4');
+    expect(await within(cell).findByText('Run: Finalization failed')).toBeInTheDocument();
+    expect(within(cell).getByText('vision_finalization_staging_missing').tagName).toBe('CODE');
+    expect(cell.querySelectorAll('.badge')).toHaveLength(1);
+    expect(within(cell).getByText('Failed')).toHaveAttribute('data-status', 'Failed');
+    expect(within(cell).queryByRole('progressbar')).not.toBeInTheDocument();
+
+    // Five poll periods. The active row is the control: it does poll, so the
+    // clock really moved the queries; the terminal failed row was asked once.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(requestsFor(active.id)).toBeGreaterThan(1);
+    expect(requestsFor(failed.id)).toBe(1);
+  });
+
+  it('leaves an ordinary failure it looked up as an ordinary failure', async () => {
+    answer({
+      [failed.id]: { videoStatus: 'Failed', latestRun: run({ failureCode: 'worker_watchdog_timeout' }) },
+      [active.id]: { videoStatus: 'Processing', latestRun: run({ status: 'Running', phase: 'processing', progressPercent: 40, completedAtUtc: null }) },
+    });
+    renderWithApp(<VideosPage />, { route: '/videos' });
+
+    const cell = await statusCell('dock-night.mp4');
+    expect(await within(cell).findByText('worker_watchdog_timeout')).toBeInTheDocument();
+    expect(within(cell).queryByText(/Finalization failed/)).not.toBeInTheDocument();
+    expect(within(cell).queryByText(/^Run:/)).not.toBeInTheDocument();
+    expect(cell.querySelectorAll('.badge')).toHaveLength(1);
+    expect(within(cell).queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('names a Finalizing run and draws no inference bar for it', async () => {
+    answer({
+      [failed.id]: { videoStatus: 'Failed', latestRun: run({ failureCode: 'worker_watchdog_timeout' }) },
+      [active.id]: { videoStatus: 'Processing', latestRun: run({ status: 'Running', phase: 'finalizing', progressPercent: 100, completedAtUtc: null }) },
+    });
+    renderWithApp(<VideosPage />, { route: '/videos' });
+
+    const cell = await statusCell('gate-live.mp4');
+    expect(await within(cell).findByText('Run: Finalizing')).toBeInTheDocument();
+    expect(within(cell).queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(within(cell).queryByText(/Running/)).not.toBeInTheDocument();
+    expect(cell.querySelectorAll('.badge')).toHaveLength(1);
+    expect(within(cell).getByText('Processing')).toHaveAttribute('data-status', 'Processing');
   });
 });

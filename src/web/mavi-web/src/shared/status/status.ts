@@ -33,6 +33,9 @@ export function toneForStatus(status: string | null | undefined): Tone {
       return 'info';
     case 'Processing':
     case 'Running':
+    // A run phase, not a run status: inference is over and the platform is
+    // still finalizing, which is still moving.
+    case 'Finalizing':
       return 'active';
     case 'Cancelled':
       return 'warn';
@@ -57,6 +60,9 @@ export function labelForStatus(status: string | null | undefined): string {
     default: return status;
   }
 }
+
+/** The operator's name for a run that failed while being finalized. */
+export const FINALIZATION_FAILED_LABEL = 'Finalization failed';
 
 export function isActiveStatus(status: string | null | undefined): boolean {
   return status === 'Queued' || status === 'Processing' || status === 'Running';

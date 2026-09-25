@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
-import { listVideos, queueProcessing } from '../../api/videos';
+import { isFinalizationFailure, isFinalizing, listVideos, queueProcessing } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import AsyncBoundary from '../../shared/async/AsyncBoundary';
 import { fromQuery } from '../../shared/async/fromQuery';
@@ -17,7 +17,7 @@ import Progress from '../../shared/components/Progress';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/format/format';
-import { isActiveStatus, VIDEO_STATUSES } from '../../shared/status/status';
+import { FINALIZATION_FAILED_LABEL, isActiveStatus, VIDEO_STATUSES } from '../../shared/status/status';
 import { SortableColumn, sortRows, useLedgerSort } from '../../shared/table';
 import { ContextBar, LedgerLayout, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from './useVideoProcessing';
@@ -25,6 +25,15 @@ import { compareVideoRows, filterVideoRows, joinVideoRows, parseStatusFilter, ty
 
 function canQueue(status: string): boolean {
   return status === 'NotQueued' || status === 'Failed';
+}
+
+/**
+ * Rows whose cell reads the latest run: live progress while active, and the
+ * failure kind and code once failed. A failed row is fetched, not polled —
+ * `processingPollInterval` is false for a terminal run.
+ */
+function needsRunStatus(status: string): boolean {
+  return isActiveStatus(status) || status === 'Failed';
 }
 
 /**
@@ -69,13 +78,13 @@ export default function VideosPage() {
     return sortRows(filterVideoRows(joined, filters), sort.state, compareVideoRows, (row) => row.id);
   }, [videos.data, cameras.data, filters.cameraId, filters.status, filters.text, sort.state]);
 
-  // Only videos that are moving need live run detail; the rest read the
+  // Only rows whose cell reads the latest run look it up; the rest read the
   // authoritative status the list already carries.
-  const activeIds = useMemo(
-    () => rows.filter((row) => isActiveStatus(row.processingStatus)).map((row) => row.id),
+  const runStatusIds = useMemo(
+    () => rows.filter((row) => needsRunStatus(row.processingStatus)).map((row) => row.id),
     [rows],
   );
-  const processing = useVideoProcessing(activeIds);
+  const processing = useVideoProcessing(runStatusIds);
 
   const queue = useMutation({
     mutationFn: (videoId: string) => queueProcessing(videoId),
@@ -220,13 +229,19 @@ export default function VideosPage() {
                         <div className="run-cell">
                           <span className="run-cell__line">
                             <StatusBadge status={row.processingStatus} />
-                            {active && run ? <Progress value={run.progressPercent} inline /> : null}
+                            {/* Inference progress only: finalization has none. */}
+                            {active && run && !isFinalizing(run) ? <Progress value={run.progressPercent} inline /> : null}
                             {/* The code rides the status line rather than a
                                 second one: a failed row is still one row. */}
                             {row.processingStatus === 'Failed' && run?.failureCode ? (
                               <code className="truncate cap-sm" title={run.failureCode}>{run.failureCode}</code>
                             ) : null}
                           </span>
+                          {/* The run's phase, where it says more than the badge (§16). */}
+                          {active && isFinalizing(run) ? <span className="run-cell__line">Run: Finalizing</span> : null}
+                          {row.processingStatus === 'Failed' && isFinalizationFailure(run) ? (
+                            <span className="run-cell__line">Run: {FINALIZATION_FAILED_LABEL}</span>
+                          ) : null}
                           {statusError ? (
                             <span className="run-cell__line">
                               <span className="text-err">Live status unavailable</span>
