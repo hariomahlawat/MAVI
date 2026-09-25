@@ -77,9 +77,12 @@ The checkout must be:
 - commit object present;
 - no uncommitted harness changes;
 - no locally modified `appsettings.json`;
-- no locally modified worker default.
+- no locally modified worker default;
+- no configuration outside the committed files: no `appsettings.development.machine.json` or `MAVI_MACHINE_CONFIG`, no `VisionFinalization__*` environment variable, and no `Command Timeout` in `MAVI_TEST_DB_CONNECTION`. The checker requires the output's effective configuration and command timeout to equal M1's committed values (§6.1).
 
 The harness may enable asynchronous finalization through its test-only controls exactly as designed by F4-A. That does not change the measured source SHA.
+
+Harness, checker and fixture surfaces are frozen from M1 until M2: `tests/Mavi.IntegrationTests/Qualification/**`, `tools/qualification/**` and `tools/web-visual-qa/**`. A change to any of them after an exploratory run discards that run (master §6 rule 1). Exploration then restarts at the new merge commit, which becomes the new M1, and the freeze document cites it.
 
 ### 4.2 Host identity
 
@@ -131,16 +134,21 @@ at the contract maximum:
 - ≥ 3 repeats;
 - warm-up excluded.
 
-Retain the raw output outside authoritative evidence initially, then copy it into:
+Retain the raw output outside the repository initially. `MAVI_QUALIFICATION_OUT` is never under `docs/qualification/`. Copy it into:
 
 `docs/qualification/stage2-s1/exploratory/<M1-sha12>/`
 
 only in the later F4-C PR.
 
-Mark it:
+**Never edit a harness output.** Its bytes are retained exactly as the harness wrote them, and their SHA-256 is recorded.
 
-- `authoritative: false`
-- reason: `exploratory-configuration-freeze`
+On a qualified host at the full envelope, the M1 harness writes `authoritative: true`, because it cannot know a run is exploratory. That flag is therefore not what keeps an exploratory output out of authoritative evidence. Three things do, and all must hold:
+
+1. the output's `environment.gitSha` is M1, and the checker refuses any output whose SHA is not the unit's measured SHA (M2);
+2. the output's path is under `exploratory/`, and the checker refuses any cited artifact outside `evidence/<measured-sha12>/`;
+3. a sidecar `docs/qualification/stage2-s1/exploratory/<M1-sha12>/exploratory-manifest.json` lists every retained output with its SHA-256, OS, `authoritative: false` and reason `exploratory-configuration-freeze`.
+
+A copied, moved or relabelled M1 output is refused at M2 by (1) regardless of its path or flags.
 
 ### B3-A exploratory gate
 
@@ -153,7 +161,9 @@ For every available exploratory OS:
 - no accepted-evidence files;
 - claim triple null;
 - worker release proof passes;
-- **max hand-off ≤ 15,000 ms**.
+- **max hand-off ≤ 15,000 ms**, where max is the maximum `handOffMs` over the non-warm-up samples of that OS's output. This is the checker's `timing_stats` recomputation, as the criterion binds `max` with warm-up excluded (master §8.4, §23).
+
+The per-sample invariants above are `_Checker._b3a_content` (§6.1).
 
 Any B3-A max above 15 s is a stop-and-report condition. Do not compensate by increasing worker timeout.
 
@@ -177,6 +187,8 @@ at:
 - synchronous reference n ≥ 5.
 
 Use the committed M1 defaults as the exploratory configuration. The harness may activate the gate test-locally, but timing values must come from committed `appsettings.json`.
+
+The synchronous 3.0 reference is informational only; no gate or rule uses it.
 
 Retain per-sample raw data for:
 
@@ -203,6 +215,19 @@ Retain per-sample raw data for:
 - publication count;
 - concurrency-overlap snapshot.
 
+### 6.1 Exploratory outputs are evaluated by the merged checker, not by eye
+
+Every exploratory output is evaluated with the per-output rules of the M1 checker (`tools/qualification/s1_evidence.py` at M1):
+- `_Checker._b3a_content` for B3-A;
+- `_Checker._b3b_content` for B3-B, with M1's committed `VisionFinalization` section, M1's barrier SQL and M1's runtime command timeout (30 s). This includes `visibility_problems` recomputed from the raw probes and `concurrency_problems` with the overlap recomputation;
+- `_Checker._crash_content` for any crash output.
+
+The function-by-function invocation and its full output are retained beside the exploratory outputs.
+
+**Any finding other than shape or authoritative-flag findings on a deliberately reduced diagnostic is a stop condition.** A full-envelope output must produce no finding at all.
+
+So a run cannot look healthy while a check silently did not run: for example, no Track-detail probe, or no observed overlap.
+
 ### B3-B exploratory stop conditions
 
 Stop F4 immediately if any run shows:
@@ -220,7 +245,8 @@ Stop F4 immediately if any run shows:
 - claim-extension count inconsistent with batch size;
 - accepted evidence accounting mismatch;
 - command exceeding effective runtime timeout;
-- job ending Failed at the full envelope.
+- job ending Failed at the full envelope;
+- any §6.1 checker finding (including `premature_visibility_unproven`, `metric_without_producer`, `concurrency_integrity_failed` "no overlap exercised", `frozen_configuration_mismatch`).
 
 Do not tune around a functional failure.
 
@@ -228,92 +254,108 @@ Do not tune around a functional failure.
 
 ## 7. Configuration derivation
 
-From exploratory B3-B outputs compute, using the slower available OS:
+No value is chosen by intuition. Every value below is a fixed function of the retained M1 outputs, written before any exploratory output is opened.
 
-- `S_batch_max` = maximum per-batch wall;
-- `S_batch_p95`;
-- `L_first` = claim → first extension;
-- `T_max` = maximum hand-off → publication;
-- `T_p95`;
-- `P_max` = maximum publication transaction;
-- extension overhead = total extension round-trip time / seal wall.
+### 7.0 Inputs: definitions, units and pooling
 
-No value is chosen by intuition.
+- **Samples.** Every sample of every full-envelope exploratory B3-B output, on every available OS, **including warm-up samples**. Maxima size safety margins, and the first finalization after a host start is a cold one. A run with any stop condition contributes nothing; F4 stops instead (§6).
+- **Units.** Harness values are milliseconds or ticks. Convert exactly: `seconds = ms / 1000`, `seconds = ticks / stopwatchFrequency`. There is no intermediate rounding. Configuration values are integer seconds.
+- **Cross-OS pooling (this replaces "the slower OS").** Each input is the maximum of **its own metric** over the pooled samples of all available OS. The governing OS may differ per input: for example, Windows may have the longest publication and Linux the longest batch. The freeze document records each input's per-OS maximum and which OS governed it.
+
+| Input | Definition from retained M1 fields |
+|---|---|
+| `S_batch_max` | max of every `perBatchWallMs` element (consecutive extension returns; each includes one extension round trip) |
+| `G_max` | max of `(graphBuildBracket.publishEntered − graphBuildBracket.lastExtensionReturned) / publicationTimeline.stopwatchFrequency` (last extension → `PublishAsync` entry) |
+| `P_max` | max of `(commitCompleted − transactionBegun) / stopwatchFrequency` from `publicationTimeline.ticks` (the checker's `publishTransactionMs`) |
+| `L_first` | max over samples of `payloadLoadMs + payloadRevalidationAndPlanMs + max(perBatchWallMs of that sample)`. The last term conservatively covers two segments M1 does not retain separately: claim return → load entry, and the initial `ExtendClaimAsync` round trip. Each is of the order of one extension round trip, which every per-batch wall contains. |
+| `T_max` | max of `acceptedAtUtc → publicationTimeline.commitCompletedUtc` (the checker's `totalMs`) |
+| `S_batch_p95`, `T_p95` | nearest-rank p95 over the same pooled samples; recorded only, used by no rule |
+| extension overhead | **not observable at M1**: the outputs retain no per-extension round trip. Recorded as "not measured". |
+
+Rounding: `ceilTo(x, g) = g × ⌈x / g⌉`, so an exact multiple is unchanged.
 
 ### 7.1 SealingBatchSize
 
-Start with 200.
+`SealingBatchSize = 200`, or stop.
+- The master's first trigger (extension overhead > 5 %) cannot be evaluated from M1 outputs, so it cannot fire in this plan.
+- The second trigger is evaluated against M1's committed `ClaimExtensionSeconds` (300): if `S_batch_max > 75` s, stop and report.
 
-Keep 200 unless either:
-
-1. extension overhead > 5% of seal wall; or
-2. `S_batch_max > ClaimExtensionSeconds / 4`.
-
-If overhead > 5%, increase batch size only enough to bring expected extension overhead ≤ 5%.
-
-If batch wall is too large, reduce batch size so the measured/estimated maximum batch remains comfortably below one quarter of `ClaimExtensionSeconds`.
-
-Any change from 200 requires the freeze document to show the arithmetic and the recovery trade-off.
+A different batch size cannot be measured at M1, because the harness runs the committed configuration. It is never estimated.
 
 ### 7.2 ClaimExtensionSeconds
 
-Choose:
+`E_req = 4 × max(S_batch_max, G_max + P_max)`
 
-`>= 4 × S_batch_max`
+`ClaimExtensionSeconds = max(300, ceilTo(E_req, 30))`
 
-Then:
+The executor extends the claim once before sealing and after every batch (`VisionFinalizationExecutor`, the `ExtendClaimAsync` calls). The last extension precedes graph build and `PublishAsync`. `PublishAsync` re-proves ownership at the row lock and again in `VisionJob.CompleteFinalization` (`FinalizationOwnedBy(claimToken, completionNowUtc)`), which runs **after** graph persistence and barrier acquisition. The claim live at that instant is the last extension's grant, `ClaimExtensionSeconds`, not `ClaimSeconds`.
 
-- round up to the next 30 seconds;
-- minimum 30 seconds.
+If that grant expires first, the publication rolls back as stale. The next attempt repeats the same graph build and publication and fails the same way, so the job is deterministically exhausted. The grant must therefore cover a batch **and** graph build plus the publication transaction.
+
+This **corrects** master §10.2, whose `ClaimExtensionSeconds` rule sizes only the batch and places the publication term on `ClaimSeconds`.
 
 ### 7.3 ClaimSeconds
 
-Choose:
+`C_req = max(ClaimExtensionSeconds, 4 × L_first, 4 × P_max)`
 
-`>= max(ClaimExtensionSeconds, 4 × L_first, 4 × P_max)`
+`ClaimSeconds = max(300, ceilTo(C_req, 60))`
 
-Then round up to the next 60 seconds.
+`ClaimSeconds ≥ ClaimExtensionSeconds` holds by construction, as the options validator requires. The initial claim must survive claim → load → revalidation → initial extension.
 
 ### 7.4 MaximumFinalizationAttempts
 
-Keep 3 unless exploratory crash/recovery evidence demonstrates that three attempts are insufficient for deterministic adoption/recovery.
-
-Changing attempts requires explicit review; it is not a performance knob.
+`MaximumFinalizationAttempts = 3`. The crash harness at M1 is optional and diagnostic. If it runs, every H row must pass (§6.1) or F4 stops. If crash evidence shows that three attempts are insufficient, stop and report; attempts are never changed in F4-C.
 
 ### 7.5 MaximumFinalizationDurationSeconds
 
-Choose:
+`M_req = max(MaximumFinalizationAttempts × (ClaimSeconds + 2 × T_max), 2 × T_max)`, all in seconds.
 
-`>= MaximumFinalizationAttempts × (ClaimSeconds + 2 × T_max)`
+`M_bound = ceilTo(M_req, 300)`
 
-Also require:
+If `M_bound > 21600`, stop and report. Otherwise `MaximumFinalizationDurationSeconds = 21600`, the M1 committed value.
 
-`>= 2 × T_max`
-
-Round up to the next 300 seconds.
-
-### 7.6 Values normally retained
-
-Unless measurement provides a concrete reason:
+### 7.6 Values retained
 
 - `PollIntervalSeconds = 5`
 - `MaxConcurrentFinalizations = 1`
 - `PayloadCleanupGraceSeconds = 0`
 
-Do not raise concurrency merely because the host appears idle. A product need plus acceptable contention evidence is required.
+Do not raise concurrency merely because the host appears idle. A product need plus acceptable contention evidence is required, and that is not part of F4-C.
 
 ### 7.7 Effective bound
 
-Record:
+Record `MaximumFinalizationDurationSeconds + ClaimSeconds + PollIntervalSeconds` in seconds and in hours. Stop if it exceeds 86,400 s (24 h).
 
-`MaximumFinalizationDurationSeconds + ClaimSeconds + PollIntervalSeconds`
+### 7.8 Values are never lowered below M1's in F4-C
 
-and convert it to minutes/hours in the freeze document.
+Every derived value is a **floor**. The frozen value is `max(M1 committed value, derived floor)`, as §7.2–7.5 write it.
 
-Stop if:
+The deadline runs from `FinalizationAcceptedAtUtc` for every Finalizing row, claimed or not. `VisionJob.CanClaimFinalization` refuses at the deadline, and reconciliation exhausts a never-claimed row once it passes. With `MaxConcurrentFinalizations = 1`, a backlog of `k` worst-shape hand-offs needs about `k × T` before its last job is claimed. The §7.5 formula models one job's attempts, not a backlog.
 
-- derived `MaximumFinalizationDurationSeconds > 21600`; or
-- effective bound > 24 hours.
+Lowering `MaximumFinalizationDurationSeconds` toward `M_req` would therefore exhaust queued jobs that were never attempted. Lowering `ClaimSeconds` or `ClaimExtensionSeconds` changes recovery latency, which F4 does not qualify. Lowering any value is a separate, reviewed product decision with a backlog model, outside this plan.
+
+### 7.9 What the gate does and does not prove (master §10.3)
+
+`M_req ≥ 2 × T_max`, so the M1 stop `M_bound ≤ 21600` already implies `T_max ≤ 10,800 s = ½ × MaximumFinalizationDurationSeconds`. At M1 the "B3-B max ≤ ½ derived Max" gate is therefore implied by construction and is not independent evidence. It becomes an independent test only at M2, on new measurements against the frozen values.
+
+The freeze document states this. Values are never re-frozen from M2 results (§14).
+
+### 7.10 Illustrative arithmetic (not a measurement)
+
+For `S_batch_max = 1.2 s`, `G_max = 4 s`, `P_max = 22 s`, `L_first = 6 s`, `T_max = 150 s`:
+
+| Value | Arithmetic | Frozen |
+|---|---|---|
+| `ClaimExtensionSeconds` | `E_req = 4 × max(1.2, 26) = 104` → `ceilTo(104, 30) = 120`; `max(300, 120)` | 300 |
+| `ClaimSeconds` | `C_req = max(300, 24, 88) = 300` → `ceilTo(300, 60) = 300`; `max(300, 300)` | 300 |
+| `MaximumFinalizationDurationSeconds` | `M_req = max(3 × (300 + 300), 300) = 1800` → `M_bound = 1800 ≤ 21600` | 21600 |
+| Effective bound | `21600 + 300 + 5 = 21905` | 21905 s ≈ 6.08 h |
+
+With `P_max = 80 s` instead:
+- `E_req = 4 × 84 = 336` → `ClaimExtensionSeconds = 360`.
+- `C_req = max(360, 24, 320) = 360` → `ClaimSeconds = 360`.
+- `M_req = 3 × (360 + 300) = 1980` → `M_bound = 2100`; `MaximumFinalizationDurationSeconds = 21600`.
+- Effective bound: `21600 + 360 + 5 = 21965` s.
 
 ---
 
@@ -322,15 +364,17 @@ Stop if:
 F4-C is allowed to ship completion 3.1 / Finalizing only if:
 
 - exploratory B3-A max ≤ 15 s on every available exploratory OS;
-- exploratory B3-B max ≤ ½ of the **derived** `MaximumFinalizationDurationSeconds`;
+- every §6.1 checker evaluation of every exploratory output returns no finding;
+- exploratory B3-B max ≤ ½ of the frozen `MaximumFinalizationDurationSeconds` (implied by the `M_bound` stop, §7.9);
+- `SealingBatchSize` stays 200 (§7.1) and `MaximumFinalizationAttempts` stays 3 (§7.4);
 - no premature visibility;
 - one publication per job;
 - one sequence allocation per publication;
 - concurrency integrity holds;
 - no crash/recovery stop condition is discovered;
 - no hidden dependency is discovered;
-- derived maximum duration ≤ 21600 s;
-- effective bound ≤ 24 h.
+- `M_bound` ≤ 21600 s (§7.5);
+- effective bound ≤ 86,400 s (§7.7).
 
 If any condition fails:
 
@@ -356,8 +400,10 @@ It must include:
 - host identity per exploratory OS;
 - paths and SHA-256 of retained exploratory outputs;
 - explicit non-authoritative label;
-- `S_batch_max`, `S_batch_p95`, `L_first`, `T_max`, `T_p95`, `P_max`;
-- extension overhead;
+- `S_batch_max`, `G_max`, `P_max`, `L_first`, `T_max` (per OS and pooled, with the governing OS of each), `S_batch_p95`, `T_p95`;
+- extension overhead recorded as "not measured at M1" (§7.0);
+- the §6.1 checker evaluations and their (empty) findings;
+- the `exploratory-manifest.json` path and SHA-256;
 - rule-by-rule arithmetic;
 - current value → derived value table;
 - effective maximum bound;
@@ -381,9 +427,11 @@ Use the existing API truth:
 
 to show a distinct operator-visible Finalizing state on the Processing page.
 
-Also distinguish failed finalization from inference/processing failure where the existing API already provides enough information.
+Also distinguish failed finalization from inference/processing failure. The existing API already provides the distinction, and U1 must use exactly it: `latestRun.phase == "failed"` and `latestRun.failureCode` starts with `vision_finalization_` (`VisionJob.FinalizationFailureCodePrefix`; for example `vision_finalization_exhausted`). U1 invents no other signal.
 
 Do not change backend lifecycle semantics.
+
+**Files:** `src/web/mavi-web/src/**` only (master §24 U1). U1 does not modify `tools/web-visual-qa/**`. The `processing-finalizing` and `processing-failed-finalization` states and their expectations were fixed by F4-A as the B5 criteria, and U1 must make them pass unmodified.
 
 ### 10.2 UX requirements
 
@@ -407,12 +455,10 @@ Add focused web tests proving:
 - Finalizing cannot regress to the generic Running/Progress label;
 - completed remains unchanged;
 - failure rendering remains correct;
-- failed finalization is distinguishable from inference failure when the contract supplies that distinction.
+- `phase == "failed"` with a `vision_finalization_*` failure code is labelled as a finalization failure and not as an inference failure. `phase == "failed"` with any other code keeps the existing failure rendering.
+- The state is read from `latestRun.phase`, never from `run.status` (`Running` spans both inference and finalizing).
 
-Update visual-QA fixture states:
-
-- `processing-finalizing`;
-- `processing-failed-finalization`.
+Run the existing F4-A visual-QA states `processing-finalizing` and `processing-failed-finalization` against the real component, unmodified. They fail on `main` today, and U1 is what makes them pass.
 
 ### 10.4 U1 merge gate
 
@@ -420,7 +466,7 @@ Before merge:
 
 - web typecheck;
 - web unit/integration tests;
-- visual-QA fixture run;
+- visual-QA run of the two unmodified F4-A states, passing;
 - full required CI;
 - independent cold review with no P1/P2.
 
@@ -473,24 +519,32 @@ Update/add tests that pin:
 - worker accepts the 3.1 hand-off acknowledgement;
 - default worker accepts the activated platform contract;
 - completion 3.1-only platform is supported by the default worker;
-- activation-gate tests reflect the new shipped state without weakening 2.0 compatibility.
+- activation-gate tests reflect the new shipped state without weakening 2.0 compatibility, and assert that the activated platform refuses completion 3.0 (the designed retirement).
 
 Do not remove 2.0 compatibility unless separately planned.
 
 ### 11.3 Deployment and rollback documentation
 
-Update the runbook:
+**Activation retires completion 3.0 at the platform, by design** (`WorkerContractRules.AsynchronousCompletionSchemaVersions` is `["2.0", "3.1"]`). An activated platform advertises and accepts 2.0 and 3.1 only. A 3.0 worker fails closed at the probe and leases nothing, and a live 3.0 completion is refused with `worker_contract_version_unsupported`. F4-C keeps 2.0 and does not claim that 3.0 remains accepted.
+
+F4-C updates the runbook's "Asynchronous finalization (S1.4 B3 F3): activation, rollback, health" section only to say that `Enabled = true` and worker `3.1` are now the shipped defaults. It keeps every existing safety step in substance:
+- the same value on every API host, checked on each host's health;
+- the intended probe pause for 3.0 workers between platform and worker activation;
+- `finalizingJobs == 0` **and** `countsRefreshedAtUtc` within the last two `PollIntervalSeconds` before disabling;
+- stop if `malformedClaims > 0`.
+
+It also states the staged path now that the shipped default activates on deployment. For a multi-host rollout, deploy with an explicit machine-configuration override `VisionFinalization:Enabled = false` on every host, then remove the override on every host.
 
 Normal rollout:
-1. deploy API/platform hosts that understand Finalizing and completion 3.1;
-2. verify health;
+1. deploy the platform on every API host;
+2. confirm `enabled` on every host's health;
 3. deploy workers defaulting to 3.1.
 
 Rollback:
-1. move workers back to completion 3.0 first;
-2. wait until `FinalizingJobs == 0`;
-3. require `MalformedClaims == 0`;
-4. only then disable async finalization.
+1. set every worker to completion 3.0 (they fail closed at the probe, so no new hand-off arrives);
+2. wait until `finalizingJobs == 0` with `countsRefreshedAtUtc` fresh;
+3. require `malformedClaims == 0`;
+4. only then disable async finalization on every host.
 
 Never disable the gate while Finalizing rows remain.
 
@@ -543,8 +597,10 @@ Before U1/F4-C implementation is considered final, independently review:
 - warm-up exclusion;
 - raw output integrity;
 - stop conditions;
-- configuration arithmetic;
-- slower-OS selection;
+- configuration arithmetic, in seconds, per §7.0–7.8;
+- per-metric cross-OS maxima (not one "slower OS");
+- the §6.1 checker evaluations;
+- unedited outputs (hashes equal the manifest);
 - no manual tuning.
 
 ### Gate B — U1 cold review
@@ -576,7 +632,9 @@ All P1/P2 findings are fixed before merge.
 
 ## 14. Definition of M2
 
-M2 is **exactly the merge commit of F4-C**, provided U1 is already present in its ancestry.
+M2 is **exactly the merge commit of F4-C**, provided U1 is already present in its ancestry. F4-C and U1 are merged with a merge commit, never squash or rebase, so M2 is a merge commit reachable from `main` (master §7.1).
+
+Between M1 and M2 the only behavior-bearing changes are U1 (`src/web/mavi-web/src/**`) and F4-C. The M1→M2 diff record lists every path. Any other behavior-bearing path, or any harness, checker or fixture path (§4.1), invalidates the exploratory derivation, which is then redone at a new M1.
 
 Record:
 
@@ -596,6 +654,18 @@ After M2 is declared:
 - no dependency change
 
 may land until the authoritative qualification sequence is complete, unless affected units are explicitly invalidated and rerun.
+
+That exception never covers the `VisionFinalization` values or the activation defaults.
+
+**No re-freeze from authoritative results** (master §10.4 item 5). If an authoritative M2 run fails a criterion, F4 stops and reports. The frozen values are not changed on the basis of M2 measurements.
+
+A new freeze requires:
+1. a recorded failed-M2 outcome;
+2. a product change or new exploration at a new SHA;
+3. a new F4-C;
+4. a new M2.
+
+The failed M2 is never re-labelled.
 
 ---
 
@@ -635,3 +705,18 @@ The M1→M2 phase is complete only when:
 10. authoritative qualification has not started before M2.
 
 The next plan after this one is not another architecture plan. It is the existing F4 master plan §25 authoritative execution sequence at M2.
+
+---
+
+## 17. Amendment record (independent cold review of `9a68f7d`)
+
+| # | Sev | Defect in `9a68f7d` | Correction |
+|---|---|---|---|
+| A1 | P1 | `ClaimExtensionSeconds ≥ 4 × S_batch_max` ignores that `CompleteFinalization` re-proves ownership after graph build, persistence and barrier, under the last extension's grant. A derived 30 s extension could expire mid-publication and deterministically exhaust worst-shape jobs. | §7.2 `E = max(300, ceilTo(4 × max(S_batch_max, G_max + P_max), 30))`; corrects master §10.2 |
+| A2 | P1 | "Choose ≥" allowed lowering `Max`, `Claim` and `Extension` to formula minima. Deadlines run from acceptance and never-claimed rows are exhausted at the deadline, so with `MaxConcurrentFinalizations = 1` a small backlog would fail unattempted jobs. | §7.8 never lower below M1; §7.5 `Max = 21600` unless `M_bound > 21600` (stop) |
+| A3 | P2 | Inputs undefined against retained fields: no unit conversion, rounding, sample set or cross-OS rule; "extension overhead" and `L_first` not retained as worded; the batch rule circular | §7.0 definitions; §7.1 batch 200 or stop |
+| A4 | P2 | "Slower OS" undefined; different inputs can be governed by different OS | §7.0 per-metric cross-OS maximum |
+| A5 | P2 | "Mark `authoritative: false`" implied editing raw outputs; the M1 harness writes `authoritative: true` on a qualified host; exploratory outputs were judged by eye, so a run with a check that never ran could look healthy | §5 no edits, SHA/path/manifest protections; §6.1 merged-checker evaluation as a stop |
+| A6 | P2 | §14 allowed a post-M2 config change "if rerun" (a re-freeze from authoritative results); the ½-Max gate's constructional nature was not stated; harness changes between M1 and M2 were not addressed | §14 no re-freeze; §7.9 transparency; §4.1 and §14 harness freeze and M1→M2 diff rule |
+| A7 | P2 | U1 could skip the failed-finalization distinction ("when the contract supplies it", though it does) and could edit the F4-A visual-QA expectations | §10.1 exact signal and file scope; §10.3 unmodified F4-A states |
+| A8 | P2 | Rollout and rollback text omitted that activation retires 3.0, the every-host rule, count freshness, and the staged path once the default activates | §11.2, §11.3 |
