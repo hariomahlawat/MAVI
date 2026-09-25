@@ -10,6 +10,7 @@ rather than a skip.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import inspect
 import json
 import os
@@ -506,3 +507,96 @@ def test_a_lifecycle_phase_beyond_its_derived_bound_is_detected(tmp_path: Path, 
     checks = s1_memory.staging_lifecycle(LIFECYCLE, tmp_path)["checks"]
     assert checks["peaksWithinDerivedBound"] is False
     assert all(value for name, value in checks.items() if name != "peaksWithinDerivedBound")
+
+
+# --------------------------------------------------------------------------- S1.4 B3 F4 §17.2: storage class
+def _block_tree(tmp_path, name: str, rotational: str | None, partition: str | None = None) -> tuple:
+    """A fake /sys: /sys/dev/block/<maj:min> -> the (partition of the) disk, with queue/rotational."""
+    disk = tmp_path / "sys" / "devices" / "virtual" / "block" / name
+    (disk / "queue").mkdir(parents=True)
+    if rotational is not None:
+        (disk / "queue" / "rotational").write_text(rotational + "\n")
+    target = disk / partition if partition else disk
+    target.mkdir(exist_ok=True)
+    link = tmp_path / "sys" / "dev" / "block" / "8:1"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(target)
+    return tmp_path / "sys"
+
+
+def _mountinfo(tmp_path, fstype: str = "ext4", point: str = "/data") -> Path:
+    path = tmp_path / "mountinfo"
+    path.write_text(
+        "22 1 254:0 / / rw,relatime shared:1 - ext4 /dev/vda rw\n"
+        f"40 22 8:1 / {point} rw,relatime shared:9 - {fstype} /dev/sda1 rw\n"
+    )
+    return path
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux sysfs/mountinfo probe; its Windows counterpart is the Get-PhysicalDisk parser, exercised on every variant")
+@pytest.mark.parametrize(
+    ("name", "rotational", "partition", "expected"),
+    [
+        ("sda", "0", "sda1", "ssd"),
+        ("sda", "1", "sda1", "hdd"),
+        ("nvme0n1", "0", "nvme0n1p1", "nvme"),
+        ("vdb", "1", None, "virtual"),  # a virtio disk reports rotational=1; it is not an HDD
+        ("xvdb", "0", None, "virtual"),
+        ("sda", None, "sda1", "unknown"),
+    ],
+)
+def test_the_linux_storage_class_is_read_from_the_mounts_block_device(tmp_path, name, rotational, partition, expected) -> None:
+    sys_root = _block_tree(tmp_path, name, rotational, partition)
+    storage, evidence = s1_memory.linux_storage_class("/data/staging", _mountinfo(tmp_path), sys_root)
+    assert storage == expected
+    assert "/data" in evidence and "fstype=ext4" in evidence and name in evidence
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux sysfs/mountinfo probe; its Windows counterpart is the Get-PhysicalDisk parser, exercised on every variant")
+def test_a_network_filesystem_is_network_and_an_unknown_mount_is_unknown(tmp_path) -> None:
+    sys_root = _block_tree(tmp_path, "sda", "0", "sda1")
+    assert s1_memory.linux_storage_class("/data/x", _mountinfo(tmp_path, fstype="nfs4"), sys_root)[0] == "network"
+    missing = tmp_path / "absent-sys"
+    storage, evidence = s1_memory.linux_storage_class("/data/x", _mountinfo(tmp_path), missing)
+    assert storage == "unknown" and "not a block device link" in evidence
+    storage, evidence = s1_memory.linux_storage_class("/x", tmp_path / "no-such-mountinfo", sys_root)
+    assert storage == "unknown" and "unreadable" in evidence
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux sysfs/mountinfo probe; its Windows counterpart is the Get-PhysicalDisk parser, exercised on every variant")
+def test_the_longest_matching_mount_wins(tmp_path) -> None:
+    sys_root = _block_tree(tmp_path, "nvme0n1", "0", "nvme0n1p1")
+    # "/" is vda (no sysfs link here), "/data" is the nvme partition.
+    assert s1_memory.linux_storage_class("/data/deep/path", _mountinfo(tmp_path), sys_root)[0] == "nvme"
+    assert s1_memory.linux_storage_class("/datastore", _mountinfo(tmp_path), sys_root)[0] == "unknown"
+
+
+GET_PHYSICAL_DISK = "\n".join([
+    "DeviceId  : 0", "MediaType : SSD", "BusType   : NVMe", "",
+    "DeviceId  : 1", "MediaType : HDD", "BusType   : SATA", "",
+    "DeviceId  : 2", "MediaType : SSD", "BusType   : SATA", "",
+])
+
+
+@pytest.mark.parametrize(("device", "expected"), [("0", "nvme"), ("1", "hdd"), ("2", "ssd"), ("9", "unknown")])
+def test_the_windows_storage_class_is_read_from_retained_get_physical_disk_output(device: str, expected: str) -> None:
+    storage, evidence = s1_memory.windows_storage_class(GET_PHYSICAL_DISK, device)
+    assert storage == expected
+    assert "sha256:" + hashlib.sha256(GET_PHYSICAL_DISK.encode()).hexdigest() in evidence
+
+
+def test_without_retained_disk_evidence_windows_is_unknown_not_typed() -> None:
+    assert s1_memory.windows_storage_class(None, "0")[0] == "unknown"
+    assert s1_memory.windows_storage_class(GET_PHYSICAL_DISK, None)[0] == "unknown"
+
+
+def test_a_hosted_runner_is_reported_as_such(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert s1_memory.storage_class(tmp_path)[0] == "hosted-runner"
+
+
+def test_the_host_identity_carries_a_measured_storage_class(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    identity = s1_memory.host_identity(tmp_path)
+    assert identity["storageClass"] in ("ssd", "hdd", "nvme", "network", "virtual", "unknown")
+    assert identity["storageClassEvidence"]

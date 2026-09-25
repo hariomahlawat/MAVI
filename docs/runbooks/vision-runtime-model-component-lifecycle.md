@@ -135,6 +135,29 @@ A pre-F1 platform binary is never deployed while `Finalizing` rows or unfinished
 
 **Events.** 1500 disabled (counts-only mode); 1501 started; 1502 claimed; 1503 claim extended (Debug); 1504 published (tracks, objects created/adopted and bytes, seal/publish/total timings, hand-off-to-publish latency); 1505 deterministic failure (Warning); 1506 transient noted, claim released (Warning); 1507 claim lost, nothing written (Warning); 1508 reconciliation exhausted N jobs (Error); 1509 orphan accounting after a failure (Warning); 1510 payload rows cleaned; 1511 cycle failed (Error; exception type only); 1512 malformed claim metadata or an unexhaustable row (Error, once per job per host); 1513 deadline reached with a live claim (Warning); 1514 stopped for host shutdown, nothing written. No event carries a claim token, lease token, storage path or exception message.
 
+## S1.4 disconnected qualification of the asynchronous path (F4 plan §19)
+
+The S1.4 disconnected unit is an operator run on an isolated Development host, executed on the exact measured `main` SHA (M2) and recorded as `s1-disconnected-run-v2`. It qualifies the **activated** completion path: a run on the synchronous 3.0 path is refused by the evidence checker. Nothing here is hosted CI.
+
+1. **Bundle from the measured code.** On a connected build host, build the Runtime Bundle from M2 (`tools/vision/build_offline_bundle.py --source-commit <M2> --platform-variant <variant> …`). Retain its manifest: `sourceCommit` must equal M2 and it must name exactly one `mavi-vision` wheel. Verify the companion binary kit against M2's lock files.
+2. **Isolate.** Disable the network adapter or apply a deny-all outbound firewall rule, and record which. Record the system proxy state: `netsh winhttp show proxy` (Windows), or the proxy environment and the pip/apt index configuration (Linux). Confirm no LAN package mirror is reachable. Run `assert_outbound_internet_unavailable` (`tools/phase1/qualify_offline_variant.py`, five targets) and retain its JSON output as `disconnected.isolation-before`.
+3. **Install and activate 3.1 / Finalizing.** Perform the clean Development install. Before starting the platform, set `VisionFinalization:Enabled = true` in the machine configuration (`appsettings.development.machine.json`, or `MAVI_MACHINE_CONFIG`). Before starting the worker, set `MAVI_COMPLETION_SCHEMA_VERSION = 3.1` in its environment. Once F4-C ships these as defaults, confirm the defaults instead. Retain `GET /api/vision/contract`: it must list `["2.0","3.1"]`. The run record's `activation` must be `{"visionFinalizationEnabled": true, "completionSchemaVersion": "3.1"}`.
+4. **Trace connections for the whole run.** On Linux, run the platform and the worker under `strace -f -e trace=connect -o <file>`. On Windows, enable the Windows Firewall dropped-packet log. Convert the attempts to `s1-disconnected-connect-trace-v1` (`sourceCommit`, `method`, `attempts[{address, port}]`). Any non-loopback address is a finding; loopback and local sockets are expected.
+5. **Operate.** Run setup verification, start the worker, process a real recorded video, observe the `finalizing` hand-off and the hosted publication, then open Track detail and the Review/Investigation Evidence Set. Retain one evidence file per outcome from this same run.
+6. **Isolation after.** Rerun the probe and retain it as `disconnected.isolation-after`.
+7. **Static dependency proof.** On the build host, run `git diff <previous-qualified-sha> <M2> -- config/dependencies/ src/vision/pyproject.toml 'src/platform/**/*.csproj' src/web/mavi-web/package.json src/web/mavi-web/package-lock.json`. Record every added dependency as `s1-disconnected-dependency-diff-v1` (`fromSha`, `toSha = M2`, `addedDependencies`). An empty list is expected.
+8. **Runtime manifests.** Record the model pack manifest, the runtime profile, the pipeline profile and `resolved-config.json` with their SHA-256 as `s1-disconnected-runtime-manifests-v1`.
+
+The checker binds all of it to M2 and refuses any of the following:
+- a bundle from another commit;
+- a run without the 3.1 activation;
+- a non-loopback connect attempt;
+- an added dependency;
+- a manifest list without hashes;
+- evidence retained outside `docs/qualification/stage2-s1/evidence/<M2-sha12>/`.
+
+The host's storage class is measured by the harness probes. On Windows, retain `Get-PhysicalDisk | Format-List DeviceId,MediaType,BusType` and point `MAVI_QUALIFICATION_WINDOWS_DISK_EVIDENCE` and `MAVI_QUALIFICATION_WINDOWS_DISK_ID` at it and at the disk behind the evidence volume.
+
 ## Staging reclamation
 
 The platform reclaims worker attempt staging (`{MediaStorage:RootPath}/staging/{jobId}/attempt-NNNN`) with the `vision_jobs` row as its **sole authority**. The worker's own cleanup after completion and at the next lease remains a fast path; the janitor bounds retention when the worker dies or never runs again. It never enumerates outside `staging/`, never opens the evidence root, and deletes handle-relatively without following any symbolic link, junction or reparse point (a linked job or attempt directory is refused and logged).

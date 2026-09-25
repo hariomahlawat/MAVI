@@ -199,3 +199,16 @@ screenshots are working artefacts and MUST NOT be committed."*
 
 Nothing here requires production code to be altered to make inspection easier,
 which §26 also requires.
+
+## S1.4 B3 asynchronous completion states
+
+`processing-finalizing` and `processing-failed-finalization` are the operator states
+of the asynchronous completion path (S1.4 B3 F4 plan §15.3). They are fixture data in
+the shape `GET /api/videos/{id}/processing` returns, never real-video evidence. They
+state the acceptance of the separate Finalizing UI PR (U1): a Finalizing job reads as
+"Finalizing" rather than "Progress" and shows no count before publication, and a failed
+finalization reads as "Finalization failed" with its `vision_finalization_*` code.
+
+Until U1 lands, both states fail. That is the truthful result for B5
+`finalizingStateDistinct` and `failedFinalizationDistinct`, not a harness defect.
+Exclude them with `--states` only for work that does not own them.

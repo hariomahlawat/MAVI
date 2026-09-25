@@ -672,15 +672,101 @@ def host_identity(work_root: Path) -> dict[str, Any]:
 
     Every field the evidence schema binds is measured on both qualified
     platforms; a field that cannot be read is ``None`` and the checker then
-    refuses to bind it. Storage class (SSD/HDD) cannot be detected reliably
-    and stays a declared field of the record.
+    refuses to bind it. Since S1.4 B3 F4 (plan §17.2) the storage class is
+    measured too, with the raw reading it came from.
     """
     if sys.platform.startswith("linux"):
-        return _linux_host(work_root)
-    if sys.platform == "win32":  # pragma: no cover - exercised on the Windows variant
-        return _windows_host(work_root)
-    return {"cpuModel": None, "physicalCores": None, "logicalCores": os.cpu_count(), "ramBytes": None,
-            "os": platform_module.system(), "osBuild": platform_module.version(), "stagingFilesystem": None}
+        identity = _linux_host(work_root)
+    elif sys.platform == "win32":  # pragma: no cover - exercised on the Windows variant
+        identity = _windows_host(work_root)
+    else:
+        identity = {"cpuModel": None, "physicalCores": None, "logicalCores": os.cpu_count(), "ramBytes": None,
+                    "os": platform_module.system(), "osBuild": platform_module.version(), "stagingFilesystem": None}
+    identity["storageClass"], identity["storageClassEvidence"] = storage_class(work_root)
+    return identity
+
+
+NETWORK_FILESYSTEMS = frozenset({"nfs", "nfs4", "cifs", "smb3", "smbfs", "fuse.sshfs", "9p", "ceph", "glusterfs"})
+WINDOWS_DISK_EVIDENCE = "MAVI_QUALIFICATION_WINDOWS_DISK_EVIDENCE"
+WINDOWS_DISK_ID = "MAVI_QUALIFICATION_WINDOWS_DISK_ID"
+
+
+def storage_class(path: Path) -> tuple[str, str]:
+    """The storage class of the device under ``path`` and the raw reading it came
+    from (S1.4 B3 F4 plan §17.2, §18.3): the same rules as the .NET harnesses'
+    ``S1QualificationSupport.StorageClassOf``. A hosted runner is reported as such."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return "hosted-runner", f"GITHUB_ACTIONS=true RUNNER_NAME={os.environ.get('RUNNER_NAME')}"
+    if sys.platform.startswith("linux"):
+        return linux_storage_class(str(path.resolve()), Path("/proc/self/mountinfo"), Path("/sys"))
+    if sys.platform == "win32":  # pragma: no cover - Windows variant
+        evidence = os.environ.get(WINDOWS_DISK_EVIDENCE)
+        text = Path(evidence).read_text(encoding="utf-8", errors="replace") if evidence and Path(evidence).is_file() else None
+        return windows_storage_class(text, os.environ.get(WINDOWS_DISK_ID))
+    return "unknown", "unsupported operating system"
+
+
+def linux_storage_class(path: str, mountinfo: Path, sys_root: Path) -> tuple[str, str]:
+    """The mount's major:minor, its ``/sys/dev/block`` device, the whole disk's
+    ``queue/rotational``; nvme and paravirtual (vd*, xvd*) devices by name."""
+    try:
+        lines = mountinfo.read_text(encoding="ascii", errors="replace").splitlines()
+    except OSError as exc:
+        return "unknown", f"{mountinfo} unreadable: {type(exc).__name__}"
+    best = None
+    for line in lines:
+        head, sep, tail = line.partition(" - ")
+        fields = head.split(" ")
+        if not sep or len(fields) < 5:
+            continue
+        point = fields[4].replace("\\040", " ")
+        inside = path == point or path.startswith(point.rstrip("/") + "/") or point == "/"
+        if inside and (best is None or len(point) > len(best[0])):
+            best = (point, fields[2], tail.split(" ")[0])
+    if best is None:
+        return "unknown", f"no mount found for {path}"
+    point, device, fstype = best
+    if fstype in NETWORK_FILESYSTEMS:
+        return "network", f"mount {point} fstype={fstype}"
+    link = sys_root / "dev" / "block" / device
+    try:
+        resolved = link.resolve(strict=True)
+    except OSError:
+        return "unknown", f"mount {point} fstype={fstype} device {device}: {link} is not a block device link"
+    disk = resolved if (resolved / "queue" / "rotational").exists() else resolved.parent
+    rotational_path = disk / "queue" / "rotational"
+    try:
+        rotational = rotational_path.read_text(encoding="ascii").strip()
+    except OSError:
+        rotational = None
+    evidence = f"mount {point} fstype={fstype} device {device} -> {disk.name}; {rotational_path}={rotational or 'unreadable'}"
+    if disk.name.startswith("nvme"):
+        return "nvme", evidence
+    if disk.name.startswith(("vd", "xvd")):
+        return "virtual", evidence
+    return {"0": "ssd", "1": "hdd"}.get(rotational or "", "unknown"), evidence
+
+
+def windows_storage_class(text: str | None, device_id: str | None) -> tuple[str, str]:
+    """``Get-PhysicalDisk | Format-List DeviceId,MediaType,BusType`` output retained by
+    the operator, and the disk behind the evidence volume; no WMI dependency."""
+    if not text or not device_id:
+        return "unknown", f"set {WINDOWS_DISK_EVIDENCE} to retained Get-PhysicalDisk output and {WINDOWS_DISK_ID} to the evidence volume's disk"
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    for block in text.replace("\r\n", "\n").split("\n\n"):
+        fields = {}
+        for line in block.split("\n"):
+            key, sep, value = line.partition(":")
+            if sep:
+                fields[key.strip().lower()] = value.strip()
+        if fields.get("deviceid") != device_id.strip():
+            continue
+        media, bus = fields.get("mediatype"), fields.get("bustype")
+        evidence = f"Get-PhysicalDisk sha256:{digest} DeviceId={fields['deviceid']} MediaType={media} BusType={bus}"
+        if (bus or "").lower() == "nvme":
+            return "nvme", evidence
+        return {"SSD": "ssd", "HDD": "hdd"}.get((media or "").upper(), "unknown"), evidence
+    return "unknown", f"Get-PhysicalDisk sha256:{digest} has no DeviceId {device_id}"
 
 
 def _linux_host(work_root: Path) -> dict[str, Any]:

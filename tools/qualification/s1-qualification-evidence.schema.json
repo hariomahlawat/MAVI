@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "mavi:s1-qualification-evidence-v1",
-  "title": "MAVI Stage-2 S1 qualification evidence record (S1.4 plan \u00a74)",
-  "description": "Structural contract only. The fail-closed semantic rules (head_sha binding, skip rules, per-unit requirements, \u00a72.3 closure binding) live in tools/qualification/s1_evidence.py; a record is valid only if both pass.",
+  "title": "MAVI Stage-2 S1 qualification evidence record (S1.4 plan §4)",
+  "description": "Structural contract only. The fail-closed semantic rules (head_sha binding, skip rules, per-unit requirements, §2.3 closure binding) live in tools/qualification/s1_evidence.py; a record is valid only if both pass.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -79,7 +79,8 @@
           "osBuild",
           "stagingFilesystem",
           "acceptedEvidenceFilesystem",
-          "storageClass"
+          "storageClass",
+          "storageClassEvidence"
         ],
         "properties": {
           "cpuModel": {
@@ -110,13 +111,20 @@
             "$ref": "#/$defs/text"
           },
           "storageClass": {
+            "description": "Measured by the harness probe (F4 plan §17.2, §18.3), never typed in. 'virtual' is a paravirtual device (virtio/xvd); 'unknown' is an honest failure to classify. A hosted runner never qualifies B3 timing.",
             "enum": [
               "ssd",
               "hdd",
               "nvme",
               "network",
+              "virtual",
+              "unknown",
               "hosted-runner"
             ]
+          },
+          "storageClassEvidence": {
+            "description": "The raw probe reading the class was derived from (sysfs path and value, or the retained Get-PhysicalDisk output digest).",
+            "$ref": "#/$defs/text"
           }
         }
       }
@@ -173,6 +181,10 @@
               "skipped",
               "timed_out"
             ]
+          },
+          "harnessRunId": {
+            "description": "The runId a qualification harness stamped into its output (F4 plan §22); a local run that retained a harness output must carry it.",
+            "$ref": "#/$defs/text"
           }
         }
       }
@@ -272,7 +284,7 @@
     },
     "pairedVariantSkips": {
       "type": "array",
-      "description": "S1.4 \u00a73.1: a test that skips by design on one OS, with the counterpart that must pass on the other qualified variant.",
+      "description": "S1.4 §3.1: a test that skips by design on one OS, with the counterpart that must pass on the other qualified variant.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -509,6 +521,77 @@
     },
     "s1Closed": {
       "type": "boolean"
+    },
+    "frozenConfiguration": {
+      "description": "F4 plan §10: the finalizer configuration B3-B was measured against; the checker compares it with appsettings.json at the measured SHA.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "values",
+        "effectiveBoundSeconds",
+        "activationDefault",
+        "freezeDecision"
+      ],
+      "properties": {
+        "values": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "MaxConcurrentFinalizations",
+            "PollIntervalSeconds",
+            "ClaimSeconds",
+            "ClaimExtensionSeconds",
+            "MaximumFinalizationAttempts",
+            "MaximumFinalizationDurationSeconds",
+            "SealingBatchSize",
+            "PayloadCleanupGraceSeconds"
+          ],
+          "properties": {
+            "MaxConcurrentFinalizations": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "PollIntervalSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ClaimSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ClaimExtensionSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "MaximumFinalizationAttempts": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "MaximumFinalizationDurationSeconds": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "SealingBatchSize": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "PayloadCleanupGraceSeconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "effectiveBoundSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "activationDefault": {
+          "type": "boolean"
+        },
+        "freezeDecision": {
+          "$ref": "#/$defs/text"
+        }
+      }
     }
   },
   "$defs": {
