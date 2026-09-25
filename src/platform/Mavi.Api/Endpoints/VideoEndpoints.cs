@@ -96,7 +96,8 @@ public static class VideoEndpoints
                 result.LatestRun.FailureCode,
                 result.LatestRun.FramesProcessed,
                 result.LatestRun.TracksCreated,
-                readiness ?? SceneAnalyticsReadinessRule.NotConfigured);
+                readiness ?? SceneAnalyticsReadinessRule.NotConfigured,
+                result.LatestRun.Phase);
 
         return Results.Ok(new ProcessingStatusResponse(result.VideoStatus, latestRun));
     }

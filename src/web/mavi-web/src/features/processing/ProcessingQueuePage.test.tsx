@@ -33,7 +33,7 @@ function run(status: string, extra: Partial<ProcessingRunStatus> = {}): Processi
   return {
     processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431', status, pipeline: 'phase1-detection-tracking', pipelineVersion: 'phase1-v1',
     workerId: 'worker-a', queuedAtUtc: '2026-09-14T03:02:00Z', startedAtUtc: '2026-09-14T03:02:02Z', completedAtUtc: null,
-    progressPercent: 0, attemptCount: 1, failureCode: null, framesProcessed: 0, tracksCreated: 0, analyticsReadiness: 'NotConfigured', ...extra,
+    progressPercent: 0, attemptCount: 1, failureCode: null, framesProcessed: 0, tracksCreated: 0, analyticsReadiness: 'NotConfigured', phase: 'processing', ...extra,
   };
 }
 

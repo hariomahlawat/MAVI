@@ -342,6 +342,7 @@ describe('VideoImportPage', () => {
         framesProcessed: 0,
         tracksCreated: 0,
         analyticsReadiness: 'NotConfigured',
+        phase: 'processing',
       },
     });
 

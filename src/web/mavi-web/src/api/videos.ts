@@ -28,6 +28,14 @@ export type VideoAsset = {
 export const ANALYTICS_READINESS = ['NotConfigured', 'Disabled', 'Pending', 'Ready', 'Failed', 'Stale'] as const;
 export type AnalyticsReadiness = (typeof ANALYTICS_READINESS)[number];
 
+/**
+ * The control-plane phase of a run, projected from its VisionJob (`ProcessingPhases`).
+ * `finalizing` means inference is over and the platform is still sealing and
+ * publishing; the run's own `status` stays `Running` until publication.
+ */
+export const PROCESSING_PHASES = ['queued', 'processing', 'finalizing', 'completed', 'failed'] as const;
+export type ProcessingPhase = (typeof PROCESSING_PHASES)[number];
+
 export type ProcessingRunStatus = {
   processingRunId: string;
   status: string;
@@ -43,6 +51,7 @@ export type ProcessingRunStatus = {
   framesProcessed: number;
   tracksCreated: number;
   analyticsReadiness: AnalyticsReadiness;
+  phase: ProcessingPhase;
 };
 
 export type ProcessingStatus = {

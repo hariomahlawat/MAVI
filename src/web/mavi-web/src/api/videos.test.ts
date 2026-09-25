@@ -20,6 +20,7 @@ function status(videoStatus: string, runStatus?: string): ProcessingStatus {
           framesProcessed: 0,
           tracksCreated: 0,
           analyticsReadiness: 'NotConfigured',
+          phase: 'processing',
         }
       : null,
   };

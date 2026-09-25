@@ -114,10 +114,14 @@ public sealed class VisionResultValidator
         if (videoDurationMs <= 0)
             throw Invalid("video_duration_invalid");
 
+        // 3.1 is the asynchronous exchange of the same Evidence Set body: one semantic
+        // shape, one digest domain (plan §5.1, §15.5). The version string never enters
+        // the digest; only the schema-selected domain tag does.
         var schema = request.SchemaVersion switch
         {
             WorkerContractRules.CompletionSchemaVersionV2 => CompletionSchema.V2,
             WorkerContractRules.CompletionSchemaVersionV3 => CompletionSchema.V3,
+            WorkerContractRules.CompletionSchemaVersionV31 => CompletionSchema.V3,
             _ => throw Invalid("schema_version_invalid"),
         };
         // Each version carries its own evidence members and forbids the other's,

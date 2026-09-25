@@ -121,7 +121,7 @@ The finalization hand-off must be a **single-resource atomic transaction**.
 
 Do not introduce a filesystem finalization-manifest root.
 
-Persist the exact accepted completion body in PostgreSQL as bounded binary content.
+Persist a canonical semantic finalization payload in PostgreSQL as bounded binary content. The retained payload must exclude the authenticated HTTP envelope: never persist the raw `leaseToken`, and do not persist `workerId` inside the payload. Exact replay authentication remains on the `VisionJob` through `LeaseOwner`, `LeaseTokenHash` and `AttemptCount`.
 
 ### 4.1 Shape
 
@@ -136,9 +136,9 @@ Key:
 
 Fields:
 
-- exact request bytes (`bytea`);
+- canonical semantic finalization payload bytes (`bytea`), containing only schema/job/attempt/result/provenance/evidence facts required for deterministic re-validation;
 - byte length;
-- SHA-256 of request bytes;
+- SHA-256 of the retained semantic payload bytes;
 - completion digest;
 - created/accepted timestamp.
 
@@ -152,7 +152,7 @@ The current worst-shape evidence is within the existing contract envelope; no ne
 
 ### 4.3 Persistence discipline
 
-Use bounded raw SQL / binary parameter handling for the large payload path where appropriate. Do not require EF to track or materialize the payload as a large object graph during ordinary status queries.
+Use bounded raw SQL / binary parameter handling for the large payload path where appropriate. Do not require EF to track or materialize the payload as a large object graph during ordinary status queries. The payload serializer is platform-owned and must omit authentication capabilities (`workerId`, raw `leaseToken`). A discriminating test must prove a recognizable lease token cannot occur in retained bytes.
 
 PostgreSQL/TOAST, WAL, backup/restore and transactional atomicity become the durability mechanism.
 
@@ -197,7 +197,7 @@ and fields such as:
 - state;
 - accepted-at UTC;
 - completed-at UTC only when actually Completed;
-- `tracksAccepted`: the validated Track count of the accepted body, in both states. It is deterministic from the body the platform durably holds; the finalizer publishes exactly that count or fails closed, so it never changes between `finalizing` and `completed`.
+- `tracksSubmitted`: the validated Track count of the accepted body, in both states. It is deterministic from the body the platform durably holds; the finalizer publishes exactly that count or fails closed, so it never changes between `finalizing` and `completed`. (F1 named it `tracksSubmitted`, not `tracksAccepted`: in a `finalizing` acknowledgement nothing is published yet, and the 3.0 response's `tracksAccepted` meant a published count.)
 
 Do not populate `CompletedAtUtc` for a hand-off acknowledgement.
 
@@ -340,7 +340,7 @@ The existing synchronous path may keep its current behavior until replaced, but 
 
 For one valid claimed `Finalizing` job:
 
-1. read the exact payload bytes from PostgreSQL;
+1. read the canonical semantic payload bytes from PostgreSQL;
 2. verify payload length/SHA and deserialize;
 3. re-run `VisionResultValidator`;
 4. verify the recomputed completion digest equals the stored digest;
@@ -691,9 +691,19 @@ Keep this repair isolated from S2.
 
 No background execution yet.
 
+**F1 implementation record (2026-09-25, branch `feature/s1-4-b3-f1-finalization-contracts-domain` from `main@c829510`).**
+
+- Domain: `VisionJobStatus.Finalizing`; `VisionJob.BeginFinalization(workerId, leaseTokenMatches, attemptCount, authorityNowUtc, completionDigest)` (canonical digest, live lease at authority time, attempt match; keeps `LeaseOwner`/`LeaseTokenHash`/`AttemptCount`/`LeaseExpiresAtUtc`; sets `FinalizationAcceptedAtUtc`); `CanAuthenticateCompletionReplay` (§5.3, lease expiry not consulted); finalizer claim `CanClaimFinalization`/`ClaimFinalization` (32-byte token SHA-256 hash, rotates per claim, bounded attempts)/`FinalizationOwnedBy` (fixed-time compare)/`ExtendFinalizationClaim`/`NoteFinalizationError`; `CompleteFinalization(claimToken, nowUtc)` (verifies the live claim itself at `nowUtc`, so an expired or rotated-away claimant cannot publish; the lease plays no part); `FailFinalization(claimToken, code, details, nowUtc)` from Finalizing only, codes `vision_finalization_[a-z0-9_]+` ≤ 64 chars. Both terminal transitions are claim-fenced inside the aggregate: each verifies `FinalizationOwnedBy(claimToken, nowUtc)` before mutating, so a stale finalizer (expired or rotated-away claim) can neither publish nor terminate the recovery attempt that superseded it; no unfenced reconciler terminal path exists in F1. Heartbeat, worker fail, re-lease and exhaustion are refused for Finalizing by status. The synchronous `Complete` path is untouched.
+- Payload: `VisionFinalizationPayload` (JobId, AttemptCount, canonical semantic `Payload` bytes, `PayloadLength`, `PayloadSha256`, `CompletionDigest`, `AcceptedAtUtc`), bounded by `WorkerContractRules.MaximumCompletionRequestBodyBytes`; no navigation to or from `VisionJob`, so status and lease queries never load it. `VisionFinalizationPayloadCodec` serializes only schema/job/attempt/result/provenance/evidence facts and deliberately excludes `workerId` and raw `leaseToken`; its test proves a recognizable bearer token cannot appear in retained bytes while decoded payload re-validates to the identical completion digest.
+- Persistence: migration `20260925020849_AddVisionFinalization` adds six nullable/defaulted `vision_jobs` columns, `vision_finalization_payloads` (PK `(job_id, attempt_count)`, FK cascade, checks on attempt, `payload_length = octet_length(payload)` ≤ 50331648, SHA-256 and digest format), partial index `ix_vision_jobs_finalizing_claim` (`status = 'Finalizing'`), checks `ck_vision_jobs_finalization_attempts`, `ck_vision_jobs_finalization_claim_token_hash`, `ck_vision_jobs_finalizing_facts` (a Finalizing row has digest, accepted time, lease owner, lease token hash and attempt ≥ 1). `Down` refuses while any job is Finalizing or a payload of an unfinished job exists (§15.3).
+- Contracts: `WorkerContractRules.CompletionSchemaVersionV31 = "3.1"`, `AsynchronousCompletionSchemaVersions = ["2.0", "3.1"]`, `IsKnownCompletionSchemaVersion`, `IsAsynchronousCompletionSchemaVersion`, finalization states; `VisionJobFinalizationResponse` (§5.2, `completedAtUtc` omitted unless `completed`); schemas/examples `vision-job-complete-v3.1` (the 3.0 schema with only title and version const changed, enforced by `verify_repo.py`) and `vision-job-finalization-response-v3.1`. The validator maps 3.1 to `CompletionSchema.V3`; the golden 3.0 example with `schemaVersion` swapped to 3.1 produces the pinned v3 digest.
+- Staged acceptance: the completion endpoint still accepts only 2.0 and 3.0 and the probe still advertises `["2.0","3.0"]` (`CompletionSchemaVersions` unchanged). F2 switches the endpoint and probe to `AsynchronousCompletionSchemaVersions`, which retires 3.0 and leaves 2.0 unchanged.
+- Status: `ProcessingRunStatusResponse.phase` (`queued|processing|finalizing|completed|failed`, `ProcessingPhaseRule.FromJobStatus`) beside the unchanged run `status`; no `ProcessingRunStatus.Finalizing`; `progressPercent` stays the job's value (100 after hand-off) and counters stay zero until publication.
+- Not in F1: the submission transaction, worker 3.1 runtime behavior, the finalizer, janitor Finalizing rules, UI rendering, B3 measurement. F2 does **not** persist the raw HTTP body; after authentication/validation it persists the canonical capability-free semantic payload produced by `VisionFinalizationPayloadCodec`.
+
 ### F2 — atomic submission
 
-- implement exact PostgreSQL payload persistence;
+- implement canonical semantic PostgreSQL payload persistence with the worker authentication envelope stripped before persistence;
 - `Leased → Finalizing` atomic transaction;
 - exact replay/conflict rules;
 - 3.1 response;
@@ -752,7 +762,7 @@ Do not perform expensive S1 qualification on an intermediate SHA that F1–F3 wi
 
 ### Submission
 
-- payload row + Finalizing transition are atomic;
+- payload row + Finalizing transition are atomic;\n- retained payload contains no raw lease token or worker id;
 - request rollback leaves neither;
 - ambiguous commit is resolved by replay;
 - same-digest duplicate is idempotent;
@@ -826,7 +836,7 @@ Implementation must preserve all of these:
 7. A stale finalizer may perform harmless create-once IO but cannot publish.
 8. Worker protocol skew cannot delete staging needed by a finalizer.
 9. Completion replay remains deterministic and conflict-safe.
-10. PostgreSQL is the authority for both durable hand-off and finalizer fencing.
+10. PostgreSQL is the authority for both durable hand-off and finalizer fencing; persisted finalization bytes contain no bearer capability.
 11. No distributed lock or generic workflow system is added.
 12. Qualification remains tied to field correctness, not paperwork.
 

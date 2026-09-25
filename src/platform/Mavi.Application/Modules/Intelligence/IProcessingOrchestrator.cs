@@ -1,3 +1,6 @@
+using Mavi.Contracts.Api.Processing;
+using Mavi.Domain.Processing;
+
 namespace Mavi.Application.Modules.Intelligence;
 
 public sealed record ProcessingRunAttestationSource(
@@ -19,7 +22,25 @@ public sealed record ProcessingStatusResult(bool Found, string VideoStatus, Proc
 public sealed record ProcessingRunStatusView(Guid ProcessingRunId, string Status, string Pipeline, string PipelineVersion,
     string? WorkerId, DateTimeOffset QueuedAtUtc, DateTimeOffset? StartedAtUtc, DateTimeOffset? CompletedAtUtc,
     double ProgressPercent, int AttemptCount, string? FailureCode,
-    long FramesProcessed = 0, int TracksCreated = 0);
+    long FramesProcessed = 0, int TracksCreated = 0, string Phase = ProcessingPhases.Processing);
+
+/// <summary>
+/// The status <c>phase</c> of the latest run, derived from its job's status (S1.4 B3
+/// asynchronous finalization plan §11). <c>ProcessingRunStatus</c> itself has no Finalizing
+/// value: the run stays Running until the finalizer publishes.
+/// </summary>
+public static class ProcessingPhaseRule
+{
+    public static string FromJobStatus(VisionJobStatus status) => status switch
+    {
+        VisionJobStatus.Queued => ProcessingPhases.Queued,
+        VisionJobStatus.Leased => ProcessingPhases.Processing,
+        VisionJobStatus.Finalizing => ProcessingPhases.Finalizing,
+        VisionJobStatus.Completed => ProcessingPhases.Completed,
+        VisionJobStatus.Failed or VisionJobStatus.Cancelled => ProcessingPhases.Failed,
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown vision job status."),
+    };
+}
 public sealed record VisionLeaseView(Guid JobId, Guid ProcessingRunId, Guid VideoAssetId,
     Guid CameraId, string WorkerId, string LeaseToken, string Pipeline, string PipelineVersion, string SourceStorageKey, string SourceSha256,
     long SourceSizeBytes, DateTimeOffset RecordingStartUtc, DateTimeOffset RecordingEndUtc, long DurationMs,

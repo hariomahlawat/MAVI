@@ -2,7 +2,8 @@
 
 **Status:** Accepted  
 **Date:** 2026-09-13  
-**Amended:** 2026-09-23 — §6 platform-owned staging reclamation (S1.2a)
+**Amended:** 2026-09-23 — §6 platform-owned staging reclamation (S1.2a)  
+**Amended:** 2026-09-25 — §7 asynchronous finalization ownership (S1.4 B3, slice F1)
 
 ## Context
 
@@ -77,6 +78,20 @@ The Track Evidence Set makes one attempt's staging large (up to ≈ 5.2 GiB tran
 
 **Trade-off accepted:** the platform gains a background lifecycle that deletes files it did not write, and with it a destructive failure mode, in exchange for crash-safe bounded staging. The alternatives — deleting staging inside or after the completion transaction, or leaving reclamation to the worker — are rejected in the plan §6.5 (not crash-safe; entangles large filesystem work with the request path).
 
+### 7. Asynchronous finalization ownership (amendment, S1.4 B3)
+
+**Status of this section:** Accepted 2026-09-25 with the frozen architecture in `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md`; slice F1 lands the contracts, domain state and schema, F2 the submission transaction, F3 the finalizer.
+
+S1.4 B3 measured sealing of a 10,000-Track Evidence Set at p50 104 s inside the completion request, against a 15 s lease-bound budget. Sealing (§3) therefore moves out of the worker's request into a platform finalizer, and the completion exchange becomes a durable hand-off:
+
+- **Hand-off authority is PostgreSQL.** Completion 3.1 is accepted when one transaction moves the `VisionJob` from `Leased` to `Finalizing` and stores a canonical semantic finalization payload (`vision_finalization_payloads`, keyed by job and attempt, with length, SHA-256 and the completion digest). The retained payload excludes the authenticated HTTP envelope: the raw `leaseToken` and `workerId` are never persisted in it. Replay authentication uses the `VisionJob`'s retained `LeaseOwner`, `LeaseTokenHash` and `AttemptCount`; the finalizer reconstructs only the semantic completion data required by `VisionResultValidator`. No filesystem manifest, queue or second store participates. A Finalizing row and its payload exist together or not at all; the finalizer re-reads the canonical semantic payload, re-validates it and requires the recomputed digest to equal the job's before sealing anything.
+- **Sealing stays platform-owned and precedes publication.** §3–§5 are unchanged: the finalizer streams staging into the evidence root, verifies size and SHA-256, publishes with create-new semantics, and only then commits the authoritative graph. The visibility barrier is the publication transaction, so rows publish only after sealing and commit.
+- **No compensation deletion of accepted evidence in the asynchronous path.** The synchronous request path deleted its own freshly sealed objects on rollback. The finalizer does not: a sealed object is an idempotently reusable accepted object for the next claimant (§3), and deleting it could race a concurrent or later publication. Objects that no publication ever references are **orphans** under §5 and remain a separate retention concern; nothing in F1–F3 collects them.
+- **The worker lease ends at the hand-off.** `LeaseOwner`, `LeaseTokenHash` and `AttemptCount` are retained on the Finalizing row solely to authenticate an exact replay of the completion after an ambiguous HTTP outcome; heartbeat, worker failure and re-lease are refused by status. The finalizer's own ownership is a separate PostgreSQL-fenced claim (token hash, expiry, bounded attempts) that rotates on every claim.
+- **Staging retention.** Worker staging of the current Finalizing attempt is the finalizer's input and is not reclaimable under §6 until the job is terminal; F3 teaches the janitor the rule. Earlier attempts stay reclaimable.
+
+**Trade-off accepted:** between hand-off and publication a job is neither Completed nor Failed, the operator sees a distinct `finalizing` phase without a fabricated percentage, and a Finalizing row is opaque to a preceding binary (rollback requires draining Finalizing jobs, plan §15.3). In exchange the completion request is bounded by validation and one bytea insert, independent of Evidence Set size, and a platform-process loss after the hand-off is recoverable from PostgreSQL alone.
+
 ## Consequences
 
 ### Positive
@@ -114,3 +129,4 @@ Rejected because a copy failure would leave authoritative rows referencing unava
 - `docs/decisions/ADR-003-offline-production.md`
 - `docs/decisions/ADR-005-qualified-vision-runtime.md`
 - `docs/superpowers/plans/2026-09-13-task-13-vision-result-persistence.md`
+- `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md`
