@@ -13,6 +13,10 @@ public sealed class VisionFinalizationDomainTests
     private static readonly DateTimeOffset Now = new(2026, 9, 25, 8, 0, 0, TimeSpan.Zero);
     private static readonly string Digest = new('a', 64);
     private static readonly TimeSpan Lease = TimeSpan.FromMinutes(2);
+    /// <summary>The maximum finalization duration used where the deadline is not the subject.</summary>
+    private static readonly TimeSpan MaxDuration = TimeSpan.FromHours(6);
+    /// <summary>Hand-off at <c>Now + 30 s</c>, so with <see cref="MaxDuration"/> the deadline is here.</summary>
+    private static readonly DateTimeOffset Accepted = Now.AddSeconds(30);
 
     private static VisionJob LeasedJob(string workerId = "worker-a")
     {
@@ -184,7 +188,7 @@ public sealed class VisionFinalizationDomainTests
         Assert.False(job.CanAuthenticateCompletionReplay("Worker-A", true, 1));
 
         var (token, hash) = ClaimToken();
-        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, MaxDuration);
         job.CompleteFinalization(token, Now.AddMinutes(2));
         Assert.True(job.CanAuthenticateCompletionReplay("worker-a", true, 1));
     }
@@ -197,7 +201,7 @@ public sealed class VisionFinalizationDomainTests
 
         var failed = FinalizingJob();
         var (token, hash) = ClaimToken();
-        failed.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        failed.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, MaxDuration);
         failed.FailFinalization(token, "vision_finalization_payload_invalid", null, Now.AddMinutes(1));
         Assert.False(failed.CanAuthenticateCompletionReplay("worker-a", true, 1));
     }
@@ -212,8 +216,8 @@ public sealed class VisionFinalizationDomainTests
         var (second, secondHash) = ClaimToken(2);
         var claimed = Now.AddMinutes(1);
 
-        Assert.True(job.CanClaimFinalization(claimed, 3));
-        job.ClaimFinalization(firstHash, claimed, TimeSpan.FromMinutes(5), 3);
+        Assert.True(job.CanClaimFinalization(claimed, 3, MaxDuration));
+        job.ClaimFinalization(firstHash, claimed, TimeSpan.FromMinutes(5), 3, MaxDuration);
 
         Assert.Equal(1, job.FinalizationAttemptCount);
         Assert.Equal(claimed.AddMinutes(5), job.FinalizationClaimExpiresAtUtc);
@@ -224,11 +228,11 @@ public sealed class VisionFinalizationDomainTests
         Assert.False(job.FinalizationOwnedBy(first.AsSpan(..31), claimed.AddMinutes(4)));
 
         // Live claim cannot be taken over.
-        Assert.False(job.CanClaimFinalization(claimed.AddMinutes(4), 3));
-        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(secondHash, claimed.AddMinutes(4), TimeSpan.FromMinutes(5), 3));
+        Assert.False(job.CanClaimFinalization(claimed.AddMinutes(4), 3, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(secondHash, claimed.AddMinutes(4), TimeSpan.FromMinutes(5), 3, MaxDuration));
 
         // Expired claim is retaken with a rotated token; the old token is dead.
-        job.ClaimFinalization(secondHash, claimed.AddMinutes(6), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(secondHash, claimed.AddMinutes(6), TimeSpan.FromMinutes(5), 3, MaxDuration);
         Assert.Equal(2, job.FinalizationAttemptCount);
         Assert.True(job.FinalizationOwnedBy(second, claimed.AddMinutes(7)));
         Assert.False(job.FinalizationOwnedBy(first, claimed.AddMinutes(7)));
@@ -240,15 +244,15 @@ public sealed class VisionFinalizationDomainTests
         var job = FinalizingJob();
         var (_, hash) = ClaimToken();
 
-        Assert.False(job.CanClaimFinalization(Now.AddMinutes(1), 0));
-        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(new byte[31], Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3));
-        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.Zero, 3));
+        Assert.False(job.CanClaimFinalization(Now.AddMinutes(1), 0, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(new byte[31], Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.Zero, 3, MaxDuration));
         Assert.Equal(0, job.FinalizationAttemptCount);
 
-        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(1), 2);
-        job.ClaimFinalization(hash, Now.AddMinutes(3), TimeSpan.FromMinutes(1), 2);
-        Assert.False(job.CanClaimFinalization(Now.AddMinutes(5), 2));
-        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(hash, Now.AddMinutes(5), TimeSpan.FromMinutes(1), 2));
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(1), 2, MaxDuration);
+        job.ClaimFinalization(hash, Now.AddMinutes(3), TimeSpan.FromMinutes(1), 2, MaxDuration);
+        Assert.False(job.CanClaimFinalization(Now.AddMinutes(5), 2, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(hash, Now.AddMinutes(5), TimeSpan.FromMinutes(1), 2, MaxDuration));
         Assert.Equal(2, job.FinalizationAttemptCount);
     }
 
@@ -257,8 +261,8 @@ public sealed class VisionFinalizationDomainTests
     {
         var (token, hash) = ClaimToken();
         var leased = LeasedJob();
-        Assert.False(leased.CanClaimFinalization(Now, 3));
-        Assert.Throws<DomainValidationException>(() => leased.ClaimFinalization(hash, Now, TimeSpan.FromMinutes(1), 3));
+        Assert.False(leased.CanClaimFinalization(Now, 3, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => leased.ClaimFinalization(hash, Now, TimeSpan.FromMinutes(1), 3, MaxDuration));
         Assert.False(leased.FinalizationOwnedBy(token, Now));
     }
 
@@ -268,15 +272,15 @@ public sealed class VisionFinalizationDomainTests
         var job = FinalizingJob();
         var (token, hash) = ClaimToken();
         var (other, _) = ClaimToken(9);
-        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, MaxDuration);
 
-        job.ExtendFinalizationClaim(token, Now.AddMinutes(4), TimeSpan.FromMinutes(5));
+        job.ExtendFinalizationClaim(token, Now.AddMinutes(4), TimeSpan.FromMinutes(5), MaxDuration);
         Assert.Equal(Now.AddMinutes(9), job.FinalizationClaimExpiresAtUtc);
         Assert.Equal(Now.AddMinutes(4), job.FinalizationClaimExtendedAtUtc);
 
-        Assert.Throws<DomainValidationException>(() => job.ExtendFinalizationClaim(other, Now.AddMinutes(5), TimeSpan.FromMinutes(5)));
-        Assert.Throws<DomainValidationException>(() => job.ExtendFinalizationClaim(token, Now.AddMinutes(5), TimeSpan.Zero));
-        Assert.Throws<DomainValidationException>(() => job.ExtendFinalizationClaim(token, Now.AddMinutes(9), TimeSpan.FromMinutes(5)));
+        Assert.Throws<DomainValidationException>(() => job.ExtendFinalizationClaim(other, Now.AddMinutes(5), TimeSpan.FromMinutes(5), MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ExtendFinalizationClaim(token, Now.AddMinutes(5), TimeSpan.Zero, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ExtendFinalizationClaim(token, Now.AddMinutes(9), TimeSpan.FromMinutes(5), MaxDuration));
         Assert.Equal(Now.AddMinutes(9), job.FinalizationClaimExpiresAtUtc);
     }
 
@@ -305,7 +309,7 @@ public sealed class VisionFinalizationDomainTests
         Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, afterLease));
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
 
-        job.ClaimFinalization(hash, afterLease, TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(hash, afterLease, TimeSpan.FromMinutes(5), 3, MaxDuration);
         job.CompleteFinalization(token, afterLease.AddMinutes(1));
 
         Assert.Equal(VisionJobStatus.Completed, job.Status);
@@ -315,6 +319,7 @@ public sealed class VisionFinalizationDomainTests
         Assert.Equal(1, job.AttemptCount);
         Assert.Null(job.FinalizationClaimTokenHash);
         Assert.Null(job.FinalizationClaimExpiresAtUtc);
+        Assert.Null(job.FinalizationClaimExtendedAtUtc);
         Assert.Equal(1, job.FinalizationAttemptCount);
         Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, afterLease.AddMinutes(2)));
     }
@@ -326,7 +331,7 @@ public sealed class VisionFinalizationDomainTests
         var (first, firstHash) = ClaimToken(1);
         var (second, secondHash) = ClaimToken(2);
         var claimed = Now.AddMinutes(1);
-        job.ClaimFinalization(firstHash, claimed, TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(firstHash, claimed, TimeSpan.FromMinutes(5), 3, MaxDuration);
 
         // Wrong token, and the right token after its claim expired.
         Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(second, claimed.AddMinutes(1)));
@@ -334,7 +339,7 @@ public sealed class VisionFinalizationDomainTests
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
 
         // Claimant B reclaims after A's expiry: A's token can no longer publish, B's can.
-        job.ClaimFinalization(secondHash, claimed.AddMinutes(6), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(secondHash, claimed.AddMinutes(6), TimeSpan.FromMinutes(5), 3, MaxDuration);
         Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(first, claimed.AddMinutes(7)));
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
         job.CompleteFinalization(second, claimed.AddMinutes(7));
@@ -347,7 +352,7 @@ public sealed class VisionFinalizationDomainTests
         // A claim whose window somehow precedes the accepted time cannot publish before it.
         var job = FinalizingJob();
         var (token, hash) = ClaimToken();
-        job.ClaimFinalization(hash, Now.AddSeconds(10), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(hash, Now.AddSeconds(10), TimeSpan.FromMinutes(5), 3, MaxDuration);
 
         Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, Now.AddSeconds(29)));
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
@@ -360,7 +365,7 @@ public sealed class VisionFinalizationDomainTests
     {
         var job = FinalizingJob();
         var (token, hash) = ClaimToken();
-        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, MaxDuration);
 
         job.FailFinalization(token, "vision_finalization_attempts_exhausted", "seal timed out", Now.AddMinutes(2));
 
@@ -374,7 +379,7 @@ public sealed class VisionFinalizationDomainTests
         Assert.Null(job.FinalizationClaimTokenHash);
         Assert.Null(job.FinalizationClaimExpiresAtUtc);
         Assert.False(job.CanLease(Now.AddDays(1), 3));
-        Assert.False(job.CanClaimFinalization(Now.AddDays(1), 3));
+        Assert.False(job.CanClaimFinalization(Now.AddDays(1), 3, MaxDuration));
         Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, Now.AddMinutes(3)));
     }
 
@@ -391,7 +396,7 @@ public sealed class VisionFinalizationDomainTests
         Assert.False(VisionJob.IsFinalizationFailureCode(code));
         var job = FinalizingJob();
         var (token, hash) = ClaimToken();
-        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, MaxDuration);
 
         Assert.Throws<DomainValidationException>(() => job.FailFinalization(token, code!, null, Now.AddMinutes(1)));
 
@@ -408,7 +413,7 @@ public sealed class VisionFinalizationDomainTests
         var (first, firstHash) = ClaimToken(1);
         var (second, secondHash) = ClaimToken(2);
         var claimed = Now.AddMinutes(1);
-        job.ClaimFinalization(firstHash, claimed, TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(firstHash, claimed, TimeSpan.FromMinutes(5), 3, MaxDuration);
 
         // Wrong token, and the right token after its claim expired.
         Assert.Throws<DomainValidationException>(() => job.FailFinalization(second, "vision_finalization_seal_io", null, claimed.AddMinutes(1)));
@@ -417,7 +422,7 @@ public sealed class VisionFinalizationDomainTests
         Assert.Null(job.FailureCode);
 
         // A's claim expired and B reclaimed with a rotated token: stale A cannot terminate B's attempt.
-        job.ClaimFinalization(secondHash, claimed.AddMinutes(6), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(secondHash, claimed.AddMinutes(6), TimeSpan.FromMinutes(5), 3, MaxDuration);
         Assert.Throws<DomainValidationException>(() => job.FailFinalization(first, "vision_finalization_seal_io", "stale A", claimed.AddMinutes(7)));
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
         Assert.Null(job.FailureCode);
@@ -445,7 +450,7 @@ public sealed class VisionFinalizationDomainTests
     {
         var job = FinalizingJob();
         var (token, hash) = ClaimToken();
-        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3);
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, MaxDuration);
         Assert.Throws<DomainValidationException>(() =>
             job.FailFinalization(token, "vision_finalization_payload_invalid", new string('d', 4001), Now.AddMinutes(1)));
         Assert.Equal(VisionJobStatus.Finalizing, job.Status);
@@ -460,6 +465,362 @@ public sealed class VisionFinalizationDomainTests
         var unclaimed = FinalizingJob();
         Assert.Throws<DomainValidationException>(() => unclaimed.FailFinalization(token, "vision_finalization_payload_invalid", null, Now.AddMinutes(1)));
         Assert.Equal(VisionJobStatus.Finalizing, unclaimed.Status);
+    }
+
+    // -- absolute finalization deadline (F3 plan §5.4, §8.6) ---------------------------------
+
+    [Fact]
+    public void FinalizationDeadlineIsAcceptedAtPlusMaximumDuration()
+    {
+        var job = FinalizingJob();
+        Assert.Equal(Accepted.Add(MaxDuration), job.FinalizationDeadline(MaxDuration));
+        Assert.Null(job.FinalizationDeadline(TimeSpan.Zero));
+        Assert.Null(LeasedJob().FinalizationDeadline(MaxDuration));
+        Assert.True(job.IsBeforeFinalizationDeadline(Accepted.Add(MaxDuration).AddTicks(-1), MaxDuration));
+        Assert.False(job.IsBeforeFinalizationDeadline(Accepted.Add(MaxDuration), MaxDuration));
+        Assert.False(job.IsBeforeFinalizationDeadline(Accepted.Add(MaxDuration).AddTicks(1), MaxDuration));
+    }
+
+    [Fact]
+    public void NoNewClaimAfterMaximumFinalizationDuration()
+    {
+        var job = FinalizingJob();
+        var (_, hash) = ClaimToken();
+        var deadline = Accepted.Add(MaxDuration);
+
+        Assert.True(job.CanClaimFinalization(deadline.AddTicks(-1), 3, MaxDuration));
+        Assert.False(job.CanClaimFinalization(deadline, 3, MaxDuration));
+        Assert.False(job.CanClaimFinalization(deadline.AddHours(1), 3, MaxDuration));
+        Assert.False(job.CanClaimFinalization(deadline.AddTicks(-1), 3, TimeSpan.Zero), "a non-positive maximum permits nothing");
+        Assert.Equal(0, job.FinalizationAttemptCount);
+        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(hash, deadline, TimeSpan.FromMinutes(5), 3, MaxDuration));
+    }
+
+    [Theory]
+    [InlineData(0)]     // now == deadline
+    [InlineData(1)]     // now > deadline by one tick
+    [InlineData(3_600_000_000)] // an hour after
+    public void ClaimFinalizationItselfRefusesAtOrAfterMaximumFinalizationDuration(long ticksAfterDeadline)
+    {
+        // The transition, not the predicate: a caller that bypassed the SQL pre-filter is refused
+        // here, with nothing touched (F3 plan §8.6, amendment 2).
+        var job = FinalizingJob();
+        var (_, hash) = ClaimToken();
+        var now = Accepted.Add(MaxDuration).AddTicks(ticksAfterDeadline);
+
+        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(hash, now, TimeSpan.FromMinutes(5), 3, MaxDuration));
+
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+        Assert.Equal(0, job.FinalizationAttemptCount);
+        Assert.Null(job.FinalizationClaimTokenHash);
+        Assert.Null(job.FinalizationClaimExpiresAtUtc);
+        Assert.Null(job.FinalizationClaimExtendedAtUtc);
+        Assert.Equal(FinalizationClaimState.Unclaimed, job.FinalizationClaimStateAt(now));
+    }
+
+    [Fact]
+    public void ClaimFinalizationSucceedsImmediatelyBeforeMaximumFinalizationDuration()
+    {
+        var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        var now = Accepted.Add(MaxDuration).AddTicks(-1);
+
+        job.ClaimFinalization(hash, now, TimeSpan.FromMinutes(5), 3, MaxDuration);
+
+        Assert.Equal(1, job.FinalizationAttemptCount);
+        Assert.NotNull(job.FinalizationClaimTokenHash);
+        Assert.Equal(now.AddMinutes(5), job.FinalizationClaimExpiresAtUtc);
+        Assert.Equal(now, job.FinalizationClaimExtendedAtUtc);
+        Assert.True(job.FinalizationOwnedBy(token, now));
+        // An expired claim is reclaimable only while still before the deadline.
+        var (_, second) = ClaimToken(2);
+        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(second, now.AddMinutes(6), TimeSpan.FromMinutes(5), 3, MaxDuration));
+    }
+
+    [Fact]
+    public void ClaimCanBeExtendedBeforeMaximumFinalizationDuration()
+    {
+        var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        var deadline = Accepted.Add(MaxDuration);
+        job.ClaimFinalization(hash, deadline.AddMinutes(-3), TimeSpan.FromMinutes(5), 3, MaxDuration);
+
+        job.ExtendFinalizationClaim(token, deadline.AddTicks(-1), TimeSpan.FromMinutes(5), MaxDuration);
+
+        Assert.Equal(deadline.AddTicks(-1).AddMinutes(5), job.FinalizationClaimExpiresAtUtc);
+        Assert.Equal(deadline.AddTicks(-1), job.FinalizationClaimExtendedAtUtc);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(60_000_000_000)]
+    public void ClaimCannotBeExtendedAfterMaximumFinalizationDuration(long ticksAfterDeadline)
+    {
+        var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        var deadline = Accepted.Add(MaxDuration);
+        var claimedAt = deadline.AddMinutes(-1);
+        job.ClaimFinalization(hash, claimedAt, TimeSpan.FromHours(2), 3, MaxDuration);
+        var now = deadline.AddTicks(ticksAfterDeadline);
+        Assert.True(job.FinalizationOwnedBy(token, now), "the claim is live: the deadline does not revoke it");
+
+        Assert.Throws<DomainValidationException>(() => job.ExtendFinalizationClaim(token, now, TimeSpan.FromMinutes(5), MaxDuration));
+
+        Assert.Equal(claimedAt.AddHours(2), job.FinalizationClaimExpiresAtUtc);
+        Assert.Equal(claimedAt, job.FinalizationClaimExtendedAtUtc);
+        Assert.True(job.FinalizationOwnedBy(token, now));
+    }
+
+    [Fact]
+    public void DurationExceededLiveClaimIsNotKilledImmediately()
+    {
+        var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        var deadline = Accepted.Add(MaxDuration);
+        job.ClaimFinalization(hash, deadline.AddMinutes(-1), TimeSpan.FromMinutes(10), 3, MaxDuration);
+        var afterDeadline = deadline.AddMinutes(5);
+
+        Assert.True(job.FinalizationOwnedBy(token, afterDeadline));
+        Assert.Equal(FinalizationClaimState.Live, job.FinalizationClaimStateAt(afterDeadline));
+        Assert.Throws<DomainValidationException>(() => job.ExhaustFinalization(afterDeadline, 3, MaxDuration));
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+
+        // The live claimant may still publish inside its granted window.
+        job.CompleteFinalization(token, afterDeadline);
+        Assert.Equal(VisionJobStatus.Completed, job.Status);
+    }
+
+    [Fact]
+    public void DurationExceededLiveClaimMayStillFailDeterministically()
+    {
+        var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        var deadline = Accepted.Add(MaxDuration);
+        job.ClaimFinalization(hash, deadline.AddMinutes(-1), TimeSpan.FromMinutes(10), 3, MaxDuration);
+
+        job.FailFinalization(token, "vision_finalization_payload_invalid", null, deadline.AddMinutes(5));
+
+        Assert.Equal(VisionJobStatus.Failed, job.Status);
+        Assert.Equal("vision_finalization_payload_invalid", job.FailureCode);
+    }
+
+    [Fact]
+    public void DurationExceededLiveClaimExpiresThenExhaustionApplies()
+    {
+        var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        var deadline = Accepted.Add(MaxDuration);
+        job.ClaimFinalization(hash, deadline.AddMinutes(-1), TimeSpan.FromMinutes(10), 3, MaxDuration);
+        var expiry = deadline.AddMinutes(9);
+
+        Assert.Throws<DomainValidationException>(() => job.ExhaustFinalization(expiry.AddTicks(-1), 3, MaxDuration));
+        Assert.False(job.CanClaimFinalization(expiry, 3, MaxDuration), "no new claim after the deadline");
+        Assert.Equal(FinalizationClaimState.Expired, job.FinalizationClaimStateAt(expiry));
+
+        job.ExhaustFinalization(expiry, 3, MaxDuration);
+
+        Assert.Equal(VisionJobStatus.Failed, job.Status);
+        Assert.Equal(VisionJob.FinalizationExhaustedFailureCode, job.FailureCode);
+        Assert.Equal(expiry, job.CompletedAtUtc);
+        Assert.False(job.FinalizationOwnedBy(token, expiry));
+    }
+
+    // -- canonical claim states (F3 plan §5.2) -----------------------------------------------
+
+    [Theory]
+    [InlineData(false, false, false, FinalizationClaimState.Unclaimed)]
+    [InlineData(true, true, true, FinalizationClaimState.Live)]
+    [InlineData(true, false, false, FinalizationClaimState.Malformed)]
+    [InlineData(false, true, false, FinalizationClaimState.Malformed)]
+    [InlineData(false, false, true, FinalizationClaimState.Malformed)]
+    [InlineData(true, true, false, FinalizationClaimState.Malformed)]
+    [InlineData(true, false, true, FinalizationClaimState.Malformed)]
+    [InlineData(false, true, true, FinalizationClaimState.Malformed)]
+    public void ClaimStateClassificationIsCanonical(bool hash, bool expiry, bool extendedAt, FinalizationClaimState expected)
+    {
+        var job = FinalizingJob();
+        var now = Now.AddMinutes(1);
+        SetClaimTriple(job, hash ? new byte[32] : null, expiry ? now.AddMinutes(5) : null, extendedAt ? now : null);
+
+        Assert.Equal(expected, job.FinalizationClaimStateAt(now));
+        if (expected == FinalizationClaimState.Live)
+            Assert.Equal(FinalizationClaimState.Expired, job.FinalizationClaimStateAt(now.AddMinutes(5)));
+    }
+
+    [Fact]
+    public void AWrongLengthHashIsMalformedEvenWithExpiryAndExtendedAt()
+    {
+        var job = FinalizingJob();
+        var now = Now.AddMinutes(1);
+        SetClaimTriple(job, new byte[31], now.AddMinutes(5), now);
+        Assert.Equal(FinalizationClaimState.Malformed, job.FinalizationClaimStateAt(now));
+    }
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    public void MalformedClaimIsNotClaimableNotExhaustibleNotOwned(bool hash, bool expiry, bool extendedAt)
+    {
+        var job = FinalizingJob();
+        var (token, newHash) = ClaimToken();
+        var now = Now.AddMinutes(1);
+        // The expiry, where present, is in the past: an OR-shaped "no live claim" rule would
+        // read every one of these rows as unclaimed or expired and act on it.
+        SetClaimTriple(job, hash ? SHA256.HashData(token) : null, expiry ? now.AddMinutes(-1) : null, extendedAt ? now.AddMinutes(-2) : null);
+        var before = (job.FinalizationClaimTokenHash, job.FinalizationClaimExpiresAtUtc, job.FinalizationClaimExtendedAtUtc);
+
+        Assert.Equal(FinalizationClaimState.Malformed, job.FinalizationClaimStateAt(now));
+        Assert.False(job.CanClaimFinalization(now, 3, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ClaimFinalization(newHash, now, TimeSpan.FromMinutes(5), 3, MaxDuration));
+        Assert.False(job.FinalizationOwnedBy(token, now));
+        Assert.Throws<DomainValidationException>(() => job.ExtendFinalizationClaim(token, now, TimeSpan.FromMinutes(5), MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, now));
+        Assert.Throws<DomainValidationException>(() => job.FailFinalization(token, "vision_finalization_payload_invalid", null, now));
+        // Attempts exhausted and the deadline passed: still not exhaustible.
+        Assert.Throws<DomainValidationException>(() => job.ExhaustFinalization(now, 0 + 1, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ExhaustFinalization(Accepted.Add(MaxDuration), 3, MaxDuration));
+
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+        Assert.Equal(0, job.FinalizationAttemptCount);
+        Assert.Equal(before, (job.FinalizationClaimTokenHash, job.FinalizationClaimExpiresAtUtc, job.FinalizationClaimExtendedAtUtc));
+    }
+
+    [Fact]
+    public void CanonicalExpiredClaimIsReclaimable()
+    {
+        var job = FinalizingJob();
+        var (first, firstHash) = ClaimToken(1);
+        var (second, secondHash) = ClaimToken(2);
+        job.ClaimFinalization(firstHash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 3, MaxDuration);
+        var expired = Now.AddMinutes(6);
+
+        Assert.Equal(FinalizationClaimState.Expired, job.FinalizationClaimStateAt(expired));
+        Assert.True(job.CanClaimFinalization(expired, 3, MaxDuration));
+        job.ClaimFinalization(secondHash, expired, TimeSpan.FromMinutes(5), 3, MaxDuration);
+
+        Assert.Equal(FinalizationClaimState.Live, job.FinalizationClaimStateAt(expired));
+        Assert.True(job.FinalizationOwnedBy(second, expired));
+        Assert.False(job.FinalizationOwnedBy(first, expired));
+    }
+
+    // -- release --------------------------------------------------------------------------
+
+    [Fact]
+    public void ReleaseFinalizationClaimIsFencedAndMakesTheJobReclaimable()
+    {
+        var job = FinalizingJob();
+        var (token, hash) = ClaimToken(1);
+        var (other, otherHash) = ClaimToken(2);
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(30), 3, MaxDuration);
+        var now = Now.AddMinutes(2);
+
+        Assert.Throws<DomainValidationException>(() => job.ReleaseFinalizationClaim(other, now));
+        Assert.Equal(Now.AddMinutes(31), job.FinalizationClaimExpiresAtUtc);
+
+        job.ReleaseFinalizationClaim(token, now);
+
+        Assert.Equal(now, job.FinalizationClaimExpiresAtUtc);
+        Assert.Equal(now, job.FinalizationClaimExtendedAtUtc);
+        Assert.NotNull(job.FinalizationClaimTokenHash);
+        Assert.Equal(FinalizationClaimState.Expired, job.FinalizationClaimStateAt(now));
+        Assert.False(job.FinalizationOwnedBy(token, now), "a released claim proves nothing, even at the release instant");
+        Assert.True(job.CanClaimFinalization(now, 3, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ReleaseFinalizationClaim(token, now.AddSeconds(1)));
+
+        job.ClaimFinalization(otherHash, now, TimeSpan.FromMinutes(5), 3, MaxDuration);
+        Assert.Equal(2, job.FinalizationAttemptCount);
+        Assert.True(job.FinalizationOwnedBy(other, now));
+    }
+
+    // -- exhaustion reconciliation (F3 plan §5.3) ---------------------------------------------
+
+    [Fact]
+    public void ExhaustFinalizationRequiresNoLiveClaim()
+    {
+        var job = FinalizingJob();
+        var (_, hash) = ClaimToken();
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(5), 1, MaxDuration);
+
+        // Attempts are exhausted, yet the claim is live: reconciliation must wait.
+        Assert.Throws<DomainValidationException>(() => job.ExhaustFinalization(Now.AddMinutes(5), 1, MaxDuration));
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+        Assert.NotNull(job.FinalizationClaimTokenHash);
+
+        job.ExhaustFinalization(Now.AddMinutes(6), 1, MaxDuration);
+        Assert.Equal(VisionJobStatus.Failed, job.Status);
+    }
+
+    [Fact]
+    public void ExhaustFinalizationRequiresAttemptOrDurationExhaustion()
+    {
+        var unclaimed = FinalizingJob();
+        Assert.Throws<DomainValidationException>(() => unclaimed.ExhaustFinalization(Now.AddMinutes(1), 3, MaxDuration));
+        Assert.Equal(VisionJobStatus.Finalizing, unclaimed.Status);
+
+        var (_, hash) = ClaimToken();
+        var attempts = FinalizingJob();
+        attempts.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(1), 2, MaxDuration);
+        attempts.ClaimFinalization(hash, Now.AddMinutes(3), TimeSpan.FromMinutes(1), 2, MaxDuration);
+        Assert.Throws<DomainValidationException>(() => attempts.ExhaustFinalization(Now.AddMinutes(5), 3, MaxDuration)); // attempts remain under a higher maximum
+        attempts.ExhaustFinalization(Now.AddMinutes(5), 2, MaxDuration);
+        Assert.Equal(VisionJobStatus.Failed, attempts.Status);
+
+        var duration = FinalizingJob();
+        var deadline = Accepted.Add(MaxDuration);
+        Assert.Throws<DomainValidationException>(() => duration.ExhaustFinalization(deadline.AddTicks(-1), 3, MaxDuration));
+        duration.ExhaustFinalization(deadline, 3, MaxDuration);
+        Assert.Equal(VisionJobStatus.Failed, duration.Status);
+    }
+
+    [Fact]
+    public void ExhaustFinalizationTakesNoTokenRetainsHandOffFactsAndCannotPublish()
+    {
+        var job = FinalizingJob();
+        var (token, hash) = ClaimToken();
+        job.ClaimFinalization(hash, Now.AddMinutes(1), TimeSpan.FromMinutes(1), 1, MaxDuration);
+        job.NoteFinalizationError("vision_finalization_io_transient");
+        var now = Now.AddMinutes(3);
+
+        job.ExhaustFinalization(now, 1, MaxDuration);
+
+        Assert.Equal(VisionJobStatus.Failed, job.Status);
+        Assert.Equal("vision_finalization_exhausted", job.FailureCode);
+        Assert.True(VisionJob.IsFinalizationFailureCode(job.FailureCode));
+        Assert.Null(job.FailureDetails);
+        Assert.Equal("vision_finalization_io_transient", job.FinalizationLastErrorCode);
+        Assert.Equal(now, job.CompletedAtUtc);
+        Assert.Equal(Digest, job.CompletionDigest);
+        Assert.Equal(Accepted, job.FinalizationAcceptedAtUtc);
+        Assert.Equal(1, job.FinalizationAttemptCount);
+        Assert.Equal("worker-a", job.LeaseOwner);
+        Assert.Null(job.FinalizationClaimTokenHash);
+        Assert.Null(job.FinalizationClaimExpiresAtUtc);
+        Assert.Null(job.FinalizationClaimExtendedAtUtc);
+        Assert.Throws<DomainValidationException>(() => job.CompleteFinalization(token, now.AddMinutes(1)));
+        Assert.Throws<DomainValidationException>(() => job.ExhaustFinalization(now.AddMinutes(1), 1, MaxDuration));
+        Assert.False(job.CanClaimFinalization(now.AddMinutes(1), 3, MaxDuration));
+    }
+
+    [Fact]
+    public void ExhaustFinalizationOnlyFromFinalizingWithValidBounds()
+    {
+        Assert.Throws<DomainValidationException>(() => LeasedJob().ExhaustFinalization(Now.AddDays(1), 1, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => VisionJob.Create(Guid.CreateVersion7(), "phase1", Now).ExhaustFinalization(Now.AddDays(1), 1, MaxDuration));
+        var job = FinalizingJob();
+        Assert.Throws<DomainValidationException>(() => job.ExhaustFinalization(Now.AddDays(1), 0, MaxDuration));
+        Assert.Throws<DomainValidationException>(() => job.ExhaustFinalization(Now.AddDays(1), 3, TimeSpan.Zero));
+        Assert.Equal(VisionJobStatus.Finalizing, job.Status);
+    }
+
+    /// <summary>Writes the ownership triple directly, as only a database edit could: the aggregate never does.</summary>
+    private static void SetClaimTriple(VisionJob job, byte[]? hash, DateTimeOffset? expiresAtUtc, DateTimeOffset? extendedAtUtc)
+    {
+        typeof(VisionJob).GetProperty(nameof(VisionJob.FinalizationClaimTokenHash))!.SetValue(job, hash);
+        typeof(VisionJob).GetProperty(nameof(VisionJob.FinalizationClaimExpiresAtUtc))!.SetValue(job, expiresAtUtc);
+        typeof(VisionJob).GetProperty(nameof(VisionJob.FinalizationClaimExtendedAtUtc))!.SetValue(job, extendedAtUtc);
     }
 
     // -- synchronous completion is untouched --------------------------------------------------
