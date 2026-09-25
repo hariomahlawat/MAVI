@@ -451,6 +451,12 @@ Transient IO/database/host errors are retried within:
 - maximum finalization attempts;
 - maximum finalization duration.
 
+Normal claimant-owned terminal failure remains claim-fenced through `VisionJob.FailFinalization(claimToken, code, details, nowUtc)`.
+
+F3 must also provide a **separately fenced platform reconciliation transition** for the case where no live claim remains and another claim is no longer permitted because the maximum attempt count or maximum finalization duration has been exhausted. That transition is failure-only: it must run under the authoritative VisionJob row lock, re-read `Finalizing` state, prove that no live claim exists, prove the configured exhaustion condition from persisted state/current time, and then move the job to the distinct finalization-exhausted terminal failure. It must not accept a stale claimant token, publish results, or serve as a general bypass around claim ownership.
+
+This prevents the final permitted claimant crashing and leaving the job permanently `Finalizing` while preserving the rule that a stale claimant cannot terminally mutate a job owned by another live claimant.
+
 When exhausted, fail with a distinct finalization-exhausted code.
 
 The corresponding ProcessingRun and VideoAsset use their existing failed-processing transitions consistently.
