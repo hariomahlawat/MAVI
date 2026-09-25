@@ -109,19 +109,56 @@ The platform finalizer (`VisionFinalizationHostedService`, in the API host) cons
 
 **Production default is off.** `VisionFinalization:Enabled = false` and the worker's `MAVI_COMPLETION_SCHEMA_VERSION = 3.0`. While off, the platform advertises and accepts 2.0 and 3.0 synchronously, refuses 3.1, no job can enter `Finalizing`, and the finalizer host only refreshes its read-only health counts (event 1500). Activation is a controlled step after F3 review; do not flip it as part of a routine deployment.
 
-**Activation sequence** (F3 plan §13.1):
+**Activation sequence** (F3 plan §13.1; S1.4 F4 execution plan §11.3). The completion contract changes between `["2.0","3.0"]` and `["2.0","3.1"]`, and restarting a fleet of API hosts is not atomic. **No worker may lease while the hosts could disagree.** For example, a 3.0 worker that probed a gate-off host and leased would have its completion refused by a gate-on host (`worker_contract_version_unsupported`). Rollback has the inverse race.
 
-1. Deploy the F3 platform binary with `VisionFinalization:Enabled = false`. Confirm `GET /api/health` shows `details.visionFinalization.enabled = false` and the process started without an options validation error (the section is validated even while disabled).
-2. Set `VisionFinalization:Enabled = true` on **every** API host and restart them. The probe now lists `["2.0","3.1"]`, 3.0 is refused (`worker_contract_version_unsupported`), and the finalizer polls. All hosts must carry the same value: a host with the gate off refuses 3.1 and finalizes nothing; a host with it on advertises 3.1. Check `enabled` on each host's health.
-3. Set `MAVI_COMPLETION_SCHEMA_VERSION = 3.1` on every worker and restart them. Between steps 2 and 3 the 3.0 workers fail closed at the probe and lease nothing: that brief pause is intended, not a fallback.
-4. Watch `details.visionFinalization`: `finalizingJobs` rises with hand-offs and falls as jobs publish; `liveClaims` is at most the number of hosts × `MaxConcurrentFinalizations`; `malformedClaims` must stay 0.
+The worker fleet is therefore stopped for the whole contract change in both directions:
+- it is started only after every host has been verified directly on the new contract;
+- load-balancer affinity is never relied on.
 
-**Rollback / disable** (F3 plan §13.3). Disabling the gate stops new hand-offs **and** the finalizer, so `Finalizing` rows must be drained first:
+When enabled, 3.0 is refused (`worker_contract_version_unsupported`) and the finalizer polls. All hosts must carry the same value: a host with the gate off refuses 3.1 and finalizes nothing.
 
-1. Set every worker back to `MAVI_COMPLETION_SCHEMA_VERSION = 3.0` and restart. They fail closed at the probe (the platform still advertises 3.1), so no new hand-off can arrive.
-2. Poll `GET /api/health` until `details.visionFinalization.finalizingJobs == 0` **and** `countsRefreshedAtUtc` is within the last two `PollIntervalSeconds` (on any host: the count is PostgreSQL's row count across the deployment; confirm `enabled` on each host).
-3. If `malformedClaims > 0`, stop: those rows never drain on their own (below).
-4. Set `VisionFinalization:Enabled = false` on every API host and restart. The probe reverts to `["2.0","3.0"]`.
+1. **Platform on the new binary, gate held off.**
+   - Deploy the platform binary on every API host with `VisionFinalization:Enabled = false`. Where the binary's shipped default is `true`, hold it `false` with a machine-configuration override (`appsettings.<environment>.machine.json` or `MAVI_MACHINE_CONFIG`).
+   - On **each host directly**, not through the load balancer, confirm three things:
+     - `GET /api/health` shows `details.visionFinalization.enabled = false`, with no options validation error;
+     - `GET /api/vision/contract` lists `completionSchemaVersions` exactly `["2.0","3.0"]`;
+     - `malformedClaims == 0`.
+   - Workers keep running on 3.0 during this step.
+2. **Quiesce the worker fleet.** Stop every worker and keep it stopped: disable any service-manager restart, and confirm on every worker host that no worker process runs.
+   - A job a stopped worker had leased returns to the queue when its lease expires.
+   - Only that attempt's inference is lost.
+3. **Change the contract on every host.** Set `VisionFinalization:Enabled = true`, or remove the override, on every API host. Restart every host.
+4. **Verify every host.** On each host directly:
+   - `details.visionFinalization.enabled = true`;
+   - `completionSchemaVersions` exactly `["2.0","3.1"]`;
+   - `malformedClaims == 0`.
+
+   Do not continue until every host passes.
+5. **Start workers on 3.1.** Set `MAVI_COMPLETION_SCHEMA_VERSION = 3.1` (or install the worker package whose default is 3.1) on every worker and start them.
+   - Each worker probes the contract before every lease.
+   - Confirm in each worker's log that its first lease followed a probe listing `"3.1"`, with no `vision_platform_contract_unsupported`.
+6. **Watch the finalizer.** In `details.visionFinalization`:
+   - `finalizingJobs` rises with hand-offs and falls as jobs publish;
+   - `liveClaims` stays at most the number of hosts × `MaxConcurrentFinalizations`;
+   - `malformedClaims` stays 0.
+
+**Rollback / disable** (F3 plan §13.3). Disabling the gate stops new hand-offs **and** the finalizer, so `Finalizing` rows must be drained first, with the worker fleet stopped for the whole change:
+
+1. **Quiesce the worker fleet.** Stop every worker and keep it stopped, as in activation step 2.
+   - Every API host stays **enabled**, so the finalizer keeps draining.
+   - No new hand-off can arrive.
+   - A hand-off that landed as a worker stopped is a `Finalizing` row, which step 2 drains.
+2. **Drain.** Poll `GET /api/health` until `details.visionFinalization.finalizingJobs == 0` **and** `countsRefreshedAtUtc` is within the last two `PollIntervalSeconds`.
+   - Any host will do: the count is PostgreSQL's row count across the deployment.
+   - Confirm `enabled = true` on each host while draining.
+3. **Malformed claims.** If `malformedClaims > 0`, stop: those rows never drain on their own (below).
+4. **Change the contract on every host.** Set `VisionFinalization:Enabled = false` on every API host (a machine-configuration override where the shipped default is `true`). Restart every host.
+5. **Verify every host.** On each host directly:
+   - `details.visionFinalization.enabled = false`;
+   - `completionSchemaVersions` exactly `["2.0","3.0"]`.
+
+   Do not continue until every host passes.
+6. **Start workers on 3.0.** Set `MAVI_COMPLETION_SCHEMA_VERSION = 3.0` on every worker and start them. Confirm in each worker's log that its first lease followed a probe listing `"3.0"`.
 
 A pre-F1 platform binary is never deployed while `Finalizing` rows or unfinished payload rows exist: the `AddVisionFinalization` migration's `Down` refuses.
 

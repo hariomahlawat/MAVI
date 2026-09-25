@@ -397,28 +397,34 @@ No mocked finalizer, no in-memory shortcut: the harness registers only the timin
 
 ### 10.1 Inputs
 
-From the **exploratory** B3-B runs at M1 (both OS where available; the slower OS governs), with the development defaults in force:
+From the **exploratory** B3-B runs at M1 (both OS where available), with the development defaults in force.
 
-- `S_batch_max`, `S_batch_p95`: wall between consecutive extensions (one `SealingBatchSize` batch);
-- `L_first`: claim → first extension (payload load + revalidation);
+All inputs are in **seconds**: harness milliseconds ÷ 1000, ticks ÷ `stopwatchFrequency`, with no intermediate rounding. Each input is the maximum of its own metric over every sample, warm-up included, of every available OS. The governing OS may differ per input. Field-level definitions are in the execution plan (`2026-09-25-s1-4-f4-m1-to-m2-execution-plan.md` §7.0).
+
+- `S_batch_max`, `S_batch_p95`: wall between consecutive extension returns (one `SealingBatchSize` batch, including one extension round trip);
+- `G_max`: in-memory graph build, last extension return → `PublishAsync` entry;
+- `P_max`: publication transaction, begin → commit completed;
 - `T_max`, `T_p95`: total hand-off-to-publication;
-- `P_max`: publication transaction;
-- extension overhead: Σ extension round-trips / seal wall.
+- the first-claim interval (claim return → initial extension return) and extension overhead (Σ extension round-trips / seal wall): **not retained by the M1 harness**. They are not used as inputs (§10.2, §10.7).
 
 ### 10.2 Rules
 
 | Value | Rule | Rationale |
 |---|---|---|
-| `SealingBatchSize` | keep 200 unless extension overhead > 5 % of seal wall (then raise so that overhead ≤ 5 %) or `S_batch_max > ClaimExtensionSeconds / 4` (then lower) | batches bound how much work a lost claim wastes and how often ownership is re-proven |
-| `ClaimExtensionSeconds` | `≥ 4 × S_batch_max`, rounded up to 30 s, `≥ 30` | a stalled batch (IO hiccup) must not lose the claim spuriously; 4× is the margin |
-| `ClaimSeconds` | `≥ max(ClaimExtensionSeconds, 4 × L_first, 4 × P_max)`, rounded up to 60 s | the first claim must survive payload load; a claim must survive the publication transaction, which extends nothing |
-| `MaximumFinalizationAttempts` | keep 3 unless the crash harness shows adoption needs more | three chances before a job is exhausted |
-| `MaximumFinalizationDurationSeconds` | `≥ MaximumFinalizationAttempts × (ClaimSeconds + 2 × T_max)`, rounded up to 300 s, and `≥ 2 × T_max` so that the B3-B criterion has margin by construction | the product recovery requirement: every permitted attempt can run to completion at twice the measured worst case, after waiting out a dead predecessor's claim |
+| `SealingBatchSize` | keep 200. The overhead trigger (> 5 %, raise) cannot be evaluated because extension round trips are not retained. If `S_batch_max > ClaimExtensionSeconds / 4` against the M1 value (300 s), stop and report: a changed batch size cannot be measured at M1 and is never estimated | batches bound how much work a lost claim wastes and how often ownership is re-proven |
+| `ClaimExtensionSeconds` | `E_req = 4 × max(S_batch_max, G_max + P_max)`; `ClaimExtensionSeconds = max(M1 value, ceilTo(E_req, 30))` | a stalled batch must not lose the claim spuriously, **and** the last extension's grant must survive graph build and the publication transaction, whose claim-fenced completion re-proves ownership (§10.7); 4× is the margin |
+| `ClaimSeconds` | `ClaimSeconds = max(M1 value, ClaimExtensionSeconds, ceilTo(4 × T_max, 60))` | the initial claim must survive claim → initial extension, an interval not retained but contained in hand-off → publication, so `T_max` bounds it; `ClaimSeconds ≥ ClaimExtensionSeconds` as the options validator requires |
+| `MaximumFinalizationAttempts` | keep 3; if the crash harness shows adoption needs more, stop and report (not changed in F4-C) | three chances before a job is exhausted |
+| `MaximumFinalizationDurationSeconds` | `M_req = max(MaximumFinalizationAttempts × (ClaimSeconds + 2 × T_max), 2 × T_max)`; `M_bound = ceilTo(M_req, 300)`; stop if `M_bound > 21600`, otherwise keep the M1 value (21,600 s) | the product recovery requirement: every permitted attempt can run to completion at twice the measured worst case, after waiting out a dead predecessor's claim |
 | `PollIntervalSeconds` | keep 5 | contributes ≤ 5 s to the effective bound; API-host load negligible |
 | `MaxConcurrentFinalizations` | keep 1 unless the API-contention record shows headroom **and** a product need is stated; F4 expects to keep 1 | the finalizer shares the API process |
 | `PayloadCleanupGraceSeconds` | keep 0 | not timing-bearing |
 
-The effective bound is computed and written into the freeze decision: `MaximumFinalizationDurationSeconds + ClaimSeconds + PollIntervalSeconds`; it must be operationally acceptable (the record states it in hours). If the rules yield a value above the development default (21,600 s) or an effective bound above 24 h, stop and report: the measurement says the envelope is slower than the architecture assumed.
+`ceilTo(x, g) = g × ⌈x / g⌉`. **Never lower:** every rule yields a floor, and no value is frozen below its M1 committed value (§10.7).
+
+The effective bound is computed and written into the freeze decision: `MaximumFinalizationDurationSeconds + ClaimSeconds + PollIntervalSeconds`. It must be operationally acceptable, and the record states it in hours.
+
+If `M_bound` exceeds the development default (21,600 s), or the effective bound exceeds 24 h, stop and report: the measurement says the envelope is slower than the architecture assumed. With the `ClaimSeconds` rule, `M_bound ≤ 21600` holds exactly when `T_max ≤ 1200 s`. This is an activation stop, not a B3 criterion (§10.7).
 
 ### 10.3 The freeze is a reviewed decision, not a fit to the criterion
 
@@ -438,13 +444,41 @@ The shipped default at `480afb0` (`Enabled=false`, worker `3.0`) is the path tha
 
 - `src/platform/Mavi.Api/appsettings.json`: `VisionFinalization:Enabled = true`;
 - `src/vision/mavi_vision/common/settings.py`: `completion_schema_version` default `"3.1"`, with the worker tests that pin the default flipped (`test_the_default_worker_emits_the_synchronous_completion`, `test_the_default_worker_refuses_a_hand_off_acknowledgement`, `test_the_default_worker_accepts_the_pre_activation_platform`, `test_a_platform_listing_only_completion_3_1_is_unsupported_for_the_default_worker` become their 3.1 counterparts), and the activation-gate tests (`VisionFinalizationActivationGateTests`) updated only where they assert the shipped default;
-- the runbook: the activation sequence (platform hosts first, then workers) becomes the normal deployment order for this release, and the drain-before-disable procedure becomes the rollback path.
+- the runbook: the activation sequence becomes the normal deployment order for this release, and the drain-before-disable procedure becomes the rollback path.
+  - **Activation:** the platform on every host with the gate held off; the worker fleet stopped; the contract changed and verified on every host directly; then workers started on 3.1.
+  - **Rollback:** the worker fleet stopped; drain; the contract changed back and verified on every host; then workers started on 3.0.
+  - In both directions the worker fleet is stopped for the whole contract change, so no worker leases while hosts could advertise different completion contracts (execution plan §11.3).
 
-"Subject to the freeze measurements" means: the activation lands in F4-C only if the exploratory B3-A and B3-B at M1 meet their criteria under the §10.2 rules (B3-A max ≤ 15 s on each available OS; B3-B max within ½ of the derived `MaximumFinalizationDurationSeconds`; no §30 stop condition such as a derived `Max` above the development default, an effective bound above 24 h, premature visibility or more than one publication). If any of those fails, F4-C does not activate: F4 stops and reports, and the activation is re-decided after a separate product repair. With the activation shipped, B3 PASS, the disconnected run and B5's real-video path all describe the shipped default, and the §26 non-claim about an unactivated default does not apply.
+"Subject to the freeze measurements" means: the activation lands in F4-C only if the exploratory B3-A and B3-B at M1 meet their criteria under the §10.2 rules (B3-A max ≤ 15 s on each available OS; B3-B max within ½ of the derived `MaximumFinalizationDurationSeconds`; no §30 stop condition such as a derived `M_bound` above the development default (§10.2), an effective bound above 24 h, premature visibility or more than one publication). If any of those fails, F4-C does not activate: F4 stops and reports, and the activation is re-decided after a separate product repair. With the activation shipped, B3 PASS, the disconnected run and B5's real-video path all describe the shipped default, and the §26 non-claim about an unactivated default does not apply.
 
 ### 10.6 Freeze decision document
 
-`docs/qualification/stage2-s1/f4-configuration-freeze.md`: the M1 SHA, hosts, exploratory outputs and hashes, the measured inputs per OS, the rule arithmetic, the chosen values, the effective bound, the activation decision, reviewer sign-off. The evidence record's `frozenConfiguration` block repeats the values and the checker compares them with `appsettings.json` at M2.
+`docs/qualification/stage2-s1/f4-configuration-freeze.md` records:
+- the M1 SHA;
+- hosts;
+- exploratory outputs and hashes;
+- the measured inputs per OS and pooled, with the governing OS of each input, all in seconds;
+- the statement that the first-claim interval and extension overhead are not retained at M1, and that `ClaimSeconds` therefore uses the conservative `4 × T_max` bound;
+- the rule arithmetic, including the never-lower comparison with each M1 value;
+- the chosen values;
+- the effective bound;
+- the activation decision;
+- reviewer sign-off.
+
+The evidence record's `frozenConfiguration` block repeats the values, and the checker compares them with `appsettings.json` at M2.
+
+### 10.7 Amendment (2026-09-25, execution-plan review): claim sizing and never-lower
+
+This corrects rules of §10.2. It is not an architecture change. F3's lifecycle, the B3 criteria (§8.4, §9.3) and the checker are unchanged.
+
+1. **`ClaimExtensionSeconds` must cover publication.** The original rule, `≥ 4 × S_batch_max`, sized only a batch, and was unsafe.
+   - The executor extends the claim before sealing and after every batch (`VisionFinalizationExecutor`). The last extension precedes graph build and `PublishAsync`.
+   - `VisionFinalizationLifecycle.PublishAsync` persists the graph, acquires the visibility barrier and allocates the sequence. It then calls `VisionJob.CompleteFinalization`, which re-proves `FinalizationOwnedBy(claimToken, now)`.
+   - The claim live at that instant is the **last extension's grant** (`ClaimExtensionSeconds`), not the initial `ClaimSeconds` grant.
+   - A batch-only extension (for example 30 s) could expire during graph persistence. The publication then rolls back as stale, and every retry repeats it until the job is exhausted.
+   - Corrected rule (§10.2): `E_req = 4 × max(S_batch_max, G_max + P_max)`, all in seconds.
+2. **`ClaimSeconds` uses a proven bound.** The first-claim interval is not retained at M1, and no retained per-batch value is a proven upper bound on it. It lies inside `[acceptedAtUtc, commitCompleted]`, so `T_max` bounds it; §10.2 uses `4 × T_max`. A future harness revision may retain the exact interval if a tighter value is wanted.
+3. **Never lower.** The deadline runs from `FinalizationAcceptedAtUtc` for every `Finalizing` row, claimed or not. Reconciliation exhausts a never-claimed row at the deadline. With `MaxConcurrentFinalizations = 1`, lowering `MaximumFinalizationDurationSeconds` toward the per-job formula would exhaust a backlog of unattempted hand-offs. Lowering claim durations changes recovery latency, which F4 does not qualify. Every derived value is a floor over the M1 committed value.
 
 ---
 
@@ -896,4 +930,4 @@ No P1 remains unaddressed inside the plan. The activation default and Path A are
 5. **PR #87.** Default: H1, the owner closes it unmerged as historical when F4-E opens; its branch stays as the archive; F4 never cites it as evidence and the checker refuses its artifacts. Docs-only merge under `history/` only for a stated archival reason.
 6. **Disconnected host and variant.** Which isolated host (Linux recommended) and who executes the operator steps.
 
-**Stop-and-report conditions during execution** (in addition to the S1.4 plan §14 and B3 plan §14): B3-A max > 15 s on either variant; B3-B total max > ½ frozen `Max`, or the §10.2 rule yields `Max` above the development default or an effective bound above 24 h; any premature visibility; publications per job ≠ 1; a crash-matrix H row that does not converge or adopts fewer objects than were sealed; an API 5xx or timeout during finalization; a non-loopback connect attempt in the disconnected trace; a B1 mismatch; a B2 bound violation; any `pipelineProfileSha256` drift; a hidden dependency; a publication timeline that violates the §9.2.1 ordering or the §9.2.2 bracket proofs; any P1/P2 in the independent review of the executed record. Each stops F4, is reported with the retained output, and is repaired outside F4 on its own SHA.
+**Stop-and-report conditions during execution** (in addition to the S1.4 plan §14 and B3 plan §14): B3-A max > 15 s on either variant; B3-B total max > ½ frozen `Max`, or the §10.2 rule yields `M_bound` above the development default (equivalently `T_max > 1200 s`) or an effective bound above 24 h; any premature visibility; publications per job ≠ 1; a crash-matrix H row that does not converge or adopts fewer objects than were sealed; an API 5xx or timeout during finalization; a non-loopback connect attempt in the disconnected trace; a B1 mismatch; a B2 bound violation; any `pipelineProfileSha256` drift; a hidden dependency; a publication timeline that violates the §9.2.1 ordering or the §9.2.2 bracket proofs; any P1/P2 in the independent review of the executed record. Each stops F4, is reported with the retained output, and is repaired outside F4 on its own SHA.
