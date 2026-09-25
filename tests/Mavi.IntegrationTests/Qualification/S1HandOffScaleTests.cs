@@ -216,6 +216,8 @@ public sealed class S1HandOffScaleTests
         Assert.Equal(1, lease.AttemptCount);
         var request = S1QualificationSupport.Request(lease, staged, WorkerContractRules.CompletionSchemaVersionV31);
         var bodyBytes = JsonSerializer.SerializeToUtf8Bytes(request, S1QualificationSupport.Web).LongLength;
+        // A second queued job for the release proof (§8.3), queued before the timed request.
+        var (_, nextJobId, _) = await S1QualificationSupport.QueueAsync(factory, client);
 
         var rssBefore = Process.GetCurrentProcess().WorkingSet64;
         var stopwatch = Stopwatch.StartNew();
@@ -252,6 +254,14 @@ public sealed class S1HandOffScaleTests
         var replayAck = (await replay.Content.ReadFromJsonAsync<VisionJobFinalizationResponse>())!;
         Assert.Equal(1, await db.VisionFinalizationPayloads.CountAsync());
 
+        // Release proof (§8.3): after the response the same worker leases a different queued
+        // job, while the handed-off job is still Finalizing with no graph.
+        var next = await VisionResultCompletionApiTests.LeaseAsync(client, lease.WorkerId);
+        var workerReleased = next.JobId == nextJobId && next.JobId != lease.JobId
+            && (await db.VisionJobs.AsNoTracking().SingleAsync(x => x.Id == lease.JobId)).Status == VisionJobStatus.Finalizing
+            && await S1QualificationSupport.PublishedRowsAsync(factory) == 0;
+        Assert.True(workerReleased, $"worker {lease.WorkerId} leased {next.JobId}, not the queued {nextJobId}");
+
         return new Sample(new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["handOffMs"] = handOffMs,
@@ -267,6 +277,8 @@ public sealed class S1HandOffScaleTests
             ["claimTripleNull"] = claimNull,
             ["stagedObjects"] = shape.StagedObjects,
             ["replayState"] = replayAck.State,
+            ["workerReleased"] = workerReleased,
+            ["workerReleaseLeasedJobId"] = next.JobId,
             ["requestBodyBytes"] = bodyBytes,
             ["payloadBytes"] = payloadBytes,
             ["stagedBytes"] = shape.StagedBytes,

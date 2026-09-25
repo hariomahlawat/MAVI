@@ -22,7 +22,7 @@ namespace Mavi.IntegrationTests.Qualification;
 /// The F3 publication (<c>VisionFinalizationLifecycle.PublishAsync</c>) runs, in one
 /// transaction: the job <c>FOR UPDATE</c>; the no-graph check; <c>FinalizationGraphPersistence.AddAsync</c>
 /// (graph tracking plus one <c>SaveChanges</c>); the exclusive advisory barrier; the sequence
-/// (a raw command, invisible here); the terminal transitions; the final <c>SaveChanges</c>; the
+/// (a raw command, invisible here; <see cref="SequenceAllocationObserver"/> counts it); the terminal transitions; the final <c>SaveChanges</c>; the
 /// commit. The job row lock is <b>not</b> the visibility barrier.
 /// </para>
 /// <para>
@@ -68,7 +68,7 @@ internal sealed class PublicationTimelineRecorder
 
     public static string ReadBarrierSql() => ReadConstant("PublicationExclusiveSql");
 
-    private static string ReadConstant(string name)
+    internal static string ReadConstant(string name)
     {
         var field = typeof(ProcessingVisibilityBarrier).GetField(name, BindingFlags.NonPublic | BindingFlags.Static)
             ?? throw new InvalidOperationException($"ProcessingVisibilityBarrier.{name} is not found; the barrier cannot be identified.");
@@ -444,4 +444,47 @@ internal static class PublicationScope
     }
 
     public static void Exit() => CurrentScope.Value = null;
+}
+
+/// <summary>
+/// Counts visibility-sequence allocations per <see cref="PublicationScope"/> (F4 plan §9.2, §11:
+/// one sequence per publication). <c>ProcessingVisibilityBarrier.AllocateSequenceAsync</c> issues
+/// its <c>nextval</c> through a raw command that no EF interceptor sees, and the run's
+/// <c>visibility_sequence</c> column holds only the last value, so a second allocation would be
+/// invisible to a row count. Npgsql's own <see cref="ActivitySource"/> reports every command it
+/// executes; the activity stops in the caller's async flow, so the scope is the caller's.
+/// The allocation text is the product's <c>NextSequenceSql</c>, read by reflection.
+/// </summary>
+internal sealed class SequenceAllocationObserver : IDisposable
+{
+    public const string NpgsqlActivitySource = "Npgsql";
+    private readonly ActivityListener _listener;
+    private readonly ConcurrentQueue<long?> _allocations = new();
+
+    public SequenceAllocationObserver()
+    {
+        SequenceSql = PublicationTimelineRecorder.Normalize(PublicationTimelineRecorder.ReadConstant("NextSequenceSql"));
+        _listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == NpgsqlActivitySource,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                var sql = activity.GetTagItem("db.query.text") as string ?? activity.GetTagItem("db.statement") as string;
+                if (sql is not null && PublicationTimelineRecorder.Normalize(sql) == SequenceSql)
+                    _allocations.Enqueue(PublicationScope.Current);
+            },
+        };
+        ActivitySource.AddActivityListener(_listener);
+    }
+
+    public string SequenceSql { get; }
+
+    /// <summary>Allocations observed anywhere in the process since this observer started.</summary>
+    public int Total => _allocations.Count;
+
+    /// <summary>Allocations issued inside one PublishAsync call.</summary>
+    public int In(long? scope) => scope is null ? 0 : _allocations.Count(s => s == scope);
+
+    public void Dispose() => _listener.Dispose();
 }

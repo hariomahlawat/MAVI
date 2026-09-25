@@ -32,8 +32,9 @@ namespace Mavi.IntegrationTests.Qualification;
 /// <para>
 /// Each row starts from a fresh schema and empty roots, kills at a declared point, restarts
 /// where the scenario needs it, and records the kill point, restart latency, created/adopted
-/// objects (from event 1504 of the surviving host), final state, publications, visibility
-/// sequences and orphan bytes (accepted files no Artifact row references). A row passes only if
+/// objects (from event 1504 of the surviving host), final state, publications (the run's Track
+/// rows, with event 1504 as a cross-check), visibility sequence and its stability, live claims
+/// and orphan bytes (accepted files no Artifact row references). A row passes only if
 /// the job converges to exactly one publication and one sequence with every object accounted.
 /// </para>
 /// <para>
@@ -58,8 +59,11 @@ public sealed class S1FinalizationRecoveryTests
     [Fact]
     public void ARowPassesOnlyWhenItConvergesToOnePublication()
     {
-        var good = new RowFacts("Completed", 1, 1, 50_000, 30_000, 20_000, 0, true);
+        var good = new RowFacts("Completed", 1, 1, 50_000, 30_000, 20_000, 0, true, 10_000, 10_000, true, 1);
         Assert.Empty(RowProblems("host-death-mid-seal", good));
+        Assert.NotEmpty(RowProblems("two-hosts-racing", good with { GraphTrackRows = 20_000 }));  // published twice, a log line lost
+        Assert.NotEmpty(RowProblems("two-hosts-racing", good with { SequenceStable = false }));
+        Assert.NotEmpty(RowProblems("two-hosts-racing", good with { MaxLiveClaims = 2 }));
         Assert.NotEmpty(RowProblems("host-death-mid-seal", good with { Adopted = 0, Created = 50_000 }));  // recreated, never adopted
         Assert.NotEmpty(RowProblems("two-hosts-racing", good with { Publications = 2 }));
         Assert.NotEmpty(RowProblems("two-hosts-racing", good with { Sequences = 2 }));
@@ -68,7 +72,9 @@ public sealed class S1FinalizationRecoveryTests
         Assert.NotEmpty(RowProblems("host-death-before-first-claim", good with { KillPointHeld = false }));
     }
 
-    internal sealed record RowFacts(string FinalState, int Publications, long Sequences, int Expected, int Created, int Adopted, long OrphanBytes, bool KillPointHeld);
+    internal sealed record RowFacts(
+        string FinalState, int Publications, long Sequences, int Expected, int Created, int Adopted, long OrphanBytes, bool KillPointHeld,
+        int ExpectedTracks, long GraphTrackRows, bool SequenceStable, long MaxLiveClaims);
 
     internal static List<string> RowProblems(string scenario, RowFacts facts)
     {
@@ -76,6 +82,10 @@ public sealed class S1FinalizationRecoveryTests
         if (facts.FinalState != "Completed") problems.Add($"ended {facts.FinalState}");
         if (facts.Publications != 1) problems.Add($"{facts.Publications} publications");
         if (facts.Sequences != 1) problems.Add($"{facts.Sequences} visibility sequences");
+        // The database, not a console line, says how many graphs were published.
+        if (facts.ExpectedTracks <= 0 || facts.GraphTrackRows != facts.ExpectedTracks) problems.Add($"{facts.GraphTrackRows} Track rows for {facts.ExpectedTracks} Tracks");
+        if (!facts.SequenceStable) problems.Add("the run's visibility sequence changed after publication");
+        if (facts.MaxLiveClaims > 1) problems.Add($"{facts.MaxLiveClaims} live claims observed");
         if (facts.Created + facts.Adopted != facts.Expected) problems.Add($"created {facts.Created} + adopted {facts.Adopted} != {facts.Expected}");
         if (scenario == "host-death-mid-seal" && facts.Adopted == 0) problems.Add("nothing adopted after a mid-seal kill");
         if (!facts.KillPointHeld) problems.Add("the declared kill point did not hold");
@@ -147,7 +157,7 @@ public sealed class S1FinalizationRecoveryTests
     }
 
     /// <summary>Queues a seeded video, stages the worst shape and hands it off through <paramref name="api"/>.</summary>
-    private static async Task<(Guid JobId, int Expected)> HandOffAsync(Roots roots, HttpClient api, int tracks)
+    private static async Task<(Guid JobId, int Expected, int Tracks)> HandOffAsync(Roots roots, HttpClient api, int tracks)
     {
         using var factory = new ApiTestFactory { MediaRootOverride = roots.Media, EvidenceRootOverride = roots.Evidence };
         var videoId = await VisionResultCompletionApiTests.SeedVideoAsync(factory);
@@ -159,7 +169,7 @@ public sealed class S1FinalizationRecoveryTests
         Assert.Equal(jobId, lease.JobId);
         using var response = await api.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", S1QualificationSupport.Request(lease, staged, WorkerContractRules.CompletionSchemaVersionV31));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return (jobId, shape.StagedObjects);
+        return (jobId, shape.StagedObjects, shape.Tracks);
     }
 
     private static async Task<object> HostDeathBeforeFirstClaimAsync(string connection, string workRoot, int tracks)
@@ -173,13 +183,13 @@ public sealed class S1FinalizationRecoveryTests
         await using var a = ChildApiHost.Start("A", connection, roots.Media, roots.Evidence, aOverrides);
         await a.WaitHealthyAsync(TimeSpan.FromMinutes(2));
         using var api = a.Client();
-        var (jobId, expected) = await HandOffAsync(roots, api, tracks);
+        var (jobId, expected, expectedTracks) = await HandOffAsync(roots, api, tracks);
         var killedAt = a.Kill();
         var attemptsAtKill = await ScalarAsync<int>(connection, "SELECT finalization_attempt_count FROM vision_jobs WHERE id = $1", jobId);
 
         await using var b = ChildApiHost.Start("B", connection, roots.Media, roots.Evidence);
         var restart = await b.WaitHealthyAsync(TimeSpan.FromMinutes(2));
-        return await ConvergeAsync(scenario, connection, roots, jobId, expected, [a, b], restart,
+        return await ConvergeAsync(scenario, connection, roots, jobId, expected, expectedTracks, [a, b], restart,
             new { phase = "after hand-off acknowledgement, before any claim", finalizationAttemptsAtKill = attemptsAtKill, killedAtUtc = killedAt, hostAOverrides = aOverrides },
             attemptsAtKill == 0);
     }
@@ -191,7 +201,7 @@ public sealed class S1FinalizationRecoveryTests
         await using var a = ChildApiHost.Start("A", connection, roots.Media, roots.Evidence);
         await a.WaitHealthyAsync(TimeSpan.FromMinutes(2));
         using var api = a.Client();
-        var (jobId, expected) = await HandOffAsync(roots, api, tracks);
+        var (jobId, expected, expectedTracks) = await HandOffAsync(roots, api, tracks);
         // Kill when about 40 % of the objects are sealed (observed from the accepted root).
         var target = expected * 2 / 5;
         var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(30);
@@ -205,7 +215,7 @@ public sealed class S1FinalizationRecoveryTests
         var sealedAtKill = S1QualificationSupport.FileCount(roots.Evidence);
         await using var b = ChildApiHost.Start("B", connection, roots.Media, roots.Evidence);
         var restart = await b.WaitHealthyAsync(TimeSpan.FromMinutes(2));
-        return await ConvergeAsync(scenario, connection, roots, jobId, expected, [a, b], restart,
+        return await ConvergeAsync(scenario, connection, roots, jobId, expected, expectedTracks, [a, b], restart,
             new { afterSealedObjects = sealedAtKill, targetSealedObjects = target, killedAtUtc = killedAt },
             sealedAtKill > 0 && sealedAtKill < expected);
     }
@@ -219,8 +229,8 @@ public sealed class S1FinalizationRecoveryTests
         await a.WaitHealthyAsync(TimeSpan.FromMinutes(2));
         var restart = await b.WaitHealthyAsync(TimeSpan.FromMinutes(2));
         using var api = a.Client();
-        var (jobId, expected) = await HandOffAsync(roots, api, tracks);
-        return await ConvergeAsync(scenario, connection, roots, jobId, expected, [a, b], restart,
+        var (jobId, expected, expectedTracks) = await HandOffAsync(roots, api, tracks);
+        return await ConvergeAsync(scenario, connection, roots, jobId, expected, expectedTracks, [a, b], restart,
             new { phase = "no kill: two live hosts poll one Finalizing job" }, killPointHeld: true);
     }
 
@@ -250,42 +260,61 @@ public sealed class S1FinalizationRecoveryTests
         start.Environment["MAVI_MEDIA_ROOT"] = roots.Media;
         start.Environment["MAVI_COMPLETION_SCHEMA_VERSION"] = WorkerContractRules.CompletionSchemaVersionV31;
         using var worker = Process.Start(start)!;
-        worker.BeginOutputReadLine();
-        worker.BeginErrorReadLine();
-
-        // Kill the worker the moment the platform holds the hand-off.
-        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(10);
         string status;
-        while ((status = await ScalarAsync<string>(connection, "SELECT status FROM vision_jobs WHERE id = $1", jobId)) is not ("Finalizing" or "Completed" or "Failed"))
+        bool exitedBeforeKill;
+        try
         {
-            Assert.False(worker.HasExited && status is "Queued", $"the worker exited ({(worker.HasExited ? worker.ExitCode : 0)}) before leasing");
-            Assert.True(DateTime.UtcNow < deadline, "the worker never handed off");
-            await Task.Delay(10);
+            worker.BeginOutputReadLine();
+            worker.BeginErrorReadLine();
+
+            // Kill the worker the moment the platform holds the hand-off.
+            var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(10);
+            while ((status = await ScalarAsync<string>(connection, "SELECT status FROM vision_jobs WHERE id = $1", jobId)) is not ("Finalizing" or "Completed" or "Failed"))
+            {
+                Assert.False(worker.HasExited && status is "Queued", $"the worker exited ({(worker.HasExited ? worker.ExitCode : 0)}) before leasing");
+                Assert.True(DateTime.UtcNow < deadline, "the worker never handed off");
+                await Task.Delay(10);
+            }
+
+            exitedBeforeKill = worker.HasExited;
+        }
+        finally
+        {
+            // Never leave the worker running, whatever the harness saw.
+            if (!worker.HasExited) worker.Kill(entireProcessTree: true);
+            worker.WaitForExit();
         }
 
-        var exitedBeforeKill = worker.HasExited;
-        if (!worker.HasExited) worker.Kill(entireProcessTree: true);
-        worker.WaitForExit();
-        var expected = await PayloadObjectsAsync(connection, jobId);
-        return await ConvergeAsync(scenario, connection, roots, jobId, expected, [a], restart,
+        var (expected, expectedTracks) = await PayloadObjectsAsync(connection, jobId);
+        // The row is a death only if this harness killed a live worker after the hand-off.
+        return await ConvergeAsync(scenario, connection, roots, jobId, expected, expectedTracks, [a], restart,
             new { phase = "platform status Finalizing observed", statusAtKill = status, workerExitedBeforeKill = exitedBeforeKill, shape = "fixture_worker_harness natural shape" },
-            killPointHeld: status == "Finalizing");
+            killPointHeld: status == "Finalizing" && !exitedBeforeKill);
     }
 
     // -- convergence ----------------------------------------------------------------------------
 
     private static async Task<object> ConvergeAsync(
-        string scenario, string connection, Roots roots, Guid jobId, int expected, IReadOnlyList<ChildApiHost> hosts, TimeSpan restart, object killPoint, bool killPointHeld)
+        string scenario, string connection, Roots roots, Guid jobId, int expected, int expectedTracks, IReadOnlyList<ChildApiHost> hosts, TimeSpan restart, object killPoint, bool killPointHeld)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromHours(2);
+        var liveClaims = new List<long>();
         string status;
-        while ((status = await ScalarAsync<string>(connection, "SELECT status FROM vision_jobs WHERE id = $1", jobId)) is not ("Completed" or "Failed"))
+        while (true)
         {
+            liveClaims.Add(await ScalarAsync<long>(connection, S1FinalizationEnvelopeTests.LiveClaimsSql));
+            status = await ScalarAsync<string>(connection, "SELECT status FROM vision_jobs WHERE id = $1", jobId);
+            if (status is "Completed" or "Failed") break;
             Assert.True(DateTime.UtcNow < deadline, $"{scenario}: the job did not reach a terminal state");
-            await Task.Delay(500);
+            await Task.Delay(100);
         }
 
-        await Task.Delay(1000); // let the surviving host flush its publication log line
+        // The run's sequence must not move once published: the live hosts keep polling through
+        // this hold, so a republish would rewrite it.
+        var sequenceAtPublication = await RunSequenceAsync(connection, jobId);
+        await Task.Delay(TimeSpan.FromSeconds(10));
+        var sequenceStable = sequenceAtPublication is not null && await RunSequenceAsync(connection, jobId) == sequenceAtPublication;
+        var graphTrackRows = await ScalarAsync<long>(connection, "SELECT count(*) FROM tracks t JOIN vision_jobs j ON j.processing_run_id = t.processing_run_id WHERE j.id = $1", jobId);
         var published = hosts.SelectMany(h => h.Output).Where(line => line.Contains("[1504]", StringComparison.Ordinal) || line.Contains($"job {jobId} published", StringComparison.Ordinal)).ToList();
         var publications = hosts.SelectMany(h => h.Output).Count(line => line.Contains($"Finalization of job {jobId} published", StringComparison.Ordinal));
         var message = hosts.SelectMany(h => h.Output).LastOrDefault(line => line.Contains($"Finalization of job {jobId} published", StringComparison.Ordinal)) ?? "";
@@ -295,7 +324,8 @@ public sealed class S1FinalizationRecoveryTests
         // search and analytics snapshots advance too).
         var sequences = await ScalarAsync<long>(connection, "SELECT count(*) FROM processing_runs r JOIN vision_jobs j ON j.processing_run_id = r.id WHERE j.id = $1 AND r.visibility_sequence IS NOT NULL", jobId);
         var orphanBytes = await OrphanBytesAsync(connection, roots.Evidence);
-        var facts = new RowFacts(status, publications, sequences, expected, created, adopted, orphanBytes, killPointHeld);
+        var facts = new RowFacts(status, publications, sequences, expected, created, adopted, orphanBytes, killPointHeld,
+            expectedTracks, graphTrackRows, sequenceStable, liveClaims.Max());
         var problems = RowProblems(scenario, facts);
         return new
         {
@@ -305,12 +335,19 @@ public sealed class S1FinalizationRecoveryTests
             finalState = status,
             publications,
             sequenceCount = sequences,
+            expectedTracks,
+            graphTrackRows,
+            sequenceStable,
+            visibilitySequence = sequenceAtPublication,
+            liveClaimSamples = liveClaims,
+            maxLiveClaims = liveClaims.Max(),
             expectedObjects = expected,
             createdObjects = created,
             adoptedObjects = adopted,
             killPoint,
             restartLatencyMs = restart.TotalMilliseconds,
             orphanBytes,
+            // Cross-check only: publications are counted from the database above.
             event1504CrossCheck = published,
         };
     }
@@ -338,7 +375,7 @@ public sealed class S1FinalizationRecoveryTests
     }
 
     /// <summary>The objects the retained hand-off names: one trajectory per Track plus each crop.</summary>
-    private static async Task<int> PayloadObjectsAsync(string connection, Guid jobId)
+    private static async Task<(int Objects, int Tracks)> PayloadObjectsAsync(string connection, Guid jobId)
     {
         await using var db = new NpgsqlConnection(connection);
         await db.OpenAsync();
@@ -347,14 +384,25 @@ public sealed class S1FinalizationRecoveryTests
         var payload = (byte[])(await command.ExecuteScalarAsync())!;
         using var document = JsonDocument.Parse(payload);
         var count = 0;
+        var tracks = 0;
         foreach (var track in document.RootElement.GetProperty("tracks").EnumerateArray())
         {
+            tracks++;
             if (track.TryGetProperty("trajectoryArtifact", out var trajectory) && trajectory.ValueKind == JsonValueKind.Object) count++;
             if (track.TryGetProperty("observations", out var observations))
                 count += observations.EnumerateArray().Count(o => o.TryGetProperty("crop", out var crop) && crop.ValueKind == JsonValueKind.Object);
         }
 
-        return count;
+        return (count, tracks);
+    }
+
+    private static async Task<long?> RunSequenceAsync(string connection, Guid jobId)
+    {
+        await using var db = new NpgsqlConnection(connection);
+        await db.OpenAsync();
+        await using var command = new NpgsqlCommand("SELECT r.visibility_sequence FROM processing_runs r JOIN vision_jobs j ON j.processing_run_id = r.id WHERE j.id = $1", db);
+        command.Parameters.AddWithValue(jobId);
+        return await command.ExecuteScalarAsync() is long value ? value : null;
     }
 
     private static async Task<Guid> SeedRealVideoAsync(Roots roots, string connection)

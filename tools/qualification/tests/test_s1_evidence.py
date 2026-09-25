@@ -385,7 +385,7 @@ def _b3a_samples() -> list:
             "replayMs": 800.0 if warmup else 300.0 + index,
             "httpStatus": 200, "state": "finalizing", "tracksSubmitted": 10_000, "jobStatus": "Finalizing",
             "payloadRows": 1, "publishedRows": 0, "acceptedEvidenceFiles": 0, "acceptedAtPresent": True,
-            "claimTripleNull": True, "stagedObjects": 50_000, "replayState": "finalizing",
+            "claimTripleNull": True, "stagedObjects": 50_000, "replayState": "finalizing", "workerReleased": True,
             "requestBodyBytes": 25_000_000, "payloadBytes": 24_000_000, "apiRssDeltaBytes": 50_000_000,
             "submissionTimings": {"validationMs": 900.0, "payloadEncodingMs": 300.0, "persistenceMs": 500.0},
         }
@@ -425,10 +425,16 @@ def _b3b_samples() -> list:
             "publicationTimeline": timeline,
             "graphBuildBracket": {"lastExtensionReturned": base - 400_000, "publishEntered": base - 100},
             "bracketProofs": {proof: True for proof in s1_evidence.BRACKET_PROOFS},
-            "publications": 1, "visibilitySequences": 1, "prematureVisibilityObserved": 0,
+            "publications": 1, "sequenceAllocations": 1, "runVisibilitySequence": 40 + index, "prematureVisibilityObserved": 0,
             "extensionCount": -(-50_000 // batch) + 1, "createdObjects": 50_000, "adoptedObjects": 0,
             "longestCommandMs": 1200.0, "claimAcquisitionMs": 4000.0, "payloadLoadMs": 800.0,
             "payloadRevalidationAndPlanMs": 1500.0, "sealWallMs": 60_000.0, "perBatchWallMs": [240.0, 250.0],
+            "apiContention": {
+                "endpoints": [{"endpoint": "/api/health", "baselineP95Ms": 4.0, "duringP95Ms": 9.0, "errors": 0}],
+                "errorsDuringFinalization": 0,
+            },
+            "apiHostRss": {"samplesBytes": [300_000_000, 410_000_000], "peakBytes": 410_000_000},
+            "apiProcessCpuSeconds": 120.5,
         })
     return samples
 
@@ -476,12 +482,11 @@ def _b3b_output(record: dict, variant: str) -> str:
         "hostedServiceUsed": True, "optionsSource": "appsettings.json", "configuration": configuration,
         "barrierCommandText": _barrier_sql(), "effectiveCommandTimeoutSeconds": 30,
         "rejectedTimelines": [],
-        "apiContention": {
-            "endpoints": [{"endpoint": "/api/health", "baselineP95Ms": 4.0, "duringP95Ms": 9.0, "errors": 0}],
-            "errorsDuringFinalization": 0,
+        "concurrency": {
+            "maxConcurrentFinalizations": configuration["MaxConcurrentFinalizations"],
+            "jobs": [{"finalState": "Completed", "publications": 1, "sequenceAllocations": 1} for _ in range(2)],
+            "liveClaimSamples": [0, 1, 1, 0, 1, 0], "maxLiveClaims": 1, "secondClaimedBeforeFirstPublished": False,
         },
-        "apiHostRss": {"samplesBytes": [300_000_000, 410_000_000], "peakBytes": 410_000_000},
-        "apiProcessCpuSeconds": 120.5,
         "reference": {"samples": [{"publicationTimeline": _timeline(9, index)} for index in range(5)]},
         "samples": _b3b_samples(),
     })
@@ -493,8 +498,14 @@ def _crash_output(record: dict, variant: str) -> str:
             "scenario": scenario, "passed": True, "finalState": "Completed", "publications": 1, "sequenceCount": 1,
             "expectedObjects": 50_000, "createdObjects": 30_000 if scenario == "host-death-mid-seal" else 50_000,
             "adoptedObjects": 20_000 if scenario == "host-death-mid-seal" else 0,
-            "killPoint": {"afterSealedObjects": 20_000} if scenario == "host-death-mid-seal" else {"phase": scenario},
+            "killPoint": (
+                {"afterSealedObjects": 20_000} if scenario == "host-death-mid-seal"
+                else {"phase": scenario, "workerExitedBeforeKill": False} if scenario == "worker-death-after-hand-off"
+                else {"phase": scenario}
+            ),
             "restartLatencyMs": 2500.0, "orphanBytes": 0,
+            "expectedTracks": 10_000, "graphTrackRows": 10_000, "sequenceStable": True,
+            "liveClaimSamples": [0, 1, 1, 0], "maxLiveClaims": 1,
         }
         for scenario in s1_evidence.CRASH_H_SCENARIOS
     ]
@@ -1144,7 +1155,11 @@ def test_platform_suites_are_required_once_and_worker_suites_on_every_variant() 
     b3 = UNIT_REQUIREMENTS["B3"]
     assert required_variants(b3, "tests/Mavi.IntegrationTests/S1BoundAgreementTests") == (None,)
     assert required_variants(b3, "src/vision/tests/test_s1_bound_agreement.py") == s1_evidence.QUALIFIED_CPU_VARIANTS
-    assert required_variants(UNIT_REQUIREMENTS["B4"], "src/vision/tests/test_worker_completion_v3.py") == (None,)
+    # F4 plan §14: B4's Python suites on both variants; its .NET suites once.
+    b4 = UNIT_REQUIREMENTS["B4"]
+    assert required_variants(b4, "src/vision/tests/test_worker_completion_v3.py") == s1_evidence.QUALIFIED_CPU_VARIANTS
+    assert required_variants(b4, "src/vision/tests/test_worker_runner.py") == s1_evidence.QUALIFIED_CPU_VARIANTS
+    assert required_variants(b4, "tests/Mavi.IntegrationTests/VisionResultCompletionV3ApiTests") == (None,)
 
 
 def test_a_worker_suite_missing_on_one_variant_blocks_its_unit() -> None:
@@ -1260,6 +1275,8 @@ def test_a_non_default_timeout_is_refused_even_with_a_cited_configuration(tmp_pa
         (lambda o: o["samples"][3].update(httpStatus=409), "HTTP status"),
         (lambda o: o["samples"][3].update(acceptedAtPresent=False), "accepted timestamp"),
         (lambda o: o["samples"][3].update(replayState="completed"), "replay"),
+        (lambda o: o["samples"][3].update(workerReleased=False), "worker was not released"),
+        (lambda o: o["samples"][3].pop("workerReleased"), "incomplete"),
     ],
 )
 def test_the_b3a_output_must_be_an_authoritative_worst_shape_hand_off(tmp_path: Path, mutate, detail: str) -> None:
@@ -2590,16 +2607,31 @@ def _ticks(d: dict, index: int = 3) -> dict:
         (lambda d: _sample(d).update(extensionCount=_sample(d)["extensionCount"] - 1), "b3b_output_mismatch"),
         (lambda d: _sample(d).update(prematureVisibilityObserved=1), "b3b_output_mismatch"),
         (lambda d: _sample(d).update(publications=2), "b3b_output_mismatch"),  # double publish
-        (lambda d: _sample(d).update(visibilitySequences=2), "b3b_output_mismatch"),
+        (lambda d: _sample(d).update(sequenceAllocations=2), "b3b_output_mismatch"),  # double allocation
+        (lambda d: _sample(d).update(runVisibilitySequence=None), "b3b_output_mismatch"),
         (lambda d: _sample(d).update(createdObjects=1), "b3b_output_mismatch"),
         (lambda d: _sample(d).update(longestCommandMs=30_001.0), "b3b_output_mismatch"),
         (lambda d: d.update(effectiveCommandTimeoutSeconds=0), "b3b_output_mismatch"),
+        (lambda d: d.update(effectiveCommandTimeoutSeconds=3600), "b3b_output_mismatch"),  # a loosened test connection string
+        (lambda d: _sample(d).update(longestCommandMs=100_000.0) or d.update(effectiveCommandTimeoutSeconds=3600), "b3b_output_mismatch"),
         (lambda d: d.update(samples=[]), "b3b_output_mismatch"),
-        (lambda d: d["apiHostRss"].update(samplesBytes=[]), "b3b_output_mismatch"),  # RSS absent but PASS
-        (lambda d: d.pop("apiHostRss"), "b3b_output_mismatch"),
-        (lambda d: d.update(apiProcessCpuSeconds=None), "b3b_output_mismatch"),
-        (lambda d: d["apiContention"].update(endpoints=[]), "api_contention_incomplete"),
-        (lambda d: d["apiContention"].update(errorsDuringFinalization=3), "api_contention_incomplete"),
+        (lambda d: _sample(d)["apiHostRss"].update(samplesBytes=[]), "b3b_output_mismatch"),  # RSS absent but PASS
+        (lambda d: _sample(d).pop("apiHostRss"), "b3b_output_mismatch"),
+        (lambda d: d["samples"][-1].update(apiProcessCpuSeconds=None), "b3b_output_mismatch"),
+        (lambda d: _sample(d)["apiContention"].update(endpoints=[]), "api_contention_incomplete"),
+        (lambda d: _sample(d)["apiContention"].update(errorsDuringFinalization=3), "api_contention_incomplete"),
+        # An API error in a later, measured sample is not hidden behind the warm-up's record.
+        (lambda d: d["samples"][-1]["apiContention"].update(errorsDuringFinalization=1), "api_contention_incomplete"),
+        (lambda d: d.pop("concurrency"), "b3b_output_mismatch"),
+        (lambda d: d["concurrency"].update(maxLiveClaims=2, liveClaimSamples=[1, 2, 1]), "concurrency_integrity_failed"),
+        (lambda d: d["concurrency"].update(maxLiveClaims=0), "concurrency_integrity_failed"),  # not its samples' maximum
+        (lambda d: d["concurrency"].update(liveClaimSamples=[]), "concurrency_integrity_failed"),
+        (lambda d: d["concurrency"].update(secondClaimedBeforeFirstPublished=True), "concurrency_integrity_failed"),
+        (lambda d: d["concurrency"].update(maxConcurrentFinalizations=4), "concurrency_integrity_failed"),
+        (lambda d: d["concurrency"]["jobs"].pop(), "concurrency_integrity_failed"),
+        (lambda d: d["concurrency"]["jobs"][1].update(publications=2), "concurrency_integrity_failed"),
+        (lambda d: d["concurrency"]["jobs"][0].update(sequenceAllocations=2), "concurrency_integrity_failed"),
+        (lambda d: d["concurrency"]["jobs"][0].update(finalState="Failed"), "concurrency_integrity_failed"),
         (lambda d: d["reference"].update(samples=d["reference"]["samples"][:4]), "reference_incomplete"),
         (lambda d: d["reference"]["samples"][0]["publicationTimeline"]["ticks"].pop("barrierAcquired"), "reference_incomplete"),
         (lambda d: d.update(rejectedTimelines=[{"reason": "TransactionRolledBack"}]), "publication_timeline_invalid"),
@@ -2733,6 +2765,13 @@ def _row(d: dict, scenario: str) -> dict:
         lambda d: _row(d, "host-death-mid-seal").update(killPoint={}),
         lambda d: _row(d, "host-death-before-first-claim").update(restartLatencyMs=None),
         lambda d: _row(d, "host-death-before-first-claim").update(orphanBytes=-1),
+        lambda d: _row(d, "two-hosts-racing").update(graphTrackRows=20_000),  # published twice, one log line lost
+        lambda d: _row(d, "two-hosts-racing").update(sequenceStable=False),  # a republish rewrote the sequence
+        lambda d: _row(d, "two-hosts-racing").update(maxLiveClaims=2, liveClaimSamples=[1, 2]),
+        lambda d: _row(d, "two-hosts-racing").update(liveClaimSamples=[]),
+        lambda d: _row(d, "two-hosts-racing").update(maxLiveClaims=0),  # not its samples' maximum
+        lambda d: _row(d, "worker-death-after-hand-off")["killPoint"].update(workerExitedBeforeKill=True),  # never killed
+        lambda d: _row(d, "worker-death-after-hand-off")["killPoint"].pop("workerExitedBeforeKill"),
     ],
 )
 def test_every_crash_h_row_must_converge_to_one_publication(tmp_path: Path, mutate) -> None:
@@ -2884,3 +2923,31 @@ def test_the_15_s_hand_off_cap_holds_when_half_the_worker_timeout_is_looser(tmp_
         )
         assert any(f.code == "hand_off_bound_violated" for f in checker.findings) is refused, hand_off_max
         assert not any(f.code in ("worker_timeout_unbound", "worker_timeout_out_of_range") for f in checker.findings)
+
+
+def test_a_b4_python_suite_on_one_variant_only_is_refused() -> None:
+    # F4 plan §14: "both variants for the Python suite".
+    record = complete_record()
+    suite_id = "B4:src/vision/tests/test_worker_runner.py:windows-x86_64-cpu"
+    assert suite_id in record["suites"]
+    del record["suites"][suite_id]
+    record["units"]["B4"]["suites"].remove(suite_id)
+    assert ("B4", "variant_result_missing") in {(f.unit, f.code) for f in structural(record)}
+
+
+def test_the_command_timeout_is_the_shipped_runtimes_at_the_measured_sha(tmp_path: Path) -> None:
+    # The runtime DbContext sets none, so Npgsql's 30 s default binds unless the committed
+    # connection string sets one; migrations' CommandTimeoutSeconds never counts.
+    measured = on_main_repo(tmp_path / "repo")
+    checker = s1_evidence._Checker(with_sha(complete_record(), measured), tmp_path / "repo", verify_git=True)
+    assert checker._runtime_command_timeout_seconds(measured) == s1_evidence.NPGSQL_DEFAULT_COMMAND_TIMEOUT_SECONDS == 30
+    root = tmp_path / "repo"
+    settings = root / s1_evidence.APPSETTINGS_RELATIVE
+    document = json.loads(settings.read_text(encoding="utf-8"))
+    assert document["DatabaseMigrations"]["CommandTimeoutSeconds"] == 300
+    document["ConnectionStrings"] = {"Mavi": "Host=localhost;Database=mavi;Command Timeout=120"}
+    settings.write_text(json.dumps(document), encoding="utf-8")
+    git = lambda *args: subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()  # noqa: E731
+    git("commit", "-qam", "timeout")
+    configured = git("rev-parse", "HEAD")
+    assert checker._runtime_command_timeout_seconds(configured) == 120

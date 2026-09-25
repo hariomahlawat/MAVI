@@ -82,6 +82,47 @@ public sealed class S1FinalizationEnvelopeTests
     }
 
     [Fact]
+    public async Task SequenceAllocationsAreCountedInsideTheirPublication()
+    {
+        using var observer = new SequenceAllocationObserver();
+        Assert.Equal("SELECT nextval('processing_visibility_sequence')", observer.SequenceSql);
+        var small = await PublishSmallAsync(delayGraphInsert: false);
+        Assert.NotNull(small.Timeline.Scope);
+        Assert.Equal(1, observer.In(small.Timeline.Scope));
+
+        // Discriminates: a scope that allocates twice counts two (a row count of the run's
+        // visibility_sequence would still read one), and an allocation outside any
+        // PublishAsync, such as a search snapshot's, counts in no scope.
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        var before = observer.Total;
+        await using (await db.Database.BeginTransactionAsync())
+            await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, CancellationToken.None);
+        Assert.Equal(before + 1, observer.Total);
+        var twice = await AllocateInScopeAsync(db, 2);
+        Assert.Equal(2, observer.In(twice));
+        Assert.Equal(0, observer.In(null));
+    }
+
+    private static async Task<long> AllocateInScopeAsync(MaviDbContext db, int count)
+    {
+        var scope = PublicationScope.Enter();
+        try
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            for (var i = 0; i < count; i++) await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, CancellationToken.None);
+            await transaction.RollbackAsync();
+            return scope;
+        }
+        finally
+        {
+            PublicationScope.Exit();
+        }
+    }
+
+    [Fact]
     public async Task GraphPersistenceIsMeasuredAroundAddAsync()
     {
         // A discarded warm-up: the first publication in a process pays JIT and EF model costs
@@ -307,11 +348,12 @@ public sealed class S1FinalizationEnvelopeTests
             var samples = new List<Dictionary<string, object?>>();
             var rejected = new List<object>();
             EnvelopeContext? context = null;
+            using var sequences = new SequenceAllocationObserver();
             for (var repeat = 0; repeat < repeats; repeat++)
             {
                 for (var index = 0; index < warmup + samplesPerRepeat; index++)
                 {
-                    var sample = await EnvelopeOnceAsync(mediaRoot, evidenceRoot, tracks, TimeSpan.FromSeconds(index == 0 && repeat == 0 ? baselineSeconds : Math.Min(baselineSeconds, 5)));
+                    var sample = await EnvelopeOnceAsync(mediaRoot, evidenceRoot, tracks, TimeSpan.FromSeconds(index == 0 && repeat == 0 ? baselineSeconds : Math.Min(baselineSeconds, 5)), sequences);
                     context ??= sample.Context;
                     sample.Values["repeat"] = repeat;
                     sample.Values["index"] = index;
@@ -320,6 +362,9 @@ public sealed class S1FinalizationEnvelopeTests
                     rejected.AddRange(sample.Rejected);
                 }
             }
+
+            // §9.2 concurrency behaviour: two hand-offs back to back under the configured limit.
+            var concurrency = await ConcurrencyOnceAsync(mediaRoot, evidenceRoot, tracks, sequences);
 
             var reference = new List<object>();
             for (var index = 0; index < referenceSamples; index++)
@@ -345,9 +390,7 @@ public sealed class S1FinalizationEnvelopeTests
                 barrierCommandText = PublicationTimelineRecorder.ReadBarrierSql(),
                 effectiveCommandTimeoutSeconds = context.CommandTimeoutSeconds,
                 rejectedTimelines = rejected,
-                apiContention = context.LastContention,
-                apiHostRss = context.LastRss,
-                apiProcessCpuSeconds = context.CpuSeconds,
+                concurrency,
                 inProcessHostNote = "The API host runs in the test process (WebApplicationFactory): RSS and CPU are the process's, host plus harness.",
                 reference = new { samples = reference },
                 samples,
@@ -365,9 +408,6 @@ public sealed class S1FinalizationEnvelopeTests
         public required string OptionsSource { get; init; }
         public required Dictionary<string, object> Configuration { get; init; }
         public required int CommandTimeoutSeconds { get; init; }
-        public object? LastContention { get; set; }
-        public object? LastRss { get; set; }
-        public double CpuSeconds { get; set; }
     }
 
     private sealed record EnvelopeSample(Dictionary<string, object?> Values, EnvelopeContext Context, List<object> Rejected);
@@ -381,7 +421,7 @@ public sealed class S1FinalizationEnvelopeTests
         }
     }
 
-    private static async Task<EnvelopeSample> EnvelopeOnceAsync(string mediaRoot, string evidenceRoot, int trackCount, TimeSpan baseline)
+    private static async Task<EnvelopeSample> EnvelopeOnceAsync(string mediaRoot, string evidenceRoot, int trackCount, TimeSpan baseline, SequenceAllocationObserver sequences)
     {
         Empty(mediaRoot);
         Empty(evidenceRoot);
@@ -449,15 +489,14 @@ public sealed class S1FinalizationEnvelopeTests
         }
 
         prober.Phase("after");
-        context.CpuSeconds = (Process.GetCurrentProcess().TotalProcessorTime - cpuBefore).TotalSeconds;
+        var cpuSeconds = (Process.GetCurrentProcess().TotalProcessorTime - cpuBefore).TotalSeconds;
         Assert.Equal(VisionJobStatus.Completed, status);
         // After publication the graph is visible, with its counts.
         var afterStatus = await ProcessingAsync(client, videoId);
         Assert.Equal("completed", afterStatus.Phase);
         Assert.Equal(trackCount, afterStatus.TracksCreated);
 
-        context.LastContention = prober.Result();
-        context.LastRss = new { samplesBytes = rss, peakBytes = rss.Max() };
+        var contention = prober.Result();
 
         var calls = log.For(jobId);
         var timelines = recorder.Analyze(jobId);
@@ -491,9 +530,10 @@ public sealed class S1FinalizationEnvelopeTests
                 singleBarrierCommand = timeline.SingleBarrierCommand,
             },
             ["publications"] = published.Count,
-            // The sequence assigned to this job's run (search and analytics snapshots also call
-            // nextval on the same sequence, so the global counter is not a publication count).
-            ["visibilitySequences"] = await S1QualificationSupport.CountAsync(factory, "SELECT count(*) FROM processing_runs r JOIN vision_jobs j ON j.processing_run_id = r.id WHERE j.id = $1 AND r.visibility_sequence IS NOT NULL", jobId),
+            // nextval calls inside this job's PublishAsync (search and analytics snapshots also
+            // allocate from the same sequence, outside any publication scope).
+            ["sequenceAllocations"] = sequences.In(timeline.Scope),
+            ["runVisibilitySequence"] = await RunVisibilitySequenceAsync(factory.ConnectionString, jobId),
             ["prematureVisibilityObserved"] = premature,
             ["prematureVisibilityProbes"] = probes,
             ["extensionCount"] = extensions.Count,
@@ -508,8 +548,125 @@ public sealed class S1FinalizationEnvelopeTests
             ["perBatchWallMs"] = extensions.Zip(extensions.Skip(1), (a, b) => S1QualificationSupport.TicksMs(a.ExitTicks, b.ExitTicks)).ToList(),
             ["throughputTracksPerSecond"] = trackCount / ((timeline.CommitCompletedUtc!.Value - acceptedAt).TotalSeconds),
             ["event1504CrossCheck"] = message,
+            // This sample's own API record: an error in any sample is a failure, not only the first's.
+            ["apiContention"] = contention,
+            ["apiHostRss"] = new { samplesBytes = rss, peakBytes = rss.Max() },
+            ["apiProcessCpuSeconds"] = cpuSeconds,
         };
         return new EnvelopeSample(values, context, rejected);
+    }
+
+    private static async Task<long?> RunVisibilitySequenceAsync(string connectionString, Guid jobId)
+    {
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("SELECT r.visibility_sequence FROM processing_runs r JOIN vision_jobs j ON j.processing_run_id = r.id WHERE j.id = $1", connection);
+        command.Parameters.AddWithValue(jobId);
+        return await command.ExecuteScalarAsync() is long value ? value : null;
+    }
+
+    /// <summary>Live finalization claims across every job, as the health count defines them.</summary>
+    internal const string LiveClaimsSql =
+        "SELECT count(*) FROM vision_jobs WHERE status = 'Finalizing' AND finalization_claim_token_hash IS NOT NULL AND finalization_claim_expires_at_utc > now()";
+
+    /// <summary>
+    /// F4 plan §9.2 concurrency behaviour (an integrity check, not a timing): two worst-shape jobs
+    /// handed off back to back under <c>MaxConcurrentFinalizations</c> from configuration. Live
+    /// claims are sampled throughout; with a limit of one, the second job must stay unclaimed
+    /// until the first has published, and both must publish exactly once.
+    /// </summary>
+    private static async Task<object> ConcurrencyOnceAsync(string mediaRoot, string evidenceRoot, int trackCount, SequenceAllocationObserver sequences)
+    {
+        Empty(mediaRoot);
+        Empty(evidenceRoot);
+        await S1QualificationSupport.ResetDatabaseAsync(mediaRoot, evidenceRoot);
+        var recorder = new PublicationTimelineRecorder();
+        var log = new LifecycleCallLog();
+        using var factory = new ApiTestFactory
+        {
+            EnableAsynchronousFinalization = true,
+            EnableVisionFinalizationHost = true,
+            MediaRootOverride = mediaRoot,
+            EvidenceRootOverride = evidenceRoot,
+            ConfigureDbContext = builder => builder.AddInterceptors(recorder.All),
+            OverrideServices = services => FinalizationTimingDecorator.Register(services, log),
+        };
+        using var client = factory.CreateClient();
+        client.Timeout = Timeout.InfiniteTimeSpan;
+        var configuration = S1QualificationSupport.EffectiveConfiguration(factory.Services);
+        var limit = (int)configuration["MaxConcurrentFinalizations"];
+        var (_, first, _) = await S1QualificationSupport.QueueAsync(factory, client);
+        var (_, second, _) = await S1QualificationSupport.QueueAsync(factory, client);
+        var store = factory.Services.GetRequiredService<IMediaStore>();
+        var (stagedFirst, _) = await S1QualificationSupport.StageAsync(store, first, 1, trackCount);
+        var (stagedSecond, _) = await S1QualificationSupport.StageAsync(store, second, 1, trackCount);
+
+        var samples = new List<long>();
+        var secondClaimedBeforeFirstPublished = false;
+        using var cancel = new CancellationTokenSource();
+        var sampler = Task.Run(async () =>
+        {
+            while (!cancel.IsCancellationRequested)
+            {
+                await using var connection = new NpgsqlConnection(factory.ConnectionString);
+                await connection.OpenAsync();
+                // One statement, one snapshot: the live claims, the first job's status, and whether
+                // the second job has ever been claimed.
+                await using var command = new NpgsqlCommand(
+                    "SELECT (" + LiveClaimsSql + "), (SELECT status FROM vision_jobs WHERE id = $1)," +
+                    " (SELECT finalization_claim_token_hash IS NOT NULL OR finalization_attempt_count > 0 FROM vision_jobs WHERE id = $2)", connection);
+                command.Parameters.AddWithValue(first);
+                command.Parameters.AddWithValue(second);
+                await using var reader = await command.ExecuteReaderAsync();
+                await reader.ReadAsync();
+                samples.Add(reader.GetInt64(0));
+                if (reader.GetString(1) != nameof(VisionJobStatus.Completed) && reader.GetBoolean(2)) secondClaimedBeforeFirstPublished = true;
+                await Task.Delay(50);
+            }
+        });
+
+        foreach (var (jobId, staged) in new[] { (first, stagedFirst), (second, stagedSecond) })
+        {
+            var lease = await VisionResultCompletionApiTests.LeaseAsync(client, "gpu-sdd-01");
+            Assert.Equal(jobId, lease.JobId);
+            using var response = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", S1QualificationSupport.Request(lease, staged, WorkerContractRules.CompletionSchemaVersionV31));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        var ceiling = TimeSpan.FromSeconds(2 * ((int)configuration["MaximumFinalizationDurationSeconds"] + (int)configuration["ClaimSeconds"] + (int)configuration["PollIntervalSeconds"]) + 60);
+        var deadline = DateTime.UtcNow + ceiling;
+        while (true)
+        {
+            var states = new[] { (await StateAsync(factory, first)).Status, (await StateAsync(factory, second)).Status };
+            if (states.All(s => s is VisionJobStatus.Completed or VisionJobStatus.Failed)) break;
+            Assert.True(DateTime.UtcNow < deadline, "the two jobs did not reach a terminal state within twice the effective bound");
+            await Task.Delay(500);
+        }
+
+        await cancel.CancelAsync();
+        await sampler;
+        var jobs = new List<object>();
+        foreach (var jobId in new[] { first, second })
+        {
+            var published = recorder.Analyze(jobId).Where(t => t.Committed).ToList();
+            var publishes = log.For(jobId).Count(c => c.Method == nameof(IVisionFinalizationLifecycle.PublishAsync) && c.Result == "Published");
+            jobs.Add(new
+            {
+                jobId,
+                finalState = (await StateAsync(factory, jobId)).Status.ToString(),
+                publications = publishes,
+                sequenceAllocations = published.Sum(t => sequences.In(t.Scope)),
+            });
+        }
+
+        return new
+        {
+            maxConcurrentFinalizations = limit,
+            jobs,
+            liveClaimSamples = samples,
+            maxLiveClaims = samples.DefaultIfEmpty(0).Max(),
+            secondClaimedBeforeFirstPublished,
+        };
     }
 
     private static async Task<object> ReferenceOnceAsync(string mediaRoot, string evidenceRoot, int trackCount)

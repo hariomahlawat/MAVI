@@ -277,6 +277,32 @@ DISCONNECTED_OUTCOMES = (
 )
 
 
+def concurrency_problems(block: dict[str, Any], configuration: dict[str, Any]) -> list[str]:
+    """F4 plan §9.2: two jobs handed off back to back under the configured
+    MaxConcurrentFinalizations; at most that many live claims throughout, the second
+    unclaimed until the first published when the limit is one, both published once."""
+    problems: list[str] = []
+    limit = configuration.get("MaxConcurrentFinalizations")
+    if block["maxConcurrentFinalizations"] != limit:
+        problems.append(f"it ran with MaxConcurrentFinalizations {block['maxConcurrentFinalizations']}, not the committed {limit}")
+    jobs = block["jobs"]
+    if len(jobs) != 2:
+        problems.append(f"it handed off {len(jobs)} job(s), not two")
+    for index, job in enumerate(jobs):
+        if job["finalState"] != "Completed" or job["publications"] != 1 or job["sequenceAllocations"] != 1:
+            problems.append(f"job {index} ended {job['finalState']} with {job['publications']} publication(s) and {job['sequenceAllocations']} sequence allocation(s)")
+    samples = block["liveClaimSamples"]
+    if not samples:
+        problems.append("no live-claim samples were taken")
+    elif max(samples) != block["maxLiveClaims"]:
+        problems.append("maxLiveClaims is not the maximum of its samples")
+    if isinstance(limit, int) and block["maxLiveClaims"] > limit:
+        problems.append(f"{block['maxLiveClaims']} live claims exceeded MaxConcurrentFinalizations {limit}")
+    if limit == 1 and block["secondClaimedBeforeFirstPublished"] is not False:
+        problems.append("the second job was claimed before the first published")
+    return problems
+
+
 def is_loopback_address(address: str) -> bool:
     """A connect target that never leaves the host: a loopback IP, localhost, or a
     local (Unix-domain) socket path."""
@@ -335,6 +361,10 @@ B3_TIMINGS: tuple[tuple[str, str, str], ...] = (
 )
 # §9.2.1: the frozen finalizer configuration lives in the API host's appsettings.
 APPSETTINGS_RELATIVE = "src/platform/Mavi.Api/appsettings.json"
+# The runtime DbContext sets no command timeout, so a statement runs under Npgsql's
+# default unless the committed connection string sets one ("Command Timeout=").
+# DatabaseMigrations:CommandTimeoutSeconds applies to migrations only.
+NPGSQL_DEFAULT_COMMAND_TIMEOUT_SECONDS = 30
 BARRIER_SOURCE_RELATIVE = "src/platform/Mavi.Infrastructure/Persistence/ProcessingVisibilityBarrier.cs"
 FROZEN_CONFIGURATION_KEYS = (
     "MaxConcurrentFinalizations",
@@ -755,7 +785,8 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
             _RECOVERY,
             _IT + "VisionFinalizationPersistenceTests",
         ),
-        variants=(),
+        # F4 plan §14: both variants for the Python suites (the .NET suites are variant-free).
+        variants=QUALIFIED_CPU_VARIANTS,
         measurements=(),
         artifacts=("b4.completion-v3-golden", "b4.completion-v3-1-example"),
     ),
@@ -1501,7 +1532,7 @@ class _Checker:
                 self._b3_recomputed(unit, hand_off, variant, HANDOFF_OUTPUT_ARTIFACT, hand_off.get("samples", []))
             finalization = self._b3_output(FINALIZATION_OUTPUT_ARTIFACT, FINALIZATION_OUTPUT_SCHEMA, variant, measured_sha)
             if finalization is not None:
-                derived = self._b3b_content(finalization, variant, committed, barrier_sql)
+                derived = self._b3b_content(finalization, variant, committed, barrier_sql, self._runtime_command_timeout_seconds(measured_sha))
                 self._b3_recomputed(unit, finalization, variant, FINALIZATION_OUTPUT_ARTIFACT, derived)
             crash = self._b3_output(CRASH_OUTPUT_ARTIFACT, CRASH_OUTPUT_SCHEMA, variant, measured_sha)
             if crash is not None:
@@ -1513,6 +1544,19 @@ class _Checker:
             return json.loads(text.decode("utf-8"))["VisionFinalization"] if text is not None else None
         except (ValueError, KeyError, UnicodeDecodeError):
             return None
+
+    def _runtime_command_timeout_seconds(self, measured_sha: str) -> int | None:
+        """The command timeout the shipped API runs under at the measured SHA."""
+        text = self.source_at(measured_sha, APPSETTINGS_RELATIVE)
+        try:
+            settings = json.loads(text.decode("utf-8")) if text is not None else None
+        except (ValueError, UnicodeDecodeError):
+            settings = None
+        if not isinstance(settings, dict):
+            return None
+        connection = (settings.get("ConnectionStrings") or {}).get("Mavi") or ""
+        match = re.search(r"(?:^|;)\s*command\s*timeout\s*=\s*(\d+)", connection, re.IGNORECASE)
+        return int(match.group(1)) if match else NPGSQL_DEFAULT_COMMAND_TIMEOUT_SECONDS
 
     def _barrier_sql(self, measured_sha: str) -> str | None:
         """The exclusive completion lock, read from the measured source, so a changed
@@ -1592,6 +1636,8 @@ class _Checker:
                         ("the claim triple is not null", sample["claimTripleNull"] is True),
                         ("fewer objects were staged", sample["stagedObjects"] == WORST_CASE_OBJECTS),
                         ("the replay did not answer finalizing", sample["replayState"] == "finalizing"),
+                        # §8.3 release proof: the same worker leased a different queued job after the response.
+                        ("the worker was not released", sample["workerReleased"] is True),
                     )
                     if not holds
                 ]
@@ -1601,7 +1647,9 @@ class _Checker:
         for problem in problems:
             self.fail("B3", "b3a_output_mismatch", f"{artifact_id}: {problem}")
 
-    def _b3b_content(self, output: dict[str, Any], variant: str, committed: dict[str, Any] | None, barrier_sql: str | None) -> list[dict[str, Any]]:
+    def _b3b_content(
+        self, output: dict[str, Any], variant: str, committed: dict[str, Any] | None, barrier_sql: str | None, runtime_timeout_seconds: int | None
+    ) -> list[dict[str, Any]]:
         """Checks the envelope output and returns its samples with every interval
         recomputed from the retained raw timestamps."""
         artifact_id = f"{FINALIZATION_OUTPUT_ARTIFACT}.{variant}"
@@ -1629,20 +1677,11 @@ class _Checker:
             command_timeout_ms = float(output["effectiveCommandTimeoutSeconds"]) * 1000.0
             if command_timeout_ms <= 0:
                 problems.append(("b3b_output_mismatch", "no effective command timeout was measured"))
+            # The harness's own connection string must not loosen the shipped timeout.
+            if runtime_timeout_seconds is None or output["effectiveCommandTimeoutSeconds"] != runtime_timeout_seconds:
+                problems.append(("b3b_output_mismatch", f"it ran under a {output['effectiveCommandTimeoutSeconds']} s command timeout, not the shipped runtime's {runtime_timeout_seconds} s"))
             if output["rejectedTimelines"]:
                 problems.append(("publication_timeline_invalid", f"{len(output['rejectedTimelines'])} publication transaction(s) were rejected in a clean run"))
-            contention = output["apiContention"]
-            if not contention["endpoints"] or any(
-                not isinstance(e.get("baselineP95Ms"), (int, float)) or not isinstance(e.get("duringP95Ms"), (int, float)) for e in contention["endpoints"]
-            ):
-                problems.append(("api_contention_incomplete", "the API-contention baseline/during record is missing"))
-            if contention["errorsDuringFinalization"] != 0:
-                problems.append(("api_contention_incomplete", f"{contention['errorsDuringFinalization']} API error(s) during finalization"))
-            rss = output["apiHostRss"]
-            if not rss["samplesBytes"] or rss["peakBytes"] != max(rss["samplesBytes"]):
-                problems.append(("b3b_output_mismatch", "the API-host RSS series is missing or its peak is not its maximum"))
-            if not isinstance(output["apiProcessCpuSeconds"], (int, float)):
-                problems.append(("b3b_output_mismatch", "the API-process CPU time is missing"))
             reference = output["reference"]["samples"]
             if len(reference) < REFERENCE_MINIMUM_SAMPLES:
                 problems.append(("reference_incomplete", f"the synchronous-path reference has {len(reference)} samples, fewer than {REFERENCE_MINIMUM_SAMPLES}"))
@@ -1655,9 +1694,26 @@ class _Checker:
                 problems.append(("b3b_output_mismatch", "it retains no raw samples"))
             for sample in output["samples"]:
                 where = f"sample {sample.get('repeat')}/{sample.get('index')}"
+                # Every sample carries its own contention, RSS and CPU record: an API error
+                # in any sample, warm-up or not, is a failure.
+                contention = sample["apiContention"]
+                if not contention["endpoints"] or any(
+                    not isinstance(e.get("baselineP95Ms"), (int, float)) or not isinstance(e.get("duringP95Ms"), (int, float)) for e in contention["endpoints"]
+                ):
+                    problems.append(("api_contention_incomplete", f"{where}: the API-contention baseline/during record is missing"))
+                if contention["errorsDuringFinalization"] != 0:
+                    problems.append(("api_contention_incomplete", f"{where}: {contention['errorsDuringFinalization']} API error(s) during finalization"))
+                rss = sample["apiHostRss"]
+                if not rss["samplesBytes"] or rss["peakBytes"] != max(rss["samplesBytes"]):
+                    problems.append(("b3b_output_mismatch", f"{where}: the API-host RSS series is missing or its peak is not its maximum"))
+                if not isinstance(sample["apiProcessCpuSeconds"], (int, float)):
+                    problems.append(("b3b_output_mismatch", f"{where}: the API-process CPU time is missing"))
+                run_sequence = sample["runVisibilitySequence"]
                 for label, holds in (
                     ("more or fewer than one publication", sample["publications"] == 1),
-                    ("more or fewer than one visibility sequence", sample["visibilitySequences"] == 1),
+                    # nextval calls observed inside this job's PublishAsync, not a row count.
+                    ("more or fewer than one visibility-sequence allocation", sample["sequenceAllocations"] == 1),
+                    ("its run has no visibility sequence", isinstance(run_sequence, int) and not isinstance(run_sequence, bool)),
                     ("premature visibility observed", sample["prematureVisibilityObserved"] == 0),
                     (f"extension count {sample['extensionCount']} is not {expected_extensions}", sample["extensionCount"] == expected_extensions),
                     ("created + adopted is not the worst shape", sample["createdObjects"] + sample["adoptedObjects"] == WORST_CASE_OBJECTS),
@@ -1685,6 +1741,7 @@ class _Checker:
                     if typed is not None and abs(typed - value) > 1e-6:
                         problems.append(("metric_without_producer", f"{where}: {field} {typed} is not the recomputation {value} from its raw timestamps"))
                 derived.append({"repeat": sample["repeat"], "index": sample["index"], "warmup": sample["warmup"], **values})
+            problems.extend(("concurrency_integrity_failed", problem) for problem in concurrency_problems(output["concurrency"], committed or configuration))
         except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
             problems.append(("b3b_output_mismatch", f"incomplete ({exc})"))
         for code, problem in problems:
@@ -1750,6 +1807,11 @@ class _Checker:
                     ("records no restart latency", isinstance(row["restartLatencyMs"], (int, float)) and row["restartLatencyMs"] >= 0),
                     ("records no orphan bytes", isinstance(row["orphanBytes"], (int, float)) and row["orphanBytes"] >= 0),
                     ("adopted nothing after a mid-seal kill", scenario != "host-death-mid-seal" or row["adoptedObjects"] > 0),
+                    # Publications counted in the database: one graph's Tracks, never two.
+                    ("its run's Track rows are not one graph", row["expectedTracks"] > 0 and row["graphTrackRows"] == row["expectedTracks"]),
+                    ("its visibility sequence changed after publication", row["sequenceStable"] is True),
+                    ("more than one live claim was observed", bool(row["liveClaimSamples"]) and max(row["liveClaimSamples"]) == row["maxLiveClaims"] <= 1),
+                    ("the worker exited before it was killed", scenario != "worker-death-after-hand-off" or row["killPoint"].get("workerExitedBeforeKill") is False),
                 ):
                     if not holds:
                         problems.append(f"{scenario} {label}")

@@ -1,3 +1,4 @@
+using Mavi.Domain.Cameras;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -100,7 +101,7 @@ internal static class S1QualificationSupport
     /// <summary>Seeds a video and queues it; returns the video, its run and its (not yet leased) job.</summary>
     public static async Task<(Guid VideoId, Guid JobId, Guid CameraId)> QueueAsync(ApiTestFactory factory, HttpClient client)
     {
-        var videoId = await VisionResultCompletionApiTests.SeedVideoAsync(factory);
+        var videoId = await SeedVideoAsync(factory);
         (await client.PostAsync($"/api/videos/{videoId}/process", null)).EnsureSuccessStatusCode();
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
@@ -108,6 +109,26 @@ internal static class S1QualificationSupport
         var run = await db.ProcessingRuns.AsNoTracking().SingleAsync(x => x.VideoAssetId == videoId);
         var job = await db.VisionJobs.AsNoTracking().SingleAsync(x => x.ProcessingRunId == run.Id);
         return (videoId, job.Id, video.CameraId);
+    }
+
+    /// <summary>
+    /// A seeded video, as <c>VisionResultCompletionApiTests.SeedVideoAsync</c>, with its own camera
+    /// code and source hash so that several jobs can be queued in one schema (the release proof,
+    /// the concurrency check).
+    /// </summary>
+    public static async Task<Guid> SeedVideoAsync(ApiTestFactory factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var unique = Guid.CreateVersion7();
+        var camera = Camera.Create($"CAM-{unique:N}"[..24].ToUpperInvariant(), "Qualification", "UTC", now);
+        var source = Artifact.Create(ArtifactType.SourceVideo, $"source/{unique}.mp4", "video/mp4", 100,
+            Convert.ToHexStringLower(SHA256.HashData(unique.ToByteArray())), createdAtUtc: now);
+        var video = VideoAsset.Create(camera.Id, source.Id, "source.mp4", now, 60_000, 25, 1, 1920, 1080, "h264", TimestampSource.Manual, 1, importedAtUtc: now);
+        db.AddRange(camera, source, video);
+        await db.SaveChangesAsync();
+        return video.Id;
     }
 
     /// <summary>A fresh schema, migrated by a host with every background loop off.</summary>
