@@ -56,7 +56,7 @@ The synchronous completion endpoint performs only bounded control-plane work:
 
 - validate caller, lease, attempt and body;
 - compute the existing completion digest;
-- persist the exact accepted completion payload atomically in PostgreSQL;
+- persist the canonical capability-free semantic finalization payload atomically in PostgreSQL;
 - transition the VisionJob from `Leased` to `Finalizing`;
 - return within the existing bounded request envelope.
 
@@ -230,7 +230,7 @@ Under one PostgreSQL transaction:
 4. validate the body using the existing `VisionResultValidator`;
 5. compute the existing completion digest;
 6. handle replay/conflict rules;
-7. insert the exact bounded payload row;
+7. insert the bounded canonical semantic finalization payload row, excluding `workerId` and the raw `leaseToken`;
 8. transition `Leased → Finalizing`;
 9. persist completion digest and finalization acceptance time;
 10. end the worker lease **semantically** by entering Finalizing, but preserve `LeaseOwner`, `LeaseTokenHash` and `AttemptCount` until terminal state so an exact duplicate completion after an ambiguous HTTP outcome can still authenticate against the capability that originally handed off the job;
@@ -354,7 +354,7 @@ For one valid claimed `Finalizing` job:
 12. insert/persist the relational graph and representative fix-up;
 13. **then** acquire the exclusive ProcessingVisibilityBarrier;
 14. allocate the visibility sequence;
-15. transition VisionJob to Completed;
+15. call the claim-fenced `VisionJob.CompleteFinalization(claimToken, nowUtc)` transition;
 16. mark ProcessingRun Completed and assign visibility sequence;
 17. mark VideoAsset Processed;
 18. commit;
@@ -422,9 +422,9 @@ A stale caller must re-read authoritative state before further action.
 
 Add a domain transition:
 
-`VisionJob.FailFinalization(...)`
+`VisionJob.FailFinalization(claimToken, code, details, nowUtc)`
 
-valid only from `Finalizing`.
+valid only from `Finalizing` and only for the current live finalizer claim. The transition itself verifies claim ownership so an expired or rotated-away claimant cannot terminally fail the job.
 
 Deterministic failures fail immediately, including:
 
@@ -450,6 +450,12 @@ Transient IO/database/host errors are retried within:
 - claim/reclaim rules;
 - maximum finalization attempts;
 - maximum finalization duration.
+
+Normal claimant-owned terminal failure remains claim-fenced through `VisionJob.FailFinalization(claimToken, code, details, nowUtc)`.
+
+F3 must also provide a **separately fenced platform reconciliation transition** for the case where no live claim remains and another claim is no longer permitted because the maximum attempt count or maximum finalization duration has been exhausted. That transition is failure-only: it must run under the authoritative VisionJob row lock, re-read `Finalizing` state, prove that no live claim exists, prove the configured exhaustion condition from persisted state/current time, and then move the job to the distinct finalization-exhausted terminal failure. It must not accept a stale claimant token, publish results, or serve as a general bypass around claim ownership.
+
+This prevents the final permitted claimant crashing and leaving the job permanently `Finalizing` while preserving the rule that a stale claimant cannot terminally mutate a job owned by another live claimant.
 
 When exhausted, fail with a distinct finalization-exhausted code.
 
