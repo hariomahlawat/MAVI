@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
-import { listVideos } from '../../api/videos';
+import { isFinalizationFailure, isFinalizing, listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import AsyncBoundary from '../../shared/async/AsyncBoundary';
 import { fromQuery } from '../../shared/async/fromQuery';
@@ -15,7 +15,7 @@ import LoadingState from '../../shared/components/LoadingState';
 import Progress from '../../shared/components/Progress';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/format/format';
-import { isActiveStatus } from '../../shared/status/status';
+import { FINALIZATION_FAILED_LABEL, isActiveStatus } from '../../shared/status/status';
 import { ContextBar, LedgerLayout, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from '../videos/useVideoProcessing';
 import { joinVideoRows, sortVideoRows, type VideoRow } from '../videos/videoRows';
@@ -167,6 +167,14 @@ export default function ProcessingQueuePage() {
                   // where it genuinely disagrees with the video's, and then as
                   // text, never as a second badge describing the same thing.
                   const divergent = run !== null && coarse(run.status) !== coarse(row.processingStatus);
+                  // A Finalizing run is `Running` and a finalization failure is
+                  // `Failed`, so both agree with the video's status; their phase
+                  // is what differs, and it is named the same way.
+                  const finalizing = isFinalizing(run);
+                  const runState = finalizing ? 'Finalizing'
+                    : isFinalizationFailure(run) ? FINALIZATION_FAILED_LABEL
+                      : divergent ? run.status
+                        : null;
                   return (
                     <tr key={row.id}>
                       <td>
@@ -178,12 +186,13 @@ export default function ProcessingQueuePage() {
                         <div className="run-cell">
                           <span className="run-cell__line">
                             <StatusBadge status={row.processingStatus} />
-                            {active && run ? <Progress value={run.progressPercent} inline /> : null}
+                            {/* Inference progress only: finalization has none. */}
+                            {active && run && !finalizing ? <Progress value={run.progressPercent} inline /> : null}
                             {/* The code rides the status line rather than a
                                 second one: a failed row is still one row. */}
                             {run?.failureCode ? <code className="truncate cap-md" title={run.failureCode}>{run.failureCode}</code> : null}
                           </span>
-                          {divergent ? <span className="run-cell__line">Run: {run.status}</span> : null}
+                          {runState ? <span className="run-cell__line">Run: {runState}</span> : null}
                           {/* A failed lookup must never keep reading as a
                               lookup still in progress (§14). */}
                           {!run && statusError ? (

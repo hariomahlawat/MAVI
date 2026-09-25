@@ -16,6 +16,8 @@ import { getSystemConfig } from '../../api/system';
 import {
   getProcessingStatus,
   getVideo,
+  isFinalizationFailure,
+  isFinalizing,
   processingPollInterval,
   queueProcessing,
   type AnalyticsReadiness,
@@ -33,7 +35,7 @@ import Progress from '../../shared/components/Progress';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatCount, frameRateText } from '../../shared/format/format';
-import { isActiveStatus } from '../../shared/status/status';
+import { FINALIZATION_FAILED_LABEL, isActiveStatus } from '../../shared/status/status';
 import { ContextBar, RecordLayout } from '../../shared/workspace';
 
 /**
@@ -182,6 +184,9 @@ export default function ProcessingPage() {
 
   const state = processing.data;
   const run = state?.latestRun;
+  // The run's phase, not its status: `Running` covers inference and finalization.
+  const finalizing = isFinalizing(run);
+  const finalizationFailed = isFinalizationFailure(run);
   const canRetry = state
     ? state.videoStatus === 'NotQueued' || state.videoStatus === 'Failed' || run?.status === 'Failed'
     : false;
@@ -288,17 +293,27 @@ export default function ProcessingPage() {
         {video.data && state ? (
           <Panel
             title="Processing run"
-            actions={run && coarseState(run.status) !== coarseState(state.videoStatus)
-              ? <StatusBadge status={run.status} />
-              : undefined}
+            actions={finalizing
+              // The video is still Processing, but the run is past inference:
+              // that is a state that differs, so it is named (§16).
+              ? <StatusBadge status="Finalizing" />
+              : run && coarseState(run.status) !== coarseState(state.videoStatus)
+                ? <StatusBadge status={run.status} />
+                : undefined}
           >
             {run ? (
               <div className="stack">
-                <Progress
-                  value={run.progressPercent}
-                  label={isActiveStatus(run.status) ? 'Progress' : run.status}
-                  tone={run.status === 'Failed' ? 'err' : run.status === 'Completed' ? 'ok' : 'info'}
-                />
+                {/* Finalization has no percentage, and a full inference bar
+                    would read as done, so a Finalizing run gets a sentence. */}
+                {finalizing ? (
+                  <p>Inference is complete. The results are being finalized and published; counts appear when publication completes.</p>
+                ) : (
+                  <Progress
+                    value={run.progressPercent}
+                    label={finalizationFailed ? FINALIZATION_FAILED_LABEL : isActiveStatus(run.status) ? 'Progress' : run.status}
+                    tone={run.status === 'Failed' ? 'err' : run.status === 'Completed' ? 'ok' : 'info'}
+                  />
+                )}
 
                 <KeyValue
                   grid
@@ -314,7 +329,11 @@ export default function ProcessingPage() {
                   ]}
                 />
 
-                {run.failureCode ? (
+                {finalizationFailed ? (
+                  <Alert tone="error">
+                    {FINALIZATION_FAILED_LABEL} after inference completed · <code>{run.failureCode}</code>. Retrying queues a new run for this video.
+                  </Alert>
+                ) : run.failureCode ? (
                   <Alert tone="error">
                     Processing failed with <code>{run.failureCode}</code>. Retrying queues a new run for this video.
                   </Alert>

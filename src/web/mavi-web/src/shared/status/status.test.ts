@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isActiveStatus, isVideoStatus, labelForStatus, toneForStatus } from './status';
+import { FINALIZATION_FAILED_LABEL, isActiveStatus, isVideoStatus, labelForStatus, toneForStatus } from './status';
 
 describe('status vocabulary', () => {
   it('maps every API status to one tone', () => {
@@ -18,6 +18,13 @@ describe('status vocabulary', () => {
     expect(labelForStatus('NotQueued')).toBe('Not queued');
     expect(labelForStatus('Processing')).toBe('Processing');
     expect(labelForStatus(null)).toBe('Unknown');
+  });
+
+  it('gives the Finalizing run phase the moving tone and names finalization failure once (U1)', () => {
+    // Moving, so the badge carries the pulsing dot rather than colour alone (§8.2, §23).
+    expect(toneForStatus('Finalizing')).toBe('active');
+    expect(labelForStatus('Finalizing')).toBe('Finalizing');
+    expect(FINALIZATION_FAILED_LABEL).toBe('Finalization failed');
   });
 
   it('knows which statuses are still moving', () => {

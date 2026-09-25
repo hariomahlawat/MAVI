@@ -28,6 +28,33 @@ vi.mock('../../api/videos', async (importOriginal) => {
 const videoId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21421';
 const cameraId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21412';
 
+/** The latest run, differing from an inference-time run only in what a test names. */
+function latestRun(extra: Partial<ProcessingRunStatus>): ProcessingRunStatus {
+  return {
+    processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431',
+    status: 'Running',
+    pipeline: 'phase1-detection-tracking',
+    pipelineVersion: 'phase1-v1',
+    workerId: 'worker-a',
+    queuedAtUtc: '2026-09-09T02:30:00Z',
+    startedAtUtc: '2026-09-09T02:30:02Z',
+    completedAtUtc: null,
+    progressPercent: 42.5,
+    attemptCount: 1,
+    failureCode: null,
+    framesProcessed: 0,
+    tracksCreated: 0,
+    analyticsReadiness: 'NotConfigured',
+    phase: 'processing',
+    ...extra,
+  };
+}
+
+/** The panel the run is stated in, found by its heading. */
+async function runPanel(): Promise<HTMLElement> {
+  return (await screen.findByRole('heading', { name: 'Processing run' })).closest('.panel') as HTMLElement;
+}
+
 describe('ProcessingPage', () => {
   beforeEach(() => {
     vi.mocked(getVideo).mockResolvedValue({
@@ -422,5 +449,113 @@ describe('ProcessingPage', () => {
     });
     expect(await screen.findByText('15,000')).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
+  });
+
+  describe('run phases (U1)', () => {
+    // The shapes of the F4-A visual states (`processing-finalizing`,
+    // `processing-failed-finalization`): the platform's own truth, not a UI guess.
+    const finalizing = () => latestRun({ status: 'Running', phase: 'finalizing', progressPercent: 100 });
+    const failedFinalization = () => latestRun({
+      status: 'Failed',
+      phase: 'failed',
+      progressPercent: 100,
+      completedAtUtc: '2026-09-09T02:35:02Z',
+      failureCode: 'vision_finalization_staging_missing',
+    });
+
+    it('states a Finalizing run as Finalizing, with no inference progress and no running total', async () => {
+      vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Processing', latestRun: finalizing() });
+      const { container } = render();
+      const panel = await runPanel();
+
+      const badge = await within(panel).findByText('Finalizing');
+      expect(badge).toHaveAttribute('data-status', 'Finalizing');
+      expect(badge).toHaveClass('badge--active');
+      expect(within(panel).getByText(/Inference is complete/)).toBeInTheDocument();
+      // No finalization percentage exists, so none is drawn — and a full
+      // inference bar would read as done.
+      expect(screen.queryByText('Progress')).not.toBeInTheDocument();
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/\bRunning\b/);
+      expect(screen.getByText('Frames processed').parentElement).toHaveTextContent(/final count after completion/i);
+      expect(screen.getByText('Tracks created').parentElement).toHaveTextContent(/final count after completion/i);
+
+      // The Context Bar keeps the video's own, still truthful, status.
+      const bar = container.querySelector('.context-bar') as HTMLElement;
+      expect(within(bar).getByText('Processing', { selector: '.badge' })).toHaveAttribute('data-status', 'Processing');
+      expect(container.querySelectorAll('.badge')).toHaveLength(2);
+    });
+
+    it('takes Finalizing from the phase alone: the same Running run in inference reads as progress', async () => {
+      vi.mocked(getProcessingStatus).mockResolvedValue({
+        videoStatus: 'Processing',
+        latestRun: { ...finalizing(), phase: 'processing' },
+      });
+      const { container } = render();
+      const panel = await runPanel();
+
+      expect(await within(panel).findByText('Progress')).toBeInTheDocument();
+      expect(within(panel).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+      expect(screen.queryByText('Finalizing')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Inference is complete/)).not.toBeInTheDocument();
+      expect(container.querySelectorAll('.badge')).toHaveLength(1);
+    });
+
+    it('states a finalization failure as one, with its code, and not as a processing failure', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: failedFinalization() });
+      render();
+      const panel = await runPanel();
+
+      const alert = await within(panel).findByRole('alert');
+      expect(alert).toHaveTextContent(/^Finalization failed/);
+      expect(within(alert).getByText('vision_finalization_staging_missing').tagName).toBe('CODE');
+      expect(within(panel).getByText('Finalization failed', { selector: '.progress__label span' })).toBeInTheDocument();
+      expect(screen.queryByText(/Processing failed/)).not.toBeInTheDocument();
+
+      // Retry is unchanged: it queues a new run.
+      await user.click(screen.getByRole('button', { name: 'Retry processing' }));
+      await waitFor(() => expect(queueProcessing).toHaveBeenCalledWith(videoId));
+    });
+
+    it('leaves an ordinary failure described as a processing failure', async () => {
+      vi.mocked(getProcessingStatus).mockResolvedValue({
+        videoStatus: 'Failed',
+        latestRun: { ...failedFinalization(), failureCode: 'worker_watchdog_timeout', progressPercent: 12 },
+      });
+      render();
+      const panel = await runPanel();
+
+      const alert = await within(panel).findByRole('alert');
+      expect(alert).toHaveTextContent('Processing failed with worker_watchdog_timeout. Retrying queues a new run for this video.');
+      expect(within(panel).getByText('Failed', { selector: '.progress__label span' })).toBeInTheDocument();
+      expect(screen.queryByText(/Finalization failed/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Finalizing')).not.toBeInTheDocument();
+    });
+
+    it('leaves a queued run and a completed run exactly as they were', async () => {
+      vi.mocked(getProcessingStatus).mockResolvedValue({
+        videoStatus: 'Queued',
+        latestRun: latestRun({ status: 'Queued', phase: 'queued', progressPercent: 0, startedAtUtc: null, workerId: null }),
+      });
+      const queued = render();
+      expect(await within(await runPanel()).findByText('Progress')).toBeInTheDocument();
+      expect(screen.queryByText('Finalizing')).not.toBeInTheDocument();
+      queued.unmount();
+
+      vi.mocked(getProcessingStatus).mockResolvedValue({
+        videoStatus: 'Processed',
+        latestRun: latestRun({
+          status: 'Completed', phase: 'completed', progressPercent: 100, completedAtUtc: '2026-09-09T02:40:02Z',
+          framesProcessed: 15_000, tracksCreated: 42,
+        }),
+      });
+      render();
+      const panel = await runPanel();
+      expect(await within(panel).findByText('Completed', { selector: '.progress__label span' })).toBeInTheDocument();
+      expect(within(panel).getByText('15,000')).toBeInTheDocument();
+      expect(screen.queryByText('Finalizing')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Finalization failed/)).not.toBeInTheDocument();
+    });
   });
 });

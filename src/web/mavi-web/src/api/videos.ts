@@ -101,6 +101,26 @@ export function importVideo(input: ImportVideoInput, signal?: AbortSignal): Prom
   });
 }
 
+/**
+ * The domain's prefix for a failure raised after inference, while the platform
+ * was sealing and publishing the run (`VisionJob.FinalizationFailureCodePrefix`).
+ */
+export const FINALIZATION_FAILURE_CODE_PREFIX = 'vision_finalization_';
+
+/**
+ * Whether inference is over and the platform is still finalizing the run. The
+ * phase is the only source: the run's `status` is `Running` for both inference
+ * and finalization, so it cannot tell them apart.
+ */
+export function isFinalizing(run: ProcessingRunStatus | null | undefined): boolean {
+  return run?.phase === 'finalizing';
+}
+
+/** Whether a failed run failed while being finalized, rather than during inference. */
+export function isFinalizationFailure(run: ProcessingRunStatus | null | undefined): boolean {
+  return run?.phase === 'failed' && (run.failureCode ?? '').startsWith(FINALIZATION_FAILURE_CODE_PREFIX);
+}
+
 export function isProcessingActive(status: ProcessingStatus | undefined): boolean {
   if (!status) return false;
   return status.videoStatus === 'Queued'
@@ -116,7 +136,10 @@ export function isProcessingActive(status: ProcessingStatus | undefined): boolea
  * when an operator acts or a scene is saved (plan §S "Processing readiness").
  */
 export function isAnalyticsPending(status: ProcessingStatus | undefined): boolean {
-  return status?.latestRun?.analyticsReadiness === 'Pending';
+  // Only a completed run is ever analysed. The server derives readiness for any
+  // run, so a failed or cancelled run on an analytics-enabled camera reads
+  // `Pending` for good, and polling it would never stop.
+  return status?.latestRun?.status === 'Completed' && status.latestRun.analyticsReadiness === 'Pending';
 }
 
 /**
