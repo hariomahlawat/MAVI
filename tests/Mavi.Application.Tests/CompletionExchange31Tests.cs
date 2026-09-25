@@ -129,6 +129,55 @@ public sealed class CompletionExchange31Tests
         Assert.False(WorkerContractRules.IsFinalizationState("failed"));
     }
 
+
+    [Fact]
+    public void RetainedFinalizationPayloadExcludesAuthenticationEnvelopeAndRevalidatesIdentically()
+    {
+        var root = CompletionDigestGoldenTests.FindRepositoryRoot();
+        var request = JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+            File.ReadAllText(Path.Combine(root, "contracts/examples/vision-job-complete-v3.1.example.json")), Json)!;
+        const string recognizableToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        var authenticated = request with { WorkerId = "worker-secret-probe", LeaseToken = recognizableToken };
+
+        var validator = new VisionResultValidator();
+        var original = validator.Validate(authenticated.JobId!.Value, authenticated, 3_600_000);
+        var bytes = VisionFinalizationPayloadCodec.Encode(authenticated);
+        var retainedText = System.Text.Encoding.UTF8.GetString(bytes);
+
+        Assert.DoesNotContain("leaseToken", retainedText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("workerId", retainedText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(recognizableToken, retainedText, StringComparison.Ordinal);
+        Assert.DoesNotContain("worker-secret-probe", retainedText, StringComparison.Ordinal);
+
+        var reconstructed = VisionFinalizationPayloadCodec.Decode(bytes);
+        Assert.Null(reconstructed.WorkerId);
+        Assert.Null(reconstructed.LeaseToken);
+        var replay = validator.Validate(reconstructed.JobId!.Value, reconstructed, 3_600_000);
+
+        Assert.Equal(CompletionSchema.V3, replay.Schema);
+        Assert.Equal(original.CompletionDigest, replay.CompletionDigest);
+        Assert.Equal(original.AttemptCount, replay.AttemptCount);
+        Assert.Equal(original.FramesProcessed, replay.FramesProcessed);
+        Assert.Equal(original.ProcessingDurationMs, replay.ProcessingDurationMs);
+        Assert.Equal(original.Tracks.Count, replay.Tracks.Count);
+    }
+
+    [Fact]
+    public void FinalizationPayloadCodecRejectsNon31AndMalformedPayloads()
+    {
+        var root = CompletionDigestGoldenTests.FindRepositoryRoot();
+        var request = JsonSerializer.Deserialize<VisionJobCompleteRequest>(
+            File.ReadAllText(Path.Combine(root, "contracts/examples/vision-job-complete-v3.1.example.json")), Json)!;
+
+        var wrongVersion = Assert.Throws<VisionResultValidationException>(() =>
+            VisionFinalizationPayloadCodec.Encode(request with { SchemaVersion = "3.0" }));
+        Assert.Equal("finalization_payload_source_invalid", wrongVersion.ReasonCode);
+
+        var malformed = Assert.Throws<VisionResultValidationException>(() =>
+            VisionFinalizationPayloadCodec.Decode("{\"schemaVersion\":\"3.1\",\"unknown\":1}"u8));
+        Assert.Equal("finalization_payload_invalid", malformed.ReasonCode);
+    }
+
     [Fact]
     public void FinalizingResponseOmitsCompletedAtAndCompletedResponseCarriesIt()
     {
