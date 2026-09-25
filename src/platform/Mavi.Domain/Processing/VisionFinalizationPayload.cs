@@ -4,7 +4,7 @@ using Mavi.Domain.Common;
 namespace Mavi.Domain.Processing;
 
 /// <summary>
-/// The exact completion body the platform accepted for one <see cref="VisionJob"/> attempt,
+/// The canonical semantic completion payload retained for one <see cref="VisionJob"/> attempt,
 /// retained in PostgreSQL until the job is terminal (S1.4 B3 asynchronous finalization plan §4).
 /// </summary>
 /// <remarks>
@@ -15,7 +15,7 @@ namespace Mavi.Domain.Processing;
 /// </para>
 /// <para>
 /// The row is deliberately not a navigation of <see cref="VisionJob"/>: the bytes are up to the
-/// completion request-body limit and must never ride along with a status or lease query.
+/// completion request-body limit and must never ride along with a status or lease query. The payload\n/// deliberately excludes worker authentication capabilities such as the raw lease token.
 /// </para>
 /// </remarks>
 public sealed class VisionFinalizationPayload
