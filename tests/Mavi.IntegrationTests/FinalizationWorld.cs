@@ -30,18 +30,22 @@ internal sealed class FinalizationWorld : IDisposable
     public static readonly DateTimeOffset Start = new(2026, 9, 25, 8, 0, 0, TimeSpan.Zero);
     public static readonly string[] AllRoles = ["representative", "near-view", "early-diverse", "late-diverse"];
 
-    private FinalizationWorld(ApiTestFactory factory, MutableTimeProvider clock, VisionFinalizationSubmissionApiTests.CapturingLoggerProvider logs, SqlTrace sql)
+    private FinalizationWorld(ApiTestFactory factory, MutableTimeProvider clock, VisionFinalizationSubmissionApiTests.CapturingLoggerProvider logs, SqlTrace sql, ControllableSealer sealer)
     {
         Factory = factory;
         Clock = clock;
         Logs = logs;
         Sql = sql;
+        Sealer = sealer;
     }
 
     public ApiTestFactory Factory { get; }
     public MutableTimeProvider Clock { get; }
     public VisionFinalizationSubmissionApiTests.CapturingLoggerProvider Logs { get; }
     public SqlTrace Sql { get; }
+
+    /// <summary>The real accepted-evidence store behind a decorator that counts, faults and traps deletion.</summary>
+    public ControllableSealer Sealer { get; }
 
     /// <summary>Claim 5 min, extension 5 min, 3 attempts, 6 h deadline, batches of 200.</summary>
     public VisionFinalizationPolicy Policy { get; init; } =
@@ -57,6 +61,7 @@ internal sealed class FinalizationWorld : IDisposable
         var clock = new MutableTimeProvider(now ?? Start);
         var logs = new VisionFinalizationSubmissionApiTests.CapturingLoggerProvider();
         var sql = new SqlTrace();
+        var sealer = new ControllableSealer();
         var factory = new ApiTestFactory
         {
             Clock = clock,
@@ -70,6 +75,14 @@ internal sealed class FinalizationWorld : IDisposable
             OverrideServices = services =>
             {
                 services.AddSingleton<ILoggerProvider>(logs);
+                services.RemoveAll<IAcceptedEvidenceStore>();
+                services.AddSingleton<IAcceptedEvidenceStore>(provider =>
+                {
+                    sealer.Inner = new Mavi.Infrastructure.Storage.AcceptedEvidenceStore(
+                        provider.GetRequiredService<IMediaStore>(),
+                        provider.GetRequiredService<IOptions<Mavi.Infrastructure.Storage.MediaStorageOptions>>());
+                    return sealer;
+                });
                 if (options is not null)
                 {
                     services.RemoveAll<IOptions<VisionFinalizationOptions>>();
@@ -79,7 +92,7 @@ internal sealed class FinalizationWorld : IDisposable
             },
         };
         await factory.ResetAndMigrateAsync();
-        return new FinalizationWorld(factory, clock, logs, sql);
+        return new FinalizationWorld(factory, clock, logs, sql, sealer);
     }
 
     // -- hand-off -----------------------------------------------------------------------------
@@ -210,6 +223,47 @@ internal sealed class FinalizationWorld : IDisposable
     public string AllLogText() => string.Join('\n', Logs.Entries.Select(x => x.Message));
 
     public void Dispose() => Factory.Dispose();
+
+    /// <summary>
+    /// Wraps the real store. Any deletion is a test failure, not a no-op: the finalizer must
+    /// never compensate by deleting accepted evidence (ADR-006 §7). Faults and hooks let a test
+    /// inject a transient IO error, rotate the clock or a claim between objects, or block.
+    /// </summary>
+    internal sealed class ControllableSealer : IAcceptedEvidenceStore
+    {
+        private int _seals;
+        private int _deletes;
+
+        public IAcceptedEvidenceStore Inner { get; set; } = null!;
+        public int Seals => _seals;
+        public int Deletes => _deletes;
+
+        /// <summary>Throws an IOException on the given one-based seal call, once.</summary>
+        public int? ThrowIoOnSeal { get; set; }
+
+        /// <summary>Runs before each seal with the one-based call number.</summary>
+        public Func<int, Task>? BeforeSeal { get; set; }
+
+        public async Task<AcceptedEvidenceSealResult> SealAsync(string sourceStorageKey, string acceptedStorageKey, long expectedSizeBytes, string expectedSha256, CancellationToken cancellationToken)
+        {
+            var call = Interlocked.Increment(ref _seals);
+            if (BeforeSeal is { } hook)
+                await hook(call);
+            if (ThrowIoOnSeal == call)
+            {
+                ThrowIoOnSeal = null;
+                throw new IOException("injected transient IO failure at /this/path/must/never/be/logged");
+            }
+
+            return await Inner.SealAsync(sourceStorageKey, acceptedStorageKey, expectedSizeBytes, expectedSha256, cancellationToken);
+        }
+
+        public Task DeleteAcceptedAsync(string acceptedStorageKey, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _deletes);
+            throw new InvalidOperationException("The asynchronous finalization path must never delete accepted evidence.");
+        }
+    }
 
     /// <summary>Every command text the host issued, in order; cleared by the test that reads it.</summary>
     internal sealed class SqlTrace : DbCommandInterceptor

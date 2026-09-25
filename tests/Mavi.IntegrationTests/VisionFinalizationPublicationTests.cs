@@ -297,7 +297,11 @@ public sealed class VisionFinalizationPublicationTests
         Assert.Equal(VisionFinalizationTransitionKind.Published, (await world.WithLifecycleAsync(l => l.PublishAsync(claim, result, graph, CancellationToken.None))).Kind);
     }
 
-    /// <summary>Fails the publication transaction before or after its real commit, or the graph INSERT.</summary>
+    /// <summary>
+    /// Fails the <b>publication</b> transaction (the one that wrote the graph) before or after
+    /// its real commit, or the graph INSERT itself. Other transactions (claims, extensions,
+    /// notes) are never touched, so the fault lands exactly where the plan's ambiguity lives.
+    /// </summary>
     internal sealed class CommitFaults : DbTransactionInterceptor
     {
         private readonly InsertFault _insert = new();
@@ -315,7 +319,7 @@ public sealed class VisionFinalizationPublicationTests
 
         public override ValueTask<InterceptionResult> TransactionCommittingAsync(DbTransaction transaction, TransactionEventData eventData, InterceptionResult result, CancellationToken cancellationToken = default)
         {
-            if (_failBeforeCommit)
+            if (_failBeforeCommit && _insert.SawGraphInsert)
             {
                 _failBeforeCommit = false;
                 throw new InvalidOperationException("Injected failure before the database commit.");
@@ -326,7 +330,7 @@ public sealed class VisionFinalizationPublicationTests
 
         public override Task TransactionCommittedAsync(DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
         {
-            if (_failAfterCommit)
+            if (_failAfterCommit && _insert.SawGraphInsert)
             {
                 _failAfterCommit = false;
                 throw new InvalidOperationException("Injected failure after the database commit.");
@@ -335,16 +339,28 @@ public sealed class VisionFinalizationPublicationTests
             return base.TransactionCommittedAsync(transaction, eventData, cancellationToken);
         }
 
+        public override ValueTask<DbTransaction> TransactionStartedAsync(DbConnection connection, TransactionEndEventData eventData, DbTransaction result, CancellationToken cancellationToken = default)
+        {
+            _insert.SawGraphInsert = false;
+            return base.TransactionStartedAsync(connection, eventData, result, cancellationToken);
+        }
+
         private sealed class InsertFault : DbCommandInterceptor
         {
             public volatile bool Armed;
+            public volatile bool SawGraphInsert;
 
             public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
             {
-                if (Armed && command.CommandText.Contains("INSERT INTO tracks", StringComparison.Ordinal))
+                if (command.CommandText.Contains("INSERT INTO tracks", StringComparison.Ordinal))
                 {
-                    Armed = false;
-                    throw new Npgsql.NpgsqlException("Injected database fault during graph persistence.");
+                    if (Armed)
+                    {
+                        Armed = false;
+                        throw new Npgsql.NpgsqlException("Injected database fault during graph persistence.");
+                    }
+
+                    SawGraphInsert = true;
                 }
 
                 return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);

@@ -114,6 +114,13 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<TimeProvider>();
             services.AddSingleton(Clock);
+            if (!EnableVisionFinalizationHost)
+            {
+                // The loop would claim and publish Finalizing jobs underneath every finalizer
+                // test that drives the lifecycle by hand; host tests opt in and drive cycles.
+                foreach (var descriptor in services.Where(x => x.ImplementationType == typeof(Mavi.Api.Finalization.VisionFinalizationHostedService)).ToList())
+                    services.Remove(descriptor);
+            }
             services.RemoveAll<DbContextOptions<MaviDbContext>>();
             services.AddDbContext<MaviDbContext>(options =>
             {

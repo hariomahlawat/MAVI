@@ -10,6 +10,7 @@ using Mavi.Application.Modules.SceneAnalytics.Configuration;
 using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
 using Mavi.Application.Modules.SceneAnalytics.Aggregates;
 using Mavi.Infrastructure.SceneAnalytics;
+using Mavi.Infrastructure.Finalization;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Security;
 using Mavi.Infrastructure.Persistence;
@@ -44,6 +45,9 @@ public static class DependencyInjection
         services.AddScoped<IProcessingResultStore, ProcessingResultStore>();
         services.AddScoped<IVisionFinalizationSubmissionStore, VisionFinalizationSubmissionStore>();
         services.AddScoped<IVisionFinalizationLifecycle, VisionFinalizationLifecycle>();
+        services.AddSingleton<VisionFinalizationExecutor>();
+        services.AddSingleton<VisionFinalizationState>();
+        services.AddSingleton<IVisionFinalizationMonitor>(provider => provider.GetRequiredService<VisionFinalizationState>());
         services.AddScoped<ITrackSearchRepository, TrackSearchRepository>();
         services.AddScoped<TrackSearchService>();
         services.AddScoped<ISceneConfigurationRepository, SceneConfigurationRepository>();
