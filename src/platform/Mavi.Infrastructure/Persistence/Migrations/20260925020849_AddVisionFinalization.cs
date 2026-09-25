@@ -15,7 +15,7 @@ namespace Mavi.Infrastructure.Persistence.Migrations
     /// claim expiry/extension, last error) and the hand-off time. Every new column is nullable
     /// or defaulted, so existing Queued / Leased / Completed / Failed rows are valid unchanged;
     /// no row is rewritten. <c>vision_finalization_payloads</c> holds the exact accepted
-    /// completion body per <c>(job, attempt)</c>, bounded by the completion request-body limit,
+    /// canonical semantic completion payload per <c>(job, attempt)</c>, bounded by the completion request-body limit,
     /// with its length, SHA-256 and completion digest checked by the database.
     /// </para>
     /// <para>
