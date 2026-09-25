@@ -142,6 +142,93 @@ public sealed class StagingJanitorTests
         Assert.Equal(LogLevel.Error, violation.Level);
     }
 
+    // F3 plan §12: Finalizing
+    [Fact]
+    public async Task FinalizingJobCurrentAttemptIsPreservedIndefinitelyAndSupersededAttemptsAreReclaimed()
+    {
+        using var world = await JanitorWorld.CreateAsync();
+        var job = await world.SeedJobAsync(VisionJobStatus.Finalizing, attemptCount: 3, completedAtUtc: null);
+        foreach (var attempt in new[] { "attempt-0001", "attempt-0002", "attempt-0003" })
+            world.Stage(job, attempt);
+
+        var cycle = await world.RunCycleAsync();
+
+        Assert.Equal(1, cycle.Removed);
+        Assert.False(world.AttemptExists(job, "attempt-0001"));
+        Assert.False(world.AttemptExists(job, "attempt-0002"));
+        Assert.True(world.AttemptExists(job, "attempt-0003"), "the current attempt is the finalizer's input");
+        Assert.True(world.JobExists(job));
+        Assert.Equal(0, world.Logs.Count(1406));
+
+        // However long it stays Finalizing: no grace makes the current attempt eligible.
+        world.Clock.Advance(TimeSpan.FromDays(30));
+        Assert.Equal(0, (await world.RunCycleAsync()).Eligible);
+        Assert.True(world.AttemptExists(job, "attempt-0003"));
+        Assert.Equal(0, world.Logs.Count(1406));
+    }
+
+    [Fact]
+    public async Task FinalizingJobLaterAttemptIsPreservedAndReportedOnce()
+    {
+        using var world = await JanitorWorld.CreateAsync();
+        var job = await world.SeedJobAsync(VisionJobStatus.Finalizing, attemptCount: 1, completedAtUtc: null);
+        world.Stage(job, "attempt-0001");
+        world.Stage(job, "attempt-0002");
+
+        var first = await world.RunCycleAsync();
+        var second = await world.RunCycleAsync();
+
+        Assert.Equal(0, first.Eligible + second.Eligible);
+        Assert.True(world.AttemptExists(job, "attempt-0001"));
+        Assert.True(world.AttemptExists(job, "attempt-0002"));
+        Assert.Equal(1, world.Logs.Count(1401));
+        Assert.Equal(0, world.Logs.Count(1406));
+    }
+
+    [Fact]
+    public async Task FinalizingThenTerminalKeepsTheGraceRule()
+    {
+        using var world = await JanitorWorld.CreateAsync();
+        var job = await world.SeedJobAsync(VisionJobStatus.Finalizing, attemptCount: 1, completedAtUtc: null);
+        world.Stage(job, "attempt-0001");
+        Assert.Equal(0, (await world.RunCycleAsync()).Eligible);
+
+        // The finalizer published (or failed) it: the current attempt becomes reclaimable after grace, as always.
+        using (var scope = world.Factory.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<MaviDbContext>().Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE vision_jobs SET status = 'Completed', completed_at_utc = {world.Clock.GetUtcNow()} WHERE id = {job}");
+        }
+
+        Assert.Equal(0, (await world.RunCycleAsync()).Eligible);
+        world.Clock.Advance(TimeSpan.FromMinutes(6));
+        Assert.Equal(1, (await world.RunCycleAsync()).Removed);
+        Assert.False(world.JobExists(job));
+    }
+
+    [Fact]
+    public async Task JanitorRacingAHandOffNeverSelectsTheAttemptTheHandOffBinds()
+    {
+        // The only dangerous interleaving would be: read Leased at attempt N-1 (attempt N-1
+        // current), hand-off moves to Finalizing at attempt N, janitor deletes N. A Leased row
+        // at attempt N-1 never makes N-1 eligible and a hand-off never lowers the attempt.
+        using var world = await JanitorWorld.CreateAsync();
+        var job = await world.SeedJobAsync(VisionJobStatus.Leased, attemptCount: 2, completedAtUtc: null);
+        world.Stage(job, "attempt-0001");
+        world.Stage(job, "attempt-0002");
+
+        var cycle = await world.RunCycleAsync();
+        Assert.False(world.AttemptExists(job, "attempt-0001"));
+        Assert.True(world.AttemptExists(job, "attempt-0002"));
+
+        using (var scope = world.Factory.Services.CreateScope())
+            await JanitorWorld.MarkFinalizingFactsAsync(scope.ServiceProvider.GetRequiredService<MaviDbContext>(), job, 2);
+
+        Assert.Equal(0, (await world.RunCycleAsync()).Eligible);
+        Assert.True(world.AttemptExists(job, "attempt-0002"));
+        Assert.Equal(1, cycle.Removed);
+    }
+
     // J5
     [Fact]
     public async Task OtherJobDirectoriesAreUntouchedWhenOneIsReclaimed()
@@ -679,10 +766,19 @@ public sealed class StagingJanitorTests
             var job = VisionJob.Create(run.Id, "phase1-detection-tracking", Now);
             db.AddRange(camera, source, video, run, job);
             await db.SaveChangesAsync();
-            await db.Database.ExecuteSqlInterpolatedAsync(
-                $"UPDATE vision_jobs SET status = {status.ToString()}, attempt_count = {attemptCount}, completed_at_utc = {completedAtUtc} WHERE id = {job.Id}");
+            // A Finalizing row must carry the hand-off facts (ck_vision_jobs_finalizing_facts) and at least one attempt.
+            if (status == VisionJobStatus.Finalizing)
+                await MarkFinalizingFactsAsync(db, job.Id, attemptCount);
+            else
+                await db.Database.ExecuteSqlInterpolatedAsync(
+                    $"UPDATE vision_jobs SET status = {status.ToString()}, attempt_count = {attemptCount}, completed_at_utc = {completedAtUtc} WHERE id = {job.Id}");
             return job.Id;
         }
+
+        /// <summary>The facts a Finalizing row must carry: the hand-off's retained authentication, digest and acceptance time.</summary>
+        public static Task<int> MarkFinalizingFactsAsync(MaviDbContext db, Guid jobId, int attemptCount) =>
+            db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE vision_jobs SET status = 'Finalizing', attempt_count = {attemptCount}, lease_owner = 'gpu-sdd-01', lease_token_hash = {new byte[32]}, completion_digest = {new string('a', 64)}, finalization_accepted_at_utc = {Now} WHERE id = {jobId}");
 
         public string StagingPath(string name) => Path.Combine(Factory.MediaRoot, "staging", name);
 

@@ -22,6 +22,8 @@ namespace Mavi.Infrastructure.Storage;
 /// enum defines it as terminal, and logged once (1405).</item>
 /// <item><b>Leased</b>: attempts <c>k &lt; AttemptCount</c> immediately (fenced by the lease authority);
 /// never the current or a later attempt, never the job directory.</item>
+/// <item><b>Finalizing</b>: the same as Leased. The current attempt is the finalizer's input and
+/// survives until the job is terminal (ADR-006 §7); a later attempt is reported (1401) and kept.</item>
 /// <item><b>Queued, AttemptCount 0</b>: no attempt has run; attempt directories are unexpected,
 /// logged once (1401) and preserved.</item>
 /// <item><b>Queued, AttemptCount &gt; 0</b>: unreachable in the aggregate; an invariant violation
@@ -93,7 +95,7 @@ public sealed partial class StagingJanitor(
             var eligible = new List<EligibleJob>();
             foreach (var job in jobs)
             {
-                if (Evaluate(job, rows.GetValueOrDefault(job.JobId), options, nowUtc) is { } unit)
+                if (Evaluate(job, rows.GetValueOrDefault(job.JobId), options, nowUtc, presentKeys) is { } unit)
                     eligible.Add(unit);
             }
 
@@ -315,7 +317,7 @@ public sealed partial class StagingJanitor(
 
     private sealed record EligibleJob(JobDirectory Job, IReadOnlyList<Attempt> Attempts, bool RemoveJobDirectory, DateTimeOffset ReferenceTimeUtc);
 
-    private EligibleJob? Evaluate(JobDirectory job, JobRow? row, StagingJanitorOptions options, DateTimeOffset nowUtc)
+    private EligibleJob? Evaluate(JobDirectory job, JobRow? row, StagingJanitorOptions options, DateTimeOffset nowUtc, HashSet<string> presentKeys)
     {
         if (row is null)
         {
@@ -350,6 +352,27 @@ public sealed partial class StagingJanitor(
                 return superseded.Count == 0
                     ? null
                     : new EligibleJob(job, superseded, RemoveJobDirectory: false, superseded.Min(attempt => attempt.LastWriteTimeUtc));
+
+            case VisionJobStatus.Finalizing:
+                // The current attempt is the finalizer's input (ADR-006 §7; F3 plan §12): never
+                // reclaimable while the job is Finalizing, however long it stays there. Earlier
+                // attempts are fenced by the lease authority that superseded them, exactly as
+                // for a Leased job. A later attempt directory is unexpected and is preserved
+                // and reported like any unrecognised entry. A Finalizing row without an attempt
+                // is unreachable in the aggregate: fail closed, delete nothing.
+                if (row.AttemptCount < 1)
+                {
+                    LogInvariantViolation(logger, job.Name, row.Status.ToString(), row.AttemptCount, "finalizing without a worker attempt");
+                    return null;
+                }
+
+                foreach (var later in job.Attempts.Where(attempt => attempt.Number > row.AttemptCount))
+                    ReportUnrecognised($"{job.Name}/{later.Name}", presentKeys);
+
+                var finalized = job.Attempts.Where(attempt => attempt.Number < row.AttemptCount).ToList();
+                return finalized.Count == 0
+                    ? null
+                    : new EligibleJob(job, finalized, RemoveJobDirectory: false, finalized.Min(attempt => attempt.LastWriteTimeUtc));
 
             case VisionJobStatus.Queued when row.AttemptCount == 0:
                 if ((job.Attempts.Count > 0 || job.HasOtherEntries) && state.FirstReport($"queued:{job.Name}"))
