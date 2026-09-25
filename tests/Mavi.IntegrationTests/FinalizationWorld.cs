@@ -56,9 +56,11 @@ internal sealed class FinalizationWorld : IDisposable
         Action<DbContextOptionsBuilder>? configureDbContext = null,
         VisionFinalizationOptions? options = null,
         bool enableHost = false,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null,
+        FinalizationWorld? sharedWith = null,
+        MutableTimeProvider? clockOverride = null)
     {
-        var clock = new MutableTimeProvider(now ?? Start);
+        var clock = clockOverride ?? sharedWith?.Clock ?? new MutableTimeProvider(now ?? Start);
         var logs = new VisionFinalizationSubmissionApiTests.CapturingLoggerProvider();
         var sql = new SqlTrace();
         var sealer = new ControllableSealer();
@@ -67,6 +69,8 @@ internal sealed class FinalizationWorld : IDisposable
             Clock = clock,
             EnableAsynchronousFinalization = options?.Enabled ?? true,
             EnableVisionFinalizationHost = enableHost,
+            MediaRootOverride = sharedWith?.Factory.MediaRoot,
+            EvidenceRootOverride = sharedWith?.Factory.EvidenceRoot,
             ConfigureDbContext = builder =>
             {
                 builder.AddInterceptors(sql);
@@ -91,7 +95,10 @@ internal sealed class FinalizationWorld : IDisposable
                 overrideServices?.Invoke(services);
             },
         };
-        await factory.ResetAndMigrateAsync();
+        // A second host over the same database, staging and evidence roots shares the world
+        // (two API hosts, or a restart); it never resets what the first one wrote.
+        if (sharedWith is null)
+            await factory.ResetAndMigrateAsync();
         return new FinalizationWorld(factory, clock, logs, sql, sealer);
     }
 
@@ -221,6 +228,34 @@ internal sealed class FinalizationWorld : IDisposable
     }
 
     public string AllLogText() => string.Join('\n', Logs.Entries.Select(x => x.Message));
+
+    /// <summary>A host instance wired as the application wires it, whose cycles a test drives by hand.</summary>
+    public Mavi.Api.Finalization.VisionFinalizationHostedService Host() => new(
+        Factory.Services.GetRequiredService<IServiceScopeFactory>(),
+        Factory.Services.GetRequiredService<IOptions<VisionFinalizationOptions>>(),
+        Factory.Services.GetRequiredService<Mavi.Infrastructure.Finalization.VisionFinalizationExecutor>(),
+        Factory.Services.GetRequiredService<Mavi.Infrastructure.Finalization.VisionFinalizationState>(),
+        Clock,
+        Factory.Services.GetRequiredService<ILogger<Mavi.Api.Finalization.VisionFinalizationHostedService>>());
+
+    public async Task<System.Text.Json.JsonElement> HealthAsync()
+    {
+        using var client = Factory.CreateClient();
+        using var document = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync("/api/health"));
+        return document.RootElement.GetProperty("details").GetProperty("visionFinalization").Clone();
+    }
+
+    /// <summary>Waits, bounded, for a condition a background loop satisfies; never a bare sleep-then-assert.</summary>
+    public static async Task WaitUntilAsync(Func<Task<bool>> condition, TimeSpan? timeout = null)
+    {
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(30));
+        while (!await condition())
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException("The background host did not reach the expected state in time.");
+            await Task.Delay(50);
+        }
+    }
 
     public void Dispose() => Factory.Dispose();
 
