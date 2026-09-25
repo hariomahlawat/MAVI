@@ -114,6 +114,34 @@ public sealed class VisionFinalizationLifecycleTests
     // -- the absolute deadline at every layer (F3 plan §5.4, §8.6) -----------------------------
 
     [Fact]
+    public async Task ClaimNextUsesMaximumFinalizationDurationNotClaimDuration()
+    {
+        // The SQL pre-filter and the domain transition must be handed the same policy value.
+        // With ClaimDuration = 5 min and MaximumDuration = 6 h, a hand-off 30 minutes old is
+        // well past one claim duration and well before the deadline: SQL selects it, and the
+        // domain must accept it too. A lifecycle that passed the claim duration as the maximum
+        // would have the domain refuse what SQL selected, and the claim would throw.
+        using var world = await FinalizationWorld.CreateAsync();
+        var handOff = await world.HandOffAsync();
+        var policy = new VisionFinalizationPolicy(TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5), 3, TimeSpan.FromHours(6), 200);
+        world.Clock.Advance(TimeSpan.FromMinutes(30));
+        Assert.True(world.Clock.GetUtcNow() > handOff.Ack.AcceptedAtUtc + policy.ClaimDuration);
+        Assert.True(world.Clock.GetUtcNow() < handOff.Ack.AcceptedAtUtc + policy.MaximumDuration);
+
+        var claim = await world.ClaimAsync(policy);
+
+        Assert.NotNull(claim);
+        Assert.Equal(handOff.Lease.JobId, claim.JobId);
+        Assert.Equal(1, claim.FinalizationAttemptCount);
+        Assert.Equal(handOff.Ack.AcceptedAtUtc + policy.MaximumDuration, claim.FinalizationDeadlineUtc);
+        var job = await world.JobAsync(claim.JobId);
+        Assert.Equal(1, job.FinalizationAttemptCount);
+        Assert.Equal(FinalizationClaimState.Live, job.FinalizationClaimStateAt(world.Clock.GetUtcNow()));
+        Assert.True(job.FinalizationOwnedBy(claim.ClaimToken.Span, world.Clock.GetUtcNow()));
+        Assert.Equal(world.Clock.GetUtcNow() + policy.ClaimDuration, job.FinalizationClaimExpiresAtUtc);
+    }
+
+    [Fact]
     public async Task NoNewClaimAfterMaximumFinalizationDuration()
     {
         using var world = await FinalizationWorld.CreateAsync();

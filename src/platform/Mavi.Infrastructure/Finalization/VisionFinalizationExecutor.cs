@@ -71,32 +71,43 @@ public sealed partial class VisionFinalizationExecutor(
         ArgumentNullException.ThrowIfNull(policy);
 
         var total = Stopwatch.StartNew();
-        var sealing = new VisionFinalizationSealingSummary(0, 0, 0, 0, 0);
+        // The sealing accounting lives here, outside the core, so that a lifecycle call that
+        // throws after sealing began (an extension, the publication's lock) still reports what
+        // was created or adopted: orphan and retention accounting stays meaningful on every
+        // transient path, not only on the ones the core converts itself (F3 plan §10.9).
+        var execution = new ExecutionState(new VisionFinalizationSealingSummary(0, 0, 0, 0, 0));
         try
         {
-            return await ExecuteCoreAsync(claim, policy, total, cancellationToken);
+            return await ExecuteCoreAsync(claim, policy, execution, total, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Host shutdown: write nothing, let the claim expire, reclaim after restart.
             LogCancelled(logger, claim.JobId, claim.FinalizationAttemptCount);
-            return new VisionFinalizationExecutionOutcome(VisionFinalizationExecutionKind.Cancelled, null, sealing);
+            return new VisionFinalizationExecutionOutcome(VisionFinalizationExecutionKind.Cancelled, null, execution.Sealing);
         }
         catch (Exception exception) when (IsDatabaseTransient(exception))
         {
             // A lifecycle call itself failed. Note it if the claim can still be proven; if not,
             // the claim expires on its own and reconciliation or a reclaim takes over.
-            return await NoteTransientAsync(claim, VisionFinalizationFailureCodes.DbTransient, exception, sealing, cancellationToken);
+            return await NoteTransientAsync(claim, VisionFinalizationFailureCodes.DbTransient, exception, execution.Sealing, cancellationToken);
         }
+    }
+
+    /// <summary>The mutable accounting of one execution, owned by <see cref="ExecuteAsync"/> and updated by the core.</summary>
+    private sealed class ExecutionState(VisionFinalizationSealingSummary sealing)
+    {
+        public VisionFinalizationSealingSummary Sealing { get; set; } = sealing;
     }
 
     private async Task<VisionFinalizationExecutionOutcome> ExecuteCoreAsync(
         VisionFinalizationClaim claim,
         VisionFinalizationPolicy policy,
+        ExecutionState execution,
         Stopwatch total,
         CancellationToken cancellationToken)
     {
-        var empty = new VisionFinalizationSealingSummary(0, 0, 0, 0, 0);
+        var empty = execution.Sealing;
 
         // --- Payload integrity (F3 plan §6.4): every check is deterministic. ---
         var inputs = await WithLifecycleAsync(lifecycle => lifecycle.LoadInputsAsync(claim, cancellationToken));
@@ -112,6 +123,7 @@ public sealed partial class VisionFinalizationExecutor(
         var units = EvidenceSealingPlan.Build(claim.JobId, result!);
         var accepted = new Dictionary<string, string>(StringComparer.Ordinal);
         var summary = new VisionFinalizationSealingSummary(0, 0, 0, 0, units.Count);
+        execution.Sealing = summary;
         var deadlineReached = false;
         var sealWatch = Stopwatch.StartNew();
 
@@ -153,6 +165,7 @@ public sealed partial class VisionFinalizationExecutor(
                 summary = sealedResult.CreatedNew
                     ? summary with { Created = summary.Created + 1, CreatedBytes = summary.CreatedBytes + (sealedResult.SizeBytes ?? unit.ExpectedSizeBytes) }
                     : summary with { Adopted = summary.Adopted + 1, AdoptedBytes = summary.AdoptedBytes + (sealedResult.SizeBytes ?? unit.ExpectedSizeBytes) };
+                execution.Sealing = summary;
             }
 
             // Ownership is revalidated at most one batch apart (F3 plan §6.6).
@@ -192,8 +205,7 @@ public sealed partial class VisionFinalizationExecutor(
             case VisionFinalizationTransitionKind.Published:
                 if (logger.IsEnabled(LogLevel.Information))
                 {
-                    var evidence = string.Create(CultureInfo.InvariantCulture,
-                        $"{summary.Created} created ({summary.CreatedBytes} bytes), {summary.Adopted} adopted ({summary.AdoptedBytes} bytes)");
+                    var evidence = Evidence(summary);
                     var timings = string.Create(CultureInfo.InvariantCulture,
                         $"seal {sealWatch.Elapsed.TotalMilliseconds:F1} ms, publish {publishWatch.Elapsed.TotalMilliseconds:F1} ms, total {total.Elapsed.TotalMilliseconds:F1} ms, hand-off to publish {(timeProvider.GetUtcNow() - claim.AcceptedAtUtc).TotalSeconds:F1} s");
                     LogPublished(logger, claim.JobId, claim.ProcessingRunId, result!.Tracks.Count, evidence, timings);
@@ -286,15 +298,19 @@ public sealed partial class VisionFinalizationExecutor(
         catch (Exception noteException) when (IsDatabaseTransient(noteException))
         {
             // The database is unreachable twice over: the claim expires on its own.
-            LogTransient(logger, claim.JobId, claim.FinalizationAttemptCount, code, noteException.GetType().Name + " (not recorded)");
+            LogTransient(logger, claim.JobId, claim.FinalizationAttemptCount, code, noteException.GetType().Name + " (not recorded)", Evidence(sealing));
             return new VisionFinalizationExecutionOutcome(VisionFinalizationExecutionKind.Transient, code, sealing);
         }
 
         if (transition.Kind == VisionFinalizationTransitionKind.Stale)
             return Lost(claim, "at transient note", sealing);
-        LogTransient(logger, claim.JobId, claim.FinalizationAttemptCount, code, exception?.GetType().Name ?? "-");
+        LogTransient(logger, claim.JobId, claim.FinalizationAttemptCount, code, exception?.GetType().Name ?? "-", Evidence(sealing));
         return new VisionFinalizationExecutionOutcome(VisionFinalizationExecutionKind.Transient, code, sealing);
     }
+
+    private static string Evidence(VisionFinalizationSealingSummary sealing) =>
+        string.Create(CultureInfo.InvariantCulture,
+            $"{sealing.Created} created ({sealing.CreatedBytes} bytes), {sealing.Adopted} adopted ({sealing.AdoptedBytes} bytes) of {sealing.Total}");
 
     private VisionFinalizationExecutionOutcome Lost(VisionFinalizationClaim claim, string step, VisionFinalizationSealingSummary sealing)
     {
@@ -326,8 +342,8 @@ public sealed partial class VisionFinalizationExecutor(
     private static partial void LogFailed(ILogger logger, Guid jobId, int finalizationAttempt, string code, string details);
 
     [LoggerMessage(EventId = 1506, EventName = "vision_finalization_transient", Level = LogLevel.Warning,
-        Message = "Finalization of job {JobId} (claim {FinalizationAttempt}) hit a transient error {Code} ({ExceptionType}); the claim is released for the next cycle.")]
-    private static partial void LogTransient(ILogger logger, Guid jobId, int finalizationAttempt, string code, string exceptionType);
+        Message = "Finalization of job {JobId} (claim {FinalizationAttempt}) hit a transient error {Code} ({ExceptionType}); the claim is released for the next cycle. Accepted evidence so far: {Evidence}.")]
+    private static partial void LogTransient(ILogger logger, Guid jobId, int finalizationAttempt, string code, string exceptionType, string evidence);
 
     [LoggerMessage(EventId = 1507, EventName = "vision_finalization_claim_lost", Level = LogLevel.Warning,
         Message = "Finalization of job {JobId} (claim {FinalizationAttempt}) lost its claim {Step}; nothing was written.")]

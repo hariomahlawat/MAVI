@@ -304,6 +304,43 @@ internal sealed class FinalizationWorld : IDisposable
         }
     }
 
+    /// <summary>Throws a database transient once, on the next command whose text contains the armed fragment.</summary>
+    internal sealed class DatabaseFault : DbCommandInterceptor
+    {
+        private volatile string? _fragment;
+
+        /// <summary>Whether the armed fault has fired (once).</summary>
+        public bool Tripped { get; private set; }
+
+        public void ArmOnCommandContaining(string fragment)
+        {
+            Tripped = false;
+            _fragment = fragment;
+        }
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+        {
+            Trip(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            Trip(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private void Trip(DbCommand command)
+        {
+            if (_fragment is { } fragment && command.CommandText.Contains(fragment, StringComparison.Ordinal))
+            {
+                _fragment = null;
+                Tripped = true;
+                throw new NpgsqlException("Injected database transient at /this/path/must/never/be/logged");
+            }
+        }
+    }
+
     /// <summary>Every command text the host issued, in order; cleared by the test that reads it.</summary>
     internal sealed class SqlTrace : DbCommandInterceptor
     {

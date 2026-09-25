@@ -435,6 +435,65 @@ public sealed class VisionFinalizationExecutorTests
         Assert.Equal(0, await world.TrackCountAsync(claim.ProcessingRunId));
     }
 
+    // -- accounting survives a database transient after sealing began (F3 plan §10.9) --------
+
+    [Fact]
+    public async Task DatabaseTransientAfterSealingBeganKeepsTheSealingAccounting()
+    {
+        var fault = new FinalizationWorld.DatabaseFault();
+        using var world = await FinalizationWorld.CreateAsync(configureDbContext: b => b.AddInterceptors(fault));
+        await world.HandOffAsync();
+        var policy = world.Policy with { SealingBatchSize = 2 };
+        var armAt = 0;
+        world.Sealer.BeforeSeal = call =>
+        {
+            // After batch 1 (2 objects) the claim extension is the next database write.
+            if (call == armAt)
+                fault.ArmOnCommandContaining("finalization_claim_extended_at_utc");
+            return Task.CompletedTask;
+        };
+
+        // The shared test database is reset per test without clearing the connection pool, so a
+        // pooled connection can raise a genuine transient before any object is sealed. The
+        // executor is designed to survive exactly that, and it is not what this test measures:
+        // the injected fault must have fired, otherwise the execution is repeated on a new claim.
+        VisionFinalizationExecutionOutcome outcome;
+        var attempts = 0;
+        do
+        {
+            var claim = (await world.ClaimAsync(policy))!;
+            world.Clock.Advance(TimeSpan.FromSeconds(1)); // every extension changes the expiry
+            armAt = world.Sealer.Seals + 2;
+            outcome = await ExecuteAsync(world, claim, policy);
+            attempts++;
+        }
+        while (!fault.Tripped && attempts < 3);
+        Assert.True(fault.Tripped, "the injected extension fault fired");
+
+        Assert.Equal(VisionFinalizationExecutionKind.Transient, outcome.Kind);
+        Assert.Equal("vision_finalization_db_transient", outcome.Code);
+        Assert.Equal(2, outcome.Sealing.Created);
+        Assert.Equal(0, outcome.Sealing.Adopted);
+        Assert.Equal(5, outcome.Sealing.Total);
+        Assert.Equal(2, world.EvidenceFiles().Length);
+        Assert.Equal(0, world.Sealer.Deletes);
+        var transient = world.Logs.Entries.Last(x => x.EventId.Id == 1506);
+        Assert.Contains("2 created", transient.Message, StringComparison.Ordinal);
+        Assert.Contains("NpgsqlException", transient.Message, StringComparison.Ordinal);
+        // The finalizer's own events (1500–1514) carry the exception type only. EF Core's
+        // command logger records the provider message separately; that category is not F3's.
+        var finalizerLog = string.Join('\n', world.Logs.Entries.Where(x => x.EventId.Id is >= 1500 and <= 1514).Select(x => x.Message));
+        Assert.DoesNotContain("/this/path/must/never/be/logged", finalizerLog, StringComparison.Ordinal);
+        var jobId = (await world.WithLifecycleAsync(l => l.CountAsync(CancellationToken.None))).FinalizingJobs;
+        Assert.Equal(1, jobId);
+
+        // The next claim adopts the two objects and publishes.
+        var retry = await ExecuteAsync(world, (await world.ClaimAsync(policy))!, policy);
+        Assert.Equal(VisionFinalizationExecutionKind.Published, retry.Kind);
+        Assert.Equal(2, retry.Sealing.Adopted);
+        Assert.Equal(3, retry.Sealing.Created);
+    }
+
     // -- publication ambiguity through the executor (F3 plan §10.2) --------------------------
 
     [Fact]
