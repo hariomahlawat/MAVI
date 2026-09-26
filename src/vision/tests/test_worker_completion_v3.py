@@ -1,8 +1,9 @@
-"""W family: the worker client's completion 3.0 wire and capability probe.
+"""W family: the worker client's completion 3.x wire and capability probe.
 
-The worker is the only producer of completion 3.0; these tests pin it to the
-checked-in golden example and JSON Schema so the Python and .NET boundaries
-cannot drift, and prove that a rejection is never answered with a 2.0 body.
+Completion 3.1 is the worker's shipped default; 3.0 remains the explicit
+rollback version. These tests pin the worker's body to the checked-in golden
+example and JSON Schema so the Python and .NET boundaries cannot drift, and
+prove that a rejection is never answered with a 2.0 body.
 """
 
 from __future__ import annotations

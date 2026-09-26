@@ -4,7 +4,7 @@
 
 **Nothing here is evidence. No authoritative S1.4 qualification has started.** B1–B6 and the disconnected unit remain OPEN. Nothing here qualifies Windows, and nothing here closes S1.4.
 
-F4-C ships the frozen values in `src/platform/Mavi.Api/appsettings.json` together with `VisionFinalization:Enabled = true`, and the worker default `completion_schema_version = "3.1"`. The F4-C merge commit becomes M2, the only SHA eligible for authoritative qualification. **The independent Gate A review of this record is pending (§11).**
+F4-C ships the frozen values in `src/platform/Mavi.Api/appsettings.json` together with `VisionFinalization:Enabled = true`, and the worker default `completion_schema_version = "3.1"`. The F4-C merge commit becomes M2, the only SHA eligible for authoritative qualification. **The independent Gate A review of this record passed on 2026-09-26 with no P1/P2 findings (§11).** That review concerns this exploratory configuration-freeze record only; it is not authoritative qualification.
 
 ## 1. Identity
 
@@ -219,4 +219,41 @@ Values are **never re-frozen from authoritative M2 results** (execution plan §1
 
 ## 11. Independent review (Gate A)
 
-_Pending._ This must be recorded by the independent reviewer after they review the committed exploratory package (execution plan §13 Gate A). It is a merge precondition for F4-C, and the F4-C author does not complete it.
+- **Result:** PASS
+- **Date:** 2026-09-26
+- **Independent review:** completed on the committed exploratory package (execution plan §13 Gate A)
+- **Findings:** no P1/P2 findings
+
+What the review verified:
+
+- **The package.**
+  - The manifest lists exactly 17 retained M1 files.
+  - All 17 SHA-256 values match the values pre-pinned in the merged F4-C plan (§5.1).
+  - The raw `authoritative: true` values are untouched.
+  - `exploratory/.gitattributes` (`* -text`) protects byte identity.
+  - Nothing is under authoritative `evidence/`.
+- **Provenance.**
+  - The raw B3-A and B3-B outputs are bound to exact M1 `aa30054478a13248d8bbfb6e1a228359b7d8645d`, with clean-tree and commit-object provenance.
+  - The launch records are bound to M1, with passwords masked.
+  - PostgreSQL 18.6 and the qualified Linux Development host are recorded correctly.
+- **The measurements.**
+  - B3-A max hand-off is 2130.3733 ms, inside the 15 s bound.
+  - The B3-B checker evaluation has zero header, content and concurrency findings.
+  - The B3-B console shows a pass with exit 0. The missing local B3-B TRX is non-blocking (§9).
+- **The derivation.**
+  - Inputs: `S_batch_max = 1.027195699`, `G_max = 0.15672437`, `P_max = 19.595462485`, `T_max = 113.978856` (seconds).
+  - Arithmetic:
+    - extension floor 90 s → frozen 300 s;
+    - claim floor 480 s → frozen 480 s;
+    - `M_bound = 2400 s`, and the maximum duration is retained at 21600 s;
+    - effective bound 22085 s;
+    - `neverLowered = true`;
+    - no stop conditions.
+- **Scope.**
+  - Windows exploratory absence is explicit and is not claimed as qualified.
+  - M1 → candidate M2 has no changes under the frozen surfaces: `tests/Mavi.IntegrationTests/Qualification/**`, `tools/qualification/**`, `tools/web-visual-qa/**` and `tests/Mavi.IntegrationTests/ApiTestFactory.cs`.
+
+This is the review of an **exploratory configuration-freeze record**, not authoritative qualification:
+- no authoritative S1.4 qualification has started;
+- Windows remains unqualified;
+- M2 does not exist until F4-C merges.
