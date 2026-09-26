@@ -185,6 +185,19 @@ public sealed class QualificationWorkRootTests : IDisposable
         var root = Path.Combine(_base, "per-sample");
         ReadOnlyFile(Path.Combine("per-sample", "job", "attempt-0001", "person-000001.jpg"));
         ReadOnlyFile(Path.Combine("per-sample", "top.jpg"));
+        QualificationWorkRoot.Empty(root, entry =>
+        {
+            // As Windows deletes: a read-only entry, or one beneath a directory, is refused.
+            var readOnly = entry is DirectoryInfo ? ReadOnlyBeneath(entry.FullName) : [];
+            if (entry.Attributes.HasFlag(FileAttributes.ReadOnly) || readOnly.Count > 0)
+                throw new UnauthorizedAccessException($"Access to the path '{entry.FullName}' is denied.");
+            if (entry is DirectoryInfo directory) directory.Delete(recursive: true);
+            else entry.Delete();
+        });
+        Assert.True(Directory.Exists(root));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(root));
+        // And on the real OS delete.
+        ReadOnlyFile(Path.Combine("per-sample", "job", "attempt-0002", "person-000002.jpg"));
         QualificationWorkRoot.Empty(root);
         Assert.True(Directory.Exists(root));
         Assert.Empty(Directory.EnumerateFileSystemEntries(root));

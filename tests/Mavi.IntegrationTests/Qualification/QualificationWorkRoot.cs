@@ -30,15 +30,20 @@ public static class QualificationWorkRoot
     public static void Delete(string root) => Delete(root, Directory.Delete);
 
     /// <summary>Deletes everything beneath <paramref name="root"/> and keeps the root.</summary>
-    public static void Empty(string root)
+    public static void Empty(string root) => Empty(root, DeleteEntry);
+
+    /// <summary>The per-entry deletion seam of <see cref="Empty(string)"/>, for the same proof.</summary>
+    internal static void Empty(string root, Action<FileSystemInfo> deleteEntry)
     {
         var directory = OwnedRoot(root) ?? throw new DirectoryNotFoundException($"qualification work root {root} does not exist");
         ClearReadOnlyBeneath(directory);
-        foreach (var entry in directory.EnumerateFileSystemInfos("*", Children))
-        {
-            if (entry is DirectoryInfo child && !IsLink(child)) child.Delete(recursive: true);
-            else entry.Delete();
-        }
+        foreach (var entry in directory.EnumerateFileSystemInfos("*", Children)) deleteEntry(entry);
+    }
+
+    private static void DeleteEntry(FileSystemInfo entry)
+    {
+        if (entry is DirectoryInfo child && !IsLink(child)) child.Delete(recursive: true);
+        else entry.Delete();
     }
 
     /// <summary>The deletion seam, so a test can prove a failure is not swallowed.</summary>
