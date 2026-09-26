@@ -1,0 +1,196 @@
+{
+  "schema": "s1-f4-exploratory-manifest-v1",
+  "note": "Exploratory configuration-freeze inputs at M1 (F4 execution plan \u00a75, \u00a79; F4-C plan \u00a75). NOT evidence. The two raw harness outputs record authoritative:true because the harness only knows that the host and tree were qualified; that field is left exactly as the harness wrote it. Their exploratory status is established by environment.gitSha == M1 (which the checker refuses at M2), by this exploratory/ path (outside evidence/<sha12>/), and by this manifest. Every listed file is byte-identical to what the harness, launcher or evaluator wrote.",
+  "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+  "authoritative": false,
+  "reason": "exploratory-configuration-freeze",
+  "entries": [
+    {
+      "file": "b3a/linux-x86_64-cpu/s1-b3a-hand-off.linux-x86_64-cpu.json",
+      "sha256": "7de35bb1e7269c62ad722305e0771afdc8df1eb9b1fa38f27e0db2c31e92219d",
+      "bytes": 26924,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "b3a.hand-off-output (raw harness output, unmodified)",
+      "harnessRunId": "f82a7e1e48a9439baa99c41d2c2ead72",
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "b3b/linux-x86_64-cpu/s1-b3b-finalization.linux-x86_64-cpu.json",
+      "sha256": "e35f7e07e6fa250aec46fee994f83410ae7c5fe982bd902ad3a89b3c47cc05a4",
+      "bytes": 2095951,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "b3b.finalization-output (raw harness output, unmodified)",
+      "harnessRunId": "b9ab218ba50d493c98d9d14a1755eb42",
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "hosts/linux-dev-container/python-host-identity.json",
+      "sha256": "c1db34035d4176f16628726fd7f9148d734c6c34822fbf4ec44d3589d498f4fd",
+      "bytes": 392,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "F4-A host probe (s1_memory.host_identity on the measurement root)",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "hosts/linux-dev-container/raw-host.txt",
+      "sha256": "0f9aac2ba4bdabbbf7b7a23019fc4a7ed9651204bcb6a98b60f117a0348eb88f",
+      "bytes": 858,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "raw host readings (uname, os-release, lscpu, free, findmnt, versions)",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/eval-b3a.json",
+      "sha256": "3cb5c5e93cc092c0b63d477fda38591ecb54e23b4f83a945a5c24aa00952c4cf",
+      "bytes": 2358,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "M1 checker evaluation of the B3-A output",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/eval-b3b.json",
+      "sha256": "1806099debd29f1a2afaf952fa46f5ff130b7a4846ccb267d72d7959202dc457",
+      "bytes": 21955,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "M1 checker evaluation of the B3-B output",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/derivation.json",
+      "sha256": "f6b568f733bac5452648ab1a0ee08113823c372dbc58b15a6afae5815580d985",
+      "bytes": 1946,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "execution plan \u00a77 derivation",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/evaluate_m1.py",
+      "sha256": "b6ce3317893c9e45f159841086ba735daadd6e5ce22ac67f6de41e83a6d18eed",
+      "bytes": 10673,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "evaluation/derivation script (imports the M1 checker from an M1 clone)",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3a.trx",
+      "sha256": "4ce4f7bee7719d6c492e3155d578dda7dd2ce65067a1089f59703fee55cbd553",
+      "bytes": 1099795,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "dotnet test TRX of the B3-A run",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3a-console.log",
+      "sha256": "92b6c20ce744da1303c21fab198ab8cfb233e71a035f65f3c0aa3cc8547924b1",
+      "bytes": 573,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "dotnet test console log of the B3-A run",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3b-console.log",
+      "sha256": "a766f090ca2eacd205c72abfdf08b6d53c959fc4279d67f0fe5ab2d086f3f9e7",
+      "bytes": 457,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "dotnet test console log of the B3-B run (Passed 1, exit 0); the TRX logger wrote no file for this run, and none is required (freeze document \u00a79)",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3a-launch.txt",
+      "sha256": "54efb5195e6ef03b25200ac33d2dbf46f5088a9547b99155f385ee8d19aca5cc",
+      "bytes": 720,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "B3-A launch record: filter, HEAD, porcelain, MAVI_* environment",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3b-launch.txt",
+      "sha256": "abac77fe2d9237e9dbed5ab5645a920c4c0eeecc4aa67773b3465309deafdb92",
+      "bytes": 738,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "B3-B launch record: filter, HEAD, porcelain, MAVI_* environment",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3a-started.txt",
+      "sha256": "38ebfa7b614408fefb767123c680ab1d6899632568fa3846edf935af4c46f821",
+      "bytes": 21,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "B3-A launch start time (UTC), written by the launcher",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3a-finished.txt",
+      "sha256": "a56b3f29ebeff7ef25fa087a411e85bcfeac8a5b5ef50de0fd5224c7bd81bfe1",
+      "bytes": 21,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "B3-A launch finish time (UTC), written by the launcher",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3b-started.txt",
+      "sha256": "731f72bbe77196ed0518de5fe2b9a0126f713f92ab6c206e8cb83e8759b5b7a1",
+      "bytes": 21,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "B3-B launch start time (UTC), written by the launcher",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    },
+    {
+      "file": "evaluation/b3b-finished.txt",
+      "sha256": "6d2104edd8dc18d825f3d84153d1ed70bbe9da13a13bd1114636ea35c319b8cb",
+      "bytes": 21,
+      "os": "linux-x86_64-cpu",
+      "m1Sha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+      "role": "B3-B launch finish time (UTC), written by the launcher",
+      "harnessRunId": null,
+      "authoritative": false,
+      "reason": "exploratory-configuration-freeze"
+    }
+  ]
+}

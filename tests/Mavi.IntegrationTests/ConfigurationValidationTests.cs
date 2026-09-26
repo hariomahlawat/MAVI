@@ -3,6 +3,7 @@ using System.Xml.Linq;
 using Mavi.Application.Modules.Intelligence;
 using Mavi.Application.Modules.Media;
 using Mavi.Application;
+using Mavi.Contracts.Worker;
 using Mavi.Infrastructure;
 using Mavi.Infrastructure.Media;
 using Mavi.Infrastructure.Storage;
@@ -81,6 +82,116 @@ public sealed class ConfigurationValidationTests
 
         Assert.Throws<OptionsValidationException>(() => provider.GetRequiredService<IOptions<VisionFinalizationOptions>>().Value);
     }
+
+    // Shipped finalizer configuration (S1.4 F4-C; docs/qualification/stage2-s1/f4-configuration-freeze.md).
+    // These read the real appsettings.json, not a test host: the checker binds M2 to that file.
+    private static readonly (string Key, JsonValueKind Kind, int Number)[] FrozenVisionFinalization =
+    [
+        ("Enabled", JsonValueKind.True, 0),
+        ("MaxConcurrentFinalizations", JsonValueKind.Number, 1),
+        ("PollIntervalSeconds", JsonValueKind.Number, 5),
+        ("ClaimSeconds", JsonValueKind.Number, 480),
+        ("ClaimExtensionSeconds", JsonValueKind.Number, 300),
+        ("MaximumFinalizationAttempts", JsonValueKind.Number, 3),
+        ("MaximumFinalizationDurationSeconds", JsonValueKind.Number, 21_600),
+        ("SealingBatchSize", JsonValueKind.Number, 200),
+        ("PayloadCleanupGraceSeconds", JsonValueKind.Number, 0),
+    ];
+
+    [Fact]
+    public void ShippedVisionFinalizationSectionIsTheF4Freeze()
+    {
+        var apiRoot = Path.Combine(FindRepositoryRoot(), "src", "platform", "Mavi.Api");
+        using var shipped = JsonDocument.Parse(File.ReadAllText(Path.Combine(apiRoot, "appsettings.json")));
+        var section = shipped.RootElement.GetProperty("VisionFinalization");
+
+        // Exactly the nine keys, each with its frozen value.
+        Assert.Equal(
+            FrozenVisionFinalization.Select(x => x.Key).Order(StringComparer.Ordinal),
+            section.EnumerateObject().Select(x => x.Name).Order(StringComparer.Ordinal));
+        foreach (var (key, kind, number) in FrozenVisionFinalization)
+        {
+            var value = section.GetProperty(key);
+            Assert.True(value.ValueKind == kind, $"{key} is {value.ValueKind}, expected {kind}");
+            if (kind == JsonValueKind.Number)
+                Assert.True(value.GetInt32() == number, $"{key} = {value.GetInt32()}, expected {number}");
+        }
+
+        var claim = section.GetProperty("ClaimSeconds").GetInt32();
+        var extension = section.GetProperty("ClaimExtensionSeconds").GetInt32();
+        var maximum = section.GetProperty("MaximumFinalizationDurationSeconds").GetInt32();
+        var poll = section.GetProperty("PollIntervalSeconds").GetInt32();
+        Assert.True(extension <= claim && claim <= maximum, "ClaimExtensionSeconds <= ClaimSeconds <= MaximumFinalizationDurationSeconds");
+        Assert.Equal(22_085, maximum + claim + poll);
+
+        // No environment file carries its own finalizer section, and no committed
+        // connection string overrides the 30 s runtime command timeout.
+        foreach (var name in new[] { "appsettings.json", "appsettings.Development.json", "appsettings.Production.json" })
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(apiRoot, name)));
+            if (name != "appsettings.json")
+                Assert.False(document.RootElement.TryGetProperty("VisionFinalization", out _), $"{name} overrides VisionFinalization");
+            if (document.RootElement.TryGetProperty("ConnectionStrings", out var connections))
+            {
+                foreach (var connection in connections.EnumerateObject())
+                    Assert.DoesNotMatch("(?i)command\\s*timeout", connection.Value.GetString() ?? string.Empty);
+            }
+        }
+    }
+
+    [Fact]
+    public void ShippedVisionFinalizationSectionBindsValidatesAndActivatesTheContract()
+    {
+        using var provider = BuildProvider(baseFile: ShippedAppsettingsPath());
+
+        var options = provider.GetRequiredService<IOptions<VisionFinalizationOptions>>().Value;
+
+        Assert.Empty(options.Validate());
+        Assert.True(options.Enabled);
+        var policy = options.ToPolicy();
+        Assert.Equal(TimeSpan.FromSeconds(480), policy.ClaimDuration);
+        Assert.Equal(TimeSpan.FromSeconds(300), policy.ClaimExtension);
+        Assert.Equal(3, policy.MaximumAttempts);
+        Assert.Equal(TimeSpan.FromSeconds(21_600), policy.MaximumDuration);
+        Assert.Equal(200, policy.SealingBatchSize);
+        Assert.Equal(1, options.MaxConcurrentFinalizations);
+        Assert.Equal(5, options.PollIntervalSeconds);
+        Assert.Equal(0, options.PayloadCleanupGraceSeconds);
+        Assert.Equal(TimeSpan.FromSeconds(21_600 + 480), options.EffectiveMaximumFinalizationBound);
+
+        Assert.Equal(["2.0", "3.1"], WorkerContractRules.CompletionSchemaVersions(options.Enabled));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0", options.Enabled));
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("2.0", options.Enabled));
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1", options.Enabled));
+    }
+
+    [Fact]
+    public void AMachineOverrideHoldsTheShippedGateOff()
+    {
+        // Activation step 1 and rollback: a machine file or VisionFinalization__Enabled=false,
+        // layered after appsettings.json, changes the gate and nothing else.
+        using var provider = BuildProvider(
+            new Dictionary<string, string?> { ["VisionFinalization:Enabled"] = "false" },
+            baseFile: ShippedAppsettingsPath());
+
+        var options = provider.GetRequiredService<IOptions<VisionFinalizationOptions>>().Value;
+
+        Assert.False(options.Enabled);
+        Assert.Equal(["2.0", "3.0"], WorkerContractRules.CompletionSchemaVersions(options.Enabled));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1", options.Enabled));
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0", options.Enabled));
+        Assert.Equal(480, options.ClaimSeconds);
+        Assert.Equal(300, options.ClaimExtensionSeconds);
+        Assert.Equal(3, options.MaximumFinalizationAttempts);
+        Assert.Equal(21_600, options.MaximumFinalizationDurationSeconds);
+        Assert.Equal(200, options.SealingBatchSize);
+        Assert.Equal(5, options.PollIntervalSeconds);
+        Assert.Equal(1, options.MaxConcurrentFinalizations);
+        Assert.Equal(0, options.PayloadCleanupGraceSeconds);
+    }
+
+    private static string ShippedAppsettingsPath() =>
+        Path.Combine(FindRepositoryRoot(), "src", "platform", "Mavi.Api", "appsettings.json");
 
     [Fact]
     public void AConfiguredCursorSigningKeyResolvesOnceAndIsNotEphemeral()
@@ -219,7 +330,7 @@ public sealed class ConfigurationValidationTests
     }
 
     // Test host
-    private static ServiceProvider BuildProvider(Dictionary<string, string?>? overrides = null)
+    private static ServiceProvider BuildProvider(Dictionary<string, string?>? overrides = null, string? baseFile = null)
     {
         var values = new Dictionary<string, string?>
         {
@@ -245,7 +356,11 @@ public sealed class ConfigurationValidationTests
             foreach (var pair in overrides) values[pair.Key] = pair.Value;
         }
 
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        // The optional base file is layered first, as appsettings.json is in the host; these
+        // values carry no VisionFinalization key, so the file's section stands unless overridden.
+        var builder = new ConfigurationBuilder();
+        if (baseFile is not null) builder.AddJsonFile(baseFile, optional: false, reloadOnChange: false);
+        var configuration = builder.AddInMemoryCollection(values).Build();
         return new ServiceCollection().AddLogging().AddMaviInfrastructure(configuration).BuildServiceProvider();
     }
 }

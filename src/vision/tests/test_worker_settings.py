@@ -169,6 +169,25 @@ def test_settings_reject_invalid_watchdog_policy(
         WorkerSettings()
 
 
+def test_the_shipped_completion_default_is_3_1_and_3_0_remains_the_rollback_setting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # S1.4 F4-C: the worker ships on the asynchronous 3.1 exchange; 3.0 is the
+    # setting that pairs with a platform held off. There is no 2.0 worker and no
+    # other version: the probe requires exactly this one.
+    seed_required(monkeypatch, tmp_path)
+    monkeypatch.delenv("MAVI_COMPLETION_SCHEMA_VERSION", raising=False)
+    assert WorkerSettings().completion_schema_version == "3.1"
+
+    monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", "3.0")
+    assert WorkerSettings().completion_schema_version == "3.0"
+
+    for unsupported in ("2.0", "3.2", ""):
+        monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", unsupported)
+        with pytest.raises(ValidationError):
+            WorkerSettings()
+
+
 def test_worker_settings_do_not_expose_analytical_tuning_knobs() -> None:
     forbidden = {
         "detector_inference_floor",

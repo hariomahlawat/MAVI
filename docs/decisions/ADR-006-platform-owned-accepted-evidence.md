@@ -80,7 +80,7 @@ The Track Evidence Set makes one attempt's staging large (up to ≈ 5.2 GiB tran
 
 ### 7. Asynchronous finalization ownership (amendment, S1.4 B3)
 
-**Status of this section:** Accepted 2026-09-25 with the frozen architecture in `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md`; slice F1 landed the contracts, domain state and schema, F2 the submission transaction, F3 the finalizer and its recovery (implementation record in the plan's §16; no rule in this section changed). Activation (`VisionFinalization:Enabled`) remains a separate, controlled step after F3 review.
+**Status of this section:** Accepted 2026-09-25 with the frozen architecture in `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md`; slice F1 landed the contracts, domain state and schema, F2 the submission transaction, F3 the finalizer and its recovery (implementation record in the plan's §16; no rule in this section changed). Activation (`VisionFinalization:Enabled`) is the shipped default since S1.4 F4-C, whose merge commit is M2, with the finalizer timing values frozen in `docs/qualification/stage2-s1/f4-configuration-freeze.md`.
 
 S1.4 B3 measured sealing of a 10,000-Track Evidence Set at p50 104 s inside the completion request, against a 15 s lease-bound budget. Sealing (§3) therefore moves out of the worker's request into a platform finalizer, and the completion exchange becomes a durable hand-off:
 

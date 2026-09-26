@@ -9,21 +9,22 @@ namespace Mavi.Application.Modules.Intelligence;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="Enabled"/> = <c>false</c> (the production default until the controlled activation
-/// after F3 review): the platform advertises and accepts completion 2.0 and 3.0, both
+/// <see cref="Enabled"/> = <c>false</c> (a machine override holding the gate off, for activation
+/// step 1 or a rollback): the platform advertises and accepts completion 2.0 and 3.0, both
 /// synchronous, and refuses 3.1. No job can become Finalizing. The finalizer host only
 /// refreshes its read-only health counts, so a stranded Finalizing row stays visible.
 /// </para>
 /// <para>
-/// <see cref="Enabled"/> = <c>true</c> (set together with the worker's
-/// <c>MAVI_COMPLETION_SCHEMA_VERSION=3.1</c>): the platform advertises and accepts 2.0 and
+/// <see cref="Enabled"/> = <c>true</c> (the shipped default since F4-C, paired with the worker's
+/// default completion 3.1): the platform advertises and accepts 2.0 and
 /// 3.1, 3.0 is retired, and 3.1 is the durable hand-off consumed by the hosted finalizer.
 /// There is no fallback in either direction: a worker whose version the platform does not
 /// advertise fails closed at its capability probe and leases nothing.
 /// </para>
 /// <para>
-/// The timing values below are development defaults. The production values are frozen by
-/// the F4 requalification from product requirements plus measurement. The effective bound
+/// The initializers below are the values for an absent key. The shipped values, gate included,
+/// are the F4 freeze in <c>src/platform/Mavi.Api/appsettings.json</c>
+/// (<c>docs/qualification/stage2-s1/f4-configuration-freeze.md</c>). The effective bound
 /// on a finalization is <b>not</b> <see cref="MaximumFinalizationDurationSeconds"/> alone:
 /// the deadline stops new claims and extensions, but a claim that is live at the deadline
 /// runs to its granted expiry, so a job is Completed or Failed no later than
@@ -54,7 +55,7 @@ public sealed class VisionFinalizationOptions
 
     /// <summary>
     /// The absolute deadline after the hand-off: past <c>FinalizationAcceptedAtUtc</c> plus this,
-    /// no claim is created or extended. Development default; F4 freezes the production value.
+    /// no claim is created or extended. The shipped value is the F4 freeze in appsettings.json.
     /// </summary>
     public int MaximumFinalizationDurationSeconds { get; init; } = 21_600;
 

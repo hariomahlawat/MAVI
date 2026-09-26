@@ -14,9 +14,11 @@ namespace Mavi.IntegrationTests;
 
 /// <summary>
 /// The S1.4 B3 activation gate (<c>VisionFinalization:Enabled</c>, plan §15.2, F2 deployment
-/// note). F2 merges with the gate off: the platform must behave exactly as before F2 for
-/// workers, and no job may enter Finalizing while no finalizer exists to consume it. The F3
-/// release turns the gate on, which retires 3.0 and makes 3.1 the durable hand-off.
+/// note). Held off, the platform behaves exactly as before F2 for workers, and no job may enter
+/// Finalizing. Since F4-C the shipped appsettings.json turns the gate on, which retires 3.0 and
+/// makes 3.1 the durable hand-off; a machine override holds it off for activation step 1 and
+/// rollback. These tests set the gate explicitly (<see cref="ApiTestFactory"/>); the shipped
+/// file itself is pinned by <see cref="ConfigurationValidationTests"/>.
 /// </summary>
 [Collection(DatabaseIntegrationGroup.Name)]
 public sealed class VisionFinalizationActivationGateTests
@@ -24,10 +26,10 @@ public sealed class VisionFinalizationActivationGateTests
     private static readonly DateTimeOffset Now = new(2026, 9, 25, 8, 0, 0, TimeSpan.Zero);
     private static readonly string[] Roles = ["representative", "near-view", "early-diverse", "late-diverse"];
 
-    // -- default (gate off): an F2-only deployment ---------------------------------------------
+    // -- gate held off: an F2-only deployment, activation step 1, or a rollback ---------------
 
     [Fact]
-    public async Task ByDefaultTheProbeAdvertisesTheSynchronousVersionsAndNever31()
+    public async Task WhenTheGateIsHeldOffTheProbeAdvertisesTheSynchronousVersionsAndNever31()
     {
         using var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
@@ -42,7 +44,7 @@ public sealed class VisionFinalizationActivationGateTests
     }
 
     [Fact]
-    public async Task ByDefaultA31SubmissionIsRefusedBeforeTheHandOffStoreAndNoJobBecomesFinalizing()
+    public async Task WhenTheGateIsHeldOffA31SubmissionIsRefusedBeforeTheHandOffStoreAndNoJobBecomesFinalizing()
     {
         var trap = new SubmissionStoreTrap();
         using var factory = new ApiTestFactory
@@ -71,7 +73,7 @@ public sealed class VisionFinalizationActivationGateTests
     }
 
     [Fact]
-    public async Task ByDefaultTheStoreItselfRefusesToHandOffEvenIfReachedDirectly()
+    public async Task WhenTheGateIsHeldOffTheStoreItselfRefusesToHandOffEvenIfReachedDirectly()
     {
         // Defence in depth: the gate is enforced inside the store too, so no caller can
         // create a Finalizing row on a platform without a finalizer.
@@ -94,7 +96,7 @@ public sealed class VisionFinalizationActivationGateTests
     }
 
     [Fact]
-    public async Task ByDefaultAnF2OnlyDeploymentCannotStrandAJobInFinalizing()
+    public async Task WhenTheGateIsHeldOffAnF2OnlyDeploymentCannotStrandAJobInFinalizing()
     {
         // The cold-review scenario: a worker leases a real job, submits, exits, and no finalizer
         // exists. With the gate off the only accepted v3 exchange is the synchronous 3.0
@@ -125,7 +127,7 @@ public sealed class VisionFinalizationActivationGateTests
         Assert.Equal("completed", statusBody.RootElement.GetProperty("latestRun").GetProperty("phase").GetString());
     }
 
-    // -- activated (gate on): the F3 release ---------------------------------------------------
+    // -- activated (gate on): the shipped default since F4-C ------------------------------------
 
     [Fact]
     public async Task WhenActivatedTheProbeAdvertises31Retires30AndTheHandOffIsLive()
