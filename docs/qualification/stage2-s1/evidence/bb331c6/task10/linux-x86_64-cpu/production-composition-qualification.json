@@ -1,0 +1,1 @@
+{"eventSha":"bb331c6825569b32ed280cfde21d6527071a7fb0","headSha":"bb331c6825569b32ed280cfde21d6527071a7fb0","packages":{"supervision":"0.30.2","trackers":"2.6.0"},"platform":"Linux-6.17.0-1022-azure-x86_64-with-glibc2.39","prHeadSha":null,"python":"3.12.14","status":"passed","testSuite":"src/vision/tests/test_production_processor_runtime.py"}

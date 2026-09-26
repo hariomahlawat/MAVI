@@ -1,0 +1,1 @@
+{"eventSha":"bb331c6825569b32ed280cfde21d6527071a7fb0","headSha":"bb331c6825569b32ed280cfde21d6527071a7fb0","packages":{"supervision":"0.30.2","trackers":"2.6.0"},"platform":"Windows-2025Server-10.0.26100-SP0","prHeadSha":null,"python":"3.12.10","status":"passed","testSuite":"src/vision/tests/test_production_processor_runtime.py"}
