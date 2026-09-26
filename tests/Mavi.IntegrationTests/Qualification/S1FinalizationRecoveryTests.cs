@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
@@ -70,6 +71,42 @@ public sealed class S1FinalizationRecoveryTests
         Assert.NotEmpty(RowProblems("host-death-before-first-claim", good with { FinalState = "Failed" }));
         Assert.NotEmpty(RowProblems("host-death-before-first-claim", good with { Created = 10, Adopted = 0 }));
         Assert.NotEmpty(RowProblems("host-death-before-first-claim", good with { KillPointHeld = false }));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void WindowsRecoveryRequiresExplicitWorkerPython(string? configured)
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ResolveWorkerPython(configured, isWindows: true, _ => true, _ => true));
+        Assert.Contains("MAVI_S1_WORKER_PYTHON", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WindowsRecoveryRejectsRelativeWorkerPython()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ResolveWorkerPython(@"venv\Scripts\python.exe", isWindows: true, _ => false, _ => true));
+        Assert.Contains("fully qualified", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WindowsRecoveryRejectsMissingWorkerPython()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ResolveWorkerPython(@"C:\qualified\venv\Scripts\python.exe", isWindows: true, _ => true, _ => false));
+        Assert.Contains("existing file", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitWorkerPythonIsUsedWithoutPathFallback()
+    {
+        const string windowsPython = @"C:\qualified\venv\Scripts\python.exe";
+        Assert.Equal(windowsPython, ResolveWorkerPython(windowsPython, isWindows: true, _ => true, _ => true));
+        Assert.Equal("/qualified/venv/bin/python", ResolveWorkerPython("/qualified/venv/bin/python", isWindows: false));
+        Assert.Equal("python3", ResolveWorkerPython(null, isWindows: false));
     }
 
     internal sealed record RowFacts(
@@ -246,7 +283,7 @@ public sealed class S1FinalizationRecoveryTests
         var jobId = await ScalarAsync<Guid>(connection,
             "SELECT j.id FROM vision_jobs j JOIN processing_runs r ON r.id = j.processing_run_id WHERE r.video_asset_id = $1", videoId);
 
-        var python = Environment.GetEnvironmentVariable("MAVI_S1_WORKER_PYTHON") ?? "python3";
+        var python = ResolveWorkerPython(Environment.GetEnvironmentVariable("MAVI_S1_WORKER_PYTHON"), OperatingSystem.IsWindows());
         var repository = RepositoryRoot();
         var start = new ProcessStartInfo(python, [Path.Combine(repository, "tools", "vision", "dev", "fixture_worker_harness.py")])
         {
@@ -259,7 +296,14 @@ public sealed class S1FinalizationRecoveryTests
         start.Environment["MAVI_WORKER_ID"] = "qualification-worker-01";
         start.Environment["MAVI_MEDIA_ROOT"] = roots.Media;
         start.Environment["MAVI_COMPLETION_SCHEMA_VERSION"] = WorkerContractRules.CompletionSchemaVersionV31;
+        // run_once() normally exits immediately after the hand-off acknowledgement. Hold the
+        // fixture process so this H-row controls the declared kill point instead of racing exit.
+        start.Environment["MAVI_FIXTURE_STAY_ALIVE_AFTER_HANDOFF_SECONDS"] = "300";
+        var workerOutput = new ConcurrentQueue<string>();
+        var workerError = new ConcurrentQueue<string>();
         using var worker = Process.Start(start)!;
+        worker.OutputDataReceived += (_, args) => { if (args.Data is not null) workerOutput.Enqueue(args.Data); };
+        worker.ErrorDataReceived += (_, args) => { if (args.Data is not null) workerError.Enqueue(args.Data); };
         string status;
         bool exitedBeforeKill;
         try
@@ -271,7 +315,8 @@ public sealed class S1FinalizationRecoveryTests
             var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(10);
             while ((status = await ScalarAsync<string>(connection, "SELECT status FROM vision_jobs WHERE id = $1", jobId)) is not ("Finalizing" or "Completed" or "Failed"))
             {
-                Assert.False(worker.HasExited && status is "Queued", $"the worker exited ({(worker.HasExited ? worker.ExitCode : 0)}) before leasing");
+                Assert.False(worker.HasExited && status is "Queued",
+                    $"the worker exited ({(worker.HasExited ? worker.ExitCode : 0)}) before leasing. stdout: {string.Join(" | ", workerOutput)} stderr: {string.Join(" | ", workerError)}");
                 Assert.True(DateTime.UtcNow < deadline, "the worker never handed off");
                 await Task.Delay(10);
             }
@@ -413,10 +458,20 @@ public sealed class S1FinalizationRecoveryTests
         var path = Path.Combine(roots.Media, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var ffmpegPath = QualificationMediaTools.ResolveBundledFfmpeg(RepositoryRoot());
-        using (var ffmpeg = Process.Start(new ProcessStartInfo(ffmpegPath, ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25", "-t", "12", "-pix_fmt", "yuv420p", "-c:v", "libx264", path]) { UseShellExecute = false })!)
+        var ffmpegStart = new ProcessStartInfo(ffmpegPath)
         {
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        foreach (var argument in new[] { "-nostdin", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25", "-t", "12", "-pix_fmt", "yuv420p", "-c:v", "libx264", path })
+            ffmpegStart.ArgumentList.Add(argument);
+        using (var ffmpeg = Process.Start(ffmpegStart)!)
+        {
+            var error = ffmpeg.StandardError.ReadToEndAsync();
             await ffmpeg.WaitForExitAsync();
-            Assert.Equal(0, ffmpeg.ExitCode);
+            var errorText = await error;
+            Assert.True(ffmpeg.ExitCode == 0, $"FFmpeg seed generation failed with exit {ffmpeg.ExitCode}: {errorText}");
         }
 
         var bytes = await File.ReadAllBytesAsync(path);
@@ -430,6 +485,29 @@ public sealed class S1FinalizationRecoveryTests
         db.AddRange(camera, source, video);
         await db.SaveChangesAsync();
         return video.Id;
+    }
+
+    internal static string ResolveWorkerPython(
+        string? configured,
+        bool isWindows,
+        Func<string, bool>? isFullyQualified = null,
+        Func<string, bool>? fileExists = null)
+    {
+        if (!isWindows)
+            return string.IsNullOrWhiteSpace(configured) ? "python3" : configured;
+
+        if (string.IsNullOrWhiteSpace(configured))
+            throw new InvalidOperationException("MAVI_S1_WORKER_PYTHON must be set explicitly on Windows qualification hosts.");
+
+        isFullyQualified ??= Path.IsPathFullyQualified;
+        if (!isFullyQualified(configured))
+            throw new InvalidOperationException("MAVI_S1_WORKER_PYTHON must be a fully qualified path on Windows qualification hosts.");
+
+        fileExists ??= File.Exists;
+        if (!fileExists(configured))
+            throw new InvalidOperationException($"MAVI_S1_WORKER_PYTHON does not name an existing file: {configured}");
+
+        return configured;
     }
 
     private static string RepositoryRoot()
