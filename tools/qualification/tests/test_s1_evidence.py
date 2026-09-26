@@ -3247,16 +3247,40 @@ def test_every_m2_truncated_collision_is_disambiguated() -> None:
         assert counts["passed"] == executions == len(set(counts["passedTests"])) > 0, suite
 
 
-def test_the_case_identity_does_not_depend_on_result_order(tmp_path: Path) -> None:
-    text = _trx_text(M2_INTEGRATION_TRX)
-    head, rest = text.split("  <Results>\n", 1)
-    body, tail = rest.split("  </Results>\n", 1)
-    blocks = re.split(r"\n(?=    <UnitTestResult )", body.rstrip("\n"))
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_the_case_identity_does_not_depend_on_result_order(tmp_path: Path, newline: str) -> None:
+    # The fixture's line endings depend on the checkout (a Windows autocrlf checkout
+    # makes it CRLF), so the test builds both forms from it rather than assuming one.
+    text = re.sub(r"\r?\n", newline, _trx_text(M2_INTEGRATION_TRX))
+    original = tmp_path / "original.trx"
+    original.write_bytes(text.encode("utf-8"))
+    head, rest = text.split(f"  <Results>{newline}", 1)
+    body, tail = rest.split(f"  </Results>{newline}", 1)
+    blocks = re.split(rf"{re.escape(newline)}(?=    <UnitTestResult )", body.removesuffix(newline))
+    assert len(blocks) == len(_trx_results(M2_INTEGRATION_TRX, "")) > 2
     reordered = tmp_path / "reordered.trx"
-    reordered.write_bytes((head + "  <Results>\n" + "\n".join(reversed(blocks)) + "\n  </Results>\n" + tail).encode("utf-8"))
-    original = s1_evidence.suite_counts_from_junit(M2_INTEGRATION_TRX, WORKER_V3)
-    shuffled = s1_evidence.suite_counts_from_junit(reordered, WORKER_V3)
-    assert sorted(original["passedTests"]) == sorted(shuffled["passedTests"])
+    reordered.write_bytes(
+        (head + f"  <Results>{newline}" + newline.join(reversed(blocks)) + f"{newline}  </Results>{newline}" + tail).encode("utf-8")
+    )
+    before = _trx_results(original, "Mavi.IntegrationTests.WorkerContractV3Tests.")
+    after = _trx_results(reordered, "Mavi.IntegrationTests.WorkerContractV3Tests.")
+    # The reorder really happened: the same results, in reverse document order.
+    assert [r.get("executionId") for r in after] == [r.get("executionId") for r in reversed(before)]
+    first = s1_evidence.suite_counts_from_junit(original, WORKER_V3)
+    second = s1_evidence.suite_counts_from_junit(reordered, WORKER_V3)
+    assert sorted(first["passedTests"]) == sorted(second["passedTests"])
+    assert len(set(first["passedTests"])) == first["passed"] == 21
+    # A shared name is bound to its own result, not to where the result sits: each
+    # disambiguated identity names one of the testIds carrying that display name.
+    ids_by_name: dict[str, set[str]] = {}
+    for result in before:
+        ids_by_name.setdefault(result.get("testName").split(".WorkerContractV3Tests.", 1)[1], set()).add(result.get("testId"))
+    for counts in (first, second):
+        shared = [t for t in counts["passedTests"] if " [testId=" in t]
+        assert len(shared) == 2
+        for case in shared:
+            name, test_id = case.split("::", 1)[1].rsplit(" [testId=", 1)
+            assert test_id.rstrip("]") in ids_by_name[name], case
 
 
 def test_an_m2_suite_entry_with_distinct_truncated_cases_is_schema_valid() -> None:
