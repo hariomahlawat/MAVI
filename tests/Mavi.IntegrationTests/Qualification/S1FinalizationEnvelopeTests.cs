@@ -563,7 +563,7 @@ public sealed class S1FinalizationEnvelopeTests
         }
         finally
         {
-            if (Directory.Exists(workRoot)) Directory.Delete(workRoot, recursive: true);
+            QualificationWorkRoot.Delete(workRoot);
         }
     }
 
@@ -576,14 +576,8 @@ public sealed class S1FinalizationEnvelopeTests
 
     private sealed record EnvelopeSample(Dictionary<string, object?> Values, EnvelopeContext Context, List<object> Rejected);
 
-    private static void Empty(string root)
-    {
-        foreach (var entry in Directory.EnumerateFileSystemEntries(root))
-        {
-            if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
-            else File.Delete(entry);
-        }
-    }
+    // Sealed evidence of the previous sample is read-only (see QualificationWorkRoot).
+    private static void Empty(string root) => QualificationWorkRoot.Empty(root);
 
     private static async Task<EnvelopeSample> EnvelopeOnceAsync(string mediaRoot, string evidenceRoot, int trackCount, TimeSpan baseline, SequenceAllocationObserver sequences)
     {

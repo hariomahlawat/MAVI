@@ -139,7 +139,7 @@ public sealed class S1FinalizationRecoveryTests
         }
         finally
         {
-            if (Directory.Exists(workRoot)) Directory.Delete(workRoot, recursive: true);
+            QualificationWorkRoot.Delete(workRoot);
         }
     }
 

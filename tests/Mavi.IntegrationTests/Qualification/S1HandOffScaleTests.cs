@@ -177,20 +177,14 @@ public sealed class S1HandOffScaleTests
         }
         finally
         {
-            if (Directory.Exists(workRoot)) Directory.Delete(workRoot, recursive: true);
+            QualificationWorkRoot.Delete(workRoot);
         }
     }
 
     private sealed record Sample(Dictionary<string, object?> Values, object Shape);
 
-    private static void Empty(string root)
-    {
-        foreach (var entry in Directory.EnumerateFileSystemEntries(root))
-        {
-            if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
-            else File.Delete(entry);
-        }
-    }
+    // Sealed evidence of the previous sample is read-only (see QualificationWorkRoot).
+    private static void Empty(string root) => QualificationWorkRoot.Empty(root);
 
     private static async Task<Sample> MeasureOnceAsync(string mediaRoot, string evidenceRoot, int trackCount, bool finalizerHostEnabled)
     {
