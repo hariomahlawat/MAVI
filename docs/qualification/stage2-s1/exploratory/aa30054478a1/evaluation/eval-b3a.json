@@ -1,0 +1,70 @@
+{
+  "file": "/tmp/claude-0/-home-user-MAVI/28469bf1-0d06-57ec-a9bc-448aec8e4cc0/scratchpad/m1-run/out/s1-b3a-hand-off.linux-x86_64-cpu.json",
+  "sha256": "7de35bb1e7269c62ad722305e0771afdc8df1eb9b1fa38f27e0db2c31e92219d",
+  "headerProblems": [],
+  "contentFindings": [],
+  "handOffStats": {
+    "n": 30,
+    "repeats": 3,
+    "warmupExcluded": true,
+    "min": 1206.7313,
+    "p50": 1281.9658,
+    "p95": 1649.9824,
+    "max": 2130.3733,
+    "p50RunSpread": 26.43529999999987
+  },
+  "replayStats": {
+    "n": 30,
+    "repeats": 3,
+    "warmupExcluded": true,
+    "min": 710.2564,
+    "p50": 882.2137,
+    "p95": 1005.3466,
+    "max": 1310.5985,
+    "p50RunSpread": 53.80539999999996
+  },
+  "workerRequestTimeoutMsAtM1": 30000.0,
+  "outputWorkerRequestTimeoutMs": 30000,
+  "handOffBoundMs": 15000.0,
+  "boundHolds": true,
+  "samples": 33,
+  "warmupSamples": 3,
+  "shape": {
+    "tracks": 10000,
+    "observations": 40000,
+    "stagedObjects": 50000
+  },
+  "finalizerHostEnabled": false,
+  "host": {
+    "cpuModel": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "logicalCores": 4,
+    "acceptedEvidenceFilesystem": "ext4",
+    "storageClass": "virtual",
+    "storageClassEvidence": "mount / fstype=ext4 device 254:0 -> vda; /sys/devices/pci0000:00/0000:00:02.0/virtio1/block/vda/queue/rotational=1"
+  },
+  "environment": {
+    "capturedAtUtc": "2026-09-25T16:17:41.7751543+00:00",
+    "dotnet": ".NET 10.0.12",
+    "gitCommitObjectPresent": "true",
+    "gitSha": "aa30054478a13248d8bbfb6e1a228359b7d8645d",
+    "gitWorkingTreeClean": "true",
+    "isQualificationGradeDatabase": "true",
+    "logicalCores": "4",
+    "os": "Ubuntu 24.04.4 LTS",
+    "osArchitecture": "X64",
+    "pg.effective_cache_size": "4GB",
+    "pg.jit": "on",
+    "pg.maintenance_work_mem": "64MB",
+    "pg.max_parallel_workers_per_gather": "2",
+    "pg.random_page_cost": "4",
+    "pg.shared_buffers": "128MB",
+    "pg.work_mem": "4MB",
+    "pgvector": "0.8.6",
+    "postgresVersion": "18.6 (Ubuntu 18.6-1.pgdg24.04+2)",
+    "postgresVersionFull": "PostgreSQL 18.6 (Ubuntu 18.6-1.pgdg24.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit",
+    "processArchitecture": "X64",
+    "testAssembly": "Mavi.IntegrationTests",
+    "testAssemblyBuiltUtc": "2026-09-25T16:17:10.4828658Z",
+    "testAssemblyModuleId": "d5e27d9df1e94b708b31c47fa2b448d8"
+  }
+}

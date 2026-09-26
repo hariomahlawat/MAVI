@@ -1,0 +1,11 @@
+{
+  "cpuModel": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "logicalCores": 4,
+  "os": "Ubuntu 24.04.4 LTS",
+  "osBuild": "6.18.44-fc-v37",
+  "physicalCores": 4,
+  "ramBytes": 16877547520,
+  "stagingFilesystem": "ext4",
+  "storageClass": "virtual",
+  "storageClassEvidence": "mount / fstype=ext4 device 254:0 -> vda; /sys/devices/pci0000:00/0000:00:02.0/virtio1/block/vda/queue/rotational=1"
+}

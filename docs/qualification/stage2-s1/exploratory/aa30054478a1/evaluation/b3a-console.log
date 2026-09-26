@@ -1,0 +1,9 @@
+Test run for /tmp/claude-0/-home-user-MAVI/28469bf1-0d06-57ec-a9bc-448aec8e4cc0/scratchpad/m1c/tests/Mavi.IntegrationTests/bin/Release/net10.0/Mavi.IntegrationTests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.2 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+Results File: /tmp/claude-0/-home-user-MAVI/28469bf1-0d06-57ec-a9bc-448aec8e4cc0/scratchpad/m1-run/trx-b3a/b3a.trx
+
+Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 10 m 48 s - Mavi.IntegrationTests.dll (net10.0)
+exit 0

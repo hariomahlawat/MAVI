@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from mavi_vision.common.analytical import VisionProcessingResult
-from mavi_vision.common.control_plane import VisionJobCompleteResponse, VisionJobLease
+from mavi_vision.common.control_plane import VisionJobFinalizationResponse, VisionJobLease
 from mavi_vision.common.lease import LeaseLostError
 from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.runtime.provenance import GpuIdentity, PlatformIdentity, RuntimeProvenance, TrackerParameters
@@ -222,9 +222,9 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == f"/api/vision/jobs/{expected.job_id}/complete"
         payload = json.loads(request.content)
-        # Default settings: the synchronous 3.0 completion, until the F3 release
-        # sets MAVI_COMPLETION_SCHEMA_VERSION=3.1 (S1.4 B3 plan §15.2).
-        assert payload["schemaVersion"] == "3.0"
+        # Default settings: completion 3.1, the durable hand-off the activated
+        # platform answers with "finalizing" (S1.4 F4-C).
+        assert payload["schemaVersion"] == "3.1"
         assert payload["jobId"] == str(expected.job_id)
         assert payload["workerId"] == expected.worker_id
         assert payload["leaseToken"] == expected.lease_token
@@ -241,17 +241,19 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
         return httpx.Response(
             200,
             json={
-                "schemaVersion": "3.0",
+                "schemaVersion": "3.1",
                 "jobId": str(expected.job_id),
                 "processingRunId": str(expected.processing_run_id),
-                "tracksAccepted": 0,
-                "completedAtUtc": "2026-09-13T08:00:00Z",
+                "state": "finalizing",
+                "acceptedAtUtc": "2026-09-13T08:00:00Z",
+                "tracksSubmitted": 0,
             },
         )
 
     response = run_request(tmp_path, httpx.MockTransport(handler), "complete")
 
-    assert isinstance(response, VisionJobCompleteResponse)
+    assert isinstance(response, VisionJobFinalizationResponse)
+    assert response.state == "finalizing"
     assert response.processing_run_id == expected.processing_run_id
 
 
@@ -270,11 +272,12 @@ def test_complete_projects_physical_gpu_identity_and_resolution_reason(
             return httpx.Response(
                 200,
                 json={
-                    "schemaVersion": "3.0",
+                    "schemaVersion": "3.1",
                     "jobId": str(expected.job_id),
                     "processingRunId": str(expected.processing_run_id),
-                    "tracksAccepted": 0,
-                    "completedAtUtc": "2026-09-13T08:00:00Z",
+                    "state": "finalizing",
+                    "acceptedAtUtc": "2026-09-13T08:00:00Z",
+                    "tracksSubmitted": 0,
                 },
             )
 

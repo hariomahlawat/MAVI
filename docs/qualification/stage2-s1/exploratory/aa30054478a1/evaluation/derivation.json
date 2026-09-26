@@ -1,0 +1,77 @@
+{
+  "inputsSeconds": {
+    "S_batch_max": 1.0271956990000002,
+    "G_max": 0.15672437,
+    "P_max": 19.595462485,
+    "T_max": 113.978856,
+    "S_batch_p95": 0.424813803,
+    "T_p95": 112.433788,
+    "firstClaimInterval": "not retained at M1",
+    "extensionOverhead": "not measured at M1"
+  },
+  "perOs": {
+    "linux-x86_64-cpu": {
+      "S_batch": {
+        "n": 8250,
+        "max": 1.0271956990000002,
+        "p95": 0.424813803
+      },
+      "G": {
+        "n": 33,
+        "max": 0.15672437,
+        "p95": 0.136764233
+      },
+      "P": {
+        "n": 33,
+        "max": 19.595462485,
+        "p95": 18.79926825
+      },
+      "T": {
+        "n": 33,
+        "max": 113.978856,
+        "p95": 112.433788
+      },
+      "files": [
+        "/tmp/claude-0/-home-user-MAVI/28469bf1-0d06-57ec-a9bc-448aec8e4cc0/scratchpad/m1-run/out/s1-b3b-finalization.linux-x86_64-cpu.json"
+      ]
+    }
+  },
+  "governingOs": {
+    "S_batch": "linux-x86_64-cpu",
+    "G": "linux-x86_64-cpu",
+    "P": "linux-x86_64-cpu",
+    "T": "linux-x86_64-cpu"
+  },
+  "arithmetic": {
+    "E_req": 79.00874741999999,
+    "ceilTo(E_req,30)": 90,
+    "4*T_max": 455.915424,
+    "ceilTo(4*T_max,60)": 480,
+    "M_req": 2123.873136,
+    "M_bound": 2400
+  },
+  "m1Values": {
+    "SealingBatchSize": 200,
+    "ClaimExtensionSeconds": 300,
+    "ClaimSeconds": 300,
+    "MaximumFinalizationAttempts": 3,
+    "MaximumFinalizationDurationSeconds": 21600,
+    "PollIntervalSeconds": 5,
+    "MaxConcurrentFinalizations": 1,
+    "PayloadCleanupGraceSeconds": 0
+  },
+  "frozen": {
+    "SealingBatchSize": 200,
+    "ClaimExtensionSeconds": 300,
+    "ClaimSeconds": 480,
+    "MaximumFinalizationAttempts": 3,
+    "MaximumFinalizationDurationSeconds": 21600,
+    "PollIntervalSeconds": 5,
+    "MaxConcurrentFinalizations": 1,
+    "PayloadCleanupGraceSeconds": 0
+  },
+  "effectiveBoundSeconds": 22085,
+  "effectiveBoundHours": 6.134722222222222,
+  "neverLowered": true,
+  "stops": []
+}

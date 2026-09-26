@@ -1,0 +1,10 @@
+label=b3b
+filter=FullyQualifiedName~S1FinalizationEnvelopeTests.AsynchronousFinalizationEnvelopeAtTheWorstShape
+head=aa30054478a13248d8bbfb6e1a228359b7d8645d
+porcelain=[]
+MAVI_QUALIFICATION=1
+MAVI_QUALIFICATION_OUT=/tmp/claude-0/-home-user-MAVI/28469bf1-0d06-57ec-a9bc-448aec8e4cc0/scratchpad/m1-run/out
+MAVI_S1_ENVELOPE_ROOT=/tmp/claude-0/-home-user-MAVI/28469bf1-0d06-57ec-a9bc-448aec8e4cc0/scratchpad/m1-run/root
+MAVI_S1_HANDOFF_ROOT=/tmp/claude-0/-home-user-MAVI/28469bf1-0d06-57ec-a9bc-448aec8e4cc0/scratchpad/m1-run/root
+MAVI_S1_RECOVERY_ROOT=/tmp/claude-0/-home-user-MAVI/28469bf1-0d06-57ec-a9bc-448aec8e4cc0/scratchpad/m1-run/root
+MAVI_TEST_DB_CONNECTION=Host=localhost;Port=5433;Database=mavi_test;Username=postgres;Password=***

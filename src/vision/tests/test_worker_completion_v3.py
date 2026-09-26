@@ -1,8 +1,9 @@
-"""W family: the worker client's completion 3.0 wire and capability probe.
+"""W family: the worker client's completion 3.x wire and capability probe.
 
-The worker is the only producer of completion 3.0; these tests pin it to the
-checked-in golden example and JSON Schema so the Python and .NET boundaries
-cannot drift, and prove that a rejection is never answered with a 2.0 body.
+Completion 3.1 is the worker's shipped default; 3.0 remains the explicit
+rollback version. These tests pin the worker's body to the checked-in golden
+example and JSON Schema so the Python and .NET boundaries cannot drift, and
+prove that a rejection is never answered with a 2.0 body.
 """
 
 from __future__ import annotations
@@ -58,16 +59,16 @@ def _golden() -> dict:
     return json.loads(GOLDEN.read_text(encoding="utf-8"))
 
 
-def _settings(tmp_path: Path, worker_id: str = "gpu-sdd-01", version: str = "3.1") -> WorkerSettings:
-    # This suite exercises the 3.1 exchange the F3 release activates, so the
-    # worker gate is set explicitly; the default (3.0) is covered by
-    # test_the_default_worker_emits_the_synchronous_completion and
-    # tests/test_worker_client.py.
+def _settings(tmp_path: Path, worker_id: str = "gpu-sdd-01", version: str | None = "3.1") -> WorkerSettings:
+    # Most of this suite names the version it exercises. ``version=None`` passes
+    # nothing, so WorkerSettings applies its own shipped default: only those
+    # tests prove what an unconfigured worker does (S1.4 F4-C).
+    explicit = {} if version is None else {"completion_schema_version": version}
     return WorkerSettings(
         api_base_url="https://mavi-api.local",
         worker_id=worker_id,
         media_root=tmp_path,
-        completion_schema_version=version,
+        **explicit,
     )
 
 
@@ -217,7 +218,7 @@ def _response_for(body: dict, version: str = "3.1", state: str = "finalizing") -
     return httpx.Response(200, json=payload)
 
 
-def _run(tmp_path: Path, handler, action, *, worker_id: str = "gpu-sdd-01", version: str = "3.1"):
+def _run(tmp_path: Path, handler, action, *, worker_id: str = "gpu-sdd-01", version: str | None = "3.1"):
     async def invoke():
         client = WorkerApiClient(
             _settings(tmp_path, worker_id, version), httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -230,7 +231,7 @@ def _run(tmp_path: Path, handler, action, *, worker_id: str = "gpu-sdd-01", vers
     return asyncio.run(invoke())
 
 
-def _complete_golden(tmp_path: Path, handler, version: str = "3.1"):
+def _complete_golden(tmp_path: Path, handler, version: str | None = "3.1"):
     golden = _golden()
     result = VisionProcessingResult(
         job_id=_lease_for(golden).job_id,
@@ -289,10 +290,10 @@ def test_a_platform_listing_only_completion_3_0_is_unsupported_for_a_3_1_worker(
         )
 
 
-def test_a_platform_listing_only_completion_3_1_is_unsupported_for_the_default_worker(tmp_path: Path) -> None:
-    """The other split brain, platform activated and worker still on the
-    default 3.0: 3.0 is retired at activation, so the worker stays not-ready
-    rather than being reinterpreted or upgraded on its own."""
+def test_a_platform_listing_only_completion_3_1_is_unsupported_for_a_3_0_worker(tmp_path: Path) -> None:
+    """The other split brain, platform activated and a worker still pinned to
+    3.0: 3.0 is retired at activation, so the worker stays not-ready rather
+    than being reinterpreted or upgraded on its own."""
     with pytest.raises(PlatformContractUnsupported):
         _run(
             tmp_path,
@@ -302,11 +303,9 @@ def test_a_platform_listing_only_completion_3_1_is_unsupported_for_the_default_w
         )
 
 
-def test_the_default_worker_accepts_the_pre_activation_platform(tmp_path: Path) -> None:
-    """An F2-only deployment: the default worker (3.0) against the default
-    platform (2.0 + 3.0) is compatible, so the deployment keeps processing."""
-    default = WorkerSettings(api_base_url="https://mavi-api.local", worker_id="gpu-sdd-01", media_root=tmp_path)
-    assert default.completion_schema_version == "3.0"
+def test_a_3_0_worker_accepts_the_pre_activation_platform(tmp_path: Path) -> None:
+    """The rollback pair: a worker pinned to 3.0 (MAVI_COMPLETION_SCHEMA_VERSION=3.0)
+    against a platform held off (2.0 + 3.0) is compatible and keeps processing."""
     capabilities = _run(
         tmp_path,
         _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.0"]}),
@@ -316,9 +315,10 @@ def test_the_default_worker_accepts_the_pre_activation_platform(tmp_path: Path) 
     assert "3.0" in capabilities.completion_schema_versions
 
 
-def test_the_default_worker_emits_the_synchronous_completion(tmp_path: Path) -> None:
-    """With the gate off the body is the 3.0 golden example byte for byte and
-    the synchronous acknowledgement is accepted; no 3.1 member appears."""
+def test_a_3_0_worker_emits_the_synchronous_completion(tmp_path: Path) -> None:
+    """Rolled back (gate off, worker pinned to 3.0), the body is the 3.0 golden
+    example byte for byte and the synchronous acknowledgement is accepted; no
+    3.1 member appears."""
     captured: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -335,11 +335,71 @@ def test_the_default_worker_emits_the_synchronous_completion(tmp_path: Path) -> 
     assert acknowledged.tracks_accepted == len(golden_3_0["tracks"])
 
 
-def test_the_default_worker_refuses_a_hand_off_acknowledgement(tmp_path: Path) -> None:
+def test_a_3_0_worker_refuses_a_hand_off_acknowledgement(tmp_path: Path) -> None:
     """A 3.0 worker answered with a 3.1 finalizing acknowledgement does not
     guess: the platform and worker disagree about what happened."""
     with pytest.raises(WorkerApiError, match="unexpected version"):
         _complete_golden(tmp_path, lambda request: _response_for(json.loads(request.content)), version="3.0")
+
+
+# The shipped default (S1.4 F4-C): every test below passes version=None, so the
+# worker runs on WorkerSettings' own default, not on a value the test supplies.
+
+def test_the_default_worker_is_on_completion_3_1(tmp_path: Path) -> None:
+    assert _settings(tmp_path, version=None).completion_schema_version == "3.1"
+
+
+def test_the_default_worker_emits_the_hand_off_completion(tmp_path: Path) -> None:
+    """The default body is the 3.1 golden example byte for byte, and the
+    platform's finalizing acknowledgement is taken as the durable hand-off."""
+    captured: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        captured.append(body)
+        return _response_for(body)
+
+    acknowledged = _complete_golden(tmp_path, handler, version=None)
+
+    assert captured == [_golden()]
+    assert captured[0]["schemaVersion"] == "3.1"
+    assert acknowledged.state == "finalizing"
+    assert acknowledged.tracks_submitted == len(_golden()["tracks"])
+
+
+def test_the_default_worker_refuses_a_synchronous_acknowledgement(tmp_path: Path) -> None:
+    """A synchronous 3.0 echo is not what a 3.1 hand-off is answered with; the
+    default worker does not guess what happened."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _response_for(json.loads(request.content), version="3.0")
+
+    with pytest.raises(WorkerApiError, match="unexpected version"):
+        _complete_golden(tmp_path, handler, version=None)
+
+
+def test_the_default_worker_accepts_the_activated_platform(tmp_path: Path) -> None:
+    capabilities = _run(
+        tmp_path,
+        _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1"]}),
+        lambda client: client.get_contract_capabilities(),
+        version=None,
+    )
+    assert capabilities.completion_schema_versions == ("2.0", "3.1")
+
+
+def test_a_pre_activation_platform_is_unsupported_for_the_default_worker(tmp_path: Path) -> None:
+    """A platform held off lists 2.0 and 3.0 only. The default worker neither
+    falls back to 3.0 nor to 2.0: it stays not-ready and leases nothing."""
+    requests: list[str] = []
+    probe = _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.0"]})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return probe(request)
+
+    with pytest.raises(PlatformContractUnsupported):
+        _run(tmp_path, handler, lambda client: client.get_contract_capabilities(), version=None)
+    assert requests == ["/api/vision/contract"]
 
 
 @pytest.mark.parametrize(
