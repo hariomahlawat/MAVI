@@ -22,7 +22,7 @@ public sealed class QualificationMediaToolsTests : IDisposable
 
         var resolved = QualificationMediaTools.ResolveBundledFfmpeg(_root);
 
-        Assert.Equal(expected, resolved, ignoreCase: OperatingSystem.IsWindows());
+        Assert.True(string.Equals(expected, resolved, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal), $"{resolved} != {expected}");
         Assert.DoesNotContain("__mavi_qualification_path_fallback_forbidden__", resolved, StringComparison.Ordinal);
     }
 
