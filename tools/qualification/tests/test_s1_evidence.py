@@ -12,6 +12,8 @@ import copy
 import hashlib
 import json
 import re
+from collections import Counter
+from xml.etree import ElementTree
 import subprocess
 import tempfile
 from pathlib import Path
@@ -2464,9 +2466,11 @@ def test_the_real_dotnet_trx_logger_output_is_readable() -> None:
     assert "Mavi.IntegrationTests.WorkerContractV3Tests::WorstShapeBodyFitsUnderLimit" in worker["passedTests"]
     assert 'Mavi.IntegrationTests.WorkerContractV3Tests::CompletionRejectsUnacceptedVersions(version: "3.1")' in worker["passedTests"]
     # xUnit truncates long theory arguments ("···"), so two cases can share a
-    # display name. Each result is still counted, and the checker compares the
-    # names as sorted lists, so a duplicate can neither vanish nor be invented.
-    assert len(worker["passedTests"]) == worker["passed"] > len(set(worker["passedTests"]))
+    # display name. Each result is still counted, and each shared name carries
+    # its case's own TRX testId, so the cases stay distinct (the schema requires
+    # unique names) and none can vanish or be invented.
+    assert len(worker["passedTests"]) == worker["passed"] == len(set(worker["passedTests"]))
+    assert sum(" [testId=" in t for t in worker["passedTests"]) >= 2
     sealing = s1_evidence.suite_counts_from_junit(path, "tests/Mavi.IntegrationTests/Qualification/S1SealingScaleTests")
     assert sealing["skippedTests"] == [
         "Mavi.IntegrationTests.Qualification.S1SealingScaleTests::RealStoreCompletionWallTimeAtTheWorstCaseObjectCount"
@@ -3187,3 +3191,244 @@ def test_each_premature_read_is_refused_by_its_own_recomputed_check(tmp_path: Pa
     findings = [f for f in check_record(record, repo_root=tmp_path, verify_git=False) if f.unit == "B3"]
     assert any(f.code == "b3b_output_mismatch" and f"{check} violation" in f.detail for f in findings), findings
     assert not any(f.code == "metric_without_producer" for f in findings), findings
+
+
+# --------------------------------------------------------------------------- exact-M2 theory result shapes
+# The M2 qualification (2853502) could not be recorded: xUnit truncates long theory
+# arguments ("···"), so distinct cases share a TRX display name while the schema
+# requires unique names, and .NET theory cases ("Name(arg: 1)") never matched their
+# proving-test function. These fixtures are the real exact-M2 Quality Gate TRX,
+# pruned to the affected tests (every kept element verbatim).
+
+FIXTURES = Path(__file__).parent / "fixtures"
+M2_INTEGRATION_TRX = FIXTURES / "m2-quality-gate-integration-theories.trx"
+M2_DOMAIN_TRX = FIXTURES / "m2-quality-gate-domain-theories.trx"
+WORKER_V3 = "tests/Mavi.IntegrationTests/WorkerContractV3Tests"
+TRX_NS = "{http://microsoft.com/schemas/VisualStudio/TeamTest/2010}"
+# The two exact-M2 cases whose display names are one truncated string.
+TRUNCATED = 'V3MembersRejectUnknownNamesAndFractionalIntegers(json: "{\\"evidenceAccounting\\":{\\"representative\\":{\\"can"···)'
+TRUNCATED_TEST_IDS = ("bd241a78-cfbd-3db9-40b0-0262e9909925", "f8c7ea38-5b66-0c4a-ffa7-c7b9b547e2bc")
+
+
+def _trx_results(path: Path, prefix: str) -> list:
+    root = ElementTree.parse(path).getroot()
+    return [r for r in root.iter(f"{TRX_NS}UnitTestResult") if r.get("testName", "").startswith(prefix)]
+
+
+def _trx_text(path: Path) -> str:
+    return path.read_bytes().decode("utf-8")
+
+
+def test_distinct_m2_cases_sharing_a_truncated_display_name_stay_distinct() -> None:
+    results = _trx_results(M2_INTEGRATION_TRX, "Mavi.IntegrationTests.WorkerContractV3Tests.")
+    assert len(results) == 21 and len({r.get("testId") for r in results}) == 21  # ground truth, not the parser
+    counts = s1_evidence.suite_counts_from_junit(M2_INTEGRATION_TRX, WORKER_V3)
+    assert (counts["passed"], counts["skipped"], counts["failed"], counts["errors"]) == (21, 0, 0, 0)
+    # Every execution is its own case: nothing collapsed, nothing dropped.
+    assert len(counts["passedTests"]) == len(set(counts["passedTests"])) == 21
+    truncated = [t for t in counts["passedTests"] if TRUNCATED in t]
+    assert len(truncated) == 2
+    # Each is told apart by its own stable TRX test id, never by position.
+    assert sorted(test_id for test_id in TRUNCATED_TEST_IDS if any(test_id in t for t in truncated)) == sorted(TRUNCATED_TEST_IDS)
+    # A display name that is unique keeps its exact historical form.
+    assert "Mavi.IntegrationTests.WorkerContractV3Tests::WorstShapeBodyFitsUnderLimit" in counts["passedTests"]
+    assert 'Mavi.IntegrationTests.WorkerContractV3Tests::CompletionRejectsUnacceptedVersions(version: "3.1", asynchronousFinalization: False)' in counts["passedTests"]
+
+
+def test_every_m2_truncated_collision_is_disambiguated() -> None:
+    # The exact-M2 integration TRX has four colliding groups (16 executions), not one.
+    root = ElementTree.parse(M2_INTEGRATION_TRX).getroot()
+    names = Counter(r.get("testName") for r in root.iter(f"{TRX_NS}UnitTestResult"))
+    assert sorted(n for n in names.values() if n > 1) == [2, 3, 5, 6]
+    for suite in ("tests/Mavi.IntegrationTests/AnalyticsApiTests", "tests/Mavi.IntegrationTests/TrackSearchApiTests", WORKER_V3):
+        prefix = suite.split("/", 1)[1].replace("/", ".") + "."
+        executions = sum(n for name, n in names.items() if name.startswith(prefix))
+        counts = s1_evidence.suite_counts_from_junit(M2_INTEGRATION_TRX, suite)
+        assert counts["passed"] == executions == len(set(counts["passedTests"])) > 0, suite
+
+
+def test_the_case_identity_does_not_depend_on_result_order(tmp_path: Path) -> None:
+    text = _trx_text(M2_INTEGRATION_TRX)
+    head, rest = text.split("  <Results>\n", 1)
+    body, tail = rest.split("  </Results>\n", 1)
+    blocks = re.split(r"\n(?=    <UnitTestResult )", body.rstrip("\n"))
+    reordered = tmp_path / "reordered.trx"
+    reordered.write_bytes((head + "  <Results>\n" + "\n".join(reversed(blocks)) + "\n  </Results>\n" + tail).encode("utf-8"))
+    original = s1_evidence.suite_counts_from_junit(M2_INTEGRATION_TRX, WORKER_V3)
+    shuffled = s1_evidence.suite_counts_from_junit(reordered, WORKER_V3)
+    assert sorted(original["passedTests"]) == sorted(shuffled["passedTests"])
+
+
+def test_an_m2_suite_entry_with_distinct_truncated_cases_is_schema_valid() -> None:
+    record = complete_record()
+    entry = next(e for e in record["suites"].values() if e["suite"] == WORKER_V3)
+    entry.update(s1_evidence.suite_counts_from_junit(M2_INTEGRATION_TRX, WORKER_V3))
+    assert not any(code == "schema_invalid" for _, code in codes(record))
+
+
+def _with_m2_trx(record: dict, root: Path, suite: str, text: str, counts_from: str | None = None) -> dict:
+    """Back ``suite``'s cited result with a real exact-M2 TRX (``text``); the entry's
+    counts are those of ``counts_from`` (default: the unmodified fixture)."""
+    fixture = M2_INTEGRATION_TRX if suite.startswith("tests/Mavi.IntegrationTests/") else M2_DOMAIN_TRX
+    source = root / "expected.trx"
+    source.write_bytes((counts_from if counts_from is not None else _trx_text(fixture)).encode("utf-8"))
+    expected = s1_evidence.suite_counts_from_junit(source, suite)
+    entries = [e for e in record["suites"].values() if e["suite"] == suite]  # every unit citing the suite
+    assert entries
+    for entry in entries:
+        entry.update(json.loads(json.dumps(expected)))
+        artifact = record["retainedArtifacts"][entry["junitArtifact"]]
+        (root / artifact["path"]).write_bytes(text.encode("utf-8"))
+        artifact["sha256"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return entries[0]
+
+
+def test_the_real_m2_worker_contract_result_is_accepted(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    _with_m2_trx(record, tmp_path, WORKER_V3, _trx_text(M2_INTEGRATION_TRX))
+    assert not {c for c in _verified_codes(record, tmp_path) if c[0] in ("B3", "record")}
+
+
+def _second_truncated_result(text: str) -> tuple[int, int]:
+    """The span of the second exact-M2 result carrying the truncated display name."""
+    marker = f'testId="{TRUNCATED_TEST_IDS[1]}"'
+    start = text.rindex("    <UnitTestResult ", 0, text.index(marker))
+    end = text.index("\n", text.index(marker)) + 1
+    return start, end
+
+
+def test_dropping_one_truncated_duplicate_is_a_count_mismatch(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    text = _trx_text(M2_INTEGRATION_TRX)
+    start, end = _second_truncated_result(text)
+    _with_m2_trx(record, tmp_path, WORKER_V3, text[:start] + text[end:])
+    assert ("B3", "junit_count_mismatch") in _verified_codes(record, tmp_path)
+
+
+def test_one_truncated_duplicate_turned_failed_fails_the_suite(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    text = _trx_text(M2_INTEGRATION_TRX)
+    start, end = _second_truncated_result(text)
+    failed = text[:start] + text[start:end].replace('outcome="Passed"', 'outcome="Failed"') + text[end:]
+    _with_m2_trx(record, tmp_path, WORKER_V3, failed)
+    found = _verified_codes(record, tmp_path)
+    assert ("B3", "junit_count_mismatch") in found
+    # Recorded faithfully, the failure itself refuses the suite.
+    record = materialize(complete_record(), tmp_path / "faithful")
+    _with_m2_trx(record, tmp_path / "faithful", WORKER_V3, failed, counts_from=failed)
+    assert ("B3", "suite_failed") in _verified_codes(record, tmp_path / "faithful")
+
+
+def test_collapsing_truncated_duplicates_by_display_name_is_refused(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    entry = _with_m2_trx(record, tmp_path, WORKER_V3, _trx_text(M2_INTEGRATION_TRX))
+    # The entry a display-name parser would write: one name for the two executions.
+    collapsed = [t for t in entry["passedTests"] if TRUNCATED not in t] + [f"Mavi.IntegrationTests.WorkerContractV3Tests::{TRUNCATED}"]
+    entry.update(passedTests=collapsed, passed=len(collapsed))
+    assert ("B3", "junit_count_mismatch") in _verified_codes(record, tmp_path)
+    # Written twice under the bare display name, the schema refuses it outright.
+    entry.update(passedTests=collapsed + [collapsed[-1]], passed=len(collapsed) + 1)
+    assert ("record", "schema_invalid") in _verified_codes(record, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("test_id", "function"),
+    [
+        # pytest parameters
+        ("tests.test_x::test_y", "test_y"),
+        ("tests.test_x::test_y[a-b]", "test_y"),
+        ("tests.test_x::test_y[vdb-1-None-virtual]", "test_y"),
+        ("tests.test_x::test_y[a::b]", "test_y"),
+        ("tools.qualification.tests.test_s1_memory::test_windows_probe_reads_commit_charge", "test_windows_probe_reads_commit_charge"),
+        # .NET / xUnit theories, exactly as the exact-M2 TRX names them
+        ("Mavi.Domain.Tests.VisionFinalizationDomainTests::MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: False, expiry: True, extendedAt: False)",
+         "MalformedClaimIsNotClaimableNotExhaustibleNotOwned"),
+        (f"Mavi.IntegrationTests.WorkerContractV3Tests::{TRUNCATED}", "V3MembersRejectUnknownNamesAndFractionalIntegers"),
+        ('Mavi.IntegrationTests.WorkerContractV3Tests::V3MembersRejectUnknownNamesAndFractionalIntegers(json: "{\\"tracks\\":[{\\"observations\\":[{\\"rank\\":0.5}]}]}")',
+         "V3MembersRejectUnknownNamesAndFractionalIntegers"),
+        ("Mavi.IntegrationTests.WorkerContractV3Tests::WorstShapeBodyFitsUnderLimit", "WorstShapeBodyFitsUnderLimit"),
+    ],
+)
+def test_a_case_maps_to_its_test_function(test_id: str, function: str) -> None:
+    assert s1_evidence.test_function_name(test_id) == function
+
+
+def test_a_disambiguated_truncated_case_still_maps_to_its_function() -> None:
+    counts = s1_evidence.suite_counts_from_junit(M2_INTEGRATION_TRX, WORKER_V3)
+    assert {s1_evidence.test_function_name(t) for t in counts["passedTests"] if TRUNCATED in t} == {
+        "V3MembersRejectUnknownNamesAndFractionalIntegers"
+    }
+
+
+def test_a_longer_function_name_is_not_its_prefix() -> None:
+    assert s1_evidence.test_function_name("C::MalformedClaimIsNotClaimableNotExhaustibleNotOwnedEither(a: 1)") != (
+        "MalformedClaimIsNotClaimableNotExhaustibleNotOwned"
+    )
+    assert s1_evidence.test_function_name("tests.test_x::test_yz[a]") != "test_y"
+
+
+CRASH_17_SUITES = {
+    "tests/Mavi.Domain.Tests/VisionFinalizationDomainTests": "MalformedClaimIsNotClaimableNotExhaustibleNotOwned",
+    "tests/Mavi.IntegrationTests/VisionFinalizationLifecycleTests": "MalformedClaimIsNeverClaimedOrExhaustedAndIsReportedOnce",
+}
+
+
+def _m2_theory_cases(suite: str) -> list[str]:
+    fixture = M2_DOMAIN_TRX if "Domain" in suite else M2_INTEGRATION_TRX
+    return [t for t in s1_evidence.suite_counts_from_junit(fixture, suite)["passedTests"] if s1_evidence.test_function_name(t) == CRASH_17_SUITES[suite]]
+
+
+def _record_with_m2_theories(mutate=None) -> dict:
+    """The complete record whose crash.17 proving tests are named as the exact-M2
+    TRX names their theory cases (four per theory) instead of bare function names."""
+    record = complete_record()
+    for suite, function in CRASH_17_SUITES.items():
+        cases = _m2_theory_cases(suite)
+        assert len(cases) == 4
+        entries = [e for e in record["suites"].values() if e["suite"] == suite]  # B3 and B4 both cite it
+        assert len(entries) >= 2
+        for entry in entries:
+            passed = [t for t in entry["passedTests"] if not t.endswith("::" + function)] + cases
+            entry.update(passedTests=passed, passed=len(passed))
+            if mutate:
+                mutate(entry, cases)
+    return record
+
+
+def test_passing_theory_cases_satisfy_their_proving_test() -> None:
+    record = _record_with_m2_theories()
+    assert not any(code == "proving_test_missing" for _, code in codes(record))
+
+
+def test_a_proving_theory_with_no_cases_is_missing() -> None:
+    def drop(entry, cases):
+        entry["passedTests"] = [t for t in entry["passedTests"] if t not in cases]
+        entry["passed"] = len(entry["passedTests"])
+    assert ("B3", "proving_test_missing") in codes(_record_with_m2_theories(drop))
+
+
+def test_a_failing_theory_case_fails_its_proving_test() -> None:
+    def fail_one(entry, cases):
+        entry["passedTests"] = [t for t in entry["passedTests"] if t != cases[0]]
+        entry.update(passed=len(entry["passedTests"]), failed=1)
+    found = codes(_record_with_m2_theories(fail_one))
+    assert ("B3", "proving_test_missing") in found and ("B3", "suite_failed") in found
+
+
+def test_a_skipped_theory_case_fails_its_proving_test() -> None:
+    def skip_one(entry, cases):
+        entry["passedTests"] = [t for t in entry["passedTests"] if t != cases[0]]
+        entry.update(passed=len(entry["passedTests"]), skipped=1, skippedTests=[cases[0]])
+    assert ("B3", "proving_test_missing") in codes(_record_with_m2_theories(skip_one))
+
+
+def test_the_real_m2_theory_results_satisfy_crash_17(tmp_path: Path) -> None:
+    record = materialize(complete_record(), tmp_path)
+    for suite in CRASH_17_SUITES:
+        fixture = M2_DOMAIN_TRX if "Domain" in suite else M2_INTEGRATION_TRX
+        _with_m2_trx(record, tmp_path, suite, _trx_text(fixture))
+    # The pruned fixtures hold only the theories, so other proving tests of these
+    # suites are (correctly) missing; crash.17 itself must be satisfied.
+    findings = check_record(record, repo_root=tmp_path, verify_git=False)
+    assert not [f for f in findings if "crash.17" in f.detail]
+    assert [f for f in findings if f.code == "proving_test_missing"], "the pruned fixtures must still leave other proving tests missing"

@@ -36,6 +36,7 @@ import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ElementTree
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from fnmatch import fnmatchcase
@@ -232,9 +233,22 @@ def is_approved_skip(entry_suite: str, variant: str, test_id: str) -> bool:
     )
 
 
+_TEST_FUNCTION = re.compile(r"\w+")
+
+
 def test_function_name(test_id: str) -> str:
-    """``tests.test_x::test_name[param]`` -> ``test_name``."""
-    return test_id.rsplit("::", 1)[-1].split("[", 1)[0]
+    """The test function a case belongs to: the leading identifier of its member
+    part (after the first ``::``; a class name never contains one).
+
+    ``tests.test_x::test_name[param]`` (pytest) and
+    ``Ns.ClassTests::Name(arg: "[x]")`` (an xUnit theory case, whose arguments may
+    hold ``[``, ``(`` or ``::``) both yield the bare function name, as does a
+    disambiguated TRX case (``Name(…) [testId=…]``). A name that merely starts
+    with another one is a different function.
+    """
+    member = test_id.split("::", 1)[-1]
+    match = _TEST_FUNCTION.match(member)
+    return match.group(0) if match else member
 
 
 # §10.4: the post-merge workflows a closure needs on the exact merge SHA.
@@ -1256,14 +1270,25 @@ def _junit_cases(root: ElementTree.Element) -> Iterable[tuple[str, str, str]]:
 def _trx_cases(root: ElementTree.Element) -> Iterable[tuple[str, str, str]]:
     """``dotnet test --logger trx`` results: each ``UnitTestResult`` joined to its
     ``UnitTest`` definition for the class name. The test name is the result's
-    ``testName`` without its class prefix, so theory arguments stay distinct."""
+    ``testName`` without its class prefix, so theory arguments stay distinct.
+
+    xUnit truncates long theory arguments (``···``), so distinct test cases of one
+    class can share a display name. Such a name is made unique per case with the
+    result's own TRX ``testId`` (a stable hash of the full test case, not a
+    per-run value): ``Name(json: "…"···) [testId=bd241a78-…]``. Every execution is
+    kept, none is merged, and a name that is not shared keeps its exact form. Two
+    results with the same name and the same ``testId`` stay identical, and the
+    schema's uniqueness rule refuses them.
+    """
     classes = {
         test.get("id"): method.get("className", "")
         for test in root.iter(f"{TRX_NAMESPACE}UnitTest")
         for method in test.iter(f"{TRX_NAMESPACE}TestMethod")
     }
+    cases: list[tuple[str, str, str, str | None]] = []
     for result in root.iter(f"{TRX_NAMESPACE}UnitTestResult"):
-        classname = classes.get(result.get("testId"))
+        test_id = result.get("testId")
+        classname = classes.get(test_id)
         if classname is None:
             raise ValueError(f"trx_result_without_definition:{result.get('testName')}")
         name = result.get("testName", "")
@@ -1277,7 +1302,10 @@ def _trx_cases(root: ElementTree.Element) -> Iterable[tuple[str, str, str]]:
             status = "errors"
         else:
             status = "failed"
-        yield classname, name, status
+        cases.append((classname, name, status, test_id))
+    shared = Counter((classname, name) for classname, name, _, _ in cases)
+    for classname, name, status, test_id in cases:
+        yield classname, (f"{name} [testId={test_id}]" if shared[(classname, name)] > 1 else name), status
 
 
 def is_trx(root: ElementTree.Element) -> bool:
@@ -2047,7 +2075,13 @@ class _Checker:
     def _proving_tests(self, name: str, unit: dict[str, Any], measured_sha: str) -> None:
         """Every property of the unit's proving map needs each named test to exist in
         its suite's source at the measured SHA and to have passed in the cited
-        TRX/JUnit (on every variant the suite is required on)."""
+        TRX/JUnit (on every variant the suite is required on).
+
+        A parameterized test (pytest ``[params]``, an xUnit theory's ``(args)``) is
+        proven only when every one of its cases passed: at least one passed, none
+        was skipped, and the suite result has no failed or errored case (a suite
+        result does not name its failures, so no test of it can be proven then).
+        """
         cited = [self.record["suites"][sid] for sid in unit["suites"] if sid in self.record["suites"]]
         sources: dict[str, str | None] = {}
         for prop, tests in PROVING_TESTS_BY_UNIT[name].items():
@@ -2057,10 +2091,13 @@ class _Checker:
                         entry["suite"] == suite
                         and (variant is None or entry["variant"] == variant)
                         and any(test_function_name(t) == test for t in entry["passedTests"])
+                        and not any(test_function_name(t) == test for t in entry["skippedTests"])
+                        and entry["failed"] == 0
+                        and entry["errors"] == 0
                         for entry in cited
                     ):
                         where = f" on {variant}" if variant else ""
-                        self.fail(name, "proving_test_missing", f"{prop} needs {suite}::{test} to have passed{where}")
+                        self.fail(name, "proving_test_missing", f"{prop} needs {suite}::{test} to have passed (every case){where}")
                 if self.repo_root is None:
                     continue
                 if suite not in sources:

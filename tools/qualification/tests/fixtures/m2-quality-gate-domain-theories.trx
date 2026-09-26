@@ -1,0 +1,51 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- Pruned from the exact-M2 (2853502136586fd2187f41679274cb4951258b8d) Quality Gate run 36209123413 artifact quality-gate-test-results (trx/Mavi.Domain.Tests.trx). Kept verbatim: every result, definition and entry of VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned and VisionFinalizationDomainTests.ExhaustFinalizationTakesNoTokenRetainsHandOffFactsAndCannotPublish; all other results removed; ResultSummary counters left as written for the full run; its run-level <Output> (the whole run's console log) removed. -->
+<TestRun id="75d127c8-7d12-45a5-9c7c-0b493d0f7ec2" name="@runnervmtr4k5 2026-09-26 01:40:54" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-09-26T01:40:54.8463714+00:00" queuing="2026-09-26T01:40:54.8463715+00:00" start="2026-09-26T01:40:53.9787870+00:00" finish="2026-09-26T01:40:55.0106607+00:00" />
+  <TestSettings name="default" id="24772e38-956e-46c0-8a07-e4b1b47f2a33">
+    <Deployment runDeploymentRoot="_runnervmtr4k5_2026-09-26_01_40_54" />
+  </TestSettings>
+  <Results>
+    <UnitTestResult executionId="c3c045b4-0f1a-43f6-aed5-d97d03812f85" testId="9fe31ba7-201b-c6fa-bfc4-dc994543654f" testName="Mavi.Domain.Tests.VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: False, expiry: False, extendedAt: True)" computerName="runnervmtr4k5" duration="00:00:00.0068345" startTime="2026-09-26T01:40:54.9093155+00:00" endTime="2026-09-26T01:40:54.9099263+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c3c045b4-0f1a-43f6-aed5-d97d03812f85" />
+    <UnitTestResult executionId="a71eacb6-7b38-491d-9600-3a220b892012" testId="ccda9be6-345f-7302-222f-290ca2ffa331" testName="Mavi.Domain.Tests.VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: True, expiry: True, extendedAt: False)" computerName="runnervmtr4k5" duration="00:00:00.0000788" startTime="2026-09-26T01:40:54.9103549+00:00" endTime="2026-09-26T01:40:54.9104318+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a71eacb6-7b38-491d-9600-3a220b892012" />
+    <UnitTestResult executionId="10fe1f77-3405-4d11-a963-c9801361bf4a" testId="d2a3aeea-aa7c-cc9c-06f3-c20a8be63bcf" testName="Mavi.Domain.Tests.VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: False, expiry: True, extendedAt: False)" computerName="runnervmtr4k5" duration="00:00:00.0004325" startTime="2026-09-26T01:40:54.9100929+00:00" endTime="2026-09-26T01:40:54.9102008+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="10fe1f77-3405-4d11-a963-c9801361bf4a" />
+    <UnitTestResult executionId="572a617e-c3e4-4ea8-be99-d49d9b9ea633" testId="bbc8b34b-fc9f-766e-4d00-9dc636dadd1c" testName="Mavi.Domain.Tests.VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: True, expiry: False, extendedAt: False)" computerName="runnervmtr4k5" duration="00:00:00.0000625" startTime="2026-09-26T01:40:54.9105897+00:00" endTime="2026-09-26T01:40:54.9106705+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="572a617e-c3e4-4ea8-be99-d49d9b9ea633" />
+    <UnitTestResult executionId="c05bedb3-00eb-40dd-bb6a-1a8a4a3a8ab7" testId="4c5c573d-16de-8a2b-91fe-cd4e641d3ea2" testName="Mavi.Domain.Tests.VisionFinalizationDomainTests.ExhaustFinalizationTakesNoTokenRetainsHandOffFactsAndCannotPublish" computerName="runnervmtr4k5" duration="00:00:00.0008581" startTime="2026-09-26T01:40:54.9425474+00:00" endTime="2026-09-26T01:40:54.9426279+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c05bedb3-00eb-40dd-bb6a-1a8a4a3a8ab7" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Mavi.Domain.Tests.VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: False, expiry: True, extendedAt: False)" storage="/home/runner/work/mavi/mavi/tests/mavi.domain.tests/bin/release/net10.0/mavi.domain.tests.dll" id="d2a3aeea-aa7c-cc9c-06f3-c20a8be63bcf">
+      <Execution id="10fe1f77-3405-4d11-a963-c9801361bf4a" />
+      <TestMethod codeBase="/home/runner/work/MAVI/MAVI/tests/Mavi.Domain.Tests/bin/Release/net10.0/Mavi.Domain.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.Domain.Tests.VisionFinalizationDomainTests" name="MalformedClaimIsNotClaimableNotExhaustibleNotOwned" />
+    </UnitTest>
+    <UnitTest name="Mavi.Domain.Tests.VisionFinalizationDomainTests.ExhaustFinalizationTakesNoTokenRetainsHandOffFactsAndCannotPublish" storage="/home/runner/work/mavi/mavi/tests/mavi.domain.tests/bin/release/net10.0/mavi.domain.tests.dll" id="4c5c573d-16de-8a2b-91fe-cd4e641d3ea2">
+      <Execution id="c05bedb3-00eb-40dd-bb6a-1a8a4a3a8ab7" />
+      <TestMethod codeBase="/home/runner/work/MAVI/MAVI/tests/Mavi.Domain.Tests/bin/Release/net10.0/Mavi.Domain.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.Domain.Tests.VisionFinalizationDomainTests" name="ExhaustFinalizationTakesNoTokenRetainsHandOffFactsAndCannotPublish" />
+    </UnitTest>
+    <UnitTest name="Mavi.Domain.Tests.VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: True, expiry: True, extendedAt: False)" storage="/home/runner/work/mavi/mavi/tests/mavi.domain.tests/bin/release/net10.0/mavi.domain.tests.dll" id="ccda9be6-345f-7302-222f-290ca2ffa331">
+      <Execution id="a71eacb6-7b38-491d-9600-3a220b892012" />
+      <TestMethod codeBase="/home/runner/work/MAVI/MAVI/tests/Mavi.Domain.Tests/bin/Release/net10.0/Mavi.Domain.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.Domain.Tests.VisionFinalizationDomainTests" name="MalformedClaimIsNotClaimableNotExhaustibleNotOwned" />
+    </UnitTest>
+    <UnitTest name="Mavi.Domain.Tests.VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: True, expiry: False, extendedAt: False)" storage="/home/runner/work/mavi/mavi/tests/mavi.domain.tests/bin/release/net10.0/mavi.domain.tests.dll" id="bbc8b34b-fc9f-766e-4d00-9dc636dadd1c">
+      <Execution id="572a617e-c3e4-4ea8-be99-d49d9b9ea633" />
+      <TestMethod codeBase="/home/runner/work/MAVI/MAVI/tests/Mavi.Domain.Tests/bin/Release/net10.0/Mavi.Domain.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.Domain.Tests.VisionFinalizationDomainTests" name="MalformedClaimIsNotClaimableNotExhaustibleNotOwned" />
+    </UnitTest>
+    <UnitTest name="Mavi.Domain.Tests.VisionFinalizationDomainTests.MalformedClaimIsNotClaimableNotExhaustibleNotOwned(hash: False, expiry: False, extendedAt: True)" storage="/home/runner/work/mavi/mavi/tests/mavi.domain.tests/bin/release/net10.0/mavi.domain.tests.dll" id="9fe31ba7-201b-c6fa-bfc4-dc994543654f">
+      <Execution id="c3c045b4-0f1a-43f6-aed5-d97d03812f85" />
+      <TestMethod codeBase="/home/runner/work/MAVI/MAVI/tests/Mavi.Domain.Tests/bin/Release/net10.0/Mavi.Domain.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="Mavi.Domain.Tests.VisionFinalizationDomainTests" name="MalformedClaimIsNotClaimableNotExhaustibleNotOwned" />
+    </UnitTest>
+  </TestDefinitions>
+  <TestEntries>
+    <TestEntry testId="9fe31ba7-201b-c6fa-bfc4-dc994543654f" executionId="c3c045b4-0f1a-43f6-aed5-d97d03812f85" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="ccda9be6-345f-7302-222f-290ca2ffa331" executionId="a71eacb6-7b38-491d-9600-3a220b892012" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="d2a3aeea-aa7c-cc9c-06f3-c20a8be63bcf" executionId="10fe1f77-3405-4d11-a963-c9801361bf4a" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="bbc8b34b-fc9f-766e-4d00-9dc636dadd1c" executionId="572a617e-c3e4-4ea8-be99-d49d9b9ea633" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="4c5c573d-16de-8a2b-91fe-cd4e641d3ea2" executionId="c05bedb3-00eb-40dd-bb6a-1a8a4a3a8ab7" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+  </TestEntries>
+  <TestLists>
+    <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
+  </TestLists>
+  <ResultSummary outcome="Completed">
+    <Counters total="281" executed="281" passed="281" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+  </ResultSummary>
+</TestRun>
