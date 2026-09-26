@@ -412,7 +412,8 @@ public sealed class S1FinalizationRecoveryTests
         var relative = $"source/{sourceId}.mp4";
         var path = Path.Combine(roots.Media, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        using (var ffmpeg = Process.Start(new ProcessStartInfo("ffmpeg", ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25", "-t", "12", "-pix_fmt", "yuv420p", "-c:v", "libx264", path]) { UseShellExecute = false })!)
+        var ffmpegPath = QualificationMediaTools.ResolveBundledFfmpeg(RepositoryRoot());
+        using (var ffmpeg = Process.Start(new ProcessStartInfo(ffmpegPath, ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=25", "-t", "12", "-pix_fmt", "yuv420p", "-c:v", "libx264", path]) { UseShellExecute = false })!)
         {
             await ffmpeg.WaitForExitAsync();
             Assert.Equal(0, ffmpeg.ExitCode);
