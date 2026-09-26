@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Mavi.Infrastructure.Media;
 
@@ -24,6 +25,20 @@ public sealed class QualificationMediaToolsTests : IDisposable
 
         Assert.True(string.Equals(expected, resolved, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal), $"{resolved} != {expected}");
         Assert.DoesNotContain("__mavi_qualification_path_fallback_forbidden__", resolved, StringComparison.Ordinal);
+    }
+
+
+    [Fact]
+    public void WindowsPowerShellBomManifestIsAccepted()
+    {
+        var expected = StageBundle(
+            validHash: true,
+            runtimeId: MediaToolPathResolver.CurrentRuntimeId(),
+            writeUtf8Bom: true);
+
+        var resolved = QualificationMediaTools.ResolveBundledFfmpeg(_root);
+
+        Assert.True(string.Equals(expected, resolved, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal), $"{resolved} != {expected}");
     }
 
     [Fact]
@@ -53,7 +68,7 @@ public sealed class QualificationMediaToolsTests : IDisposable
         Assert.Contains("runtime does not match", exception.Message, StringComparison.Ordinal);
     }
 
-    private string StageBundle(bool validHash, string runtimeId)
+    private string StageBundle(bool validHash, string runtimeId, bool writeUtf8Bom = false)
     {
         var bundle = Path.Combine(_root, "vendor", "ffmpeg");
         var runtime = Path.Combine(bundle, MediaToolPathResolver.CurrentRuntimeId());
@@ -71,7 +86,12 @@ public sealed class QualificationMediaToolsTests : IDisposable
             version = "test",
             artifacts = new[] { new { fileName = Path.GetFileName(executable), sha256 = sha } },
         };
-        File.WriteAllText(Path.Combine(bundle, "manifest.json"), JsonSerializer.Serialize(manifest));
+        var manifestPath = Path.Combine(bundle, "manifest.json");
+        var json = JsonSerializer.Serialize(manifest);
+        if (writeUtf8Bom)
+            File.WriteAllText(manifestPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        else
+            File.WriteAllText(manifestPath, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return Path.GetFullPath(executable);
     }
 }
