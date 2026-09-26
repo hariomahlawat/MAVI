@@ -18,6 +18,10 @@ Usage (repository virtualenv, API already running):
 Set MAVI_FIXTURE_SCENARIO=line-crossing | zone-dwell-exit | stationary-then-depart to
 report the detections of that scripted-corpus video instead (see scripted_corpus.py).
 
+For crash/recovery qualification only, MAVI_FIXTURE_STAY_ALIVE_AFTER_HANDOFF_SECONDS
+keeps the fixture process alive after run_once() receives the platform hand-off response.
+This removes a process-exit race while leaving WorkerRunner and the completion path unchanged.
+
 Exit code 0 when one job was leased and completed, 3 when no job was queued.
 """
 from __future__ import annotations
@@ -136,6 +140,17 @@ async def main() -> int:
                           heartbeat_interval_seconds=5.0, runtime_provenance_provider=provenance)
     worked = await runner.run_once()
     logging.info("run_once -> %s", worked)
+    if worked:
+        hold_text = os.environ.get("MAVI_FIXTURE_STAY_ALIVE_AFTER_HANDOFF_SECONDS", "0")
+        try:
+            hold_seconds = float(hold_text)
+        except ValueError as exc:
+            raise ValueError("MAVI_FIXTURE_STAY_ALIVE_AFTER_HANDOFF_SECONDS must be numeric") from exc
+        if hold_seconds < 0:
+            raise ValueError("MAVI_FIXTURE_STAY_ALIVE_AFTER_HANDOFF_SECONDS must be non-negative")
+        if hold_seconds:
+            logging.info("holding fixture worker alive after hand-off for %.3f seconds", hold_seconds)
+            await asyncio.sleep(hold_seconds)
     return 0 if worked else 3
 
 
