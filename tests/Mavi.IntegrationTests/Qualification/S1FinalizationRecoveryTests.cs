@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
@@ -262,6 +263,8 @@ public sealed class S1FinalizationRecoveryTests
             "SELECT j.id FROM vision_jobs j JOIN processing_runs r ON r.id = j.processing_run_id WHERE r.video_asset_id = $1", videoId);
 
         var python = ResolveWorkerPython(Environment.GetEnvironmentVariable("MAVI_S1_WORKER_PYTHON"), OperatingSystem.IsWindows());
+        if (OperatingSystem.IsWindows() && !File.Exists(python))
+            throw new InvalidOperationException($"MAVI_S1_WORKER_PYTHON does not name an existing file: {python}");
         var repository = RepositoryRoot();
         var start = new ProcessStartInfo(python, [Path.Combine(repository, "tools", "vision", "dev", "fixture_worker_harness.py")])
         {
@@ -277,11 +280,11 @@ public sealed class S1FinalizationRecoveryTests
         // run_once() normally exits immediately after the hand-off acknowledgement. Hold the
         // fixture process so this H-row controls the declared kill point instead of racing exit.
         start.Environment["MAVI_FIXTURE_STAY_ALIVE_AFTER_HANDOFF_SECONDS"] = "300";
-        var workerOutput = new List<string>();
-        var workerError = new List<string>();
+        var workerOutput = new ConcurrentQueue<string>();
+        var workerError = new ConcurrentQueue<string>();
         using var worker = Process.Start(start)!;
-        worker.OutputDataReceived += (_, args) => { if (args.Data is not null) lock (workerOutput) workerOutput.Add(args.Data); };
-        worker.ErrorDataReceived += (_, args) => { if (args.Data is not null) lock (workerError) workerError.Add(args.Data); };
+        worker.OutputDataReceived += (_, args) => { if (args.Data is not null) workerOutput.Enqueue(args.Data); };
+        worker.ErrorDataReceived += (_, args) => { if (args.Data is not null) workerError.Enqueue(args.Data); };
         string status;
         bool exitedBeforeKill;
         try
