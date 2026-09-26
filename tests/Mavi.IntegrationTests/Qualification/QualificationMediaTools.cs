@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Mavi.Infrastructure.Media;
 
@@ -37,7 +38,9 @@ internal static class QualificationMediaTools
 
     private static void VerifyManifest(string manifestPath, string executablePath)
     {
-        using var document = JsonDocument.Parse(File.ReadAllBytes(manifestPath));
+        // Windows PowerShell 5.1 writes UTF-8 files with a BOM. Read as text so the BOM is decoded rather than presented to Utf8JsonReader as payload bytes.
+        var manifestText = File.ReadAllText(manifestPath, Encoding.UTF8);
+        using var document = JsonDocument.Parse(manifestText);
         var root = document.RootElement;
         if (root.GetProperty("schemaVersion").GetString() != "1.0")
             throw new InvalidOperationException("Approved FFmpeg manifest schema is invalid.");
