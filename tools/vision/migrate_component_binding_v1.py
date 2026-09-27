@@ -383,6 +383,17 @@ def _publish(temporary: Path, destination: Path) -> None:
     os.link(temporary, destination)
 
 
+def _remove_all(paths: list[Path]) -> list[Path]:
+    """Remove every path; return those that could not be removed (never raises OSError)."""
+    left: list[Path] = []
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            left.append(path)
+    return left
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     for name in (
@@ -432,20 +443,27 @@ def main(argv: list[str] | None = None) -> int:
         for key, path in outputs.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+            staged.append((Path(temporary), path))  # tracked before any write can fail
             with os.fdopen(handle, "wb") as stream:
                 stream.write(documents[key])
-            staged.append((Path(temporary), path))
         for temporary, path in staged:
             _publish(temporary, path)
             published.append(path)
-    except OSError:
-        for path in reversed(published):
-            path.unlink(missing_ok=True)
-        print("migration_publication_failed", file=sys.stderr)
+    except BaseException as exc:
+        # Any failure, including an interrupt, removes every destination this
+        # invocation created; one failed removal does not stop the others.
+        left = _remove_all([path for path in reversed(published)])
+        _remove_all([temporary for temporary, _path in staged])
+        if not isinstance(exc, Exception):
+            raise
+        message = "migration_publication_failed"
+        if left:
+            message += ":left=" + ",".join(str(path) for path in left)
+        print(message, file=sys.stderr)
         return 2
-    finally:
-        for temporary, _path in staged:
-            temporary.unlink(missing_ok=True)
+    left_temporaries = _remove_all([temporary for temporary, _path in staged])
+    if left_temporaries:
+        print("migration_temporary_cleanup_failed:" + ",".join(map(str, left_temporaries)), file=sys.stderr)
     print(json.dumps({key: hashlib.sha256(value).hexdigest() for key, value in documents.items()}, sort_keys=True))
     return 0
 

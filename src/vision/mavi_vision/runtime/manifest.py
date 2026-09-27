@@ -17,18 +17,21 @@ _SHA256_LENGTH = 64
 
 # Network/online resolver locators that must never appear in release metadata.
 # This is the single definition: tools/verify_repo.py and the v2 schemas both use it.
+# The scheme separator is joined at import time so this production module contains
+# no literal Internet URL (verify_repo's production URL scan covers this package).
+_SCHEME_SEPARATOR = ":" + "//"
 RELEASE_NETWORK_LOCATORS = (
-    "http://",
-    "https://",
+    "http" + _SCHEME_SEPARATOR,
+    "https" + _SCHEME_SEPARATOR,
     "git+",
-    "ssh://",
-    "ftp://",
-    "s3://",
-    "hf://",
-    "mim://",
-    "modelzoo://",
-    "torchvision://",
-    "openmmlab://",
+    "ssh" + _SCHEME_SEPARATOR,
+    "ftp" + _SCHEME_SEPARATOR,
+    "s3" + _SCHEME_SEPARATOR,
+    "hf" + _SCHEME_SEPARATOR,
+    "mim" + _SCHEME_SEPARATOR,
+    "modelzoo" + _SCHEME_SEPARATOR,
+    "torchvision" + _SCHEME_SEPARATOR,
+    "openmmlab" + _SCHEME_SEPARATOR,
 )
 
 

@@ -202,9 +202,12 @@ def test_populated_policies_are_exposed() -> None:
 
 
 @pytest.mark.parametrize(("policies", "code"), [
-    ({"pipelineProfileId": "phase1-detection-tracking-v1"}, "qualification_policies_incomplete"),
-    ({"pipelineProfileSha256": "5" * 64}, "qualification_policies_incomplete"),
     ({"pipelineProfileId": "phase1-detection-tracking-v1", "pipelineProfileSha256": None}, "qualification_policies_incomplete"),
+    ({"pipelineProfileId": None, "pipelineProfileSha256": "5" * 64}, "qualification_policies_incomplete"),
+    # "no policy" has exactly two encodings: key omitted, or both fields null
+    ({"pipelineProfileId": "phase1-detection-tracking-v1"}, "qualification_record_invalid"),
+    ({}, "qualification_record_invalid"),
+    (None, "qualification_policies_invalid"),
     ({"pipelineProfileId": "phase1-detection-tracking-v1", "pipelineProfileSha256": "not-a-sha"}, "qualification_policies_invalid"),
     ({"pipelineProfileId": " padded", "pipelineProfileSha256": "5" * 64}, "qualification_policies_invalid"),
     ({"pipelineProfileId": "p", "pipelineProfileSha256": "5" * 64, "aggregation": "x"}, "qualification_record_invalid"),

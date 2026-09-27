@@ -177,8 +177,10 @@ class _OutputContractSchema(StrictModel):
 
 
 class _PoliciesSchema(StrictModel):
-    pipeline_profile_id: str | None = Field(default=None, alias="pipelineProfileId")
-    pipeline_profile_sha256: str | None = Field(default=None, alias="pipelineProfileSha256")
+    # Both keys are always present when `policies` is given; "no policy" has exactly
+    # two encodings: the `policies` key omitted, or both fields null.
+    pipeline_profile_id: str | None = Field(alias="pipelineProfileId")
+    pipeline_profile_sha256: str | None = Field(alias="pipelineProfileSha256")
 
 
 class _ProtocolSchema(StrictModel):
@@ -215,6 +217,13 @@ class _QualificationRecordV2Schema(StrictModel):
     # Pipeline/aggregation policy is bound "where relevant" (ADR-014 §6); whether a
     # detector record must carry it is decided in S2a.3 (plan §17).
     policies: _PoliciesSchema | None = None
+
+    @field_validator("policies", mode="before")
+    @classmethod
+    def reject_explicit_null_policies(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("qualification_policies_invalid")
+        return value
     protocol: _ProtocolSchema
     gate_set_ids: tuple[str, ...] = Field(alias="gateSetIds")
     variants: dict[str, _VariantSchema]

@@ -167,6 +167,7 @@ def test_capability_sections_are_deeply_immutable() -> None:
     "modelzoo://rtmdet",
     "torchvision://weights",
     "openmmlab://rtmdet",
+    "git+file:///srv/repo",
 ])
 def test_provenance_cannot_encode_a_network_locator(field, value) -> None:
     document = _detector()
@@ -202,3 +203,14 @@ def test_verify_repo_uses_the_one_locator_rule() -> None:
     for locator in manifest.RELEASE_NETWORK_LOCATORS:
         assert verifier.find_release_network_hazard(f"x {locator}y") == locator
     assert verifier.find_release_network_hazard("open-mmlab/mmdetection") is None
+
+
+def test_release_locator_rule_is_pinned() -> None:
+    # Pinned against the list verify_repo carried before the rule was centralized,
+    # so a locator can never silently drop out of the one shared definition.
+    from mavi_vision.runtime.manifest import RELEASE_NETWORK_LOCATORS
+
+    assert RELEASE_NETWORK_LOCATORS == (
+        "http://", "https://", "git+", "ssh://", "ftp://", "s3://", "hf://",
+        "mim://", "modelzoo://", "torchvision://", "openmmlab://",
+    )

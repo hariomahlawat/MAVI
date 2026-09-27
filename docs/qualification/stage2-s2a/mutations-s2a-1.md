@@ -12,11 +12,14 @@ Every new module is new in this slice, so every new test fails on `main` by cons
 
 M29–M43 cover the guards added after the first independent cold review of this slice. They cover licence and detector roles, strict booleans and integers, duplicate JSON keys, gate-set applicability, the stable cross-check error, the family-id rule, control characters, and generator output and identity checks.
 
-M44–M49 cover the guards added after the second cold review. They cover all-or-nothing, create-only publication of the generator's outputs; the network-locator rule on manifest provenance, which is shared with `verify_repo`; and optional but never half-populated `policies`.
+M44–M54 cover the guards added after the second cold review. They cover:
+- all-or-nothing, create-only publication of the generator's outputs, including rollback on an interrupt, rollback that continues past a failed removal, and no leaked temporary file when staging fails;
+- the network-locator rule on manifest provenance, which is shared with `verify_repo` and pinned against the list `verify_repo` carried before;
+- `policies`, which is optional but never half-populated or explicitly null.
 
 After the matrix ran, every mutated file was verified byte for byte against its SHA-256 taken before the run.
 
-## Results: 49 of 49 caught
+## Results: 54 of 54 caught
 
 | ID | Mutation | File (`runtime/` = `src/vision/mavi_vision/runtime/`) | First failing test | Result |
 |---|---|---|---|---|
@@ -67,8 +70,13 @@ After the matrix ran, every mutated file was verified byte for byte against its 
 | M45 | generator: publication may replace an existing destination | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_publication_never_replaces_a_file_that_appears_after_the_check` | caught |
 | M46 | provenance network-locator check removed | `runtime/model_manifest_v2.py` | `tests/test_model_manifest_v2.py::test_provenance_cannot_encode_a_network_locator[http://example.invalid/repo-publisher]` | caught |
 | M47 | half-populated policies accepted | `runtime/qualification_v2.py` | `tests/test_qualification_record_v2.py::test_half_populated_or_malformed_policies_fail_closed[policies0-qualification_policies_incomplete]` | caught |
-| M48 | policies made mandatory again | `runtime/qualification_v2.py` | `tests/test_qualification_record_v2.py::test_policies_may_be_omitted - ...` | caught |
+| M48 | policies made mandatory again | `runtime/qualification_v2.py` | `tests/test_qualification_record_v2.py::test_policies_may_be_omitted` | caught |
 | M49 | locator rule loses a locator (shared definition) | `runtime/manifest.py` | `tests/test_model_manifest_v2.py::test_provenance_cannot_encode_a_network_locator[openmmlab://rtmdet-publisher]` | caught |
+| M50 | generator: rollback only on OSError (interrupt leaves outputs) | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_interrupt_during_publication_still_rolls_back` | caught |
+| M51 | generator: rollback stops at the first failed removal | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_failed_removal_does_not_abandon_the_rest_of_the_rollback` | caught |
+| M52 | generator: temporary tracked only after a successful write | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_staging_write_failure_leaves_no_temporary_file` | caught |
+| M53 | locator rule loses git+ | `runtime/manifest.py` | `tests/test_model_manifest_v2.py::test_provenance_cannot_encode_a_network_locator[git+file:///srv/repo-publisher]` | caught |
+| M54 | explicit null policies accepted | `runtime/qualification_v2.py` | `tests/test_qualification_record_v2.py::test_half_populated_or_malformed_policies_fail_closed[None-qualification_policies_invalid]` | caught |
 
 ## Fail-closed codes outside the table
 

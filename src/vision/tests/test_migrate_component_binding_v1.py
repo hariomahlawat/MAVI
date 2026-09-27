@@ -279,3 +279,71 @@ def test_successful_publication_is_deterministic(tmp_path, capsys) -> None:
     assert tool.main(_cli_argv(tmp_path, second)) == 0
     assert {k: v.read_bytes() for k, v in first.items()} == {k: v.read_bytes() for k, v in second.items()}
     assert sorted(p.name for p in (tmp_path / "a").iterdir()) == sorted(f"{n}.json" for n in first)
+
+
+def test_interrupt_during_publication_still_rolls_back(tmp_path, monkeypatch) -> None:
+    tool = load_migration_tool()
+    out = tmp_path / "out"
+    outputs = {name: out / f"{name}.json" for name in ("binding", "manifest", "runtime", "qualification")}
+    real_publish = tool._publish
+    calls: list[Path] = []
+
+    def interrupted_publish(temporary: Path, destination: Path) -> None:
+        calls.append(destination)
+        if len(calls) == 3:
+            raise KeyboardInterrupt
+        real_publish(temporary, destination)
+
+    monkeypatch.setattr(tool, "_publish", interrupted_publish)
+    with pytest.raises(KeyboardInterrupt):
+        tool.main(_cli_argv(tmp_path, outputs))
+    assert not any(path.exists() for path in outputs.values())
+    assert list(out.iterdir()) == []
+
+
+def test_failed_removal_does_not_abandon_the_rest_of_the_rollback(tmp_path, capsys, monkeypatch) -> None:
+    tool = load_migration_tool()
+    out = tmp_path / "out"
+    outputs = {name: out / f"{name}.json" for name in ("binding", "manifest", "runtime", "qualification")}
+    real_publish = tool._publish
+    calls: list[Path] = []
+
+    def failing_publish(temporary: Path, destination: Path) -> None:
+        calls.append(destination)
+        if len(calls) == 3:
+            raise OSError("injected")
+        real_publish(temporary, destination)
+
+    real_unlink = Path.unlink
+
+    def locked_unlink(self: Path, missing_ok: bool = False) -> None:
+        if self == outputs["manifest"]:
+            raise PermissionError("locked by another process")
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(tool, "_publish", failing_publish)
+    monkeypatch.setattr(Path, "unlink", locked_unlink)
+    assert tool.main(_cli_argv(tmp_path, outputs)) == 2
+    error = capsys.readouterr().err
+    assert "migration_publication_failed:left=" in error and str(outputs["manifest"]) in error
+    assert not outputs["binding"].exists()  # removed even though an earlier removal failed
+    assert not any(item.name.startswith(".") for item in out.iterdir())
+
+
+def test_staging_write_failure_leaves_no_temporary_file(tmp_path, capsys, monkeypatch) -> None:
+    tool = load_migration_tool()
+    out = tmp_path / "out"
+    outputs = {name: out / f"{name}.json" for name in ("binding", "manifest", "runtime", "qualification")}
+    real_fdopen = tool.os.fdopen
+    opened: list[int] = []
+
+    def failing_fdopen(handle, mode="r", *args, **kwargs):
+        opened.append(handle)
+        if len(opened) == 2:
+            tool.os.close(handle)
+            raise OSError("disk full")
+        return real_fdopen(handle, mode, *args, **kwargs)
+
+    monkeypatch.setattr(tool.os, "fdopen", failing_fdopen)
+    assert tool.main(_cli_argv(tmp_path, outputs)) == 2
+    assert list(out.iterdir()) == []
