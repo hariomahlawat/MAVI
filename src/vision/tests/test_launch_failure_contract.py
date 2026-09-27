@@ -155,6 +155,79 @@ def test_the_two_policy_refusals_are_the_explicit_cuda_fail_closed_path():
     )
 
 
+MODULE = LAUNCHER.parent / "Mavi.VisionRuntime.Common.psm1"
+
+
+def _bound_pack_status_mapping() -> dict[str, set[str]]:
+    mapping: dict[str, set[str]] = {}
+    for status, code in re.findall(
+        r'\$bound\.Status -eq "([a-z-]+)"\) \{ Stop-MaviLaunch (launch_[a-z0-9_]+)',
+        _launcher_text(),
+    ):
+        mapping.setdefault(status, set()).add(code)
+    return mapping
+
+
+def _resolver_statuses() -> set[str]:
+    module = MODULE.read_text(encoding="utf-8")
+    start = module.index("function Resolve-MaviVisionBoundModelPacks")
+    end = module.index("\nfunction ", start + 1)
+    return set(re.findall(r'\$status = "([a-z-]+)"', module[start:end]))
+
+
+def test_every_store_lookup_outcome_has_exactly_its_contracted_code():
+    """S2a plan §7 items 2-3: the store scan's outcomes are refusals with fixed codes.
+
+    The scan lives in the module so it can be tested without starting Python;
+    the launcher is where each outcome gains its code, so the mapping is pinned
+    here and a new outcome the launcher does not map fails this test.
+    """
+    assert _bound_pack_status_mapping() == {
+        "not-installed": {"launch_model_pack_not_installed"},
+        "ambiguous": {"launch_model_pack_ambiguous"},
+        "state-missing": {"launch_model_pack_not_installed"},
+        "state-unsupported": {"launch_model_state_schema_unsupported"},
+    }
+    assert _resolver_statuses() == set(_bound_pack_status_mapping()) | {"installed"}
+
+
+def test_the_launcher_removes_every_retired_composition_variable():
+    """The worker refuses any retired variable, so the launcher must never pass one on."""
+    from mavi_vision.common.settings import RETIRED_COMPOSITION_ENVIRONMENT
+
+    module = MODULE.read_text(encoding="utf-8")
+    declared = re.search(
+        r"^\$script:VisionRetiredCompositionEnvironment = @\(([^)]*)\)",
+        module,
+        re.MULTILINE,
+    )
+    assert declared, "the module no longer declares the retired composition list"
+    assert set(re.findall(r'"([A-Z_]+)"', declared.group(1))) == set(
+        RETIRED_COMPOSITION_ENVIRONMENT
+    )
+
+    text = _launcher_text()
+    assert "Clear-MaviVisionRetiredCompositionEnvironment" in text
+    for name in RETIRED_COMPOSITION_ENVIRONMENT:
+        assert not re.search(rf"\$env:{name}\s*=", text, re.IGNORECASE), name
+    assert not re.search(r"\$env:MAVI_COMPLETION_SCHEMA_OVERRIDE\s*=", text, re.IGNORECASE)
+
+
+def test_the_launcher_composes_the_worker_from_the_v2_binding():
+    text = _launcher_text()
+    for assignment in (
+        r'\$env:MAVI_COMPONENT_BINDING_PATH = \$componentBindingPath',
+        r'\$env:MAVI_ROLE_ID = "vision"',
+        r"\$env:MAVI_OVERLAY_ROOT = \$RepositoryRoot",
+        r"\$env:MAVI_RUNTIME_PACK_MANIFEST_PATH = \$runtimeManifestPath",
+        r"\$env:MAVI_MODEL_ROOT = \$modelRoot",
+        r"\$env:MAVI_PIPELINE_PROFILE_PATH = \$pipelinePath",
+    ):
+        assert re.search(assignment, text), assignment
+    assert "phase1-bindings-v2.json" in text
+    assert "mmdetection-phase1-v1.json" not in text
+
+
 def test_launch_codes_are_not_worker_failure_codes():
     """They are raised before the worker exists and never reach the control plane."""
     from mavi_vision.common.control_plane import DEVICE_RESOLUTION_REASONS

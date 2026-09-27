@@ -265,15 +265,19 @@ def test_emitted_evidence_block_is_what_the_runtime_profile_consumes(tmp_path):
 def test_emitted_variant_patch_is_an_acceptable_platform_variant(tmp_path):
     """The whole `qualified-development-hardware` entry is machine-generated.
 
-    ADR-009 requires a resolved-config, Python and binary identity alongside the
-    evidence block. If the tool did not emit them the operator would hand-type
+    ADR-009 requires the Python and binary identity alongside the evidence
+    block (the resolved-config identity moved to the Model Pack at S2a.3). If the tool did not emit them the operator would hand-type
     exactly the fields this tool exists to stop anyone inventing.
     """
     evidence = _build(tmp_path)
     variant = dict(evidence["variantPatch"])
     variant["developmentEvidence"] = evidence["developmentEvidence"]
 
-    validated = qualification._RuntimePlatformVariantSchema.model_validate(variant)
+    from mavi_vision.runtime.runtime_profile_v2 import _RuntimePlatformVariantSchemaV2
+
+    validated = _RuntimePlatformVariantSchemaV2.model_validate(variant)
+    # A v2 family profile carries no model identity (S2a.3).
+    assert "resolvedConfigSha256" not in variant
 
     assert validated.status == "qualified-development-hardware"
     assert validated.binary_versions.torch == "2.6.0+cu124"

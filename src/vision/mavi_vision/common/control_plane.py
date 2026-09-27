@@ -725,6 +725,46 @@ class VisionRuntimeProvenance(ControlPlaneModel):
         return self
 
 
+_MODEL_PACK_ID_PATTERN = re.compile(r"^mavi-model-v2-[0-9a-f]{64}$", re.ASCII)
+_RUNTIME_PACK_ID_PATTERN = re.compile(r"^mavi-runtime-v2-[0-9a-f]{64}$", re.ASCII)
+# The closed capability registry, mirrored from mavi_vision.runtime.capabilities
+# (bound to the 3.2 schema enum by test_contract_schema_canonicalization.py).
+COMPLETION_CAPABILITY_IDS = frozenset(
+    {"detector", "embedding", "ocr", "person-attributes", "plate-detector", "vehicle-attributes"}
+)
+
+
+class VisionRuntimeProvenanceV32(VisionRuntimeProvenance):
+    """Completion 3.2 provenance: 3.1 plus component identity (S2a plan §4.5, P-8, P-11).
+
+    Mirrors ``$defs/provenance`` of ``vision-job-complete-v3.2``: four members are
+    required, ``runtimePackId`` only with an installed Runtime Pack, and an unpacked
+    environment is never verified.
+    """
+
+    capability_id: str
+    model_pack_id: str
+    runtime_pack_id: str | None = None
+    runtime_pack_source: Literal["installed-pack", "unpacked-environment"]
+    component_binding_sha256: Sha256
+
+    @model_validator(mode="after")
+    def validate_component_identity(self) -> "VisionRuntimeProvenanceV32":
+        if self.capability_id not in COMPLETION_CAPABILITY_IDS:
+            raise ValueError("capabilityId is not a registered capability")
+        if _MODEL_PACK_ID_PATTERN.fullmatch(self.model_pack_id) is None:
+            raise ValueError("modelPackId is not a derived v2 Model Pack identity")
+        if self.runtime_pack_id is not None and _RUNTIME_PACK_ID_PATTERN.fullmatch(self.runtime_pack_id) is None:
+            raise ValueError("runtimePackId is not a v2 Runtime Pack identity")
+        if self.runtime_pack_source == "installed-pack" and self.runtime_pack_id is None:
+            raise ValueError("an installed Runtime Pack requires runtimePackId")
+        if self.runtime_pack_source == "unpacked-environment" and (
+            self.runtime_pack_id is not None or self.verification_status != "unverified"
+        ):
+            raise ValueError("an unpacked environment names no Runtime Pack and is never verified")
+        return self
+
+
 class _CompletionModel(ControlPlaneModel):
     """Precision-preserving JSON handling shared by completion 2.0 and 3.0."""
 
@@ -983,6 +1023,17 @@ class VisionJobCompleteV3(_CompletionModel):
         if representative.candidates != len(self.tracks) or representative.omitted != 0:
             raise ValueError("every track must have its representative admitted")
         return self
+
+
+class VisionJobCompleteV32(VisionJobCompleteV3):
+    """Completion 3.2: the 3.1 Evidence Set body with component-identity provenance.
+
+    Mirrors ``contracts/schemas/vision-job-complete-v3.2``; the worker emits it by
+    the role's provenance contract once the component binding resolved (S2a.3).
+    """
+
+    schema_version: Literal["3.2"]
+    provenance: VisionRuntimeProvenanceV32
 
 
 class VisionContractCapabilities(ControlPlaneModel):

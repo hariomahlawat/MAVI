@@ -1,674 +1,195 @@
+"""The S2a.3 fence on ``promote_phase1_release.py``: no v2 promotion path exists.
+
+The v1 promotion model this tool implemented (gate evidence keyed by the v1
+``requiredGates`` names, promoted v1 manifest/record bytes, re-verification
+with the v1 release verifier) was retired at the Component Binding v2 cut-over
+and its tests were deleted with it. What remains to prove is that every entry
+point refuses with the one stable fence code, touches nothing, and leaves
+RTMDet unverified/pending.
+"""
+
 from __future__ import annotations
 
-import importlib.util
+import ast
+import inspect
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "promote_phase1_release.py"
-SPEC = importlib.util.spec_from_file_location("phase1_promotion", MODULE_PATH)
-assert SPEC and SPEC.loader
-mod = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = mod
-SPEC.loader.exec_module(mod)
+from phase1_v2_support import (
+    ACCEPTANCE_PROFILE,
+    COMMITTED_MANIFEST,
+    COMMITTED_PIPELINE,
+    COMMITTED_RECORD,
+    COMMITTED_RUNTIME_PROFILE,
+    GATE_SETS,
+    PHASE1_ROOT,
+    REPOSITORY,
+    committed_release_hashes,
+    load_tool,
+    sha256_file,
+)
+
+mod = load_tool("phase1_promotion", "promote_phase1_release.py")
+FENCE = "v2_promotion_not_supported_by_this_slice"
+SCRIPT = PHASE1_ROOT / "promote_phase1_release.py"
 
 
-def policy() -> dict:
-    return {
-        "mode": "qualification",
-        "qualificationCorpusManifestSha256": "9" * 64,
-        "classThresholds": {
-            "Person": {"precision": 0.8, "recall": 0.8, "f1": 0.8},
-            "Vehicle": {"precision": 0.8, "recall": 0.8, "f1": 0.8},
-        },
-        "performanceThresholds": {
-            "minimumProcessingFps": 10.0,
-            "maximumP95LatencyMs": 1000.0,
-            "maximumSoakGrowthBytes": 20,
-        },
-    }
+def _v1_style_arguments(*, manifest: Path, record: Path, output_dir: Path) -> list[str]:
+    """Every argument the retired promotion tool took, pointed at real files."""
+    return [
+        "--model-root", str(REPOSITORY / "models"),
+        "--manifest", str(manifest),
+        "--qualification", str(record),
+        "--pipeline-profile", str(COMMITTED_PIPELINE),
+        "--runtime-profile", str(COMMITTED_RUNTIME_PROFILE),
+        "--acceptance-profile", str(ACCEPTANCE_PROFILE),
+        "--deployment-profile", "P3",
+        "--source-commit", "a" * 40,
+        "--expected-mavi-build", "build-a",
+        "--quality-corpus-manifest", str(ACCEPTANCE_PROFILE),
+        "--gate-evidence", f"cctv-quality-baseline={ACCEPTANCE_PROFILE}",
+        "--output-dir", str(output_dir),
+    ]
 
 
-def evidence(path: Path, commit: str, passed: bool = True) -> Path:
-    value = {
-        "sourceCommit": commit,
-        "targetVerifiedManifestSha256": "c" * 64,
-        "result": {"passed": passed, "failureCodes": [] if passed else ["failed"]},
-    }
-    path.write_text(json.dumps(value), encoding="utf-8")
-    return path
+def test_the_fence_code_is_the_single_shared_code() -> None:
+    assert mod.V2_PROMOTION_NOT_SUPPORTED == FENCE
+    target = load_tool("phase1_target_manifest_code", "compute_target_verified_manifest.py")
+    assert target.V2_PROMOTION_NOT_SUPPORTED == FENCE
 
 
-def validation_kwargs(tmp_path: Path) -> dict:
-    return {
-        "acceptance_profile": policy(),
-        "quality_corpus_manifest": tmp_path / "corpus.json",
-        "quality_case_evidence": {},
-        "quality_ground_truth": {},
-        "expected_mavi_build": "build-a",
-        "deployment_profile_id": "P1",
-        "deployment_profile_policy_sha256": "f" * 64,
-        "runtime_variant": "windows-x86_64-cuda",
-    }
+@pytest.mark.parametrize(
+    "argv",
+    [
+        [],
+        ["--help"],
+        ["--deployment-profile", "P1"],
+    ],
+)
+def test_the_cli_refuses_every_invocation_without_side_effects(argv: list[str], tmp_path: Path) -> None:
+    before = committed_release_hashes()
+    completed = subprocess.run(
+        [sys.executable, str(SCRIPT), *argv],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 2
+    assert json.loads(completed.stdout) == {"ok": False, "code": FENCE}
+    assert list(tmp_path.iterdir()) == []
+    assert committed_release_hashes() == before
 
 
-def test_gate_evidence_requires_exact_source_commit(tmp_path: Path):
-    path = evidence(tmp_path / "e.json", "a" * 40)
-    with pytest.raises(mod.PromotionError, match="promotion_evidence_source_mismatch"):
-        mod.load_gate_evidence(
-            path,
-            gate="cctv-quality-baseline",
-            expected_source_commit="b" * 40,
-            target_verified_manifest_sha256="c" * 64,
-            acceptance_profile_sha256="d" * 64,
-            **validation_kwargs(tmp_path),
+def test_a_full_promotion_request_is_refused_and_writes_nothing(tmp_path: Path) -> None:
+    before = committed_release_hashes()
+    manifest = tmp_path / "manifest.json"
+    record = tmp_path / "qualification.json"
+    shutil.copyfile(COMMITTED_MANIFEST, manifest)
+    shutil.copyfile(COMMITTED_RECORD, record)
+    copies = {manifest: sha256_file(manifest), record: sha256_file(record)}
+    output_dir = tmp_path / "promoted"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            *_v1_style_arguments(manifest=manifest, record=record, output_dir=output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert json.loads(completed.stdout) == {"ok": False, "code": FENCE}
+    assert not output_dir.exists()
+    assert {path: sha256_file(path) for path in copies} == copies
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["manifest.json", "qualification.json"]
+    assert committed_release_hashes() == before
+
+
+def test_the_in_process_main_refuses(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    before = committed_release_hashes()
+    output_dir = tmp_path / "promoted"
+    code = mod.main(
+        _v1_style_arguments(manifest=COMMITTED_MANIFEST, record=COMMITTED_RECORD, output_dir=output_dir)
+    )
+    assert code == 2
+    assert json.loads(capsys.readouterr().out) == {"ok": False, "code": FENCE}
+    assert not output_dir.exists()
+    assert committed_release_hashes() == before
+
+
+@pytest.mark.parametrize("name", ["build_promoted_metadata", "validate_promoted_outputs"])
+def test_every_public_writer_function_refuses(name: str) -> None:
+    before = committed_release_hashes()
+    with pytest.raises(mod.PromotionError) as raised:
+        getattr(mod, name)(
+            manifest_raw=json.loads(COMMITTED_MANIFEST.read_text(encoding="utf-8")),
+            qualification_raw=json.loads(COMMITTED_RECORD.read_text(encoding="utf-8")),
+            manifest_bytes=COMMITTED_MANIFEST.read_bytes(),
+            qualification_bytes=COMMITTED_RECORD.read_bytes(),
         )
+    assert raised.value.code == FENCE
+    assert str(raised.value) == FENCE
+    assert committed_release_hashes() == before
 
 
-def test_generic_passing_json_cannot_promote_quality_gate(tmp_path: Path):
-    path = evidence(tmp_path / "e.json", "a" * 40, passed=True)
-    with pytest.raises(mod.PromotionError, match="promotion_quality_invalid:"):
-        mod.load_gate_evidence(
-            path,
-            gate="cctv-quality-baseline",
-            expected_source_commit="a" * 40,
-            target_verified_manifest_sha256="c" * 64,
-            acceptance_profile_sha256="d" * 64,
-            **validation_kwargs(tmp_path),
-        )
-
-
-def test_gate_argument_rejects_unknown_or_duplicate():
-    with pytest.raises(mod.PromotionError, match="promotion_gate_argument_invalid"):
-        mod.parse_gate_arguments(["unknown=x.json"])
-    with pytest.raises(mod.PromotionError, match="promotion_gate_argument_invalid"):
-        mod.parse_gate_arguments([
-            "cctv-quality-baseline=a.json",
-            "cctv-quality-baseline=b.json",
-        ])
-
-
-def qualified_runtime() -> dict:
-    variants = {}
-    locks = {}
-    for variant in (
-        "windows-x86_64-cpu",
-        "windows-x86_64-cuda",
-        "linux-x86_64-cpu",
-        "linux-x86_64-cuda",
-    ):
-        variants[variant] = {
-            "status": "qualified-hardware" if variant.endswith("-cuda") else "qualified-hosted-cpu"
-        }
-        locks[variant] = {"status": "qualified-offline-lock"}
-    return {
-        "qualificationStatus": "qualified",
-        "platformVariants": variants,
-        "releaseLocks": locks,
+def test_no_function_in_the_tool_escapes_the_fence() -> None:
+    """Every function the module defines is a fenced entry point: no hidden writer survives."""
+    defined = {
+        name
+        for name, value in inspect.getmembers(mod, inspect.isfunction)
+        if value.__module__ == mod.__name__
     }
+    assert defined == {"build_promoted_metadata", "validate_promoted_outputs", "main"}
 
 
-def test_runtime_ready_checks_only_selected_profile_variant():
-    value = qualified_runtime()
-    value["platformVariants"]["linux-x86_64-cuda"]["status"] = "pending-hardware-qualification"
+def test_the_fenced_tools_import_no_v1_schema_and_no_release_reader() -> None:
+    """Statically and at run time: the fence refuses before any reader or v1 schema loads."""
+    for filename in ("promote_phase1_release.py", "compute_target_verified_manifest.py", "v2_promotion_fence.py"):
+        tree = ast.parse((PHASE1_ROOT / filename).read_text(encoding="utf-8"))
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+        assert not any("v1_release_schemas" in name for name in imported), filename
+        assert not any(name.startswith("mavi_vision") for name in imported), filename
 
-    # P1 does not inherit or depend on P2 Linux-CUDA qualification.
-    mod._assert_runtime_ready(value, frozenset({"windows-x86_64-cuda"}))
+    probe = (
+        "import sys, json\n"
+        f"sys.path.insert(0, {str(PHASE1_ROOT)!r})\n"
+        "import promote_phase1_release as p, compute_target_verified_manifest as c\n"
+        "p.main([]); c.main([])\n"
+        "loaded = sorted(m for m in sys.modules if 'v1_release_schemas' in m or m.startswith('mavi_vision'))\n"
+        "print(json.dumps(loaded))\n"
+    )
+    completed = subprocess.run([sys.executable, "-c", probe], check=True, capture_output=True, text=True)
+    assert json.loads(completed.stdout.strip().splitlines()[-1]) == []
 
-    value["platformVariants"]["windows-x86_64-cuda"]["status"] = "pending-hardware-qualification"
-    with pytest.raises(
-        mod.PromotionError,
-        match="promotion_runtime_variant_not_qualified:windows-x86_64-cuda",
-    ):
-        mod._assert_runtime_ready(value, frozenset({"windows-x86_64-cuda"}))
 
-
-def test_development_hardware_qualification_never_promotes_to_production():
-    """ADR-009's whole point, checked at the gate that would let it through.
-
-    The existing coverage uses `pending-hardware-qualification`, which no one
-    would mistake for Production. `qualified-development-hardware` is the state
-    that reads like success and must still be refused here.
-    """
-    value = qualified_runtime()
-    value["platformVariants"]["windows-x86_64-cuda"]["status"] = (
-        "qualified-development-hardware"
+def test_rtmdet_stays_unverified_and_pending() -> None:
+    from mavi_vision.runtime.model_manifest_v2 import load_model_manifest_v2
+    from mavi_vision.runtime.qualification_v2 import (
+        load_capability_gate_sets,
+        load_qualification_record_v2,
     )
 
-    with pytest.raises(
-        mod.PromotionError,
-        match="promotion_runtime_variant_not_qualified:windows-x86_64-cuda",
-    ):
-        mod._assert_runtime_ready(value, frozenset({"windows-x86_64-cuda"}))
-
-
-def test_promotion_reopens_every_gate_even_if_qualification_record_already_says_passed(tmp_path: Path):
-    gates = {gate: "passed" for gate in mod.MANDATORY_QUALIFICATION_GATES}
-    qualification = {
-        "qualificationId": "q1",
-        "overallResult": "pending",
-        "requiredGates": gates,
-        "evidence": {gate: {"kind": "old", "reference": "old", "sha256": "a" * 64} for gate in gates},
-    }
-    with pytest.raises(mod.PromotionError, match="promotion_evidence_missing"):
-        mod.build_promoted_metadata(
-            manifest_raw={"verificationStatus": "unverified", "qualificationId": None},
-            qualification_raw=qualification,
-            runtime_raw=qualified_runtime(),
-            gate_evidence={},
-            expected_source_commit="a" * 40,
-            acceptance_profile_sha256="b" * 64,
-            acceptance_profile=policy(),
-            quality_corpus_manifest=tmp_path / "corpus.json",
-            quality_case_evidence={},
-            quality_ground_truth={},
-            expected_mavi_build="build-a",
-            deployment_profile_id="P1",
-            deployment_profile_policy_sha256="f" * 64,
-            required_gates=frozenset({
-                "windows-x86_64-cuda",
-                "windows-offline-install",
-                "cctv-quality-baseline",
-            }),
-            required_variants=frozenset({"windows-x86_64-cuda"}),
-        )
-
-
-def test_quality_gate_surfaces_independent_corpus_validation_failure(
-    monkeypatch,
-    tmp_path: Path,
-):
-    monkeypatch.setattr(
-        mod.quality_corpus,
-        "validate_quality_corpus_evidence",
-        lambda *_, **__: (_ for _ in ()).throw(
-            mod.quality_corpus.QualityCorpusError(
-                "quality_corpus_evidence_recalculation_mismatch"
-            )
-        ),
+    manifest = load_model_manifest_v2(COMMITTED_MANIFEST)
+    record = load_qualification_record_v2(COMMITTED_RECORD, gate_sets=load_capability_gate_sets(GATE_SETS))
+    assert manifest.verification_status == "unverified"
+    assert manifest.qualification_id is None
+    assert record.overall_result == "pending"
+    assert record.qualified_profiles == ()
+    assert {variant.status for variant in record.variants.values()} == {"pending"}
+    assert all(
+        status == "pending" for variant in record.variants.values() for status in variant.gates.values()
     )
-    with pytest.raises(
-        mod.PromotionError,
-        match="promotion_quality_invalid:quality_corpus_evidence_recalculation_mismatch",
-    ):
-        mod._validate_quality_evidence(
-            {"schemaVersion": "mavi-cctv-quality-corpus-evidence-v1"},
-            "b" * 40,
-            "c" * 64,
-            policy(),
-            tmp_path / "corpus.json",
-            {},
-            {},
-            "build-a",
-            "d" * 64,
-        )
-
-
-def test_performance_gate_rejects_wrong_frozen_profile_hash(monkeypatch):
-    value = {
-        "acceptanceProfileSha256": "a" * 64,
-        "maviBuild": "build-a",
-        "result": {"passed": True, "failureCodes": []},
-    }
-    monkeypatch.setattr(mod, "_validate_schema", lambda *_: None)
-    with pytest.raises(mod.PromotionError, match="promotion_performance_profile_mismatch"):
-        mod._validate_performance_evidence(
-            value,
-            "c" * 64,
-            policy(),
-            "build-a",
-            deployment_profile_id="P2",
-            deployment_profile_policy_sha256="f" * 64,
-            runtime_variant="linux-x86_64-cuda",
-        )
-
-
-def test_performance_gate_rejects_forged_easier_thresholds(monkeypatch):
-    value = {
-        "schemaVersion": "mavi-profile-recovery-performance-evidence-v2",
-        "acceptanceProfileSha256": "a" * 64,
-        "maviBuild": "build-a",
-        "deploymentProfile": "P2",
-        "deploymentProfilePolicySha256": "f" * 64,
-        "runtimeVariant": "linux-x86_64-cuda",
-        "thresholds": {
-            "minimumProcessingFps": 1.0,
-            "maximumP95LatencyMs": 99999.0,
-            "maximumSoakGrowthBytes": 99999,
-        },
-        "processingFps": 2.0,
-        "p95EndToEndLatencyMs": 5000.0,
-        "memoryGrowthBytes": 5000,
-        "result": {"passed": True, "failureCodes": []},
-    }
-    monkeypatch.setattr(mod, "_validate_schema", lambda *_: None)
-    with pytest.raises(mod.PromotionError, match="promotion_performance_thresholds_mismatch"):
-        mod._validate_performance_evidence(
-            value,
-            "a" * 64,
-            policy(),
-            "build-a",
-            deployment_profile_id="P2",
-            deployment_profile_policy_sha256="f" * 64,
-            runtime_variant="linux-x86_64-cuda",
-        )
-
-
-def test_offline_aggregate_rejects_cross_spliced_variant_evidence(tmp_path: Path):
-    cpu = tmp_path / "cpu.json"
-    cuda = tmp_path / "cuda.json"
-    aggregate = tmp_path / "offline.json"
-    cpu.write_text('{"variant":"windows-x86_64-cpu"}', encoding="utf-8")
-    cuda.write_text('{"variant":"windows-x86_64-cuda"}', encoding="utf-8")
-    aggregate.write_text(json.dumps({
-        "variantEvidenceSha256": {
-            "windows-x86_64-cpu": mod.sha256_file_bytes(cpu),
-            "windows-x86_64-cuda": "0" * 64,
-        }
-    }), encoding="utf-8")
-    gates = {
-        "windows-x86_64-cpu": cpu,
-        "windows-x86_64-cuda": cuda,
-        "windows-offline-install": aggregate,
-    }
-    with pytest.raises(
-        mod.PromotionError,
-        match="promotion_offline_variant_evidence_binding_mismatch",
-    ):
-        mod._validate_offline_aggregate_bindings(
-            gates,
-            frozenset({"windows-x86_64-cuda"}),
-        )
-
-
-def test_profile_promotion_does_not_require_unclaimed_linux_cuda(tmp_path: Path, monkeypatch):
-    runtime = qualified_runtime()
-    runtime["qualificationStatus"] = "partial"
-    runtime["platformVariants"]["linux-x86_64-cuda"]["status"] = "pending-hardware-qualification"
-    runtime["releaseLocks"]["linux-x86_64-cuda"]["status"] = "pending-hardware-qualification"
-
-    required = frozenset({
-        "windows-x86_64-cuda",
-        "windows-offline-install",
-        "cctv-quality-baseline",
-    })
-    qualification = {
-        "qualificationId": "q1",
-        "overallResult": "pending",
-        "requiredGates": {
-            gate: "pending"
-            for gate in mod.MANDATORY_QUALIFICATION_GATES
-        },
-        "evidence": {},
-        "qualifiedProfiles": [],
-        "profileQualifications": {},
-    }
-
-    gate_files = {}
-    for gate in required:
-        path = tmp_path / (gate + ".json")
-        value = {}
-        if gate == "windows-offline-install":
-            value = {
-                "deploymentProfile": "P1",
-                "deploymentProfilePolicySha256": "f" * 64,
-            }
-        path.write_text(json.dumps(value), encoding="utf-8")
-        gate_files[gate] = path
-
-    monkeypatch.setattr(
-        mod,
-        "load_gate_evidence",
-        lambda path, **kwargs: {
-            "kind": "file",
-            "reference": path.name,
-            "sha256": "a" * 64,
-        },
-    )
-    monkeypatch.setattr(mod, "_validate_offline_aggregate_bindings", lambda *_: None)
-    monkeypatch.setattr(
-        mod,
-        "build_target_manifest",
-        lambda manifest, qualification_id: (
-            json.dumps({
-                **manifest,
-                "verificationStatus": "verified",
-                "qualificationId": qualification_id,
-            }).encode("utf-8")
-        ),
-    )
-    monkeypatch.setattr(mod, "target_sha256_bytes", lambda *_: "b" * 64)
-
-    _, qualification_bytes = mod.build_promoted_metadata(
-        manifest_raw={"verificationStatus": "unverified", "qualificationId": None},
-        qualification_raw=qualification,
-        runtime_raw=runtime,
-        gate_evidence=gate_files,
-        expected_source_commit="a" * 40,
-        acceptance_profile_sha256="c" * 64,
-        acceptance_profile=policy(),
-        quality_corpus_manifest=tmp_path / "corpus.json",
-        quality_case_evidence={},
-        quality_ground_truth={},
-        expected_mavi_build="build-a",
-        deployment_profile_id="P1",
-        deployment_profile_policy_sha256="f" * 64,
-        required_gates=required,
-        required_variants=frozenset({"windows-x86_64-cuda"}),
-    )
-    promoted = json.loads(qualification_bytes)
-    assert promoted["qualifiedProfiles"] == ["P1"]
-    assert promoted["requiredGates"]["linux-x86_64-cuda"] == "pending"
-    assert promoted["overallResult"] == "pending"
-    assert set(
-        promoted["profileQualifications"]["P1"]["evidence"]
-    ) == required
-    assert (
-        promoted["profileQualifications"]["P1"][
-            "deploymentProfilePolicySha256"
-        ]
-        == "f" * 64
-    )
-    assert (
-        promoted["profileQualifications"]["P1"]["runtimeVariant"]
-        == "windows-x86_64-cuda"
-    )
-
-
-def _fake_profile_gate_files(
-    tmp_path: Path,
-    *,
-    profile_id: str,
-    policy_sha: str,
-    required: frozenset[str],
-) -> dict[str, Path]:
-    result = {}
-    for gate in required:
-        path = tmp_path / f"{profile_id}-{gate}.json"
-        value = {}
-        if gate in {"windows-offline-install", "linux-offline-install"}:
-            value = {
-                "deploymentProfile": profile_id,
-                "deploymentProfilePolicySha256": policy_sha,
-            }
-        path.write_text(json.dumps(value), encoding="utf-8")
-        result[gate] = path
-    return result
-
-
-def _patch_profile_evidence_validation(monkeypatch):
-    monkeypatch.setattr(
-        mod,
-        "load_gate_evidence",
-        lambda path, **kwargs: {
-            "kind": "file",
-            "reference": path.name,
-            "sha256": mod.sha256_file_bytes(path),
-        },
-    )
-    monkeypatch.setattr(
-        mod,
-        "_validate_offline_aggregate_bindings",
-        lambda *_: None,
-    )
-
-
-def test_additive_promotion_preserves_existing_profile(
-    tmp_path: Path,
-    monkeypatch,
-):
-    _patch_profile_evidence_validation(monkeypatch)
-    runtime = qualified_runtime()
-    policy_sha = "f" * 64
-
-    p1_required = frozenset({
-        "windows-x86_64-cuda",
-        "windows-offline-install",
-        "cctv-quality-baseline",
-    })
-    initial_qualification = {
-        "qualificationId": "q1",
-        "overallResult": "pending",
-        "requiredGates": {
-            gate: "pending"
-            for gate in mod.MANDATORY_QUALIFICATION_GATES
-        },
-        "evidence": {},
-        "qualifiedProfiles": [],
-        "profileQualifications": {},
-    }
-    manifest_bytes, q1_bytes = mod.build_promoted_metadata(
-        manifest_raw={
-            "verificationStatus": "unverified",
-            "qualificationId": None,
-        },
-        qualification_raw=initial_qualification,
-        runtime_raw=runtime,
-        gate_evidence=_fake_profile_gate_files(
-            tmp_path,
-            profile_id="P1",
-            policy_sha=policy_sha,
-            required=p1_required,
-        ),
-        expected_source_commit="a" * 40,
-        acceptance_profile_sha256="c" * 64,
-        acceptance_profile=policy(),
-        quality_corpus_manifest=tmp_path / "corpus.json",
-        quality_case_evidence={},
-        quality_ground_truth={},
-        expected_mavi_build="build-a",
-        deployment_profile_id="P1",
-        deployment_profile_policy_sha256=policy_sha,
-        required_gates=p1_required,
-        required_variants=frozenset({"windows-x86_64-cuda"}),
-    )
-
-    verified_manifest = json.loads(manifest_bytes)
-    q1 = json.loads(q1_bytes)
-    assert verified_manifest["verificationStatus"] == "verified"
-
-    p2_required = frozenset({
-        "linux-x86_64-cuda",
-        "linux-offline-install",
-        "cctv-quality-baseline",
-        "linux-nvidia-recovery-performance",
-    })
-    manifest_bytes_2, q2_bytes = mod.build_promoted_metadata(
-        manifest_raw=verified_manifest,
-        qualification_raw=q1,
-        runtime_raw=runtime,
-        gate_evidence=_fake_profile_gate_files(
-            tmp_path,
-            profile_id="P2",
-            policy_sha=policy_sha,
-            required=p2_required,
-        ),
-        expected_source_commit="a" * 40,
-        acceptance_profile_sha256="c" * 64,
-        acceptance_profile=policy(),
-        quality_corpus_manifest=tmp_path / "corpus.json",
-        quality_case_evidence={},
-        quality_ground_truth={},
-        expected_mavi_build="build-a",
-        deployment_profile_id="P2",
-        deployment_profile_policy_sha256=policy_sha,
-        required_gates=p2_required,
-        required_variants=frozenset({"linux-x86_64-cuda"}),
-        current_manifest_bytes=manifest_bytes,
-    )
-
-    assert manifest_bytes_2 == manifest_bytes
-    q2 = json.loads(q2_bytes)
-    assert q2["qualifiedProfiles"] == ["P1", "P2"]
-    assert set(q2["profileQualifications"]) == {"P1", "P2"}
-    assert (
-        q2["profileQualifications"]["P1"]
-        == q1["profileQualifications"]["P1"]
-    )
-    assert set(
-        q2["profileQualifications"]["P2"]["evidence"]
-    ) == p2_required
-
-
-def test_requalifying_same_profile_is_monotonic_and_idempotent_in_index(
-    tmp_path: Path,
-    monkeypatch,
-):
-    _patch_profile_evidence_validation(monkeypatch)
-    runtime = qualified_runtime()
-    policy_sha = "f" * 64
-    required = frozenset({
-        "windows-x86_64-cpu",
-        "windows-offline-install",
-        "cctv-quality-baseline",
-    })
-    initial = {
-        "qualificationId": "q1",
-        "overallResult": "pending",
-        "requiredGates": {
-            gate: "pending"
-            for gate in mod.MANDATORY_QUALIFICATION_GATES
-        },
-        "evidence": {},
-        "qualifiedProfiles": [],
-        "profileQualifications": {},
-    }
-    manifest_bytes, first_bytes = mod.build_promoted_metadata(
-        manifest_raw={
-            "verificationStatus": "unverified",
-            "qualificationId": None,
-        },
-        qualification_raw=initial,
-        runtime_raw=runtime,
-        gate_evidence=_fake_profile_gate_files(
-            tmp_path,
-            profile_id="P3",
-            policy_sha=policy_sha,
-            required=required,
-        ),
-        expected_source_commit="a" * 40,
-        acceptance_profile_sha256="c" * 64,
-        acceptance_profile=policy(),
-        quality_corpus_manifest=tmp_path / "corpus.json",
-        quality_case_evidence={},
-        quality_ground_truth={},
-        expected_mavi_build="build-a",
-        deployment_profile_id="P3",
-        deployment_profile_policy_sha256=policy_sha,
-        required_gates=required,
-        required_variants=frozenset({"windows-x86_64-cpu"}),
-    )
-    first = json.loads(first_bytes)
-    _, second_bytes = mod.build_promoted_metadata(
-        manifest_raw=json.loads(manifest_bytes),
-        qualification_raw=first,
-        runtime_raw=runtime,
-        gate_evidence=_fake_profile_gate_files(
-            tmp_path,
-            profile_id="P3",
-            policy_sha=policy_sha,
-            required=required,
-        ),
-        expected_source_commit="a" * 40,
-        acceptance_profile_sha256="c" * 64,
-        acceptance_profile=policy(),
-        quality_corpus_manifest=tmp_path / "corpus.json",
-        quality_case_evidence={},
-        quality_ground_truth={},
-        expected_mavi_build="build-a",
-        deployment_profile_id="P3",
-        deployment_profile_policy_sha256=policy_sha,
-        required_gates=required,
-        required_variants=frozenset({"windows-x86_64-cpu"}),
-        current_manifest_bytes=manifest_bytes,
-    )
-    second = json.loads(second_bytes)
-    assert second["qualifiedProfiles"] == ["P3"]
-    assert set(second["profileQualifications"]) == {"P3"}
-
-
-def test_verified_manifest_cannot_change_qualification_identity(
-    tmp_path: Path,
-):
-    manifest = {
-        "verificationStatus": "verified",
-        "qualificationId": "q1",
-    }
-    qualification = {
-        "qualificationId": "q2",
-        "modelManifestSha256": "a" * 64,
-        "overallResult": "pending",
-        "requiredGates": {
-            gate: "pending"
-            for gate in mod.MANDATORY_QUALIFICATION_GATES
-        },
-        "evidence": {},
-        "qualifiedProfiles": [],
-        "profileQualifications": {},
-    }
-    with pytest.raises(
-        mod.PromotionError,
-        match="promotion_manifest_qualification_mismatch",
-    ):
-        mod.build_promoted_metadata(
-            manifest_raw=manifest,
-            qualification_raw=qualification,
-            runtime_raw=qualified_runtime(),
-            gate_evidence={},
-            expected_source_commit="a" * 40,
-            acceptance_profile_sha256="c" * 64,
-            acceptance_profile=policy(),
-            quality_corpus_manifest=tmp_path / "corpus.json",
-            quality_case_evidence={},
-            quality_ground_truth={},
-            expected_mavi_build="build-a",
-            deployment_profile_id="P1",
-            deployment_profile_policy_sha256="f" * 64,
-            required_gates=frozenset(),
-            required_variants=frozenset({"windows-x86_64-cuda"}),
-            current_manifest_bytes=mod.canonical_json(manifest),
-        )
-
-
-def test_existing_profile_index_cannot_be_dropped(tmp_path: Path):
-    manifest = {
-        "verificationStatus": "verified",
-        "qualificationId": "q1",
-    }
-    manifest_bytes = mod.canonical_json(manifest)
-    qualification = {
-        "qualificationId": "q1",
-        "modelManifestSha256": mod.sha256_bytes(manifest_bytes),
-        "overallResult": "pending",
-        "requiredGates": {
-            gate: "pending"
-            for gate in mod.MANDATORY_QUALIFICATION_GATES
-        },
-        "evidence": {},
-        "qualifiedProfiles": ["P1"],
-        "profileQualifications": {},
-    }
-    with pytest.raises(
-        mod.PromotionError,
-        match="promotion_existing_profile_index_invalid",
-    ):
-        mod.build_promoted_metadata(
-            manifest_raw=manifest,
-            qualification_raw=qualification,
-            runtime_raw=qualified_runtime(),
-            gate_evidence={},
-            expected_source_commit="a" * 40,
-            acceptance_profile_sha256="c" * 64,
-            acceptance_profile=policy(),
-            quality_corpus_manifest=tmp_path / "corpus.json",
-            quality_case_evidence={},
-            quality_ground_truth={},
-            expected_mavi_build="build-a",
-            deployment_profile_id="P1",
-            deployment_profile_policy_sha256="f" * 64,
-            required_gates=frozenset(),
-            required_variants=frozenset({"windows-x86_64-cuda"}),
-            current_manifest_bytes=manifest_bytes,
-        )

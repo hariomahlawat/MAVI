@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from mavi_vision.common.analytical import ObjectClass
-from mavi_vision.runtime.manifest import ArtifactRef, ModelManifest, ReleaseMetadataError
+from mavi_vision.runtime.manifest import ReleaseMetadataError
 from mavi_vision.runtime.profile import load_pipeline_profile, validate_profile_against_manifest
 from tests.profile_fixtures import PRODUCTION_EVIDENCE_SECTION
 
@@ -45,21 +45,7 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
-def _manifest(vocabulary: tuple[str, ...] | None = None) -> ModelManifest:
-    return ModelManifest(
-        schema_version="1.0",
-        model_id="model-a",
-        model_version="1.0.0",
-        purpose="test",
-        backend="mmdetection",
-        architecture="rtmdet-m",
-        class_vocabulary=vocabulary or ("person", "car", "motorcycle", "bus", "truck"),
-        checkpoint=ArtifactRef("release/checkpoint.pth", "a" * 64),
-        resolved_config=ArtifactRef("release/config.py", "b" * 64),
-        runtime_profile_id="runtime-a",
-        verification_status="unverified",
-        qualification_id=None,
-    )
+_VOCABULARY = ("person", "car", "motorcycle", "bus", "truck")
 
 
 def test_pipeline_profile_loads_immutable_phase1_policy(tmp_path: Path) -> None:
@@ -131,7 +117,8 @@ def test_profile_mapped_classes_must_exist_in_manifest_vocabulary(tmp_path: Path
     ):
         validate_profile_against_manifest(
             profile,
-            _manifest(("person", "car", "motorcycle", "bus")),
+            model_id="model-a",
+            class_vocabulary=("person", "car", "motorcycle", "bus"),
         )
 
 
@@ -139,21 +126,13 @@ def test_profile_model_id_must_match_manifest(tmp_path: Path) -> None:
     path = tmp_path / "profile.json"
     _write_json(path, _profile_payload())
     profile = load_pipeline_profile(path)
-    source = _manifest()
-    manifest = ModelManifest(
-        schema_version=source.schema_version,
-        model_id="different-model",
-        model_version=source.model_version,
-        purpose=source.purpose,
-        backend=source.backend,
-        architecture=source.architecture,
-        class_vocabulary=source.class_vocabulary,
-        checkpoint=source.checkpoint,
-        resolved_config=source.resolved_config,
-        runtime_profile_id=source.runtime_profile_id,
-        verification_status=source.verification_status,
-        qualification_id=source.qualification_id,
-    )
-
     with pytest.raises(ReleaseMetadataError, match="profile_model_id_mismatch"):
-        validate_profile_against_manifest(profile, manifest)
+        validate_profile_against_manifest(profile, model_id="different-model", class_vocabulary=_VOCABULARY)
+
+
+def test_a_matching_detector_section_is_accepted(tmp_path: Path) -> None:
+    path = tmp_path / "profile.json"
+    _write_json(path, _profile_payload())
+    validate_profile_against_manifest(
+        load_pipeline_profile(path), model_id="model-a", class_vocabulary=_VOCABULARY
+    )

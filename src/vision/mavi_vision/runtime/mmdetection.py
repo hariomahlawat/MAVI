@@ -38,10 +38,8 @@ from mavi_vision.runtime.manifest import (
     validate_logical_relative_path,
     validate_release_text_file,
 )
-from mavi_vision.runtime.qualification import (
-    RuntimePythonIdentity,
-    VerifiedReleaseSelection,
-)
+from mavi_vision.runtime.qualification import RuntimePythonIdentity
+from mavi_vision.runtime.resolver import DetectorSelection
 
 
 _DEVICE_PATTERN = re.compile(r"(?:cpu|cuda:(\d+))", re.ASCII)
@@ -547,14 +545,14 @@ class MMDetectionRuntime:
 
     def __init__(
         self,
-        release: VerifiedReleaseSelection,
+        release: DetectorSelection,
         *,
         device: str,
         activity: InferenceActivity,
     ) -> None:
         if not isinstance(activity, InferenceActivity):
             raise TypeError("inference_activity_invalid")
-        if release.manifest.backend != "mmdetection":
+        if release.detector.backend != "mmdetection":
             raise RuntimeCompatibilityError("runtime_backend_invalid")
 
         device_match = _DEVICE_PATTERN.fullmatch(device)
@@ -563,11 +561,11 @@ class MMDetectionRuntime:
 
         checkpoint_root = _derive_release_root(
             release.checkpoint_path,
-            release.manifest.checkpoint.relative_path,
+            release.detector.checkpoint.relative_path,
         )
         config_root = _derive_release_root(
             release.resolved_config_path,
-            release.manifest.resolved_config.relative_path,
+            release.detector.resolved_config.relative_path,
         )
         if checkpoint_root != config_root:
             raise RuntimeCompatibilityError("release_artifact_root_mismatch")
@@ -575,13 +573,13 @@ class MMDetectionRuntime:
         checkpoint_path = _verified_local_artifact(
             selected_path=release.checkpoint_path,
             release_root=checkpoint_root,
-            artifact=release.manifest.checkpoint,
+            artifact=release.detector.checkpoint,
             hash_error="checkpoint_hash_mismatch",
         )
         config_path = _verified_local_artifact(
             selected_path=release.resolved_config_path,
             release_root=config_root,
-            artifact=release.manifest.resolved_config,
+            artifact=release.detector.resolved_config,
             hash_error="resolved_config_hash_mismatch",
         )
         _validate_resolved_config(config_path)
@@ -622,7 +620,7 @@ class MMDetectionRuntime:
             ) from exc
 
         vocabulary = self._runtime_vocabulary(model)
-        if vocabulary != release.manifest.class_vocabulary:
+        if vocabulary != release.detector.class_vocabulary:
             raise RuntimeCompatibilityError("runtime_vocabulary_mismatch")
 
         actual_device = _actual_model_device(model)
@@ -637,8 +635,8 @@ class MMDetectionRuntime:
         self._vocabulary = vocabulary
         self._closed = False
         self._metadata = RuntimeMetadata(
-            backend=release.manifest.backend,
-            model_id=release.manifest.model_id,
+            backend=release.detector.backend,
+            model_id=release.detector.model_id,
             device=actual_device,
             versions=bindings.versions,
             ordered_class_vocabulary=vocabulary,
@@ -692,7 +690,7 @@ class MMDetectionRuntime:
 
     @staticmethod
     def _validate_runtime_binding(
-        release: VerifiedReleaseSelection,
+        release: DetectorSelection,
         actual_versions: Mapping[str, str],
         *,
         device: str,

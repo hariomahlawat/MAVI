@@ -12,9 +12,16 @@ from mavi_vision.common.control_plane import (
     CUDA_DEVICE_PATTERN,
     validate_device_resolution_wire_relationship,
 )
+from mavi_vision.runtime.capabilities import KNOWN_CAPABILITIES
+from mavi_vision.runtime.component_identity import RUNTIME_PACK_ID_RE
 from mavi_vision.runtime.interfaces import RuntimeMetadata
 from mavi_vision.runtime.manifest import validate_sha256_hex
-from mavi_vision.runtime.qualification import VerifiedReleaseSelection
+from mavi_vision.runtime.model_pack_identity import MODEL_PACK_ID_RE
+from mavi_vision.runtime.resolver import (
+    INSTALLED_PACK,
+    UNPACKED_ENVIRONMENT,
+    DetectorSelection,
+)
 
 
 _REQUIRED_RUNTIME_VERSION_KEYS = frozenset(
@@ -184,6 +191,13 @@ class RuntimeProvenance:
     mavi_commit: str
     frame_policy: Literal["every-frame"]
     tracker_parameters: TrackerParameters
+    # Component identity at the point of use (ADR-014 §8; S2a plan §4.5, P-8, P-11).
+    # No defaults: a default would be a fabricated identity.
+    capability_id: str
+    model_pack_id: str
+    runtime_pack_id: str | None
+    runtime_pack_source: Literal["installed-pack", "unpacked-environment"]
+    component_binding_sha256: str
     device_resolution_reason: str | None = None
     input_colour_space: Literal["RGB"] = "RGB"
 
@@ -212,6 +226,23 @@ class RuntimeProvenance:
             or self.platform_lock_sha256 is None
         ):
             raise ValueError("verified_provenance_qualification_required")
+
+        if self.capability_id not in KNOWN_CAPABILITIES:
+            raise ValueError("capability_id_invalid")
+        if MODEL_PACK_ID_RE.fullmatch(self.model_pack_id) is None:
+            raise ValueError("model_pack_id_invalid")
+        _require_sha256(self.component_binding_sha256, code="component_binding_sha256_invalid")
+        if self.runtime_pack_source == INSTALLED_PACK:
+            if self.runtime_pack_id is None or RUNTIME_PACK_ID_RE.fullmatch(self.runtime_pack_id) is None:
+                raise ValueError("runtime_pack_id_invalid")
+        elif self.runtime_pack_source == UNPACKED_ENVIRONMENT:
+            # Unpacked execution names no Runtime Pack and is never verified (P-8).
+            if self.runtime_pack_id is not None:
+                raise ValueError("runtime_pack_id_fabricated")
+            if self.verification_status != "unverified":
+                raise ValueError("unpacked_environment_cannot_be_verified")
+        else:
+            raise ValueError("runtime_pack_source_invalid")
         if self.input_colour_space != "RGB":
             raise ValueError("input_colour_space_invalid")
 
@@ -356,7 +387,7 @@ def _runtime_variant_key(
 
 def _runtime_binding_mismatch(
     *,
-    selection: VerifiedReleaseSelection,
+    selection: DetectorSelection,
     runtime_metadata: RuntimeMetadata,
     platform_identity: PlatformIdentity,
     runtime_variant: str,
@@ -390,8 +421,6 @@ def _runtime_binding_mismatch(
     )
     if variant.status != expected_status:
         return "runtime_platform_variant_not_qualified"
-    if variant.resolved_config_sha256 != selection.manifest.resolved_config.sha256:
-        return "runtime_variant_config_identity_mismatch"
 
     expected_binary_versions = variant.binary_versions
     if expected_binary_versions is None:
@@ -424,7 +453,7 @@ def _runtime_binding_mismatch(
 
 def _qualified_runtime_lock_sha256(
     *,
-    selection: VerifiedReleaseSelection,
+    selection: DetectorSelection,
     runtime_variant: str,
 ) -> str:
     lock = selection.runtime_release_locks.get(runtime_variant)
@@ -442,16 +471,33 @@ def _qualified_runtime_lock_sha256(
 
 def _effective_verification_status(
     *,
-    selection: VerifiedReleaseSelection,
+    selection: DetectorSelection,
     runtime_metadata: RuntimeMetadata,
     platform_identity: PlatformIdentity,
     runtime_variant: str,
     production_mode: bool,
 ) -> tuple[Literal["verified", "unverified"], str | None]:
     """Bind the provenance label to the live qualified runtime, not the manifest alone."""
+    resolved = selection.resolved_role
     if selection.verification_status != "verified":
         if production_mode:
             raise ValueError("production_release_not_verified")
+        return "unverified", None
+    # The P-16 override is non-qualifying by construction; Production refuses it.
+    if resolved.completion.override_active:
+        if production_mode:
+            raise ValueError("completion_override_forbidden_in_production")
+        return "unverified", None
+    # Verified requires an installed Runtime Pack whose identity re-derived (P-8).
+    if resolved.runtime_pack.runtime_pack_source != INSTALLED_PACK:
+        if production_mode:
+            raise ValueError("runtime_pack_required")
+        return "unverified", None
+    # ...and a record that passed on exactly the observed variant.
+    record_variant = selection.capability.qualification.variants.get(runtime_variant)
+    if record_variant is None or record_variant.status != "passed":
+        if production_mode:
+            raise ValueError("qualification_variant_not_passed")
         return "unverified", None
 
     mismatch = _runtime_binding_mismatch(
@@ -478,7 +524,7 @@ def _effective_verification_status(
 
 def build_runtime_provenance(
     *,
-    selection: VerifiedReleaseSelection,
+    selection: DetectorSelection,
     runtime_metadata: RuntimeMetadata,
     configured_device_policy: Literal["cpu", "cuda", "auto"],
     configured_device_index: int,
@@ -490,15 +536,21 @@ def build_runtime_provenance(
     gpu: GpuIdentity | None = None,
     platform_identity: PlatformIdentity | None = None,
 ) -> RuntimeProvenance:
-    """Build one immutable attempt-level provenance snapshot."""
-    manifest = selection.manifest
-    profile = selection.profile
+    """Build one immutable attempt-level provenance snapshot.
 
-    if runtime_metadata.backend != manifest.backend:
+    Every identity comes from the one resolution (``selection.resolved_role``); none
+    is recomputed or defaulted here.
+    """
+    detector = selection.detector
+    profile = selection.profile
+    resolved = selection.resolved_role
+    capability = selection.capability
+
+    if runtime_metadata.backend != detector.backend:
         raise ValueError("runtime_backend_manifest_mismatch")
-    if runtime_metadata.model_id != manifest.model_id:
+    if runtime_metadata.model_id != detector.model_id:
         raise ValueError("runtime_model_manifest_mismatch")
-    if runtime_metadata.ordered_class_vocabulary != manifest.class_vocabulary:
+    if runtime_metadata.ordered_class_vocabulary != detector.class_vocabulary:
         raise ValueError("runtime_vocabulary_manifest_mismatch")
 
     missing_versions = sorted(
@@ -531,6 +583,10 @@ def build_runtime_provenance(
         platform_identity=captured_platform,
         actual_device=runtime_metadata.device,
     )
+    # The role was resolved for the variant observed before the runtime started; the
+    # live runtime must be on exactly that variant.
+    if runtime_variant != resolved.runtime_variant:
+        raise ValueError("runtime_variant_resolution_mismatch")
     effective_verification_status, lock_sha = _effective_verification_status(
         selection=selection,
         runtime_metadata=runtime_metadata,
@@ -548,27 +604,21 @@ def build_runtime_provenance(
         mavi_commit=mavi_commit,
     )
 
-    qualification_id = (
-        selection.qualification.qualification_id
-        if selection.qualification is not None
-        else None
-    )
-
     tracker = profile.tracker
     return RuntimeProvenance(
-        model_id=manifest.model_id,
-        model_version=manifest.model_version,
-        model_manifest_sha256=selection.manifest_sha256,
-        checkpoint_sha256=manifest.checkpoint.sha256,
-        resolved_config_sha256=manifest.resolved_config.sha256,
+        model_id=detector.model_id,
+        model_version=detector.model_version,
+        model_manifest_sha256=capability.manifest_sha256,
+        checkpoint_sha256=detector.checkpoint.sha256,
+        resolved_config_sha256=detector.resolved_config.sha256,
         pipeline_profile_id=profile.profile_id,
         pipeline_profile_version=profile.profile_version,
         pipeline_profile_sha256=selection.profile_sha256,
-        qualification_id=qualification_id,
-        qualification_sha256=selection.qualification_sha256,
+        qualification_id=capability.qualification.qualification_id,
+        qualification_sha256=capability.qualification_sha256,
         verification_status=effective_verification_status,
-        runtime_profile_id=selection.runtime_profile_id,
-        runtime_profile_sha256=selection.runtime_profile_sha256,
+        runtime_profile_id=resolved.family.runtime_profile.runtime_profile_id,
+        runtime_profile_sha256=resolved.family.runtime_profile_sha256,
         runtime_variant=runtime_variant,
         platform_lock_sha256=lock_sha,
         detector_backend=runtime_metadata.backend,
@@ -590,5 +640,10 @@ def build_runtime_provenance(
             minimum_consecutive_frames=tracker.minimum_consecutive_frames,
             lost_track_buffer_seconds=tracker.lost_track_buffer_seconds,
         ),
+        capability_id=capability.capability_id,
+        model_pack_id=capability.model_pack_id,
+        runtime_pack_id=resolved.runtime_pack.runtime_pack_id,
+        runtime_pack_source=resolved.runtime_pack.runtime_pack_source,
+        component_binding_sha256=resolved.component_binding_sha256,
         device_resolution_reason=device_resolution_reason,
     )

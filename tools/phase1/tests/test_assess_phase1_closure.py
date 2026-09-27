@@ -291,107 +291,192 @@ def test_application_lifecycle_manifest_hash_mismatch_is_rejected(tmp_path: Path
         )
 
 
-def test_qualification_evidence_hashes_use_selected_profile_record():
-    class Evidence:
-        def __init__(self, sha256: str):
-            self.sha256 = sha256
-
-    class ProfileQualification:
-        deployment_profile_policy_sha256 = "f" * 64
-        runtime_variant = "windows-x86_64-cuda"
-        evidence = {
-            "windows-x86_64-cuda": Evidence("a" * 64),
-            "windows-offline-install": Evidence("b" * 64),
-            "cctv-quality-baseline": Evidence("c" * 64),
-        }
-
-    class Qualification:
-        required_gates = {
-            gate: "passed"
-            for gate in mod.MANDATORY_QUALIFICATION_GATES
-        }
-        # Simulate a later P2 promotion overwriting the legacy top-level
-        # shared quality gate. P1 closure must still use P1's own record.
-        evidence = {
-            "windows-x86_64-cuda": Evidence("a" * 64),
-            "windows-offline-install": Evidence("b" * 64),
-            "cctv-quality-baseline": Evidence("d" * 64),
-        }
-        profile_qualifications = {
-            "P1": ProfileQualification(),
-        }
-
-    observed = {
-        "windows-x86_64-cuda": "a" * 64,
-        "windows-offline-install": "b" * 64,
-        "cctv-quality-baseline": "c" * 64,
-    }
-    mod.validate_qualification_evidence_hashes(
-        Qualification(),
-        observed,
-        frozenset({
-            "windows-x86_64-cuda",
-            "windows-offline-install",
-            "cctv-quality-baseline",
-        }),
-        deployment_profile_id="P1",
-        deployment_profile_policy_sha256="f" * 64,
-        runtime_variant="windows-x86_64-cuda",
-    )
-
-
-def test_qualification_evidence_hashes_reject_selected_profile_mismatch():
-    class Evidence:
-        def __init__(self, sha256: str):
-            self.sha256 = sha256
-
-    class ProfileQualification:
-        deployment_profile_policy_sha256 = "f" * 64
-        runtime_variant = "windows-x86_64-cuda"
-        evidence = {
-            "windows-x86_64-cuda": Evidence("a" * 64),
-            "windows-offline-install": Evidence("b" * 64),
-            "cctv-quality-baseline": Evidence("c" * 64),
-        }
-
-    class Qualification:
-        required_gates = {
-            gate: "passed"
-            for gate in mod.MANDATORY_QUALIFICATION_GATES
-        }
-        profile_qualifications = {
-            "P1": ProfileQualification(),
-        }
-
-    observed = {
-        "windows-x86_64-cuda": "a" * 64,
-        "windows-offline-install": "b" * 64,
-        "cctv-quality-baseline": "d" * 64,
-    }
-    with pytest.raises(
-        mod.ClosureError,
-        match=(
-            "qualification_evidence_hash_mismatch:"
-            "P1:cctv-quality-baseline"
-        ),
-    ):
-        mod.validate_qualification_evidence_hashes(
-            Qualification(),
-            observed,
-            frozenset({
-                "windows-x86_64-cuda",
-                "windows-offline-install",
-                "cctv-quality-baseline",
-            }),
-            deployment_profile_id="P1",
-            deployment_profile_policy_sha256="f" * 64,
-            runtime_variant="windows-x86_64-cuda",
-        )
-
-
-
 def test_production_acceptance_guard_requires_prior_acceptance_evidence():
     source = __import__("inspect").getsource(mod.assess)
     assert "args.prior_acceptance_evidence" in source
     assert "production_acceptance_ready" in source
 
+
+
+# --------------------------------------------------------------------------- v2 composition (S2a.3)
+
+from phase1_v2_support import (  # noqa: E402
+    ACCEPTANCE_PROFILE,
+    COMMITTED_BINDING,
+    COMMITTED_MANIFEST,
+    COMMITTED_RECORD,
+    committed_release_hashes,
+    overlay_type,
+    sha256_file,
+)
+
+FENCE_PENDING = "qualification-evidence-binding:v2_promotion_not_supported_by_this_slice"
+PROFILE_VARIANTS = {"P1": "windows-x86_64-cuda", "P2": "linux-x86_64-cuda", "P3": "windows-x86_64-cpu"}
+
+
+def _closure_args(tmp_path: Path, profile: str, *extra: str):
+    return mod.build_parser().parse_args([
+        "--source-commit", "a" * 40,
+        "--deployment-profile", profile,
+        "--model-root", str(tmp_path / "empty-model-store"),
+        "--acceptance-profile", str(ACCEPTANCE_PROFILE),
+        "--output", str(tmp_path / "closure.json"),
+        *extra,
+    ])
+
+
+def _overlay_args(tmp_path: Path, overlay, profile: str, *extra: str):
+    return _closure_args(
+        tmp_path,
+        profile,
+        "--component-binding", str(overlay.binding_path),
+        "--overlay-root", str(overlay.root),
+        "--model-root", str(overlay.model_root),
+        "--pipeline-profile", str(overlay.pipeline_path),
+        *extra,
+    )
+
+
+@pytest.mark.parametrize("profile", sorted(PROFILE_VARIANTS))
+def test_the_committed_release_is_not_closed_for_any_profile(tmp_path: Path, profile: str):
+    before = committed_release_hashes()
+
+    value = mod.assess(_closure_args(tmp_path, profile))
+
+    variant = PROFILE_VARIANTS[profile]
+    assert value["state"] == "implementation-complete-evidence-pending"
+    assert value["runtimeVariant"] == variant
+    pending = set(value["pending"])
+    assert {
+        "release:promotion",
+        FENCE_PENDING,
+        "qualification-profile:" + profile,
+        "qualification-variant:" + variant,
+    } <= pending
+    # P-12: the v1 requiredGates names are gone; every v2 gate of the variant is pending.
+    assert "qualification:" + variant + ":offline-install" in pending
+    assert "qualification:" + variant + ":cctv-quality-baseline" in pending
+    assert not any(item.startswith("qualification:windows-offline-install") for item in pending)
+    metadata = value["releaseMetadata"]
+    assert metadata["manifestSha256"] == sha256_file(COMMITTED_MANIFEST)
+    assert metadata["qualificationSha256"] == sha256_file(COMMITTED_RECORD)
+    assert metadata["componentBindingSha256"] == sha256_file(COMMITTED_BINDING)
+    assert committed_release_hashes() == before
+
+
+def test_the_cli_reports_not_closed_and_require_complete_fails(tmp_path: Path, monkeypatch):
+    output = tmp_path / "closure.json"
+    monkeypatch.setattr(sys, "argv", [
+        "assess_phase1_closure.py",
+        "--source-commit", "a" * 40,
+        "--deployment-profile", "P3",
+        "--model-root", str(tmp_path / "empty-model-store"),
+        "--acceptance-profile", str(ACCEPTANCE_PROFILE),
+        "--output", str(output),
+        "--require-complete",
+    ])
+    assert mod.main() == 3
+    assert __import__("json").loads(output.read_text(encoding="utf-8"))["state"] != "release-verified"
+
+
+@pytest.mark.parametrize("retired", ["--manifest", "--qualification", "--runtime-profile"])
+def test_the_retired_path_arguments_are_refused(tmp_path: Path, retired: str):
+    with pytest.raises(SystemExit):
+        _closure_args(tmp_path, "P3", retired, str(COMMITTED_MANIFEST))
+
+
+def test_a_fully_qualified_overlay_is_promoted_but_still_not_closed(tmp_path: Path):
+    """The mapped Production check discriminates, and the fence still blocks closure."""
+    overlay = overlay_type().create(tmp_path)
+    overlay.qualify_for_production(profile_id="P3")
+
+    unpacked = mod.assess(_overlay_args(tmp_path, overlay, "P3"))
+    assert "release:promotion" in unpacked["pending"]  # no installed Runtime Pack
+
+    installed = mod.assess(
+        _overlay_args(tmp_path, overlay, "P3", "--runtime-pack-manifest", str(overlay.pack_manifest_path))
+    )
+    pending = set(installed["pending"])
+    assert "release:promotion" not in pending
+    assert not any(
+        item.startswith(("qualification:", "qualification-variant:", "qualification-profile"))
+        for item in pending
+    )
+    assert FENCE_PENDING in pending
+    assert installed["state"] != "release-verified"
+
+
+def test_the_production_check_refuses_an_unverified_overlay_even_with_a_pack(tmp_path: Path):
+    overlay = overlay_type().create(tmp_path)
+    overlay.qualify_for_production(profile_id="P3")
+    overlay.manifest["verificationStatus"] = "unverified"
+    overlay.manifest["qualificationId"] = None
+    overlay.write()
+    value = mod.assess(
+        _overlay_args(tmp_path, overlay, "P3", "--runtime-pack-manifest", str(overlay.pack_manifest_path))
+    )
+    assert "release:promotion" in value["pending"]
+
+
+def _record(overlay):
+    from mavi_vision.runtime.qualification_v2 import load_capability_gate_sets, load_qualification_record_v2
+
+    return load_qualification_record_v2(
+        overlay.record_path,
+        gate_sets=load_capability_gate_sets(overlay.root / "config/acceptance/capability-gate-sets-v1.json"),
+    )
+
+
+def test_qualification_pending_requires_the_profile_policy_and_variant(tmp_path: Path):
+    overlay = overlay_type().create(tmp_path)
+    _profile, policy_sha = overlay.qualify_for_production(profile_id="P3")
+    record = _record(overlay)
+
+    assert mod.qualification_pending(
+        record,
+        profile_id="P3",
+        runtime_variant="windows-x86_64-cpu",
+        deployment_profile_policy_sha256=policy_sha,
+    ) == []
+    with pytest.raises(mod.ClosureError, match="qualification_profile_policy_mismatch:P3"):
+        mod.qualification_pending(
+            record,
+            profile_id="P3",
+            runtime_variant="windows-x86_64-cpu",
+            deployment_profile_policy_sha256="0" * 64,
+        )
+    with pytest.raises(mod.ClosureError, match="qualification_profile_runtime_variant_mismatch:P3"):
+        mod.qualification_pending(
+            record,
+            profile_id="P3",
+            runtime_variant="linux-x86_64-cpu",
+            deployment_profile_policy_sha256=policy_sha,
+        )
+    # Another profile on a pending variant is reported per gate, never as passed.
+    other = mod.qualification_pending(
+        record,
+        profile_id="P1",
+        runtime_variant="windows-x86_64-cuda",
+        deployment_profile_policy_sha256=policy_sha,
+    )
+    assert "qualification-profile:P1" in other
+    assert "qualification-variant:windows-x86_64-cuda" in other
+
+
+def test_profile_evidence_must_cover_every_variant_gate(tmp_path: Path):
+    overlay = overlay_type().create(tmp_path)
+    _profile, policy_sha = overlay.qualify_for_production(profile_id="P3")
+    del overlay.record["profileQualifications"]["P3"]["evidence"]["licence"]
+    overlay.write()
+    assert mod.qualification_pending(
+        _record(overlay),
+        profile_id="P3",
+        runtime_variant="windows-x86_64-cpu",
+        deployment_profile_policy_sha256=policy_sha,
+    ) == ["qualification-profile-evidence:P3:licence"]
+
+
+def test_the_closure_tool_has_no_v1_reader():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    for retired in ("load_qualification_record(", "load_runtime_profile(", "verify_release_selection(", "required_gates"):
+        assert retired not in source

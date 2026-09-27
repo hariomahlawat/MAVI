@@ -28,10 +28,10 @@ foreach ($path in @($KitRoot, $RuntimePackRoot, $ModelPackRoot, $RepositoryRoot)
 
 $tool = Join-Path $RepositoryRoot "tools\vision\sync_offline_vision_components.py"
 $ownershipTool = Join-Path $RepositoryRoot "tools\vision\verify_offline_component_ownership.py"
-$requirements = Join-Path $RepositoryRoot "src\vision\config\components\mmdetection-phase1-v1.json"
+$componentBinding = Join-Path $RepositoryRoot "src\vision\config\components\phase1-bindings-v2.json"
 if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { throw "Vision component-store tool is missing: $tool" }
 if (-not (Test-Path -LiteralPath $ownershipTool -PathType Leaf)) { throw "Vision component ownership verifier is missing: $ownershipTool" }
-if (-not (Test-Path -LiteralPath $requirements -PathType Leaf)) { throw "Vision component requirements are missing: $requirements" }
+if (-not (Test-Path -LiteralPath $componentBinding -PathType Leaf)) { throw "Vision component binding is missing: $componentBinding" }
 
 $git = Get-Command git.exe -ErrorAction SilentlyContinue
 if (-not $git) { throw "git.exe is required to identify the Application Overlay revision." }
@@ -59,7 +59,7 @@ if (-not $python) { throw "Python is required to synchronize the offline Vision 
     --kit-root $KitRoot `
     --runtime-pack $RuntimePackRoot `
     --model-pack $ModelPackRoot `
-    --component-requirements $requirements `
+    --component-binding $componentBinding `
     --application-revision $head
 if ($LASTEXITCODE -ne 0) { throw "Vision component-store synchronization failed with exit code $LASTEXITCODE." }
 

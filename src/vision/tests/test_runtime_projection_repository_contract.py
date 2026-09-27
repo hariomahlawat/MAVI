@@ -8,11 +8,10 @@ from pathlib import Path
 import pytest
 
 from mavi_vision.runtime.component_identity import (
-    ModelPackIdentityInputs,
     RuntimePackIdentityInputs,
-    model_pack_id,
     runtime_pack_id,
 )
+from mavi_vision.runtime.model_manifest_v2 import load_model_manifest_v2
 
 
 def _sha(path: Path) -> str:
@@ -53,11 +52,15 @@ def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
     runtime_root = repository_root / "src/vision/runtime/mmdetection-phase1-v1"
     component_path = (
         repository_root
-        / "src/vision/config/components/mmdetection-phase1-v1.json"
+        / "src/vision/config/components/phase1-bindings-v2.json"
     )
-    components = json.loads(component_path.read_text(encoding="utf-8"))
-    assert components["schemaVersion"] == "mavi-vision-component-requirements-v1"
-    assert components["runtimeProfileId"] == "mmdetection-phase1-v1"
+    binding = json.loads(component_path.read_text(encoding="utf-8"))
+    assert binding["schemaVersion"] == "mavi-vision-component-binding-v2"
+    (family,) = binding["runtimePacks"]
+    assert family["runtimePackFamilyId"] == "mmdetection-phase1-v1"
+    # One role, bound to this family (P-2: the family id is the runtime profile id).
+    assert [role["runtimePackFamilyId"] for role in binding["roles"]] == ["mmdetection-phase1-v1"]
+    declared = family["variants"]
 
     expected_native_abi = {
         "windows-x86_64-cpu": "win_amd64-msvc-14.44-sdk-10.0.26100.0",
@@ -78,7 +81,8 @@ def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
     # now, so the pin is replaced by the stronger statement: every declared
     # variant's identity must re-derive from the tracked lock and projection,
     # which the loop below does for CUDA exactly as for the CPU variants.
-    assert set(components["runtimePacks"]) == {
+    # linux-x86_64-cuda is class A (P-17): known, never declared.
+    assert set(declared) == {
         "windows-x86_64-cpu",
         "linux-x86_64-cpu",
         "windows-x86_64-cuda",
@@ -95,12 +99,12 @@ def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
         contract["nativeAbi"] == expected_native_abi["windows-x86_64-cuda"]
     )
 
-    for variant, binding in components["runtimePacks"].items():
+    for variant, entry in declared.items():
         lock_hash = _sha(runtime_root / f"{variant}.lock")
         requirements_hash = _sha(runtime_root / f"{variant}.requirements.txt")
-        assert binding["thirdPartyLockSha256"] == lock_hash
-        assert binding["runtimeRequirementsSha256"] == requirements_hash
-        assert binding["nativeAbi"] == expected_native_abi[variant]
+        assert entry["thirdPartyLockSha256"] == lock_hash
+        assert entry["runtimeRequirementsSha256"] == requirements_hash
+        assert entry["nativeAbi"] == expected_native_abi[variant]
         expected_id = runtime_pack_id(
             RuntimePackIdentityInputs(
                 platform_variant=variant,
@@ -110,24 +114,12 @@ def test_component_requirements_bind_current_runtime_and_model_inputs() -> None:
                 native_abi=expected_native_abi[variant],
             )
         )
-        assert binding["runtimePackId"] == expected_id
+        assert entry["runtimePackId"] == expected_id
 
-    model_source = json.loads(
-        (repository_root / "models/manifests/rtmdet-m-coco-phase1-v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    model = components["modelPack"]
-    assert model["modelId"] == model_source["modelId"]
-    assert model["checkpointSha256"] == model_source["checkpoint"]["sha256"]
-    assert model["resolvedConfigSha256"] == model_source["resolvedConfig"]["sha256"]
-    assert model["modelPackId"] == model_pack_id(
-        ModelPackIdentityInputs(
-            model_id=model["modelId"],
-            checkpoint_sha256=model["checkpointSha256"],
-            resolved_config_sha256=model["resolvedConfigSha256"],
-        )
-    )
+    # The detector binding names the Model Pack the committed manifest derives (P-3).
+    (detector,) = [item for item in binding["capabilityBindings"] if item["capabilityId"] == "detector"]
+    manifest = load_model_manifest_v2(repository_root / "models/manifests/rtmdet-m-coco-phase1-v2.json")
+    assert detector["modelPackId"] == manifest.model_pack_id
 
 
 def test_every_declared_runtime_pack_is_covered_by_the_boundary_gate():
@@ -142,10 +134,10 @@ def test_every_declared_runtime_pack_is_covered_by_the_boundary_gate():
     this is what makes it add the matrix row too.
     """
     repository_root = Path(__file__).resolve().parents[3]
-    components = json.loads(
+    binding = json.loads(
         (
             repository_root
-            / "src/vision/config/components/mmdetection-phase1-v1.json"
+            / "src/vision/config/components/phase1-bindings-v2.json"
         ).read_text(encoding="utf-8")
     )
     workflow = (
@@ -155,7 +147,8 @@ def test_every_declared_runtime_pack_is_covered_by_the_boundary_gate():
 
     covered = set(re.findall(r"^\s*- variant:\s*(\S+)\s*$", workflow, re.MULTILINE))
 
-    assert covered == set(components["runtimePacks"])
+    declared = {variant for family in binding["runtimePacks"] for variant in family["variants"]}
+    assert covered == declared
 
 
 def test_every_setup_powershell_module_is_parsed_by_the_acceptance_gate():

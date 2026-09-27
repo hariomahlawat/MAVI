@@ -18,14 +18,14 @@ A normal edit under `src/vision/mavi_vision/` does **not** justify rebuilding or
 
 Legacy `mavi-vision-runtime-install-v1` state is deliberately rejected. Perform the migration once:
 
-1. Obtain the qualified Windows CPU Runtime Pack whose `runtimePackId` matches `src/vision/config/components/mmdetection-phase1-v1.json`.
+1. Obtain the qualified Windows CPU Runtime Pack whose `runtimePackId` matches the component binding `src/vision/config/components/phase1-bindings-v2.json` (`runtimePacks[<family>].variants["windows-x86_64-cpu"]`; before Stage 2 S2a.3 this was `mmdetection-phase1-v1.json`).
 2. Run `tools/setup/Install-MaviVisionRuntime.ps1` with that pack and the current repository root. Installation is offline and uses the reviewed third-party hash lock.
-3. Obtain the required Model Pack whose `modelPackId` matches the same component-requirements file.
-4. Run `tools/setup/Install-MaviVisionModelPack.ps1` with that pack.
+3. Obtain the required Model Pack (`mavi-vision-model-pack-v2`) whose `modelPackId` matches the binding's detector `modelPackId`.
+4. Run `tools/setup/Install-MaviVisionModelPack.ps1 -PackRoot <pack>` (optionally `-StoreRoot <store>`, default `%ProgramData%\MAVI\Development\VisionModels`). It installs the pack as `<store>\<packDirectory>\` and never touches another pack in the store. A v1 `model-install.json` in that directory is refused (`model_install_state_v1_rejected`): remove the directory and re-run.
 5. Run `tools/setup/Test-MaviEnvironment.ps1 -Profile Development`.
 6. Start the worker with `tools/setup/Start-MaviVisionWorker.ps1` only after environment verification passes.
 
-`runtime-install.json` must report `mavi-vision-runtime-install-v2`; `model-install.json` must report `mavi-vision-model-install-v1`.
+`runtime-install.json` must report `mavi-vision-runtime-install-v2`; `model-install.json` must report `mavi-vision-model-install-v2` (since Stage 2 S2a.3; `-install-v1` before it).
 
 ## Reuse behaviour
 
@@ -83,6 +83,19 @@ The PyTorch/MMDetection deprecation warnings and the non-fatal `data_preprocesso
 
 The 2-minute functional test may be performed only after the target application head has completed exact-head qualification and independent cold review. Preserve the exact Runtime Pack ID, Model Pack ID, application head and final processing result in the qualification record. Do not repeat the expensive CPU video run merely for documentation-only changes unless a subsequent change affects the runtime/model/application execution path or invalidates the evidence.
 
+## Component binding v2 cut-over (Stage 2 S2a.3)
+
+Since S2a.3 the worker composes the vision role from one file, `src/vision/config/components/phase1-bindings-v2.json` (ADR-014; plan `docs/superpowers/plans/2026-09-27-stage2-s2a-component-binding-v2.md`). The binding names the role's Runtime Pack family and, per capability, the Model Pack (by derived `modelPackId`) and qualification record it runs with; the worker resolves everything else from them and fails closed on any inconsistency. What changes for an operator:
+
+- **Worker settings.** `MAVI_COMPONENT_BINDING_PATH` (default the committed binding), `MAVI_ROLE_ID` (`vision`), `MAVI_OVERLAY_ROOT` (the directory that holds `models/`, `src/vision/runtime/` and `config/acceptance/`; default the working directory), `MAVI_MODEL_ROOT` (the Model Pack **store** root: one directory per pack, `<store>/<packDirectory>/`), `MAVI_RUNTIME_PACK_MANIFEST_PATH` (the installed `runtime-pack-manifest.json`; unset means an unpacked environment) and `MAVI_PIPELINE_PROFILE_PATH` (unchanged). **Retired and refused:** `MAVI_MODEL_MANIFEST_PATH`, `MAVI_QUALIFICATION_RECORD_PATH`, `MAVI_RUNTIME_PROFILE_PATH` and `MAVI_COMPLETION_SCHEMA_VERSION` — if any is set (any case, even empty) the worker refuses to start with `settings_v1_composition_rejected:<names>` and exit code 2. Remove them from service definitions before upgrading.
+- **Completion 3.2.** The worker emits completion 3.2, its role's `provenanceContract`, with `capabilityId`, `modelPackId`, `runtimePackId`, `runtimePackSource` and `componentBindingSha256`. A platform that does not list `"3.2"` keeps it from leasing. The Development-only `MAVI_COMPLETION_SCHEMA_OVERRIDE` (`3.0` or `3.1`) is the only way to emit an older body; it is refused in Production and makes every completion `unverified` (`completion_schema_override_active` is logged).
+- **Runtime Pack truth.** A worker started with an installed Runtime Pack reports `installed-pack` and the id re-derived from that pack's manifest; a worker in a virtual environment installed from the lock reports `unpacked-environment` and a `null` id, and is never `verified`. Runtime Pack ids are unchanged by S2a.3.
+- **Model Pack v2 (Windows).** Re-install the Model Pack with the S2a.3 `Install-MaviVisionModelPack.ps1`: it installs `<store>\<packDirectory>\` per pack (a second pack never disturbs the first) and writes `model-install.json` v2. A v1 `model-install.json` is refused by the installer (`model_install_state_v1_rejected`) and by the launcher (`launch_model_state_schema_unsupported`); remove that pack directory and re-install. The licence notice is a Model Pack artefact (`licence-notice`) and part of the `modelPackId`.
+- **Forward-only.** Rolling back S2a.3 is a `git revert` of its PR plus a re-install with the previous installer (v2 install state is refused by v1 code and vice versa).
+- **Qualification and promotion.** RTMDet stays `unverified` with its record `pending`; `tools/phase1/promote_phase1_release.py` and `compute_target_verified_manifest.py` refuse with `v2_promotion_not_supported_by_this_slice` until a later slice defines v2 promotion.
+
+Kit assembly for N packs and the Setup-MAVI repair are Stage 2 S2a.4; the kit sections above are unchanged by S2a.3.
+
 ## Completion contract v3 deployment order
 
 Completion 3.0 carries the Track Evidence Set (up to four role-tagged observations per Track and a per-role evidence accounting block). The platform accepted completion **2.0 and 3.0** from S1.2a; **S1.4 F2 adds completion 3.1 behind an activation gate** (`VisionFinalization:Enabled`; worker `MAVI_COMPLETION_SCHEMA_VERSION`). **Since S1.4 F4-C both ship on**: `Enabled` defaults to `true` and the worker to `3.1`. The platform held off by an override and a worker pinned to `3.0` are the rollback pair: the probe then lists `["2.0","3.0"]` and 3.0 completes synchronously. Activated, the probe lists `["2.0","3.1"]`, 3.1 is the same body answered by a durable `finalizing` hand-off, live 3.0 is refused (`worker_contract_version_unsupported`), and the 3.1 worker keeps the current attempt's staging for the platform finalizer — see `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md` §5, §6, §15. The S1.2 history below is unchanged; lease, heartbeat and fail stay on control-plane 2.0. Contract artefacts: `contracts/schemas/vision-job-complete-v3.schema.json`, the golden example and its pinned digest (`contracts/test-vectors/vision-job-complete-v3-digest.json`).
@@ -130,20 +143,20 @@ When enabled, 3.0 is refused (`worker_contract_version_unsupported`) and the fin
      - `GET /api/health` shows `details.visionFinalization.enabled = false`, with no options validation error;
      - `GET /api/vision/contract` lists `completionSchemaVersions` exactly `["2.0","3.0"]`;
      - `malformedClaims == 0`.
-   - Workers keep running on 3.0 during this step, and only if pinned to it: a worker host upgraded to the F4-C worker package, whose default is 3.1, must set `MAVI_COMPLETION_SCHEMA_VERSION = 3.0` until step 5. Otherwise it fails closed at the probe (it leases nothing), which is safe but stalls processing.
+   - Workers keep running on 3.0 during this step, and only if pinned to it: a worker host upgraded to the F4-C worker package, whose default is 3.1, must set `MAVI_COMPLETION_SCHEMA_VERSION = 3.0` until step 5. Otherwise it fails closed at the probe (it leases nothing), which is safe but stalls processing. (A worker from Stage 2 S2a.3 on emits 3.2, cannot be pinned to 3.0 in Production and refuses `MAVI_COMPLETION_SCHEMA_VERSION`; activate the platform before upgrading workers to it.)
 2. **Quiesce the worker fleet.** Stop every worker and keep it stopped: disable any service-manager restart, and confirm on every worker host that no worker process runs.
    - A job a stopped worker had leased returns to the queue when its lease expires.
    - Only that attempt's inference is lost.
 3. **Change the contract on every host.** Set `VisionFinalization:Enabled = true`, or remove the override, on every API host. Restart every host.
 4. **Verify every host.** On each host directly:
    - `details.visionFinalization.enabled = true`;
-   - `completionSchemaVersions` exactly `["2.0","3.1","3.2"]` (a platform binary from before Stage 2 S2a.2 lists `["2.0","3.1"]`). 3.2 is advertised from S2a.2, but no worker emits it until S2a.3: a worker set to `MAVI_COMPLETION_SCHEMA_VERSION = 3.2` refuses to start with `completion_32_requires_binding`;
+   - `completionSchemaVersions` exactly `["2.0","3.1","3.2"]` (a platform binary from before Stage 2 S2a.2 lists `["2.0","3.1"]`, and a worker from S2a.3 on, which emits 3.2, leases nothing from it);
    - `malformedClaims == 0`.
 
    Do not continue until every host passes.
-5. **Start workers on 3.1.** Set `MAVI_COMPLETION_SCHEMA_VERSION = 3.1` (or install the worker package whose default is 3.1) on every worker and start them.
+5. **Start workers.** A worker from Stage 2 S2a.3 on emits 3.2 with no setting (its role's contract); an earlier worker package needs `MAVI_COMPLETION_SCHEMA_VERSION = 3.1` (or its default 3.1). Start every worker.
    - Each worker probes the contract before every lease.
-   - Confirm in each worker's log that its first lease followed a probe listing `"3.1"`, with no `vision_platform_contract_unsupported`.
+   - Confirm in each worker's log that its first lease followed a probe listing the version it emits (`"3.2"`, or `"3.1"` for a pre-S2a.3 worker), with no `vision_platform_contract_unsupported`.
 6. **Watch the finalizer.** In `details.visionFinalization`:
    - `finalizingJobs` rises with hand-offs and falls as jobs publish;
    - `liveClaims` stays at most the number of hosts × `MaxConcurrentFinalizations`;
@@ -165,7 +178,7 @@ When enabled, 3.0 is refused (`worker_contract_version_unsupported`) and the fin
    - `completionSchemaVersions` exactly `["2.0","3.0"]`.
 
    Do not continue until every host passes.
-6. **Start workers on 3.0.** Set `MAVI_COMPLETION_SCHEMA_VERSION = 3.0` on every worker and start them. Confirm in each worker's log that its first lease followed a probe listing `"3.0"`.
+6. **Start workers on 3.0.** A pre-S2a.3 worker package: set `MAVI_COMPLETION_SCHEMA_VERSION = 3.0` on every worker and start them. A worker from S2a.3 on can emit 3.0 only through the Development-only `MAVI_COMPLETION_SCHEMA_OVERRIDE = 3.0` (refused in Production, every completion `unverified`); a Production fleet rolls back to 3.0 by reverting to a pre-S2a.3 worker package. Confirm in each worker's log that its first lease followed a probe listing `"3.0"`.
 
 A pre-F1 platform binary is never deployed while `Finalizing` rows or unfinished payload rows exist: the `AddVisionFinalization` migration's `Down` refuses.
 
@@ -181,7 +194,7 @@ A pre-F1 platform binary is never deployed while `Finalizing` rows or unfinished
 
 ## S1.4 disconnected qualification of the asynchronous path (F4 plan §19)
 
-The S1.4 disconnected unit is an operator run on an isolated Development host, executed on the exact measured `main` SHA (M2) and recorded as `s1-disconnected-run-v2`. It qualifies the **activated** completion path: a run on the synchronous 3.0 path is refused by the evidence checker. Nothing here is hosted CI.
+The S1.4 disconnected unit is an operator run on an isolated Development host, executed on the exact measured `main` SHA (M2) and recorded as `s1-disconnected-run-v2`. The procedure below is written for an M2 before the Stage 2 S2a.3 cut-over (the S1 identities are pre-S2a); at a later SHA the worker emits 3.2 and refuses the retired settings named here, and S1 closure under the then-current invalidation rules is out of scope for S2a.3. It qualifies the **activated** completion path: a run on the synchronous 3.0 path is refused by the evidence checker. Nothing here is hosted CI.
 
 1. **Bundle from the measured code.** On a connected build host, build the Runtime Bundle from M2 (`tools/vision/build_offline_bundle.py --source-commit <M2> --platform-variant <variant> …`). Retain its manifest: `sourceCommit` must equal M2 and it must name exactly one `mavi-vision` wheel. Verify the companion binary kit against M2's lock files.
 2. **Isolate.** Disable the network adapter or apply a deny-all outbound firewall rule, and record which. Record the system proxy state: `netsh winhttp show proxy` (Windows), or the proxy environment and the pip/apt index configuration (Linux). Confirm no LAN package mirror is reachable. Run `assert_outbound_internet_unavailable` (`tools/phase1/qualify_offline_variant.py`, five targets) and retain its JSON output as `disconnected.isolation-before`.

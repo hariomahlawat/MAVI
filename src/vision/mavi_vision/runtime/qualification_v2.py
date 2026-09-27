@@ -314,6 +314,8 @@ class QualificationRecordV2:
     variants: Mapping[str, QualificationVariantV2]
     qualified_profiles: tuple[str, ...]
     profile_runtime_variants: Mapping[str, str]
+    profile_policy_sha256: Mapping[str, str]
+    profile_evidence_gates: Mapping[str, frozenset[str]]
     overall_result: GateStatus
     supersedes_qualification_id: str | None
 
@@ -438,6 +440,12 @@ def parse_qualification_record_v2(
         qualified_profiles=parsed.qualified_profiles,
         profile_runtime_variants=MappingProxyType(
             {name: item.runtime_variant for name, item in parsed.profile_qualifications.items()}
+        ),
+        profile_policy_sha256=MappingProxyType(
+            {name: item.deployment_profile_policy_sha256 for name, item in parsed.profile_qualifications.items()}
+        ),
+        profile_evidence_gates=MappingProxyType(
+            {name: frozenset(item.evidence) for name, item in parsed.profile_qualifications.items()}
         ),
         overall_result=parsed.overall_result,
         supersedes_qualification_id=(

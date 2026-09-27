@@ -873,6 +873,12 @@ Use the bundle's `variantPatch` **verbatim** and add its `developmentEvidence`
 block. It is machine-generated precisely so those identities are not typed by
 hand. This is the one step in C4 that changes a committed file.
 
+Since the Stage 2 S2a.3 cut-over `runtime.json` is a v2 runtime **family**
+profile: the variant patch carries the Python and binary identities only, never
+a `resolvedConfigSha256` (the resolved config is a Model Pack artefact; the
+evidence still binds it through the runtime verification). A v2 platform
+variant that carries one is refused.
+
 - **Output:** `runtime.json` — **committed**.
 - **Consequence:** the runtime-profile SHA-256 changes, so qualification
   metadata binding it must be reissued (ADR-009 required follow-up 1–3).
@@ -891,6 +897,13 @@ Add `windows-x86_64-cuda` to
 `src/vision/config/components/mmdetection-phase1-v1.json` with the exact
 `runtimePackId`, `thirdPartyLockSha256`, `runtimeRequirementsSha256` and
 `nativeAbi` recorded in C2.4 and C3.1.
+
+Since Stage 2 S2a.3 that file is the component binding v2
+`src/vision/config/components/phase1-bindings-v2.json`, and the entry lives at
+`runtimePacks[<family>].variants["windows-x86_64-cuda"]` with the same four
+fields. The binding id must equal the id the tracked lock derives
+(`verify_repo`, the resolver and the component-boundary gate all re-derive it);
+the Windows CUDA variant stays Development-only (ADR-009, plan P-13).
 
 - **Output:** **committed**.
 - **Must NOT change:** the three protected CPU baseline files (see Final
@@ -1354,7 +1367,7 @@ python tools\vision\compose_windows_cuda_evidence.py failure-case --case-id auto
 | `auto-pack-integrity-failed` | append one byte to `…\windows-x86_64-cuda\runtime-pack-manifest.json` [restore from `$work` copy taken first] | `cuda_pack_integrity_failed` |
 | `auto-pack-variant-mismatch` | `$env:MAVI_VISION_RUNTIME_WINDOWS_CUDA_ROOT = "<the CPU pack root>"` for this shell [`Remove-Item Env:\…`]; the launcher reads the Machine value, so set it with `[Environment]::SetEnvironmentVariable(…, "Machine")` and unset the same way | `cuda_pack_variant_mismatch` |
 | `auto-pack-id-mismatch` | in a **copy** of the CUDA pack, edit `runtimePackId` in `runtime-pack-manifest.json` and re-hash it into `runtime-install.json`'s `runtimePackManifestSha256`; point the Machine variable at the copy | `cuda_pack_id_mismatch` |
-| `auto-pack-not-declared` | `git stash` after deleting the `windows-x86_64-cuda` entry from `src\vision\config\components\mmdetection-phase1-v1.json` [`git checkout -- <file>`] | `cuda_pack_not_declared` |
+| `auto-pack-not-declared` | `git stash` after deleting the `windows-x86_64-cuda` entry from `src\vision\config\components\mmdetection-phase1-v1.json` (since S2a.3: `phase1-bindings-v2.json`, `runtimePacks[…].variants`) [`git checkout -- <file>`] | `cuda_pack_not_declared` |
 | `auto-driver-probe-unavailable` | run the launcher from a shell whose `PATH` excludes `nvidia-smi.exe`'s directory (`$env:PATH = ($env:PATH -split ';' \| ? { $_ -notmatch 'NVIDIA' -and $_ -notmatch 'System32' }) -join ';'`) | `cuda_driver_probe_unavailable` |
 | `auto-device-unavailable` | `-DeviceIndex 1` on this single-GPU host | `cuda_device_unavailable` |
 | `auto-driver-probe-failed` | put a stub `nvidia-smi.exe` (a `.cmd` renamed, that `exit 1`) first on `PATH` for this shell | `cuda_driver_probe_failed` |
@@ -1383,7 +1396,7 @@ Development venv (`.venv` or the CPU pack venv):
 
 ```powershell
 $env:MAVI_DEVICE_POLICY = "cuda"; $env:MAVI_DEVICE_RESOLUTION_REASON = "explicit_cuda"
-# plus the MAVI_* variables the launcher exports (copy them from Start-MaviVisionWorker.ps1 line 171)
+# plus the MAVI_* variables the launcher exports (copy them from the environment block in Start-MaviVisionWorker.ps1; since S2a.3 that is MAVI_COMPONENT_BINDING_PATH, MAVI_ROLE_ID, MAVI_OVERLAY_ROOT, MAVI_RUNTIME_PACK_MANIFEST_PATH and MAVI_MODEL_ROOT, never the retired MAVI_MODEL_MANIFEST_PATH / MAVI_QUALIFICATION_RECORD_PATH / MAVI_RUNTIME_PROFILE_PATH)
 python -m mavi_vision.worker.main
 ```
 
@@ -1396,6 +1409,13 @@ python -m mavi_vision.worker.main
 Restore: `Remove-Item Env:\MAVI_*`; delete the copies.
 
 ### C7.G4 Overlay, identity and evidence refusals — 8 cases, launcher, no GPU
+
+These cases were executed at C7 against the v1 composition. Since Stage 2 S2a.3
+the files are `models\qualifications\rtmdet-m-coco-phase1-v2.json`,
+`models\manifests\rtmdet-m-coco-phase1-v2.json` and the component binding
+`src\vision\config\components\phase1-bindings-v2.json`, and the resolver's
+codes for the same refusals are listed in the S2a plan §9/§10; a rerun records
+the codes the head actually emits.
 
 Each edits one tracked file in the checkout; restore with `git checkout --
 <file>` and confirm `git status` is clean before the next case.

@@ -55,8 +55,12 @@ LAUNCH_FAILURE_CODES = frozenset(
         "launch_runtime_python_identity_malformed",
         "launch_runtime_python_identity_state_mismatch",
         "launch_runtime_python_identity_manifest_mismatch",
-        # Model Pack installation and identity.
+        # Model Pack installation and identity. The store holds one directory
+        # per pack (S2a plan P-10); a bound modelPackId carried by no store
+        # directory is not installed, and one carried by several is ambiguous
+        # rather than resolved by picking one.
         "launch_model_pack_not_installed",
+        "launch_model_pack_ambiguous",
         "launch_model_metadata_unreadable",
         "launch_model_pack_manifest_invalid",
         "launch_model_pack_integrity_failed",

@@ -4,11 +4,10 @@ import pytest
 
 from mavi_vision.runtime.component_identity import (
     ComponentIdentityError,
-    ModelPackIdentityInputs,
     RuntimePackIdentityInputs,
-    model_pack_id,
     runtime_pack_id,
 )
+import mavi_vision.runtime.component_identity as component_identity
 
 _A = "a" * 64
 _B = "b" * 64
@@ -48,32 +47,34 @@ def test_runtime_pack_identity_has_no_application_commit_input() -> None:
     assert "application_commit" not in fields
 
 
-def test_model_pack_identity_depends_only_on_model_bytes_and_identity() -> None:
-    baseline = model_pack_id(
-        ModelPackIdentityInputs(
-            model_id="rtmdet-m-coco-phase1-v1",
-            checkpoint_sha256=_A,
-            resolved_config_sha256=_B,
-        )
-    )
-    same = model_pack_id(
-        ModelPackIdentityInputs(
-            model_id="rtmdet-m-coco-phase1-v1",
-            checkpoint_sha256=_A,
-            resolved_config_sha256=_B,
-        )
-    )
-    changed_checkpoint = model_pack_id(
-        ModelPackIdentityInputs(
-            model_id="rtmdet-m-coco-phase1-v1",
-            checkpoint_sha256=_C,
-            resolved_config_sha256=_B,
-        )
-    )
+def test_the_v1_model_pack_identity_is_retired_from_the_runtime() -> None:
+    # S2a.3: the Model Pack identity is the v2 derivation (plan P-3, P-15) in
+    # mavi_vision.runtime.model_pack_identity; no runtime path derives a v1 id.
+    for retired in ("ModelPackIdentityInputs", "model_pack_id", "_MODEL_SCHEMA"):
+        assert not hasattr(component_identity, retired), retired
 
-    assert baseline == same
-    assert changed_checkpoint != baseline
-    assert baseline.startswith("mavi-model-v1-")
+
+def test_the_runtime_pack_identities_the_cut_over_consumed_are_unchanged() -> None:
+    """The binding pins exactly the ids main carried before S2a.3 (byte-identical)."""
+    import json
+    from pathlib import Path
+
+    expected = {
+        "linux-x86_64-cpu": "mavi-runtime-v2-bd94fded938183dce8dc50390d48e97d913d9dad9dc98b528a962ad32314ff61",
+        "windows-x86_64-cpu": "mavi-runtime-v2-5d6229da58554bc951ddc8bd719574c1b33109a7916afdf717339d8847e39e61",
+        "windows-x86_64-cuda": "mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d",
+    }
+    binding = json.loads(
+        (Path(__file__).resolve().parents[1] / "config" / "components" / "phase1-bindings-v2.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    pinned = {
+        variant: entry["runtimePackId"]
+        for family in binding["runtimePacks"]
+        for variant, entry in family["variants"].items()
+    }
+    assert pinned == expected
 
 
 def test_component_identity_rejects_non_sha256_fingerprint() -> None:

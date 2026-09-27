@@ -41,13 +41,15 @@ from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.detection.fixture import FixtureDetector
 from mavi_vision.detection.interfaces import DetectionCandidate
 from mavi_vision.pipeline.process_video import VideoProcessor
+from mavi_vision.runtime.binding import load_component_binding
 from mavi_vision.runtime.profile import load_pipeline_profile
 from mavi_vision.runtime.progress import ProcessingProgressSink
 from mavi_vision.runtime.provenance import RuntimeProvenance, TrackerParameters, capture_platform_identity
 from mavi_vision.storage.artifact_store import StagingArtifactStore
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.tracking.fixture import FixtureTracker
-from mavi_vision.worker.client import WorkerApiClient
+from mavi_vision.runtime.resolver import resolve_completion_contract
+from mavi_vision.worker.client import SUPPORTED_COMPLETION_SCHEMA_VERSIONS, WorkerApiClient
 from mavi_vision.worker.runner import WorkerRunner
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -115,7 +117,7 @@ class FixtureVisionProcessor:
                                  progress_sink=progress_sink)
 
 
-def provenance() -> RuntimeProvenance:
+def provenance(component_binding_sha256: str) -> RuntimeProvenance:
     return RuntimeProvenance(
         model_id="fixture-detector", model_version="0",
         model_manifest_sha256="0" * 64, checkpoint_sha256="0" * 64, resolved_config_sha256="0" * 64,
@@ -128,6 +130,14 @@ def provenance() -> RuntimeProvenance:
         actual_device="cpu", gpu=None, mavi_build="local-evidence", mavi_commit=os.environ.get("MAVI_COMMIT_SHA", "0" * 40),
         frame_policy="every-frame",
         tracker_parameters=TrackerParameters(25.0, 0.5, 0.5, 0.1, 1, 1.0),
+        # A fixture detector is no Model Pack: the all-zero id says so, as the
+        # zero digests above do. The binding identity is the one the client was
+        # composed from, so a completion never names another binding.
+        capability_id="detector",
+        model_pack_id="mavi-model-v2-" + "0" * 64,
+        runtime_pack_id=None,
+        runtime_pack_source="unpacked-environment",
+        component_binding_sha256=component_binding_sha256,
         device_resolution_reason="explicit_cpu",
     )
 
@@ -135,9 +145,22 @@ def provenance() -> RuntimeProvenance:
 async def main() -> int:
     settings = WorkerSettings(api_base_url=os.environ["MAVI_API_BASE_URL"], worker_id=os.environ["MAVI_WORKER_ID"],
                               media_root=Path(os.environ["MAVI_MEDIA_ROOT"]), heartbeat_interval_seconds=5.0)
-    client = WorkerApiClient(settings)
+    # The completion contract is composed exactly as the worker composes it: the
+    # binding's role contract (3.2), or the Development override (P-16) that the
+    # S1 recovery harness sets to reproduce the 3.1 hand-off it qualifies.
+    binding = load_component_binding(settings.component_binding_path)
+    completion = resolve_completion_contract(
+        binding.role(settings.role_id),
+        override=settings.completion_schema_override,
+        production_mode=settings.production_mode,
+        emittable_versions=SUPPORTED_COMPLETION_SCHEMA_VERSIONS,
+    )
+    client = WorkerApiClient(
+        settings, completion=completion, component_binding_sha256=binding.component_binding_sha256
+    )
     runner = WorkerRunner(client, LocalMediaStore(settings.media_root), 1.0, FixtureVisionProcessor(settings.media_root),
-                          heartbeat_interval_seconds=5.0, runtime_provenance_provider=provenance)
+                          heartbeat_interval_seconds=5.0,
+                          runtime_provenance_provider=lambda: provenance(binding.component_binding_sha256))
     worked = await runner.run_once()
     logging.info("run_once -> %s", worked)
     if worked:

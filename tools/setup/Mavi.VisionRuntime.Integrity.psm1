@@ -39,30 +39,78 @@ function Assert-MaviVisionInstalledRuntimeClosure {
     return $true
 }
 
-function Assert-MaviVisionInstalledModelPackIntegrity {
+function Get-MaviVisionIntegrityPackDirectory {
+    param([Parameter(Mandatory = $true)][object]$Manifest)
+    $artifacts = @($Manifest.artifacts)
+    if ($artifacts.Count -lt 1) { throw "Vision Model Pack manifest declares no artefacts." }
+    $first = [string]$artifacts[0].relativePath
+    if (-not (Test-MaviVisionIntegritySafeRelativePath $first)) { throw "Vision Model Pack artifact path is unsafe: '$first'." }
+    $parts = $first.Split('/')
+    if ($parts.Count -lt 2) { throw "Vision Model Pack artifact path '$first' is not inside a pack directory." }
+    return $parts[0]
+}
+
+function Assert-MaviVisionModelPackDirectoryContent {
+    <#
+    .SYNOPSIS
+    Verify one pack directory against its v2 manifest (plan P-10).
+
+    PackDirectoryPath is the directory that stands for <packDirectory>: every
+    artefact <packDirectory>/<rest> must be at <PackDirectoryPath>/<rest> with
+    the declared size and SHA-256, and nothing else may be there apart from
+    AllowedMetadata (names relative to the directory). Only this directory is
+    enumerated, so no other pack in the same store is read, validated or able
+    to fail this one. Hidden files are enumerated too.
+    #>
     [CmdletBinding()]
-    param([Parameter(Mandatory = $true)][string]$ModelRoot,[Parameter(Mandatory = $true)][object]$Manifest)
-    $root = [IO.Path]::GetFullPath($ModelRoot.Trim().Trim('"'))
-    if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Installed Vision Model Pack root is missing: $root" }
+    param(
+        [Parameter(Mandatory = $true)][string]$PackDirectoryPath,
+        [Parameter(Mandatory = $true)][object]$Manifest,
+        [AllowEmptyCollection()][string[]]$AllowedMetadata = @()
+    )
+    $root = [IO.Path]::GetFullPath($PackDirectoryPath.Trim().Trim('"'))
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Vision Model Pack directory is missing: $root" }
+    $packDirectory = Get-MaviVisionIntegrityPackDirectory -Manifest $Manifest
+    $separator = [IO.Path]::DirectorySeparatorChar
     $declared = New-Object "System.Collections.Generic.HashSet[string]" ([StringComparer]::Ordinal)
     foreach ($artifact in @($Manifest.artifacts)) {
         $relative = [string]$artifact.relativePath
-        if (-not (Test-MaviVisionIntegritySafeRelativePath $relative)) { throw "Installed Vision Model Pack artifact path is unsafe: '$relative'." }
-        if (-not $declared.Add($relative)) { throw "Installed Vision Model Pack contains duplicate artifact path: '$relative'." }
-        $path = Join-Path $root ($relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Installed Vision Model Pack artifact is missing: '$relative'." }
-        $item = Get-Item -LiteralPath $path
-        if ([int64]$item.Length -ne [int64]$artifact.sizeBytes) { throw "Installed Vision Model Pack artifact size mismatch: '$relative'." }
-        if ((Get-MaviVisionIntegritySha256 -Path $path) -ne ([string]$artifact.sha256).ToLowerInvariant()) { throw "Installed Vision Model Pack artifact SHA-256 mismatch: '$relative'." }
+        if (-not (Test-MaviVisionIntegritySafeRelativePath $relative)) { throw "Vision Model Pack artifact path is unsafe: '$relative'." }
+        if (-not $relative.StartsWith($packDirectory + "/", [StringComparison]::Ordinal)) { throw "Vision Model Pack artifact '$relative' is outside pack directory '$packDirectory'." }
+        $inner = $relative.Substring($packDirectory.Length + 1)
+        if (-not $declared.Add($inner)) { throw "Vision Model Pack contains duplicate artifact path: '$relative'." }
+        $path = Join-Path $root ($inner.Replace('/', $separator))
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Vision Model Pack artifact is missing: '$relative'." }
+        $item = Get-Item -LiteralPath $path -Force
+        if ([int64]$item.Length -ne [int64]$artifact.sizeBytes) { throw "Vision Model Pack artifact size mismatch: '$relative'." }
+        if ((Get-MaviVisionIntegritySha256 -Path $path) -ne ([string]$artifact.sha256).ToLowerInvariant()) { throw "Vision Model Pack artifact SHA-256 mismatch: '$relative'." }
     }
-    $prefix = $root.TrimEnd("\") + "\"
-    $actual = @(Get-ChildItem -LiteralPath $root -Recurse -File | ForEach-Object {
-        if (-not $_.FullName.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) { throw "Installed Vision Model Pack enumeration escaped its root." }
-        $_.FullName.Substring($prefix.Length).Replace("\","/")
-    } | Where-Object { $_ -notin @("model-pack-manifest.json","model-install.json") })
-    foreach ($relative in $actual) { if (-not $declared.Contains($relative)) { throw "Undeclared file exists in installed Vision Model Pack: '$relative'." } }
-    if ($actual.Count -ne $declared.Count) { throw "Installed Vision Model Pack artifact set does not match its manifest." }
+    $prefix = $root.TrimEnd($separator) + $separator
+    $actual = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | ForEach-Object {
+        if (-not $_.FullName.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { throw "Vision Model Pack enumeration escaped its directory." }
+        $_.FullName.Substring($prefix.Length).Replace([string]$separator, "/")
+    } | Where-Object { $AllowedMetadata -cnotcontains $_ })
+    foreach ($relative in $actual) { if (-not $declared.Contains($relative)) { throw "Undeclared file exists in Vision Model Pack '$packDirectory': '$relative'." } }
+    if ($actual.Count -ne $declared.Count) { throw "Vision Model Pack artifact set does not match its manifest." }
     return $true
 }
 
-Export-ModuleMember -Function Assert-MaviVisionInstalledRuntimeClosure,Assert-MaviVisionInstalledModelPackIntegrity
+function Assert-MaviVisionInstalledModelPackIntegrity {
+    <#
+    .SYNOPSIS
+    Re-hash one installed pack in a Model Pack store.
+
+    ModelRoot is the store root (MAVI_MODEL_ROOT); the pack is verified in
+    <ModelRoot>/<packDirectory> only, where its model-pack-manifest.json and
+    model-install.json are the only files allowed beside its artefacts.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$ModelRoot,[Parameter(Mandatory = $true)][object]$Manifest)
+    $root = [IO.Path]::GetFullPath($ModelRoot.Trim().Trim('"'))
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Installed Vision Model Pack store root is missing: $root" }
+    $packDirectory = Get-MaviVisionIntegrityPackDirectory -Manifest $Manifest
+    [void](Assert-MaviVisionModelPackDirectoryContent -PackDirectoryPath (Join-Path $root $packDirectory) -Manifest $Manifest -AllowedMetadata @("model-pack-manifest.json", "model-install.json"))
+    return $true
+}
+
+Export-ModuleMember -Function Assert-MaviVisionInstalledRuntimeClosure,Assert-MaviVisionInstalledModelPackIntegrity,Assert-MaviVisionModelPackDirectoryContent

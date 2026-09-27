@@ -126,7 +126,7 @@ class _Harness:
         self.lane = lane or _Lane()
         self.activity = activity or InferenceActivity()
         self.selection = SimpleNamespace(
-            manifest=SimpleNamespace(
+            detector=SimpleNamespace(
                 backend="mmdetection",
                 model_id="model-a",
                 class_vocabulary=VOCABULARY,
@@ -165,12 +165,20 @@ class _Harness:
         self.provenance_calls: list[dict[str, object]] = []
         self.provenances: list[object] = []
 
-        def verify(**kwargs):
-            self.events.append("verify")
-            self.verify_calls.append(kwargs)
-            if verifier_error is not None:
-                raise verifier_error
-            return self.selection
+        harness = self
+
+        class _Composition:
+            """The resolver seam: the family for Auto, then one resolution."""
+
+            def family(self):
+                return harness.selection
+
+            def resolve(self, **kwargs):
+                harness.events.append("verify")
+                harness.verify_calls.append(kwargs)
+                if verifier_error is not None:
+                    raise verifier_error
+                return SimpleNamespace(detector_selection=lambda: harness.selection)
 
         def make_runtime(selection, *, device, activity):
             self.events.append("construct:" + device)
@@ -236,11 +244,7 @@ class _Harness:
         self.supervisor = module.RuntimeSupervisor(
             lane=self.lane,
             activity=self.activity,
-            model_root=SimpleNamespace(),
-            manifest_path=SimpleNamespace(),
-            profile_path=SimpleNamespace(),
-            runtime_profile_path=SimpleNamespace(),
-            qualification_path=SimpleNamespace(),
+            composition=_Composition(),
             deployment_profile_policy_path=Path("profiles.json"),
             deployment_profile=effective_profile,
             device_policy=device_policy,
@@ -252,7 +256,6 @@ class _Harness:
             watchdog_poll_seconds=watchdog_poll_seconds,
             build_id="build-a",
             commit_sha="a" * 40,
-            release_verifier=verify,
             runtime_factory=make_runtime,
             provenance_builder=make_provenance,
             gpu_identity_provider=lambda device: None,
@@ -300,7 +303,8 @@ def test_startup_verifies_before_construction_and_publishes_transactionally() ->
         assert harness.supervisor.state is harness.module.RuntimeState.READY
         assert harness.supervisor.runtime is runtime
         assert harness.supervisor.provenance is harness.provenances[0]
-        assert harness.verify_calls[0]["allow_unverified"] is True
+        assert harness.verify_calls[0]["runtime_variant"].endswith("-cpu")
+        assert harness.verify_calls[0]["profile_requirement"] is None
         assert harness.factory_calls == [(harness.selection, "cpu", harness.activity)]
 
     asyncio.run(scenario())
@@ -352,8 +356,13 @@ def test_runtime_vocabulary_mismatch_fails_closed() -> None:
     asyncio.run(scenario())
 
 
-def test_release_policy_is_explicit_and_production_auto_is_defensively_rejected() -> None:
+def test_release_policy_is_explicit_and_production_auto_is_defensively_rejected(
+    monkeypatch,
+) -> None:
     async def scenario() -> None:
+        module = _module()
+        monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+        monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
         development = _Harness(production_mode=False)
         production = _Harness(production_mode=True)
         production_auto = _Harness(production_mode=True, device_policy="auto")
@@ -362,17 +371,14 @@ def test_release_policy_is_explicit_and_production_auto_is_defensively_rejected(
         await production.supervisor.start()
         await production_auto.supervisor.start()
 
-        assert development.verify_calls[0]["allow_unverified"] is True
-        assert production.verify_calls[0]["allow_unverified"] is False
-        assert production.verify_calls[0]["required_profile"] == "P3"
+        # Production policy is the resolver's (its inputs carry production_mode);
+        # the supervisor passes only the observed variant and the profile it bound.
+        assert development.verify_calls[0]["profile_requirement"] is None
+        assert development.verify_calls[0]["deployment_profile_policy_sha256"] is None
+        assert production.verify_calls[0]["profile_requirement"].profile_id == "P3"
+        assert production.verify_calls[0]["runtime_variant"] == "windows-x86_64-cpu"
         assert (
-            production.verify_calls[0]["required_runtime_variant"]
-            == "windows-x86_64-cpu"
-        )
-        assert (
-            production.verify_calls[0][
-                "required_deployment_profile_policy_sha256"
-            ]
+            production.verify_calls[0]["deployment_profile_policy_sha256"]
             == "f" * 64
         )
         assert production_auto.events == []
@@ -381,6 +387,40 @@ def test_release_policy_is_explicit_and_production_auto_is_defensively_rejected(
             production_auto.supervisor.unavailable_reason
             == "production_device_policy_profile_mismatch"
         )
+
+    asyncio.run(scenario())
+
+
+def test_a_host_off_the_profile_variant_is_refused_before_resolution() -> None:
+    """P3 names windows-x86_64-cpu; on a Linux host the role is never resolved."""
+    async def scenario() -> None:
+        module = _module()
+        if module._runtime_variant_name("cpu") == "windows-x86_64-cpu":
+            pytest.skip("host is the P3 variant")
+        production = _Harness(production_mode=True)
+
+        await production.supervisor.start()
+
+        assert production.verify_calls == []
+        assert production.factory_calls == []
+        assert (
+            production.supervisor.unavailable_reason
+            == "production_deployment_profile_runtime_variant_mismatch"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_the_role_is_resolved_for_the_observed_variant_only() -> None:
+    """The resolver never picks a device (plan §5.1): the supervisor names it."""
+    async def scenario() -> None:
+        module = _module()
+        harness = _Harness()
+        await harness.supervisor.start()
+
+        assert [call["runtime_variant"] for call in harness.verify_calls] == [
+            module._runtime_variant_name("cpu")
+        ]
 
     asyncio.run(scenario())
 
@@ -884,14 +924,14 @@ def test_development_auto_still_chooses_cpu_against_the_committed_profile(
     the PowerShell launcher, so a more precise member is a four-place change
     for a diagnostic string, and the selection itself is correct.
     """
-    from mavi_vision.runtime.qualification import load_runtime_profile
+    from mavi_vision.runtime.runtime_profile_v2 import load_runtime_profile_v2
 
     async def scenario() -> None:
         module = _module()
         monkeypatch.setattr(module.platform, "system", lambda: "Windows")
         monkeypatch.setattr(module.platform, "machine", lambda: "AMD64")
 
-        profile = load_runtime_profile(
+        profile = load_runtime_profile_v2(
             Path(__file__).resolve().parents[1]
             / "runtime"
             / "mmdetection-phase1-v1"
@@ -1000,10 +1040,10 @@ def test_p1_production_binds_windows_cuda_profile_before_runtime(
 
         assert harness.supervisor.state is module.RuntimeState.READY
         call = harness.verify_calls[0]
-        assert call["required_profile"] == "P1"
-        assert call["required_runtime_variant"] == "windows-x86_64-cuda"
+        assert call["profile_requirement"].profile_id == "P1"
+        assert call["runtime_variant"] == "windows-x86_64-cuda"
         assert (
-            call["required_deployment_profile_policy_sha256"]
+            call["deployment_profile_policy_sha256"]
             == "f" * 64
         )
         assert harness.factory_calls[0][1] == "cuda:2"

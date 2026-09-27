@@ -96,12 +96,31 @@ jobs:
         run: |
           import json
           from pathlib import Path
-          manifest = json.loads(Path("models/manifests/rtmdet-m-coco-phase1-v1.json").read_text())
-          qualification = json.loads(Path("models/qualifications/rtmdet-m-coco-phase1-v1.json").read_text())
+          # The truth the component binding v2 (S2a.3) resolves to: follow the
+          # binding to the bound manifest and record rather than naming files.
+          binding = json.loads(Path("src/vision/config/components/phase1-bindings-v2.json").read_text())
+          assert binding["schemaVersion"] == "mavi-vision-component-binding-v2"
+          (detector,) = [item for item in binding["capabilityBindings"] if item["capabilityId"] == "detector"]
+          manifests = [json.loads(path.read_text()) for path in sorted(Path("models/manifests").glob("*.json"))]
+          records = {
+              document["qualificationId"]: document
+              for document in (json.loads(path.read_text()) for path in sorted(Path("models/qualifications").glob("*.json")))
+          }
+          assert all(document["schemaVersion"] == "2.0" for document in manifests)
+          assert all(document["schemaVersion"] == "2.0" for document in records.values())
+          qualification = records[detector["qualificationId"]]
+          assert qualification["modelPackId"] == detector["modelPackId"]
+          (manifest,) = [document for document in manifests if document["modelId"] == qualification["modelId"]]
           runtime = json.loads(Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json").read_text())
+          assert runtime["schemaVersion"] == "2.0"
           if manifest["verificationStatus"] == "unverified":
               assert manifest["qualificationId"] is None
               assert qualification["overallResult"] == "pending"
+              assert all(variant["status"] == "pending" for variant in qualification["variants"].values())
+          # linux-x86_64-cuda is class A: never bound, no Runtime Pack, pending.
+          declared = {variant for family in binding["runtimePacks"] for variant in family["variants"]}
+          assert "linux-x86_64-cuda" not in declared
+          assert qualification["variants"]["linux-x86_64-cuda"]["runtimePackId"] is None
           if runtime["qualificationStatus"] == "partial":
               assert any(
                   item["status"] == "pending-hardware-qualification"

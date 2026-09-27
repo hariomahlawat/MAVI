@@ -5,6 +5,11 @@ The component store lives inside (or beside) MAVI-Offline-Binary-Kit and is
 content-addressed by stable Runtime Pack / Model Pack IDs. Re-running the
 synchronizer with a pack assembled from another application commit reuses the
 existing heavy bytes when the material component identity is unchanged.
+
+Since S2a.3 the store is described by the component binding v2 (plan §7): any
+number of Runtime Packs and Model Packs, and a kit is complete only when every
+id the binding reaches for the synchronized variants is present
+(``kit_incomplete:<id>``) and nothing unbound is (``kit_unbound_component:<id>``).
 """
 
 from __future__ import annotations
@@ -15,15 +20,22 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 from pathlib import Path, PurePosixPath
 
+VISION_ROOT = Path(__file__).resolve().parents[2] / "src" / "vision"
+if str(VISION_ROOT) not in sys.path:
+    sys.path.insert(0, str(VISION_ROOT))
+
+from mavi_vision.runtime.binding import ComponentBindingV2, load_component_binding  # noqa: E402
+from mavi_vision.runtime.manifest import ReleaseMetadataError  # noqa: E402
+
 RUNTIME_SCHEMA = "mavi-vision-runtime-pack-v2"
-MODEL_SCHEMA = "mavi-vision-model-pack-v1"
-REQUIREMENTS_SCHEMA = "mavi-vision-component-requirements-v1"
-INVENTORY_SCHEMA = "mavi-offline-vision-component-inventory-v1"
+MODEL_SCHEMA = "mavi-vision-model-pack-v2"
+INVENTORY_SCHEMA = "mavi-offline-vision-component-inventory-v2"
 RUNTIME_ID_RE = re.compile(r"^mavi-runtime-v2-[0-9a-f]{64}$")
-MODEL_ID_RE = re.compile(r"^mavi-model-v1-[0-9a-f]{64}$")
+MODEL_ID_RE = re.compile(r"^mavi-model-v2-[0-9a-f]{64}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -82,7 +94,7 @@ def _material_fingerprint(
             "runtimeRequirementsSha256",
         )
     elif kind == "model":
-        keys = ("modelPackId", "modelId", "checkpointSha256", "resolvedConfigSha256")
+        keys = ("modelPackId", "modelId", "modelVersion", "capabilityIds")
     else:
         raise AssertionError(kind)
     result = {key: manifest.get(key) for key in keys}
@@ -93,13 +105,14 @@ def _material_fingerprint(
     for item in artifacts:
         if not isinstance(item, dict):
             raise VisionComponentStoreError("component_artifact_invalid")
-        normalized.append(
-            {
-                "relativePath": item.get("relativePath"),
-                "sizeBytes": item.get("sizeBytes"),
-                "sha256": item.get("sha256"),
-            }
-        )
+        entry = {
+            "relativePath": item.get("relativePath"),
+            "sizeBytes": item.get("sizeBytes"),
+            "sha256": item.get("sha256"),
+        }
+        if kind == "model":
+            entry["artifactRole"] = item.get("artifactRole")
+        normalized.append(entry)
     result["artifacts"] = sorted(
         normalized, key=lambda item: str(item["relativePath"])
     )
@@ -208,84 +221,120 @@ def _sync_component(
             shutil.rmtree(stage, ignore_errors=True)
 
 
+def _binding_requirements(
+    binding: ComponentBindingV2,
+    *,
+    variants: set[str],
+) -> tuple[dict[str, dict[str, object]], set[str]]:
+    """Every Runtime Pack (by id) and Model Pack id the binding reaches for ``variants``."""
+    runtime_required: dict[str, dict[str, object]] = {}
+    model_required: set[str] = set()
+    for role in binding.roles.values():
+        family_variants = binding.family_variants(role.runtime_pack_family_id)
+        reached = False
+        for variant in sorted(variants):
+            entry = family_variants.get(variant)
+            if entry is None:
+                continue
+            reached = True
+            runtime_required[entry.runtime_pack_id] = {
+                "platformVariant": variant,
+                "thirdPartyLockSha256": entry.third_party_lock_sha256,
+                "runtimeRequirementsSha256": entry.runtime_requirements_sha256,
+                "nativeAbi": entry.native_abi,
+            }
+        if reached:
+            for capability_binding in binding.bindings_for_role(role.role_id):
+                if capability_binding.enabled:
+                    model_required.add(capability_binding.model_pack_id)
+    for variant in sorted(variants):
+        if not any(variant in binding.family_variants(role.runtime_pack_family_id) for role in binding.roles.values()):
+            raise VisionComponentStoreError(f"kit_variant_not_bound:{variant}")
+    return runtime_required, model_required
+
+
 def sync_vision_components(
     *,
     kit_root: Path,
-    runtime_pack_root: Path,
-    model_pack_root: Path,
-    component_requirements_path: Path,
+    runtime_pack_roots: list[Path],
+    model_pack_roots: list[Path],
+    component_binding_path: Path,
     application_revision: str,
 ) -> dict[str, object]:
     if not re.fullmatch(r"[0-9a-f]{40}", application_revision):
         raise VisionComponentStoreError("application_revision_invalid")
     if kit_root.exists() and (not kit_root.is_dir() or kit_root.is_symlink()):
         raise VisionComponentStoreError("kit_root_invalid")
+    try:
+        binding = load_component_binding(component_binding_path)
+    except ReleaseMetadataError as exc:
+        raise VisionComponentStoreError(f"component_binding_invalid:{exc.code}") from exc
+
+    sources_runtime = [
+        (root, _validate_component(root, "runtime-pack-manifest.json", kind="runtime"))
+        for root in runtime_pack_roots
+    ]
+    sources_model = [
+        (root, _validate_component(root, "model-pack-manifest.json", kind="model"))
+        for root in model_pack_roots
+    ]
+    variants = {str(manifest.get("platformVariant")) for _, manifest in sources_runtime}
+    runtime_required, model_required = _binding_requirements(binding, variants=variants)
+
+    runtime_ids = [str(manifest["runtimePackId"]) for _, manifest in sources_runtime]
+    model_ids = [str(manifest["modelPackId"]) for _, manifest in sources_model]
+    for identifier in sorted(set(runtime_ids) | set(model_ids)):
+        if identifier not in runtime_required and identifier not in model_required:
+            raise VisionComponentStoreError(f"kit_unbound_component:{identifier}")
+    for identifier in sorted(set(runtime_required) | model_required):
+        if identifier not in runtime_ids and identifier not in model_ids:
+            raise VisionComponentStoreError(f"kit_incomplete:{identifier}")
+    if len(set(runtime_ids)) != len(runtime_ids) or len(set(model_ids)) != len(model_ids):
+        raise VisionComponentStoreError("kit_component_duplicate")
+    for _, manifest in sources_runtime:
+        required = runtime_required[str(manifest["runtimePackId"])]
+        for key, value in required.items():
+            if manifest.get(key) != value:
+                raise VisionComponentStoreError(f"runtime_requirement_mismatch:{key}")
+
     kit_root.mkdir(parents=True, exist_ok=True)
-
-    requirements = _load_json(component_requirements_path)
-    if requirements.get("schemaVersion") != REQUIREMENTS_SCHEMA:
-        raise VisionComponentStoreError("component_requirements_schema_invalid")
-    runtime_packs = requirements.get("runtimePacks")
-    model_required = requirements.get("modelPack")
-    if not isinstance(runtime_packs, dict) or not isinstance(model_required, dict):
-        raise VisionComponentStoreError("component_requirements_incomplete")
-    runtime_required = runtime_packs.get("windows-x86_64-cpu")
-    if not isinstance(runtime_required, dict):
-        raise VisionComponentStoreError("component_requirements_incomplete")
-
-    source_runtime = _validate_component(
-        runtime_pack_root, "runtime-pack-manifest.json", kind="runtime"
-    )
-    source_model = _validate_component(
-        model_pack_root, "model-pack-manifest.json", kind="model"
-    )
-    for key in (
-        "runtimePackId",
-        "thirdPartyLockSha256",
-        "runtimeRequirementsSha256",
-        "nativeAbi",
-    ):
-        if source_runtime.get(key) != runtime_required.get(key):
-            raise VisionComponentStoreError(f"runtime_requirement_mismatch:{key}")
-    for key in (
-        "modelPackId",
-        "modelId",
-        "checkpointSha256",
-        "resolvedConfigSha256",
-    ):
-        if source_model.get(key) != model_required.get(key):
-            raise VisionComponentStoreError(f"model_requirement_mismatch:{key}")
-
-    runtime_id = str(source_runtime["runtimePackId"])
-    model_id = str(source_model["modelPackId"])
-    runtime_target = kit_root / "vision" / "runtime" / runtime_id
-    model_target = kit_root / "vision" / "models" / model_id
-    stored_runtime, runtime_reused = _sync_component(
-        runtime_pack_root,
-        runtime_target,
-        "runtime-pack-manifest.json",
-        kind="runtime",
-    )
-    stored_model, model_reused = _sync_component(
-        model_pack_root, model_target, "model-pack-manifest.json", kind="model"
-    )
+    runtime_entries: list[dict[str, object]] = []
+    model_entries: list[dict[str, object]] = []
+    reused: dict[str, bool] = {}
+    for root, manifest in sorted(sources_runtime, key=lambda item: str(item[1]["runtimePackId"])):
+        runtime_id = str(manifest["runtimePackId"])
+        target = kit_root / "vision" / "runtime" / runtime_id
+        stored, was_reused = _sync_component(root, target, "runtime-pack-manifest.json", kind="runtime")
+        reused[runtime_id] = was_reused
+        runtime_entries.append(
+            {
+                "runtimePackId": runtime_id,
+                "platformVariant": stored.get("platformVariant"),
+                "relativePath": target.relative_to(kit_root).as_posix(),
+                "materialIdentity": _material_fingerprint(stored, kind="runtime"),
+            }
+        )
+    for root, manifest in sorted(sources_model, key=lambda item: str(item[1]["modelPackId"])):
+        model_id = str(manifest["modelPackId"])
+        target = kit_root / "vision" / "models" / model_id
+        stored, was_reused = _sync_component(root, target, "model-pack-manifest.json", kind="model")
+        reused[model_id] = was_reused
+        model_entries.append(
+            {
+                "modelPackId": model_id,
+                "relativePath": target.relative_to(kit_root).as_posix(),
+                "materialIdentity": _material_fingerprint(stored, kind="model"),
+            }
+        )
 
     inventory = {
         "schemaVersion": INVENTORY_SCHEMA,
-        "runtimePack": {
-            "runtimePackId": runtime_id,
-            "relativePath": runtime_target.relative_to(kit_root).as_posix(),
-            "materialIdentity": _material_fingerprint(stored_runtime, kind="runtime"),
-        },
-        "modelPack": {
-            "modelPackId": model_id,
-            "relativePath": model_target.relative_to(kit_root).as_posix(),
-            "materialIdentity": _material_fingerprint(stored_model, kind="model"),
-        },
+        "runtimePacks": runtime_entries,
+        "modelPacks": model_entries,
         "applicationOverlay": {
             "revision": application_revision,
-            "componentRequirements": component_requirements_path.name,
-            "componentRequirementsSha256": _sha256(component_requirements_path),
+            "componentBinding": component_binding_path.name,
+            "componentBindingSha256": binding.component_binding_sha256,
         },
     }
     inventory_path = kit_root / "vision" / "component-inventory.json"
@@ -300,11 +349,7 @@ def sync_vision_components(
         newline="\n",
     )
     os.replace(stage_inventory, inventory_path)
-    return {
-        **inventory,
-        "runtimeReused": runtime_reused,
-        "modelReused": model_reused,
-    }
+    return {**inventory, "reused": reused}
 
 
 def verify_vision_component_store(kit_root: Path) -> dict[str, object]:
@@ -315,45 +360,43 @@ def verify_vision_component_store(kit_root: Path) -> dict[str, object]:
         raise VisionComponentStoreError("component_inventory_symlink_forbidden")
     inventory = _load_json(inventory_path)
     if inventory.get("schemaVersion") != INVENTORY_SCHEMA:
+        # A v1 inventory is refused, never read (no dual reader).
         raise VisionComponentStoreError("component_inventory_schema_invalid")
-    runtime = inventory.get("runtimePack")
-    model = inventory.get("modelPack")
+    runtimes = inventory.get("runtimePacks")
+    models = inventory.get("modelPacks")
     overlay = inventory.get("applicationOverlay")
     if (
-        not isinstance(runtime, dict)
-        or not isinstance(model, dict)
+        not isinstance(runtimes, list)
+        or not isinstance(models, list)
+        or not runtimes
+        or not models
         or not isinstance(overlay, dict)
     ):
         raise VisionComponentStoreError("component_inventory_incomplete")
 
-    runtime_relative = _safe_relative(runtime.get("relativePath"))
-    model_relative = _safe_relative(model.get("relativePath"))
-    runtime_root = kit_root.joinpath(*runtime_relative.parts)
-    model_root = kit_root.joinpath(*model_relative.parts)
-    runtime_manifest = _validate_component(
-        runtime_root, "runtime-pack-manifest.json", kind="runtime"
-    )
-    model_manifest = _validate_component(
-        model_root, "model-pack-manifest.json", kind="model"
-    )
-    if _material_fingerprint(runtime_manifest, kind="runtime") != runtime.get(
-        "materialIdentity"
+    for entries, kind, manifest_name, id_key in (
+        (runtimes, "runtime", "runtime-pack-manifest.json", "runtimePackId"),
+        (models, "model", "model-pack-manifest.json", "modelPackId"),
     ):
-        raise VisionComponentStoreError("runtime_inventory_mismatch")
-    if _material_fingerprint(model_manifest, kind="model") != model.get(
-        "materialIdentity"
-    ):
-        raise VisionComponentStoreError("model_inventory_mismatch")
-    if runtime_manifest.get("runtimePackId") != runtime.get("runtimePackId"):
-        raise VisionComponentStoreError("runtime_inventory_id_mismatch")
-    if model_manifest.get("modelPackId") != model.get("modelPackId"):
-        raise VisionComponentStoreError("model_inventory_id_mismatch")
+        seen: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise VisionComponentStoreError("component_inventory_incomplete")
+            relative = _safe_relative(entry.get("relativePath"))
+            manifest = _validate_component(kit_root.joinpath(*relative.parts), manifest_name, kind=kind)
+            if _material_fingerprint(manifest, kind=kind) != entry.get("materialIdentity"):
+                raise VisionComponentStoreError(f"{kind}_inventory_mismatch")
+            if manifest.get(id_key) != entry.get(id_key):
+                raise VisionComponentStoreError(f"{kind}_inventory_id_mismatch")
+            if str(entry.get(id_key)) in seen:
+                raise VisionComponentStoreError("kit_component_duplicate")
+            seen.add(str(entry.get(id_key)))
     revision = overlay.get("revision")
-    sha = overlay.get("componentRequirementsSha256")
+    sha = overlay.get("componentBindingSha256")
     if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise VisionComponentStoreError("application_inventory_revision_invalid")
     if not isinstance(sha, str) or not SHA256_RE.fullmatch(sha):
-        raise VisionComponentStoreError("application_inventory_requirements_invalid")
+        raise VisionComponentStoreError("application_inventory_binding_invalid")
     return inventory
 
 
@@ -362,9 +405,9 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sync = sub.add_parser("sync")
     sync.add_argument("--kit-root", type=Path, required=True)
-    sync.add_argument("--runtime-pack", type=Path, required=True)
-    sync.add_argument("--model-pack", type=Path, required=True)
-    sync.add_argument("--component-requirements", type=Path, required=True)
+    sync.add_argument("--runtime-pack", type=Path, action="append", required=True)
+    sync.add_argument("--model-pack", type=Path, action="append", required=True)
+    sync.add_argument("--component-binding", type=Path, required=True)
     sync.add_argument("--application-revision", required=True)
     verify = sub.add_parser("verify")
     verify.add_argument("--kit-root", type=Path, required=True)
@@ -373,9 +416,9 @@ def main() -> int:
         if args.command == "sync":
             result = sync_vision_components(
                 kit_root=args.kit_root,
-                runtime_pack_root=args.runtime_pack,
-                model_pack_root=args.model_pack,
-                component_requirements_path=args.component_requirements,
+                runtime_pack_roots=args.runtime_pack,
+                model_pack_roots=args.model_pack,
+                component_binding_path=args.component_binding,
                 application_revision=args.application_revision,
             )
         else:

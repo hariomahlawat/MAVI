@@ -201,9 +201,11 @@ def test_offline_bundle_contract_retains_all_qualified_runtime_locks() -> None:
         / "README.md"
     ).read_text(encoding="utf-8")
 
-    assert "every qualified runtime lock referenced by `runtime.json`" in contract
+    # Since S2a.3 the bundle carries every lock the binding pins (a superset of
+    # the qualified ones, ADR-009 follow-up 5) and every shipped lock is in the id.
+    assert "every lock and requirements projection the binding pins" in contract
     assert "selected platform lock is the only lock used by the offline `pip install`" in contract
-    assert "hashes of **all qualified runtime locks included in the bundle**" in contract
+    assert "hashes of **all runtime locks included in the bundle**" in contract
 
 
 _TOOLCHAIN_RECORDS = (

@@ -1,62 +1,45 @@
 #!/usr/bin/env python3
-"""Compute the exact intended verified model-manifest bytes/hash without promoting them."""
+"""Pre-compute the verified model-manifest bytes a promotion would publish: fenced in S2a.3.
+
+Under the retired v1 model the target verified manifest was the candidate with
+``verificationStatus`` flipped to ``verified`` and ``qualificationId`` filled in.
+A v2 Model Pack manifest's verified form (its licence review, the capability-
+scoped qualification record it names, and the identity that follows from them)
+is v2 promotion semantics, which S2a.3 does not define. Every entry point
+therefore refuses with ``v2_promotion_not_supported_by_this_slice`` before it
+parses an argument, reads a manifest or creates an output file.
+"""
 
 from __future__ import annotations
 
-import argparse
-import hashlib
 import json
+import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
+PHASE1_ROOT = Path(__file__).resolve().parent
+if str(PHASE1_ROOT) not in sys.path:
+    sys.path.insert(0, str(PHASE1_ROOT))
 
-class TargetManifestError(ValueError):
-    pass
+from v2_promotion_fence import (  # noqa: E402
+    V2_PROMOTION_NOT_SUPPORTED,
+    V2PromotionNotSupported,
+    refuse_v2_promotion,
+)
 
-
-def canonical_json(value: dict[str, Any]) -> bytes:
-    return (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+# Kept as the tool's error type so callers keep one ``except`` clause.
+TargetManifestError = V2PromotionNotSupported
 
 
 def build_target_manifest(candidate: dict[str, Any], qualification_id: str) -> bytes:
-    if candidate.get("verificationStatus") != "unverified":
-        raise TargetManifestError("target_manifest_candidate_not_unverified")
-    if candidate.get("qualificationId") is not None:
-        raise TargetManifestError("target_manifest_candidate_qualification_unexpected")
-    if not qualification_id or qualification_id != qualification_id.strip():
-        raise TargetManifestError("target_manifest_qualification_id_invalid")
-    target = dict(candidate)
-    target["verificationStatus"] = "verified"
-    target["qualificationId"] = qualification_id
-    return canonical_json(target)
+    """Refused: the v2 verified-manifest form is undefined in S2a.3."""
+    refuse_v2_promotion()
 
 
-def sha256_bytes(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--qualification-id", required=True)
-    parser.add_argument("--output")
-    args = parser.parse_args()
-    try:
-        candidate = json.loads(args.manifest.read_text(encoding="utf-8"))
-        if not isinstance(candidate, dict):
-            raise TargetManifestError("target_manifest_json_invalid")
-        payload = build_target_manifest(candidate, args.qualification_id)
-        digest = sha256_bytes(payload)
-        if args.output:
-            output = Path(args.output)
-            if output.exists():
-                raise TargetManifestError("target_manifest_output_exists")
-            output.write_bytes(payload)
-    except (OSError, json.JSONDecodeError, TargetManifestError) as exc:
-        print(json.dumps({"ok": False, "code": str(exc)}, sort_keys=True))
-        return 2
-    print(json.dumps({"ok": True, "targetVerifiedManifestSha256": digest}, sort_keys=True))
-    return 0
+def main(argv: Sequence[str] | None = None) -> int:
+    """Refuse every invocation; nothing is read and no output file is created."""
+    print(json.dumps({"ok": False, "code": V2_PROMOTION_NOT_SUPPORTED}, sort_keys=True))
+    return 2
 
 
 if __name__ == "__main__":

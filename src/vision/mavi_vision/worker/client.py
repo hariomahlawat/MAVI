@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from collections.abc import Callable
 from typing import Final
@@ -24,6 +25,7 @@ from mavi_vision.common.control_plane import (
     VisionGpuIdentity,
     VisionJobCompleteResponse,
     VisionJobCompleteV3,
+    VisionJobCompleteV32,
     VisionJobFail,
     VisionJobFinalizationResponse,
     VisionJobHeartbeat,
@@ -32,22 +34,24 @@ from mavi_vision.common.control_plane import (
     VisionJobLeaseRequest,
     VisionPlatformIdentity,
     VisionRuntimeProvenance,
+    VisionRuntimeProvenanceV32,
     VisionTrackerParameters,
 )
 from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.runtime.provenance import RuntimeProvenance
+from mavi_vision.runtime.resolver import CompletionContract
+
+_LOGGER = logging.getLogger(__name__)
 
 
 _SAFE_PROBLEM_CODE: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$", re.ASCII)
 
-# The completion contracts this worker can emit. Which one it emits is
-# ``WorkerSettings.completion_schema_version`` (S1.4 B3 plan §15.2): "3.0" is
-# the synchronous completion, "3.1" the asynchronous exchange answered by a
-# durable hand-off (the same Evidence Set body), "3.2" the same exchange with
-# component-identity provenance (Stage 2 S2a plan P-7). The platform must
-# advertise exactly the configured version; there is never a fallback to another
-# one. Until the S2a.3 cut-over the settings refuse "3.2"
-# (``completion_32_requires_binding``), so this worker never emits it.
+# The completion contracts this worker can emit. Which one it emits is the role's
+# resolved completion contract (S2a plan P-16): "3.2", the role's declared
+# provenance contract, carrying component identity; "3.1" (asynchronous hand-off)
+# or "3.0" (synchronous) only under the explicit, Development-only, non-qualifying
+# MAVI_COMPLETION_SCHEMA_OVERRIDE. The platform must advertise exactly that version;
+# there is never a fallback to another one.
 SUPPORTED_COMPLETION_SCHEMA_VERSIONS: Final = ("3.0", "3.1", "3.2")
 ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS: Final = frozenset({"3.1", "3.2"})
 _CONTRACT_VERSION_UNSUPPORTED: Final = "worker_contract_version_unsupported"
@@ -93,10 +97,21 @@ class WorkerApiClient:
         self,
         settings: WorkerSettings,
         http_client: httpx.AsyncClient | None = None,
+        *,
+        completion: CompletionContract,
+        component_binding_sha256: str,
     ) -> None:
+        """``completion`` is the role's resolved contract (P-16); the client never picks one.
+
+        ``component_binding_sha256`` is the identity of the binding the role was
+        resolved from: a completion whose provenance names another binding is
+        refused before anything is sent.
+        """
         self._settings = settings
-        if settings.completion_schema_version not in SUPPORTED_COMPLETION_SCHEMA_VERSIONS:
+        if completion.version not in SUPPORTED_COMPLETION_SCHEMA_VERSIONS:
             raise ValueError("unsupported completion schema version")
+        self._completion = completion
+        self._component_binding_sha256 = component_binding_sha256
         self._http_client = http_client or httpx.AsyncClient(
             timeout=settings.request_timeout_seconds,
             verify=str(settings.ca_bundle) if settings.ca_bundle is not None else True,
@@ -142,7 +157,7 @@ class WorkerApiClient:
     @property
     def completion_schema_version(self) -> str:
         """The completion version this worker emits and requires the platform to advertise."""
-        return self._settings.completion_schema_version
+        return self._completion.version
 
     async def lease(self) -> VisionJobLease | None:
         request = VisionJobLeaseRequest(
@@ -216,6 +231,17 @@ class WorkerApiClient:
         if processing_duration_ms < 0:
             raise WorkerApiError("vision processing duration is invalid")
 
+        if provenance.component_binding_sha256 != self._component_binding_sha256:
+            # The attempt's provenance must name the binding this worker resolved.
+            raise CompletionPayloadInvalid("vision result provenance names another component binding")
+        if self._completion.override_active:
+            if provenance.verification_status != "unverified":
+                raise CompletionPayloadInvalid("an overridden completion schema is never verified")
+            _LOGGER.warning(
+                "completion_schema_override_active: job %s completes as %s, non-qualifying",
+                lease.job_id,
+                self._completion.version,
+            )
         try:
             request = self._completion_request(lease, result, processing_duration_ms, provenance)
         except ValidationError as exc:
@@ -234,7 +260,15 @@ class WorkerApiClient:
         processing_duration_ms: int,
         provenance: RuntimeProvenance,
     ) -> VisionJobCompleteV3:
-        return VisionJobCompleteV3(
+        # 3.2 carries the component identity; the P-16 override versions (3.1, 3.0)
+        # drop it, because those bodies must not carry it (plan §4.5).
+        if self.completion_schema_version == "3.2":
+            model: type[VisionJobCompleteV3] = VisionJobCompleteV32
+            mapped: VisionRuntimeProvenance = self._map_provenance_v32(provenance)
+        else:
+            model = VisionJobCompleteV3
+            mapped = self._map_provenance(provenance)
+        return model(
             schemaVersion=self.completion_schema_version,
             jobId=lease.job_id,
             workerId=self._settings.worker_id,
@@ -242,7 +276,7 @@ class WorkerApiClient:
             attemptCount=lease.attempt_count,
             framesProcessed=result.frames_processed,
             processingDurationMs=processing_duration_ms,
-            provenance=self._map_provenance(provenance),
+            provenance=mapped,
             tracks=tuple(
                 VisionCompletionTrackV3(
                     trackId=track.track_id,
@@ -352,6 +386,20 @@ class WorkerApiClient:
                 "near-view": role(accounting.near_view),
                 "early-diverse": role(accounting.early_diverse),
                 "late-diverse": role(accounting.late_diverse),
+            }
+        )
+
+    @classmethod
+    def _map_provenance_v32(cls, provenance: RuntimeProvenance) -> VisionRuntimeProvenanceV32:
+        base = cls._map_provenance(provenance).model_dump(by_alias=True)
+        return VisionRuntimeProvenanceV32.model_validate(
+            {
+                **base,
+                "capabilityId": provenance.capability_id,
+                "modelPackId": provenance.model_pack_id,
+                "runtimePackId": provenance.runtime_pack_id,
+                "runtimePackSource": provenance.runtime_pack_source,
+                "componentBindingSha256": provenance.component_binding_sha256,
             }
         )
 

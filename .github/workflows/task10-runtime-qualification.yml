@@ -47,6 +47,8 @@ on:
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
+      - 'src/vision/config/components/**/*.json'
+      - 'config/acceptance/capability-gate-sets-v1.json'
       - 'models/manifests/**/*.json'
       - 'models/qualifications/**/*.json'
       - '.github/workflows/task10-runtime-qualification.yml'
@@ -99,6 +101,8 @@ on:
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
+      - 'src/vision/config/components/**/*.json'
+      - 'config/acceptance/capability-gate-sets-v1.json'
       - 'models/manifests/**/*.json'
       - 'models/qualifications/**/*.json'
       - '.github/workflows/task10-runtime-qualification.yml'
@@ -401,11 +405,12 @@ jobs:
           profile_path = Path("src/vision/config/pipelines/phase1-detection-tracking-v1.json")
           profile_sha256 = hashlib.sha256(profile_path.read_bytes()).hexdigest()
           qualification = json.loads(
-              Path("models/qualifications/rtmdet-m-coco-phase1-v1.json").read_text(
+              Path("models/qualifications/rtmdet-m-coco-phase1-v2.json").read_text(
                   encoding="utf-8"
               )
           )
-          if qualification["pipelineProfileSha256"] != profile_sha256:
+          # Record v2 carries the pipeline policy under `policies` (S2a.3).
+          if qualification["policies"]["pipelineProfileSha256"] != profile_sha256:
               raise SystemExit("bytetrack_qualification_profile_hash_mismatch")
 
           executed_source_sha = subprocess.check_output(
@@ -560,14 +565,18 @@ jobs:
               "qualification-evidence/resolved-config.json",
               encoding="utf-8",
           ))
-          profile = json.load(open(
-              "src/vision/runtime/mmdetection-phase1-v1/runtime.json",
+          # Since S2a.3 the resolved config is a Model Pack artefact (manifest v2),
+          # not a runtime family field.
+          manifest = json.load(open(
+              "models/manifests/rtmdet-m-coco-phase1-v2.json",
               encoding="utf-8",
           ))
           assert record["status"] == "passed"
           assert record["selfContained"] is True
           actual_hash = record["resolvedConfig"]["sha256"]
-          expected_hash = profile["resolvedConfig"]["sha256"]
+          expected_hash = {
+              item["artifactRole"]: item["sha256"] for item in manifest["artifacts"]
+          }["resolved-config"]
           if actual_hash != expected_hash:
               raise SystemExit(
                   "resolved_config_hash_mismatch:"
@@ -579,6 +588,12 @@ jobs:
           print("resolved-config-ok", actual_hash)
           PY
           cp src/vision/runtime/mmdetection-phase1-v1/runtime.json qualification-evidence/runtime.json
+          # The licence notice is an identity-bearing Model Pack artefact (P-15):
+          # the blob byte for byte (`git show` applies no checkout filter).
+          git -C .qualification-mmdet show 44ebd17b145c2372c4b700bfb9cb20dbd28ab64a:LICENSE > .qualification-licence
+          # The composition evidence: the binding the smoke resolves, and its SHA.
+          cp src/vision/config/components/phase1-bindings-v2.json qualification-evidence/phase1-bindings-v2.json
+          sha256sum src/vision/config/components/phase1-bindings-v2.json | cut -d' ' -f1 > qualification-evidence/component-binding.sha256
           rm -rf .qualification-mmdet
           test -f qualification-evidence/rtmdet-m-resolved.py
 
@@ -620,6 +635,7 @@ jobs:
           mkdir -p "$release_root"
           cp .qualification-rtmdet-m.pth "$release_root/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth"
           cp qualification-evidence/rtmdet-m-resolved.py "$release_root/rtmdet_m_resolved.py"
+          cp .qualification-licence "$release_root/LICENSE"
 
           PYTHONPATH=src/vision python - <<'PY'
           import json
@@ -627,17 +643,52 @@ jobs:
           import numpy as np
           from pathlib import Path
 
-          from mavi_vision.runtime.activity import InferenceActivity
-          from mavi_vision.runtime.mmdetection import MMDetectionRuntime
-          from mavi_vision.runtime.qualification import verify_release_selection
+          import hashlib
+          import platform
 
-          selection = verify_release_selection(
-              model_root=Path(".qualification-model-root"),
-              manifest_path=Path("models/manifests/rtmdet-m-coco-phase1-v1.json"),
-              profile_path=Path("src/vision/config/pipelines/phase1-detection-tracking-v1.json"),
-              runtime_profile_path=Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json"),
-              allow_unverified=True,
+          from mavi_vision.runtime.activity import InferenceActivity
+          from mavi_vision.runtime.binding import load_component_binding
+          from mavi_vision.runtime.mmdetection import MMDetectionRuntime
+          from mavi_vision.runtime.resolver import (
+              RoleComposition,
+              RoleCompositionInputs,
+              resolve_completion_contract,
           )
+
+          # The worker's own composition root (S2a.3): binding -> role -> Model
+          # Pack (by derived id) -> record -> family/variant, Development mode,
+          # no installed Runtime Pack (so the source is unpacked-environment).
+          binding_path = Path("src/vision/config/components/phase1-bindings-v2.json")
+          binding = load_component_binding(binding_path)
+          composition = RoleComposition(
+              RoleCompositionInputs(
+                  component_binding_path=binding_path,
+                  role_id="vision",
+                  overlay_root=Path("."),
+                  model_root=Path(".qualification-model-root"),
+                  pipeline_profile_path=Path("src/vision/config/pipelines/phase1-detection-tracking-v1.json"),
+                  runtime_pack_manifest_path=None,
+                  production_mode=False,
+              ),
+              completion=resolve_completion_contract(
+                  binding.role("vision"),
+                  override=None,
+                  production_mode=False,
+                  emittable_versions=("3.2",),
+              ),
+              binding=binding,
+          )
+          resolved = composition.resolve(
+              runtime_variant=os.environ["MAVI_RUNTIME_VARIANT"],
+              python_version=platform.python_version(),
+          )
+          selection = resolved.detector_selection()
+          if resolved.component_binding_sha256 != hashlib.sha256(binding_path.read_bytes()).hexdigest():
+              raise SystemExit("production_runtime_binding_identity_mismatch")
+          if resolved.runtime_pack.runtime_pack_source != "unpacked-environment" or resolved.runtime_pack.runtime_pack_id is not None:
+              raise SystemExit("production_runtime_pack_source_mismatch")
+          if selection.verification_status != "unverified":
+              raise SystemExit("production_runtime_unexpected_verification")
           activity = InferenceActivity()
           runtime = MMDetectionRuntime(selection, device="cpu", activity=activity)
           try:
@@ -648,7 +699,7 @@ jobs:
               image_rgb[..., 2] = 223
               detections = runtime.infer(image_rgb)
               metadata = runtime.metadata
-              if metadata.ordered_class_vocabulary != selection.manifest.class_vocabulary:
+              if metadata.ordered_class_vocabulary != selection.detector.class_vocabulary:
                   raise SystemExit("production_runtime_vocabulary_mismatch")
               if metadata.device != "cpu":
                   raise SystemExit("production_runtime_device_mismatch")
@@ -673,6 +724,13 @@ jobs:
                   "activityCompletedCount": snapshot.completed_count,
                   "orderedClassVocabulary": list(metadata.ordered_class_vocabulary),
                   "versions": dict(metadata.versions),
+                  "capabilityId": selection.capability.capability_id,
+                  "modelPackId": selection.capability.model_pack_id,
+                  "qualificationId": selection.capability.qualification.qualification_id,
+                  "componentBindingSha256": resolved.component_binding_sha256,
+                  "runtimePackSource": resolved.runtime_pack.runtime_pack_source,
+                  "runtimePackId": resolved.runtime_pack.runtime_pack_id,
+                  "headSha": os.environ["MAVI_EXPECTED_SOURCE_SHA"],
               }
               Path("qualification-evidence/production-runtime-smoke.json").write_text(
                   json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n",
@@ -704,6 +762,8 @@ jobs:
               "production-runtime-smoke.json",
               "bytetrack-qualification.json",
               "production-composition-qualification.json",
+              "phase1-bindings-v2.json",
+              "component-binding.sha256",
           )
           missing = [name for name in required if not (root / name).is_file()]
           if missing:
@@ -779,10 +839,30 @@ jobs:
           if composition.get("eventSha") != os.environ["MAVI_EVENT_SHA"]:
               raise SystemExit("production_composition_event_sha_mismatch")
 
+          # The smoke ran the committed binding at this head, not another.
+          binding_bytes = (root / "phase1-bindings-v2.json").read_bytes()
+          binding_sha = hashlib.sha256(binding_bytes).hexdigest()
+          if binding_bytes != Path("src/vision/config/components/phase1-bindings-v2.json").read_bytes():
+              raise SystemExit("qualification_binding_copy_mismatch")
+          if (root / "component-binding.sha256").read_text(encoding="utf-8").strip() != binding_sha:
+              raise SystemExit("qualification_binding_sha_mismatch")
+          if production.get("componentBindingSha256") != binding_sha:
+              raise SystemExit("production_runtime_smoke_binding_mismatch")
+          if production.get("headSha") != executed_source_sha:
+              raise SystemExit("production_runtime_smoke_source_sha_mismatch")
+          binding = json.loads(binding_bytes)
+          (detector,) = [item for item in binding["capabilityBindings"] if item["capabilityId"] == "detector"]
+          if production.get("modelPackId") != detector["modelPackId"]:
+              raise SystemExit("production_runtime_smoke_model_pack_mismatch")
+          if production.get("runtimePackSource") != "unpacked-environment" or production.get("runtimePackId") is not None:
+              raise SystemExit("production_runtime_smoke_runtime_pack_mismatch")
+
           resolved = json.load((root / "resolved-config.json").open(encoding="utf-8"))
-          runtime = json.load((root / "runtime.json").open(encoding="utf-8"))
+          manifest = json.load(Path("models/manifests/rtmdet-m-coco-phase1-v2.json").open(encoding="utf-8"))
           actual_hash = resolved["resolvedConfig"]["sha256"]
-          expected_hash = runtime["resolvedConfig"]["sha256"]
+          expected_hash = {
+              item["artifactRole"]: item["sha256"] for item in manifest["artifacts"]
+          }["resolved-config"]
           if actual_hash != expected_hash:
               raise SystemExit(
                   "resolved_config_hash_mismatch:"

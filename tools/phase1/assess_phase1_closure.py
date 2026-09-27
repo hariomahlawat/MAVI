@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,13 +20,23 @@ for candidate in (PHASE1_ROOT, VISION_ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
+from mavi_vision.runtime.binding import load_component_binding  # noqa: E402
 from mavi_vision.runtime.manifest import ReleaseMetadataError  # noqa: E402
-from mavi_vision.runtime.qualification import (  # noqa: E402
-    MANDATORY_QUALIFICATION_GATES,
-    load_qualification_record,
-    load_runtime_profile,
-    verify_release_selection,
+from mavi_vision.runtime.model_manifest_v2 import ModelManifestV2  # noqa: E402
+from mavi_vision.runtime.qualification_v2 import QualificationRecordV2  # noqa: E402
+from mavi_vision.runtime.resolver import (  # noqa: E402
+    DETECTOR_CAPABILITY,
+    GATE_SETS_RELATIVE,
+    MANIFESTS_RELATIVE,
+    QUALIFICATIONS_RELATIVE,
+    RoleFamily,
+    index_model_manifests,
+    index_qualification_records,
+    load_role_family,
 )
+
+import release_composition  # noqa: E402
+from v2_promotion_fence import V2_PROMOTION_NOT_SUPPORTED  # noqa: E402
 
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 import quality_corpus  # noqa: E402
@@ -457,76 +468,148 @@ def validate_production_acceptance_record(
     return value
 
 
-def validate_qualification_evidence_hashes(
-    qualification: Any,
-    observed_hashes: dict[str, str],
-    required_gates: frozenset[str],
-    *,
-    deployment_profile_id: str,
-    deployment_profile_policy_sha256: str,
-    runtime_variant: str,
-) -> None:
-    profile_qualification = qualification.profile_qualifications.get(
-        deployment_profile_id
-    )
-    if profile_qualification is None:
-        raise ClosureError(
-            "qualification_profile_not_qualified:"
-            + deployment_profile_id
-        )
-    if (
-        profile_qualification.deployment_profile_policy_sha256
-        != deployment_profile_policy_sha256
-    ):
-        raise ClosureError(
-            "qualification_profile_policy_mismatch:"
-            + deployment_profile_id
-        )
-    if profile_qualification.runtime_variant != runtime_variant:
-        raise ClosureError(
-            "qualification_profile_runtime_variant_mismatch:"
-            + deployment_profile_id
-        )
+# The v1 closure bound each observed evidence file to the v1 record's
+# ``profileQualifications[profile].evidence[<v1 gate>].sha256``. v2 records name
+# gates by capability gate set, per variant (plan P-12), and no mapping from the
+# deployment profile's v1 gate names (``windows-offline-install``, the runtime
+# variant, ``cctv-quality-baseline``, ...) onto v2 gates is defined in S2a.3: it
+# is part of the undefined v2 promotion model. The binding is therefore never
+# treated as satisfied; closure carries this pending item until it is defined.
+QUALIFICATION_EVIDENCE_BINDING_PENDING = (
+    "qualification-evidence-binding:" + V2_PROMOTION_NOT_SUPPORTED
+)
 
-    for gate in sorted(required_gates):
-        if qualification.required_gates.get(gate) != "passed":
+
+@dataclass(frozen=True, slots=True)
+class ReleaseState:
+    """The committed v2 composition of the vision role's detector, read through the resolver."""
+
+    component_binding_sha256: str
+    family: RoleFamily
+    manifest: ModelManifestV2
+    manifest_path: Path
+    record: QualificationRecordV2
+    record_path: Path
+
+
+def load_release_state(
+    *,
+    component_binding_path: Path,
+    overlay_root: Path,
+) -> ReleaseState:
+    """Binding -> family -> manifest and record by id, with the resolver's own readers.
+
+    Manifests and records are found as the worker finds them: by the binding's
+    ``modelPackId`` and ``qualificationId`` in the overlay's indexes (plan P-9),
+    never by a configured path. This needs no model artefacts and no observed
+    variant, so it reports a pending state for every deployment profile; the
+    full identity cross-check is the Production resolution in ``assess``.
+    """
+    binding = load_component_binding(component_binding_path)
+    family = load_role_family(
+        binding=binding,
+        role_id=release_composition.ROLE_ID,
+        overlay_root=overlay_root,
+    )
+    capability = {
+        item.capability_id: item
+        for item in binding.bindings_for_role(release_composition.ROLE_ID)
+    }.get(DETECTOR_CAPABILITY)
+    if capability is None:
+        raise ReleaseMetadataError(
+            "capability_binding_missing:"
+            + release_composition.ROLE_ID
+            + ":"
+            + DETECTOR_CAPABILITY
+        )
+    manifests = index_model_manifests(overlay_root / MANIFESTS_RELATIVE)
+    records = index_qualification_records(
+        overlay_root / QUALIFICATIONS_RELATIVE,
+        gate_sets_path=overlay_root / GATE_SETS_RELATIVE,
+    )
+    found_manifest = manifests.get(capability.model_pack_id)
+    if found_manifest is None:
+        raise ReleaseMetadataError(
+            "model_manifest_missing:" + capability.model_pack_id
+        )
+    found_record = records.get(capability.qualification_id)
+    if found_record is None:
+        raise ReleaseMetadataError(
+            "qualification_record_missing:" + capability.qualification_id
+        )
+    manifest, manifest_path = found_manifest
+    record, record_path = found_record
+    if record.model_pack_id != capability.model_pack_id:
+        raise ReleaseMetadataError("model_pack_id_mismatch")
+    return ReleaseState(
+        component_binding_sha256=binding.component_binding_sha256,
+        family=family,
+        manifest=manifest,
+        manifest_path=manifest_path,
+        record=record,
+        record_path=record_path,
+    )
+
+
+def qualification_pending(
+    record: QualificationRecordV2,
+    *,
+    profile_id: str,
+    runtime_variant: str,
+    deployment_profile_policy_sha256: str,
+) -> list[str]:
+    """What the v2 record still lacks for one deployment profile (plan P-12).
+
+    The profile's variant must be ``passed`` with every gate of its gate sets
+    passed, the profile must be in the record's index for that variant and
+    policy, and the profile's evidence must cover every variant gate: exactly
+    what the resolver's Production environment policy requires.
+    """
+    pending: list[str] = []
+    qualified = profile_id in record.qualified_profiles
+    if not qualified:
+        pending.append("qualification-profile:" + profile_id)
+    else:
+        if record.profile_policy_sha256.get(profile_id) != deployment_profile_policy_sha256:
             raise ClosureError(
-                "qualification_gate_not_passed:" + gate
+                "qualification_profile_policy_mismatch:" + profile_id
             )
-        expected = profile_qualification.evidence.get(gate)
-        if expected is None:
+        if record.profile_runtime_variants.get(profile_id) != runtime_variant:
             raise ClosureError(
-                "qualification_profile_evidence_missing:"
-                + deployment_profile_id
-                + ":"
-                + gate
+                "qualification_profile_runtime_variant_mismatch:" + profile_id
             )
-        actual = observed_hashes.get(gate)
-        if actual is None:
-            raise ClosureError(
-                "qualification_evidence_bytes_missing:" + gate
+    variant = record.variants.get(runtime_variant)
+    if variant is None:
+        raise ClosureError(
+            "qualification_variant_missing:" + runtime_variant
+        )
+    if variant.status != "passed":
+        pending.append("qualification-variant:" + runtime_variant)
+    profile_gates = record.profile_evidence_gates.get(profile_id, frozenset())
+    for gate in sorted(variant.gates):
+        if variant.gates[gate] != "passed":
+            pending.append(
+                "qualification:" + runtime_variant + ":" + gate
             )
-        if actual != expected.sha256:
-            raise ClosureError(
-                "qualification_evidence_hash_mismatch:"
-                + deployment_profile_id
-                + ":"
-                + gate
+        elif qualified and gate not in profile_gates:
+            pending.append(
+                "qualification-profile-evidence:" + profile_id + ":" + gate
             )
+    return pending
 
 
 def assess(args: argparse.Namespace) -> dict[str, Any]:
-    runtime = load_runtime_profile(args.runtime_profile)
-    qualification = load_qualification_record(
-        args.qualification
+    release = load_release_state(
+        component_binding_path=args.component_binding,
+        overlay_root=args.overlay_root,
     )
+    manifest_sha256 = sha256_file(release.manifest_path)
     selected_profile, deployment_policy_sha = (
         deployment_profiles.select_profile(
             args.deployment_profile,
             args.deployment_profile_policy,
         )
     )
-    required_gates = selected_profile.qualification_gates
     runtime_variant = selected_profile.runtime_variant
 
     canonical_profile_path, acceptance_profile_sha256 = (
@@ -555,12 +638,13 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
 
     pending: list[str] = []
     evidence_hashes: dict[str, str] = {}
-    qualification_evidence_hashes: dict[str, str] = {}
 
-    runtime_identity = runtime.platform_variants.get(
+    runtime_identity = release.family.runtime_platform_variants.get(
         runtime_variant
     )
-    runtime_lock = runtime.release_locks.get(runtime_variant)
+    runtime_lock = release.family.runtime_release_locks.get(
+        runtime_variant
+    )
     expected_runtime_status = (
         "qualified-hardware"
         if runtime_variant.endswith("-cuda")
@@ -577,44 +661,15 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
     ):
         pending.append("runtime-lock:" + runtime_variant)
 
-    profile_qualification = qualification.profile_qualifications.get(
-        selected_profile.profile_id
-    )
-    if profile_qualification is None:
-        pending.append(
-            "qualification-profile:" + selected_profile.profile_id
+    pending.extend(
+        qualification_pending(
+            release.record,
+            profile_id=selected_profile.profile_id,
+            runtime_variant=runtime_variant,
+            deployment_profile_policy_sha256=deployment_policy_sha,
         )
-    else:
-        if (
-            profile_qualification.deployment_profile_policy_sha256
-            != deployment_policy_sha
-        ):
-            raise ClosureError(
-                "qualification_profile_policy_mismatch:"
-                + selected_profile.profile_id
-            )
-        if (
-            profile_qualification.runtime_variant
-            != runtime_variant
-        ):
-            raise ClosureError(
-                "qualification_profile_runtime_variant_mismatch:"
-                + selected_profile.profile_id
-            )
-
-    for gate in sorted(required_gates):
-        if qualification.required_gates.get(gate) != "passed":
-            pending.append("qualification:" + gate)
-        elif (
-            profile_qualification is not None
-            and gate not in profile_qualification.evidence
-        ):
-            pending.append(
-                "qualification-profile-evidence:"
-                + selected_profile.profile_id
-                + ":"
-                + gate
-            )
+    )
+    pending.append(QUALIFICATION_EVIDENCE_BINDING_PENDING)
 
     application_manifest_sha256 = None
     expected_mavi_build = None
@@ -846,9 +901,6 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         evidence_hashes[
             selected_profile.offline_install_gate
         ] = offline_sha
-        qualification_evidence_hashes[
-            selected_profile.offline_install_gate
-        ] = offline_sha
         variant_hash = offline_value.get(
             "variantEvidenceSha256", {}
         ).get(runtime_variant)
@@ -856,9 +908,6 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             raise ClosureError(
                 "profile_offline_variant_hash_missing"
             )
-        qualification_evidence_hashes[
-            runtime_variant
-        ] = variant_hash
 
     if (
         args.quality is not None
@@ -883,9 +932,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             ),
             acceptance_profile=acceptance_profile,
             expected_mavi_build=expected_mavi_build,
-            target_verified_manifest_sha256=sha256_file(
-                args.manifest
-            ),
+            target_verified_manifest_sha256=manifest_sha256,
             corpus_manifest=args.quality_corpus_manifest,
             case_evidence=quality_case_paths,
             ground_truth=quality_ground_truth_paths,
@@ -894,9 +941,6 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         evidence_hashes["cctv-quality-baseline"] = (
             quality_sha
         )
-        qualification_evidence_hashes[
-            "cctv-quality-baseline"
-        ] = quality_sha
 
     if (
         selected_profile.performance_evidence_required
@@ -916,10 +960,6 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         evidence_hashes[
             "profile-recovery-performance"
         ] = performance_sha
-        if selected_profile.performance_gate is not None:
-            qualification_evidence_hashes[
-                selected_profile.performance_gate
-            ] = performance_sha
 
     observation_paths: dict[str, Path] = {}
     prerequisite_sha = None
@@ -1009,9 +1049,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             variant_path,
             variant=runtime_variant,
             source_commit=args.source_commit,
-            target_manifest_sha256=sha256_file(
-                args.manifest
-            ),
+            target_manifest_sha256=manifest_sha256,
             acceptance_profile_sha256=(
                 acceptance_profile_sha256
             ),
@@ -1089,9 +1127,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             args.production_e2e,
             mode="formal",
             source_commit=args.source_commit,
-            target_manifest_sha256=sha256_file(
-                args.manifest
-            ),
+            target_manifest_sha256=manifest_sha256,
             acceptance_profile_sha256=(
                 acceptance_profile_sha256
             ),
@@ -1140,9 +1176,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             args.empty_scene_e2e,
             mode="empty-scene-diagnostic",
             source_commit=args.source_commit,
-            target_manifest_sha256=sha256_file(
-                args.manifest
-            ),
+            target_manifest_sha256=manifest_sha256,
             acceptance_profile_sha256=(
                 acceptance_profile_sha256
             ),
@@ -1194,9 +1228,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
                 args.failure_reprocess,
                 source_commit=args.source_commit,
                 mavi_build=expected_mavi_build,
-                target_manifest_sha256=sha256_file(
-                    args.manifest
-                ),
+                target_manifest_sha256=manifest_sha256,
                 deployment_profile=selected_profile,
                 deployment_profile_policy_sha256=(
                     deployment_policy_sha
@@ -1397,9 +1429,7 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             args.production_acceptance,
             source_commit=args.source_commit,
             mavi_build=expected_mavi_build,
-            manifest_sha256=sha256_file(
-                args.manifest
-            ),
+            manifest_sha256=manifest_sha256,
             acceptance_profile_sha256=(
                 acceptance_profile_sha256
             ),
@@ -1472,39 +1502,26 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
             args.production_acceptance
         )
 
-    if all(
-        gate in qualification_evidence_hashes
-        for gate in required_gates
-    ):
-        validate_qualification_evidence_hashes(
-            qualification,
-            qualification_evidence_hashes,
-            required_gates,
-            deployment_profile_id=selected_profile.profile_id,
-            deployment_profile_policy_sha256=deployment_policy_sha,
-            runtime_variant=runtime_variant,
-        )
-
+    # The retired v1 release verifier (``allow_unverified=False``) maps
+    # to the resolver's Production policy for the selected profile: a verified
+    # manifest, an installed Runtime Pack whose identity re-derives, and the
+    # profile's variant passed with every gate passed (P-12). Any refusal leaves
+    # the release unpromoted; nothing here writes or promotes.
     promoted = False
     try:
-        selection = verify_release_selection(
+        resolved = release_composition.resolve_vision_role(
+            component_binding_path=args.component_binding,
+            overlay_root=args.overlay_root,
             model_root=args.model_root,
-            manifest_path=args.manifest,
-            profile_path=args.pipeline_profile,
-            runtime_profile_path=args.runtime_profile,
-            qualification_path=args.qualification,
-            allow_unverified=False,
-            required_profile=(
-                selected_profile.profile_id
-            ),
-            required_gates=required_gates,
-            required_runtime_variant=runtime_variant,
-            required_deployment_profile_policy_sha256=(
-                deployment_policy_sha
-            ),
+            pipeline_profile_path=args.pipeline_profile,
+            runtime_variant=runtime_variant,
+            production_mode=True,
+            runtime_pack_manifest_path=args.runtime_pack_manifest,
+            profile_requirement=selected_profile,
+            deployment_profile_policy_sha256=deployment_policy_sha,
         )
         promoted = (
-            selection.verification_status
+            resolved.detector_selection().verification_status
             == "verified"
         )
     except ReleaseMetadataError:
@@ -1541,12 +1558,14 @@ def assess(args: argparse.Namespace) -> dict[str, Any]:
         "evidenceSha256":
             dict(sorted(evidence_hashes.items())),
         "releaseMetadata": {
+            "componentBindingSha256":
+                release.component_binding_sha256,
             "manifestSha256":
-                sha256_file(args.manifest),
+                manifest_sha256,
             "qualificationSha256":
-                sha256_file(args.qualification),
+                sha256_file(release.record_path),
             "runtimeProfileSha256":
-                sha256_file(args.runtime_profile),
+                release.family.runtime_profile_sha256,
             "pipelineProfileSha256":
                 sha256_file(args.pipeline_profile),
             "acceptanceProfileSha256":
@@ -1569,22 +1588,27 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("P1", "P2", "P3"),
         required=True,
     )
-    parser.add_argument("--model-root", type=Path, required=True)
-    parser.add_argument("--manifest", type=Path, required=True)
+    # Component Binding v2 composition (plan P-9): the manifest, record and
+    # runtime profile are found under the overlay by id, never by path.
     parser.add_argument(
-        "--qualification",
+        "--component-binding",
         type=Path,
-        required=True,
+        default=release_composition.CANONICAL_COMPONENT_BINDING,
     )
+    parser.add_argument(
+        "--overlay-root",
+        type=Path,
+        default=release_composition.ROOT,
+    )
+    parser.add_argument("--model-root", type=Path, required=True)
     parser.add_argument(
         "--pipeline-profile",
         type=Path,
-        required=True,
+        default=release_composition.CANONICAL_PIPELINE_PROFILE,
     )
     parser.add_argument(
-        "--runtime-profile",
+        "--runtime-pack-manifest",
         type=Path,
-        required=True,
     )
     parser.add_argument(
         "--acceptance-profile",

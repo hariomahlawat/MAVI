@@ -51,26 +51,34 @@ The Windows operational-plane prerequisites are owned by the canonical MAVI appl
   INSTALL.txt
   wheels/
     <exact locked wheels only>
-  release/
-    models/
+  release/                          (an application overlay in the repository layout)
+    config/
+      acceptance/
+        capability-gate-sets-v1.json
+        phase1-deployment-profiles-v1.json
+    models/                         (the Model Pack store root, MAVI_MODEL_ROOT)
       manifests/
-        rtmdet-m-coco-phase1-v1.json
+        rtmdet-m-coco-phase1-v2.json
       qualifications/
-        rtmdet-m-coco-phase1-v1.json
-      rtmdet-m-coco-phase1-v1/
+        rtmdet-m-coco-phase1-v2.json
+      rtmdet-m-coco-phase1-v1/      (the pack directory)
+        LICENSE
         rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
         rtmdet_m_resolved.py
-    config/
-      pipelines/
-        phase1-detection-tracking-v1.json
-    runtime/
-      mmdetection-phase1-v1/
-        runtime.json
-        <qualified-platform-variant>.lock
-        <other-qualified-platform-variant>.lock
+    src/vision/
+      config/
+        components/
+          phase1-bindings-v2.json
+        pipelines/
+          phase1-detection-tracking-v1.json
+      runtime/
+        mmdetection-phase1-v1/
+          runtime.json
+          <declared-platform-variant>.lock
+          <declared-platform-variant>.requirements.txt
 ~~~
 
-A platform bundle contains the **wheel closure only for its selected platform variant**, but it retains **every qualified runtime lock referenced by `runtime.json`**. The selected platform lock is the only lock used by the offline `pip install` command; the additional qualified locks are immutable release metadata required by runtime startup verification. Pending/unqualified lock entries have no artifact and are not copied into the bundle.
+Since Stage 2 S2a.3 `release/` is an application overlay: the worker composes it through the component binding exactly as it composes a checkout, and `build_offline_bundle.py` verifies the staged bundle with the same resolver. A platform bundle contains the **wheel closure only for its selected platform variant**, but it retains **every lock and requirements projection the binding pins** (every declared, class-B variant), because the resolver cross-checks each of them against the binding (ADR-009 follow-up 5: the bundle is a complete record of its runtime family). The selected platform lock is the only lock used by the offline `pip install` command. The class-A variant (`linux-x86_64-cuda`) has no lock and is never bundled. A `production` bundle is refused by the resolver's own policy: a bundle-built environment is not an installed Runtime Pack (plan P-8).
 
 ## Integrity contract
 
@@ -78,7 +86,7 @@ A platform bundle contains the **wheel closure only for its selected platform va
 
 The manifest is deterministic: canonical UTF-8/LF JSON with no timestamp, hostname, temporary/absolute build path, random identifier or filesystem modification time.
 
-`bundleId` is derived from immutable release identities, including the source commit, platform variant, runtime/profile/qualification identities, the selected release-lock hash, and the hashes of **all qualified runtime locks included in the bundle**.
+`bundleId` is derived from immutable release identities, including the source commit, platform variant, the component binding SHA-256, the Model Pack id, the runtime/profile/qualification identities, the selected release-lock hash, and the hashes of **all runtime locks included in the bundle**.
 
 Before transfer or installation, validate every path, size and SHA-256 in the manifest against the bundle bytes. Transfer records may additionally record the SHA-256 of `bundle-manifest.json` itself.
 
@@ -87,7 +95,7 @@ Before transfer or installation, validate every path, size and SHA-256 in the ma
 Run from the bundle root using the exact required CPython patch version:
 
 ~~~text
-python -m pip install --no-index --only-binary=:all: --require-hashes --find-links ./wheels -r ./release/runtime/mmdetection-phase1-v1/<platform-variant>.lock
+python -m pip install --no-index --only-binary=:all: --require-hashes --find-links ./wheels -r ./release/src/vision/runtime/mmdetection-phase1-v1/<platform-variant>.lock
 python -m pip check
 ~~~
 
@@ -105,12 +113,15 @@ Do not remove these options to work around a missing package. A missing/incompat
 The bundle records these relative paths in `INSTALL.txt`:
 
 ~~~text
+MAVI_OVERLAY_ROOT=./release
+MAVI_COMPONENT_BINDING_PATH=./release/src/vision/config/components/phase1-bindings-v2.json
+MAVI_ROLE_ID=vision
 MAVI_MODEL_ROOT=./release/models
-MAVI_MODEL_MANIFEST_PATH=./release/models/manifests/rtmdet-m-coco-phase1-v1.json
-MAVI_QUALIFICATION_RECORD_PATH=./release/models/qualifications/rtmdet-m-coco-phase1-v1.json
-MAVI_PIPELINE_PROFILE_PATH=./release/config/pipelines/phase1-detection-tracking-v1.json
-MAVI_RUNTIME_PROFILE_PATH=./release/runtime/mmdetection-phase1-v1/runtime.json
+MAVI_PIPELINE_PROFILE_PATH=./release/src/vision/config/pipelines/phase1-detection-tracking-v1.json
+MAVI_DEPLOYMENT_PROFILE_POLICY_PATH=./release/config/acceptance/phase1-deployment-profiles-v1.json
 ~~~
+
+`MAVI_MODEL_MANIFEST_PATH`, `MAVI_QUALIFICATION_RECORD_PATH`, `MAVI_RUNTIME_PROFILE_PATH` and `MAVI_COMPLETION_SCHEMA_VERSION` are retired: the worker refuses to start if any is set (`settings_v1_composition_rejected`).
 
 Production deployments additionally supply the required MAVI build/commit identity and device policy through normal worker settings.
 

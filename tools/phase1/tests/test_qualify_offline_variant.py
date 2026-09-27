@@ -190,3 +190,159 @@ def test_production_worker_flow_requires_embedded_profile_policy(
             },
             manifest_sha="a" * 64,
         )
+
+
+RETIRED = (
+    "MAVI_MODEL_MANIFEST_PATH",
+    "MAVI_QUALIFICATION_RECORD_PATH",
+    "MAVI_RUNTIME_PROFILE_PATH",
+    "MAVI_COMPLETION_SCHEMA_VERSION",
+    "MAVI_COMPLETION_SCHEMA_OVERRIDE",
+    "MAVI_RUNTIME_PACK_MANIFEST_PATH",
+)
+
+
+def test_candidate_worker_flow_composes_the_bundle_through_the_binding(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The worker and the E2E check get the v2 composition; nothing retired is passed on."""
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    output = tmp_path / "worker.json"
+    args = __import__("types").SimpleNamespace(
+        worker_flow_output=output,
+        bundle_dir=bundle,
+        base_url="http://mavi.local",
+        variant="linux-x86_64-cpu",
+        media_root=tmp_path / "media",
+        expected_mavi_build="build-a",
+        source_commit="a" * 40,
+        device_index=0,
+        camera_code="c",
+        camera_name="n",
+        camera_timezone="UTC",
+        recording_local="2026-01-01T00:00:00",
+        video=tmp_path / "v.mp4",
+        processing_timeout_seconds=5,
+        environment_label="e",
+        target_verified_manifest_sha256="0" * 64,
+        acceptance_profile=tmp_path / "a.json",
+        corpus_manifest=tmp_path / "corpus.json",
+        ground_truth=tmp_path / "gt.json",
+        worker_startup_seconds=0,
+    )
+    inherited = {name: "/inherited" for name in RETIRED}
+    inherited["PATH"] = "/usr/bin"
+    captured: dict[str, object] = {}
+
+    class FakeProcess:
+        def __init__(self, command, *, env, **_):
+            captured["worker_command"] = command
+            captured["worker_env"] = env
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            captured["terminated"] = True
+
+        def wait(self, timeout=None):
+            return 0
+
+    def fake_run_command(command, *, env=None):
+        captured["e2e_command"] = command
+        captured["e2e_env"] = env
+        output.write_text("{}\n", encoding="utf-8")
+        return __import__("types").SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(mod.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(mod, "run_command", fake_run_command)
+    monkeypatch.setattr(mod.time, "sleep", lambda _: None)
+
+    mod.run_installed_worker_flow(
+        args,
+        python=tmp_path / "python",
+        environment=inherited,
+        manifest={"releaseStatus": "qualification-candidate"},
+        manifest_sha="a" * 64,
+    )
+
+    worker_env = captured["worker_env"]
+    release = bundle / "release"
+    assert worker_env["MAVI_COMPONENT_BINDING_PATH"] == str(
+        (release / "src/vision/config/components/phase1-bindings-v2.json").resolve()
+    )
+    assert worker_env["MAVI_ROLE_ID"] == "vision"
+    assert worker_env["MAVI_OVERLAY_ROOT"] == str(release.resolve())
+    assert worker_env["MAVI_MODEL_ROOT"] == str((release / "models").resolve())
+    assert worker_env["MAVI_PIPELINE_PROFILE_PATH"] == str(
+        (release / "src/vision/config/pipelines/phase1-detection-tracking-v1.json").resolve()
+    )
+    assert worker_env["MAVI_PRODUCTION_MODE"] == "false"
+    assert worker_env["PATH"] == "/usr/bin"
+    for env in (worker_env, captured["e2e_env"]):
+        assert not set(RETIRED) & set(env)
+    command = captured["e2e_command"]
+    assert "--component-binding" in command and "--overlay-root" in command
+    for retired in ("--model-manifest", "--runtime-profile", "--qualification-record"):
+        assert retired not in command
+    assert command[command.index("--overlay-root") + 1] == str(release)
+
+
+def _staged_bundle(tmp_path: Path) -> tuple[Path, dict]:
+    """A bundle whose ``release/`` is the self-consistent v2 overlay in the bundle layout."""
+    import hashlib
+    import shutil
+
+    from phase1_v2_support import REPOSITORY, overlay_type
+
+    overlay = overlay_type().create(tmp_path / "source")
+    bundle = tmp_path / "bundle"
+    release = bundle / "release"
+    shutil.copytree(overlay.root, release)
+    (release / "binding.json").unlink()
+    (release / "pipeline.json").unlink()
+    binding = release / "src/vision/config/components/phase1-bindings-v2.json"
+    binding.parent.mkdir(parents=True)
+    shutil.copyfile(overlay.binding_path, binding)
+    pipeline = release / "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
+    pipeline.parent.mkdir(parents=True)
+    shutil.copyfile(overlay.pipeline_path, pipeline)
+    shutil.copytree(overlay.model_root, release / "models", dirs_exist_ok=True)
+    policy = REPOSITORY / "config/acceptance/phase1-deployment-profiles-v1.json"
+    shutil.copyfile(policy, release / "config/acceptance/phase1-deployment-profiles-v1.json")
+    manifest = {
+        "releaseStatus": "qualification-candidate",
+        "platformVariant": "linux-x86_64-cpu",
+        "deploymentProfile": None,
+        "deploymentProfilePolicySha256": hashlib.sha256(policy.read_bytes()).hexdigest(),
+    }
+    return bundle, manifest
+
+
+def test_bundle_paths_come_from_resolving_the_release_overlay(tmp_path: Path) -> None:
+    import release_composition
+
+    bundle, manifest = _staged_bundle(tmp_path)
+    resolved = release_composition.resolve_staged_bundle(bundle, manifest)
+    selection = resolved.detector_selection()
+    release = (bundle / "release").resolve()
+
+    assert resolved.runtime_pack.lock_path == bundle / "release/src/vision/runtime/mmdetection-phase1-v1/linux-x86_64-cpu.lock"
+    assert selection.checkpoint_path.resolve().is_relative_to(release / "models")
+    assert selection.resolved_config_path.resolve().is_relative_to(release / "models")
+    assert resolved.capabilities["detector"].manifest_path == (
+        bundle / "release/models/manifests/rtmdet-m-coco-phase1-v2.json"
+    )
+    assert selection.verification_status == "unverified"
+    assert resolved.runtime_pack.runtime_pack_source == "unpacked-environment"
+
+
+def test_a_production_bundle_cannot_resolve_after_the_cut_over(tmp_path: Path) -> None:
+    import release_composition
+
+    bundle, manifest = _staged_bundle(tmp_path)
+    manifest.update({"releaseStatus": "production", "deploymentProfile": "P3", "platformVariant": "windows-x86_64-cpu"})
+    with pytest.raises(mod.build_offline_bundle.OfflineBundleError, match="unverified_release_forbidden"):
+        release_composition.resolve_staged_bundle(bundle, manifest)

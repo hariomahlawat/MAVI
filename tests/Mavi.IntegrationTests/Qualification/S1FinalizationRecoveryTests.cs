@@ -295,7 +295,12 @@ public sealed class S1FinalizationRecoveryTests
         start.Environment["MAVI_API_BASE_URL"] = a.BaseAddress.ToString().TrimEnd('/');
         start.Environment["MAVI_WORKER_ID"] = "qualification-worker-01";
         start.Environment["MAVI_MEDIA_ROOT"] = roots.Media;
-        start.Environment["MAVI_COMPLETION_SCHEMA_VERSION"] = WorkerContractRules.CompletionSchemaVersionV31;
+        // The S1 recovery rows qualify the 3.1 hand-off. Since S2a.3 the worker emits its role's
+        // provenance contract (3.2) and 3.1 is reachable only through the Development override;
+        // MAVI_COMPLETION_SCHEMA_VERSION is retired and refused by the worker (plan P-16).
+        start.Environment["MAVI_COMPLETION_SCHEMA_OVERRIDE"] = WorkerContractRules.CompletionSchemaVersionV31;
+        foreach (var retired in new[] { "MAVI_MODEL_MANIFEST_PATH", "MAVI_QUALIFICATION_RECORD_PATH", "MAVI_RUNTIME_PROFILE_PATH", "MAVI_COMPLETION_SCHEMA_VERSION" })
+            start.Environment.Remove(retired); // an inherited retired variable makes the worker refuse to start
         // run_once() normally exits immediately after the hand-off acknowledgement. Hold the
         // fixture process so this H-row controls the declared kill point instead of racing exit.
         start.Environment["MAVI_FIXTURE_STAY_ALIVE_AFTER_HANDOFF_SECONDS"] = "300";

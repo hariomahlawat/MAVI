@@ -55,11 +55,15 @@ def test_shipped_profile_carries_the_versioned_evidence_policy() -> None:
 
 def test_qualification_record_binds_the_changed_profile_and_stays_pending() -> None:
     record = json.loads(
-        (REPO / "models/qualifications/rtmdet-m-coco-phase1-v1.json").read_text(encoding="utf-8")
+        (REPO / "models/qualifications/rtmdet-m-coco-phase1-v2.json").read_text(encoding="utf-8")
     )
 
-    assert record["pipelineProfileSha256"] == hashlib.sha256(PIPELINE_PROFILE_PATH.read_bytes()).hexdigest()
+    # v2 records carry the pipeline policy under `policies`; the resolver
+    # reconciles it against the live profile (plan §17).
+    assert record["policies"]["pipelineProfileId"] == "phase1-detection-tracking-v1"
+    assert record["policies"]["pipelineProfileSha256"] == hashlib.sha256(PIPELINE_PROFILE_PATH.read_bytes()).hexdigest()
     assert record["overallResult"] == "pending"
+    assert {variant["status"] for variant in record["variants"].values()} == {"pending"}
 
 
 @pytest.mark.parametrize(

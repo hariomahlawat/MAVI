@@ -16,14 +16,54 @@ from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[3]
 TOOL_PATH = REPOSITORY / "tools" / "vision" / "migrate_component_binding_v1.py"
-V1_BINDING = REPOSITORY / "src/vision/config/components/mmdetection-phase1-v1.json"
-V1_MANIFEST = REPOSITORY / "models/manifests/rtmdet-m-coco-phase1-v1.json"
-V1_RUNTIME_PROFILE = REPOSITORY / "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
-V1_QUALIFICATION = REPOSITORY / "models/qualifications/rtmdet-m-coco-phase1-v1.json"
+RUNTIME_DIR = REPOSITORY / "src/vision/runtime/mmdetection-phase1-v1"
+
+# The v1 release artefacts were deleted at the S2a.3 cut-over. Their exact bytes
+# are frozen here as the generator's inputs only; nothing at runtime reads them.
+V1_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "component-binding-v1"
+V1_BINDING = V1_FIXTURES / "mmdetection-phase1-v1.json"
+V1_MANIFEST = V1_FIXTURES / "rtmdet-m-coco-phase1-v1.manifest.json"
+V1_QUALIFICATION = V1_FIXTURES / "rtmdet-m-coco-phase1-v1.qualification.json"
+V1_RUNTIME_PROFILE_BYTES = V1_FIXTURES / "runtime.v1.json"
+# The mmdetection LICENSE at the commit pinned by vision-model-pack.yml, extracted
+# with `git show <commit>:LICENSE` (never a working-tree copy, so no line-ending
+# conversion can change the identity-bearing bytes).
+LICENCE_NOTICE = V1_FIXTURES / "mmdetection-44ebd17b-LICENSE"
+LICENCE_BYTES = LICENCE_NOTICE.read_bytes()
+
+# The committed v2 artefacts the cut-over published.
+V2_BINDING = REPOSITORY / "src/vision/config/components/phase1-bindings-v2.json"
+V2_MANIFEST = REPOSITORY / "models/manifests/rtmdet-m-coco-phase1-v2.json"
+V2_RUNTIME_PROFILE = RUNTIME_DIR / "runtime.json"
+V2_QUALIFICATION = REPOSITORY / "models/qualifications/rtmdet-m-coco-phase1-v2.json"
+
 GATE_SETS = REPOSITORY / "config/acceptance/capability-gate-sets-v1.json"
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "model-manifests"
-LICENCE_BYTES = b"Apache License\nVersion 2.0, January 2004\n"
 MMDETECTION_REVISION = "44ebd17b145c2372c4b700bfb9cb20dbd28ab64a"
+
+
+def _stage_v1_runtime_profile() -> Path:
+    """The frozen v1 profile beside the tracked locks, as the generator reads it.
+
+    The generator classifies variants and re-derives Runtime Pack ids from the lock
+    and requirements files beside its input profile, so the frozen v1 profile is
+    staged next to copies of the real, tracked lock files.
+    """
+    import atexit
+    import shutil
+    import tempfile
+
+    staged = Path(tempfile.mkdtemp(prefix="mavi-v1-runtime-")) / "mmdetection-phase1-v1"
+    staged.mkdir()
+    atexit.register(shutil.rmtree, staged.parent, True)
+    for item in RUNTIME_DIR.iterdir():
+        if item.suffix == ".lock" or item.name.endswith(".requirements.txt"):
+            shutil.copy2(item, staged / item.name)
+    shutil.copy2(V1_RUNTIME_PROFILE_BYTES, staged / "runtime.json")
+    return staged / "runtime.json"
+
+
+V1_RUNTIME_PROFILE = _stage_v1_runtime_profile()
 
 
 @lru_cache(maxsize=1)

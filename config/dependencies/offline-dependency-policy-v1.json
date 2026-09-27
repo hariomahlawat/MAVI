@@ -190,11 +190,11 @@
       "scope": [
         "production-vision"
       ],
-      "stagingPath": "models + src/vision/runtime",
-      "packagedAs": "platform-specific qualified offline runtime/model bundles",
+      "stagingPath": "models + src/vision/runtime + src/vision/config/components",
+      "packagedAs": "platform-specific qualified offline runtime/model bundles and content-addressed Runtime/Model Packs",
       "setupIntegration": "Task-17 runtime qualification and deployment tooling",
-      "verification": "runtime locks, hashes, model manifest relationships and disconnected CPU/CUDA qualification",
-      "licenceHandling": "model/runtime licence approval is required before promotion"
+      "verification": "runtime locks, hashes, component binding v2 relationships (P-17 variant classes, derived Runtime/Model Pack ids), model manifest relationships and disconnected CPU/CUDA qualification",
+      "licenceHandling": "model/runtime licence approval is required before promotion; every Model Pack ships its licence notice as an identity-bearing artefact"
     },
     {
       "id": "nvidia-driver-win-x64",

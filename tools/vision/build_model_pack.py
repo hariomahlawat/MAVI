@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Build the reusable content-addressed MAVI Vision Model Pack."""
+"""Build one content-addressed MAVI Vision Model Pack (``mavi-vision-model-pack-v2``).
+
+The source is a v2 model manifest (``models/manifests/*.json``). Every declared
+artefact, the licence notice included (plan P-15), is supplied by role,
+re-hashed against the manifest and copied to its ``relativePath``; nothing the
+manifest does not declare enters the pack. The ``modelPackId`` is derived from
+the material inputs (plan P-3) by the one loader every consumer uses, and each
+``sizeBytes`` is measured here, never authored (P-14).
+
+Output layout (P-10), consumed by ``Install-MaviVisionModelPack.ps1`` v2::
+
+    <output>/model-pack-manifest.json
+    <output>/<packDirectory>/...        (every artefact at its relativePath)
+"""
 
 from __future__ import annotations
 
@@ -19,14 +32,15 @@ VISION_ROOT = ROOT / "src" / "vision"
 if str(VISION_ROOT) not in sys.path:
     sys.path.insert(0, str(VISION_ROOT))
 
-from mavi_vision.runtime.component_identity import (  # noqa: E402
-    ModelPackIdentityInputs,
-    model_pack_id,
+from mavi_vision.runtime.manifest import ReleaseMetadataError  # noqa: E402
+from mavi_vision.runtime.model_manifest_v2 import (  # noqa: E402
+    ModelManifestV2,
+    load_model_manifest_v2,
 )
 
-_SCHEMA = "mavi-vision-model-pack-v1"
+MODEL_PACK_SCHEMA = "mavi-vision-model-pack-v2"
+MODEL_PACK_MANIFEST = "model-pack-manifest.json"
 _SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class ModelPackError(ValueError):
@@ -40,7 +54,7 @@ class ModelPackArtifact:
     relativePath: str
     sizeBytes: int
     sha256: str
-    purpose: str
+    artifactRole: str
 
 
 def _sha256(path: Path) -> str:
@@ -54,92 +68,48 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _safe_relative_path(value: str) -> PurePosixPath:
-    if not value or value != value.strip() or "\\" in value or "\x00" in value:
-        raise ModelPackError("model_pack_path_invalid")
-    logical = PurePosixPath(value)
-    parts = value.split("/")
-    if logical.is_absolute() or any(part in {"", ".", ".."} for part in parts):
-        raise ModelPackError("model_pack_path_invalid")
-    if ":" in parts[0]:
-        raise ModelPackError("model_pack_path_invalid")
-    return logical
-
-
-def _read_source_manifest(path: Path) -> dict[str, object]:
+def _read_source_manifest(path: Path) -> ModelManifestV2:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ModelPackError("model_pack_source_manifest_invalid") from exc
-    if not isinstance(payload, dict) or payload.get("schemaVersion") != "1.0":
-        raise ModelPackError("model_pack_source_manifest_invalid")
-    if not isinstance(payload.get("modelId"), str) or not payload["modelId"]:
-        raise ModelPackError("model_pack_source_manifest_invalid")
-    for section in ("checkpoint", "resolvedConfig"):
-        value = payload.get(section)
-        if not isinstance(value, dict):
-            raise ModelPackError("model_pack_source_manifest_invalid")
-        sha = value.get("sha256")
-        relative = value.get("relativePath")
-        if not isinstance(sha, str) or not _SHA256_RE.fullmatch(sha):
-            raise ModelPackError("model_pack_source_manifest_invalid")
-        if not isinstance(relative, str):
-            raise ModelPackError("model_pack_source_manifest_invalid")
-        _safe_relative_path(relative)
-    return payload
+        return load_model_manifest_v2(path)
+    except ReleaseMetadataError as exc:
+        # A v1 source manifest is refused here, never converted (plan §5: no dual reader).
+        raise ModelPackError(f"model_pack_source_manifest_invalid:{exc.code}") from exc
 
 
-def _copy_asset(stage: Path, source: Path, relative_path: str, purpose: str) -> ModelPackArtifact:
+def _copy_asset(stage: Path, source: Path, relative_path: str) -> Path:
     if not source.is_file() or source.is_symlink():
         raise ModelPackError("model_pack_asset_invalid")
-    logical = _safe_relative_path(relative_path)
-    destination = stage.joinpath(*logical.parts)
+    destination = stage.joinpath(*PurePosixPath(relative_path).parts)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         raise ModelPackError("model_pack_duplicate_destination")
     shutil.copyfile(source, destination)
-    source_hash = _sha256(source)
-    if _sha256(destination) != source_hash:
-        raise ModelPackError("model_pack_copy_hash_mismatch")
-    return ModelPackArtifact(
-        relativePath=relative_path,
-        sizeBytes=destination.stat().st_size,
-        sha256=source_hash,
-        purpose=purpose,
-    )
+    return destination
+
+
+def serialize_model_pack_manifest(manifest: dict[str, object]) -> bytes:
+    return (json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode("utf-8")
 
 
 def build_model_pack(
     *,
     source_manifest: Path,
-    checkpoint: Path,
-    resolved_config: Path,
+    artifacts: dict[str, Path],
     assembled_from_commit: str,
     output: Path,
 ) -> dict[str, object]:
+    """Build the pack, or fail with a stable code and leave no partial output."""
     if not _SHA1_RE.fullmatch(assembled_from_commit):
         raise ModelPackError("model_pack_source_commit_invalid")
     source = _read_source_manifest(source_manifest)
-    checkpoint_section = source["checkpoint"]
-    config_section = source["resolvedConfig"]
-    assert isinstance(checkpoint_section, dict)
-    assert isinstance(config_section, dict)
-
-    checkpoint_sha = _sha256(checkpoint)
-    config_sha = _sha256(resolved_config)
-    if checkpoint_sha != checkpoint_section["sha256"]:
-        raise ModelPackError("model_pack_checkpoint_hash_mismatch")
-    if config_sha != config_section["sha256"]:
-        raise ModelPackError("model_pack_resolved_config_hash_mismatch")
-
-    model_id = str(source["modelId"])
-    pack_id = model_pack_id(
-        ModelPackIdentityInputs(
-            model_id=model_id,
-            checkpoint_sha256=checkpoint_sha,
-            resolved_config_sha256=config_sha,
-        )
-    )
+    declared = {artifact.artifact_role: artifact for artifact in source.artifacts}
+    for role in sorted(set(declared) - set(artifacts)):
+        raise ModelPackError(f"model_pack_artifact_missing:{role}")
+    for role in sorted(set(artifacts) - set(declared)):
+        raise ModelPackError(f"model_pack_artifact_undeclared:{role}")
+    for role in sorted(declared):
+        if _sha256(artifacts[role]) != declared[role].sha256:
+            raise ModelPackError(f"model_pack_artifact_hash_mismatch:{role}")
 
     if output.exists():
         if not output.is_dir() or any(output.iterdir()):
@@ -151,37 +121,31 @@ def build_model_pack(
     stage = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
     published = False
     try:
-        artifacts = [
-            _copy_asset(
-                stage,
-                checkpoint,
-                str(checkpoint_section["relativePath"]),
-                "model-checkpoint",
-            ),
-            _copy_asset(
-                stage,
-                resolved_config,
-                str(config_section["relativePath"]),
-                "resolved-model-config",
-            ),
-        ]
+        built: list[ModelPackArtifact] = []
+        for role in sorted(declared):
+            item = declared[role]
+            destination = _copy_asset(stage, artifacts[role], item.relative_path)
+            # The copy is what ships: its bytes are hashed and measured, not the source's.
+            if _sha256(destination) != item.sha256:
+                raise ModelPackError(f"model_pack_copy_hash_mismatch:{role}")
+            built.append(
+                ModelPackArtifact(
+                    relativePath=item.relative_path,
+                    sizeBytes=destination.stat().st_size,
+                    sha256=item.sha256,
+                    artifactRole=role,
+                )
+            )
         manifest: dict[str, object] = {
-            "schemaVersion": _SCHEMA,
-            "modelPackId": pack_id,
-            "modelId": model_id,
-            "checkpointSha256": checkpoint_sha,
-            "resolvedConfigSha256": config_sha,
+            "schemaVersion": MODEL_PACK_SCHEMA,
+            "modelPackId": source.model_pack_id,
+            "modelId": source.model_id,
+            "modelVersion": source.model_version,
+            "capabilityIds": list(source.capability_ids),
             "assembledFromCommit": assembled_from_commit,
-            "artifacts": [
-                asdict(item)
-                for item in sorted(artifacts, key=lambda item: item.relativePath)
-            ],
+            "artifacts": [asdict(item) for item in sorted(built, key=lambda item: item.relativePath)],
         }
-        manifest_bytes = (
-            json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-            + "\n"
-        ).encode("utf-8")
-        (stage / "model-pack-manifest.json").write_bytes(manifest_bytes)
+        (stage / MODEL_PACK_MANIFEST).write_bytes(serialize_model_pack_manifest(manifest))
         if preexisting_empty_output:
             output.rmdir()
         os.replace(stage, output)
@@ -192,11 +156,24 @@ def build_model_pack(
             shutil.rmtree(stage, ignore_errors=True)
 
 
+def _parse_artifact(value: str) -> tuple[str, Path]:
+    role, separator, path = value.partition("=")
+    if not separator or not role or not path:
+        raise argparse.ArgumentTypeError("--artifact expects ROLE=PATH")
+    return role, Path(path)
+
+
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source-manifest", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--resolved-config", type=Path, required=True)
+    parser.add_argument(
+        "--artifact",
+        type=_parse_artifact,
+        action="append",
+        default=[],
+        required=True,
+        help="ROLE=PATH, once per artefact the source manifest declares (licence-notice included)",
+    )
     parser.add_argument("--assembled-from-commit", required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
@@ -204,11 +181,16 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
+    artifacts: dict[str, Path] = {}
+    for role, path in args.artifact:
+        if role in artifacts:
+            print(f"model_pack_artifact_duplicate:{role}", file=sys.stderr)
+            return 2
+        artifacts[role] = path
     try:
         manifest = build_model_pack(
             source_manifest=args.source_manifest,
-            checkpoint=args.checkpoint,
-            resolved_config=args.resolved_config,
+            artifacts=artifacts,
             assembled_from_commit=args.assembled_from_commit,
             output=args.output,
         )

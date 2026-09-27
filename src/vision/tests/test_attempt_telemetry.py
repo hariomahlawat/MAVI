@@ -117,6 +117,11 @@ def _cpu_provenance() -> RuntimeProvenance:
             minimum_consecutive_frames=2,
             lost_track_buffer_seconds=1,
         ),
+        capability_id="detector",
+        model_pack_id="mavi-model-v2-" + "7" * 64,
+        runtime_pack_id=None,
+        runtime_pack_source="unpacked-environment",
+        component_binding_sha256="9" * 64,
     )
 
 

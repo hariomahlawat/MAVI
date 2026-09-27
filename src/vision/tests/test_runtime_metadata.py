@@ -17,7 +17,8 @@ RUNTIME_PATH = (
 def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -> None:
     payload = json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
 
-    assert payload["schemaVersion"] == "1.0"
+    # S2a.3: a v2 runtime family profile (P-2) carries no model identity.
+    assert payload["schemaVersion"] == "2.0"
     assert payload["runtimeProfileId"] == "mmdetection-phase1-v1"
     assert payload["qualificationStatus"] == "partial"
     assert payload["pythonMinor"] == "3.12"
@@ -36,22 +37,17 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
         "pillow": "11.3.0",
         "av": "16.1.0",
     }
-    assert payload["checkpoint"]["sha256"] == (
-        "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b"
-    )
-    assert payload["resolvedConfig"] == {
-        "artifact": "rtmdet_m_resolved.py",
-        "sha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
-        "format": "python",
-        "encoding": "utf-8",
-        "lineEndings": "lf",
-        "selfContained": True,
-    }
+    assert "checkpoint" not in payload and "resolvedConfig" not in payload
     for variant in ("linux-x86_64-cpu", "windows-x86_64-cpu"):
         assert payload["platformVariants"][variant]["status"] == "qualified-hosted-cpu"
-        assert payload["platformVariants"][variant]["resolvedConfigSha256"] == (
-            payload["resolvedConfig"]["sha256"]
-        )
+        assert "resolvedConfigSha256" not in payload["platformVariants"][variant]
+    # The model bytes moved to the Model Pack manifest, unchanged.
+    manifest = json.loads(
+        (Path(__file__).parents[3] / "models/manifests/rtmdet-m-coco-phase1-v2.json").read_text(encoding="utf-8")
+    )
+    digests = {item["artifactRole"]: item["sha256"] for item in manifest["artifacts"]}
+    assert digests["checkpoint"] == "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b"
+    assert digests["resolved-config"] == "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
 
     assert payload["platformVariants"]["linux-x86_64-cpu"]["pythonIdentity"] == {
         "version": "3.12.14",
@@ -83,7 +79,7 @@ def test_runtime_candidate_records_exact_semantic_graph_and_pending_hardware() -
         "torch": "2.6.0+cu124",
         "torchvision": "0.21.0+cu124",
     }
-    assert cuda["resolvedConfigSha256"] == payload["resolvedConfig"]["sha256"]
+    assert "resolvedConfigSha256" not in cuda  # model identity is the Model Pack's (S2a.3)
     assert cuda["pythonIdentity"]["version"] == "3.12.10"
     assert cuda["developmentEvidence"]["sourceHeadSha"]
     assert cuda["developmentEvidence"]["evidenceBundleSha256"]
@@ -331,12 +327,12 @@ def test_the_qualification_record_binds_the_runtime_profile_it_ships_with() -> N
     this fails is to re-derive the field from the file, never to type a digest.
     """
     record = json.loads(
-        (Path(__file__).parents[3] / "models/qualifications/rtmdet-m-coco-phase1-v1.json")
+        (Path(__file__).parents[3] / "models/qualifications/rtmdet-m-coco-phase1-v2.json")
         .read_text(encoding="utf-8")
     )
     expected = hashlib.sha256(RUNTIME_PATH.read_bytes()).hexdigest()
 
-    assert record["runtimeProfileId"] == "mmdetection-phase1-v1"
+    assert record["runtimePackFamilyId"] == "mmdetection-phase1-v1"
     assert record["runtimeProfileSha256"] == expected, (
         "re-derive with: "
         "payload['runtimeProfileSha256'] = sha256(runtime.json); "
@@ -354,7 +350,7 @@ def test_development_qualification_does_not_satisfy_a_release_gate() -> None:
     qualification vocabulary exists to prevent.
     """
     record = json.loads(
-        (Path(__file__).parents[3] / "models/qualifications/rtmdet-m-coco-phase1-v1.json")
+        (Path(__file__).parents[3] / "models/qualifications/rtmdet-m-coco-phase1-v2.json")
         .read_text(encoding="utf-8")
     )
     profile = json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
@@ -363,6 +359,10 @@ def test_development_qualification_does_not_satisfy_a_release_gate() -> None:
         profile["platformVariants"]["windows-x86_64-cuda"]["status"]
         == "qualified-development-hardware"
     )
-    assert record["requiredGates"]["windows-x86_64-cuda"] == "pending"
+    # v2: gates are per variant (P-12); every Windows CUDA gate stays pending.
+    cuda = record["variants"]["windows-x86_64-cuda"]
+    assert cuda["status"] == "pending"
+    assert set(cuda["gates"].values()) == {"pending"}
+    assert "windows-x86_64-cuda" not in record["evidence"]
     assert record["overallResult"] == "pending"
     assert profile["qualificationStatus"] == "partial"

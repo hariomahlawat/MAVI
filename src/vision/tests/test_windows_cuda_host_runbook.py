@@ -187,11 +187,13 @@ def test_nothing_is_claimed_verified_that_the_repository_contradicts():
         .read_text(encoding="utf-8")
     )
     components = json.loads(
-        (REPOSITORY_ROOT / "src/vision/config/components/mmdetection-phase1-v1.json")
+        (REPOSITORY_ROOT / "src/vision/config/components/phase1-bindings-v2.json")
         .read_text(encoding="utf-8")
     )
     variant_status = profile["platformVariants"]["windows-x86_64-cuda"]["status"]
-    cuda_bound = "windows-x86_64-cuda" in components.get("runtimePacks", {})
+    cuda_bound = any(
+        "windows-x86_64-cuda" in family["variants"] for family in components["runtimePacks"]
+    )
 
     if "**HARDWARE-QUALIFIED for Development**" in text:
         assert variant_status == "qualified-development-hardware"

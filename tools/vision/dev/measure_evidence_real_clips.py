@@ -565,17 +565,15 @@ async def _measure(out: Path, clips: list[list[str]], record_dir: Path | None = 
     from mavi_vision.runtime.execution_lane import VisionExecutionLane
     from mavi_vision.runtime.gpu_identity import capture_gpu_identity
     from mavi_vision.runtime.supervisor import RuntimeState, RuntimeSupervisor
+    from mavi_vision.worker.composition import role_composition_from_settings
 
     settings = WorkerSettings()
     lane = VisionExecutionLane()
     supervisor = RuntimeSupervisor(
         lane=lane,
         activity=InferenceActivity(),
-        model_root=settings.model_root,
-        manifest_path=settings.model_manifest_path,
-        profile_path=settings.pipeline_profile_path,
-        runtime_profile_path=settings.runtime_profile_path,
-        qualification_path=settings.qualification_record_path,
+        # The worker's own composition: the component binding (S2a.3).
+        composition=role_composition_from_settings(settings),
         deployment_profile_policy_path=settings.deployment_profile_policy_path,
         deployment_profile=settings.deployment_profile,
         device_policy=settings.device_policy,

@@ -296,6 +296,7 @@ class ModelManifestV2:
     artifacts: tuple[ModelArtifactV2, ...]
     pack_directory: str
     input_contract_kind: str
+    input_colour_space: str | None
     output_schema_id: str
     runtime_pack_family_ids: tuple[str, ...]
     licence_spdx_id: str
@@ -378,6 +379,7 @@ def parse_model_manifest_v2(raw: object) -> ModelManifestV2:
         artifacts=artifacts,
         pack_directory=PurePosixPath(artifacts[0].relative_path).parts[0],
         input_contract_kind=parsed.input_contract.kind,
+        input_colour_space=parsed.input_contract.colour_space,
         output_schema_id=parsed.output_contract.schema_id,
         runtime_pack_family_ids=parsed.runtime_compatibility.runtime_pack_family_ids,
         licence_spdx_id=parsed.licence.spdx_id,

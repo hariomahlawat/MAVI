@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 import platform
 from contextlib import contextmanager, nullcontext
@@ -20,7 +21,7 @@ from mavi_vision.runtime.errors import (
     RuntimeCompatibilityError,
 )
 from mavi_vision.runtime.interfaces import PixelBoxXYXY, RawDetection
-from mavi_vision.runtime.manifest import ArtifactRef, ModelManifest
+from mavi_vision.runtime.manifest import ArtifactRef
 from mavi_vision.runtime.mmdetection import (
     MMDetectionRuntime,
     _MMDetectionBindings,
@@ -31,8 +32,9 @@ from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
 from mavi_vision.runtime.qualification import (
     RuntimePlatformVariantIdentity,
     RuntimePythonIdentity,
-    VerifiedReleaseSelection,
 )
+from mavi_vision.runtime.resolver import DetectorModelView, DetectorSelection
+from tests.detector_selection_fixtures import make_selection
 from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
 
@@ -267,7 +269,7 @@ def _selection(
     checkpoint_bytes: bytes = b"checkpoint",
     versions: dict[str, str] | None = None,
     python_identity: RuntimePythonIdentity | None = None,
-) -> VerifiedReleaseSelection:
+) -> DetectorSelection:
     release_dir = tmp_path / "release"
     release_dir.mkdir(parents=True, exist_ok=True)
     config_path = release_dir / "config.py"
@@ -286,13 +288,11 @@ def _selection(
     config_path.write_bytes(config_payload)
     checkpoint_path.write_bytes(checkpoint_bytes)
 
-    manifest = ModelManifest(
-        schema_version="1.0",
-        model_id="rtmdet-m-coco-phase1",
-        model_version="1.0.0",
-        purpose="phase1-person-vehicle-detection",
+    detector = DetectorModelView(
         backend="mmdetection",
         architecture="rtmdet-m",
+        model_id="rtmdet-m-coco-phase1",
+        model_version="1.0.0",
         class_vocabulary=VOCABULARY,
         checkpoint=ArtifactRef(
             relative_path="release/checkpoint.pth",
@@ -302,9 +302,6 @@ def _selection(
             relative_path="release/config.py",
             sha256=_sha(config_payload),
         ),
-        runtime_profile_id="mmdetection-phase1-v1",
-        verification_status="unverified",
-        qualification_id=None,
     )
 
     selected_python_identity = python_identity or RuntimePythonIdentity(
@@ -314,15 +311,12 @@ def _selection(
         compiler=platform.python_compiler(),
     )
 
-    return VerifiedReleaseSelection(
-        manifest=manifest,
+    # The resolved role is the fixture's; this suite states only what the
+    # detector runtime reads: the model view, artefacts, graph and variants.
+    return dataclasses.replace(
+        make_selection(),
+        detector=detector,
         profile=_profile(),
-        qualification=None,
-        manifest_sha256="a" * 64,
-        profile_sha256="b" * 64,
-        qualification_sha256=None,
-        runtime_profile_id=manifest.runtime_profile_id,
-        runtime_profile_sha256="c" * 64,
         checkpoint_path=checkpoint_path,
         resolved_config_path=config_path,
         verification_status="unverified",
@@ -332,7 +326,6 @@ def _selection(
             {
                 "linux-x86_64-cpu": RuntimePlatformVariantIdentity(
                     status="qualified-hosted-cpu",
-                    resolved_config_sha256=None,
                     python_identity=selected_python_identity,
                     binary_versions=MappingProxyType(
                         {
@@ -343,7 +336,6 @@ def _selection(
                 ),
                 "windows-x86_64-cpu": RuntimePlatformVariantIdentity(
                     status="qualified-hosted-cpu",
-                    resolved_config_sha256=None,
                     python_identity=selected_python_identity,
                     binary_versions=MappingProxyType(
                         {
@@ -397,7 +389,7 @@ def test_constructor_uses_verified_local_artifacts_and_profile_floor(
     assert harness.init_observed_checkpoint_scope is True
     assert config["model"]["test_cfg"]["score_thr"] == 0.05
     assert runtime.metadata.backend == "mmdetection"
-    assert runtime.metadata.model_id == selection.manifest.model_id
+    assert runtime.metadata.model_id == selection.detector.model_id
     assert runtime.metadata.device == "cpu"
     assert runtime.metadata.ordered_class_vocabulary == VOCABULARY
     assert dict(runtime.metadata.versions) == LIVE_VERSIONS

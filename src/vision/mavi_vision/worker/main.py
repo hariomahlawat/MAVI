@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from uuid import UUID
-from mavi_vision.common.settings import WorkerSettings
+from mavi_vision.common.settings import WorkerSettings, reject_v1_composition_environment
 from mavi_vision.pipeline.production_processor import ProductionVisionProcessor
 from mavi_vision.runtime.activity import InferenceActivity
 from mavi_vision.runtime.execution_lane import ProcessExecutor, VisionExecutionLane
@@ -22,6 +22,7 @@ from mavi_vision.worker.attempt_telemetry import (
     JsonlAttemptTelemetryRecorder,
 )
 from mavi_vision.worker.client import WorkerApiClient, WorkerApiError
+from mavi_vision.worker.composition import role_composition_from_settings
 from mavi_vision.worker.runner import VisionProcessor, WorkerRunner
 from mavi_vision.worker.watchdog_incident import (
     JsonlWatchdogIncidentRecorder,
@@ -149,11 +150,16 @@ async def _run_supervised_loop(
             await sleep(poll_interval_seconds)
 
 
+# Startup refusals before a runtime exists: the stable code is the message.
+_COMPOSITION_REFUSED_EXIT = 2
+
+
 # Worker composition
 async def _run_worker(
     settings: WorkerSettings,
     *,
-    client_factory: Callable[[WorkerSettings], Any] = WorkerApiClient,
+    client_factory: Callable[..., Any] = WorkerApiClient,
+    composition_factory: Callable[[WorkerSettings], Any] = role_composition_from_settings,
     lane_factory: Callable[[], Any] = VisionExecutionLane,
     activity_factory: Callable[[], Any] = InferenceActivity,
     supervisor_factory: Callable[..., Any] = RuntimeSupervisor,
@@ -162,7 +168,19 @@ async def _run_worker(
     supervised_loop: Callable[..., Awaitable[int]] = _run_supervised_loop,
 ) -> int:
     """Compose one process-scoped runtime and run the readiness-gated worker."""
-    client = client_factory(settings)
+    # The binding fixes the completion contract before the client exists, so the
+    # capability probe and every completion use the role's contract (P-16).
+    try:
+        composition = composition_factory(settings)
+    except ValueError as exc:
+        # ReleaseMetadataError is a ValueError; its message is the stable code.
+        logger.error("Vision role composition refused: %s", exc)
+        return _COMPOSITION_REFUSED_EXIT
+    client = client_factory(
+        settings,
+        completion=composition.completion,
+        component_binding_sha256=composition.binding.component_binding_sha256,
+    )
     lane: Any | None = None
     supervisor: Any | None = None
     runner: Any | None = None
@@ -173,11 +191,7 @@ async def _run_worker(
         supervisor = supervisor_factory(
             lane=lane,
             activity=activity,
-            model_root=settings.model_root,
-            manifest_path=settings.model_manifest_path,
-            profile_path=settings.pipeline_profile_path,
-            runtime_profile_path=settings.runtime_profile_path,
-            qualification_path=settings.qualification_record_path,
+            composition=composition,
             deployment_profile_policy_path=(
                 settings.deployment_profile_policy_path
             ),
@@ -283,6 +297,13 @@ async def _run_worker(
 
 # Module entry point
 def main() -> None:
+    # Retired composition variables fail closed before anything reads the environment
+    # (S2a plan P-9, P-16: settings_v1_composition_rejected).
+    try:
+        reject_v1_composition_environment()
+    except ValueError as exc:
+        logger.error("Vision worker configuration refused: %s", exc)
+        raise SystemExit(_COMPOSITION_REFUSED_EXIT) from None
     settings = WorkerSettings()
     try:
         exit_code = asyncio.run(_run_worker(settings))

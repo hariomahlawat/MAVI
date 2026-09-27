@@ -23,14 +23,15 @@ def test_settings_load_and_normalize(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert settings.poll_interval_seconds == 2.0
     assert settings.heartbeat_interval_seconds == 30.0
     assert settings.model_root == Path("models")
-    assert settings.model_manifest_path == Path(
-        "models/manifests/rtmdet-m-coco-phase1-v1.json"
+    assert settings.component_binding_path == Path(
+        "src/vision/config/components/phase1-bindings-v2.json"
     )
+    assert settings.role_id == "vision"
+    assert settings.overlay_root == Path(".")
+    assert settings.runtime_pack_manifest_path is None
+    assert settings.completion_schema_override is None
     assert settings.pipeline_profile_path == Path(
         "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
-    )
-    assert settings.runtime_profile_path == Path(
-        "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
     )
     assert settings.deployment_profile_policy_path == Path(
         "config/acceptance/phase1-deployment-profiles-v1.json"
@@ -78,16 +79,17 @@ def test_settings_load_runtime_operational_selection(
     seed_required(monkeypatch, tmp_path)
     monkeypatch.setenv("MAVI_MODEL_ROOT", str(tmp_path / "models"))
     monkeypatch.setenv(
-        "MAVI_MODEL_MANIFEST_PATH",
-        str(tmp_path / "release" / "manifest.json"),
+        "MAVI_COMPONENT_BINDING_PATH",
+        str(tmp_path / "release" / "bindings.json"),
     )
     monkeypatch.setenv(
         "MAVI_PIPELINE_PROFILE_PATH",
         str(tmp_path / "release" / "profile.json"),
     )
+    monkeypatch.setenv("MAVI_OVERLAY_ROOT", str(tmp_path / "overlay"))
     monkeypatch.setenv(
-        "MAVI_RUNTIME_PROFILE_PATH",
-        str(tmp_path / "release" / "runtime.json"),
+        "MAVI_RUNTIME_PACK_MANIFEST_PATH",
+        str(tmp_path / "pack" / "runtime-pack-manifest.json"),
     )
     monkeypatch.setenv("MAVI_DEVICE_POLICY", "cuda")
     monkeypatch.setenv("MAVI_DEVICE_INDEX", "2")
@@ -99,9 +101,10 @@ def test_settings_load_runtime_operational_selection(
     settings = WorkerSettings()
 
     assert settings.model_root == tmp_path / "models"
-    assert settings.model_manifest_path == tmp_path / "release" / "manifest.json"
+    assert settings.component_binding_path == tmp_path / "release" / "bindings.json"
     assert settings.pipeline_profile_path == tmp_path / "release" / "profile.json"
-    assert settings.runtime_profile_path == tmp_path / "release" / "runtime.json"
+    assert settings.overlay_root == tmp_path / "overlay"
+    assert settings.runtime_pack_manifest_path == tmp_path / "pack" / "runtime-pack-manifest.json"
     assert settings.device_policy == "cuda"
     assert settings.device_index == 2
     assert settings.deployment_profile == "P1"
@@ -169,40 +172,86 @@ def test_settings_reject_invalid_watchdog_policy(
         WorkerSettings()
 
 
-def test_the_shipped_completion_default_is_3_1_and_3_0_remains_the_rollback_setting(
+def test_the_completion_override_is_development_only_and_names_a_pre_cut_over_version(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # S1.4 F4-C: the worker ships on the asynchronous 3.1 exchange; 3.0 is the
-    # setting that pairs with a platform held off. There is no 2.0 worker and no
-    # other version: the probe requires exactly this one.
+    # S2a.3 (plan P-16): the completion version is the role's provenanceContract
+    # (3.2); the settings hold no version, only the explicit Development override.
     seed_required(monkeypatch, tmp_path)
-    monkeypatch.delenv("MAVI_COMPLETION_SCHEMA_VERSION", raising=False)
-    assert WorkerSettings().completion_schema_version == "3.1"
+    assert WorkerSettings().completion_schema_override is None
+    assert "completion_schema_version" not in WorkerSettings.model_fields
 
-    monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", "3.0")
-    assert WorkerSettings().completion_schema_version == "3.0"
+    for version in ("3.0", "3.1"):
+        monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_OVERRIDE", version)
+        assert WorkerSettings().completion_schema_override == version
 
     for unsupported in ("2.0", "3.2", "3.3", ""):
-        monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", unsupported)
+        monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_OVERRIDE", unsupported)
         with pytest.raises(ValidationError):
             WorkerSettings()
 
 
-def test_completion_32_requires_binding(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    # S2a.2 (Stage 2 S2a plan §13.0): the platform accepts completion 3.2, but this
-    # worker cannot yet supply its component identity, so selecting it fails
-    # closed with a stable code rather than as an unknown literal. S2a.3 retires
-    # MAVI_COMPLETION_SCHEMA_VERSION altogether.
+def test_the_completion_override_is_refused_in_production(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     seed_required(monkeypatch, tmp_path)
-    monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", "3.2")
-    with pytest.raises(ValidationError) as raised:
+    monkeypatch.setenv("MAVI_PRODUCTION_MODE", "true")
+    monkeypatch.setenv("MAVI_DEVICE_POLICY", "cpu")
+    monkeypatch.setenv("MAVI_DEPLOYMENT_PROFILE", "P3")
+    WorkerSettings()
+    monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_OVERRIDE", "3.1")
+    with pytest.raises(ValidationError, match="completion_override_forbidden_in_production"):
         WorkerSettings()
-    assert "completion_32_requires_binding" in str(raised.value)
 
-    monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", "3.3")
-    with pytest.raises(ValidationError) as unknown:
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "MAVI_MODEL_MANIFEST_PATH",
+        "MAVI_QUALIFICATION_RECORD_PATH",
+        "MAVI_RUNTIME_PROFILE_PATH",
+        "MAVI_COMPLETION_SCHEMA_VERSION",
+    ],
+)
+def test_every_retired_v1_composition_variable_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, name: str
+) -> None:
+    # No dual reader (plan P-9): a v1 selection is refused, never ignored, even
+    # when empty, and whatever its case.
+    seed_required(monkeypatch, tmp_path)
+    for value in ("x", ""):
+        monkeypatch.setenv(name, value)
+        with pytest.raises(ValidationError, match=f"settings_v1_composition_rejected:{name}"):
+            WorkerSettings()
+    monkeypatch.delenv(name)
+    monkeypatch.setenv(name.lower(), "x")
+    with pytest.raises(ValidationError, match="settings_v1_composition_rejected"):
         WorkerSettings()
-    assert "completion_32_requires_binding" not in str(unknown.value)
+
+
+def test_every_retired_variable_is_named_in_one_refusal(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seed_required(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAVI_RUNTIME_PROFILE_PATH", "x")
+    monkeypatch.setenv("MAVI_MODEL_MANIFEST_PATH", "x")
+    with pytest.raises(
+        ValidationError,
+        match="settings_v1_composition_rejected:MAVI_MODEL_MANIFEST_PATH,MAVI_RUNTIME_PROFILE_PATH",
+    ):
+        WorkerSettings()
+
+
+@pytest.mark.parametrize(
+    "field", ["model_manifest_path", "qualification_record_path", "runtime_profile_path", "completion_schema_version"]
+)
+def test_the_retired_fields_are_refused_as_constructor_arguments(tmp_path: Path, field: str) -> None:
+    with pytest.raises(ValidationError, match="settings_v1_composition_rejected"):
+        WorkerSettings(api_base_url="https://mavi-api.local", worker_id="w", media_root=tmp_path, **{field: "x"})
+
+
+def test_the_pipeline_profile_variable_is_not_retired(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seed_required(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAVI_PIPELINE_PROFILE_PATH", str(tmp_path / "p.json"))
+    assert WorkerSettings().pipeline_profile_path == tmp_path / "p.json"
 
 
 def test_worker_settings_do_not_expose_analytical_tuning_knobs() -> None:
@@ -230,9 +279,7 @@ def test_settings_expose_explicit_release_evidence_and_build_identity_defaults(
 
     settings = WorkerSettings()
 
-    assert settings.qualification_record_path == Path(
-        "models/qualifications/rtmdet-m-coco-phase1-v1.json"
-    )
+    assert "qualification_record_path" not in WorkerSettings.model_fields
     assert settings.build_id is None
     assert settings.commit_sha is None
 
@@ -242,14 +289,11 @@ def test_settings_load_release_evidence_and_build_identity_from_environment(
     tmp_path: Path,
 ) -> None:
     seed_required(monkeypatch, tmp_path)
-    qualification = tmp_path / "release" / "qualification.json"
-    monkeypatch.setenv("MAVI_QUALIFICATION_RECORD_PATH", str(qualification))
     monkeypatch.setenv("MAVI_BUILD_ID", "mavi-2026.09.12")
     monkeypatch.setenv("MAVI_COMMIT_SHA", "a" * 40)
 
     settings = WorkerSettings()
 
-    assert settings.qualification_record_path == qualification
     assert settings.build_id == "mavi-2026.09.12"
     assert settings.commit_sha == "a" * 40
 
