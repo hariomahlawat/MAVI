@@ -268,7 +268,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "task12_mmcv_rebuild_failed" }
           $second = Get-ChildItem ../.task12-wheelhouse -Filter 'mmcv-2.1.0-*.whl' | Select-Object -First 1
           $secondHash = (Get-FileHash $second.FullName -Algorithm SHA256).Hash
-          if ($firstHash -ne $secondHash) { throw "task12_mmcv_windows_rebuild_not_reproducible:$firstHash:$secondHash" }
+          if ($firstHash -ne $secondHash) { throw "task12_mmcv_windows_rebuild_not_reproducible:${firstHash}:${secondHash}" }
           Remove-Item ../.task12-mmcv-first.whl
           "task12-mmcv-windows-rebuild-sha256=$secondHash"
 

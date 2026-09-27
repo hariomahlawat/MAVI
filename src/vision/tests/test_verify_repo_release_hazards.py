@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -185,6 +186,11 @@ def test_task12_windows_toolchain_is_pinned_by_compiler_build_not_toolset_direct
     assert "shell: pwsh" in rebuild
     assert "git clean -xfd" in rebuild
     assert "task12_mmcv_windows_rebuild_not_reproducible" in rebuild
+
+    # PowerShell reads "$name:" inside a string as a scope/drive-qualified
+    # variable and refuses to parse the whole step; delimit as "${name}:".
+    for block in (pinned, verify, rebuild):
+        assert re.search(r"\$(?!env:)[A-Za-z_][A-Za-z0-9_]*:", block) is None
 
 
 def test_offline_bundle_contract_retains_all_qualified_runtime_locks() -> None:
