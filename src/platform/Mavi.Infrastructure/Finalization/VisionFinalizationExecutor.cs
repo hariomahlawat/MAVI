@@ -261,7 +261,7 @@ public sealed partial class VisionFinalizationExecutor(
         if (!string.Equals(result.CompletionDigest, payload.CompletionDigest, StringComparison.Ordinal) ||
             !string.Equals(result.CompletionDigest, claim.CompletionDigest, StringComparison.Ordinal))
             return ((VisionFinalizationFailureCodes.PayloadIntegrityFailed, "completion digest"), null);
-        if (result.Schema != CompletionSchema.V3)
+        if (!result.Schema.IsEvidenceSet())
             return ((VisionFinalizationFailureCodes.PayloadInvalid, "schema"), null);
         return (null, result);
     }

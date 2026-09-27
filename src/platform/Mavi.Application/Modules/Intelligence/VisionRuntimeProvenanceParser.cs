@@ -39,6 +39,25 @@ public sealed class VisionRuntimeProvenanceParser
         .. AutoCpuDeviceResolutionReasons
     ];
 
+    // Closed capability-id registry (ADR-014 §1-§2, S2a plan P-4), mirrored from
+    // mavi_vision.runtime.capabilities.KNOWN_CAPABILITIES and the completion 3.2
+    // schema enum. Cross-language tests bind all three to one set.
+    internal static readonly HashSet<string> KnownCapabilityIds =
+    [
+        "detector", "person-attributes", "vehicle-attributes", "plate-detector", "ocr", "embedding"
+    ];
+
+    internal const string InstalledPackRuntimePackSource = "installed-pack";
+    internal const string UnpackedEnvironmentRuntimePackSource = "unpacked-environment";
+
+    // Identity grammars of mavi_vision.runtime.model_pack_identity and
+    // component_identity. The platform checks the grammar only: identities are
+    // derived by the worker, never re-derived or invented here.
+    private const string ModelPackIdPrefix = "mavi-model-v2-";
+    private const string RuntimePackIdPrefix = "mavi-runtime-v2-";
+    private static readonly System.Buffers.SearchValues<char> LowerHexDigits =
+        System.Buffers.SearchValues.Create("0123456789abcdef");
+
     private static readonly HashSet<string> AttestationDependencyAllowlist =
     [
         "python", "torch", "torchvision", "mmdet", "mmcv", "mmengine", "trackers",
@@ -70,10 +89,34 @@ public sealed class VisionRuntimeProvenanceParser
         if (contract is null)
             throw Invalid("provenance_json_invalid");
 
-        return Parse(contract);
+        // Stored provenance carries no version. Every stored row was validated at
+        // ingest, so a row carries component identity exactly when it came from a 3.2
+        // body; it is re-checked under that version's rules, never a laxer one.
+        return ParseCore(contract, componentIdentityRequired: HasComponentIdentity(contract));
     }
 
-    public static ParsedVisionRuntimeProvenance Parse(VisionRuntimeProvenanceContract value)
+    /// <summary>Validates provenance under the rules of one completion schema.</summary>
+    public static ParsedVisionRuntimeProvenance Parse(
+        VisionRuntimeProvenanceContract value,
+        CompletionSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (!Enum.IsDefined(schema))
+            throw new ArgumentOutOfRangeException(nameof(schema));
+        return ParseCore(value, componentIdentityRequired: schema == CompletionSchema.V32);
+    }
+
+    /// <summary>Whether any completion 3.2 component-identity member is present.</summary>
+    internal static bool HasComponentIdentity(VisionRuntimeProvenanceContract value) =>
+        value.CapabilityId is not null ||
+        value.ModelPackId is not null ||
+        value.RuntimePackId is not null ||
+        value.RuntimePackSource is not null ||
+        value.ComponentBindingSha256 is not null;
+
+    private static ParsedVisionRuntimeProvenance ParseCore(
+        VisionRuntimeProvenanceContract value,
+        bool componentIdentityRequired)
     {
         ArgumentNullException.ThrowIfNull(value);
 
@@ -184,6 +227,11 @@ public sealed class VisionRuntimeProvenanceParser
                 throw Invalid("provenance_gpu_invalid");
         }
 
+        if (componentIdentityRequired)
+            ValidateComponentIdentity(value);
+        else if (HasComponentIdentity(value))
+            throw Invalid("provenance_v32_field_in_v3_body");
+
         return new ParsedVisionRuntimeProvenance(
             value,
             modelId,
@@ -249,6 +297,44 @@ public sealed class VisionRuntimeProvenanceParser
             actualDevice != "cpu")
             throw Invalid("provenance_device_resolution_reason_mismatch");
     }
+
+    /// <summary>
+    /// Completion 3.2 component identity (S2a plan §4.5). Every rule here is also in
+    /// the published 3.2 schema, so both accept the same payloads.
+    /// </summary>
+    private static void ValidateComponentIdentity(VisionRuntimeProvenanceContract value)
+    {
+        if (value.CapabilityId is null || !KnownCapabilityIds.Contains(value.CapabilityId))
+            throw Invalid("provenance_capability_invalid");
+        if (!IsDerivedIdentity(value.ModelPackId, ModelPackIdPrefix))
+            throw Invalid("provenance_model_pack_invalid");
+        if (value.RuntimePackId is not null && !IsDerivedIdentity(value.RuntimePackId, RuntimePackIdPrefix))
+            throw Invalid("provenance_runtime_pack_invalid");
+        Sha(value.ComponentBindingSha256, "provenance_component_binding_invalid");
+
+        switch (value.RuntimePackSource)
+        {
+            case InstalledPackRuntimePackSource:
+                if (value.RuntimePackId is null)
+                    throw Invalid("provenance_runtime_pack_required");
+                break;
+            case UnpackedEnvironmentRuntimePackSource:
+                // Unpacked execution is never equivalent to an installed Runtime Pack: it
+                // names no pack and can never be verified (ADR-014, S2a plan P-8).
+                if (value.RuntimePackId is not null || value.VerificationStatus != "unverified")
+                    throw Invalid("provenance_runtime_pack_required");
+                break;
+            default:
+                throw Invalid("provenance_runtime_pack_source_invalid");
+        }
+    }
+
+    /// <summary><c>^{prefix}[0-9a-f]{64}$</c>, the grammar of a derived v2 pack identity.</summary>
+    private static bool IsDerivedIdentity(string? value, string prefix) =>
+        value is not null &&
+        value.Length == prefix.Length + 64 &&
+        value.StartsWith(prefix, StringComparison.Ordinal) &&
+        value.AsSpan(prefix.Length).IndexOfAnyExcept(LowerHexDigits) < 0;
 
     /// <summary>
     /// Matches the published <c>^cuda:[0-9]+$</c> device pattern.

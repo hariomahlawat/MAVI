@@ -45,7 +45,7 @@ public sealed class VisionFinalizationSubmissionStore(
         LoggerMessage.Define<Guid, int, int, long, string>(
             LogLevel.Information,
             new EventId(1310, nameof(LogHandOff)),
-            "Completion 3.1 hand-off accepted for job {JobId} attempt {AttemptCount}: {TracksSubmitted} tracks, {PayloadBytes} payload bytes; {Timings}.");
+            "Asynchronous completion hand-off accepted for job {JobId} attempt {AttemptCount}: {TracksSubmitted} tracks, {PayloadBytes} payload bytes; {Timings}.");
 
     public async Task<VisionFinalizationSubmissionResult> SubmitAsync(
         Guid jobId,

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Mavi.Contracts.Api.Processing;
 
 public sealed record ProcessingRunAttestationResponse(
@@ -35,7 +37,14 @@ public sealed record ProcessingRunAttestationResponse(
     string? TrackerVersion,
     long FramesProcessed,
     int TracksCreated,
-    long ProcessingDurationMs);
+    long ProcessingDurationMs,
+    // Completion 3.2 component identity (S2a plan §4.5); absent for runs completed
+    // under an earlier completion version.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CapabilityId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ModelPackId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RuntimePackId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RuntimePackSource = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ComponentBindingSha256 = null);
 
 public sealed record ProcessingRunPlatformAttestationResponse(
     string System,

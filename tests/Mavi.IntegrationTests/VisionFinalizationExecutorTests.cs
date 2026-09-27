@@ -63,6 +63,64 @@ public sealed class VisionFinalizationExecutorTests
         Assert.Equal(job.CompletedAtUtc, ack.CompletedAtUtc);
     }
 
+    [Fact]
+    public async Task A32HandOffIsFinalizedUnderItsOwnDomainAndAttestsItsComponentIdentity()
+    {
+        // S2a plan §4.5: the retained document keeps 3.2, the executor re-validates it under
+        // the v3.2 domain against the stored digest, and the published run attests the identity.
+        using var world = await FinalizationWorld.CreateAsync();
+        var handOff = await world.HandOffAsync(async lease =>
+        {
+            var request = await VisionFinalizationSubmissionApiTests.BuildRequestAsync(world.Factory, lease, FinalizationWorld.AllRoles);
+            return request with
+            {
+                SchemaVersion = Mavi.Contracts.Worker.WorkerContractRules.CompletionSchemaVersionV32,
+                Provenance = request.Provenance! with
+                {
+                    CapabilityId = "detector",
+                    ModelPackId = "mavi-model-v2-" + new string('7', 64),
+                    RuntimePackId = "mavi-runtime-v2-" + new string('8', 64),
+                    RuntimePackSource = "installed-pack",
+                    ComponentBindingSha256 = new string('9', 64),
+                },
+            };
+        });
+        Assert.Equal("3.2", handOff.Ack.SchemaVersion);
+
+        var claim = (await world.ClaimAsync())!;
+        var outcome = await ExecuteAsync(world, claim);
+
+        Assert.Equal(VisionFinalizationExecutionKind.Published, outcome.Kind);
+        var (job, run, _) = await world.StateAsync(claim.JobId);
+        Assert.Equal(VisionJobStatus.Completed, job.Status);
+        Assert.Equal(ProcessingRunStatus.Completed, run.Status);
+
+        using var attestation = await handOff.Client.GetAsync($"/api/processing/runs/{run.Id}/attestation");
+        Assert.Equal(System.Net.HttpStatusCode.OK, attestation.StatusCode);
+        var attested = (await attestation.Content.ReadFromJsonAsync<Mavi.Contracts.Api.Processing.ProcessingRunAttestationResponse>())!;
+        Assert.Equal("detector", attested.CapabilityId);
+        Assert.Equal("installed-pack", attested.RuntimePackSource);
+        Assert.Equal("mavi-runtime-v2-" + new string('8', 64), attested.RuntimePackId);
+
+        // The worker's exact replay answers completed in its own version; the same body
+        // presented as 3.1 is a different digest and therefore a conflict, never a match.
+        using var replay = await handOff.Client.PostAsJsonAsync($"/api/vision/jobs/{claim.JobId}/complete", handOff.Request);
+        var ack = (await replay.Content.ReadFromJsonAsync<Mavi.Contracts.Worker.VisionJobFinalizationResponse>())!;
+        Assert.Equal("completed", ack.State);
+        Assert.Equal("3.2", ack.SchemaVersion);
+        var as31 = handOff.Request with
+        {
+            SchemaVersion = Mavi.Contracts.Worker.WorkerContractRules.CompletionSchemaVersionV31,
+            Provenance = handOff.Request.Provenance! with
+            {
+                CapabilityId = null, ModelPackId = null, RuntimePackId = null, RuntimePackSource = null, ComponentBindingSha256 = null,
+            },
+        };
+        using var conflict = await handOff.Client.PostAsJsonAsync($"/api/vision/jobs/{claim.JobId}/complete", as31);
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, conflict.StatusCode);
+        Assert.Contains("vision_job_completion_conflict", await conflict.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
     // -- payload integrity (F3 plan §6.4) -----------------------------------------------------
 
     [Fact]

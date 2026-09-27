@@ -101,6 +101,61 @@ public sealed class ProcessingRunAttestationApiTests
     }
 
     [Fact]
+    public async Task Completion32RunAttestsItsComponentIdentity()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var video = await Task14TestData.SeedBaseVideoAsync(factory, "CAM-ATT-32");
+        var runId = await SeedCompletedRunAsync(factory, video.VideoId, Completion32ProvenanceJson());
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/api/processing/runs/{runId}/attestation");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var value = await response.Content.ReadFromJsonAsync<ProcessingRunAttestationResponse>();
+        Assert.NotNull(value);
+        Assert.Equal("detector", value.CapabilityId);
+        Assert.Equal("mavi-model-v2-" + new string('7', 64), value.ModelPackId);
+        Assert.Equal("mavi-runtime-v2-" + new string('8', 64), value.RuntimePackId);
+        Assert.Equal("installed-pack", value.RuntimePackSource);
+        Assert.Equal(new string('9', 64), value.ComponentBindingSha256);
+    }
+
+    [Fact]
+    public async Task EarlierRunsAttestNoComponentIdentityMembers()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var video = await Task14TestData.SeedBaseVideoAsync(factory, "CAM-ATT-31");
+        var runId = await SeedCompletedRunAsync(factory, video.VideoId, ValidProvenanceJson());
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/api/processing/runs/{runId}/attestation");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync();
+        foreach (var field in new[] { "capabilityId", "modelPackId", "runtimePackId", "runtimePackSource", "componentBindingSha256" })
+            Assert.DoesNotContain(field, json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PartialPersistedComponentIdentityIsIntegrityFailure()
+    {
+        using var factory = new ApiTestFactory();
+        await factory.ResetAndMigrateAsync();
+        var video = await Task14TestData.SeedBaseVideoAsync(factory, "CAM-ATT-32-BAD");
+        var contract = JsonSerializer.Deserialize<VisionRuntimeProvenanceContract>(Completion32ProvenanceJson(), WebJsonOptions)!;
+        var runId = await SeedCompletedRunAsync(
+            factory, video.VideoId, JsonSerializer.Serialize(contract with { ComponentBindingSha256 = null }, WebJsonOptions));
+
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync($"/api/processing/runs/{runId}/attestation");
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Contains("processing_attestation_integrity_failure", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MalformedPersistedProvenanceIsIntegrityFailure()
     {
         using var factory = new ApiTestFactory();
@@ -168,6 +223,19 @@ public sealed class ProcessingRunAttestationApiTests
         };
 
         return JsonSerializer.Serialize(contract, WebJsonOptions);
+    }
+
+    private static string Completion32ProvenanceJson()
+    {
+        var contract = JsonSerializer.Deserialize<VisionRuntimeProvenanceContract>(ValidProvenanceJson(), WebJsonOptions)!;
+        return JsonSerializer.Serialize(contract with
+        {
+            CapabilityId = "detector",
+            ModelPackId = "mavi-model-v2-" + new string('7', 64),
+            RuntimePackId = "mavi-runtime-v2-" + new string('8', 64),
+            RuntimePackSource = "installed-pack",
+            ComponentBindingSha256 = new string('9', 64),
+        }, WebJsonOptions);
     }
 
     private static string ValidProvenanceJson()

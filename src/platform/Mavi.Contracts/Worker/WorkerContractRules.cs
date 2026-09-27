@@ -18,6 +18,12 @@ public static class WorkerContractRules
     /// semantic shape and digest domain.
     /// </summary>
     public const string CompletionSchemaVersionV31 = "3.1";
+    /// <summary>
+    /// Completion exchange 3.2 (Stage 2 S2a plan P-7, §4.5): the 3.1 asynchronous
+    /// exchange plus five component-identity provenance fields, under its own digest
+    /// domain. Asynchronous-only, like 3.1.
+    /// </summary>
+    public const string CompletionSchemaVersionV32 = "3.2";
 
     /// <summary>
     /// The completion versions accepted at <c>POST …/complete</c> and advertised at
@@ -29,11 +35,11 @@ public static class WorkerContractRules
         [CompletionSchemaVersionV2, CompletionSchemaVersionV3];
 
     /// <summary>
-    /// The set activated with the F3 finalizer: 2.0 unchanged, 3.1 answered by a durable
-    /// hand-off, 3.0 retired at that activation (never reinterpreted as 3.1).
+    /// The set activated with the F3 finalizer: 2.0 unchanged, 3.1 and 3.2 answered by a
+    /// durable hand-off, 3.0 retired at that activation (never reinterpreted as 3.1).
     /// </summary>
     public static IReadOnlyList<string> AsynchronousCompletionSchemaVersions { get; } =
-        [CompletionSchemaVersionV2, CompletionSchemaVersionV31];
+        [CompletionSchemaVersionV2, CompletionSchemaVersionV31, CompletionSchemaVersionV32];
 
     /// <summary>The live set for one activation state; advertisement and acceptance both derive from it.</summary>
     public static IReadOnlyList<string> CompletionSchemaVersions(bool asynchronousFinalizationEnabled) =>
@@ -41,16 +47,17 @@ public static class WorkerContractRules
 
     public static bool IsAcceptedCompletionSchemaVersion(string? value, bool asynchronousFinalizationEnabled) =>
         asynchronousFinalizationEnabled
-            ? value is CompletionSchemaVersionV2 or CompletionSchemaVersionV31
+            ? value is CompletionSchemaVersionV2 or CompletionSchemaVersionV31 or CompletionSchemaVersionV32
             : value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3;
 
     /// <summary>Every completion version the platform can read, accepted or not.</summary>
     public static bool IsKnownCompletionSchemaVersion(string? value) =>
-        value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3 or CompletionSchemaVersionV31;
+        value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3 or CompletionSchemaVersionV31 or
+            CompletionSchemaVersionV32;
 
     /// <summary>Whether a completion version is answered by a hand-off rather than a completion.</summary>
     public static bool IsAsynchronousCompletionSchemaVersion(string? value) =>
-        value is CompletionSchemaVersionV31;
+        value is CompletionSchemaVersionV31 or CompletionSchemaVersionV32;
 
     /// <summary>Wire values of <see cref="VisionJobFinalizationResponse.State"/>.</summary>
     public const string FinalizationStateFinalizing = "finalizing";

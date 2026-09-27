@@ -95,7 +95,7 @@ public sealed class CompletionExchange31Tests
         var request = JsonSerializer.Deserialize<VisionJobCompleteRequest>(
             File.ReadAllText(Path.Combine(root, "contracts/examples/vision-job-complete-v3.example.json")), Json)!;
 
-        foreach (var version in new[] { "3.2", "3", "3.10", " 3.1", "3.1 " })
+        foreach (var version in new[] { "3.3", "3", "3.10", " 3.1", "3.1 ", "3.2 ", "3.20" })
         {
             var error = Assert.Throws<VisionResultValidationException>(() =>
                 new VisionResultValidator().Validate(request.JobId!.Value, request with { SchemaVersion = version }, 3_600_000));
@@ -113,30 +113,37 @@ public sealed class CompletionExchange31Tests
         Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0", false));
         Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1", false));
 
-        // Activated with F3 (plan §15.2): 2.0 unchanged, 3.0 retired, 3.1 accepted and advertised.
-        Assert.Equal(["2.0", "3.1"], WorkerContractRules.CompletionSchemaVersions(true));
+        Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.2", false));
+
+        // Activated with F3 (plan §15.2): 2.0 unchanged, 3.0 retired, 3.1 accepted and advertised;
+        // 3.2 joins the asynchronous set in S2a.2 (S2a plan P-7) and never the synchronous one.
+        Assert.Equal(["2.0", "3.1", "3.2"], WorkerContractRules.CompletionSchemaVersions(true));
         Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("2.0", true));
         Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0", true));
         Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1", true));
+        Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.2", true));
         Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion(null, true));
         Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion(null, false));
 
         // Advertisement and acceptance are one decision: in both states exactly the advertised
         // versions are accepted, over every version the platform knows.
         foreach (var activated in new[] { false, true })
-            foreach (var version in new[] { "2.0", "3.0", "3.1" })
+            foreach (var version in new[] { "2.0", "3.0", "3.1", "3.2", "3.3" })
                 Assert.Equal(
                     WorkerContractRules.CompletionSchemaVersions(activated).Contains(version),
                     WorkerContractRules.IsAcceptedCompletionSchemaVersion(version, activated));
 
-        Assert.Equal(["2.0", "3.1"], WorkerContractRules.AsynchronousCompletionSchemaVersions);
+        Assert.Equal(["2.0", "3.1", "3.2"], WorkerContractRules.AsynchronousCompletionSchemaVersions);
         Assert.Equal("3.1", WorkerContractRules.CompletionSchemaVersionV31);
+        Assert.Equal("3.2", WorkerContractRules.CompletionSchemaVersionV32);
         Assert.True(WorkerContractRules.IsKnownCompletionSchemaVersion("2.0"));
         Assert.True(WorkerContractRules.IsKnownCompletionSchemaVersion("3.0"));
         Assert.True(WorkerContractRules.IsKnownCompletionSchemaVersion("3.1"));
-        Assert.False(WorkerContractRules.IsKnownCompletionSchemaVersion("3.2"));
+        Assert.True(WorkerContractRules.IsKnownCompletionSchemaVersion("3.2"));
+        Assert.False(WorkerContractRules.IsKnownCompletionSchemaVersion("3.3"));
         Assert.False(WorkerContractRules.IsKnownCompletionSchemaVersion(null));
         Assert.True(WorkerContractRules.IsAsynchronousCompletionSchemaVersion("3.1"));
+        Assert.True(WorkerContractRules.IsAsynchronousCompletionSchemaVersion("3.2"));
         Assert.False(WorkerContractRules.IsAsynchronousCompletionSchemaVersion("3.0"));
         Assert.False(WorkerContractRules.IsAsynchronousCompletionSchemaVersion("2.0"));
 
@@ -180,7 +187,7 @@ public sealed class CompletionExchange31Tests
     }
 
     [Fact]
-    public void FinalizationPayloadCodecRejectsNon31AndMalformedPayloads()
+    public void FinalizationPayloadCodecRejectsSynchronousAndMalformedPayloads()
     {
         var root = CompletionDigestGoldenTests.FindRepositoryRoot();
         var request = JsonSerializer.Deserialize<VisionJobCompleteRequest>(
@@ -189,6 +196,16 @@ public sealed class CompletionExchange31Tests
         var wrongVersion = Assert.Throws<VisionResultValidationException>(() =>
             VisionFinalizationPayloadCodec.Encode(request with { SchemaVersion = "3.0" }));
         Assert.Equal("finalization_payload_source_invalid", wrongVersion.ReasonCode);
+        foreach (var version in new[] { "2.0", "3.3", null })
+            Assert.Equal("finalization_payload_source_invalid", Assert.Throws<VisionResultValidationException>(() =>
+                VisionFinalizationPayloadCodec.Encode(request with { SchemaVersion = version })).ReasonCode);
+
+        // A stored document is only ever an asynchronous version; anything else is refused on read.
+        var stored = System.Text.Encoding.UTF8.GetString(VisionFinalizationPayloadCodec.Encode(request));
+        foreach (var version in new[] { "3.0", "2.0", "3.3" })
+            Assert.Equal("finalization_payload_version_invalid", Assert.Throws<VisionResultValidationException>(() =>
+                VisionFinalizationPayloadCodec.Decode(System.Text.Encoding.UTF8.GetBytes(
+                    stored.Replace("\"schemaVersion\":\"3.1\"", $"\"schemaVersion\":\"{version}\"", StringComparison.Ordinal)))).ReasonCode);
 
         var malformed = Assert.Throws<VisionResultValidationException>(() =>
             VisionFinalizationPayloadCodec.Decode("{\"schemaVersion\":\"3.1\",\"unknown\":1}"u8));
@@ -198,8 +215,8 @@ public sealed class CompletionExchange31Tests
     [Fact]
     public void FinalizingResponseOmitsCompletedAtAndCompletedResponseCarriesIt()
     {
-        var finalizing = VisionJobFinalizationResponse.Finalizing(JobId, RunId, Accepted, 3);
-        var completed = VisionJobFinalizationResponse.Completed(JobId, RunId, Accepted, 3, Accepted.AddSeconds(90));
+        var finalizing = VisionJobFinalizationResponse.Finalizing("3.1", JobId, RunId, Accepted, 3);
+        var completed = VisionJobFinalizationResponse.Completed("3.1", JobId, RunId, Accepted, 3, Accepted.AddSeconds(90));
 
         var finalizingJson = JsonSerializer.Serialize(finalizing, Json);
         var completedJson = JsonSerializer.Serialize(completed, Json);
@@ -236,7 +253,7 @@ public sealed class CompletionExchange31Tests
         Assert.Equal("3.1", example.SchemaVersion);
         Assert.Equal("finalizing", example.State);
         Assert.Null(example.CompletedAtUtc);
-        Assert.Equal(VisionJobFinalizationResponse.Finalizing(example.JobId, example.ProcessingRunId, example.AcceptedAtUtc, example.TracksSubmitted), example);
+        Assert.Equal(VisionJobFinalizationResponse.Finalizing("3.1", example.JobId, example.ProcessingRunId, example.AcceptedAtUtc, example.TracksSubmitted), example);
     }
 
     [Theory]

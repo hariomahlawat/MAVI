@@ -159,7 +159,7 @@ public sealed class ConfigurationValidationTests
         Assert.Equal(0, options.PayloadCleanupGraceSeconds);
         Assert.Equal(TimeSpan.FromSeconds(21_600 + 480), options.EffectiveMaximumFinalizationBound);
 
-        Assert.Equal(["2.0", "3.1"], WorkerContractRules.CompletionSchemaVersions(options.Enabled));
+        Assert.Equal(["2.0", "3.1", "3.2"], WorkerContractRules.CompletionSchemaVersions(options.Enabled));
         Assert.False(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.0", options.Enabled));
         Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("2.0", options.Enabled));
         Assert.True(WorkerContractRules.IsAcceptedCompletionSchemaVersion("3.1", options.Enabled));

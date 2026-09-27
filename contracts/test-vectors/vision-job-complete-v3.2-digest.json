@@ -1,0 +1,19 @@
+{
+  "description": "Pinned server-side completion digests of the completion 3.2 golden examples (S2a plan section 4.5): one installed Runtime Pack, one unpacked environment. Domain mavi:vision-completion-digest:v3.2.",
+  "vectors": [
+    {
+      "name": "installed-pack",
+      "example": "contracts/examples/vision-job-complete-v3.2.example.json",
+      "exampleSha256": "a926d344b769b1d3d6a22d4023260989e55ee36311541eba229e0082eef0a476",
+      "videoDurationMs": 3600000,
+      "completionDigest": "9edd4ef8a26086be304dbf1cdd250e6435b97e915c85ce0a6fa1b5298e7538c6"
+    },
+    {
+      "name": "unpacked-environment",
+      "example": "contracts/examples/vision-job-complete-v3.2-unpacked-environment.example.json",
+      "exampleSha256": "4184150d4e1e9d0e81bd66a14e797bc91da06e3305ad4a4102a4c408f641eb70",
+      "videoDurationMs": 3600000,
+      "completionDigest": "955e2aa425887b5465db72c497b39c715eea189830a0f07bc1fc3fd700bcfb93"
+    }
+  ]
+}

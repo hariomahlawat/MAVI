@@ -43,9 +43,13 @@ _SAFE_PROBLEM_CODE: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$", re.ASCII)
 # The completion contracts this worker can emit. Which one it emits is
 # ``WorkerSettings.completion_schema_version`` (S1.4 B3 plan §15.2): "3.0" is
 # the synchronous completion, "3.1" the asynchronous exchange answered by a
-# durable hand-off (the same Evidence Set body). The platform must advertise
-# exactly the configured version; there is never a fallback to another one.
-SUPPORTED_COMPLETION_SCHEMA_VERSIONS: Final = ("3.0", "3.1")
+# durable hand-off (the same Evidence Set body), "3.2" the same exchange with
+# component-identity provenance (Stage 2 S2a plan P-7). The platform must
+# advertise exactly the configured version; there is never a fallback to another
+# one. Until the S2a.3 cut-over the settings refuse "3.2"
+# (``completion_32_requires_binding``), so this worker never emits it.
+SUPPORTED_COMPLETION_SCHEMA_VERSIONS: Final = ("3.0", "3.1", "3.2")
+ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS: Final = frozenset({"3.1", "3.2"})
 _CONTRACT_VERSION_UNSUPPORTED: Final = "worker_contract_version_unsupported"
 
 
@@ -286,19 +290,19 @@ class WorkerApiClient:
             )
         self._raise_for_status(response)
         # The acknowledgement must be the one for the version sent: a 3.0 completion
-        # is answered synchronously, a 3.1 hand-off by the finalization response.
-        # Anything else means the platform and worker disagree about what
-        # happened, and the worker does not guess.
+        # is answered synchronously, a 3.1 or 3.2 hand-off by the finalization
+        # response echoing that exact version. Anything else means the platform
+        # and worker disagree about what happened, and the worker does not guess.
         acknowledged: VisionJobCompleteResponse | VisionJobFinalizationResponse
         try:
-            if self.completion_schema_version == "3.1":
+            if self.completion_schema_version in ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS:
                 acknowledged = VisionJobFinalizationResponse.model_validate_json(response.content)
             else:
                 acknowledged = VisionJobCompleteResponse.model_validate_json(response.content)
-                if acknowledged.schema_version != self.completion_schema_version:
-                    raise WorkerApiError("platform answered completion with an unexpected version")
         except ValidationError as exc:
             raise WorkerApiError("platform answered completion with an unexpected version") from exc
+        if acknowledged.schema_version != self.completion_schema_version:
+            raise WorkerApiError("platform answered completion with an unexpected version")
         if acknowledged.job_id != lease.job_id:
             raise WorkerApiError("platform acknowledged a different job")
         return acknowledged

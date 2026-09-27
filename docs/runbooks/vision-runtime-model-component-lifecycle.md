@@ -116,7 +116,7 @@ The platform finalizer (`VisionFinalizationHostedService`, in the API host) cons
 
 **On Linux there is no default machine-configuration path**, so use `MAVI_MACHINE_CONFIG` or the environment variable.
 
-**Activation sequence** (F3 plan §13.1; S1.4 F4 execution plan §11.3). The completion contract changes between `["2.0","3.0"]` and `["2.0","3.1"]`, and restarting a fleet of API hosts is not atomic. **No worker may lease while the hosts could disagree.** For example, a 3.0 worker that probed a gate-off host and leased would have its completion refused by a gate-on host (`worker_contract_version_unsupported`). Rollback has the inverse race.
+**Activation sequence** (F3 plan §13.1; S1.4 F4 execution plan §11.3). The completion contract changes between `["2.0","3.0"]` and `["2.0","3.1","3.2"]` (`["2.0","3.1"]` before Stage 2 S2a.2), and restarting a fleet of API hosts is not atomic. **No worker may lease while the hosts could disagree.** For example, a 3.0 worker that probed a gate-off host and leased would have its completion refused by a gate-on host (`worker_contract_version_unsupported`). Rollback has the inverse race.
 
 The worker fleet is therefore stopped for the whole contract change in both directions:
 - it is started only after every host has been verified directly on the new contract;
@@ -137,7 +137,7 @@ When enabled, 3.0 is refused (`worker_contract_version_unsupported`) and the fin
 3. **Change the contract on every host.** Set `VisionFinalization:Enabled = true`, or remove the override, on every API host. Restart every host.
 4. **Verify every host.** On each host directly:
    - `details.visionFinalization.enabled = true`;
-   - `completionSchemaVersions` exactly `["2.0","3.1"]`;
+   - `completionSchemaVersions` exactly `["2.0","3.1","3.2"]` (a platform binary from before Stage 2 S2a.2 lists `["2.0","3.1"]`). 3.2 is advertised from S2a.2, but no worker emits it until S2a.3: a worker set to `MAVI_COMPLETION_SCHEMA_VERSION = 3.2` refuses to start with `completion_32_requires_binding`;
    - `malformedClaims == 0`.
 
    Do not continue until every host passes.
