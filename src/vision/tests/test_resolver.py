@@ -28,6 +28,7 @@ from mavi_vision.runtime.binding import load_component_binding
 from mavi_vision.runtime.component_identity import RuntimePackIdentityInputs, runtime_pack_id
 from mavi_vision.runtime.manifest import ReleaseMetadataError
 from mavi_vision.runtime.resolver import (
+    IMPLEMENTED_ROLE_ENTRY_POINTS,
     INSTALLED_PACK,
     UNPACKED_ENVIRONMENT,
     CompletionContract,
@@ -161,6 +162,20 @@ def test_an_unknown_role_is_refused(overlay: Overlay) -> None:
     assert _code(lambda: load_role_family(binding=binding, role_id="attributes", overlay_root=overlay.root)) == (
         "role_unknown:attributes"
     )
+
+
+def test_the_role_must_declare_the_entry_point_this_worker_runs(overlay: Overlay) -> None:
+    # The worker would otherwise attest the binding SHA for an executable it is not.
+    overlay.binding["roles"][0]["entryPoint"] = "mavi_vision.other.main"
+    overlay.write()
+    assert _code(overlay.resolve) == "role_entry_point_unsupported:vision"
+
+
+def test_the_launcher_starts_the_implemented_entry_point() -> None:
+    launcher = (Path(__file__).parents[3] / "tools/setup/Start-MaviVisionWorker.ps1").read_text(encoding="utf-8")
+    binding = load_component_binding(Path(__file__).parents[1] / "config/components/phase1-bindings-v2.json")
+    assert binding.role("vision").entry_point == IMPLEMENTED_ROLE_ENTRY_POINTS["vision"]
+    assert f"-m {IMPLEMENTED_ROLE_ENTRY_POINTS['vision']}\n" in launcher
 
 
 def test_a_disabled_binding_blocks_its_role(overlay: Overlay) -> None:
@@ -349,6 +364,21 @@ def test_a_manifest_for_another_family_is_incompatible(overlay: Overlay) -> None
     overlay.manifest["runtimeCompatibility"]["runtimePackFamilyIds"] = ["other-family-v1"]
     overlay.write()
     assert _code(overlay.resolve) == "model_runtime_incompatible"
+
+
+@pytest.mark.parametrize(
+    "contract",
+    [
+        {"kind": "video-frame-bgr", "colourSpace": "RGB"},
+        {"kind": "video-frame-rgb"},
+    ],
+    ids=["other-kind", "no-colour-space"],
+)
+def test_a_manifest_input_contract_the_runtime_does_not_consume_is_refused(overlay: Overlay, contract: dict) -> None:
+    # MMDetectionRuntime consumes RGB frames and provenance attests inputColourSpace = RGB.
+    overlay.manifest["inputContract"] = contract
+    overlay.write()
+    assert _code(overlay.resolve) == "model_input_contract_unsupported:detector"
 
 
 @pytest.mark.parametrize("role", ["checkpoint", "resolved-config", "licence-notice"])

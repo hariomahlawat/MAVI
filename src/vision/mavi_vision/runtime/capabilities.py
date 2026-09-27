@@ -7,6 +7,8 @@ capabilities can start a role.
 
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from mavi_vision.runtime.schema_common import require_kebab_id
 
 KNOWN_CAPABILITIES = frozenset(
@@ -21,6 +23,11 @@ KNOWN_CAPABILITIES = frozenset(
 )
 
 IMPLEMENTED_CAPABILITIES = frozenset({"detector"})
+
+# The input each implemented capability's runtime consumes: (kind, colourSpace).
+# MMDetectionRuntime is fed RGB frame arrays and provenance attests
+# ``inputColourSpace = RGB``, so a Model Pack declaring anything else is refused.
+IMPLEMENTED_INPUT_CONTRACTS = MappingProxyType({"detector": ("video-frame-rgb", "RGB")})
 
 
 def require_known_capability(value: str) -> str:
@@ -37,9 +44,18 @@ def require_implemented_capability(value: str) -> str:
     return value
 
 
+def require_implemented_input_contract(
+    capability_id: str, *, kind: str, colour_space: str | None
+) -> None:
+    if IMPLEMENTED_INPUT_CONTRACTS.get(capability_id) != (kind, colour_space):
+        raise ValueError(f"model_input_contract_unsupported:{capability_id}")
+
+
 __all__ = [
     "IMPLEMENTED_CAPABILITIES",
+    "IMPLEMENTED_INPUT_CONTRACTS",
     "KNOWN_CAPABILITIES",
     "require_implemented_capability",
+    "require_implemented_input_contract",
     "require_known_capability",
 ]

@@ -225,6 +225,18 @@ def test_a_manifest_for_another_family(overlay: RepositoryOverlay) -> None:
     _only(overlay, "is not compatible with family")
 
 
+def test_a_manifest_input_contract_the_detector_does_not_consume(overlay: RepositoryOverlay) -> None:
+    overlay.manifest["inputContract"] = {"kind": "video-frame-rgb"}
+    overlay.write()
+    _only(overlay, "model_input_contract_unsupported:detector")
+
+
+def test_a_role_entry_point_the_worker_does_not_run(overlay: RepositoryOverlay) -> None:
+    overlay.binding["roles"][0]["entryPoint"] = "mavi_vision.other.main"
+    overlay.write()
+    _only(overlay, "role_entry_point_unsupported:vision")
+
+
 def test_a_binding_naming_no_record(overlay: RepositoryOverlay) -> None:
     overlay.binding["capabilityBindings"][0]["qualificationId"] = "rtmdet-m-coco-phase1-v9"
     overlay.write()

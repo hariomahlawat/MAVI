@@ -1412,6 +1412,7 @@ def check_vision_release_metadata(
         )
         from mavi_vision.runtime.resolver import (
             DETECTOR_CAPABILITY,
+            check_capability_input_contract,
             check_record_identity,
             check_record_policies,
             load_role_family,
@@ -1595,6 +1596,11 @@ def check_vision_release_metadata(
                 continue
             if role.runtime_pack_family_id not in manifest.runtime_pack_family_ids:
                 fail(f"Model Pack {manifest.model_id} is not compatible with family {role.runtime_pack_family_id}.", errors)
+                continue
+            try:
+                check_capability_input_contract(manifest=manifest, capability_id=capability_id)
+            except ReleaseMetadataError as exc:
+                fail(f"Model Pack {manifest.model_id} input contract is not the one {capability_id} consumes ({exc.code}).", errors)
                 continue
             record_entry = records.get(capability_binding.qualification_id)
             if record_entry is None:

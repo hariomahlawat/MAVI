@@ -132,6 +132,7 @@ def _manifest(*, verified: bool, checkpoint_path: str, config_path: str) -> Mode
         artifacts=(checkpoint, licence, config),
         pack_directory=checkpoint_path.split("/", 1)[0],
         input_contract_kind="video-frame-rgb",
+        input_colour_space="RGB",
         output_schema_id="detector-output-v1",
         runtime_pack_family_ids=(FAMILY_ID,),
         licence_spdx_id="Apache-2.0",

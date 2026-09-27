@@ -35,7 +35,10 @@ from mavi_vision.runtime.binding import (
     RuntimePackVariantV2,
     load_component_binding,
 )
-from mavi_vision.runtime.capabilities import require_implemented_capability
+from mavi_vision.runtime.capabilities import (
+    require_implemented_capability,
+    require_implemented_input_contract,
+)
 from mavi_vision.runtime.component_identity import (
     ComponentIdentityError,
     RuntimePackIdentityInputs,
@@ -97,6 +100,10 @@ PROVENANCE_CONTRACT_VERSIONS: Mapping[str, str] = MappingProxyType({"vision-job-
 COMPLETION_OVERRIDE_VERSIONS = frozenset({"3.0", "3.1"})
 
 _QUALIFIED_VARIANT_STATUS = {"cpu": "qualified-hosted-cpu", "cuda": "qualified-hardware"}
+# The module this package runs for a role. A binding that declares another entry
+# point describes an executable this worker is not, so it is refused rather than
+# attested under the binding's SHA.
+IMPLEMENTED_ROLE_ENTRY_POINTS: Mapping[str, str] = MappingProxyType({"vision": "mavi_vision.worker.main"})
 
 
 def _fail(code: str) -> ReleaseMetadataError:
@@ -293,9 +300,28 @@ def _tracked_lock_variants(runtime_dir: Path) -> tuple[str, ...]:
     return tuple(variant for variant in sorted(RUNTIME_VARIANTS) if (runtime_dir / f"{variant}.lock").is_file())
 
 
+def check_role_entry_point(role: RoleV2) -> None:
+    """The role's declared entry point must be the module this package runs for it."""
+    if IMPLEMENTED_ROLE_ENTRY_POINTS.get(role.role_id) != role.entry_point:
+        raise _fail(f"role_entry_point_unsupported:{role.role_id}")
+
+
+def check_capability_input_contract(*, manifest: ModelManifestV2, capability_id: str) -> None:
+    """The Model Pack's declared input must be the one the capability's runtime consumes."""
+    try:
+        require_implemented_input_contract(
+            capability_id,
+            kind=manifest.input_contract_kind,
+            colour_space=manifest.input_colour_space,
+        )
+    except ValueError as exc:
+        raise _fail(str(exc)) from exc
+
+
 def load_role_family(*, binding: ComponentBindingV2, role_id: str, overlay_root: Path) -> RoleFamily:
     """Role -> family profile -> locks -> P-17 classes, cross-checked with the binding."""
     role = binding.role(role_id)
+    check_role_entry_point(role)
     family_id = role.runtime_pack_family_id
     binding_variants = binding.family_variants(family_id)
     runtime_profile_path = overlay_root / RUNTIME_PROFILES_RELATIVE / family_id / "runtime.json"
@@ -613,6 +639,7 @@ def _resolve_capability(
         raise _fail(f"model_capability_mismatch:{capability_id}")
     if family.role.runtime_pack_family_id not in manifest.runtime_pack_family_ids:
         raise _fail("model_runtime_incompatible")
+    check_capability_input_contract(manifest=manifest, capability_id=capability_id)
 
     artifact_paths: dict[str, Path] = {}
     for artifact in manifest.artifacts:
@@ -899,6 +926,7 @@ def resolve_role(
 __all__ = [
     "COMPLETION_OVERRIDE_VERSIONS",
     "DETECTOR_CAPABILITY",
+    "IMPLEMENTED_ROLE_ENTRY_POINTS",
     "INSTALLED_PACK",
     "PROVENANCE_CONTRACT_VERSIONS",
     "UNPACKED_ENVIRONMENT",
@@ -916,6 +944,8 @@ __all__ = [
     "RuntimePackSource",
     "index_model_manifests",
     "index_qualification_records",
+    "check_capability_input_contract",
+    "check_role_entry_point",
     "load_role_family",
     "resolve_completion_contract",
     "resolve_role",
