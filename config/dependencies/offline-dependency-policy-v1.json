@@ -220,6 +220,17 @@
       "licenceHandling": "CUDA Toolkit redistribution is not implied; any cached installer/build image requires NVIDIA licence review"
     },
     {
+      "id": "msvc-cpu-build-toolchain-win-x64",
+      "scope": [
+        "production-vision-build"
+      ],
+      "stagingPath": "ci-build-only:vs-buildtools-17.14.40-fixed-version",
+      "packagedAs": "build-only; excluded from Vision Runtime Pack, Model Pack and Production media",
+      "setupIntegration": "Task 12 windows-x86_64-cpu MMCV wheel build only (.github/workflows/task12-offline-bundle.yml)",
+      "verification": "fixed-version Visual Studio 2022 17.14.40 Build Tools bootstrapper pinned by SHA-256 aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7 and a valid Microsoft Authenticode signature; cl.exe 19.44.35228.0 and link.exe 14.44.35228.0 asserted before compiling; a clean rebuild must reproduce the MMCV wheel byte for byte and the regenerated lock must equal the committed windows-x86_64-cpu.lock",
+      "licenceHandling": "Microsoft build-tool licensing applies to the CI build environment; no compiler payload is distributed with the Runtime Pack"
+    },
+    {
       "id": "msvc-cuda-build-toolchain-win-x64",
       "scope": [
         "development-build"

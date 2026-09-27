@@ -113,13 +113,50 @@ jobs:
           torchvision==0.21.0
           --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Configure qualified MSVC compiler
+      # The hosted image's Visual Studio services the 14.44 toolset in place: the
+      # directory stays 14.44.35207 while cl/link move (35228 -> 35229 between
+      # images 20260907 and 20260922). The compiler build is compiled into the
+      # MMCV extension (Rich header, _MSC_FULL_VER in mmcv's get_compiler_version
+      # and every /Brepro content hash), so a floating image toolset changes the
+      # wheel bytes. The qualified wheel is reproduced byte for byte only by the
+      # exact compiler below, installed from Microsoft's fixed-version, signed
+      # Visual Studio 2022 17.14.40 Build Tools bootstrapper.
+      - name: Install pinned Windows MMCV build toolchain
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
-        with:
-          toolset: "14.44"
-          sdk: "10.0.26100.0"
-          arch: x64
+        shell: pwsh
+        env:
+          MAVI_VS_BUILDTOOLS_URL: https://download.visualstudio.microsoft.com/download/pr/f8d58e41-102a-4347-a567-60d7235da3b5/aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7/vs_BuildTools.exe
+          MAVI_VS_BUILDTOOLS_SHA256: aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7
+          MAVI_VS_BUILDTOOLS_PATH: C:\MaviBuildTools\vs-17.14.40
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path .task12-prerequisites -Force | Out-Null
+          $bootstrapper = ".task12-prerequisites/vs_BuildTools-17.14.40.exe"
+          & curl.exe --fail --location --retry 3 --retry-all-errors --output $bootstrapper $env:MAVI_VS_BUILDTOOLS_URL
+          if ($LASTEXITCODE -ne 0) { throw "vs_buildtools_download_failed" }
+          $sha = (Get-FileHash $bootstrapper -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne $env:MAVI_VS_BUILDTOOLS_SHA256) { throw "vs_buildtools_sha256_mismatch:$sha" }
+          $signature = Get-AuthenticodeSignature -FilePath $bootstrapper
+          if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Subject -notmatch '^CN=Microsoft Corporation,') {
+            throw "vs_buildtools_signature_invalid:$($signature.Status)"
+          }
+          $install = Start-Process -FilePath $bootstrapper -Wait -PassThru -ArgumentList @(
+            "--quiet", "--wait", "--norestart", "--nocache",
+            "--installPath", $env:MAVI_VS_BUILDTOOLS_PATH,
+            "--add", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "--add", "Microsoft.VisualStudio.Component.Windows11SDK.26100")
+          if ($install.ExitCode -ne 0 -and $install.ExitCode -ne 3010) { throw "vs_buildtools_install_failed:$($install.ExitCode)" }
+          $vcvars = Join-Path $env:MAVI_VS_BUILDTOOLS_PATH "VC\Auxiliary\Build\vcvarsall.bat"
+          $environment = & cmd.exe /c "`"$vcvars`" x64 10.0.26100.0 -vcvars_ver=14.44 >NUL && set"
+          if ($LASTEXITCODE -ne 0) { throw "vs_buildtools_vcvars_failed" }
+          foreach ($line in $environment) {
+            $separator = $line.IndexOf("=")
+            if ($separator -gt 0) {
+              "{0}={1}" -f $line.Substring(0, $separator), $line.Substring($separator + 1) |
+                Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
+          "MAVI_VS_BUILDTOOLS_PATH=$env:MAVI_VS_BUILDTOOLS_PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Verify qualified Windows native build identity
         if: runner.os == 'Windows'
@@ -135,6 +172,22 @@ jobs:
           $cl = (Get-Command cl.exe).Source
           if ($cl -notmatch 'MSVC\\14\.44\.') {
             throw "unexpected_cl_path:$cl"
+          }
+          if (-not $cl.StartsWith($env:MAVI_VS_BUILDTOOLS_PATH + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "unpinned_cl_path:$cl"
+          }
+          # The toolset directory name does not identify the compiler; the binaries do.
+          $clVersion = (Get-Item $cl).VersionInfo.FileVersion
+          if ($clVersion -ne "19.44.35228.0") {
+            throw "unexpected_msvc_compiler_build:$clVersion"
+          }
+          $link = (Get-Command link.exe).Source
+          if (-not $link.StartsWith((Split-Path $cl -Parent) + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "unexpected_link_path:$link"
+          }
+          $linkVersion = (Get-Item $link).VersionInfo.FileVersion
+          if ($linkVersion -ne "14.44.35228.0") {
+            throw "unexpected_msvc_linker_build:$linkVersion"
           }
           "DISTUTILS_USE_SDK=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MSSdk=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -198,6 +251,26 @@ jobs:
           test "$first_hash" = "$second_hash"
           cmp ../.task12-mmcv-first.whl "$second"
           rm ../.task12-mmcv-first.whl
+
+      - name: Prove clean MMCV wheel reproducibility on Windows
+        if: runner.os == 'Windows'
+        working-directory: .task12-mmcv
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $first = Get-ChildItem ../.task12-wheelhouse -Filter 'mmcv-2.1.0-*.whl' | Select-Object -First 1
+          if ($null -eq $first) { throw "task12_mmcv_wheel_missing" }
+          $firstHash = (Get-FileHash $first.FullName -Algorithm SHA256).Hash
+          Move-Item $first.FullName ../.task12-mmcv-first.whl
+          git clean -xfd
+          if ($LASTEXITCODE -ne 0) { throw "task12_mmcv_clean_failed" }
+          python -m pip wheel --no-build-isolation --no-deps . -w ../.task12-wheelhouse
+          if ($LASTEXITCODE -ne 0) { throw "task12_mmcv_rebuild_failed" }
+          $second = Get-ChildItem ../.task12-wheelhouse -Filter 'mmcv-2.1.0-*.whl' | Select-Object -First 1
+          $secondHash = (Get-FileHash $second.FullName -Algorithm SHA256).Hash
+          if ($firstHash -ne $secondHash) { throw "task12_mmcv_windows_rebuild_not_reproducible:$firstHash:$secondHash" }
+          Remove-Item ../.task12-mmcv-first.whl
+          "task12-mmcv-windows-rebuild-sha256=$secondHash"
 
       - name: Download exact CPU Torch wheels into wheelhouse
         run: >-
