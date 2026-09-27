@@ -1,0 +1,12 @@
+{
+  "baseline-c176b048": {
+    "MOT17-02-FRCNN.detections.jsonl": "d4db70544243efcf3b202edcb65d3c3b2ceb0a2aebd90c329ae1a793b1b05435",
+    "MOT17-13-FRCNN.detections.jsonl": "35e164b8f67bf3a39eb9a8ebe3eab0c62e9a4159c03d2e688f45339dc63973d7",
+    "candidates.csv": "f7047d743fcaf109a147b1645e559b52183c3237516745479d1dcb4c22a69453"
+  },
+  "head": {
+    "MOT17-02-FRCNN.detections.jsonl": "d4db70544243efcf3b202edcb65d3c3b2ceb0a2aebd90c329ae1a793b1b05435",
+    "MOT17-13-FRCNN.detections.jsonl": "35e164b8f67bf3a39eb9a8ebe3eab0c62e9a4159c03d2e688f45339dc63973d7",
+    "candidates.csv": "f7047d743fcaf109a147b1645e559b52183c3237516745479d1dcb4c22a69453"
+  }
+}
