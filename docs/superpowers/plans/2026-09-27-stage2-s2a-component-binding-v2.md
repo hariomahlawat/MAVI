@@ -554,3 +554,26 @@ The S2a.5 evidence record is a markdown file plus the retained JSON/JUnit artefa
 | C7 | reconciliation document with old/new hashes, recording that `linux-x86_64-cuda` stays class A (pending, no pack, null id) exactly as at `c176b048`; record/replay compare allow-list test; Task-10 on head; RTMDet still `pending`/`unverified` |
 
 Every PASS row records commit SHA, workflow run ids, artefact hashes and the non-claim "RTMDet qualification unchanged: pending; no Production or CUDA claim" per the register's evidence-log rules.
+
+---
+
+## 17. S2a.1 implementation record (errata pinned during implementation)
+
+S2a.1 implemented §4.1–§4.4 as Python contracts. It found the following plan gaps and resolved each in the stricter direction. None changes ADR-014 architecture.
+
+| # | Plan text | Implemented | Reason |
+|---|---|---|---|
+| E-1 | §4.2 example `provenance.sourceUrl` | `provenance.{publisher, sourceRepository, sourceRevision}`, all non-URL text | `models/manifests` is in `RELEASE_TEXT_ROOTS`; `verify_repo`'s `RELEASE_NETWORK_LOCATORS` scan (`tools/verify_repo.py:128-140, 1142-1147`) rejects any `https://` in release metadata. The URL stays in `vision-model-pack.yml`. |
+| E-2 | P-4 / §10: the resolver rejects unregistered capability ids | The binding, manifest and record schemas also reject them (`capability_unknown:<id>`); the resolver still rejects unimplemented ids (`capability_not_implemented`) | Fails closed earlier; the S2a.1 validators and the resolver use one registry (`capabilities.py`). |
+| E-3 | §4.1 rule 3 "exactly one **enabled** binding" vs rule 4 "disabled binding retained" | File rule: exactly one binding (enabled or not) per role capability. Start-time rule (S2a.3 resolver): the binding must be enabled (`capability_binding_disabled`). `enabled` is a strict JSON boolean. | Rules 3 and 4 were contradictory as written. |
+| E-4 | P-12 gate sets: names only | Each gate set declares `scope: "common"` or `scope: "capability"` with `capabilityIds`. A record must carry exactly the applicable sets in canonical order, and at least one capability-scoped set (`qualification_gate_sets_mismatch`, `qualification_capability_gate_set_missing`). | Without applicability a detector record could pass without detector gates, and detector gates could be imposed on another capability (ADR-014 §6). |
+| E-5 | §4.4 `evidence: {}` (shape unspecified) | `evidence` is keyed variant → gate → evidence. A passed gate needs evidence and a pending gate may not have any, per variant. | Gates are evaluated per variant (P-12). |
+| E-6 | §4.2 `capabilitySpecific` sections | A closed registry of section schemas (`detector`, and `embedding` for the neutrality fixture). An unregistered section fails (`capability_section_unsupported`). | "Unknown fields remain fail-closed" (ADR-014 §3). |
+| E-7 | §4.2 licence rules | `licence.noticeArtifactRole` must be `licence-notice`, and the detector section's checkpoint and config roles must be distinct and not the notice. | Otherwise the notice could be re-pointed at the checkpoint and drop out of the identity (P-15). |
+| E-8 | P-14 "built pack manifests and install state carry measured sizes" | Only the built Model Pack manifest carries measured sizes; the install state binds that manifest by SHA-256 (§5.4 field list; ADR-014 §3 as amended) | P-14 contradicted §5.4. |
+| E-9 | Identity-bearing text | `modelId` is kebab-case; `modelVersion` is restricted ASCII; the runtime profile id (= family id) is kebab-case; no control characters in any identity text; v2 JSON rejects duplicate object keys | One name has one encoding, and the bytes a reviewer reads are the bytes parsed. |
+| E-10 | §13.0 S2a.3: generator writes the v2 artefacts | The generator never overwrites and reads lock and requirements files beside its **input** runtime profile. S2a.3 therefore generates into a temporary directory and then moves the four files into place. The v2 `runtime.json` replaces the v1 file at the same path. | Recorded so the S2a.3 cut-over does not rediscover it. |
+
+Recorded and not changed in S2a.1:
+- A detector record may omit `policies` (ADR-014 §6: "where relevant"). Whether S2a.3 requires the pipeline policy for `detector` is decided there.
+- Source-manifest artefact order is free, because the identity sorts. Tests pin identity order-independence.
