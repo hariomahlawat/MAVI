@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -136,12 +137,60 @@ def test_task12_workflow_builds_reusable_third_party_pack_reproducibly() -> None
     assert 'test "$first_hash" = "$second_hash"' in workflow
     assert "os: ubuntu-24.04" in workflow
     assert "os: windows-2025" in workflow
-    assert 'toolset: "14.44"' in workflow
-    assert 'sdk: "10.0.26100.0"' in workflow
     assert "CC=gcc-14" in workflow
     assert "CXX=g++-14" in workflow
     assert "gcc-14 -dumpfullversion -dumpversion" in workflow
     assert "14.44." in workflow
+
+
+def test_task12_windows_toolchain_is_pinned_by_compiler_build_not_toolset_directory() -> None:
+    """The 14.44 toolset directory is serviced in place; only the binaries identify it.
+
+    Hosted images moved cl/link from 19.44.35228 to 19.44.35229 under the same
+    14.44.35207 directory, which changed the MMCV wheel bytes and broke the
+    committed Windows CPU lock. The qualified wheel is reproduced only by the
+    pinned, hash-verified, signed fixed-version Build Tools and an exact
+    compiler/linker build check before anything is compiled.
+    """
+    workflow = (
+        Path(__file__).parents[3] / ".github" / "workflows" / "task12-offline-bundle.yml"
+    ).read_text(encoding="utf-8")
+
+    # A floating image toolchain must not return.
+    assert "ilammy/msvc-dev-cmd" not in workflow
+    pinned = workflow.split("- name: Install pinned Windows MMCV build toolchain", 1)[1]
+    pinned = pinned.split("\n      - name: ", 1)[0]
+    assert "MAVI_VS_BUILDTOOLS_SHA256: aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7" in pinned
+    assert "/aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7/vs_BuildTools.exe" in pinned
+    assert "vs_buildtools_sha256_mismatch" in pinned
+    assert "Get-AuthenticodeSignature" in pinned and "^CN=Microsoft Corporation," in pinned
+    assert "Microsoft.VisualStudio.Component.VC.Tools.x86.x64" in pinned
+    assert "Microsoft.VisualStudio.Component.Windows11SDK.26100" in pinned
+    assert "x64 10.0.26100.0 -vcvars_ver=14.44" in pinned
+
+    verify = workflow.split("- name: Verify qualified Windows native build identity", 1)[1]
+    verify = verify.split("\n      - name: ", 1)[0]
+    assert 'if ($clVersion -ne "19.44.35228.0")' in verify
+    assert 'if ($linkVersion -ne "14.44.35228.0")' in verify
+    assert "unpinned_cl_path" in verify and "unexpected_link_path" in verify
+    assert '"CL=/Brepro"' in verify and '"LINK=/Brepro"' in verify
+    # The exact-build check runs before the first compile.
+    assert workflow.index("unexpected_msvc_compiler_build") < workflow.index("- name: Build local MMCV wheel")
+
+    # Windows proves a clean rebuild reproduces the bytes, as Linux already does,
+    # and does so in PowerShell: Git Bash rewrites CL=/Brepro into a path and
+    # resolves GNU link ahead of MSVC link.exe.
+    rebuild = workflow.split("- name: Prove clean MMCV wheel reproducibility on Windows", 1)[1]
+    rebuild = rebuild.split("\n      - name: ", 1)[0]
+    assert "if: runner.os == 'Windows'" in rebuild
+    assert "shell: pwsh" in rebuild
+    assert "git clean -xfd" in rebuild
+    assert "task12_mmcv_windows_rebuild_not_reproducible" in rebuild
+
+    # PowerShell reads "$name:" inside a string as a scope/drive-qualified
+    # variable and refuses to parse the whole step; delimit as "${name}:".
+    for block in (pinned, verify, rebuild):
+        assert re.search(r"\$(?!env:)[A-Za-z_][A-Za-z0-9_]*:", block) is None
 
 
 def test_offline_bundle_contract_retains_all_qualified_runtime_locks() -> None:
@@ -155,3 +204,58 @@ def test_offline_bundle_contract_retains_all_qualified_runtime_locks() -> None:
     assert "every qualified runtime lock referenced by `runtime.json`" in contract
     assert "selected platform lock is the only lock used by the offline `pip install`" in contract
     assert "hashes of **all qualified runtime locks included in the bundle**" in contract
+
+
+_TOOLCHAIN_RECORDS = (
+    "config/dependencies/offline-binary-catalog-v1.json",
+    "config/dependencies/offline-dependency-policy-v1.json",
+    ".github/workflows/task12-offline-bundle.yml",
+)
+
+
+def _toolchain_root(tmp_path: Path) -> Path:
+    repository = Path(__file__).parents[3]
+    for relative in _TOOLCHAIN_RECORDS:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((repository / relative).read_bytes())
+    return tmp_path
+
+
+def _toolchain_errors(root: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    verifier = _load_verify_repo()
+    monkeypatch.setattr(verifier, "ROOT", root)
+    errors: list[str] = []
+    verifier.check_windows_cpu_build_toolchain(errors)
+    return errors
+
+
+def test_windows_cpu_build_toolchain_records_agree(tmp_path, monkeypatch) -> None:
+    assert _toolchain_errors(_toolchain_root(tmp_path), monkeypatch) == []
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new", "expected"),
+    [
+        # the catalogue loses or drifts its pin
+        (_TOOLCHAIN_RECORDS[0], '"windowsCpuBuildToolchain"', '"windowsCpuBuildToolchainX"', "has no Windows CPU build toolchain"),
+        (_TOOLCHAIN_RECORDS[0], '"compilerVersion": "19.44.35228.0"', '"compilerVersion": "19.44.35229.0"', "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[0], '"compilerVersion": "19.44.35228.0"', '"compilerVersion": "19.44"', "compilerVersion is not a frozen identity"),
+        (_TOOLCHAIN_RECORDS[0], '"bootstrapperSha256": "aac092d0', '"bootstrapperSha256": "bac092d0', "not the pinned Microsoft payload"),
+        (_TOOLCHAIN_RECORDS[0], '"policyId": "msvc-cpu-build-toolchain-win-x64"', '"policyId": "msvc-cpu-build-toolchain-unknown"', "references unknown policy"),
+        # the policy stops stating the pin
+        (_TOOLCHAIN_RECORDS[1], "cl.exe 19.44.35228.0", "cl.exe 19.44.x", "does not state the pinned 19.44.35228.0"),
+        # the workflow drifts from the catalogue
+        (_TOOLCHAIN_RECORDS[2], 'if ($clVersion -ne "19.44.35228.0")', 'if ($clVersion -ne "19.44.35229.0")', "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "MAVI_VS_BUILDTOOLS_SHA256: aac092d0", "MAVI_VS_BUILDTOOLS_SHA256: bac092d0", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "-vcvars_ver=14.44", "-vcvars_ver=14.51", "does not carry the catalogued"),
+    ],
+)
+def test_windows_cpu_build_toolchain_drift_fails_closed(tmp_path, monkeypatch, relative, old, new, expected) -> None:
+    root = _toolchain_root(tmp_path)
+    target = root / relative
+    text = target.read_text(encoding="utf-8")
+    assert text.count(old) == 1
+    target.write_text(text.replace(old, new), encoding="utf-8")
+    errors = _toolchain_errors(root, monkeypatch)
+    assert any(expected in error for error in errors), errors
