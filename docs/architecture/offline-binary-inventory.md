@@ -58,6 +58,20 @@ Current Phase-1 runtime profile: `mmdetection-phase1-v1`.
 
 The runtime profile and platform locks remain authoritative for vision qualification. CUDA versions must not be invented before the corresponding hardware qualification freezes them.
 
+### Windows CPU Runtime Pack build toolchain (build-only)
+
+The Task 12 `windows-x86_64-cpu` MMCV wheel is reproducible only under one exact MSVC compiler build, because the build is compiled into the extension. Hosted-runner Visual Studio services the 14.44 toolset in place, so Task 12 installs a pinned toolchain instead of the image's.
+
+| Item | Pin |
+| --- | --- |
+| Build Tools | Visual Studio 2022 Build Tools 17.14.40, fixed-version bootstrapper |
+| Bootstrapper SHA-256 | `aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7`, Microsoft Authenticode-signed |
+| Components | `VC.Tools.x86.x64`, `Windows11SDK.26100` |
+| `cl.exe` / `link.exe` | 19.44.35228.0 / 14.44.35228.0 (toolset 14.44, SDK 10.0.26100.0) |
+| Placement | CI build host only; never in a Runtime Pack, Model Pack, Offline Binary Kit or Production media |
+
+The authoritative records are `visionRuntime.windowsCpuBuildToolchain` in `config/dependencies/offline-binary-catalog-v1.json` and policy entry `msvc-cpu-build-toolchain-win-x64`. `verify_repo` fails if either record, or the Task 12 workflow, drifts from the others. The evidence is in `docs/qualification/2026-09-27-task12-windows-mmcv-toolchain-pin.md`.
+
 
 ### Device/profile mapping
 

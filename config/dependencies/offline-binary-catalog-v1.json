@@ -195,6 +195,25 @@
     },
     "storagePolicy": "Qualified platform/model bundles are retained outside ordinary Git and remain separately manifest/hash qualified; the Windows application binary kit does not silently substitute for vision qualification.",
     "dependencyPolicyId": "vision-model-runtime-bundles",
+    "windowsCpuBuildToolchain": {
+      "platformVariant": "windows-x86_64-cpu",
+      "role": "build-only MSVC toolchain for the Task 12 MMCV wheel",
+      "buildTools": "Visual Studio 2022 Build Tools 17.14.40 (fixed version)",
+      "bootstrapperUrl": "https://download.visualstudio.microsoft.com/download/pr/f8d58e41-102a-4347-a567-60d7235da3b5/aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7/vs_BuildTools.exe",
+      "bootstrapperSha256": "aac092d0d839fd078e86b301d886130f1605891061242b36facf55ccbdd5a0a7",
+      "signer": "CN=Microsoft Corporation",
+      "components": [
+        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+        "Microsoft.VisualStudio.Component.Windows11SDK.26100"
+      ],
+      "msvcToolset": "14.44",
+      "compilerVersion": "19.44.35228.0",
+      "linkerVersion": "14.44.35228.0",
+      "windowsSdk": "10.0.26100.0",
+      "placement": "CI build host only (C:\\MaviBuildTools\\vs-17.14.40); never packaged into a Runtime Pack, Model Pack, Offline Binary Kit or Production media",
+      "licence": "Microsoft Visual Studio Build Tools licence terms apply to the CI build environment; no compiler payload is redistributed",
+      "policyId": "msvc-cpu-build-toolchain-win-x64"
+    },
     "windowsCudaDevelopmentCandidate": {
       "status": "r1-toolchain-verified-pre-c2",
       "platformVariant": "windows-x86_64-cuda",

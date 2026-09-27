@@ -614,6 +614,70 @@ def check_dependency_policy(errors: list[str]) -> None:
             )
 
 
+_WINDOWS_CPU_BUILD_TOOLCHAIN_SHAPES = {
+    "bootstrapperSha256": re.compile(r"^[0-9a-f]{64}$"),
+    "compilerVersion": re.compile(r"^19\.\d+\.\d+\.\d+$"),
+    "linkerVersion": re.compile(r"^14\.\d+\.\d+\.\d+$"),
+    "msvcToolset": re.compile(r"^\d+\.\d+$"),
+    "windowsSdk": re.compile(r"^\d+\.\d+\.\d+\.\d+$"),
+}
+
+
+def check_windows_cpu_build_toolchain(errors: list[str]) -> None:
+    """Keep the pinned Windows CPU MMCV build toolchain identical across its three records.
+
+    The offline binary catalogue, the dependency policy and the Task 12 workflow
+    each state the fixed-version Build Tools bootstrapper and the exact compiler
+    and linker builds. The committed Windows CPU lock is reproducible only under
+    that compiler, so any one record drifting from the others fails closed.
+    """
+    catalog = _read_json_or_none(ROOT / "config/dependencies/offline-binary-catalog-v1.json")
+    policy = _read_json_or_none(ROOT / "config/dependencies/offline-dependency-policy-v1.json")
+    try:
+        workflow = (ROOT / ".github/workflows/task12-offline-bundle.yml").read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"Cannot read the Task 12 workflow: {exc}", errors)
+        return
+    vision = catalog.get("visionRuntime") if isinstance(catalog, dict) else None
+    toolchain = vision.get("windowsCpuBuildToolchain") if isinstance(vision, dict) else None
+    if not isinstance(toolchain, dict):
+        fail("Offline binary catalogue has no Windows CPU build toolchain.", errors)
+        return
+    for field, shape in _WINDOWS_CPU_BUILD_TOOLCHAIN_SHAPES.items():
+        value = toolchain.get(field)
+        if not isinstance(value, str) or shape.fullmatch(value) is None:
+            fail(f"Windows CPU build toolchain {field} is not a frozen identity.", errors)
+            return
+    url = toolchain.get("bootstrapperUrl")
+    sha256 = toolchain["bootstrapperSha256"]
+    if not isinstance(url, str) or not url.startswith("https://download.visualstudio.microsoft.com/") \
+            or f"/{sha256}/" not in url:
+        fail("Windows CPU build toolchain bootstrapper URL is not the pinned Microsoft payload.", errors)
+        return
+    if toolchain.get("platformVariant") != "windows-x86_64-cpu":
+        fail("Windows CPU build toolchain names the wrong platform variant.", errors)
+    policy_id = toolchain.get("policyId")
+    entries = policy.get("nativeAndToolchain", []) if isinstance(policy, dict) else []
+    entry = next((item for item in entries if isinstance(item, dict) and item.get("id") == policy_id), None)
+    if entry is None:
+        fail(f"Windows CPU build toolchain references unknown policy {policy_id!r}.", errors)
+    else:
+        verification = str(entry.get("verification", ""))
+        for value in (sha256, toolchain["compilerVersion"], toolchain["linkerVersion"]):
+            if value not in verification:
+                fail(f"Dependency policy {policy_id} does not state the pinned {value}.", errors)
+    # The workflow is where the pin takes effect.
+    for required in (
+        f"MAVI_VS_BUILDTOOLS_URL: {url}",
+        f"MAVI_VS_BUILDTOOLS_SHA256: {sha256}",
+        f'if ($clVersion -ne "{toolchain["compilerVersion"]}")',
+        f'if ($linkVersion -ne "{toolchain["linkerVersion"]}")',
+        f"x64 {toolchain['windowsSdk']} -vcvars_ver={toolchain['msvcToolset']}",
+    ):
+        if required not in workflow:
+            fail(f"Task 12 workflow does not carry the catalogued Windows CPU toolchain pin: {required}", errors)
+
+
 def check_offline_binary_catalog(errors: list[str]) -> None:
     """Validate the repository-owned external-binary/version baseline."""
 
@@ -1516,6 +1580,7 @@ def main() -> int:
     check_project_references(errors)
     check_dependency_policy(errors)
     check_offline_binary_catalog(errors)
+    check_windows_cpu_build_toolchain(errors)
     check_contracts(errors)
     check_phase1_acceptance_assets(errors)
     check_production_urls(errors)

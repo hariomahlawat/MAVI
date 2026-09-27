@@ -204,3 +204,58 @@ def test_offline_bundle_contract_retains_all_qualified_runtime_locks() -> None:
     assert "every qualified runtime lock referenced by `runtime.json`" in contract
     assert "selected platform lock is the only lock used by the offline `pip install`" in contract
     assert "hashes of **all qualified runtime locks included in the bundle**" in contract
+
+
+_TOOLCHAIN_RECORDS = (
+    "config/dependencies/offline-binary-catalog-v1.json",
+    "config/dependencies/offline-dependency-policy-v1.json",
+    ".github/workflows/task12-offline-bundle.yml",
+)
+
+
+def _toolchain_root(tmp_path: Path) -> Path:
+    repository = Path(__file__).parents[3]
+    for relative in _TOOLCHAIN_RECORDS:
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((repository / relative).read_bytes())
+    return tmp_path
+
+
+def _toolchain_errors(root: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    verifier = _load_verify_repo()
+    monkeypatch.setattr(verifier, "ROOT", root)
+    errors: list[str] = []
+    verifier.check_windows_cpu_build_toolchain(errors)
+    return errors
+
+
+def test_windows_cpu_build_toolchain_records_agree(tmp_path, monkeypatch) -> None:
+    assert _toolchain_errors(_toolchain_root(tmp_path), monkeypatch) == []
+
+
+@pytest.mark.parametrize(
+    ("relative", "old", "new", "expected"),
+    [
+        # the catalogue loses or drifts its pin
+        (_TOOLCHAIN_RECORDS[0], '"windowsCpuBuildToolchain"', '"windowsCpuBuildToolchainX"', "has no Windows CPU build toolchain"),
+        (_TOOLCHAIN_RECORDS[0], '"compilerVersion": "19.44.35228.0"', '"compilerVersion": "19.44.35229.0"', "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[0], '"compilerVersion": "19.44.35228.0"', '"compilerVersion": "19.44"', "compilerVersion is not a frozen identity"),
+        (_TOOLCHAIN_RECORDS[0], '"bootstrapperSha256": "aac092d0', '"bootstrapperSha256": "bac092d0', "not the pinned Microsoft payload"),
+        (_TOOLCHAIN_RECORDS[0], '"policyId": "msvc-cpu-build-toolchain-win-x64"', '"policyId": "msvc-cpu-build-toolchain-unknown"', "references unknown policy"),
+        # the policy stops stating the pin
+        (_TOOLCHAIN_RECORDS[1], "cl.exe 19.44.35228.0", "cl.exe 19.44.x", "does not state the pinned 19.44.35228.0"),
+        # the workflow drifts from the catalogue
+        (_TOOLCHAIN_RECORDS[2], 'if ($clVersion -ne "19.44.35228.0")', 'if ($clVersion -ne "19.44.35229.0")', "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "MAVI_VS_BUILDTOOLS_SHA256: aac092d0", "MAVI_VS_BUILDTOOLS_SHA256: bac092d0", "does not carry the catalogued"),
+        (_TOOLCHAIN_RECORDS[2], "-vcvars_ver=14.44", "-vcvars_ver=14.51", "does not carry the catalogued"),
+    ],
+)
+def test_windows_cpu_build_toolchain_drift_fails_closed(tmp_path, monkeypatch, relative, old, new, expected) -> None:
+    root = _toolchain_root(tmp_path)
+    target = root / relative
+    text = target.read_text(encoding="utf-8")
+    assert text.count(old) == 1
+    target.write_text(text.replace(old, new), encoding="utf-8")
+    errors = _toolchain_errors(root, monkeypatch)
+    assert any(expected in error for error in errors), errors

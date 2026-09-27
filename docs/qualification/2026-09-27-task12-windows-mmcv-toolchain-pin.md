@@ -69,6 +69,8 @@ Before compiling, it asserts:
 
 It then proves that a clean rebuild reproduces the wheel byte for byte, as Linux already does. The regenerated lock must still equal the committed lock.
 
+The pin is recorded in the offline binary catalogue (`visionRuntime.windowsCpuBuildToolchain`), in dependency policy `msvc-cpu-build-toolchain-win-x64`, and in the inventory. `verify_repo` keeps those records and the workflow identical.
+
 Network use is build-time CI only, like the existing Torch, wheel and CPython-installer acquisition. Nothing is added to any Runtime Pack, and there is no first-run or runtime download.
 
 ## Not changed
