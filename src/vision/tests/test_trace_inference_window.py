@@ -568,10 +568,11 @@ def test_cli_defaults_name_the_failing_window_and_the_supervisor_defaults() -> N
     from mavi_vision.common.settings import WorkerSettings
 
     fields = WorkerSettings.model_fields
-    assert args.model_manifest == fields["model_manifest_path"].default
+    assert args.component_binding == fields["component_binding_path"].default
+    assert args.overlay_root == fields["overlay_root"].default
+    assert args.model_root == fields["model_root"].default
     assert args.pipeline_profile == fields["pipeline_profile_path"].default
-    assert args.runtime_profile == fields["runtime_profile_path"].default
-    assert args.qualification_record == fields["qualification_record_path"].default
+    assert args.runtime_pack_manifest == fields["runtime_pack_manifest_path"].default
 
 
 # ---------------------------------------------------------------------------
@@ -590,12 +591,15 @@ def test_the_tool_never_loads_a_checkpoint_itself() -> None:
     assert "MMDetectionRuntime(selection, device=device, activity=activity)" in source
 
 
-def test_the_selection_is_verified_the_way_the_supervisor_verifies_it() -> None:
-    """Development host: allow_unverified=True, as `production_mode=False` yields."""
+def test_the_selection_is_resolved_the_way_the_supervisor_resolves_it() -> None:
+    """Development host: the binding, resolved with `production_mode=False`."""
     source = (TOOLS / "trace_inference_window.py").read_text(encoding="utf-8")
-    assert "verify_release_selection(" in source
-    assert "allow_unverified=True" in source
-    assert "required_runtime_variant" not in source   # that is the Production path
+    assert "RoleComposition(" in source
+    assert "production_mode=False" in source
+    assert "production_mode=True" not in source
+    assert "profile_requirement=" not in source   # that is the Production path
+    for retired in ("verify_release_selection", "--model-manifest", "--qualification-record", "--runtime-profile"):
+        assert retired not in source
 
 
 def test_the_hang_exit_code_is_not_the_worker_exit_code() -> None:

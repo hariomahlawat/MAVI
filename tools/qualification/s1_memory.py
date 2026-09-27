@@ -79,6 +79,7 @@ from mavi_vision.video.trajectory_spool import DEFAULT_CHUNK_POINTS, RECORD_BYTE
 OUTPUT_SCHEMA = "s1-b2-memory-output-v1"
 FRAME_SOURCE = "synthetic-noise-pool-v1"
 PROFILE_PATH = VISION / "config" / "pipelines" / "phase1-detection-tracking-v1.json"
+COMPONENT_BINDING_PATH = VISION / "config" / "components" / "phase1-bindings-v2.json"
 JOB_ID = UUID("01920000-0000-7000-8000-00000000b2b2")
 QUALIFIED_CPU_VARIANTS = ("linux-x86_64-cpu", "windows-x86_64-cpu")
 PER_LIVE_HELD_BOUND_BYTES = 64 * 1024 + 3 * 160 * 1024  # ADR-013 §4: 544 KiB
@@ -536,6 +537,7 @@ def measure_completion_peak(result: VisionProcessingResult) -> dict[str, int]:
 
     from mavi_vision.common.control_plane import VisionJobLease
     from mavi_vision.common.settings import WorkerSettings
+    from mavi_vision.runtime.resolver import CompletionContract
     from mavi_vision.worker.client import WorkerApiClient
 
     golden = json.loads((REPO / "contracts/examples/vision-job-complete-v3.example.json").read_text(encoding="utf-8"))
@@ -565,14 +567,21 @@ def measure_completion_peak(result: VisionProcessingResult) -> dict[str, int]:
     async def invoke() -> None:
         with tempfile.TemporaryDirectory() as media_root:
             # The harness exercises the S1.4 B3 F2 hand-off explicitly: the worker
-            # gate is set to 3.1 here, matching the fake platform's acknowledgement.
+            # emits 3.1 here, matching the fake platform's acknowledgement. Since
+            # S2a.3 that is the Development override (P-16), the only path to a
+            # 3.1 body; the measured body is unchanged.
             settings = WorkerSettings(
                 api_base_url="https://mavi-api.local",
                 worker_id=golden["workerId"],
                 media_root=Path(media_root),
-                completion_schema_version="3.1",
+                completion_schema_override="3.1",
             )
-            client = WorkerApiClient(settings, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+            client = WorkerApiClient(
+                settings,
+                httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+                completion=CompletionContract(version="3.1", override="3.1"),
+                component_binding_sha256=provenance.component_binding_sha256,
+            )
             try:
                 response = await client.complete(lease, result, 1, provenance)
             finally:
@@ -619,7 +628,21 @@ def _provenance_from(wire: dict):
             high_confidence_threshold=tracker["highConfidenceThreshold"], minimum_iou_threshold=tracker["minimumIouThreshold"],
             minimum_consecutive_frames=tracker["minimumConsecutiveFrames"], lost_track_buffer_seconds=tracker["lostTrackBufferSeconds"],
         ),
+        # A 3.0/3.1 golden carries no component identity; the worker's provenance
+        # always does (S2a.3), and the overridden 3.1 body drops it from the wire.
+        # The binding identity is the committed binding's, never an invented one.
+        capability_id="detector",
+        model_pack_id=_committed_detector_model_pack_id(),
+        runtime_pack_id=None,
+        runtime_pack_source="unpacked-environment",
+        component_binding_sha256=hashlib.sha256(COMPONENT_BINDING_PATH.read_bytes()).hexdigest(),
     )
+
+
+def _committed_detector_model_pack_id() -> str:
+    binding = json.loads(COMPONENT_BINDING_PATH.read_text(encoding="utf-8"))
+    (detector,) = [item for item in binding["capabilityBindings"] if item["capabilityId"] == "detector"]
+    return detector["modelPackId"]
 
 
 # --------------------------------------------------------------------------- identity

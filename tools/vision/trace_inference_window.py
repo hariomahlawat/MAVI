@@ -343,33 +343,56 @@ def instrument_runtime(
 
 def build_runtime(
     *,
+    component_binding_path: Path,
+    overlay_root: Path,
     model_root: Path,
-    manifest_path: Path,
     profile_path: Path,
-    runtime_profile_path: Path,
-    qualification_path: Path | None,
+    runtime_pack_manifest_path: Path | None,
     device: str,
     activity: Any,
 ) -> Any:
     """Construct MMDetectionRuntime the way `_default_runtime_factory` does.
 
-    The selection is verified with `allow_unverified=True`, which is what the
-    supervisor passes when `production_mode` is false -- i.e. on the
-    Development host this runs on. The checkpoint is loaded inside the
-    runtime's own `bindings.checkpoint_scope()`; this tool never calls
-    `torch.load` and has no path that could widen the reviewed globals.
+    The role is resolved through the component binding exactly as the
+    supervisor resolves it when `production_mode` is false -- i.e. on the
+    Development host this runs on -- for the variant the device implies. The
+    checkpoint is loaded inside the runtime's own `bindings.checkpoint_scope()`;
+    this tool never calls `torch.load` and has no path that could widen the
+    reviewed globals.
     """
-    from mavi_vision.runtime.mmdetection import MMDetectionRuntime
-    from mavi_vision.runtime.qualification import verify_release_selection
+    import platform
 
-    selection = verify_release_selection(
-        model_root=model_root,
-        manifest_path=manifest_path,
-        profile_path=profile_path,
-        runtime_profile_path=runtime_profile_path,
-        qualification_path=qualification_path,
-        allow_unverified=True,
+    from mavi_vision.runtime.binding import load_component_binding
+    from mavi_vision.runtime.mmdetection import MMDetectionRuntime, _runtime_variant_name
+    from mavi_vision.runtime.resolver import (
+        RoleComposition,
+        RoleCompositionInputs,
+        resolve_completion_contract,
     )
+
+    binding = load_component_binding(component_binding_path)
+    composition = RoleComposition(
+        RoleCompositionInputs(
+            component_binding_path=component_binding_path,
+            role_id="vision",
+            overlay_root=overlay_root,
+            model_root=model_root,
+            pipeline_profile_path=profile_path,
+            runtime_pack_manifest_path=runtime_pack_manifest_path,
+            production_mode=False,
+        ),
+        completion=resolve_completion_contract(
+            binding.role("vision"),
+            override=None,
+            production_mode=False,
+            emittable_versions=("3.2",),
+        ),
+        binding=binding,
+    )
+    selection = composition.resolve(
+        runtime_variant=_runtime_variant_name(device),
+        python_version=platform.python_version(),
+    ).detector_selection()
     return MMDetectionRuntime(selection, device=device, activity=activity)
 
 
@@ -538,11 +561,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--window-end-seconds", type=float, default=122.0)
     parser.add_argument("--until-seconds", type=float, default=122.0, help="sequential mode: infer every frame up to this offset")
     parser.add_argument("--device", default="cuda:0")
-    parser.add_argument("--model-root", type=Path, default=Path("models"))
-    parser.add_argument("--model-manifest", type=Path, default=Path("models/manifests/rtmdet-m-coco-phase1-v1.json"))
+    parser.add_argument("--model-root", type=Path, default=Path("models"), help="Model Pack store root")
+    parser.add_argument("--component-binding", type=Path, default=Path("src/vision/config/components/phase1-bindings-v2.json"))
+    parser.add_argument("--overlay-root", type=Path, default=Path("."))
     parser.add_argument("--pipeline-profile", type=Path, default=Path("src/vision/config/pipelines/phase1-detection-tracking-v1.json"))
-    parser.add_argument("--runtime-profile", type=Path, default=Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json"))
-    parser.add_argument("--qualification-record", type=Path, default=Path("models/qualifications/rtmdet-m-coco-phase1-v1.json"))
+    parser.add_argument("--runtime-pack-manifest", type=Path, help="installed runtime-pack-manifest.json, if any")
     parser.add_argument("--no-warmup", action="store_true", help="skip runtime.warmup(); the supervisor always warms up, so leave this off unless testing the cold call")
     parser.add_argument("--no-explicit-sync", action="store_true", help="do not torch.cuda.synchronize() between the detector call and conversion; reproduces production timing but hides where a GPU stall surfaces")
     parser.add_argument("--hang-report-seconds", type=float, default=60.0)
@@ -613,11 +636,11 @@ def main(argv: list[str] | None = None) -> int:
         state["stage"] = "build_runtime"
         log.emit("build_runtime_enter", **dict(state))
         runtime = build_runtime(
+            component_binding_path=args.component_binding,
+            overlay_root=args.overlay_root,
             model_root=args.model_root,
-            manifest_path=args.model_manifest,
             profile_path=args.pipeline_profile,
-            runtime_profile_path=args.runtime_profile,
-            qualification_path=args.qualification_record,
+            runtime_pack_manifest_path=args.runtime_pack_manifest,
             device=args.device,
             activity=activity,
         )

@@ -8,9 +8,9 @@ import json
 import re
 from pathlib import Path, PurePosixPath
 
-INVENTORY_SCHEMA = "mavi-offline-vision-component-inventory-v1"
+INVENTORY_SCHEMA = "mavi-offline-vision-component-inventory-v2"
 RUNTIME_SCHEMA = "mavi-vision-runtime-pack-v2"
-MODEL_SCHEMA = "mavi-vision-model-pack-v1"
+MODEL_SCHEMA = "mavi-vision-model-pack-v2"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -58,67 +58,80 @@ def _artifact_hashes(manifest: dict[str, object], *, kind: str) -> dict[str, str
 
 
 def verify_component_ownership(kit_root: Path) -> dict[str, object]:
+    """Every pack in its own place, no artefact bytes shared between any two packs.
+
+    Since S2a.3 a kit holds any number of Runtime Packs and Model Packs (plan
+    §7); the ownership boundary is pairwise across all of them, and the
+    Application Overlay inventory carries binding metadata only.
+    """
     if not kit_root.is_dir() or kit_root.is_symlink():
         raise ComponentOwnershipError("kit_root_invalid")
     inventory = _load_json(kit_root / "vision" / "component-inventory.json")
     if inventory.get("schemaVersion") != INVENTORY_SCHEMA:
         raise ComponentOwnershipError("component_inventory_schema_invalid")
-    runtime = inventory.get("runtimePack")
-    model = inventory.get("modelPack")
+    runtimes = inventory.get("runtimePacks")
+    models = inventory.get("modelPacks")
     overlay = inventory.get("applicationOverlay")
-    if not isinstance(runtime, dict) or not isinstance(model, dict) or not isinstance(overlay, dict):
+    if (
+        not isinstance(runtimes, list)
+        or not isinstance(models, list)
+        or not runtimes
+        or not models
+        or not isinstance(overlay, dict)
+    ):
         raise ComponentOwnershipError("component_inventory_incomplete")
 
-    runtime_id = runtime.get("runtimePackId")
-    model_id = model.get("modelPackId")
-    runtime_relative = _safe_relative(runtime.get("relativePath"))
-    model_relative = _safe_relative(model.get("relativePath"))
-    if runtime_relative.parts != ("vision", "runtime", str(runtime_id)):
-        raise ComponentOwnershipError("runtime_component_location_invalid")
-    if model_relative.parts != ("vision", "models", str(model_id)):
-        raise ComponentOwnershipError("model_component_location_invalid")
+    owners: dict[str, str] = {}
+    counts: dict[str, int] = {"runtime": 0, "model": 0}
+    identities: dict[str, list[str]] = {"runtime": [], "model": []}
+    for entries, kind, folder, manifest_name, id_key, schema in (
+        (runtimes, "runtime", "runtime", "runtime-pack-manifest.json", "runtimePackId", RUNTIME_SCHEMA),
+        (models, "model", "models", "model-pack-manifest.json", "modelPackId", MODEL_SCHEMA),
+    ):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ComponentOwnershipError("component_inventory_incomplete")
+            identifier = entry.get(id_key)
+            relative = _safe_relative(entry.get("relativePath"))
+            if relative.parts != ("vision", folder, str(identifier)):
+                raise ComponentOwnershipError(f"{kind}_component_location_invalid")
+            manifest = _load_json(kit_root.joinpath(*relative.parts) / manifest_name)
+            if manifest.get("schemaVersion") != schema or manifest.get(id_key) != identifier:
+                raise ComponentOwnershipError(f"{kind}_component_identity_invalid")
+            hashes = _artifact_hashes(manifest, kind=kind)
+            counts[kind] += len(hashes)
+            identities[kind].append(str(identifier))
+            for path, sha in hashes.items():
+                owner = f"{kind}:{identifier}:{path}"
+                previous = owners.get(sha)
+                if previous is not None and previous.split(":", 2)[:2] != owner.split(":", 2)[:2]:
+                    raise ComponentOwnershipError(f"cross_component_artifact_duplicate:{sha}:{previous}:{owner}")
+                owners.setdefault(sha, owner)
 
-    runtime_manifest = _load_json(kit_root.joinpath(*runtime_relative.parts) / "runtime-pack-manifest.json")
-    model_manifest = _load_json(kit_root.joinpath(*model_relative.parts) / "model-pack-manifest.json")
-    if runtime_manifest.get("schemaVersion") != RUNTIME_SCHEMA or runtime_manifest.get("runtimePackId") != runtime_id:
-        raise ComponentOwnershipError("runtime_component_identity_invalid")
-    if model_manifest.get("schemaVersion") != MODEL_SCHEMA or model_manifest.get("modelPackId") != model_id:
-        raise ComponentOwnershipError("model_component_identity_invalid")
-
-    runtime_hashes = _artifact_hashes(runtime_manifest, kind="runtime")
-    model_hashes = _artifact_hashes(model_manifest, kind="model")
-    runtime_by_hash = {sha: path for path, sha in runtime_hashes.items()}
-    for model_path, sha in model_hashes.items():
-        runtime_path = runtime_by_hash.get(sha)
-        if runtime_path is not None:
-            raise ComponentOwnershipError(
-                f"cross_component_artifact_duplicate:{sha}:runtime={runtime_path}:model={model_path}"
-            )
-
-    expected_overlay_keys = {"revision", "componentRequirements", "componentRequirementsSha256"}
+    expected_overlay_keys = {"revision", "componentBinding", "componentBindingSha256"}
     if set(overlay) != expected_overlay_keys:
         raise ComponentOwnershipError("application_overlay_inventory_boundary_invalid")
     revision = overlay.get("revision")
-    requirements_name = overlay.get("componentRequirements")
-    requirements_sha = overlay.get("componentRequirementsSha256")
+    binding_name = overlay.get("componentBinding")
+    binding_sha = overlay.get("componentBindingSha256")
     if not isinstance(revision, str) or not REVISION_RE.fullmatch(revision):
         raise ComponentOwnershipError("application_overlay_revision_invalid")
     if (
-        not isinstance(requirements_name, str)
-        or not requirements_name
-        or PurePosixPath(requirements_name).name != requirements_name
-        or "\\" in requirements_name
+        not isinstance(binding_name, str)
+        or not binding_name
+        or PurePosixPath(binding_name).name != binding_name
+        or "\\" in binding_name
     ):
-        raise ComponentOwnershipError("application_overlay_requirements_name_invalid")
-    if not isinstance(requirements_sha, str) or not SHA256_RE.fullmatch(requirements_sha):
-        raise ComponentOwnershipError("application_overlay_requirements_sha_invalid")
+        raise ComponentOwnershipError("application_overlay_binding_name_invalid")
+    if not isinstance(binding_sha, str) or not SHA256_RE.fullmatch(binding_sha):
+        raise ComponentOwnershipError("application_overlay_binding_sha_invalid")
 
     return {
-        "schemaVersion": "mavi-offline-vision-component-ownership-v1",
-        "runtimePackId": runtime_id,
-        "modelPackId": model_id,
-        "runtimeArtifactCount": len(runtime_hashes),
-        "modelArtifactCount": len(model_hashes),
+        "schemaVersion": "mavi-offline-vision-component-ownership-v2",
+        "runtimePackIds": sorted(identities["runtime"]),
+        "modelPackIds": sorted(identities["model"]),
+        "runtimeArtifactCount": counts["runtime"],
+        "modelArtifactCount": counts["model"],
         "crossComponentDuplicates": 0,
         "applicationRevision": revision,
     }

@@ -406,3 +406,35 @@ def test_the_cut_over_changes_no_runtime_pack_identity() -> None:
         "windows-x86_64-cpu": "mavi-runtime-v2-5d6229da58554bc951ddc8bd719574c1b33109a7916afdf717339d8847e39e61",
         "windows-x86_64-cuda": "mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d",
     }
+
+
+def test_v1_release_schemas_are_tooling_only() -> None:
+    """No runtime dual reader (plan §5): only the one-shot generator reads v1."""
+    import re
+
+    repository = Path(__file__).resolve().parents[3]
+    allowed = {"tools/vision/migrate_component_binding_v1.py"}
+    importers = set()
+    for path in repository.rglob("*.py"):
+        relative = path.relative_to(repository).as_posix()
+        if relative.startswith((".claude/", ".git/")) or "/node_modules/" in relative:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"^\s*(from|import)\s+[\w.]*v1_release_schemas", text, re.MULTILINE) or re.search(
+            r"spec_from_file_location\([^)]*v1_release_schemas", text
+        ):
+            importers.add(relative)
+    # The scanner must see the one legitimate importer, or it proves nothing.
+    assert importers == allowed, sorted(importers ^ allowed)
+
+    retired = re.compile(
+        r"\b(load_model_manifest|load_runtime_profile|load_qualification_record|verify_release_selection"
+        r"|VerifiedReleaseSelection|ModelPackIdentityInputs|MANDATORY_QUALIFICATION_GATES)\b(?!_v2)"
+    )
+    package = repository / "src/vision/mavi_vision"
+    offenders = [
+        path.relative_to(repository).as_posix()
+        for path in package.rglob("*.py")
+        if retired.search(path.read_text(encoding="utf-8"))
+    ]
+    assert offenders == []

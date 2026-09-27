@@ -180,6 +180,9 @@ def required_disconnected_artifacts() -> tuple:
     return UNIT_REQUIREMENTS["DISCONNECTED"].artifacts
 
 
+PRE_S2A_WORKER_SETTINGS = Path(__file__).parent / "fixtures" / "pre-s2a-worker-settings.py"
+
+
 def _measured_source(relative: str) -> bytes:
     """A committed source as the fixture's measured SHA holds it: this checkout's,
     with the F4-C activation (plan §10.5) applied, since B3 may pass only where the
@@ -190,7 +193,12 @@ def _measured_source(relative: str) -> bytes:
         document["VisionFinalization"]["Enabled"] = True
         return json.dumps(document, indent=2).encode("utf-8")
     if relative == s1_evidence.WORKER_SETTINGS_RELATIVE:
-        text = data.decode("utf-8")
+        # The checker reads settings.py at the *measured* SHA, which for any S1
+        # identity is pre-S2a. Since the S2a.3 cut-over the live file has no
+        # completion_schema_version (plan P-16), so the fixture pins the pre-S2a
+        # bytes (0e5bad6) instead of reading the checkout: a fixture change, not
+        # a checker rule change (plan §5.3).
+        text = PRE_S2A_WORKER_SETTINGS.read_text(encoding="utf-8")
         activated = re.sub(r'(completion_schema_version: Literal\[[^\]]*\] = )"[0-9.]+"', r'\g<1>"3.1"', text)
         assert s1_evidence.worker_completion_default(activated) == "3.1"
         return activated.encode("utf-8")
@@ -3151,7 +3159,13 @@ def test_b3_needs_the_activated_path_to_be_the_shipped_default(tmp_path: Path) -
 
 def test_the_worker_completion_default_is_read_from_the_settings_source() -> None:
     text = (REPO_ROOT / s1_evidence.WORKER_SETTINGS_RELATIVE).read_text(encoding="utf-8")
-    assert s1_evidence.worker_completion_default(text) in ("3.0", "3.1")
+    # Since the S2a.3 cut-over the live settings carry no completion version at
+    # all (the role's provenanceContract fixes 3.2; P-16), so the rule finds no
+    # default and B3 refuses (activation_default_unqualified) at any post-S2a.3
+    # measured SHA. That is the intended consequence -- S1 identities are pre-S2a
+    # and S1 remains OPEN -- not a rule change.
+    assert s1_evidence.worker_completion_default(text) is None
+    assert "completion_schema_override" in text
     assert s1_evidence.worker_completion_default(_measured_source(s1_evidence.WORKER_SETTINGS_RELATIVE).decode()) == "3.1"
     assert s1_evidence.worker_completion_default("nothing here") is None
 

@@ -35,9 +35,11 @@ architecture. Anything the record asserts that another artefact also states is
 checked against it, so the operator's word is never the only source for it.
 
 The output carries `variantPatch`, the complete `qualified-development-hardware`
-platform-variant entry, because ADR-009 requires a resolved-config, Python and
-binary identity alongside the evidence block and hand-typing those at the last
-step would reintroduce exactly the fabrication this tool exists to prevent.
+platform-variant entry, because ADR-009 requires the Python and binary identity
+alongside the evidence block and hand-typing those at the last step would
+reintroduce exactly the fabrication this tool exists to prevent. (Since the
+S2a.3 cut-over the resolved-config identity is the Model Pack's: the runtime
+verification must still report it, but a v2 platform variant never carries it.)
 
 It is offline and reads only the files it is given.
 """
@@ -446,8 +448,7 @@ def build_evidence(
     }
 
     # The complete platform-variant entry, machine-generated. ADR-009 requires
-    # the resolved-config, Python and binary identities alongside the evidence
-    # block; typing those in by hand at the last step would reintroduce exactly
+    # the Python and binary identities alongside the evidence block; typing those in by hand at the last step would reintroduce exactly
     # the fabrication this tool exists to prevent.
     binary_versions = _runtime_binary_versions(runtime)
     if _required_text(
@@ -456,12 +457,16 @@ def build_evidence(
     ) != binary_versions["torch"]:
         raise DevelopmentEvidenceError("development_evidence_torch_version_mismatch")
 
+    # The runtime verification must still report the resolved config it ran
+    # (the evidence stays bound to the model bytes it exercised), but since
+    # S2a.3 that identity belongs to the Model Pack, not to the runtime family
+    # profile: a v2 platform variant carries no model identity.
+    _required_digest(
+        runtime.get("resolvedConfigSha256"),
+        "development_evidence_resolved_config_missing",
+    )
     variant_patch = {
         "status": "qualified-development-hardware",
-        "resolvedConfigSha256": _required_digest(
-            runtime.get("resolvedConfigSha256"),
-            "development_evidence_resolved_config_missing",
-        ),
         "pythonIdentity": _runtime_python_identity(runtime),
         "binaryVersions": binary_versions,
     }
