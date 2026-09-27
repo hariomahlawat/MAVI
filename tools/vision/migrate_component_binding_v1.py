@@ -12,7 +12,9 @@ What it validates (fail closed on any mismatch; no evidence is carried across):
 - binding, manifest and runtime profile agree on model identity, and the v1
   ``modelPackId`` re-derives from it;
 - every bound variant is deployable and every deployable variant is bound;
-- each bound lock and requirements hash equals the file beside the runtime profile;
+- each bound lock and requirements hash equals the file beside the runtime profile,
+  and each bound ``runtimePackId`` re-derives from the variant, the profile's
+  recorded Python version for it, those hashes and the bound native ABI;
 - no output path exists or is repeated (the generator never overwrites).
 
 What it does NOT validate: the pipeline policy. ``policies.pipelineProfileId`` and
@@ -54,8 +56,11 @@ from mavi_vision.runtime.binding import (  # noqa: E402
     parse_component_binding,
 )
 from mavi_vision.runtime.component_identity import (  # noqa: E402
+    ComponentIdentityError,
     ModelPackIdentityInputs,
+    RuntimePackIdentityInputs,
     model_pack_id,
+    runtime_pack_id,
 )
 from mavi_vision.runtime.component_relationships import (  # noqa: E402
     check_binding_variants,
@@ -287,8 +292,26 @@ def build_v2_documents(
             and entry.get("runtimeRequirementsSha256") == sha256_release_file(requirements_path),
             f"runtime_requirements_binding_mismatch:{variant}",
         )
+        # The v1 loader requires pythonIdentity on every non-pending variant, and a
+        # deployable variant is never pending, so the recorded version is present.
+        python_version = v1_profile.platform_variants[variant].python_identity.version
+        native_abi = entry.get("nativeAbi")
+        _require(isinstance(native_abi, str), f"runtime_pack_id_mismatch:{variant}")
+        try:
+            derived_pack_id = runtime_pack_id(
+                RuntimePackIdentityInputs(
+                    platform_variant=variant,
+                    python_version=python_version,
+                    third_party_lock_sha256=entry["thirdPartyLockSha256"],
+                    runtime_requirements_sha256=entry["runtimeRequirementsSha256"],
+                    native_abi=native_abi,
+                )
+            )
+        except ComponentIdentityError as exc:
+            raise MigrationError(f"runtime_pack_id_mismatch:{variant}") from exc
+        _require(entry.get("runtimePackId") == derived_pack_id, f"runtime_pack_id_mismatch:{variant}")
         bound_variants[variant] = {
-            "runtimePackId": entry.get("runtimePackId"),
+            "runtimePackId": derived_pack_id,
             "thirdPartyLockSha256": entry.get("thirdPartyLockSha256"),
             "runtimeRequirementsSha256": entry.get("runtimeRequirementsSha256"),
             "nativeAbi": entry.get("nativeAbi"),

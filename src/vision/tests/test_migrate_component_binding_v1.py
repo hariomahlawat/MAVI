@@ -131,6 +131,13 @@ def test_model_identity_changes_deliberately_and_runtime_identity_does_not(tmp_p
     (lambda p: (p["v1_runtime_profile"].parent / "windows-x86_64-cpu.lock").unlink(), "runtime_variant_classification_invalid:windows-x86_64-cpu"),
     (lambda p: _edit(p["v1_binding"], lambda d: d["modelPack"].update(modelPackId="mavi-model-v1-" + "0" * 64)), "migration_v1_model_identity_mismatch"),
     (lambda p: _edit(p["v1_binding"], lambda d: d["runtimePacks"]["linux-x86_64-cpu"].update(runtimeRequirementsSha256="0" * 64)), "runtime_requirements_binding_mismatch:linux-x86_64-cpu"),
+    # a well-formed but stale runtimePackId is re-derived, never copied
+    (lambda p: _edit(p["v1_binding"], lambda d: d["runtimePacks"]["windows-x86_64-cpu"].update(runtimePackId="mavi-runtime-v2-" + "0" * 64)), "runtime_pack_id_mismatch:windows-x86_64-cpu"),
+    (lambda p: _edit(p["v1_binding"], lambda d: d["runtimePacks"]["windows-x86_64-cuda"].update(nativeAbi="win_amd64-msvc-14.51-sdk-10.0.26100.0")), "runtime_pack_id_mismatch:windows-x86_64-cuda"),
+    (lambda p: _edit(p["v1_binding"], lambda d: d["runtimePacks"]["windows-x86_64-cuda"].update(nativeAbi=14)), "runtime_pack_id_mismatch:windows-x86_64-cuda"),
+    (lambda p: _edit(p["v1_binding"], lambda d: d["runtimePacks"]["linux-x86_64-cpu"].update(nativeAbi=" padded")), "runtime_pack_id_mismatch:linux-x86_64-cpu"),
+    (lambda p: (_edit(p["v1_runtime_profile"], lambda d: d["platformVariants"]["linux-x86_64-cpu"]["pythonIdentity"].update(version="3.12.15")),
+                _rebind_record(p)), "runtime_pack_id_mismatch:linux-x86_64-cpu"),
 ])
 def test_inconsistent_or_qualified_v1_state_is_not_migrated(tmp_path, edit, code) -> None:
     tool = load_migration_tool()

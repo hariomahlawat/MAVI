@@ -17,9 +17,11 @@ M44–M54 cover the guards added after the second cold review. They cover:
 - the network-locator rule on manifest provenance, which is shared with `verify_repo` and pinned against the list `verify_repo` carried before;
 - `policies`, which is optional but never half-populated or explicitly null.
 
+M55 covers the generator guard added after the automated review of `58a9dec`: a bound `runtimePackId` is re-derived, never copied through.
+
 After the matrix ran, every mutated file was verified byte for byte against its SHA-256 taken before the run.
 
-## Results: 54 of 54 caught
+## Results: 55 of 55 caught
 
 | ID | Mutation | File (`runtime/` = `src/vision/mavi_vision/runtime/`) | First failing test | Result |
 |---|---|---|---|---|
@@ -77,6 +79,7 @@ After the matrix ran, every mutated file was verified byte for byte against its 
 | M52 | generator: temporary tracked only after a successful write | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_staging_write_failure_leaves_no_temporary_file` | caught |
 | M53 | locator rule loses git+ | `runtime/manifest.py` | `tests/test_model_manifest_v2.py::test_provenance_cannot_encode_a_network_locator[git+file:///srv/repo-publisher]` | caught |
 | M54 | explicit null policies accepted | `runtime/qualification_v2.py` | `tests/test_qualification_record_v2.py::test_half_populated_or_malformed_policies_fail_closed[None-qualification_policies_invalid]` | caught |
+| M55 | generator: stale runtimePackId copied through instead of re-derived | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_inconsistent_or_qualified_v1_state_is_not_migrated[<lambda>-runtime_pack_id_mismatch:windows-x86_64-cpu]` | caught |
 
 ## Fail-closed codes outside the table
 
