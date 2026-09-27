@@ -154,6 +154,14 @@ public sealed class CompletionExchange32Tests
         Provenance(swapped)["modelPackId"] = modelPackId;
         Provenance(swapped)["runtimePackId"] = modelPackId;
         Assert.Equal("provenance_runtime_pack_invalid", Rejection(swapped));
+
+        // The prefix is checked, not only the length: right length, wrong namespace.
+        Provenance(swapped)["runtimePackId"] = runtimePackId;
+        Provenance(swapped)["modelPackId"] = "mavi-other-v2-" + modelPackId["mavi-model-v2-".Length..];
+        Assert.Equal("provenance_model_pack_invalid", Rejection(swapped));
+        Provenance(swapped)["modelPackId"] = modelPackId;
+        Provenance(swapped)["runtimePackId"] = "mavi-models-v2-" + runtimePackId["mavi-runtime-v2-".Length..] + "8";
+        Assert.Equal("provenance_runtime_pack_invalid", Rejection(swapped));
     }
 
     [Fact]
