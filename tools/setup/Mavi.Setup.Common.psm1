@@ -75,8 +75,11 @@ function Get-MaviVisionRuntimeRelevantChanges {
         "src/vision/pyproject.toml",
         "src/vision/config/pipelines/phase1-detection-tracking-v1.json",
         "src/vision/runtime/mmdetection-phase1-v1",
-        "models/manifests/rtmdet-m-coco-phase1-v1.json",
-        "models/qualifications/rtmdet-m-coco-phase1-v1.json",
+        # Component binding v2 (S2a.3): manifests and qualification records are
+        # found by id under these directories, and the binding selects them.
+        "src/vision/config/components",
+        "models/manifests",
+        "models/qualifications",
         "contracts"
     )
 

@@ -144,12 +144,27 @@ try {
         "MAVI_VISION_RUNTIME_WINDOWS_CUDA_ROOT",
         'DevicePolicy = "auto"',
         "MAVI_MODEL_ROOT",
-        "MAVI_RUNTIME_PROFILE_PATH",
-        "MAVI_QUALIFICATION_RECORD_PATH",
+        "MAVI_COMPONENT_BINDING_PATH",
+        "MAVI_ROLE_ID",
+        "MAVI_OVERLAY_ROOT",
+        "MAVI_RUNTIME_PACK_MANIFEST_PATH",
+        "Clear-MaviVisionRetiredCompositionEnvironment",
         "mavi_vision.worker.main"
     )) {
         if ($visionLauncherText -notmatch [regex]::Escape($requiredFragment)) {
             throw "Vision worker launcher is missing required contract fragment: $requiredFragment"
+        }
+    }
+    # S2a.3 (plan P-9): the per-path composition variables are retired and the
+    # worker refuses them, so the launcher must no longer set any of them.
+    foreach ($retiredVariable in @(
+        "MAVI_MODEL_MANIFEST_PATH",
+        "MAVI_RUNTIME_PROFILE_PATH",
+        "MAVI_QUALIFICATION_RECORD_PATH",
+        "MAVI_COMPLETION_SCHEMA_VERSION"
+    )) {
+        if ($visionLauncherText -match ('\$env:' + $retiredVariable + '\s*=')) {
+            throw "Vision worker launcher still sets retired composition variable: $retiredVariable"
         }
     }
 

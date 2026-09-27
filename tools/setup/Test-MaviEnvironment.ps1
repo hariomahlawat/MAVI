@@ -91,32 +91,41 @@ if ($Profile -eq "Development") {
         $runtimeStateValid = ([string]$runtimeState.schemaVersion -eq "mavi-vision-runtime-install-v2") -and ((Get-Sha256 $runtimeManifestPath) -eq ([string]$runtimeState.runtimePackManifestSha256).ToLowerInvariant())
         Add-Check -Name "Vision Runtime Pack state" -Passed $runtimeStateValid -Detail ([string]$runtimeManifest.runtimePackId)
 
-        $modelRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_MODEL_ROOT", "Machine")
-        if ([string]::IsNullOrWhiteSpace($modelRoot)) { $modelRoot = "C:\ProgramData\MAVI\Development\VisionModels\rtmdet-m-coco-phase1" }
-        $modelStatePath = Join-Path $modelRoot "model-install.json"
-        $modelManifestPath = Join-Path $modelRoot "model-pack-manifest.json"
-        $modelState = Read-MaviJson -Path $modelStatePath
-        $modelManifest = Read-MaviJson -Path $modelManifestPath
-        [void](Assert-MaviVisionModelPackManifest -Manifest $modelManifest)
-        $modelStateValid = ([string]$modelState.schemaVersion -eq "mavi-vision-model-install-v1") -and ((Get-Sha256 $modelManifestPath) -eq ([string]$modelState.modelPackManifestSha256).ToLowerInvariant())
-        Add-Check -Name "Vision Model Pack state" -Passed $modelStateValid -Detail ([string]$modelManifest.modelPackId)
-
-        $componentPath = Join-Path $repoRoot "src\vision\config\components\mmdetection-phase1-v1.json"
+        # Component binding v2 (S2a.3): role vision, its family's CPU Runtime
+        # Pack entry, and one installed Model Pack per enabled capability
+        # binding, found in the Model Pack store exactly as the launcher does.
+        $componentPath = Join-Path $repoRoot "src\vision\config\components\phase1-bindings-v2.json"
         $component = Read-MaviJson -Path $componentPath
-        if ([string]$component.schemaVersion -ne "mavi-vision-component-requirements-v1") { throw "unsupported component requirements schema" }
-        $requiredRuntime = $component.runtimePacks."windows-x86_64-cpu"
-        $requiredModel = $component.modelPack
+        $bindingRole = Get-MaviVisionBindingRole -Binding $component -RoleId "vision"
+        $requiredRuntime = Get-MaviVisionBindingRuntimeRequirement -BindingRole $bindingRole -Variant "windows-x86_64-cpu"
+        if ($null -eq $requiredRuntime) { throw "the component binding declares no windows-x86_64-cpu Runtime Pack" }
+
+        $modelRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_MODEL_ROOT", "Machine")
+        if ([string]::IsNullOrWhiteSpace($modelRoot)) { $modelRoot = "C:\ProgramData\MAVI\Development\VisionModels" }
+        $storeResolution = Resolve-MaviVisionBoundModelPacks -StoreRoot $modelRoot -CapabilityBindings @($bindingRole.CapabilityBindings)
+        if ($storeResolution.LegacyInstallation) { throw "Model Pack store root '$modelRoot' is a v1 per-model installation; re-install with Install-MaviVisionModelPack.ps1" }
+        $modelStateValid = $true
+        $modelDetails = New-Object System.Collections.Generic.List[string]
+        foreach ($bound in @($storeResolution.ModelPacks)) {
+            if ($bound.Status -ne "installed") {
+                $modelStateValid = $false
+                $modelDetails.Add("$($bound.CapabilityId): $($bound.ModelPackId) $($bound.Status)")
+                continue
+            }
+            [void](Assert-MaviVisionModelPackManifest -Manifest $bound.ModelManifest)
+            if ((Get-Sha256 ([string]$bound.ManifestPath)) -ne ([string]$bound.ModelState.modelPackManifestSha256).ToLowerInvariant()) { $modelStateValid = $false }
+            $modelDetails.Add("$($bound.CapabilityId): $($bound.ModelPackId) in $($bound.PackDirectory)")
+        }
+        Add-Check -Name "Vision Model Pack state" -Passed $modelStateValid -Detail ($modelDetails -join "; ")
+        if (-not $modelStateValid) { throw "a bound Model Pack is not installed in '$modelRoot' as mavi-vision-model-install-v2" }
+
         $compatible = Assert-MaviVisionWorkerComponentCompatibility `
             -RuntimeState $runtimeState -RuntimeManifest $runtimeManifest `
             -RequiredRuntimePackId ([string]$requiredRuntime.runtimePackId) `
             -RequiredThirdPartyLockSha256 ([string]$requiredRuntime.thirdPartyLockSha256) `
             -RequiredRuntimeRequirementsSha256 ([string]$requiredRuntime.runtimeRequirementsSha256) `
-            -ModelState $modelState -ModelManifest $modelManifest `
-            -RequiredModelPackId ([string]$requiredModel.modelPackId) `
-            -RequiredModelId ([string]$requiredModel.modelId) `
-            -RequiredCheckpointSha256 ([string]$requiredModel.checkpointSha256) `
-            -RequiredResolvedConfigSha256 ([string]$requiredModel.resolvedConfigSha256)
-        Add-Check -Name "Vision component compatibility" -Passed ([bool]$compatible) -Detail "Runtime Pack + Model Pack match current application overlay"
+            -RequiredModelPacks @($storeResolution.ModelPacks)
+        Add-Check -Name "Vision component compatibility" -Passed ([bool]$compatible) -Detail "Runtime Pack + Model Packs match the component binding"
     }
     catch {
         Add-Check -Name "Vision component compatibility" -Passed $false -Detail $_.Exception.Message
