@@ -18,14 +18,14 @@ A normal edit under `src/vision/mavi_vision/` does **not** justify rebuilding or
 
 Legacy `mavi-vision-runtime-install-v1` state is deliberately rejected. Perform the migration once:
 
-1. Obtain the qualified Windows CPU Runtime Pack whose `runtimePackId` matches `src/vision/config/components/mmdetection-phase1-v1.json`.
+1. Obtain the qualified Windows CPU Runtime Pack whose `runtimePackId` matches the component binding `src/vision/config/components/phase1-bindings-v2.json` (`runtimePacks[<family>].variants["windows-x86_64-cpu"]`; before Stage 2 S2a.3 this was `mmdetection-phase1-v1.json`).
 2. Run `tools/setup/Install-MaviVisionRuntime.ps1` with that pack and the current repository root. Installation is offline and uses the reviewed third-party hash lock.
-3. Obtain the required Model Pack whose `modelPackId` matches the same component-requirements file.
-4. Run `tools/setup/Install-MaviVisionModelPack.ps1` with that pack.
+3. Obtain the required Model Pack (`mavi-vision-model-pack-v2`) whose `modelPackId` matches the binding's detector `modelPackId`.
+4. Run `tools/setup/Install-MaviVisionModelPack.ps1 -PackRoot <pack>` (optionally `-StoreRoot <store>`, default `%ProgramData%\MAVI\Development\VisionModels`). It installs the pack as `<store>\<packDirectory>\` and never touches another pack in the store. A v1 `model-install.json` in that directory is refused (`model_install_state_v1_rejected`): remove the directory and re-run.
 5. Run `tools/setup/Test-MaviEnvironment.ps1 -Profile Development`.
 6. Start the worker with `tools/setup/Start-MaviVisionWorker.ps1` only after environment verification passes.
 
-`runtime-install.json` must report `mavi-vision-runtime-install-v2`; `model-install.json` must report `mavi-vision-model-install-v1`.
+`runtime-install.json` must report `mavi-vision-runtime-install-v2`; `model-install.json` must report `mavi-vision-model-install-v2` (since Stage 2 S2a.3; `-install-v1` before it).
 
 ## Reuse behaviour
 

@@ -105,7 +105,8 @@ def test_no_binding_is_refused(overlay: RepositoryOverlay) -> None:
 def test_a_class_b_variant_missing_from_the_binding(overlay: RepositoryOverlay) -> None:
     del overlay.binding["runtimePacks"][0]["variants"]["windows-x86_64-cuda"]
     overlay.write()
-    _only(overlay, "binding_variant_missing:windows-x86_64-cuda")
+    # Refused by the family check (P-17), independently of the record check.
+    _only(overlay, "inconsistent with its runtime family: binding_variant_missing:windows-x86_64-cuda")
 
 
 def test_the_class_a_variant_declared_in_the_binding(overlay: RepositoryOverlay) -> None:
@@ -318,3 +319,9 @@ def test_the_committed_record_is_bound_to_the_committed_binding_and_pending() ->
     assert record["runtimeProfileSha256"] == sha256_bytes(
         (root / "src/vision/runtime/mmdetection-phase1-v1/runtime.json").read_bytes()
     )
+
+
+def test_p17_class_a_with_a_wheelhouse_lock_status(overlay: RepositoryOverlay) -> None:
+    overlay.runtime["releaseLocks"]["linux-x86_64-cuda"] = {"status": "pending-wheelhouse-freeze"}
+    overlay.write()
+    _only(overlay, "runtime_variant_classification_invalid:linux-x86_64-cuda")

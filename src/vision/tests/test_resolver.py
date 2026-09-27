@@ -652,3 +652,31 @@ def test_a_binding_to_a_pack_without_the_capability_is_refused(overlay: Overlay)
     overlay.binding["capabilityBindings"][0]["modelPackId"] = load_model_manifest_v2(target).model_pack_id
     overlay.write(sync=False)
     assert _code(overlay.resolve) == "model_capability_mismatch:detector"
+
+
+def test_p17_class_a_with_a_wheelhouse_lock_status_is_refused(overlay: Overlay) -> None:
+    """Plan §12.1 mutation 2's exact fixture: a legal lock status that is not class A."""
+    overlay.runtime["releaseLocks"]["linux-x86_64-cuda"] = {"status": "pending-wheelhouse-freeze"}
+    overlay.write()
+    assert _code(overlay.resolve) == "runtime_variant_classification_invalid:linux-x86_64-cuda"
+
+
+def test_p17_class_a_with_development_evidence_but_no_lock_is_refused(overlay: Overlay) -> None:
+    """Plan §12.1 mutation 1's exact fixture: loader-valid, not pending, no lock file."""
+    cuda = overlay.runtime["platformVariants"]["windows-x86_64-cuda"]
+    assert cuda["status"] == "qualified-development-hardware" and "developmentEvidence" in cuda
+    overlay.runtime["platformVariants"]["linux-x86_64-cuda"] = dict(cuda)
+    assert overlay.runtime["releaseLocks"]["linux-x86_64-cuda"]["status"] == "pending-hardware-qualification"
+    overlay.write()
+    assert not (overlay.runtime_path.parent / "linux-x86_64-cuda.lock").exists()
+    assert _code(overlay.resolve) == "runtime_variant_classification_invalid:linux-x86_64-cuda"
+
+
+def test_the_family_itself_refuses_a_binding_that_omits_a_class_b_variant(overlay: Overlay) -> None:
+    """The family check alone, not the record's: a binding is refused before any record is read."""
+    del overlay.binding["runtimePacks"][0]["variants"]["windows-x86_64-cuda"]
+    overlay.write()
+    binding = load_component_binding(overlay.binding_path)
+    assert _code(lambda: load_role_family(binding=binding, role_id="vision", overlay_root=overlay.root)) == (
+        "binding_variant_missing:windows-x86_64-cuda"
+    )

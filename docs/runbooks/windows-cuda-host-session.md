@@ -1396,7 +1396,7 @@ Development venv (`.venv` or the CPU pack venv):
 
 ```powershell
 $env:MAVI_DEVICE_POLICY = "cuda"; $env:MAVI_DEVICE_RESOLUTION_REASON = "explicit_cuda"
-# plus the MAVI_* variables the launcher exports (copy them from Start-MaviVisionWorker.ps1 line 171)
+# plus the MAVI_* variables the launcher exports (copy them from the environment block in Start-MaviVisionWorker.ps1; since S2a.3 that is MAVI_COMPONENT_BINDING_PATH, MAVI_ROLE_ID, MAVI_OVERLAY_ROOT, MAVI_RUNTIME_PACK_MANIFEST_PATH and MAVI_MODEL_ROOT, never the retired MAVI_MODEL_MANIFEST_PATH / MAVI_QUALIFICATION_RECORD_PATH / MAVI_RUNTIME_PROFILE_PATH)
 python -m mavi_vision.worker.main
 ```
 
