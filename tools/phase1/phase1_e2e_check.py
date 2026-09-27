@@ -28,13 +28,14 @@ ROOT = Path(__file__).resolve().parents[2]
 CANONICAL_ACCEPTANCE_PROFILE = ROOT / "config" / "acceptance" / "phase1-acceptance-v1.json"
 VISION_ROOT = ROOT / "src" / "vision"
 VISION_TOOLS = ROOT / "tools" / "vision"
-for candidate in (VISION_ROOT, VISION_TOOLS):
+PHASE1_ROOT = Path(__file__).resolve().parent
+for candidate in (VISION_ROOT, VISION_TOOLS, PHASE1_ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from mavi_vision.runtime.manifest import ReleaseMetadataError, sha256_release_file  # noqa: E402
-from mavi_vision.runtime.qualification import verify_release_selection  # noqa: E402
+from mavi_vision.runtime.manifest import ReleaseMetadataError  # noqa: E402
 import build_offline_bundle  # noqa: E402
+import release_composition  # noqa: E402
 
 EVALUATOR_PATH = Path(__file__).with_name("evaluate_ground_truth.py")
 EVAL_SPEC = importlib.util.spec_from_file_location("mavi_phase1_evaluator", EVALUATOR_PATH)
@@ -356,7 +357,7 @@ def _validate_bundle(bundle_dir: Path, source_commit: str) -> tuple[dict[str, An
     if status not in {"qualification-candidate", "production"}:
         raise AcceptanceError("qualification_bundle_status_invalid")
     try:
-        build_offline_bundle._verify_bundled_release_selection(bundle_dir, status)
+        build_offline_bundle.verify_bundled_release_manifest(bundle_dir, manifest)
     except Exception as exc:
         raise AcceptanceError("qualification_bundle_release_selection_invalid") from exc
 
@@ -376,30 +377,49 @@ def _validate_bundle(bundle_dir: Path, source_commit: str) -> tuple[dict[str, An
     return manifest, sha256_file(manifest_path)
 
 
-def _expected_release(args: argparse.Namespace) -> tuple[Any, dict[str, Any]]:
+def _expected_release(
+    args: argparse.Namespace,
+    runtime_variant: str,
+) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+    """The release the worker must attest, resolved through the v2 composition root.
+
+    The retired v1 release verifier (``allow_unverified=True``) maps to a
+    Development-mode resolution (an unverified capability resolves and is
+    labelled ``unverified``) for the bundle's own platform variant. The third
+    value is the 3.2 component identity, compared with the attestation but not
+    part of ``releaseExpected`` (whose evidence schema is unchanged).
+    """
     try:
-        selection = verify_release_selection(
+        resolved = release_composition.resolve_vision_role(
+            component_binding_path=args.component_binding,
+            overlay_root=args.overlay_root,
             model_root=args.model_root,
-            manifest_path=args.model_manifest,
-            profile_path=args.pipeline_profile,
-            runtime_profile_path=args.runtime_profile,
-            qualification_path=args.qualification_record,
-            allow_unverified=True,
+            pipeline_profile_path=args.pipeline_profile,
+            runtime_variant=runtime_variant,
         )
+        selection = resolved.detector_selection()
     except ReleaseMetadataError as exc:
         raise AcceptanceError(exc.code) from exc
+    capability = selection.capability
     expected = {
-        "modelId": selection.manifest.model_id,
-        "modelManifestSha256": selection.manifest_sha256,
-        "checkpointSha256": selection.manifest.checkpoint.sha256,
-        "resolvedConfigSha256": selection.manifest.resolved_config.sha256,
+        "modelId": selection.detector.model_id,
+        "modelManifestSha256": capability.manifest_sha256,
+        "checkpointSha256": selection.detector.checkpoint.sha256,
+        "resolvedConfigSha256": selection.detector.resolved_config.sha256,
         "pipelineProfileId": selection.profile.profile_id,
         "pipelineProfileSha256": selection.profile_sha256,
-        "runtimeProfileId": selection.runtime_profile_id,
-        "runtimeProfileSha256": selection.runtime_profile_sha256,
-        "qualificationSha256": selection.qualification_sha256,
+        "runtimeProfileId": resolved.family.runtime_profile.runtime_profile_id,
+        "runtimeProfileSha256": resolved.family.runtime_profile_sha256,
+        "qualificationSha256": capability.qualification_sha256,
     }
-    return selection, expected
+    composition = {
+        "capabilityId": capability.capability_id,
+        "modelPackId": capability.model_pack_id,
+        "componentBindingSha256": resolved.component_binding_sha256,
+        "runtimePackId": resolved.runtime_pack.runtime_pack_id,
+        "runtimePackSource": resolved.runtime_pack.runtime_pack_source,
+    }
+    return selection, expected, composition
 
 
 def _compare_attestation(
@@ -410,6 +430,8 @@ def _compare_attestation(
     bundle_manifest_sha: str,
     source_commit: str,
     expected_mavi_build: str,
+    *,
+    composition: dict[str, Any],
 ) -> dict[str, Any]:
     checks = {
         "modelId": expected["modelId"],
@@ -425,6 +447,12 @@ def _compare_attestation(
         "runtimeVariant": bundle.get("platformVariant"),
         "maviBuild": expected_mavi_build,
         "maviCommit": source_commit,
+        # Completion 3.2 component identity, as the resolver composed it (P-9, P-11).
+        "capabilityId": composition["capabilityId"],
+        "modelPackId": composition["modelPackId"],
+        "componentBindingSha256": composition["componentBindingSha256"],
+        "runtimePackId": composition["runtimePackId"],
+        "runtimePackSource": composition["runtimePackSource"],
     }
     for key, expected_value in checks.items():
         if attestation.get(key) != expected_value:
@@ -650,8 +678,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.mode == "empty-scene-diagnostic" and (args.corpus_manifest is not None or args.ground_truth is not None):
         raise AcceptanceError("qualification_diagnostic_ground_truth_arguments_forbidden")
 
-    selection, expected_release = _expected_release(args)
     bundle, bundle_manifest_sha = _validate_bundle(args.bundle_dir, args.source_commit)
+    variant = bundle.get("platformVariant")
+    if not isinstance(variant, str):
+        raise AcceptanceError("qualification_bundle_variant_invalid")
+    selection, expected_release, composition = _expected_release(args, variant)
     client = ApiClient(args.base_url)
 
     health = client.json("GET", "/api/health")
@@ -712,6 +743,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         bundle_manifest_sha,
         args.source_commit,
         args.expected_mavi_build,
+        composition=composition,
     )
 
     exact_tracks = _all_tracks(client, video["id"], run_id)
@@ -940,11 +972,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--expected-mavi-build", required=True)
     parser.add_argument("--target-verified-manifest-sha256", required=True)
+    # Component Binding v2 composition (plan P-9): manifests, records and the
+    # runtime profile are found by the resolver under the overlay, never by path.
+    parser.add_argument(
+        "--component-binding",
+        type=Path,
+        default=release_composition.CANONICAL_COMPONENT_BINDING,
+    )
+    parser.add_argument("--overlay-root", type=Path, default=ROOT)
     parser.add_argument("--model-root", type=Path, required=True)
-    parser.add_argument("--model-manifest", type=Path, required=True)
     parser.add_argument("--pipeline-profile", type=Path, required=True)
-    parser.add_argument("--runtime-profile", type=Path, required=True)
-    parser.add_argument("--qualification-record", type=Path, required=True)
     parser.add_argument("--bundle-dir", type=Path, required=True)
     parser.add_argument("--acceptance-profile", type=Path, required=True)
     parser.add_argument("--corpus-manifest", type=Path)

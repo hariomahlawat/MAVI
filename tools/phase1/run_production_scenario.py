@@ -25,6 +25,7 @@ sys.modules[SPEC.name] = e2e
 SPEC.loader.exec_module(e2e)
 
 import qualify_offline_variant as offline_variant  # noqa: E402
+import release_composition  # noqa: E402
 import deployment_profiles  # noqa: E402
 from production_acceptance_context import (  # noqa: E402
     AcceptanceContextError,
@@ -142,15 +143,9 @@ def validate_inputs(
 def worker_environment(
     args: argparse.Namespace,
 ) -> dict[str, str]:
-    release_models = args.bundle_dir / "release" / "models"
-    runtime_root = (
-        args.bundle_dir
-        / "release"
-        / "runtime"
-        / "mmdetection-phase1-v1"
-    )
+    """The Production worker environment: the bundle's v2 composition, nothing retired."""
     return {
-        **os.environ,
+        **release_composition.without_scrubbed_composition(os.environ),
         "PIP_NO_INDEX": "1",
         "PIP_DISABLE_PIP_VERSION_CHECK": "1",
         "HF_HUB_OFFLINE": "1",
@@ -158,42 +153,10 @@ def worker_environment(
         "MAVI_API_BASE_URL": args.base_url,
         "MAVI_WORKER_ID": f"task17-final-{args.mode}",
         "MAVI_MEDIA_ROOT": str(args.media_root.resolve()),
-        "MAVI_MODEL_ROOT": str(release_models.resolve()),
-        "MAVI_MODEL_MANIFEST_PATH": str(
-            (
-                release_models
-                / "manifests"
-                / "rtmdet-m-coco-phase1-v1.json"
-            ).resolve()
-        ),
-        "MAVI_PIPELINE_PROFILE_PATH": str(
-            (
-                args.bundle_dir
-                / "release"
-                / "config"
-                / "pipelines"
-                / "phase1-detection-tracking-v1.json"
-            ).resolve()
-        ),
-        "MAVI_RUNTIME_PROFILE_PATH": str(
-            (runtime_root / "runtime.json").resolve()
-        ),
-        "MAVI_QUALIFICATION_RECORD_PATH": str(
-            (
-                release_models
-                / "qualifications"
-                / "rtmdet-m-coco-phase1-v1.json"
-            ).resolve()
-        ),
+        **release_composition.bundle_worker_composition(args.bundle_dir),
         "MAVI_DEPLOYMENT_PROFILE": args.selected_profile.profile_id,
         "MAVI_DEPLOYMENT_PROFILE_POLICY_PATH": str(
-            (
-                args.bundle_dir
-                / "release"
-                / "config"
-                / "acceptance"
-                / "phase1-deployment-profiles-v1.json"
-            ).resolve()
+            release_composition.bundle_deployment_policy(args.bundle_dir).resolve()
         ),
         "MAVI_BUILD_ID": args.mavi_build,
         "MAVI_COMMIT_SHA": args.source_commit,
@@ -283,42 +246,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
         args.mavi_build,
         "--target-verified-manifest-sha256",
         args.target_verified_manifest_sha256,
-        "--model-root",
-        str(args.bundle_dir / "release" / "models"),
-        "--model-manifest",
-        str(
-            args.bundle_dir
-            / "release"
-            / "models"
-            / "manifests"
-            / "rtmdet-m-coco-phase1-v1.json"
-        ),
-        "--pipeline-profile",
-        str(
-            args.bundle_dir
-            / "release"
-            / "config"
-            / "pipelines"
-            / "phase1-detection-tracking-v1.json"
-        ),
-        "--runtime-profile",
-        str(
-            args.bundle_dir
-            / "release"
-            / "runtime"
-            / "mmdetection-phase1-v1"
-            / "runtime.json"
-        ),
-        "--qualification-record",
-        str(
-            args.bundle_dir
-            / "release"
-            / "models"
-            / "qualifications"
-            / "rtmdet-m-coco-phase1-v1.json"
-        ),
-        "--bundle-dir",
-        str(args.bundle_dir),
+        *release_composition.bundle_e2e_arguments(args.bundle_dir),
         "--acceptance-profile",
         str(args.acceptance_profile),
         "--output",
@@ -360,7 +288,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                 capture_output=True,
                 text=True,
                 env={
-                    **os.environ,
+                    **release_composition.without_scrubbed_composition(os.environ),
                     "PIP_NO_INDEX": "1",
                     "PIP_DISABLE_PIP_VERSION_CHECK": "1",
                     "HF_HUB_OFFLINE": "1",

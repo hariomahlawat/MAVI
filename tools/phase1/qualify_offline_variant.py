@@ -27,6 +27,8 @@ for candidate in (PHASE1_ROOT, VISION_TOOLS, VISION_ROOT):
         sys.path.insert(0, str(candidate))
 
 import build_offline_bundle  # noqa: E402
+import release_composition  # noqa: E402
+from mavi_vision.runtime.manifest import ReleaseMetadataError  # noqa: E402
 import verify_phase1_evidence as evidence_verifier  # noqa: E402
 from policy_identity import PolicyIdentityError, canonical_acceptance_profile  # noqa: E402
 from topology_identity import TopologyIdentityError, host_identity_sha256  # noqa: E402
@@ -316,22 +318,11 @@ def run_installed_worker_flow(
     if worker_log.exists():
         raise VariantQualificationError("variant_worker_log_exists")
 
-    release_models = args.bundle_dir / "release" / "models"
-    release_runtime = args.bundle_dir / "release" / "runtime" / "mmdetection-phase1-v1"
-    model_manifest = release_models / "manifests" / "rtmdet-m-coco-phase1-v1.json"
-    qualification = release_models / "qualifications" / "rtmdet-m-coco-phase1-v1.json"
-    pipeline_profile = args.bundle_dir / "release" / "config" / "pipelines" / "phase1-detection-tracking-v1.json"
-    runtime_profile = release_runtime / "runtime.json"
-
-    worker_env = dict(environment)
+    # The worker composes the bundle's ``release/`` overlay through the component
+    # binding (plan P-9); the retired per-path variables are never passed on.
+    worker_env = release_composition.without_scrubbed_composition(environment)
     production_profile = manifest.get("deploymentProfile")
-    deployment_policy_path = (
-        args.bundle_dir
-        / "release"
-        / "config"
-        / "acceptance"
-        / "phase1-deployment-profiles-v1.json"
-    )
+    deployment_policy_path = release_composition.bundle_deployment_policy(args.bundle_dir)
     if manifest["releaseStatus"] == "production":
         if (
             not isinstance(production_profile, str)
@@ -346,11 +337,7 @@ def run_installed_worker_flow(
         "MAVI_API_BASE_URL": args.base_url,
         "MAVI_WORKER_ID": f"task17-{args.variant}",
         "MAVI_MEDIA_ROOT": str(args.media_root.resolve()),
-        "MAVI_MODEL_ROOT": str(release_models.resolve()),
-        "MAVI_MODEL_MANIFEST_PATH": str(model_manifest.resolve()),
-        "MAVI_PIPELINE_PROFILE_PATH": str(pipeline_profile.resolve()),
-        "MAVI_RUNTIME_PROFILE_PATH": str(runtime_profile.resolve()),
-        "MAVI_QUALIFICATION_RECORD_PATH": str(qualification.resolve()),
+        **release_composition.bundle_worker_composition(args.bundle_dir),
         "MAVI_BUILD_ID": args.expected_mavi_build,
         "MAVI_COMMIT_SHA": args.source_commit,
         "MAVI_DEVICE_POLICY": "cuda" if args.variant.endswith("-cuda") else "cpu",
@@ -380,12 +367,7 @@ def run_installed_worker_flow(
         "--source-commit", args.source_commit,
         "--expected-mavi-build", args.expected_mavi_build,
         "--target-verified-manifest-sha256", args.target_verified_manifest_sha256,
-        "--model-root", str(release_models),
-        "--model-manifest", str(model_manifest),
-        "--pipeline-profile", str(pipeline_profile),
-        "--runtime-profile", str(runtime_profile),
-        "--qualification-record", str(qualification),
-        "--bundle-dir", str(args.bundle_dir),
+        *release_composition.bundle_e2e_arguments(args.bundle_dir),
         "--acceptance-profile", str(args.acceptance_profile),
         "--corpus-manifest", str(args.corpus_manifest),
         "--ground-truth", str(args.ground_truth),
@@ -405,7 +387,10 @@ def run_installed_worker_flow(
             time.sleep(args.worker_startup_seconds)
             if process.poll() is not None:
                 raise VariantQualificationError("variant_worker_startup_failed")
-            completed = run_command(e2e_command, env=environment)
+            completed = run_command(
+                e2e_command,
+                env=release_composition.without_scrubbed_composition(environment),
+            )
             if completed.returncode != 0:
                 raise VariantQualificationError("variant_worker_flow_execution_failed")
         finally:
@@ -445,6 +430,14 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     if actual_host != expected_host:
         raise VariantQualificationError("variant_host_compatibility_mismatch")
 
+    # Every path into the bundle comes from resolving its ``release/`` overlay the
+    # way the worker will (plan §5: one resolver, no second reader).
+    try:
+        resolved = release_composition.resolve_staged_bundle(args.bundle_dir, manifest)
+        selection = resolved.detector_selection()
+    except (build_offline_bundle.OfflineBundleError, ReleaseMetadataError) as exc:
+        raise VariantQualificationError("variant_bundle_release_invalid") from exc
+
     if args.venv.exists():
         raise VariantQualificationError("variant_venv_not_clean")
     venv.EnvBuilder(with_pip=True, clear=False, symlinks=False).create(args.venv)
@@ -452,14 +445,14 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     if not python.is_file():
         raise VariantQualificationError("variant_venv_python_missing")
 
-    lock = args.bundle_dir / "release" / "runtime" / "mmdetection-phase1-v1" / f"{args.variant}.lock"
+    lock = resolved.runtime_pack.lock_path
     wheels = args.bundle_dir / "wheels"
     install_args = [
         str(python), "-m", "pip", "install",
         "--no-index", "--only-binary=:all:", "--require-hashes",
         "--find-links", str(wheels), "-r", str(lock),
     ]
-    environment = dict(os.environ)
+    environment = release_composition.without_scrubbed_composition(os.environ)
     environment.update({
         "PIP_NO_INDEX": "1",
         "PIP_DISABLE_PIP_VERSION_CHECK": "1",
@@ -473,12 +466,8 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
     if check.returncode != 0:
         raise VariantQualificationError("variant_pip_check_failed")
 
-    release_models = args.bundle_dir / "release" / "models"
-    model_manifest = read_json(release_models / "manifests" / "rtmdet-m-coco-phase1-v1.json")
-    checkpoint_ref = model_manifest.get("checkpoint", {})
-    config_ref = model_manifest.get("resolvedConfig", {})
-    checkpoint = release_models / PurePosixPath(checkpoint_ref["relativePath"])
-    config = release_models / PurePosixPath(config_ref["relativePath"])
+    checkpoint = selection.checkpoint_path
+    config = selection.resolved_config_path
     device = "cuda" if args.variant.endswith("-cuda") else "cpu"
 
     probe = run_command([
@@ -486,7 +475,7 @@ def qualify(args: argparse.Namespace) -> dict[str, Any]:
         str(ROOT / "tools" / "vision" / "probe_runtime.py"),
         "--config", str(config),
         "--checkpoint", str(checkpoint),
-        "--checkpoint-sha256", checkpoint_ref["sha256"],
+        "--checkpoint-sha256", selection.detector.checkpoint.sha256,
         "--device", device,
     ], env=environment)
     if probe.returncode != 0:
