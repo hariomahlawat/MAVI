@@ -31,7 +31,7 @@ K04 was re-run and is now caught.
   - K01: `linux-x86_64-cuda` carries a loader-valid `qualified-development-hardware` entry with development evidence, its lock is still `pending-hardware-qualification`, and there is no lock file;
   - K02: the variant is pending, its lock is `pending-wheelhouse-freeze` (a legal status), and there is no lock file.
   Both are refused as `runtime_variant_classification_invalid:linux-x86_64-cuda`, by the resolver and by `verify_repo`.
-- **Resolver fail-closed codes (§10):** R01–R28 and C01–C03 silence, in turn:
+- **Resolver fail-closed codes (§10):** R01–R29 and C01–C03 silence, in turn:
   - binding and capability: disabled, unimplemented, capability mismatch, runtime incompatibility;
   - artefacts and indexes: artefact hash, manifest/record ambiguity, lookup by the derived id rather than `modelId`;
   - record identity: every identity key (model pack, manifest, runtime profile, licence notice), the unverified-claims rule, and policies (required, reconciled live);
@@ -46,7 +46,7 @@ K04 was re-run and is now caught.
 
 The .NET platform is unchanged by S2a.3 apart from one test harness setting (`S1FinalizationRecoveryTests` now sets the Development override instead of the retired variable), so this record adds no .NET rows; the S2a.2 .NET rows still hold.
 
-## Results: 66 of 66 caught
+## Results: 67 of 67 caught
 
 | ID | Mutation | File | First failing test | Result |
 |---|---|---|---|---|
@@ -71,6 +71,7 @@ The .NET platform is unchanged by S2a.3 apart from one test harness setting (`S1
 | R19 | installed pack for another variant accepted | `src/vision/mavi_vision/runtime/resolver.py` | tests/test_resolver.py::test_an_installed_pack_for_another_variant_is_refused | caught |
 | R20 | installed pack not the binding pack | `src/vision/mavi_vision/runtime/resolver.py` | tests/test_resolver.py::test_an_installed_pack_with_other_inputs_is_not_the_binding_pack | caught |
 | R21 | installed pack on another interpreter accepted | `src/vision/mavi_vision/runtime/resolver.py` | tests/test_resolver.py::test_an_installed_pack_on_another_interpreter_is_refused | caught |
+| R29 | installed pack claimed without running from it (cold-review P2, added after the review) | `src/vision/mavi_vision/runtime/resolver.py` | tests/test_resolver.py::test_a_pack_manifest_the_running_interpreter_does_not_belong_to_is_refused | caught |
 | R22 | unpacked environment fabricates the binding's id | `src/vision/mavi_vision/runtime/resolver.py` | tests/test_resolver.py::test_development_resolves_an_unpacked_environment_truthfully | caught |
 | R23 | Production accepts an unverified manifest | `src/vision/mavi_vision/runtime/resolver.py` | tests/test_resolver.py::test_production_refuses_an_unverified_manifest | caught |
 | R24 | Production accepts an unpacked environment | `src/vision/mavi_vision/runtime/resolver.py` | tests/test_resolver.py::test_production_requires_an_installed_runtime_pack | caught |

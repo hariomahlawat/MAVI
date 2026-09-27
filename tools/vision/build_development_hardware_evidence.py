@@ -457,8 +457,8 @@ def build_evidence(
     ) != binary_versions["torch"]:
         raise DevelopmentEvidenceError("development_evidence_torch_version_mismatch")
 
-    # The runtime verification must still report the resolved config it ran
-    # (the evidence stays bound to the model bytes it exercised), but since
+    # The runtime verification must still report a well-formed resolved-config
+    # digest (it is part of the hashed verification the bundle binds), but since
     # S2a.3 that identity belongs to the Model Pack, not to the runtime family
     # profile: a v2 platform variant carries no model identity.
     _required_digest(

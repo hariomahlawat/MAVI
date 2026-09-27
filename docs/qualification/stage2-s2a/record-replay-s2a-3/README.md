@@ -20,3 +20,5 @@ Files:
 The provenance differs only in the allow-listed component-identity keys, each changed to its reconciled value (`../2026-09-27-detector-identity-reconciliation.md`). Checked by `tools/qualification/tests/test_s2a_provenance_diff.py` (7 passed).
 
 The head run is Development and unpacked (`runtimePackSource: unpacked-environment`, `runtimePackId: null`, `unverified`). It is behaviour evidence only, not qualification evidence.
+
+The run was made at `638f9f0`. Later S2a.3 commits change documentation, tests, tools and the resolver's installed-pack check (`runtime_pack_not_running_environment`, which an unpacked run never reaches). None changes the detector, tracker, evidence or pipeline code path the run exercised, so the evidence stands for the final head.
