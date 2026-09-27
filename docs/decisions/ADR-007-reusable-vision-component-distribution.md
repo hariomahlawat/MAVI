@@ -7,6 +7,15 @@
 
 ADR-007's separation of Runtime Binary Pack, Model Pack and application/release overlay remains authoritative. ADR-014 extends the overlay binding from one detector-oriented model selection to versioned `capabilityBindings[]` and defines a capability-neutral Model Pack manifest v2. Runtime Pack identity continues to describe reusable executable/dependency material; individual model/checkpoint identity belongs to Model Packs. Existing detector component identities affected by the v2 runtime-profile representation are reconciled explicitly rather than silently inherited.
 
+## Capability-binding v2 identity note (2026-09-27)
+
+For the S2a v2 identity model, ADR-014 (amended 2026-09-27) governs capability-binding specifics; this ADR's three-layer separation is unchanged. Four clarifications keep the two consistent:
+
+- The v2 `modelPackId` is derived from material inputs (the pack-identity schema `mavi-vision-model-pack-v2`, model id, model version, capability ids and every artefact's role and SHA-256, including the licence notice) rather than from model ID, checkpoint SHA and resolved-config SHA as in §Decision item 2, which describes the v1 identity. Builders compute it, the binding and kit inventory carry it, and the worker resolver and repository verification re-derive it; it is not stored in the source manifest.
+- The **source model manifest** (in Git) and the **built Model Pack manifest** (outside Git; measured sizes and hashes) are distinct artefacts; the install state binds the built manifest by SHA-256.
+- Runtime Pack identity remains independent of any individual model or checkpoint; no model identity enters `runtimePackId`.
+- Unpacked Development or CI execution is recorded as such and is never represented as an installed Runtime Pack; only an actually installed pack supplies a `runtimePackId`.
+
 ## Context
 
 The original Task-12 offline bundle coupled the approximately 600 MB Python/OpenMMLab runtime to the first-party `mavi-vision` wheel and repository commit. A normal source edit therefore changed the first-party wheel hash, runtime lock/profile fingerprints and bundle source identity even when no third-party binary, Python ABI or model byte had changed. Development startup then rejected the installed bundle and forced an unnecessary rebuild/download.
