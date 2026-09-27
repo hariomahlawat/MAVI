@@ -13,6 +13,7 @@ on:
       - 'src/vision/mavi_vision/runtime/component_identity.py'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/mmdetection-phase1-v1/**'
+      - 'src/vision/config/components/**'
       - '.github/workflows/task12-offline-bundle.yml'
       - 'infrastructure/offline-bundle/**'
       - 'infrastructure/linux/**'
@@ -29,6 +30,7 @@ on:
       - 'src/vision/mavi_vision/runtime/component_identity.py'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/mmdetection-phase1-v1/**'
+      - 'src/vision/config/components/**'
       - '.github/workflows/task12-offline-bundle.yml'
       - 'infrastructure/offline-bundle/**'
       - 'infrastructure/linux/**'
@@ -504,6 +506,45 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
               stream.write(f"runtime_pack_id={manifest['runtimePackId']}\n")
           print("task12-runtime-pack-id=" + manifest["runtimePackId"])
+          PY
+
+      - name: Verify the built Runtime Pack is the one the binding pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          # Component binding v2 (S2a.3): no new Runtime Pack; the id this job
+          # builds from the tracked lock must be byte-identical to the binding's.
+          variant = os.environ["MAVI_RUNTIME_VARIANT"]
+          built = json.loads(
+              (Path(".task12-runtime-pack") / variant / "runtime-pack-manifest.json").read_text(encoding="utf-8")
+          )
+          binding = json.loads(
+              Path("src/vision/config/components/phase1-bindings-v2.json").read_text(encoding="utf-8")
+          )
+          if binding.get("schemaVersion") != "mavi-vision-component-binding-v2":
+              raise SystemExit("task12_component_binding_schema_invalid")
+          (role,) = [item for item in binding["roles"] if item["roleId"] == "vision"]
+          (family,) = [
+              item for item in binding["runtimePacks"]
+              if item["runtimePackFamilyId"] == role["runtimePackFamilyId"]
+          ]
+          bound = family["variants"].get(variant)
+          if bound is None:
+              raise SystemExit(f"task12_runtime_pack_not_bound:{variant}")
+          for key in ("runtimePackId", "thirdPartyLockSha256", "runtimeRequirementsSha256", "nativeAbi"):
+              if built.get(key) != bound.get(key):
+                  raise SystemExit(
+                      f"task12_runtime_pack_binding_mismatch:{key}:"
+                      + json.dumps({"built": built.get(key), "bound": bound.get(key)})
+                  )
+          if built.get("platformVariant") != variant:
+              raise SystemExit("task12_runtime_pack_variant_mismatch")
+          print("task12-bound-runtime-pack-id=" + bound["runtimePackId"])
           PY
 
       - name: Upload deterministic lock evidence

@@ -10,7 +10,7 @@ on:
       - 'src/vision/mavi_vision/runtime/requirements_projection.py'
       - 'src/vision/mavi_vision/runtime/offline_lock.py'
       - 'src/vision/mavi_vision/runtime/component_identity.py'
-      - 'src/vision/config/components/mmdetection-phase1-v1.json'
+      - 'src/vision/config/components/**'
       - 'src/vision/runtime/mmdetection-phase1-v1/*.lock'
       - 'src/vision/runtime/mmdetection-phase1-v1/*.requirements.txt'
       - 'src/vision/runtime/mmdetection-phase1-v1/runtime.json'
@@ -155,14 +155,24 @@ jobs:
                   native_abi=native_abi,
               )
           )
-          components = json.loads(
-              Path("src/vision/config/components/mmdetection-phase1-v1.json").read_text(
+          # Component binding v2 (S2a.3): the family the vision role names, and
+          # its entry for this variant. Every class-B variant is declared; the
+          # class-A variant (linux-x86_64-cuda) never is, so it has no matrix row.
+          binding = json.loads(
+              Path("src/vision/config/components/phase1-bindings-v2.json").read_text(
                   encoding="utf-8"
               )
           )
-          if components.get("schemaVersion") != "mavi-vision-component-requirements-v1":
+          if binding.get("schemaVersion") != "mavi-vision-component-binding-v2":
               raise SystemExit("runtime_boundary_component_schema_invalid")
-          required = components["runtimePacks"].get(variant)
+          (role,) = [item for item in binding["roles"] if item["roleId"] == "vision"]
+          if role["runtimePackFamilyId"] != runtime["runtimeProfileId"]:
+              raise SystemExit("runtime_boundary_family_profile_mismatch")
+          (family,) = [
+              item for item in binding["runtimePacks"]
+              if item["runtimePackFamilyId"] == role["runtimePackFamilyId"]
+          ]
+          required = family["variants"].get(variant)
           if not isinstance(required, dict):
               raise SystemExit("runtime_boundary_component_binding_missing")
           expected = {

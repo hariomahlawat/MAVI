@@ -9,8 +9,10 @@ on:
       - 'tools/vision/build_model_pack.py'
       - 'tools/vision/resolve_mmdet_config.py'
       - 'src/vision/mavi_vision/runtime/component_identity.py'
-      - 'src/vision/config/components/mmdetection-phase1-v1.json'
-      - 'models/manifests/rtmdet-m-coco-phase1-v1.json'
+      - 'src/vision/mavi_vision/runtime/model_pack_identity.py'
+      - 'src/vision/mavi_vision/runtime/model_manifest_v2.py'
+      - 'src/vision/config/components/**'
+      - 'models/manifests/**'
       - '.github/workflows/vision-model-pack.yml'
   pull_request:
     branches:
@@ -20,8 +22,10 @@ on:
       - 'tools/vision/build_model_pack.py'
       - 'tools/vision/resolve_mmdet_config.py'
       - 'src/vision/mavi_vision/runtime/component_identity.py'
-      - 'src/vision/config/components/mmdetection-phase1-v1.json'
-      - 'models/manifests/rtmdet-m-coco-phase1-v1.json'
+      - 'src/vision/mavi_vision/runtime/model_pack_identity.py'
+      - 'src/vision/mavi_vision/runtime/model_manifest_v2.py'
+      - 'src/vision/config/components/**'
+      - 'models/manifests/**'
       - '.github/workflows/vision-model-pack.yml'
   workflow_dispatch:
 
@@ -82,6 +86,14 @@ jobs:
             --input .modelpack-mmdet/configs/rtmdet/rtmdet_m_8xb32-300e_coco.py \
             --output .modelpack-input/rtmdet_m_resolved.py
 
+      - name: Extract the licence notice from the pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The blob, byte for byte: `git show` never applies checkout filters, so
+          # the notice cannot pick up CRLF conversion on any host (plan P-15).
+          git -C .modelpack-mmdet show 44ebd17b145c2372c4b700bfb9cb20dbd28ab64a:LICENSE > .modelpack-input/LICENSE
+
       - name: Download and verify immutable RTMDet checkpoint
         shell: python
         run: |
@@ -92,10 +104,18 @@ jobs:
 
           source = Path('.modelpack-input/rtmdet.pth')
           urllib.request.urlretrieve('${{ env.CHECKPOINT_URL }}', source)
-          manifest = json.loads(Path('models/manifests/rtmdet-m-coco-phase1-v1.json').read_text())
-          actual = hashlib.sha256(source.read_bytes()).hexdigest()
-          if actual != manifest['checkpoint']['sha256']:
-              raise SystemExit('model_pack_checkpoint_hash_mismatch')
+          manifest = json.loads(Path('models/manifests/rtmdet-m-coco-phase1-v2.json').read_text())
+          digests = {item['artifactRole']: item['sha256'] for item in manifest['artifacts']}
+          inputs = {
+              'checkpoint': source,
+              'resolved-config': Path('.modelpack-input/rtmdet_m_resolved.py'),
+              'licence-notice': Path('.modelpack-input/LICENSE'),
+          }
+          if set(inputs) != set(digests):
+              raise SystemExit('model_pack_artifact_roles_mismatch')
+          for role, path in inputs.items():
+              if hashlib.sha256(path.read_bytes()).hexdigest() != digests[role]:
+                  raise SystemExit(f'model_pack_artifact_hash_mismatch:{role}')
 
       - name: Build content-addressed Model Pack
         id: pack
@@ -103,9 +123,10 @@ jobs:
         run: |
           set -euo pipefail
           python tools/vision/build_model_pack.py \
-            --source-manifest models/manifests/rtmdet-m-coco-phase1-v1.json \
-            --checkpoint .modelpack-input/rtmdet.pth \
-            --resolved-config .modelpack-input/rtmdet_m_resolved.py \
+            --source-manifest models/manifests/rtmdet-m-coco-phase1-v2.json \
+            --artifact checkpoint=.modelpack-input/rtmdet.pth \
+            --artifact resolved-config=.modelpack-input/rtmdet_m_resolved.py \
+            --artifact licence-notice=.modelpack-input/LICENSE \
             --assembled-from-commit "$EXPECTED_HEAD" \
             --output modelpack-output
           python - <<'PY'
@@ -118,18 +139,38 @@ jobs:
           print('vision-model-pack-id=' + manifest['modelPackId'])
           PY
 
-      - name: Verify required Model Pack identity
+      - name: Verify the Model Pack is the one the binding names
         shell: python
         run: |
+          import hashlib
           import json
+          import sys
           from pathlib import Path
-          actual = json.loads(Path('modelpack-output/model-pack-manifest.json').read_text())
-          required = json.loads(
-              Path('src/vision/config/components/mmdetection-phase1-v1.json').read_text()
-          )['modelPack']
-          for key in ('modelPackId', 'modelId', 'checkpointSha256', 'resolvedConfigSha256'):
-              if actual[key] != required[key]:
-                  raise SystemExit(f'model_pack_binding_mismatch:{key}')
+
+          sys.path.insert(0, 'src/vision')
+          from mavi_vision.runtime.model_manifest_v2 import load_model_manifest_v2
+
+          built = json.loads(Path('modelpack-output/model-pack-manifest.json').read_text())
+          if built['schemaVersion'] != 'mavi-vision-model-pack-v2':
+              raise SystemExit('model_pack_schema_invalid')
+          source = load_model_manifest_v2(Path('models/manifests/rtmdet-m-coco-phase1-v2.json'))
+          binding = json.loads(Path('src/vision/config/components/phase1-bindings-v2.json').read_text())
+          (detector,) = [item for item in binding['capabilityBindings'] if item['capabilityId'] == 'detector']
+          # Three independent statements of one id: derived from the source manifest
+          # (P-3), emitted by the builder, and pinned by the binding.
+          if not (built['modelPackId'] == source.model_pack_id == detector['modelPackId']):
+              raise SystemExit(
+                  'model_pack_binding_mismatch:'
+                  + json.dumps({'built': built['modelPackId'], 'derived': source.model_pack_id, 'bound': detector['modelPackId']})
+              )
+          roles = {item['artifactRole']: item for item in built['artifacts']}
+          notice = roles.get('licence-notice')
+          if notice is None:
+              raise SystemExit('model_pack_licence_notice_missing')
+          shipped = Path('modelpack-output') / notice['relativePath']
+          if hashlib.sha256(shipped.read_bytes()).hexdigest() != notice['sha256'] or shipped.stat().st_size != notice['sizeBytes']:
+              raise SystemExit('model_pack_licence_notice_mismatch')
+          print('bound-model-pack-id=' + detector['modelPackId'])
 
       - name: Upload reusable Model Pack
         uses: actions/upload-artifact@v4
