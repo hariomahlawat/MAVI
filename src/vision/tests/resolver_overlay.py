@@ -86,7 +86,6 @@ class Overlay:
                 shutil.copyfile(source, runtime_dir / source.name)
         (root / "config/acceptance").mkdir(parents=True)
         shutil.copyfile(GATE_SETS, root / "config/acceptance/capability-gate-sets-v1.json")
-        shutil.copyfile(PIPELINE_PROFILE, root / "pipeline.json")
         overlay = cls(
             root=root,
             model_root=tmp_path / "model-store",
@@ -100,6 +99,8 @@ class Overlay:
                 "resolved-config": b"model = dict(type='RTMDet')\nload_from = None\n",
             },
         )
+        overlay.pipeline_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(PIPELINE_PROFILE, overlay.pipeline_path)
         overlay.write()
         return overlay
 
@@ -275,3 +276,18 @@ class Overlay:
 
     def copy(self) -> dict:
         return copy.deepcopy({"manifest": self.manifest, "record": self.record, "binding": self.binding})
+
+
+class RepositoryOverlay(Overlay):
+    """The same overlay at the repository paths ``tools/verify_repo.py`` reads."""
+
+    @property
+    def binding_path(self) -> Path:
+        return self.root / "src/vision/config/components/phase1-bindings-v2.json"
+
+    @property
+    def pipeline_path(self) -> Path:
+        return self.root / "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
+
+    def tracked(self) -> list[Path]:
+        return sorted(path for path in self.root.rglob("*") if path.is_file())

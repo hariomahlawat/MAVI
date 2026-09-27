@@ -4,6 +4,7 @@
   "planningPullRequest": 45,
   "overallStatus": "BLOCKED",
   "authoritativeQualificationAuthorized": false,
+  "identityNote": "Historical snapshot: the component identities below are as of Task 18 (v1 composition) and are superseded by src/vision/config/components/phase1-bindings-v2.json since the Stage 2 S2a.3 cut-over; this file is not validated.",
   "componentSelection": {
     "runtimeProfileId": "mmdetection-phase1-v1",
     "windowsCpuRuntimePackId": "mavi-runtime-v2-5d6229da58554bc951ddc8bd719574c1b33109a7916afdf717339d8847e39e61",

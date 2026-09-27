@@ -505,6 +505,73 @@ def index_qualification_records(
 # --------------------------------------------------------------------------- capability
 
 
+def check_record_identity(
+    *,
+    record: QualificationRecordV2,
+    manifest: ModelManifestV2,
+    manifest_sha256: str,
+    capability_id: str,
+    model_pack_id: str,
+    runtime_pack_family_id: str,
+    runtime_profile_sha256: str,
+) -> None:
+    """The record qualifies exactly this Model Pack on exactly this family (§4.4).
+
+    Shared by the resolver and ``tools/verify_repo.py`` so the repository check
+    and the runtime check are one rule, not two copies of it.
+    """
+    expected = {
+        "capability_id": capability_id,
+        "model_pack_id": model_pack_id,
+        "model_id": manifest.model_id,
+        "model_manifest_sha256": manifest_sha256,
+        "artifact_sha256": {artifact.artifact_role: artifact.sha256 for artifact in manifest.artifacts},
+        "runtime_pack_family_id": runtime_pack_family_id,
+        "runtime_profile_sha256": runtime_profile_sha256,
+        "output_schema_id": manifest.output_schema_id,
+    }
+    actual = {
+        "capability_id": record.capability_id,
+        "model_pack_id": record.model_pack_id,
+        "model_id": record.model_id,
+        "model_manifest_sha256": record.model_manifest_sha256,
+        "artifact_sha256": dict(record.artifact_sha256),
+        "runtime_pack_family_id": record.runtime_pack_family_id,
+        "runtime_profile_sha256": record.runtime_profile_sha256,
+        "output_schema_id": record.output_schema_id,
+    }
+    if actual["model_pack_id"] != expected["model_pack_id"]:
+        raise _fail("model_pack_id_mismatch")
+    if actual != expected:
+        raise _fail("qualification_identity_mismatch")
+    # An unverified manifest never claims a record; a verified one names exactly its own.
+    if manifest.verification_status == "unverified":
+        if manifest.qualification_id is not None:
+            raise _fail("unverified_manifest_claims_qualification")
+    elif manifest.qualification_id != record.qualification_id:
+        raise _fail("qualification_identity_mismatch")
+
+
+def check_record_policies(
+    *,
+    record: QualificationRecordV2,
+    capability_id: str,
+    pipeline_profile_id: str,
+    pipeline_profile_sha256: str,
+) -> None:
+    """Pipeline policy is reconciled against the live profile, never copied (plan §17)."""
+    if capability_id == DETECTOR_CAPABILITY and (
+        record.pipeline_profile_id is None or record.pipeline_profile_sha256 is None
+    ):
+        raise _fail(f"qualification_policies_required:{capability_id}")
+    if record.pipeline_profile_id is not None and (
+        record.pipeline_profile_id != pipeline_profile_id
+        or record.pipeline_profile_sha256 != pipeline_profile_sha256
+    ):
+        raise _fail("qualification_policy_mismatch")
+
+
+
 def _resolve_capability(
     *,
     binding: CapabilityBindingV2,
@@ -549,52 +616,28 @@ def _resolve_capability(
         raise _fail(f"qualification_record_missing:{binding.qualification_id}")
     record, record_path = found_record
     manifest_sha256 = sha256_release_file(manifest_path)
-    expected = {
-        "capability_id": capability_id,
-        "model_pack_id": binding.model_pack_id,
-        "model_id": manifest.model_id,
-        "model_manifest_sha256": manifest_sha256,
-        "artifact_sha256": {artifact.artifact_role: artifact.sha256 for artifact in manifest.artifacts},
-        "runtime_pack_family_id": family.role.runtime_pack_family_id,
-        "runtime_profile_sha256": family.runtime_profile_sha256,
-        "output_schema_id": manifest.output_schema_id,
-    }
-    actual = {
-        "capability_id": record.capability_id,
-        "model_pack_id": record.model_pack_id,
-        "model_id": record.model_id,
-        "model_manifest_sha256": record.model_manifest_sha256,
-        "artifact_sha256": dict(record.artifact_sha256),
-        "runtime_pack_family_id": record.runtime_pack_family_id,
-        "runtime_profile_sha256": record.runtime_profile_sha256,
-        "output_schema_id": record.output_schema_id,
-    }
-    if actual["model_pack_id"] != expected["model_pack_id"]:
-        raise _fail("model_pack_id_mismatch")
-    if actual != expected:
-        raise _fail("qualification_identity_mismatch")
-    # An unverified manifest never claims a record; a verified one names exactly its own.
-    if manifest.verification_status == "unverified":
-        if manifest.qualification_id is not None:
-            raise _fail("unverified_manifest_claims_qualification")
-    elif manifest.qualification_id != record.qualification_id:
-        raise _fail("qualification_identity_mismatch")
-
-    # Pipeline policy is reconciled against the live profile, never copied (plan §17).
+    check_record_identity(
+        record=record,
+        manifest=manifest,
+        manifest_sha256=manifest_sha256,
+        capability_id=capability_id,
+        model_pack_id=binding.model_pack_id,
+        runtime_pack_family_id=family.role.runtime_pack_family_id,
+        runtime_profile_sha256=family.runtime_profile_sha256,
+    )
     if capability_id == DETECTOR_CAPABILITY:
-        if record.pipeline_profile_id is None or record.pipeline_profile_sha256 is None:
-            raise _fail(f"qualification_policies_required:{capability_id}")
         section = manifest.detector_section()
         validate_profile_against_manifest(
             pipeline_profile,
             model_id=manifest.model_id,
             class_vocabulary=section.class_vocabulary,
         )
-    if record.pipeline_profile_id is not None and (
-        record.pipeline_profile_id != pipeline_profile.profile_id
-        or record.pipeline_profile_sha256 != pipeline_profile_sha256
-    ):
-        raise _fail("qualification_policy_mismatch")
+    check_record_policies(
+        record=record,
+        capability_id=capability_id,
+        pipeline_profile_id=pipeline_profile.profile_id,
+        pipeline_profile_sha256=pipeline_profile_sha256,
+    )
 
     return ResolvedCapability(
         capability_id=capability_id,
@@ -839,6 +882,8 @@ __all__ = [
     "INSTALLED_PACK",
     "PROVENANCE_CONTRACT_VERSIONS",
     "UNPACKED_ENVIRONMENT",
+    "check_record_identity",
+    "check_record_policies",
     "CompletionContract",
     "DetectorModelView",
     "DetectorSelection",
