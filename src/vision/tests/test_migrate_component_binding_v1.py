@@ -208,3 +208,74 @@ def test_cli_writes_outputs_and_refuses_to_overwrite(tmp_path, capsys) -> None:
     assert tool.main(argv) == 2
     assert "migration_output_exists" in capsys.readouterr().err
     assert outputs["binding"].read_bytes() == before
+
+
+def _cli_argv(tmp_path: Path, outputs: dict[str, Path]) -> list[str]:
+    licence = tmp_path / "LICENSE"
+    licence.write_bytes(b"notice\n")
+    return [
+        "--v1-binding", str(V1_BINDING), "--v1-manifest", str(V1_MANIFEST),
+        "--v1-runtime-profile", str(V1_RUNTIME_PROFILE), "--v1-qualification", str(V1_QUALIFICATION),
+        "--gate-sets", str(GATE_SETS), "--licence-notice", str(licence),
+        "--licence-spdx-id", "Apache-2.0", "--source-repository", "open-mmlab/mmdetection",
+        "--source-revision", "44ebd17b145c2372c4b700bfb9cb20dbd28ab64a",
+        "--binding-id", "phase1-v2", "--qualification-id", "rtmdet-m-coco-phase1-v2",
+        "--out-binding", str(outputs["binding"]), "--out-manifest", str(outputs["manifest"]),
+        "--out-runtime-profile", str(outputs["runtime"]), "--out-qualification", str(outputs["qualification"]),
+    ]
+
+
+@pytest.mark.parametrize("fail_on_call", [2, 3, 4])
+def test_publication_failure_leaves_no_partial_output_set(tmp_path, capsys, monkeypatch, fail_on_call) -> None:
+    tool = load_migration_tool()
+    out = tmp_path / "out"
+    out.mkdir()
+    unrelated = out / "unrelated.json"
+    unrelated.write_bytes(b'{"keep": true}\n')
+    outputs = {name: out / f"{name}.json" for name in ("binding", "manifest", "runtime", "qualification")}
+    real_publish = tool._publish
+    calls: list[Path] = []
+
+    def failing_publish(temporary: Path, destination: Path) -> None:
+        calls.append(destination)
+        if len(calls) == fail_on_call:
+            raise OSError("injected publication failure")
+        real_publish(temporary, destination)
+
+    monkeypatch.setattr(tool, "_publish", failing_publish)
+    assert tool.main(_cli_argv(tmp_path, outputs)) == 2
+    assert "migration_publication_failed" in capsys.readouterr().err
+    # at least one destination really was published before the failure
+    assert len(calls) == fail_on_call
+    assert not any(path.exists() for path in outputs.values())
+    assert sorted(item.name for item in out.iterdir()) == ["unrelated.json"]  # no temp files either
+    assert unrelated.read_bytes() == b'{"keep": true}\n'
+
+
+def test_publication_never_replaces_a_file_that_appears_after_the_check(tmp_path, capsys, monkeypatch) -> None:
+    tool = load_migration_tool()
+    out = tmp_path / "out"
+    out.mkdir()
+    outputs = {name: out / f"{name}.json" for name in ("binding", "manifest", "runtime", "qualification")}
+    real_publish = tool._publish
+    intruder = b"written by someone else\n"
+
+    def racing_publish(temporary: Path, destination: Path) -> None:
+        if destination == outputs["runtime"]:
+            destination.write_bytes(intruder)  # appears between the check and publication
+        real_publish(temporary, destination)
+
+    monkeypatch.setattr(tool, "_publish", racing_publish)
+    assert tool.main(_cli_argv(tmp_path, outputs)) == 2
+    assert outputs["runtime"].read_bytes() == intruder
+    assert not any(path.exists() for name, path in outputs.items() if name != "runtime")
+
+
+def test_successful_publication_is_deterministic(tmp_path, capsys) -> None:
+    tool = load_migration_tool()
+    first = {name: tmp_path / "a" / f"{name}.json" for name in ("binding", "manifest", "runtime", "qualification")}
+    second = {name: tmp_path / "b" / f"{name}.json" for name in ("binding", "manifest", "runtime", "qualification")}
+    assert tool.main(_cli_argv(tmp_path, first)) == 0
+    assert tool.main(_cli_argv(tmp_path, second)) == 0
+    assert {k: v.read_bytes() for k, v in first.items()} == {k: v.read_bytes() for k, v in second.items()}
+    assert sorted(p.name for p in (tmp_path / "a").iterdir()) == sorted(f"{n}.json" for n in first)

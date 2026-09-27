@@ -20,6 +20,7 @@ from pydantic import Field, StrictInt, ValidationError, field_validator, model_v
 from mavi_vision.runtime.capabilities import require_known_capability
 from mavi_vision.runtime.manifest import (
     ReleaseMetadataError,
+    find_release_network_hazard,
     validate_logical_relative_path,
     validate_sha256_hex,
 )
@@ -123,7 +124,12 @@ class _ProvenanceSchema(StrictModel):
     @field_validator("publisher", "source_repository", "source_revision")
     @classmethod
     def validate_text(cls, value: str) -> str:
-        return require_text(value, code="model_provenance_invalid")
+        require_text(value, code="model_provenance_invalid")
+        # Release metadata never carries a network locator (plan §17 E-1); the same
+        # rule verify_repo applies to every file under models/manifests.
+        if find_release_network_hazard(value) is not None:
+            raise ValueError("model_provenance_network_locator")
+        return value
 
 
 class _DetectorSectionSchema(StrictModel):

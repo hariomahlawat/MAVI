@@ -1,18 +1,31 @@
 #!/usr/bin/env python3
 """One-shot generator: component binding v1 -> v2 (ADR-014 migration; S2a plan §4.1).
 
-Reads the v1 binding, model manifest, runtime profile and qualification record,
-verifies that they are one consistent, still-pending v1 identity set, and writes
-the four v2 artefacts. It is a tested migration aid, not a runtime reader: no
-runtime code reads v1 through it.
+Reads the v1 binding, model manifest, runtime profile and qualification record
+and writes the four v2 artefacts. It is a tested migration aid, not a runtime
+reader: no runtime code reads v1 through it.
 
-Fail-closed rules (no evidence is carried across the migration):
-- a v1 record that is not entirely pending, or that binds stale file hashes;
-- a verified v1 manifest;
-- any v1 identity disagreement between binding, manifest, runtime profile and record;
-- a binding variant that is not deployable, or a deployable variant not bound;
-- a bound lock hash that differs from the lock file beside the runtime profile;
-- an existing output path (the generator never overwrites).
+What it validates (fail closed on any mismatch; no evidence is carried across):
+- the v1 record is entirely pending and binds the live v1 manifest and runtime
+  profile by SHA-256, and the model id, checkpoint and config SHAs;
+- the v1 manifest is unverified and claims no qualification;
+- binding, manifest and runtime profile agree on model identity, and the v1
+  ``modelPackId`` re-derives from it;
+- every bound variant is deployable and every deployable variant is bound;
+- each bound lock and requirements hash equals the file beside the runtime profile;
+- no output path exists or is repeated (the generator never overwrites).
+
+What it does NOT validate: the pipeline policy. ``policies.pipelineProfileId`` and
+``policies.pipelineProfileSha256`` are copied from the v1 record as recorded; the
+live pipeline profile is not read or hashed here. Reconciling ``policies.*``
+against the live pipeline profile is the job of the resolver and ``verify_repo``
+at the S2a.3 cut-over.
+
+Publication is all-or-nothing: every document is written to a temporary file
+beside its destination, then each destination is created (never replaced) from
+its temporary file; if any creation fails, every destination this invocation
+created is removed, so a failure leaves no partial v2 set and never touches a
+pre-existing file.
 """
 
 from __future__ import annotations
@@ -359,6 +372,17 @@ def build_v2_documents(
     }
 
 
+def _publish(temporary: Path, destination: Path) -> None:
+    """Create ``destination`` from a fully written temporary file; never replace.
+
+    A hard link is created atomically and fails with ``FileExistsError`` when the
+    destination exists, so an existing file can never be overwritten, even if it
+    appeared after the up-front existence check. Supported on NTFS and on the
+    POSIX file systems MAVI development uses.
+    """
+    os.link(temporary, destination)
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     for name in (
@@ -400,8 +424,10 @@ def main(argv: list[str] | None = None) -> int:
     except MigrationError as exc:
         print(exc.code, file=sys.stderr)
         return 2
-    # Stage every document first, then publish; a failure leaves no partial output set.
+    # Stage every document, then create each destination; on any failure remove
+    # exactly the destinations this invocation created. Nothing else is touched.
     staged: list[tuple[Path, Path]] = []
+    published: list[Path] = []
     try:
         for key, path in outputs.items():
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,11 +436,16 @@ def main(argv: list[str] | None = None) -> int:
                 stream.write(documents[key])
             staged.append((Path(temporary), path))
         for temporary, path in staged:
-            os.replace(temporary, path)
+            _publish(temporary, path)
+            published.append(path)
+    except OSError:
+        for path in reversed(published):
+            path.unlink(missing_ok=True)
+        print("migration_publication_failed", file=sys.stderr)
+        return 2
     finally:
         for temporary, _path in staged:
-            if temporary.exists():
-                temporary.unlink()
+            temporary.unlink(missing_ok=True)
     print(json.dumps({key: hashlib.sha256(value).hexdigest() for key, value in documents.items()}, sort_keys=True))
     return 0
 

@@ -212,7 +212,9 @@ class _QualificationRecordV2Schema(StrictModel):
     runtime_pack_family_id: str = Field(alias="runtimePackFamilyId")
     runtime_profile_sha256: str = Field(alias="runtimeProfileSha256")
     output_contract: _OutputContractSchema = Field(alias="outputContract")
-    policies: _PoliciesSchema
+    # Pipeline/aggregation policy is bound "where relevant" (ADR-014 §6); whether a
+    # detector record must carry it is decided in S2a.3 (plan §17).
+    policies: _PoliciesSchema | None = None
     protocol: _ProtocolSchema
     gate_set_ids: tuple[str, ...] = Field(alias="gateSetIds")
     variants: dict[str, _VariantSchema]
@@ -331,14 +333,16 @@ def _check_record_semantics(
     for gate_set_id in parsed.gate_set_ids:
         expected_gates.update(gate_sets[gate_set_id].gates)
 
-    if (parsed.policies.pipeline_profile_id is None) != (parsed.policies.pipeline_profile_sha256 is None):
-        _fail("qualification_policies_incomplete")
-    if parsed.policies.pipeline_profile_id is not None:
-        try:
-            require_text(parsed.policies.pipeline_profile_id, code="qualification_policies_invalid")
-            validate_sha256_hex(parsed.policies.pipeline_profile_sha256 or "")
-        except ValueError:
-            _fail("qualification_policies_invalid")
+    policies = parsed.policies
+    if policies is not None:
+        if (policies.pipeline_profile_id is None) != (policies.pipeline_profile_sha256 is None):
+            _fail("qualification_policies_incomplete")
+        if policies.pipeline_profile_id is not None:
+            try:
+                require_text(policies.pipeline_profile_id, code="qualification_policies_invalid")
+                validate_sha256_hex(policies.pipeline_profile_sha256 or "")
+            except ValueError:
+                _fail("qualification_policies_invalid")
 
     for variant_name in sorted(parsed.variants):
         variant = parsed.variants[variant_name]
@@ -409,8 +413,8 @@ def parse_qualification_record_v2(
         runtime_pack_family_id=parsed.runtime_pack_family_id,
         runtime_profile_sha256=parsed.runtime_profile_sha256,
         output_schema_id=parsed.output_contract.schema_id,
-        pipeline_profile_id=parsed.policies.pipeline_profile_id,
-        pipeline_profile_sha256=parsed.policies.pipeline_profile_sha256,
+        pipeline_profile_id=None if parsed.policies is None else parsed.policies.pipeline_profile_id,
+        pipeline_profile_sha256=None if parsed.policies is None else parsed.policies.pipeline_profile_sha256,
         gate_set_ids=parsed.gate_set_ids,
         variants=MappingProxyType(
             {

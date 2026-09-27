@@ -125,19 +125,6 @@ DEVELOPMENT_ONLY_FILES = {
     ROOT / "src/platform/Mavi.Api/Properties/launchSettings.json",
 }
 URL_PATTERN = re.compile(r"https?://", re.IGNORECASE)
-RELEASE_NETWORK_LOCATORS = (
-    "http://",
-    "https://",
-    "git+",
-    "ssh://",
-    "ftp://",
-    "s3://",
-    "hf://",
-    "mim://",
-    "modelzoo://",
-    "torchvision://",
-    "openmmlab://",
-)
 
 VISION_ROOT = ROOT / "src/vision"
 MANIFEST_ROOT = ROOT / "models/manifests"
@@ -1140,11 +1127,12 @@ def tracked_files() -> list[Path]:
 
 
 def find_release_network_hazard(text: str) -> str | None:
-    lowered = text.lower()
-    for locator in RELEASE_NETWORK_LOCATORS:
-        if locator in lowered:
-            return locator
-    return None
+    """Delegate to the one release-network-locator rule in ``mavi_vision.runtime.manifest``."""
+    if str(VISION_ROOT) not in sys.path:
+        sys.path.insert(0, str(VISION_ROOT))
+    from mavi_vision.runtime.manifest import find_release_network_hazard as _find
+
+    return _find(text)
 
 
 def check_runtime_lock_file(path: Path, errors: list[str]) -> None:

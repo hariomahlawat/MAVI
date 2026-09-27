@@ -10,9 +10,13 @@ Each row applied one textual mutation to the implementation and compiled the mut
 
 Every new module is new in this slice, so every new test fails on `main` by construction (import error). This record is the evidence that each individual guard is load-bearing.
 
-M29–M43 cover the guards added after the independent cold review of this slice (licence and detector roles, strict booleans and integers, duplicate JSON keys, gate-set applicability, the stable cross-check error, the family-id rule, control characters, and generator output and identity checks).
+M29–M43 cover the guards added after the first independent cold review of this slice. They cover licence and detector roles, strict booleans and integers, duplicate JSON keys, gate-set applicability, the stable cross-check error, the family-id rule, control characters, and generator output and identity checks.
 
-## Results: 43 of 43 caught
+M44–M49 cover the guards added after the second cold review. They cover all-or-nothing, create-only publication of the generator's outputs; the network-locator rule on manifest provenance, which is shared with `verify_repo`; and optional but never half-populated `policies`.
+
+After the matrix ran, every mutated file was verified byte for byte against its SHA-256 taken before the run.
+
+## Results: 49 of 49 caught
 
 | ID | Mutation | File (`runtime/` = `src/vision/mavi_vision/runtime/`) | First failing test | Result |
 |---|---|---|---|---|
@@ -59,6 +63,12 @@ M29–M43 cover the guards added after the independent cold review of this slice
 | M41 | generator: requirements hash not cross-checked | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_inconsistent_or_qualified_v1_state_is_not_migrated[<lambda>-runtime_requirements_binding_mismatch:linux-x86_64-cpu]` | caught |
 | M42 | generator: v1 modelPackId not re-derived | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_inconsistent_or_qualified_v1_state_is_not_migrated[<lambda>-migration_v1_model_identity_mismatch1]` | caught |
 | M43 | modelId not held to kebab form | `runtime/model_manifest_v2.py` | `tests/test_model_manifest_v2.py::test_manifest_rules_fail_closed[<lambda>-model_id_invalid0]` | caught |
+| M44 | generator: published destinations not rolled back on failure | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_publication_failure_leaves_no_partial_output_set[2]` | caught |
+| M45 | generator: publication may replace an existing destination | `tools/vision/migrate_component_binding_v1.py` | `tests/test_migrate_component_binding_v1.py::test_publication_never_replaces_a_file_that_appears_after_the_check` | caught |
+| M46 | provenance network-locator check removed | `runtime/model_manifest_v2.py` | `tests/test_model_manifest_v2.py::test_provenance_cannot_encode_a_network_locator[http://example.invalid/repo-publisher]` | caught |
+| M47 | half-populated policies accepted | `runtime/qualification_v2.py` | `tests/test_qualification_record_v2.py::test_half_populated_or_malformed_policies_fail_closed[policies0-qualification_policies_incomplete]` | caught |
+| M48 | policies made mandatory again | `runtime/qualification_v2.py` | `tests/test_qualification_record_v2.py::test_policies_may_be_omitted - ...` | caught |
+| M49 | locator rule loses a locator (shared definition) | `runtime/manifest.py` | `tests/test_model_manifest_v2.py::test_provenance_cannot_encode_a_network_locator[openmmlab://rtmdet-publisher]` | caught |
 
 ## Fail-closed codes outside the table
 

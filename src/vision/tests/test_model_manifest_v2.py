@@ -12,7 +12,7 @@ from mavi_vision.runtime.model_pack_identity import (
     ModelPackIdentityInputsV2,
     model_pack_id_v2,
 )
-from tests.component_binding_v2_fixtures import FIXTURES, baseline
+from tests.component_binding_v2_fixtures import FIXTURES, REPOSITORY, baseline
 
 
 def _detector() -> dict:
@@ -151,3 +151,54 @@ def test_capability_sections_are_deeply_immutable() -> None:
     assert isinstance(vocabulary, tuple)
     with pytest.raises(TypeError):
         manifest.capability_specific["detector"]["backend"] = "other"  # type: ignore[index]
+
+
+@pytest.mark.parametrize("field", ["publisher", "sourceRepository", "sourceRevision"])
+@pytest.mark.parametrize("value", [
+    "http://example.invalid/repo",
+    "https://example.invalid/repo",
+    "HTTPS://EXAMPLE.INVALID/REPO",
+    "git+ssh://example.invalid/repo",
+    "ssh://example.invalid/repo",
+    "ftp://example.invalid/file",
+    "s3://bucket/key",
+    "hf://org/model",
+    "mim://mmdet/model",
+    "modelzoo://rtmdet",
+    "torchvision://weights",
+    "openmmlab://rtmdet",
+])
+def test_provenance_cannot_encode_a_network_locator(field, value) -> None:
+    document = _detector()
+    document["provenance"][field] = value
+    assert _code(document) == "model_provenance_network_locator"
+
+
+def test_provenance_rule_covers_every_release_locator() -> None:
+    from mavi_vision.runtime.manifest import RELEASE_NETWORK_LOCATORS
+
+    for locator in RELEASE_NETWORK_LOCATORS:
+        document = _detector()
+        document["provenance"]["sourceRepository"] = f"{locator}example"
+        assert _code(document) == "model_provenance_network_locator", locator
+
+
+def test_plain_repository_identifier_is_accepted() -> None:
+    manifest_document = baseline("manifest")
+    assert manifest_document["provenance"]["sourceRepository"] == "open-mmlab/mmdetection"
+    parse_model_manifest_v2(manifest_document)
+
+
+def test_verify_repo_uses_the_one_locator_rule() -> None:
+    import importlib.util
+
+    from mavi_vision.runtime import manifest
+
+    spec = importlib.util.spec_from_file_location("verify_repo_s2a1", REPOSITORY / "tools" / "verify_repo.py")
+    assert spec is not None and spec.loader is not None
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+    assert not hasattr(verifier, "RELEASE_NETWORK_LOCATORS")
+    for locator in manifest.RELEASE_NETWORK_LOCATORS:
+        assert verifier.find_release_network_hazard(f"x {locator}y") == locator
+    assert verifier.find_release_network_hazard("open-mmlab/mmdetection") is None

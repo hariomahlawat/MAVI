@@ -64,7 +64,6 @@ def test_a_fully_evidenced_deployable_variant_may_pass() -> None:
     (lambda d: d["variants"]["windows-x86_64-cpu"].update(runtimePackId="mavi-runtime-v1-" + "0" * 64), "qualification_runtime_pack_id_invalid"),
     (lambda d: d.update(modelPackId="mavi-model-v1-" + "0" * 64), "qualification_model_pack_id_invalid"),
     (lambda d: d.update(capabilityId="face-recognition"), "capability_unknown:face-recognition"),
-    (lambda d: d.update(policies={"pipelineProfileId": "p"}), "qualification_policies_incomplete"),
     (lambda d: d.update(qualificationRecordId=d.pop("qualificationId")), "qualification_record_invalid"),
     (lambda d: d.update(requiredGates={}), "qualification_record_invalid"),
     (lambda d: d.update(checkpointSha256="0" * 64), "qualification_record_invalid"),
@@ -180,3 +179,37 @@ def test_profile_qualification_variant_vocabulary_is_the_shared_universe() -> No
 
     literal = _ProfileQualificationSchema.model_fields["runtime_variant"].annotation
     assert set(typing.get_args(literal)) == RUNTIME_VARIANTS
+
+
+def test_policies_may_be_omitted() -> None:
+    document = baseline("qualification")
+    document.pop("policies")
+    record = parse_qualification_record_v2(document, gate_sets=gate_sets())
+    assert record.pipeline_profile_id is None and record.pipeline_profile_sha256 is None
+
+
+def test_policies_may_be_explicitly_null() -> None:
+    document = baseline("qualification")
+    document["policies"] = {"pipelineProfileId": None, "pipelineProfileSha256": None}
+    record = parse_qualification_record_v2(document, gate_sets=gate_sets())
+    assert record.pipeline_profile_id is None and record.pipeline_profile_sha256 is None
+
+
+def test_populated_policies_are_exposed() -> None:
+    record = parse_qualification_record_v2(baseline("qualification"), gate_sets=gate_sets())
+    assert record.pipeline_profile_id == "phase1-detection-tracking-v1"
+    assert record.pipeline_profile_sha256 == "503225be736d9622ed110aa69e49a83dde4ae02c858d5e8fa41e527b1c4b23fb"
+
+
+@pytest.mark.parametrize(("policies", "code"), [
+    ({"pipelineProfileId": "phase1-detection-tracking-v1"}, "qualification_policies_incomplete"),
+    ({"pipelineProfileSha256": "5" * 64}, "qualification_policies_incomplete"),
+    ({"pipelineProfileId": "phase1-detection-tracking-v1", "pipelineProfileSha256": None}, "qualification_policies_incomplete"),
+    ({"pipelineProfileId": "phase1-detection-tracking-v1", "pipelineProfileSha256": "not-a-sha"}, "qualification_policies_invalid"),
+    ({"pipelineProfileId": " padded", "pipelineProfileSha256": "5" * 64}, "qualification_policies_invalid"),
+    ({"pipelineProfileId": "p", "pipelineProfileSha256": "5" * 64, "aggregation": "x"}, "qualification_record_invalid"),
+])
+def test_half_populated_or_malformed_policies_fail_closed(policies, code) -> None:
+    document = baseline("qualification")
+    document["policies"] = policies
+    assert _code(document) == code
