@@ -52,7 +52,7 @@ Before invoking either installer, Setup MUST establish all of the following:
 2. If the v2 kit path is used, `vision/component-inventory.json` exists, has schema `mavi-offline-vision-component-inventory-v2`, and passes the existing component-store verification.
 3. `applicationOverlay.componentBindingSha256` equals the SHA-256 of the repository binding. Mismatch fails `kit_binding_mismatch`.
 4. `applicationOverlay.componentBinding` identifies the expected binding file.
-5. `applicationOverlay.revision` is a valid 40-hex commit and equals the attached repository HEAD. A different revision fails `kit_application_revision_mismatch`; Setup must not silently combine an overlay/component inventory assembled for another application revision with the current checkout.
+5. `applicationOverlay.revision` is a valid 40-hex provenance value. It is recorded/reported but is **not** an independent compatibility gate when the binding SHA matches: the component store is intentionally reusable across application commits, and Component Binding v2 is the composition identity. A revision difference must not override a matching binding identity or manufacture a second composition rule.
 6. The Windows CPU Runtime Pack required by the role's runtime family is present exactly once in inventory and its source contains `runtime-pack-manifest.json`.
 7. Every enabled Model Pack required by role `vision` is present exactly once and its source contains `model-pack-manifest.json`.
 8. No unbound component is selected for installation.
@@ -100,9 +100,7 @@ Retain parent-plan codes:
 - `kit_binding_mismatch`
 - launcher/installer v2 codes already introduced by S2a.3
 
-Add for the S2a.4 application-overlay preflight:
-
-- `kit_application_revision_mismatch`
+No new application-revision mismatch error is introduced: `applicationOverlay.revision` is provenance, while `componentBindingSha256` is the composition compatibility boundary.
 
 Do not create aliases for existing launcher/installer errors merely because Setup surfaces them.
 
@@ -127,7 +125,7 @@ At minimum, tests must prove:
 
 1. **D-1:** `bundle-manifest.json` without `runtime-pack-manifest.json` is not installable; the old INFO/false-positive path cannot return.
 2. **Binding mismatch:** inventory binding SHA differs from the live repository binding → `kit_binding_mismatch`, with zero installer invocation.
-3. **Application revision mismatch:** inventory revision differs from repository HEAD → `kit_application_revision_mismatch`, with zero installer invocation.
+3. **Revision reuse:** inventory `applicationOverlay.revision` differs from repository HEAD while `componentBindingSha256` matches → preflight remains valid; revision is retained/reported as provenance and no second composition gate is created.
 4. **Missing runtime:** bound Windows CPU Runtime Pack absent → fail before mutation.
 5. **Missing model:** any enabled role Model Pack absent → fail before mutation.
 6. **N-model install:** two or more enabled Model Packs in a fixture are all selected and installed; no first-pack/singular assumption.
@@ -138,7 +136,7 @@ At minimum, tests must prove:
 11. **CUDA non-promotion:** absent/pending CUDA does not become qualified or required by this slice.
 12. **Identity freeze:** S2a.4 changes no `modelPackId`, `runtimePackId`, manifest material SHA, detector config/checkpoint SHA, or qualification status.
 
-Mutation/discrimination requirement: at least remove/disable each of the binding-SHA check, revision check, full required-model loop, and final compatibility assertion and demonstrate that the corresponding test fails. Record these mutations with the S2a evidence convention.
+Mutation/discrimination requirement: at least remove/disable each of the binding-SHA check, full required-model loop, and final compatibility assertion and demonstrate that the corresponding test fails. Also mutate revision handling to make revision equality a hard gate and prove the revision-reuse test catches that regression. Record these mutations with the S2a evidence convention.
 
 ## 9. Documentation requirements
 
@@ -146,6 +144,7 @@ Update both runbooks to show:
 
 - v2 inventory layout (`vision/runtime/<runtimePackId>`, `vision/models/<modelPackId>`, `vision/component-inventory.json`);
 - Component Binding v2 as composition authority;
+- `applicationOverlay.revision` as provenance rather than an independent compatibility identity;
 - preflight-before-install behaviour;
 - Runtime + all bound Model Packs installation order;
 - partial physical installation versus valid READY composition;
