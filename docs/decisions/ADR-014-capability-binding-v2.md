@@ -340,7 +340,7 @@ This amendment aligns ADR-014 with the S2a implementation plan (`docs/superpower
 | Binding schema version | `"schemaVersion": 2` (illustrative) | string `mavi-vision-component-binding-v2`, like every existing loader | P-1 |
 | Family identity | `mmdetection-phase1` (illustrative) | `runtimePackFamilyId == runtimeProfileId` | P-2 |
 | `modelPackId` | a manifest v2 field | derived material identity (§3); not in the source manifest | P-3, P-14 |
-| Byte size | a manifest v2 field | measured, in the built pack manifest and install state only | P-14 |
+| Byte size | a manifest v2 field | measured and recorded in the built Model Pack manifest; not authored in the source manifest. Install state binds the built manifest by SHA-256 and records the installed identity/integrity fields required by the implementation | P-14 |
 | Licence | licence reference and review status | licence notice is an artefact in the identity from the first v2 id; RTMDet review pending | P-15 |
 | Ordering / optionality | "ordered", "required"/"optional" undefined | sorted by `capabilityId`; required per role | P-5, P-6 |
 | Binding provenance | — | `componentBindingSha256` in provenance and in the new completion digest domain (`mavi:vision-completion-digest:v3.2`) | P-7, P-11 |
