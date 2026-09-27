@@ -1,11 +1,21 @@
+"""Runtime-profile schema pieces and runtime identity shared by every loader.
+
+Stage 2 S2a.3 removed the v1 runtime profile, qualification record and release
+selection (ADR-014; S2a plan §4.3, §5.1). What stays here is shared by runtime
+profile v2 (``runtime_profile_v2``), qualification record v2
+(``qualification_v2``) and the resolver: the field schemas, the evidence-shape and
+graph rules, the runtime identity views and the release-lock verification. No v1
+artefact can be read through this module.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Collection, Literal, Mapping
+from typing import TYPE_CHECKING, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mavi_vision.runtime.offline_lock import (
     OfflineLockError,
@@ -15,83 +25,15 @@ from mavi_vision.runtime.offline_lock import (
 
 from mavi_vision.runtime.manifest import (
     ArtifactRef,
-    ModelManifest,
     ReleaseMetadataError,
-    load_model_manifest,
-    read_release_json,
     resolve_release_artifact,
     sha256_release_file,
     validate_sha256_hex,
 )
 from mavi_vision.runtime.variants import RUNTIME_VARIANTS
-from mavi_vision.runtime.profile import (
-    PipelineProfile,
-    load_pipeline_profile,
-    validate_profile_against_manifest,
-)
 
-
-MANDATORY_QUALIFICATION_GATES = frozenset(
-    {
-        "windows-x86_64-cpu",
-        "windows-x86_64-cuda",
-        "linux-x86_64-cpu",
-        "linux-x86_64-cuda",
-        "windows-offline-install",
-        "linux-offline-install",
-        "cctv-quality-baseline",
-        "linux-nvidia-recovery-performance",
-    }
-)
-
-
-@dataclass(frozen=True, slots=True)
-class QualificationEvidence:
-    kind: str
-    reference: str
-    sha256: str
-
-
-@dataclass(frozen=True, slots=True)
-class ProfileQualification:
-    deployment_profile_policy_sha256: str
-    runtime_variant: str
-    evidence: Mapping[str, QualificationEvidence]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "evidence",
-            MappingProxyType(dict(self.evidence)),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class QualificationRecord:
-    schema_version: str
-    qualification_id: str
-    model_id: str
-    model_manifest_sha256: str
-    checkpoint_sha256: str
-    resolved_config_sha256: str
-    pipeline_profile_id: str
-    pipeline_profile_sha256: str
-    runtime_profile_id: str
-    runtime_profile_sha256: str
-    required_gates: Mapping[str, Literal["passed", "pending"]]
-    evidence: Mapping[str, QualificationEvidence]
-    overall_result: Literal["passed", "pending"]
-    qualified_profiles: tuple[str, ...] = ()
-    profile_qualifications: Mapping[str, ProfileQualification] = field(
-        default_factory=dict
-    )
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "profile_qualifications",
-            MappingProxyType(dict(self.profile_qualifications)),
-        )
+if TYPE_CHECKING:
+    from mavi_vision.runtime.runtime_profile_v2 import RuntimeProfileV2
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +61,6 @@ class RuntimePlatformVariantIdentity:
         "qualified-development-hardware",
         "pending-hardware-qualification",
     ]
-    resolved_config_sha256: str | None
     python_identity: RuntimePythonIdentity | None
     binary_versions: Mapping[str, str] | None = None
     development_evidence: (
@@ -144,48 +85,6 @@ class RuntimeReleaseLockIdentity:
     ]
     artifact: str | None
     sha256: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class VerifiedReleaseSelection:
-    manifest: ModelManifest
-    profile: PipelineProfile
-    qualification: QualificationRecord | None
-    manifest_sha256: str
-    profile_sha256: str
-    qualification_sha256: str | None
-    runtime_profile_id: str
-    runtime_profile_sha256: str
-    checkpoint_path: Path
-    resolved_config_path: Path
-    verification_status: Literal["verified", "unverified"]
-    runtime_qualification_status: Literal["partial", "qualified"] = "partial"
-    runtime_semantic_graph: Mapping[str, str] = field(default_factory=dict)
-    runtime_platform_variants: Mapping[
-        str,
-        RuntimePlatformVariantIdentity,
-    ] = field(default_factory=dict)
-    runtime_release_locks: Mapping[
-        str,
-        RuntimeReleaseLockIdentity,
-    ] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "runtime_semantic_graph",
-            MappingProxyType(dict(self.runtime_semantic_graph)),
-        )
-        object.__setattr__(
-            self,
-            "runtime_platform_variants",
-            MappingProxyType(dict(self.runtime_platform_variants)),
-        )
-        object.__setattr__(
-            self,
-            "runtime_release_locks",
-            MappingProxyType(dict(self.runtime_release_locks)),
-        )
 
 
 class _StrictModel(BaseModel):
@@ -279,33 +178,6 @@ class _RuntimeSemanticGraphSchema(_StrictModel):
         return value
 
 
-class _RuntimeCheckpointSchema(_StrictModel):
-    publisher: str
-    artifact: str
-    sha256: str
-
-    @field_validator("publisher")
-    @classmethod
-    def validate_publisher(cls, value: str) -> str:
-        if not value or value != value.strip():
-            raise ValueError("runtime_checkpoint_publisher_invalid")
-        return value
-
-    @field_validator("artifact")
-    @classmethod
-    def validate_artifact(cls, value: str) -> str:
-        from mavi_vision.runtime.manifest import validate_logical_relative_path
-
-        validate_logical_relative_path(value)
-        return value
-
-    @field_validator("sha256")
-    @classmethod
-    def validate_hash(cls, value: str) -> str:
-        validate_sha256_hex(value)
-        return value
-
-
 class _RuntimePythonIdentitySchema(_StrictModel):
     version: str
     implementation: Literal["CPython"]
@@ -395,51 +267,6 @@ class _RuntimeDevelopmentHardwareEvidenceSchema(_StrictModel):
         return value
 
 
-class _RuntimePlatformVariantSchema(_StrictModel):
-    status: Literal[
-        "qualified-hosted-cpu",
-        "qualified-hardware",
-        "qualified-development-hardware",
-        "pending-hardware-qualification",
-    ]
-    workflow_run_id: str | None = Field(default=None, alias="workflowRunId")
-    job_id: str | None = Field(default=None, alias="jobId")
-    evidence_head_sha: str | None = Field(default=None, alias="evidenceHeadSha")
-    resolved_config_sha256: str | None = Field(
-        default=None,
-        alias="resolvedConfigSha256",
-    )
-    python_identity: _RuntimePythonIdentitySchema | None = Field(
-        default=None,
-        alias="pythonIdentity",
-    )
-    binary_versions: _RuntimeBinaryVersionsSchema | None = Field(
-        default=None,
-        alias="binaryVersions",
-    )
-    development_evidence: (
-        _RuntimeDevelopmentHardwareEvidenceSchema | None
-    ) = Field(default=None, alias="developmentEvidence")
-
-    @model_validator(mode="after")
-    def validate_evidence_shape(self) -> "_RuntimePlatformVariantSchema":
-        check_platform_variant_evidence(
-            status=self.status,
-            workflow_run_id=self.workflow_run_id,
-            job_id=self.job_id,
-            evidence_head_sha=self.evidence_head_sha,
-            runtime_identity=(
-                self.resolved_config_sha256,
-                self.python_identity,
-                self.binary_versions,
-            ),
-            development_evidence=self.development_evidence,
-        )
-        if self.resolved_config_sha256 is not None:
-            validate_sha256_hex(self.resolved_config_sha256)
-        return self
-
-
 def check_platform_variant_evidence(
     *,
     status: str,
@@ -451,10 +278,10 @@ def check_platform_variant_evidence(
 ) -> None:
     """The one evidence-shape rule for a runtime-profile platform variant.
 
-    Shared by runtime profile v1 and v2. ``runtime_identity`` holds the fields a
-    qualified variant must carry: v1 passes (resolved config SHA, Python identity,
-    binary versions); v2 passes (Python identity, binary versions) because model
-    identity no longer lives in the runtime profile (ADR-014 §4a).
+    ``runtime_identity`` holds the fields a qualified variant must carry: the
+    Python identity and binary versions. Model identity no longer lives in the
+    runtime profile (ADR-014 §4a); the v1 profile's per-variant resolved-config
+    SHA is gone.
     """
     ci_evidence = (workflow_run_id, job_id, evidence_head_sha)
 
@@ -512,94 +339,7 @@ class _RuntimeReleaseLockSchema(_StrictModel):
         return self
 
 
-class _RuntimeResolvedConfigSchema(_StrictModel):
-    artifact: str
-    sha256: str
-    format: Literal["python"]
-    encoding: Literal["utf-8"]
-    line_endings: Literal["lf"] = Field(alias="lineEndings")
-    self_contained: Literal[True] = Field(alias="selfContained")
-
-    @field_validator("artifact")
-    @classmethod
-    def validate_artifact(cls, value: str) -> str:
-        from mavi_vision.runtime.manifest import validate_logical_relative_path
-
-        validate_logical_relative_path(value)
-        return value
-
-    @field_validator("sha256")
-    @classmethod
-    def validate_hash(cls, value: str) -> str:
-        validate_sha256_hex(value)
-        return value
-
-
 _RUNTIME_VARIANTS = RUNTIME_VARIANTS
-
-
-class _RuntimeProfileSchema(_StrictModel):
-    schema_version: Literal["1.0"] = Field(alias="schemaVersion")
-    runtime_profile_id: str = Field(alias="runtimeProfileId")
-    qualification_status: Literal["partial", "qualified"] = Field(
-        alias="qualificationStatus"
-    )
-    python_minor: str = Field(alias="pythonMinor")
-    semantic_graph: _RuntimeSemanticGraphSchema = Field(alias="semanticGraph")
-    checkpoint: _RuntimeCheckpointSchema
-    platform_variants: dict[str, _RuntimePlatformVariantSchema] = Field(
-        alias="platformVariants"
-    )
-    release_locks: dict[str, _RuntimeReleaseLockSchema] = Field(alias="releaseLocks")
-    resolved_config: _RuntimeResolvedConfigSchema = Field(alias="resolvedConfig")
-
-    @field_validator("runtime_profile_id")
-    @classmethod
-    def validate_runtime_profile_id(cls, value: str) -> str:
-        return check_runtime_profile_id(value)
-
-    @field_validator("python_minor")
-    @classmethod
-    def validate_python_minor(cls, value: str) -> str:
-        return check_runtime_python_minor(value)
-
-    @field_validator("platform_variants")
-    @classmethod
-    def validate_platform_variant_keys(
-        cls,
-        value: dict[str, _RuntimePlatformVariantSchema],
-    ) -> dict[str, _RuntimePlatformVariantSchema]:
-        check_runtime_platform_variant_statuses(value)
-        return value
-
-    @field_validator("release_locks")
-    @classmethod
-    def validate_release_lock_keys(
-        cls,
-        value: dict[str, _RuntimeReleaseLockSchema],
-    ) -> dict[str, _RuntimeReleaseLockSchema]:
-        check_runtime_release_lock_keys(value)
-        return value
-
-    @model_validator(mode="after")
-    def validate_runtime_relationships(self) -> "_RuntimeProfileSchema":
-        for variant in self.platform_variants.values():
-            if (
-                variant.resolved_config_sha256 is not None
-                and variant.resolved_config_sha256 != self.resolved_config.sha256
-            ):
-                raise ValueError("runtime_variant_config_hash_mismatch")
-        check_runtime_graph_relationships(
-            python_minor=self.python_minor,
-            semantic_graph=self.semantic_graph,
-            platform_variants=self.platform_variants,
-        )
-        check_runtime_qualification_status(
-            qualification_status=self.qualification_status,
-            platform_variants=self.platform_variants,
-            release_locks=self.release_locks,
-        )
-        return self
 
 
 def check_runtime_profile_id(value: str) -> str:
@@ -686,177 +426,8 @@ def check_runtime_qualification_status(
         raise ValueError("runtime_qualified_with_pending_gate")
 
 
-def load_runtime_profile(path: Path) -> _RuntimeProfileSchema:
-    raw = read_release_json(path, code="runtime_profile_invalid")
-    try:
-        return _RuntimeProfileSchema.model_validate(raw)
-    except ValidationError as exc:
-        raise ReleaseMetadataError("runtime_profile_invalid") from exc
-
-
-class _QualificationRecordSchema(_StrictModel):
-    schema_version: Literal["1.0"] = Field(alias="schemaVersion")
-    qualification_id: str = Field(alias="qualificationId")
-    model_id: str = Field(alias="modelId")
-    model_manifest_sha256: str = Field(alias="modelManifestSha256")
-    checkpoint_sha256: str = Field(alias="checkpointSha256")
-    resolved_config_sha256: str = Field(alias="resolvedConfigSha256")
-    pipeline_profile_id: str = Field(alias="pipelineProfileId")
-    pipeline_profile_sha256: str = Field(alias="pipelineProfileSha256")
-    runtime_profile_id: str = Field(alias="runtimeProfileId")
-    runtime_profile_sha256: str = Field(alias="runtimeProfileSha256")
-    required_gates: dict[str, Literal["passed", "pending"]] = Field(alias="requiredGates")
-    evidence: dict[str, _QualificationEvidenceSchema] = Field(default_factory=dict)
-    overall_result: Literal["passed", "pending"] = Field(alias="overallResult")
-    qualified_profiles: tuple[str, ...] = Field(default=(), alias="qualifiedProfiles")
-    profile_qualifications: dict[str, _ProfileQualificationSchema] = Field(
-        default_factory=dict,
-        alias="profileQualifications",
-    )
-
-    @field_validator(
-        "qualification_id",
-        "model_id",
-        "pipeline_profile_id",
-        "runtime_profile_id",
-    )
-    @classmethod
-    def validate_nonempty_text(cls, value: str) -> str:
-        if not value or value != value.strip():
-            raise ValueError("qualification_text_invalid")
-        return value
-
-    @field_validator(
-        "model_manifest_sha256",
-        "checkpoint_sha256",
-        "resolved_config_sha256",
-        "pipeline_profile_sha256",
-        "runtime_profile_sha256",
-    )
-    @classmethod
-    def validate_sha256(cls, value: str) -> str:
-        validate_sha256_hex(value)
-        return value
-
-    @field_validator("required_gates")
-    @classmethod
-    def validate_required_gates(
-        cls,
-        value: dict[str, Literal["passed", "pending"]],
-    ) -> dict[str, Literal["passed", "pending"]]:
-        if not MANDATORY_QUALIFICATION_GATES.issubset(value):
-            raise ValueError("qualification_mandatory_gate_missing")
-        if any(not key or key != key.strip() for key in value):
-            raise ValueError("qualification_gate_name_invalid")
-        return value
-
-    @field_validator("qualified_profiles")
-    @classmethod
-    def validate_qualified_profiles(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(set(value)) != len(value):
-            raise ValueError("qualification_profile_duplicate")
-        if any(not item or item != item.strip() for item in value):
-            raise ValueError("qualification_profile_invalid")
-        return value
-
-    @model_validator(mode="after")
-    def validate_result_and_evidence(self) -> "_QualificationRecordSchema":
-        for gate_name in self.evidence:
-            if gate_name not in self.required_gates:
-                raise ValueError("qualification_evidence_gate_unknown")
-            if self.required_gates[gate_name] != "passed":
-                raise ValueError("qualification_evidence_for_pending_gate")
-
-        passed_gates = {
-            gate_name
-            for gate_name, status in self.required_gates.items()
-            if status == "passed"
-        }
-        if not passed_gates.issubset(self.evidence):
-            raise ValueError("qualification_passed_gate_missing_evidence")
-
-        all_passed = all(status == "passed" for status in self.required_gates.values())
-        expected_result = "passed" if all_passed else "pending"
-        if self.overall_result != expected_result:
-            raise ValueError("qualification_overall_result_mismatch")
-
-        if set(self.qualified_profiles) != set(self.profile_qualifications):
-            raise ValueError("qualification_profile_index_mismatch")
-        for profile_id, profile_qualification in self.profile_qualifications.items():
-            if not profile_id or profile_id != profile_id.strip():
-                raise ValueError("qualification_profile_invalid")
-            if any(
-                gate_name not in self.required_gates
-                for gate_name in profile_qualification.evidence
-            ):
-                raise ValueError("qualification_profile_evidence_gate_unknown")
-        return self
-
-
-def load_qualification_record(path: Path) -> QualificationRecord:
-    raw = read_release_json(path, code="qualification_record_invalid")
-    try:
-        parsed = _QualificationRecordSchema.model_validate(raw)
-    except ValidationError as exc:
-        raise ReleaseMetadataError("qualification_record_invalid") from exc
-
-    evidence = {
-        gate_name: QualificationEvidence(
-            kind=item.kind,
-            reference=item.reference,
-            sha256=item.sha256,
-        )
-        for gate_name, item in parsed.evidence.items()
-    }
-    profile_qualifications = {
-        profile_id: ProfileQualification(
-            deployment_profile_policy_sha256=(
-                profile_item.deployment_profile_policy_sha256
-            ),
-            runtime_variant=profile_item.runtime_variant,
-            evidence=MappingProxyType(
-                {
-                    gate_name: QualificationEvidence(
-                        kind=item.kind,
-                        reference=item.reference,
-                        sha256=item.sha256,
-                    )
-                    for gate_name, item in profile_item.evidence.items()
-                }
-            ),
-        )
-        for profile_id, profile_item in parsed.profile_qualifications.items()
-    }
-    return QualificationRecord(
-        schema_version=parsed.schema_version,
-        qualification_id=parsed.qualification_id,
-        model_id=parsed.model_id,
-        model_manifest_sha256=parsed.model_manifest_sha256,
-        checkpoint_sha256=parsed.checkpoint_sha256,
-        resolved_config_sha256=parsed.resolved_config_sha256,
-        pipeline_profile_id=parsed.pipeline_profile_id,
-        pipeline_profile_sha256=parsed.pipeline_profile_sha256,
-        runtime_profile_id=parsed.runtime_profile_id,
-        runtime_profile_sha256=parsed.runtime_profile_sha256,
-        required_gates=MappingProxyType(dict(parsed.required_gates)),
-        evidence=MappingProxyType(evidence),
-        overall_result=parsed.overall_result,
-        qualified_profiles=tuple(parsed.qualified_profiles),
-        profile_qualifications=MappingProxyType(profile_qualifications),
-    )
-
-
-def load_runtime_identity(path: Path) -> tuple[str, str, str]:
-    profile = load_runtime_profile(path)
-    return (
-        profile.runtime_profile_id,
-        profile.checkpoint.sha256,
-        profile.resolved_config.sha256,
-    )
-
-
-def _runtime_semantic_graph_identity(
-    profile: _RuntimeProfileSchema,
+def runtime_semantic_graph_identity(
+    profile: "RuntimeProfileV2",
 ) -> Mapping[str, str]:
     graph = profile.semantic_graph
     return MappingProxyType(
@@ -878,8 +449,8 @@ def _runtime_semantic_graph_identity(
     )
 
 
-def _runtime_platform_variant_identities(
-    profile: _RuntimeProfileSchema,
+def runtime_platform_variant_identities(
+    profile: "RuntimeProfileV2",
 ) -> Mapping[str, RuntimePlatformVariantIdentity]:
     identities: dict[str, RuntimePlatformVariantIdentity] = {}
     for variant_name, variant in profile.platform_variants.items():
@@ -926,7 +497,6 @@ def _runtime_platform_variant_identities(
         )
         identities[variant_name] = RuntimePlatformVariantIdentity(
             status=variant.status,
-            resolved_config_sha256=variant.resolved_config_sha256,
             python_identity=python_identity,
             binary_versions=binary_versions,
             development_evidence=development_evidence,
@@ -934,8 +504,8 @@ def _runtime_platform_variant_identities(
     return MappingProxyType(identities)
 
 
-def _runtime_release_lock_identities(
-    profile: _RuntimeProfileSchema,
+def runtime_release_lock_identities(
+    profile: "RuntimeProfileV2",
 ) -> Mapping[str, RuntimeReleaseLockIdentity]:
     return MappingProxyType(
         {
@@ -951,7 +521,7 @@ def _runtime_release_lock_identities(
 
 def verify_runtime_release_locks(
     runtime_profile_path: Path,
-    profile: _RuntimeProfileSchema,
+    profile: "RuntimeProfileV2",
 ) -> Mapping[str, Path]:
     """Verify every qualified runtime lock against exact local bytes and identity."""
     verified: dict[str, Path] = {}
@@ -1009,216 +579,3 @@ def verify_runtime_release_locks(
         verified[variant] = lock_path
 
     return MappingProxyType(verified)
-
-
-def verify_qualification_relationships(
-    *,
-    qualification: QualificationRecord,
-    manifest: ModelManifest,
-    manifest_sha256: str,
-    profile: PipelineProfile,
-    profile_sha256: str,
-    runtime_profile_id: str,
-    runtime_profile_sha256: str,
-    require_passed: bool,
-    required_profile: str | None = None,
-    required_gates: Collection[str] | None = None,
-    required_deployment_profile_policy_sha256: str | None = None,
-    required_runtime_variant: str | None = None,
-) -> None:
-    expected = {
-        "qualification_id": manifest.qualification_id,
-        "model_id": manifest.model_id,
-        "model_manifest_sha256": manifest_sha256,
-        "checkpoint_sha256": manifest.checkpoint.sha256,
-        "resolved_config_sha256": manifest.resolved_config.sha256,
-        "pipeline_profile_id": profile.profile_id,
-        "pipeline_profile_sha256": profile_sha256,
-        "runtime_profile_id": runtime_profile_id,
-        "runtime_profile_sha256": runtime_profile_sha256,
-    }
-    actual = {
-        "qualification_id": qualification.qualification_id,
-        "model_id": qualification.model_id,
-        "model_manifest_sha256": qualification.model_manifest_sha256,
-        "checkpoint_sha256": qualification.checkpoint_sha256,
-        "resolved_config_sha256": qualification.resolved_config_sha256,
-        "pipeline_profile_id": qualification.pipeline_profile_id,
-        "pipeline_profile_sha256": qualification.pipeline_profile_sha256,
-        "runtime_profile_id": qualification.runtime_profile_id,
-        "runtime_profile_sha256": qualification.runtime_profile_sha256,
-    }
-
-    if manifest.verification_status == "unverified":
-        expected["qualification_id"] = qualification.qualification_id
-
-    if actual != expected:
-        raise ReleaseMetadataError("qualification_identity_mismatch")
-
-    if require_passed:
-        if required_profile is None and required_gates is None:
-            if qualification.overall_result != "passed":
-                raise ReleaseMetadataError("qualification_not_passed")
-            gates_to_require: Collection[str] = MANDATORY_QUALIFICATION_GATES
-        else:
-            if required_profile is None or required_gates is None:
-                raise ReleaseMetadataError("qualification_profile_requirement_incomplete")
-            if (
-                required_deployment_profile_policy_sha256 is None
-                or required_runtime_variant is None
-            ):
-                raise ReleaseMetadataError(
-                    "qualification_profile_identity_requirement_incomplete"
-                )
-            profile_qualification = qualification.profile_qualifications.get(
-                required_profile
-            )
-            if profile_qualification is None:
-                raise ReleaseMetadataError("qualification_profile_not_qualified")
-            if (
-                profile_qualification.deployment_profile_policy_sha256
-                != required_deployment_profile_policy_sha256
-            ):
-                raise ReleaseMetadataError(
-                    "qualification_profile_policy_mismatch"
-                )
-            if profile_qualification.runtime_variant != required_runtime_variant:
-                raise ReleaseMetadataError(
-                    "qualification_profile_runtime_variant_mismatch"
-                )
-            gates_to_require = required_gates
-            if any(
-                gate_name not in profile_qualification.evidence
-                for gate_name in gates_to_require
-            ):
-                raise ReleaseMetadataError(
-                    "qualification_profile_evidence_missing"
-                )
-
-        if any(
-            qualification.required_gates.get(gate_name) != "passed"
-            for gate_name in gates_to_require
-        ):
-            raise ReleaseMetadataError("qualification_gate_not_passed")
-
-
-def verify_release_selection(
-    *,
-    model_root: Path,
-    manifest_path: Path,
-    profile_path: Path,
-    runtime_profile_path: Path,
-    qualification_path: Path | None = None,
-    allow_unverified: bool = False,
-    required_profile: str | None = None,
-    required_gates: Collection[str] | None = None,
-    required_runtime_variant: str | None = None,
-    required_deployment_profile_policy_sha256: str | None = None,
-) -> VerifiedReleaseSelection:
-    """Verify one immutable local release selection before runtime construction."""
-    manifest = load_model_manifest(manifest_path)
-    profile = load_pipeline_profile(profile_path)
-    validate_profile_against_manifest(profile, manifest)
-
-    if manifest.verification_status != "verified" and not allow_unverified:
-        raise ReleaseMetadataError("unverified_release_forbidden")
-
-    manifest_sha256 = sha256_release_file(manifest_path)
-    profile_sha256 = sha256_release_file(profile_path)
-    runtime_profile_sha256 = sha256_release_file(runtime_profile_path)
-    runtime_profile = load_runtime_profile(runtime_profile_path)
-    verify_runtime_release_locks(runtime_profile_path, runtime_profile)
-    runtime_profile_id = runtime_profile.runtime_profile_id
-    runtime_checkpoint_sha256 = runtime_profile.checkpoint.sha256
-    runtime_config_sha256 = runtime_profile.resolved_config.sha256
-
-    if manifest.verification_status == "verified":
-        if required_runtime_variant is None:
-            if (
-                not allow_unverified
-                and runtime_profile.qualification_status != "qualified"
-            ):
-                raise ReleaseMetadataError("runtime_profile_not_qualified")
-        else:
-            variant = runtime_profile.platform_variants.get(required_runtime_variant)
-            lock = runtime_profile.release_locks.get(required_runtime_variant)
-            expected_status = (
-                "qualified-hardware"
-                if required_runtime_variant.endswith("-cuda")
-                else "qualified-hosted-cpu"
-            )
-            if variant is None or variant.status != expected_status:
-                raise ReleaseMetadataError("runtime_profile_variant_not_qualified")
-            if lock is None or lock.status != "qualified-offline-lock":
-                raise ReleaseMetadataError("runtime_profile_lock_not_qualified")
-
-    if runtime_profile_id != manifest.runtime_profile_id:
-        raise ReleaseMetadataError("runtime_profile_id_mismatch")
-    if runtime_checkpoint_sha256 != manifest.checkpoint.sha256:
-        raise ReleaseMetadataError("runtime_checkpoint_hash_mismatch")
-    if runtime_config_sha256 != manifest.resolved_config.sha256:
-        raise ReleaseMetadataError("runtime_config_hash_mismatch")
-
-    checkpoint_path = resolve_release_artifact(model_root, manifest.checkpoint)
-    resolved_config_path = resolve_release_artifact(model_root, manifest.resolved_config)
-
-    if sha256_release_file(checkpoint_path) != manifest.checkpoint.sha256:
-        raise ReleaseMetadataError("checkpoint_hash_mismatch")
-    if sha256_release_file(resolved_config_path) != manifest.resolved_config.sha256:
-        raise ReleaseMetadataError("resolved_config_hash_mismatch")
-
-    qualification: QualificationRecord | None = None
-    qualification_sha256: str | None = None
-
-    if manifest.verification_status == "verified":
-        if qualification_path is None:
-            raise ReleaseMetadataError("qualification_record_required")
-        qualification = load_qualification_record(qualification_path)
-        qualification_sha256 = sha256_release_file(qualification_path)
-        verify_qualification_relationships(
-            qualification=qualification,
-            manifest=manifest,
-            manifest_sha256=manifest_sha256,
-            profile=profile,
-            profile_sha256=profile_sha256,
-            runtime_profile_id=runtime_profile_id,
-            runtime_profile_sha256=runtime_profile_sha256,
-            require_passed=not allow_unverified,
-            required_profile=required_profile,
-            required_gates=required_gates,
-            required_deployment_profile_policy_sha256=(
-                required_deployment_profile_policy_sha256
-            ),
-            required_runtime_variant=required_runtime_variant,
-        )
-    elif qualification_path is not None:
-        qualification = load_qualification_record(qualification_path)
-        qualification_sha256 = sha256_release_file(qualification_path)
-        verify_qualification_relationships(
-            qualification=qualification,
-            manifest=manifest,
-            manifest_sha256=manifest_sha256,
-            profile=profile,
-            profile_sha256=profile_sha256,
-            runtime_profile_id=runtime_profile_id,
-            runtime_profile_sha256=runtime_profile_sha256,
-            require_passed=False,
-        )
-
-    return VerifiedReleaseSelection(
-        manifest=manifest,
-        profile=profile,
-        qualification=qualification,
-        manifest_sha256=manifest_sha256,
-        profile_sha256=profile_sha256,
-        qualification_sha256=qualification_sha256,
-        runtime_profile_id=runtime_profile_id,
-        runtime_profile_sha256=runtime_profile_sha256,
-        checkpoint_path=checkpoint_path,
-        resolved_config_path=resolved_config_path,
-        verification_status=manifest.verification_status,
-        runtime_qualification_status=runtime_profile.qualification_status,
-        runtime_semantic_graph=_runtime_semantic_graph_identity(runtime_profile),
-        runtime_platform_variants=_runtime_platform_variant_identities(runtime_profile),
-        runtime_release_locks=_runtime_release_lock_identities(runtime_profile),
-    )

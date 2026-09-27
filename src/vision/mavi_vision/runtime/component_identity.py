@@ -13,7 +13,6 @@ _SHA256_RE = SHA256_RE
 RUNTIME_PACK_ID_PREFIX = "mavi-runtime-v2-"
 RUNTIME_PACK_ID_RE = re.compile(r"^mavi-runtime-v2-[0-9a-f]{64}$")
 _RUNTIME_SCHEMA = "mavi-vision-runtime-pack-v2"
-_MODEL_SCHEMA = "mavi-vision-model-pack-v1"
 
 
 class ComponentIdentityError(ValueError):
@@ -29,13 +28,6 @@ class RuntimePackIdentityInputs:
     third_party_lock_sha256: str
     runtime_requirements_sha256: str
     native_abi: str
-
-
-@dataclass(frozen=True, slots=True)
-class ModelPackIdentityInputs:
-    model_id: str
-    checkpoint_sha256: str
-    resolved_config_sha256: str
 
 
 def validate_identity_text(value: str) -> None:
@@ -55,7 +47,7 @@ def canonical_identity_digest(payload: Mapping[str, object]) -> str:
     """SHA-256 of the one canonical JSON encoding used by every pack identity.
 
     Sorted keys, compact separators, ASCII-only and a trailing newline. Runtime
-    Pack v2 and Model Pack v1/v2 identities all hash through this function.
+    Pack v2 and Model Pack v2 identities both hash through this function.
     """
     encoded = (
         json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -83,26 +75,13 @@ def runtime_pack_id(inputs: RuntimePackIdentityInputs) -> str:
     return RUNTIME_PACK_ID_PREFIX + canonical_identity_digest(payload)
 
 
-def model_pack_id(inputs: ModelPackIdentityInputs) -> str:
-    _validate_text(inputs.model_id)
-    _validate_sha256(inputs.checkpoint_sha256)
-    _validate_sha256(inputs.resolved_config_sha256)
-    payload = {
-        "schemaVersion": _MODEL_SCHEMA,
-        **asdict(inputs),
-    }
-    return f"mavi-model-v1-{_digest_payload(payload)}"
-
-
 __all__ = [
     "ComponentIdentityError",
-    "ModelPackIdentityInputs",
     "RUNTIME_PACK_ID_PREFIX",
     "RUNTIME_PACK_ID_RE",
     "SHA256_RE",
     "RuntimePackIdentityInputs",
     "canonical_identity_digest",
-    "model_pack_id",
     "runtime_pack_id",
     "validate_identity_text",
 ]

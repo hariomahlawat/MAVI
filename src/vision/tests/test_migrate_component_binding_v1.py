@@ -354,3 +354,55 @@ def test_staging_write_failure_leaves_no_temporary_file(tmp_path, capsys, monkey
     monkeypatch.setattr(tool.os, "fdopen", failing_fdopen)
     assert tool.main(_cli_argv(tmp_path, outputs)) == 2
     assert list(out.iterdir()) == []
+
+
+# --------------------------------------------------------------------------- S2a.3 cut-over
+
+# The exact bytes the S2a.3 cut-over consumed and published (reconciliation document,
+# docs/qualification/stage2-s2a/2026-09-27-detector-identity-reconciliation.md).
+FROZEN_V1_SHA256 = {
+    "mmdetection-phase1-v1.json": "3bfa97a9727024415f6023722b360c4c6957de2bea164829da08cee52b1fc1f6",
+    "rtmdet-m-coco-phase1-v1.manifest.json": "0049875d8190af7f268b4613cba99afef8a9f0d39a64471fd84f9ab0bc8d8d7d",
+    "rtmdet-m-coco-phase1-v1.qualification.json": "7d7083d902f8a8ff4a8ebe4d114fd03255b1b0c0192461357b584a1a01f3e7b9",
+    "runtime.v1.json": "b3c59ac4e535d5e2e7356fef55f5266937e56751207f37a06dd13140b01c6873",
+    "mmdetection-44ebd17b-LICENSE": "874b8b2e6f12306a1ff7812c068a0dbf880418b8ac1f7190382bd6c6da9f23a1",
+}
+PUBLISHED_V2_SHA256 = {
+    "binding": "081c0c8948a16480626dd6d05f18c4037758e1cf513c8bf891d06ee7fb9f2819",
+    "manifest": "bc8127c1c00513a90f1b00325dcae3d4f31243ef1ce04ebe38350f945cb79c90",
+    "runtimeProfile": "296b034d5f80ee13ab3f3bf86ed41b84109abd47d0103600b15b24078412acfb",
+    "qualification": "100b8f102697dfaa7ac4cd02abfc7d83fd0fbbe73adaa1908fbf3f6dcfa40e40",
+}
+
+
+def test_frozen_v1_inputs_are_the_bytes_the_cut_over_consumed() -> None:
+    from tests.component_binding_v2_fixtures import V1_FIXTURES
+
+    assert {path.name: _sha(path.read_bytes()) for path in V1_FIXTURES.iterdir()} == FROZEN_V1_SHA256
+
+
+def test_the_published_v2_artefacts_are_exactly_the_generator_output(tmp_path) -> None:
+    from tests.component_binding_v2_fixtures import V2_BINDING, V2_MANIFEST, V2_QUALIFICATION, V2_RUNTIME_PROFILE
+
+    documents = generate(tmp_path)
+    published = {
+        "binding": V2_BINDING.read_bytes(),
+        "manifest": V2_MANIFEST.read_bytes(),
+        "runtimeProfile": V2_RUNTIME_PROFILE.read_bytes(),
+        "qualification": V2_QUALIFICATION.read_bytes(),
+    }
+    assert documents == published
+    assert {key: _sha(value) for key, value in published.items()} == PUBLISHED_V2_SHA256
+
+
+def test_the_cut_over_changes_no_runtime_pack_identity() -> None:
+    from tests.component_binding_v2_fixtures import V2_BINDING
+
+    v1 = json.loads(V1_BINDING.read_text(encoding="utf-8"))["runtimePacks"]
+    v2 = json.loads(V2_BINDING.read_text(encoding="utf-8"))["runtimePacks"][0]["variants"]
+    assert v2 == v1
+    assert {variant: entry["runtimePackId"] for variant, entry in v2.items()} == {
+        "linux-x86_64-cpu": "mavi-runtime-v2-bd94fded938183dce8dc50390d48e97d913d9dad9dc98b528a962ad32314ff61",
+        "windows-x86_64-cpu": "mavi-runtime-v2-5d6229da58554bc951ddc8bd719574c1b33109a7916afdf717339d8847e39e61",
+        "windows-x86_64-cuda": "mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d",
+    }

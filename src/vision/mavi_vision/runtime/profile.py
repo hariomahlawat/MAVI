@@ -18,7 +18,6 @@ from mavi_vision.evidence.policy import (
     decimal_micro_units,
 )
 from mavi_vision.runtime.manifest import (
-    ModelManifest,
     ReleaseMetadataError,
     read_release_json,
 )
@@ -321,12 +320,19 @@ def load_pipeline_profile(path: Path) -> PipelineProfile:
 
 def validate_profile_against_manifest(
     profile: PipelineProfile,
-    manifest: ModelManifest,
+    *,
+    model_id: str,
+    class_vocabulary: tuple[str, ...],
 ) -> None:
-    if profile.model_id != manifest.model_id:
+    """The pipeline profile names the detector the binding selects, in its vocabulary.
+
+    ``model_id`` and ``class_vocabulary`` come from the model manifest v2 bound to
+    the ``detector`` capability and its detector section (ADR-014 §3).
+    """
+    if profile.model_id != model_id:
         raise ReleaseMetadataError("profile_model_id_mismatch")
 
-    vocabulary = set(manifest.class_vocabulary)
+    vocabulary = set(class_vocabulary)
     if any(source_class not in vocabulary for source_class in profile.allowed_source_classes):
         raise ReleaseMetadataError("profile_class_not_in_manifest_vocabulary")
     if any(source_class not in vocabulary for source_class in profile.class_mapping):

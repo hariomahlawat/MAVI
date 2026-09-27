@@ -31,9 +31,10 @@ from mavi_vision.runtime.provenance import (
     RuntimeProvenance,
     build_runtime_provenance,
 )
-from mavi_vision.runtime.qualification import (
-    VerifiedReleaseSelection,
-    verify_release_selection,
+from mavi_vision.runtime.resolver import (
+    DetectorSelection,
+    ResolvedRole,
+    RoleFamily,
 )
 from mavi_vision.runtime.watchdog import RuntimeWatchdogSnapshot
 
@@ -74,7 +75,21 @@ class RuntimeLane(Protocol):
     async def close(self) -> None: ...
 
 
-ReleaseVerifier = Callable[..., VerifiedReleaseSelection]
+class RoleCompositionSource(Protocol):
+    """The worker's one composition root: the component binding (S2a plan §5.1)."""
+
+    def family(self) -> RoleFamily: ...
+
+    def resolve(
+        self,
+        *,
+        runtime_variant: str,
+        python_version: str,
+        profile_requirement: DeploymentProfile | None = None,
+        deployment_profile_policy_sha256: str | None = None,
+    ) -> ResolvedRole: ...
+
+
 RuntimeFactory = Callable[..., DetectorRuntime]
 ProvenanceBuilder = Callable[..., RuntimeProvenance]
 GpuIdentityProvider = Callable[[str], GpuIdentity | None]
@@ -105,11 +120,7 @@ class RuntimeSupervisor:
         *,
         lane: RuntimeLane,
         activity: InferenceActivity,
-        model_root: Path,
-        manifest_path: Path,
-        profile_path: Path,
-        runtime_profile_path: Path,
-        qualification_path: Path | None,
+        composition: RoleCompositionSource,
         deployment_profile_policy_path: Path | None = None,
         deployment_profile: str | None = None,
         device_policy: str,
@@ -121,7 +132,6 @@ class RuntimeSupervisor:
         watchdog_poll_seconds: float = 1.0,
         build_id: str | None = None,
         commit_sha: str | None = None,
-        release_verifier: ReleaseVerifier = verify_release_selection,
         runtime_factory: RuntimeFactory | None = None,
         provenance_builder: ProvenanceBuilder = build_runtime_provenance,
         gpu_identity_provider: GpuIdentityProvider | None = None,
@@ -145,11 +155,7 @@ class RuntimeSupervisor:
 
         self._lane = lane
         self._activity = activity
-        self._model_root = model_root
-        self._manifest_path = manifest_path
-        self._profile_path = profile_path
-        self._runtime_profile_path = runtime_profile_path
-        self._qualification_path = qualification_path
+        self._composition = composition
         self._deployment_profile_policy_path = (
             deployment_profile_policy_path
         )
@@ -167,7 +173,6 @@ class RuntimeSupervisor:
         self._fatal_terminator = fatal_terminator
         self._build_id = build_id
         self._commit_sha = commit_sha
-        self._release_verifier = release_verifier
         self._runtime_factory = runtime_factory or _default_runtime_factory
         self._provenance_builder = provenance_builder
         self._gpu_identity_provider = gpu_identity_provider or _no_gpu_identity
@@ -195,7 +200,7 @@ class RuntimeSupervisor:
         self._pending_reason: str | None = None
         self._pending_restart_required = False
 
-        self._selection: VerifiedReleaseSelection | None = None
+        self._selection: DetectorSelection | None = None
         self._resolved_device: str | None = None
 
     @property
@@ -243,14 +248,6 @@ class RuntimeSupervisor:
         try:
             profile_requirement: DeploymentProfile | None = None
             profile_policy_sha256: str | None = None
-            verifier_kwargs: dict[str, Any] = {
-                "model_root": self._model_root,
-                "manifest_path": self._manifest_path,
-                "profile_path": self._profile_path,
-                "runtime_profile_path": self._runtime_profile_path,
-                "qualification_path": self._qualification_path,
-                "allow_unverified": not self._production_mode,
-            }
 
             if self._production_mode:
                 if self._deployment_profile is None:
@@ -277,29 +274,18 @@ class RuntimeSupervisor:
                     raise ValueError(
                         "production_device_policy_profile_mismatch"
                     )
-                verifier_kwargs.update({
-                    "required_profile":
-                        profile_requirement.profile_id,
-                    "required_gates":
-                        profile_requirement.qualification_gates,
-                    "required_runtime_variant":
-                        profile_requirement.runtime_variant,
-                    "required_deployment_profile_policy_sha256":
-                        profile_policy_sha256,
-                })
 
-            selection = self._release_verifier(
-                **verifier_kwargs
-            )
+            # The family is known before the device, because Auto chooses a device
+            # from the family's variant statuses; the role is resolved only for the
+            # variant actually observed (plan §5.1: the resolver never chooses a device).
+            family = self._composition.family()
             resolved_device, resolved_reason = self._resolve_device(
-                selection
+                family
             )
             self._resolved_device_resolution_reason = resolved_reason
+            observed_variant = _runtime_variant_name(resolved_device)
 
             if profile_requirement is not None:
-                observed_variant = _runtime_variant_name(
-                    resolved_device
-                )
                 if (
                     observed_variant
                     != profile_requirement.runtime_variant
@@ -307,6 +293,14 @@ class RuntimeSupervisor:
                     raise ValueError(
                         "production_deployment_profile_runtime_variant_mismatch"
                     )
+
+            resolved = self._composition.resolve(
+                runtime_variant=observed_variant,
+                python_version=platform.python_version(),
+                profile_requirement=profile_requirement,
+                deployment_profile_policy_sha256=profile_policy_sha256,
+            )
+            selection = resolved.detector_selection()
 
             candidate = await self._lane.run(
                 self._runtime_factory,
@@ -586,7 +580,7 @@ class RuntimeSupervisor:
 
     def _resolve_device(
         self,
-        selection: VerifiedReleaseSelection,
+        selection: RoleFamily,
     ) -> tuple[str, str | None]:
         """Resolve the execution device and the reason code that selected it.
 
@@ -661,7 +655,7 @@ class RuntimeSupervisor:
 
     def _build_provenance(
         self,
-        selection: VerifiedReleaseSelection,
+        selection: DetectorSelection,
         metadata: RuntimeMetadata,
     ) -> RuntimeProvenance:
         gpu = (
@@ -685,11 +679,11 @@ class RuntimeSupervisor:
 
     @staticmethod
     def _validate_runtime_metadata(
-        selection: VerifiedReleaseSelection,
+        selection: DetectorSelection,
         metadata: RuntimeMetadata,
         resolved_device: str,
     ) -> None:
-        manifest = selection.manifest
+        manifest = selection.detector
         if metadata.backend != manifest.backend:
             raise ValueError("runtime_backend_manifest_mismatch")
         if metadata.model_id != manifest.model_id:
@@ -812,7 +806,7 @@ def _default_cuda_availability(device_index: int) -> bool:
 
 
 def _default_runtime_factory(
-    selection: VerifiedReleaseSelection,
+    selection: DetectorSelection,
     *,
     device: str,
     activity: InferenceActivity,

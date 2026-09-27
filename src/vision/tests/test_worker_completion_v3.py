@@ -1,9 +1,11 @@
 """W family: the worker client's completion 3.x wire and capability probe.
 
-Completion 3.1 is the worker's shipped default; 3.0 remains the explicit
-rollback version. These tests pin the worker's body to the checked-in golden
-example and JSON Schema so the Python and .NET boundaries cannot drift, and
-prove that a rejection is never answered with a 2.0 body.
+Since the S2a.3 cut-over the worker emits completion 3.2, the vision role's
+``provenanceContract``; 3.1 and 3.0 are reachable only through the
+Development-only ``MAVI_COMPLETION_SCHEMA_OVERRIDE`` (plan P-16), which is
+non-qualifying. These tests pin the worker's body to the checked-in golden
+examples and JSON Schemas so the Python and .NET boundaries cannot drift, and
+prove that a rejection is never answered with an older body.
 """
 
 from __future__ import annotations
@@ -27,8 +29,10 @@ from mavi_vision.common.analytical import (
     RoleAccounting,
     VisionProcessingResult,
 )
-from mavi_vision.common.control_plane import VisionJobCompleteV3, VisionJobLease
+from mavi_vision.common.control_plane import VisionJobCompleteV3, VisionJobCompleteV32, VisionJobLease
 from mavi_vision.common.settings import WorkerSettings
+from mavi_vision.runtime.binding import load_component_binding
+from mavi_vision.runtime.resolver import CompletionContract, resolve_completion_contract
 from mavi_vision.evidence.roles import ROLE_ORDER, EvidenceRole, role_cap_bytes
 from mavi_vision.runtime.provenance import (
     PlatformIdentity,
@@ -46,31 +50,59 @@ from mavi_vision.worker.client import (
 
 
 ROOT = Path(__file__).resolve().parents[3]
-# Since S1.4 F2 the worker emits completion 3.1: the 3.0 body under the
-# asynchronous exchange version (the 3.1 example and schema are the 3.0 ones
-# with only the version changed, which tools/verify_repo.py enforces).
+# The 3.1 body is the 3.0 body under the asynchronous exchange version (the 3.1
+# example and schema are the 3.0 ones with only the version changed, which
+# tools/verify_repo.py enforces). Most of this suite exercises the shared 3.x
+# body through the 3.1 override; the 3.2 section at the end pins the default.
 GOLDEN = ROOT / "contracts/examples/vision-job-complete-v3.1.example.json"
 SCHEMA = ROOT / "contracts/schemas/vision-job-complete-v3.1.schema.json"
+GOLDEN_32 = ROOT / "contracts/examples/vision-job-complete-v3.2.example.json"
+GOLDEN_32_UNPACKED = ROOT / "contracts/examples/vision-job-complete-v3.2-unpacked-environment.example.json"
+SCHEMA_32 = ROOT / "contracts/schemas/vision-job-complete-v3.2.schema.json"
+BINDING = ROOT / "src/vision/config/components/phase1-bindings-v2.json"
+# The binding identity the golden examples name; the client is constructed with it.
+BINDING_SHA = json.loads(GOLDEN_32.read_text(encoding="utf-8"))["provenance"]["componentBindingSha256"]
 LEASE_EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
 # The platform's completion body cap is 48 MiB; plan §7 keeps the worst-shape
 # 3.x body under 40 MiB so the envelope has headroom.
 WORST_SHAPE_BODY_BUDGET = 40 * 1024 * 1024
 
 
-def _golden() -> dict:
-    return json.loads(GOLDEN.read_text(encoding="utf-8"))
+def _golden(path: Path = GOLDEN) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _settings(tmp_path: Path, worker_id: str = "gpu-sdd-01", version: str | None = "3.1") -> WorkerSettings:
-    # Most of this suite names the version it exercises. ``version=None`` passes
-    # nothing, so WorkerSettings applies its own shipped default: only those
-    # tests prove what an unconfigured worker does (S1.4 F4-C).
-    explicit = {} if version is None else {"completion_schema_version": version}
+    # Most of this suite names the version it exercises, through the P-16
+    # override. ``version=None`` sets no override, so the role's own contract
+    # applies: only those tests prove what an unconfigured worker does.
+    explicit = {} if version is None else {"completion_schema_override": version}
     return WorkerSettings(
         api_base_url="https://mavi-api.local",
         worker_id=worker_id,
         media_root=tmp_path,
         **explicit,
+    )
+
+
+def _completion(settings: WorkerSettings) -> CompletionContract:
+    """The contract exactly as the worker composes it: the committed binding's role."""
+    from mavi_vision.worker.client import SUPPORTED_COMPLETION_SCHEMA_VERSIONS as emittable
+
+    return resolve_completion_contract(
+        load_component_binding(BINDING).role(settings.role_id),
+        override=settings.completion_schema_override,
+        production_mode=settings.production_mode,
+        emittable_versions=emittable,
+    )
+
+
+def _client(settings: WorkerSettings, http_client: httpx.AsyncClient) -> WorkerApiClient:
+    return WorkerApiClient(
+        settings,
+        http_client,
+        completion=_completion(settings),
+        component_binding_sha256=BINDING_SHA,
     )
 
 
@@ -83,10 +115,24 @@ def _lease_for(golden: dict) -> VisionJobLease:
     return VisionJobLease.model_validate_json(json.dumps(payload))
 
 
-def _provenance_from(wire: dict) -> RuntimeProvenance:
+def _provenance_from(wire: dict, **component) -> RuntimeProvenance:
+    """The runtime provenance a wire body came from.
+
+    A 3.0/3.1 body carries no component identity, but the worker's provenance
+    always does (the resolver supplied it): an overridden completion drops it
+    from the wire, so the 3.0/3.1 goldens are rebuilt with an unpacked identity.
+    """
     platform = wire["platform"]
     tracker = wire["trackerParameters"]
     assert wire["gpu"] is None
+    identity = {
+        "capability_id": wire.get("capabilityId", "detector"),
+        "model_pack_id": wire.get("modelPackId", _golden(GOLDEN_32)["provenance"]["modelPackId"]),
+        "runtime_pack_id": wire.get("runtimePackId"),
+        "runtime_pack_source": wire.get("runtimePackSource", "unpacked-environment"),
+        "component_binding_sha256": wire.get("componentBindingSha256", BINDING_SHA),
+    }
+    identity.update(component)
     return RuntimeProvenance(
         model_id=wire["modelId"],
         model_version=wire["modelVersion"],
@@ -133,6 +179,7 @@ def _provenance_from(wire: dict) -> RuntimeProvenance:
             minimum_consecutive_frames=tracker["minimumConsecutiveFrames"],
             lost_track_buffer_seconds=tracker["lostTrackBufferSeconds"],
         ),
+        **identity,
     )
 
 
@@ -222,7 +269,7 @@ def _response_for(body: dict, version: str = "3.1", state: str = "finalizing") -
 
 def _run(tmp_path: Path, handler, action, *, worker_id: str = "gpu-sdd-01", version: str | None = "3.1"):
     async def invoke():
-        client = WorkerApiClient(
+        client = _client(
             _settings(tmp_path, worker_id, version), httpx.AsyncClient(transport=httpx.MockTransport(handler))
         )
         try:
@@ -233,8 +280,8 @@ def _run(tmp_path: Path, handler, action, *, worker_id: str = "gpu-sdd-01", vers
     return asyncio.run(invoke())
 
 
-def _complete_golden(tmp_path: Path, handler, version: str | None = "3.1"):
-    golden = _golden()
+def _complete_golden(tmp_path: Path, handler, version: str | None = "3.1", golden_path: Path | None = None, **component):
+    golden = _golden(golden_path or (GOLDEN_32 if version is None else GOLDEN))
     result = VisionProcessingResult(
         job_id=_lease_for(golden).job_id,
         frames_processed=golden["framesProcessed"],
@@ -248,7 +295,7 @@ def _complete_golden(tmp_path: Path, handler, version: str | None = "3.1"):
             _lease_for(golden),
             result,
             golden["processingDurationMs"],
-            _provenance_from(golden["provenance"]),
+            _provenance_from(golden["provenance"], **component),
         ),
         worker_id=golden["workerId"],
         version=version,
@@ -306,7 +353,7 @@ def test_a_platform_listing_only_completion_3_1_is_unsupported_for_a_3_0_worker(
 
 
 def test_a_3_0_worker_accepts_the_pre_activation_platform(tmp_path: Path) -> None:
-    """The rollback pair: a worker pinned to 3.0 (MAVI_COMPLETION_SCHEMA_VERSION=3.0)
+    """The rollback pair: a Development worker overridden to 3.0 (MAVI_COMPLETION_SCHEMA_OVERRIDE=3.0)
     against a platform held off (2.0 + 3.0) is compatible and keeps processing."""
     capabilities = _run(
         tmp_path,
@@ -344,29 +391,32 @@ def test_a_3_0_worker_refuses_a_hand_off_acknowledgement(tmp_path: Path) -> None
         _complete_golden(tmp_path, lambda request: _response_for(json.loads(request.content)), version="3.0")
 
 
-# The shipped default (S1.4 F4-C): every test below passes version=None, so the
-# worker runs on WorkerSettings' own default, not on a value the test supplies.
+# The shipped default (S2a.3): every test below passes version=None, so the
+# worker runs on the role's own provenanceContract, not on a value the test supplies.
 
-def test_the_default_worker_is_on_completion_3_1(tmp_path: Path) -> None:
-    assert _settings(tmp_path, version=None).completion_schema_version == "3.1"
+def test_the_default_worker_is_on_completion_3_2(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, version=None)
+    assert settings.completion_schema_override is None
+    assert _completion(settings) == CompletionContract(version="3.2", override=None)
+    assert _client(settings, httpx.AsyncClient()).completion_schema_version == "3.2"
 
 
 def test_the_default_worker_emits_the_hand_off_completion(tmp_path: Path) -> None:
-    """The default body is the 3.1 golden example byte for byte, and the
+    """The default body is the 3.2 golden example byte for byte, and the
     platform's finalizing acknowledgement is taken as the durable hand-off."""
     captured: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         captured.append(body)
-        return _response_for(body)
+        return _response_for(body, version="3.2")
 
     acknowledged = _complete_golden(tmp_path, handler, version=None)
 
-    assert captured == [_golden()]
-    assert captured[0]["schemaVersion"] == "3.1"
+    assert captured == [_golden(GOLDEN_32)]
+    assert captured[0]["schemaVersion"] == "3.2"
     assert acknowledged.state == "finalizing"
-    assert acknowledged.tracks_submitted == len(_golden()["tracks"])
+    assert acknowledged.tracks_submitted == len(_golden(GOLDEN_32)["tracks"])
 
 
 def test_the_default_worker_refuses_a_synchronous_acknowledgement(tmp_path: Path) -> None:
@@ -379,14 +429,26 @@ def test_the_default_worker_refuses_a_synchronous_acknowledgement(tmp_path: Path
         _complete_golden(tmp_path, handler, version=None)
 
 
-def test_the_default_worker_accepts_the_activated_platform(tmp_path: Path) -> None:
+def test_the_default_worker_accepts_a_platform_listing_completion_3_2(tmp_path: Path) -> None:
     capabilities = _run(
         tmp_path,
-        _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1"]}),
+        _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1", "3.2"]}),
         lambda client: client.get_contract_capabilities(),
         version=None,
     )
-    assert capabilities.completion_schema_versions == ("2.0", "3.1")
+    assert capabilities.completion_schema_versions == ("2.0", "3.1", "3.2")
+
+
+def test_a_platform_without_completion_3_2_is_unsupported_for_the_default_worker(tmp_path: Path) -> None:
+    """A pre-S2a.2 platform lists 2.0 and 3.1 only; the default worker does not
+    fall back to 3.1 on its own (only the explicit Development override would)."""
+    with pytest.raises(PlatformContractUnsupported):
+        _run(
+            tmp_path,
+            _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1"]}),
+            lambda client: client.get_contract_capabilities(),
+            version=None,
+        )
 
 
 def test_a_pre_activation_platform_is_unsupported_for_the_default_worker(tmp_path: Path) -> None:
@@ -781,74 +843,132 @@ def test_python_v3_model_follows_the_shared_integer_conformance_corpus() -> None
         assert (not located) is vector["accepted"], (vector["name"], located)
 
 
-# Completion 3.2 (Stage 2 S2a plan P-7, S2a.2): the platform accepts it; this
-# worker recognises it but can neither be configured for it nor emit it until
-# the S2a.3 cut-over supplies component identity.
+# Completion 3.2 (Stage 2 S2a plan P-7/P-16, S2a.3): the worker's default, the
+# vision role's provenanceContract; 3.1/3.0 exist only as the Development override.
 
 def test_the_worker_recognises_completion_3_2_as_an_asynchronous_version() -> None:
     assert SUPPORTED_COMPLETION_SCHEMA_VERSIONS == ("3.0", "3.1", "3.2")
     assert ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS == frozenset({"3.1", "3.2"})
 
 
-def test_a_3_1_worker_accepts_a_platform_that_also_lists_completion_3_2(tmp_path: Path) -> None:
-    capabilities = _run(
-        tmp_path,
-        _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1", "3.2"]}),
-        lambda client: client.get_contract_capabilities(),
-        version=None,
-    )
-    assert capabilities.completion_schema_versions == ("2.0", "3.1", "3.2")
+def test_the_default_body_validates_against_the_3_2_schema_and_model(tmp_path: Path) -> None:
+    captured: list[dict] = []
 
-
-def test_a_platform_listing_only_completion_3_2_is_unsupported_for_a_3_1_worker(tmp_path: Path) -> None:
-    with pytest.raises(PlatformContractUnsupported):
-        _run(
-            tmp_path,
-            _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.2"]}),
-            lambda client: client.get_contract_capabilities(),
-            version=None,
-        )
-
-
-@pytest.mark.parametrize("state", ["finalizing", "completed"])
-def test_a_3_1_worker_refuses_a_3_2_hand_off_acknowledgement(tmp_path: Path, state: str) -> None:
-    """The hand-off model now reads both asynchronous versions, so the echo
-    check is what keeps a 3.1 worker from accepting another version's answer."""
     def handler(request: httpx.Request) -> httpx.Response:
-        return _response_for(json.loads(request.content), version="3.2", state=state)
+        body = json.loads(request.content)
+        captured.append(body)
+        return _response_for(body, version="3.2")
 
-    with pytest.raises(WorkerApiError, match="unexpected version"):
-        _complete_golden(tmp_path, handler, version=None)
+    _complete_golden(tmp_path, handler, version=None)
+
+    schema = json.loads(SCHEMA_32.read_text(encoding="utf-8"))
+    jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(captured[0])
+    VisionJobCompleteV32.model_validate_json(json.dumps(captured[0]))
+    with pytest.raises(ValidationError):
+        VisionJobCompleteV3.model_validate_json(json.dumps(captured[0]))
 
 
-def test_a_3_0_worker_refuses_a_3_2_hand_off_acknowledgement(tmp_path: Path) -> None:
+def test_an_unpacked_environment_completes_as_3_2_with_a_null_runtime_pack_id(tmp_path: Path) -> None:
+    captured: list[dict] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
-        return _response_for(json.loads(request.content), version="3.2")
+        body = json.loads(request.content)
+        captured.append(body)
+        return _response_for(body, version="3.2")
 
-    with pytest.raises(WorkerApiError, match="unexpected version"):
-        _complete_golden(tmp_path, handler, version="3.0")
+    _complete_golden(tmp_path, handler, version=None, golden_path=GOLDEN_32_UNPACKED)
+
+    assert captured == [_golden(GOLDEN_32_UNPACKED)]
+    provenance = captured[0]["provenance"]
+    assert provenance["runtimePackSource"] == "unpacked-environment"
+    assert provenance["runtimePackId"] is None
 
 
-def test_the_worker_cannot_be_configured_for_completion_3_2(tmp_path: Path) -> None:
-    with pytest.raises(ValidationError, match="completion_32_requires_binding"):
-        _settings(tmp_path, version="3.2")
+def test_the_3_2_identity_on_the_wire_is_the_resolved_provenance_verbatim(tmp_path: Path) -> None:
+    """The client maps; it never derives, defaults or substitutes an identity."""
+    captured: list[dict] = []
+    identity = {
+        "model_pack_id": "mavi-model-v2-" + "a" * 64,
+        "runtime_pack_id": "mavi-runtime-v2-" + "b" * 64,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        captured.append(body)
+        return _response_for(body, version="3.2")
+
+    _complete_golden(tmp_path, handler, version=None, **identity)
+
+    provenance = captured[0]["provenance"]
+    assert provenance["modelPackId"] == identity["model_pack_id"]
+    assert provenance["runtimePackId"] == identity["runtime_pack_id"]
+    assert provenance["componentBindingSha256"] == BINDING_SHA
+    assert provenance["capabilityId"] == "detector"
 
 
-def test_the_worker_never_emits_a_completion_3_2_body(tmp_path: Path) -> None:
-    """Even settings forced past validation cannot produce a 3.2 body: the
-    completion model does not admit the version, so nothing is sent."""
-    forced = _settings(tmp_path).model_copy(update={"completion_schema_version": "3.2"})
+def test_a_provenance_naming_another_binding_is_refused_before_anything_is_sent(tmp_path: Path) -> None:
     sent: list[bytes] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.append(request.content)
         return _response_for(json.loads(request.content), version="3.2")
 
+    for version in (None, "3.1"):
+        with pytest.raises(CompletionPayloadInvalid, match="another component binding"):
+            _complete_golden(tmp_path, handler, version=version, component_binding_sha256="8" * 64)
+    assert sent == []
+
+
+def test_the_default_worker_refuses_a_3_1_hand_off_acknowledgement(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _response_for(json.loads(request.content), version="3.1")
+
+    with pytest.raises(WorkerApiError, match="unexpected version"):
+        _complete_golden(tmp_path, handler, version=None)
+
+
+# The P-16 override --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("version", ["3.1", "3.0"])
+def test_an_overridden_worker_drops_the_3_2_identity_from_the_wire(tmp_path: Path, version: str) -> None:
+    """The provenance still carries the resolved identity; the older body cannot."""
+    captured: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        captured.append(body)
+        return _response_for(body, version=version)
+
+    _complete_golden(tmp_path, handler, version=version, golden_path=GOLDEN_32)
+
+    body = captured[0]
+    assert body["schemaVersion"] == version
+    for member in ("capabilityId", "modelPackId", "runtimePackId", "runtimePackSource", "componentBindingSha256"):
+        assert member not in body["provenance"]
+    VisionJobCompleteV3.model_validate_json(json.dumps(body))
+
+
+def test_an_overridden_completion_is_never_verified(tmp_path: Path) -> None:
+    sent: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request.content)
+        return _response_for(json.loads(request.content))
+
+    golden = _golden()
+    provenance = _provenance_from(golden["provenance"])
+    # RuntimeProvenance itself refuses a verified unpacked environment, so the
+    # client check is reached with an object built past that validation.
+    verified = object.__new__(type(provenance))
+    for name in provenance.__dataclass_fields__:
+        object.__setattr__(verified, name, getattr(provenance, name))
+    object.__setattr__(verified, "verification_status", "verified")
+
     async def invoke():
-        golden = _golden()
-        client = WorkerApiClient(forced, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        client = _client(_settings(tmp_path, golden["workerId"], "3.1"), httpx.AsyncClient(transport=httpx.MockTransport(handler)))
         try:
-            return await client.complete(
+            await client.complete(
                 _lease_for(golden),
                 VisionProcessingResult(
                     job_id=_lease_for(golden).job_id,
@@ -857,13 +977,79 @@ def test_the_worker_never_emits_a_completion_3_2_body(tmp_path: Path) -> None:
                     evidence_accounting=_accounting_from(golden["evidenceAccounting"]),
                 ),
                 golden["processingDurationMs"],
-                _provenance_from(golden["provenance"]),
+                verified,
             )
         finally:
             await client.aclose()
 
-    with pytest.raises(CompletionPayloadInvalid):
+    with pytest.raises(CompletionPayloadInvalid, match="never verified"):
         asyncio.run(invoke())
     assert sent == []
-    with pytest.raises(ValidationError):
-        VisionJobCompleteV3.model_validate({**_golden(), "schemaVersion": "3.2"})
+
+
+def test_every_overridden_completion_logs_that_it_is_non_qualifying(tmp_path: Path, caplog) -> None:
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="mavi_vision.worker.client"):
+        _complete_golden(tmp_path, lambda request: _response_for(json.loads(request.content)), version="3.1")
+    assert any("completion_schema_override_active" in record.getMessage() for record in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="mavi_vision.worker.client"):
+        _complete_golden(
+            tmp_path, lambda request: _response_for(json.loads(request.content), version="3.2"), version=None
+        )
+    assert not any("completion_schema_override_active" in record.getMessage() for record in caplog.records)
+
+
+def test_a_3_1_override_worker_accepts_a_platform_that_also_lists_completion_3_2(tmp_path: Path) -> None:
+    capabilities = _run(
+        tmp_path,
+        _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1", "3.2"]}),
+        lambda client: client.get_contract_capabilities(),
+        version="3.1",
+    )
+    assert capabilities.completion_schema_versions == ("2.0", "3.1", "3.2")
+
+
+def test_a_platform_listing_only_completion_3_2_is_unsupported_for_a_3_1_override_worker(tmp_path: Path) -> None:
+    with pytest.raises(PlatformContractUnsupported):
+        _run(
+            tmp_path,
+            _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.2"]}),
+            lambda client: client.get_contract_capabilities(),
+            version="3.1",
+        )
+
+
+@pytest.mark.parametrize("version", ["3.1", "3.0"])
+@pytest.mark.parametrize("state", ["finalizing", "completed"])
+def test_an_overridden_worker_refuses_a_3_2_acknowledgement(tmp_path: Path, version: str, state: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _response_for(json.loads(request.content), version="3.2", state=state)
+
+    with pytest.raises(WorkerApiError, match="unexpected version"):
+        _complete_golden(tmp_path, handler, version=version)
+
+
+def test_the_override_admits_only_the_pre_cut_over_versions(tmp_path: Path) -> None:
+    for value in ("3.2", "2.0", "3"):
+        with pytest.raises(ValidationError):
+            _settings(tmp_path, version=value)
+
+
+def test_no_completion_contract_emits_a_pre_cut_over_version_without_the_override() -> None:
+    """Structural: 3.0/3.1 exist only as the override, and the override is exactly its version."""
+    for version in ("3.0", "3.1"):
+        with pytest.raises(ValueError, match="completion_contract_version_not_a_role_contract"):
+            CompletionContract(version=version, override=None)
+    for version, override in (("3.2", "3.1"), ("3.1", "3.0"), ("3.2", "3.2")):
+        with pytest.raises(ValueError, match="completion_override_invalid"):
+            CompletionContract(version=version, override=override)
+    assert CompletionContract(version="3.2", override=None).override_active is False
+
+
+def test_the_retired_version_variable_is_refused(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", "3.1")
+    with pytest.raises(ValidationError, match="settings_v1_composition_rejected:MAVI_COMPLETION_SCHEMA_VERSION"):
+        _settings(tmp_path, version=None)

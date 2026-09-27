@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "2.0",
+  "qualificationId": "rtmdet-m-coco-phase1-v2",
+  "capabilityId": "detector",
+  "modelPackId": "mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700",
+  "modelId": "rtmdet-m-coco-phase1",
+  "modelManifestSha256": "bc8127c1c00513a90f1b00325dcae3d4f31243ef1ce04ebe38350f945cb79c90",
+  "artifactSha256": {
+    "checkpoint": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
+    "licence-notice": "874b8b2e6f12306a1ff7812c068a0dbf880418b8ac1f7190382bd6c6da9f23a1",
+    "resolved-config": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3"
+  },
+  "runtimePackFamilyId": "mmdetection-phase1-v1",
+  "runtimeProfileSha256": "296b034d5f80ee13ab3f3bf86ed41b84109abd47d0103600b15b24078412acfb",
+  "outputContract": {
+    "schemaId": "detector-output-v1"
+  },
+  "policies": {
+    "pipelineProfileId": "phase1-detection-tracking-v1",
+    "pipelineProfileSha256": "503225be736d9622ed110aa69e49a83dde4ae02c858d5e8fa41e527b1c4b23fb"
+  },
+  "protocol": {
+    "corpusId": null,
+    "protocolVersion": null
+  },
+  "gateSetIds": [
+    "common-v1",
+    "detector-v1"
+  ],
+  "variants": {
+    "linux-x86_64-cpu": {
+      "status": "pending",
+      "runtimePackId": "mavi-runtime-v2-bd94fded938183dce8dc50390d48e97d913d9dad9dc98b528a962ad32314ff61",
+      "gates": {
+        "offline-install": "pending",
+        "licence": "pending",
+        "startup-readiness": "pending",
+        "runtime-compatibility": "pending",
+        "bounded-failure-recovery": "pending",
+        "provenance-completeness": "pending",
+        "detection-tracking-accuracy": "pending",
+        "cctv-quality-baseline": "pending",
+        "recovery-performance": "pending"
+      }
+    },
+    "linux-x86_64-cuda": {
+      "status": "pending",
+      "runtimePackId": null,
+      "gates": {
+        "offline-install": "pending",
+        "licence": "pending",
+        "startup-readiness": "pending",
+        "runtime-compatibility": "pending",
+        "bounded-failure-recovery": "pending",
+        "provenance-completeness": "pending",
+        "detection-tracking-accuracy": "pending",
+        "cctv-quality-baseline": "pending",
+        "recovery-performance": "pending"
+      }
+    },
+    "windows-x86_64-cpu": {
+      "status": "pending",
+      "runtimePackId": "mavi-runtime-v2-5d6229da58554bc951ddc8bd719574c1b33109a7916afdf717339d8847e39e61",
+      "gates": {
+        "offline-install": "pending",
+        "licence": "pending",
+        "startup-readiness": "pending",
+        "runtime-compatibility": "pending",
+        "bounded-failure-recovery": "pending",
+        "provenance-completeness": "pending",
+        "detection-tracking-accuracy": "pending",
+        "cctv-quality-baseline": "pending",
+        "recovery-performance": "pending"
+      }
+    },
+    "windows-x86_64-cuda": {
+      "status": "pending",
+      "runtimePackId": "mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d",
+      "gates": {
+        "offline-install": "pending",
+        "licence": "pending",
+        "startup-readiness": "pending",
+        "runtime-compatibility": "pending",
+        "bounded-failure-recovery": "pending",
+        "provenance-completeness": "pending",
+        "detection-tracking-accuracy": "pending",
+        "cctv-quality-baseline": "pending",
+        "recovery-performance": "pending"
+      }
+    }
+  },
+  "qualifiedProfiles": [],
+  "profileQualifications": {},
+  "evidence": {},
+  "overallResult": "pending",
+  "supersedes": {
+    "qualificationId": "rtmdet-m-coco-phase1-v1",
+    "reason": "ADR-014 runtime-profile v2 / manifest v2 identity migration; model bytes unchanged; no gate result carried forward"
+  }
+}

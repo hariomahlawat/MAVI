@@ -7,10 +7,12 @@ from pathlib import Path
 import pytest
 
 from mavi_vision.runtime.manifest import ReleaseMetadataError
-from mavi_vision.runtime.qualification import (
-    load_runtime_profile,
-    verify_runtime_release_locks,
-)
+from mavi_vision.runtime.qualification import verify_runtime_release_locks
+from mavi_vision.runtime.runtime_profile_v2 import load_runtime_profile_v2 as load_runtime_profile
+
+# The runtime-family rules below are the ones S2a.3 kept: since the cut-over a
+# runtime profile is a v2 family profile and carries no model artefact
+# (checkpoint, resolved config), so those v1 rules moved to the Model Pack.
 
 
 def _sha(value: str) -> str:
@@ -47,9 +49,8 @@ def _qualified_cpu_lock_bytes() -> bytes:
 
 
 def _runtime_payload() -> dict:
-    config_hash = _sha("config")
     return {
-        "schemaVersion": "1.0",
+        "schemaVersion": "2.0",
         "runtimeProfileId": "runtime-a",
         "qualificationStatus": "partial",
         "pythonMinor": "3.12",
@@ -68,18 +69,12 @@ def _runtime_payload() -> dict:
             "opencvPython": "5.0.0.93",
             "pillow": "11.3.0",
         },
-        "checkpoint": {
-            "publisher": "OpenMMLab",
-            "artifact": "checkpoint.pth",
-            "sha256": _sha("checkpoint"),
-        },
         "platformVariants": {
             "linux-x86_64-cpu": {
                 "status": "qualified-hosted-cpu",
                 "workflowRunId": "1001",
                 "jobId": "2001",
                 "evidenceHeadSha": "1" * 40,
-                "resolvedConfigSha256": config_hash,
                 "pythonIdentity": {
                     "version": "3.12.14",
                     "implementation": "CPython",
@@ -96,7 +91,6 @@ def _runtime_payload() -> dict:
                 "workflowRunId": "1002",
                 "jobId": "2002",
                 "evidenceHeadSha": "2" * 40,
-                "resolvedConfigSha256": config_hash,
                 "pythonIdentity": {
                     "version": "3.12.10",
                     "implementation": "CPython",
@@ -120,14 +114,6 @@ def _runtime_payload() -> dict:
             "windows-x86_64-cpu": {"status": "pending-wheelhouse-freeze"},
             "linux-x86_64-cuda": {"status": "pending-hardware-qualification"},
             "windows-x86_64-cuda": {"status": "pending-hardware-qualification"},
-        },
-        "resolvedConfig": {
-            "artifact": "config.py",
-            "sha256": config_hash,
-            "format": "python",
-            "encoding": "utf-8",
-            "lineEndings": "lf",
-            "selfContained": True,
         },
     }
 
@@ -154,25 +140,26 @@ def test_runtime_profile_loads_complete_partial_profile(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "mutation",
+    ("mutation", "code"),
     [
-        lambda payload: payload.pop("semanticGraph"),
-        lambda payload: payload.__setitem__("unexpected", True),
-        lambda payload: payload["semanticGraph"].pop("mmcv"),
-        lambda payload: payload["platformVariants"].pop("windows-x86_64-cuda"),
-        lambda payload: payload["releaseLocks"].pop("linux-x86_64-cuda"),
+        (lambda payload: payload.pop("semanticGraph"), "runtime_profile_invalid"),
+        (lambda payload: payload.__setitem__("unexpected", True), "runtime_profile_invalid"),
+        (lambda payload: payload["semanticGraph"].pop("mmcv"), "runtime_profile_invalid"),
+        (lambda payload: payload["platformVariants"].pop("windows-x86_64-cuda"), "runtime_platform_variants_incomplete"),
+        (lambda payload: payload["releaseLocks"].pop("linux-x86_64-cuda"), "runtime_release_locks_incomplete"),
     ],
 )
 def test_runtime_profile_rejects_incomplete_or_unknown_metadata(
     tmp_path: Path,
     mutation,
+    code: str,
 ) -> None:
     payload = _runtime_payload()
     mutation(payload)
     path = tmp_path / "runtime.json"
     _write(path, payload)
 
-    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+    with pytest.raises(ReleaseMetadataError, match=code):
         load_runtime_profile(path)
 
 
@@ -182,11 +169,28 @@ def test_qualified_platform_requires_integrity_evidence(tmp_path: Path) -> None:
     path = tmp_path / "runtime.json"
     _write(path, payload)
 
+    with pytest.raises(ReleaseMetadataError, match="runtime_platform_evidence_required"):
+        load_runtime_profile(path)
+
+
+@pytest.mark.parametrize(
+    ("section", "value"),
+    [
+        ("checkpoint", {"publisher": "OpenMMLab", "artifact": "checkpoint.pth", "sha256": "a" * 64}),
+        ("resolvedConfig", {"artifact": "config.py", "sha256": "a" * 64}),
+    ],
+)
+def test_a_family_profile_cannot_carry_a_model_artefact(tmp_path: Path, section: str, value: dict) -> None:
+    payload = _runtime_payload()
+    payload[section] = value
+    path = tmp_path / "runtime.json"
+    _write(path, payload)
+
     with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
         load_runtime_profile(path)
 
 
-def test_runtime_profile_rejects_variant_config_hash_drift(tmp_path: Path) -> None:
+def test_a_variant_cannot_carry_a_resolved_config_digest(tmp_path: Path) -> None:
     payload = _runtime_payload()
     payload["platformVariants"]["linux-x86_64-cpu"]["resolvedConfigSha256"] = "0" * 64
     path = tmp_path / "runtime.json"
@@ -202,7 +206,7 @@ def test_qualified_runtime_cannot_retain_pending_platform_or_lock(tmp_path: Path
     path = tmp_path / "runtime.json"
     _write(path, payload)
 
-    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+    with pytest.raises(ReleaseMetadataError, match="runtime_qualified_with_pending_gate"):
         load_runtime_profile(path)
 
 
@@ -215,7 +219,7 @@ def test_qualified_release_lock_requires_artifact_and_hash(tmp_path: Path) -> No
     path = tmp_path / "runtime.json"
     _write(path, payload)
 
-    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+    with pytest.raises(ReleaseMetadataError, match="runtime_release_lock_evidence_required"):
         load_runtime_profile(path)
 
 def test_qualified_runtime_lock_bytes_are_verified(tmp_path: Path) -> None:
@@ -263,7 +267,7 @@ def test_qualified_platform_requires_exact_python_identity(tmp_path: Path) -> No
     path = tmp_path / "runtime.json"
     _write(path, payload)
 
-    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+    with pytest.raises(ReleaseMetadataError, match="runtime_platform_evidence_required"):
         load_runtime_profile(path)
 
 
@@ -273,7 +277,7 @@ def test_python_identity_must_match_declared_minor(tmp_path: Path) -> None:
     path = tmp_path / "runtime.json"
     _write(path, payload)
 
-    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+    with pytest.raises(ReleaseMetadataError, match="runtime_python_minor_identity_mismatch"):
         load_runtime_profile(path)
 
 def test_cuda_variant_rejects_hosted_cpu_status(tmp_path: Path) -> None:
@@ -283,18 +287,18 @@ def test_cuda_variant_rejects_hosted_cpu_status(tmp_path: Path) -> None:
         "workflowRunId": "1003",
         "jobId": "2003",
         "evidenceHeadSha": "3" * 40,
-        "resolvedConfigSha256": payload["resolvedConfig"]["sha256"],
         "pythonIdentity": {
             "version": "3.12.14",
             "implementation": "CPython",
             "build": ["fixture", "fixture"],
             "compiler": "fixture",
         },
+        "binaryVersions": {"torch": "2.6.0+cu124", "torchvision": "0.21.0+cu124"},
     }
     path = tmp_path / "runtime.json"
     _write(path, payload)
 
-    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+    with pytest.raises(ReleaseMetadataError, match="runtime_cuda_variant_status_invalid"):
         load_runtime_profile(path)
 
 
@@ -304,6 +308,6 @@ def test_cpu_variant_rejects_hardware_qualification_status(tmp_path: Path) -> No
     path = tmp_path / "runtime.json"
     _write(path, payload)
 
-    with pytest.raises(ReleaseMetadataError, match="runtime_profile_invalid"):
+    with pytest.raises(ReleaseMetadataError, match="runtime_cpu_variant_status_invalid"):
         load_runtime_profile(path)
 

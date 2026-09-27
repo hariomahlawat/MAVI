@@ -57,9 +57,7 @@ from mavi_vision.runtime.binding import (  # noqa: E402
 )
 from mavi_vision.runtime.component_identity import (  # noqa: E402
     ComponentIdentityError,
-    ModelPackIdentityInputs,
     RuntimePackIdentityInputs,
-    model_pack_id,
     runtime_pack_id,
 )
 from mavi_vision.runtime.component_relationships import (  # noqa: E402
@@ -68,7 +66,6 @@ from mavi_vision.runtime.component_relationships import (  # noqa: E402
 )
 from mavi_vision.runtime.manifest import (  # noqa: E402
     ReleaseMetadataError,
-    load_model_manifest,
     read_release_json,
     sha256_release_file,
 )
@@ -76,10 +73,6 @@ from mavi_vision.runtime.model_manifest_v2 import (  # noqa: E402
     LICENCE_NOTICE_ROLE,
     MODEL_MANIFEST_V2_SCHEMA,
     parse_model_manifest_v2,
-)
-from mavi_vision.runtime.qualification import (  # noqa: E402
-    load_qualification_record,
-    load_runtime_profile,
 )
 from mavi_vision.runtime.qualification_v2 import (  # noqa: E402
     QUALIFICATION_RECORD_V2_SCHEMA,
@@ -93,6 +86,17 @@ from mavi_vision.runtime.runtime_profile_v2 import (  # noqa: E402
     parse_runtime_profile_v2,
 )
 from mavi_vision.runtime.variants import RUNTIME_VARIANTS, VariantClass  # noqa: E402
+
+# The v1 readers live only here, beside the one-shot generator (S2a.3): no runtime
+# code can read a v1 artefact.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from v1_release_schemas import (  # noqa: E402
+    ModelPackIdentityInputs,
+    load_model_manifest,
+    load_qualification_record,
+    load_runtime_profile,
+    model_pack_id,
+)
 
 V1_BINDING_SCHEMA = "mavi-vision-component-requirements-v1"
 DETECTOR_CAPABILITY = "detector"

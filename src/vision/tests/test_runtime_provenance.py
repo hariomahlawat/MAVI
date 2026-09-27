@@ -7,10 +7,7 @@ from types import MappingProxyType
 
 import pytest
 
-from mavi_vision.common.analytical import ObjectClass
 from mavi_vision.runtime.interfaces import RuntimeMetadata
-from mavi_vision.runtime.manifest import ArtifactRef, ModelManifest
-from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
 from mavi_vision.common.control_plane import (
     AUTO_CPU_DEVICE_RESOLUTION_REASONS,
     DEVICE_RESOLUTION_REASONS,
@@ -21,56 +18,30 @@ from mavi_vision.runtime.provenance import (
     _validate_device_relationship,
     build_runtime_provenance,
 )
-from mavi_vision.runtime.qualification import (
-    QualificationRecord,
-    RuntimePlatformVariantIdentity,
-    RuntimePythonIdentity,
-    RuntimeReleaseLockIdentity,
-    VerifiedReleaseSelection,
+from mavi_vision.runtime.resolver import DetectorSelection
+from tests.detector_selection_fixtures import (
+    BINDING_SHA,
+    CPU_BINARY_VERSIONS,
+    CUDA_BINARY_VERSIONS,
+    MODEL_PACK_ID,
+    RUNTIME_PACK_IDS,
+    SHA_A,
+    SHA_B,
+    SHA_C,
+    SHA_D,
+    SHA_E,
+    SHA_F,
+    VERSIONS,
+    VOCABULARY,
+    make_selection,
+    pipeline_profile,
 )
-from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
-
-SHA_A = "a" * 64
-SHA_B = "b" * 64
-SHA_C = "c" * 64
-SHA_D = "d" * 64
-SHA_E = "e" * 64
-SHA_F = "f" * 64
-
-VOCABULARY = ("person", "car", "motorcycle", "bus", "truck")
-VERSIONS = {
-    "torch": "2.6.0",
-    "torchvision": "0.21.0",
-    "mmdet": "3.3.0",
-    "mmcv": "2.1.0",
-    "mmengine": "0.10.7",
-    "trackers": "2.6.0",
-    "supervision": "0.30.2",
-    "scipy": "1.18.1",
-    "numpy": "2.5.3",
-    "opencv": "5.0.0",
-    "opencvPython": "5.0.0.93",
-    "av": "16.1.0",
-    "pillow": "11.3.0",
-}
 LIVE_VERSIONS = {
     **VERSIONS,
     "torch": "2.6.0+cpu",
     "torchvision": "0.21.0+cpu",
 }
-CPU_BINARY_VERSIONS = MappingProxyType(
-    {
-        "torch": "2.6.0+cpu",
-        "torchvision": "0.21.0+cpu",
-    }
-)
-CUDA_BINARY_VERSIONS = MappingProxyType(
-    {
-        "torch": "2.6.0+cu124",
-        "torchvision": "0.21.0+cu124",
-    }
-)
 
 
 def _platform() -> PlatformIdentity:
@@ -87,164 +58,26 @@ def _platform() -> PlatformIdentity:
     )
 
 
-def _profile() -> PipelineProfile:
-    return PipelineProfile(
-        schema_version="1.0",
-        profile_id="phase1-detection-tracking-v1",
-        profile_version="1.1.0-candidate",
-        model_id="rtmdet-m-coco-phase1",
-        detector_inference_floor=0.05,
-        allowed_source_classes=VOCABULARY,
-        class_mapping=MappingProxyType(
-            {
-                "person": ObjectClass.PERSON,
-                "car": ObjectClass.VEHICLE,
-                "motorcycle": ObjectClass.VEHICLE,
-                "bus": ObjectClass.VEHICLE,
-                "truck": ObjectClass.VEHICLE,
-            }
-        ),
-        tracker=ByteTrackProfile(
-            reference_frame_rate=30.0,
-            track_activation_threshold=0.7,
-            high_confidence_threshold=0.6,
-            minimum_iou_threshold=0.1,
-            minimum_consecutive_frames=2,
-            lost_track_buffer_seconds=1.0,
-        ),
-        frame_policy="every-frame",
-        evidence=PRODUCTION_EVIDENCE_POLICY,
+def _windows_platform() -> PlatformIdentity:
+    return PlatformIdentity(
+        system="Windows",
+        release="11",
+        version="10.0.26100",
+        machine="AMD64",
+        processor="Intel64 Family 6",
+        python_version="3.12.10",
+        python_implementation="CPython",
+        python_build=("tags/v3.12.10:0cc8128", "Apr  8 2025 12:21:36"),
+        python_compiler="MSC v.1943 64 bit (AMD64)",
     )
 
 
-def _selection(
-    *,
-    verified: bool = False,
-    runtime_qualified: bool | None = None,
-    lock_qualified: bool | None = None,
-) -> VerifiedReleaseSelection:
-    manifest = ModelManifest(
-        schema_version="1.0",
-        model_id="rtmdet-m-coco-phase1",
-        model_version="1.0.0",
-        purpose="phase1-person-vehicle-detection",
-        backend="mmdetection",
-        architecture="rtmdet-m",
-        class_vocabulary=VOCABULARY,
-        checkpoint=ArtifactRef("release/checkpoint.pth", SHA_B),
-        resolved_config=ArtifactRef("release/config.py", SHA_C),
-        runtime_profile_id="mmdetection-phase1-v1",
-        verification_status="verified" if verified else "unverified",
-        qualification_id="qualification-a" if verified else None,
-    )
-    qualification = (
-        QualificationRecord(
-            schema_version="1.0",
-            qualification_id="qualification-a",
-            model_id=manifest.model_id,
-            model_manifest_sha256=SHA_A,
-            checkpoint_sha256=SHA_B,
-            resolved_config_sha256=SHA_C,
-            pipeline_profile_id="phase1-detection-tracking-v1",
-            pipeline_profile_sha256=SHA_D,
-            runtime_profile_id=manifest.runtime_profile_id,
-            runtime_profile_sha256=SHA_E,
-            required_gates=MappingProxyType({}),
-            evidence=MappingProxyType({}),
-            overall_result="passed",
-        )
-        if verified
-        else None
-    )
+def _profile():
+    return pipeline_profile()
 
-    qualified = verified if runtime_qualified is None else runtime_qualified
-    locks_qualified = qualified if lock_qualified is None else lock_qualified
-    linux_python = RuntimePythonIdentity(
-        version="3.12.14",
-        implementation="CPython",
-        build=("main", "Aug 13 2026 02:47:42"),
-        compiler="GCC 13.3.0",
-    )
-    windows_python = RuntimePythonIdentity(
-        version="3.12.10",
-        implementation="CPython",
-        build=("tags/v3.12.10:0cc8128", "Apr  8 2025 12:21:36"),
-        compiler="MSC v.1943 64 bit (AMD64)",
-    )
-    variants = {
-        "linux-x86_64-cpu": RuntimePlatformVariantIdentity(
-            status="qualified-hosted-cpu",
-            resolved_config_sha256=SHA_C,
-            python_identity=linux_python,
-            binary_versions=CPU_BINARY_VERSIONS,
-        ),
-        "windows-x86_64-cpu": RuntimePlatformVariantIdentity(
-            status="qualified-hosted-cpu",
-            resolved_config_sha256=SHA_C,
-            python_identity=windows_python,
-            binary_versions=CPU_BINARY_VERSIONS,
-        ),
-        "linux-x86_64-cuda": RuntimePlatformVariantIdentity(
-            status=(
-                "qualified-hardware"
-                if qualified
-                else "pending-hardware-qualification"
-            ),
-            resolved_config_sha256=SHA_C if qualified else None,
-            python_identity=linux_python if qualified else None,
-            binary_versions=CUDA_BINARY_VERSIONS if qualified else None,
-        ),
-        "windows-x86_64-cuda": RuntimePlatformVariantIdentity(
-            status=(
-                "qualified-hardware"
-                if qualified
-                else "pending-hardware-qualification"
-            ),
-            resolved_config_sha256=SHA_C if qualified else None,
-            python_identity=windows_python if qualified else None,
-            binary_versions=CUDA_BINARY_VERSIONS if qualified else None,
-        ),
-    }
-    lock_hashes = {
-        "linux-x86_64-cpu": SHA_A,
-        "windows-x86_64-cpu": SHA_B,
-        "linux-x86_64-cuda": SHA_C,
-        "windows-x86_64-cuda": SHA_D,
-    }
-    locks = {
-        variant: RuntimeReleaseLockIdentity(
-            status=(
-                "qualified-offline-lock"
-                if locks_qualified
-                else (
-                    "pending-wheelhouse-freeze"
-                    if variant.endswith("-cpu")
-                    else "pending-hardware-qualification"
-                )
-            ),
-            artifact=f"locks/{variant}.lock" if locks_qualified else None,
-            sha256=lock_hashes[variant] if locks_qualified else None,
-        )
-        for variant in lock_hashes
-    }
 
-    return VerifiedReleaseSelection(
-        manifest=manifest,
-        profile=_profile(),
-        qualification=qualification,
-        manifest_sha256=SHA_A,
-        profile_sha256=SHA_D,
-        qualification_sha256=SHA_F if verified else None,
-        runtime_profile_id=manifest.runtime_profile_id,
-        runtime_profile_sha256=SHA_E,
-        checkpoint_path=Path("models/release/checkpoint.pth"),
-        resolved_config_path=Path("models/release/config.py"),
-        verification_status=manifest.verification_status,
-        runtime_qualification_status="qualified" if qualified else "partial",
-        runtime_semantic_graph=MappingProxyType(dict(VERSIONS)),
-        runtime_platform_variants=MappingProxyType(variants),
-        runtime_release_locks=MappingProxyType(locks),
-    )
+def _selection(**kwargs) -> DetectorSelection:
+    return make_selection(**kwargs)
 
 
 def _metadata(*, device: str = "cpu", versions: dict[str, str] | None = None) -> RuntimeMetadata:
@@ -301,7 +134,7 @@ def test_verified_production_provenance_requires_release_and_build_identity() ->
     )
 
     assert provenance.verification_status == "verified"
-    assert provenance.qualification_id == "qualification-a"
+    assert provenance.qualification_id == "rtmdet-m-coco-phase1-v2"
     assert provenance.qualification_sha256 == SHA_F
     assert provenance.runtime_variant == "linux-x86_64-cpu"
     assert provenance.platform_lock_sha256 == SHA_A
@@ -440,14 +273,15 @@ def test_cuda_provenance_requires_matching_gpu_identity() -> None:
         compute_capability="8.9",
     )
 
+    # Linux CUDA is class A and never resolves; a CUDA execution is Windows CUDA.
     provenance = build_runtime_provenance(
-        selection=_selection(),
+        selection=_selection(runtime_variant="windows-x86_64-cuda"),
         runtime_metadata=_metadata(device="cuda:1"),
         configured_device_policy="cuda",
         configured_device_index=1,
         production_mode=False,
         gpu=gpu,
-        platform_identity=_platform(),
+        platform_identity=_windows_platform(),
     )
 
     assert provenance.actual_device == "cuda:1"
@@ -457,12 +291,12 @@ def test_cuda_provenance_requires_matching_gpu_identity() -> None:
 def test_cuda_provenance_rejects_missing_gpu_identity() -> None:
     with pytest.raises(ValueError, match="cuda_gpu_identity_required"):
         build_runtime_provenance(
-            selection=_selection(),
+            selection=_selection(runtime_variant="windows-x86_64-cuda"),
             runtime_metadata=_metadata(device="cuda:0"),
             configured_device_policy="cuda",
             configured_device_index=0,
             production_mode=False,
-            platform_identity=_platform(),
+            platform_identity=_windows_platform(),
         )
 
 
@@ -632,7 +466,7 @@ def test_verified_release_downgrades_dependency_drift_in_development() -> None:
 
     assert provenance.verification_status == "unverified"
     assert provenance.platform_lock_sha256 is None
-    assert provenance.qualification_id == "qualification-a"
+    assert provenance.qualification_id == "rtmdet-m-coco-phase1-v2"
     assert provenance.qualification_sha256 == SHA_F
 
 
@@ -955,7 +789,7 @@ def test_development_cuda_execution_is_recorded_but_never_labelled_verified(
     run on the GPU, and the run is fully described, but it never inherits the
     release's verified label. The C6 evidence is the description, not the label.
     """
-    selection = _selection(verified=True)
+    selection = _selection(verified=True, runtime_variant="windows-x86_64-cuda")
     variants = dict(selection.runtime_platform_variants)
     variants["windows-x86_64-cuda"] = replace(
         variants["windows-x86_64-cuda"],
@@ -974,7 +808,7 @@ def test_development_cuda_execution_is_recorded_but_never_labelled_verified(
         device_resolution_reason="cuda_selected",
         configured_device_index=0,
         production_mode=False,
-        platform_identity=_platform(),
+        platform_identity=_windows_platform(),
         gpu=GpuIdentity(
             name="NVIDIA GeForce RTX 2080 Ti",
             index=0,
@@ -994,3 +828,134 @@ def test_development_cuda_execution_is_recorded_but_never_labelled_verified(
     assert provenance.device_resolution_reason == "cuda_selected"
     assert provenance.gpu is not None
     assert provenance.gpu.compute_capability == "7.5"
+
+
+# --------------------------------------------------------------------------- S2a.3
+
+
+def _build(selection, *, production_mode=False, **kwargs):
+    arguments = {
+        "selection": selection,
+        "runtime_metadata": _metadata(),
+        "configured_device_policy": "cpu",
+        "configured_device_index": 0,
+        "production_mode": production_mode,
+        "platform_identity": _platform(),
+    }
+    if production_mode:
+        arguments.update(mavi_build="build", mavi_commit="1234567890abcdef1234567890abcdef12345678")
+    arguments.update(kwargs)
+    return build_runtime_provenance(**arguments)
+
+
+def test_pack_ids_from_resolver() -> None:
+    selection = _selection(verified=True)
+    provenance = _build(selection)
+
+    assert provenance.capability_id == "detector"
+    assert provenance.model_pack_id == MODEL_PACK_ID
+    assert provenance.runtime_pack_id == RUNTIME_PACK_IDS["linux-x86_64-cpu"]
+    assert provenance.runtime_pack_source == "installed-pack"
+    assert provenance.component_binding_sha256 == BINDING_SHA
+    # Every identity is the resolution's; none is recomputed here.
+    assert provenance.model_manifest_sha256 == selection.capability.manifest_sha256
+    assert provenance.qualification_sha256 == selection.capability.qualification_sha256
+    assert provenance.runtime_profile_sha256 == selection.resolved_role.family.runtime_profile_sha256
+
+
+def test_the_binding_sha_is_the_resolved_binding_file_identity() -> None:
+    other = "8" * 64
+    assert _build(_selection(component_binding_sha256=other)).component_binding_sha256 == other
+
+
+def test_no_installed_pack_yields_null_and_unpacked_source() -> None:
+    provenance = _build(_selection())
+
+    assert provenance.runtime_pack_source == "unpacked-environment"
+    assert provenance.runtime_pack_id is None
+    assert provenance.verification_status == "unverified"
+
+
+def test_verified_requires_pack() -> None:
+    unpacked = _selection(verified=True, runtime_pack_source="unpacked-environment")
+    # Development downgrades a verified manifest outside an installed pack...
+    provenance = _build(unpacked)
+    assert provenance.verification_status == "unverified"
+    assert provenance.runtime_pack_id is None
+    assert provenance.platform_lock_sha256 is None
+    # ...and Production refuses it.
+    with pytest.raises(ValueError, match="runtime_pack_required"):
+        _build(unpacked, production_mode=True)
+
+
+def test_verified_requires_the_observed_variant_to_have_passed() -> None:
+    selection = _selection(verified=True, passed_variants=frozenset({"windows-x86_64-cpu"}))
+    assert _build(selection).verification_status == "unverified"
+    with pytest.raises(ValueError, match="qualification_variant_not_passed"):
+        _build(selection, production_mode=True)
+
+
+def test_verified_with_installed_pack_and_passed_variant_is_verified() -> None:
+    provenance = _build(_selection(verified=True))
+    assert provenance.verification_status == "verified"
+    assert provenance.platform_lock_sha256 == SHA_A
+
+
+@pytest.mark.parametrize("override", ["3.1", "3.0"])
+def test_override_forces_unverified(override: str) -> None:
+    provenance = _build(_selection(verified=True, override=override))
+    assert provenance.verification_status == "unverified"
+    assert provenance.platform_lock_sha256 is None
+    with pytest.raises(ValueError, match="completion_override_forbidden_in_production"):
+        _build(_selection(verified=True, override=override), production_mode=True)
+
+
+def test_the_live_runtime_must_be_on_the_resolved_variant() -> None:
+    # Resolved for windows-x86_64-cpu, running on a Linux host: never relabelled.
+    with pytest.raises(ValueError, match="runtime_variant_resolution_mismatch"):
+        _build(_selection(runtime_variant="windows-x86_64-cpu"))
+
+
+def _provenance_fields(**changes):
+    base = _build(_selection())
+    return replace(base, **changes)
+
+
+def test_an_unpacked_environment_cannot_carry_a_runtime_pack_id() -> None:
+    with pytest.raises(ValueError, match="runtime_pack_id_fabricated"):
+        _provenance_fields(runtime_pack_id=RUNTIME_PACK_IDS["linux-x86_64-cpu"])
+
+
+def test_an_installed_pack_must_name_its_runtime_pack() -> None:
+    with pytest.raises(ValueError, match="runtime_pack_id_invalid"):
+        _provenance_fields(runtime_pack_source="installed-pack", runtime_pack_id=None)
+
+
+def test_an_unpacked_environment_is_never_verified() -> None:
+    base = _build(_selection(verified=True))
+    with pytest.raises(ValueError, match="unpacked_environment_cannot_be_verified"):
+        replace(base, runtime_pack_source="unpacked-environment", runtime_pack_id=None)
+
+
+@pytest.mark.parametrize(
+    ("changes", "code"),
+    [
+        ({"capability_id": "face-recognition"}, "capability_id_invalid"),
+        ({"model_pack_id": "mavi-model-v1-" + "3" * 64}, "model_pack_id_invalid"),
+        ({"component_binding_sha256": "0" * 63}, "component_binding_sha256_invalid"),
+        ({"runtime_pack_source": "installed"}, "runtime_pack_source_invalid"),
+    ],
+)
+def test_component_identity_fields_are_validated(changes, code) -> None:
+    with pytest.raises(ValueError, match=code):
+        _provenance_fields(**changes)
+
+
+def test_provenance_has_no_default_component_identity() -> None:
+    from dataclasses import MISSING, fields
+
+    from mavi_vision.runtime.provenance import RuntimeProvenance
+
+    defaults = {field.name: field.default for field in fields(RuntimeProvenance)}
+    for name in ("capability_id", "model_pack_id", "runtime_pack_id", "runtime_pack_source", "component_binding_sha256"):
+        assert defaults[name] is MISSING, name

@@ -12,12 +12,14 @@ from mavi_vision.common.control_plane import VisionJobFinalizationResponse, Visi
 from mavi_vision.common.lease import LeaseLostError
 from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.runtime.provenance import GpuIdentity, PlatformIdentity, RuntimeProvenance, TrackerParameters
+from mavi_vision.runtime.resolver import CompletionContract
 from mavi_vision.worker.client import WorkerApiClient, WorkerApiError
 
 
 ROOT = Path(__file__).resolve().parents[3]
 EXAMPLE = ROOT / "contracts/examples/vision-job-lease-v2.example.json"
 LEASE_TOKEN = "A" * 43
+BINDING_SHA = "9" * 64
 
 
 # Test helpers
@@ -26,6 +28,16 @@ def settings(tmp_path: Path) -> WorkerSettings:
         api_base_url="https://mavi-api.local",
         worker_id="gpu-sdd-01",
         media_root=tmp_path,
+    )
+
+
+def client_for(worker_settings: WorkerSettings, injected: httpx.AsyncClient) -> WorkerApiClient:
+    # The role's contract as resolved at composition: completion 3.2, no override.
+    return WorkerApiClient(
+        worker_settings,
+        injected,
+        completion=CompletionContract(version="3.2", override=None),
+        component_binding_sha256=BINDING_SHA,
     )
 
 
@@ -80,6 +92,11 @@ def provenance() -> RuntimeProvenance:
             minimum_consecutive_frames=2,
             lost_track_buffer_seconds=1,
         ),
+        capability_id="detector",
+        model_pack_id="mavi-model-v2-" + "7" * 64,
+        runtime_pack_id=None,
+        runtime_pack_source="unpacked-environment",
+        component_binding_sha256=BINDING_SHA,
     )
 
 
@@ -109,7 +126,7 @@ def run_request(
 ) -> object:
     async def invoke() -> object:
         injected = httpx.AsyncClient(transport=handler)
-        client = WorkerApiClient(settings(tmp_path), injected)
+        client = client_for(settings(tmp_path), injected)
         try:
             if action == "lease":
                 return await client.lease()
@@ -222,9 +239,9 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == f"/api/vision/jobs/{expected.job_id}/complete"
         payload = json.loads(request.content)
-        # Default settings: completion 3.1, the durable hand-off the activated
-        # platform answers with "finalizing" (S1.4 F4-C).
-        assert payload["schemaVersion"] == "3.1"
+        # Default composition: completion 3.2 (the role's provenanceContract),
+        # the durable hand-off the platform answers with "finalizing".
+        assert payload["schemaVersion"] == "3.2"
         assert payload["jobId"] == str(expected.job_id)
         assert payload["workerId"] == expected.worker_id
         assert payload["leaseToken"] == expected.lease_token
@@ -238,10 +255,13 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
         assert payload["provenance"]["modelId"] == "rtmdet-m"
         assert payload["provenance"]["dependencyVersions"]["trackers"] == "2.6.0"
         assert payload["provenance"]["inputColourSpace"] == "RGB"
+        assert payload["provenance"]["componentBindingSha256"] == BINDING_SHA
+        assert payload["provenance"]["runtimePackSource"] == "unpacked-environment"
+        assert payload["provenance"]["runtimePackId"] is None
         return httpx.Response(
             200,
             json={
-                "schemaVersion": "3.1",
+                "schemaVersion": "3.2",
                 "jobId": str(expected.job_id),
                 "processingRunId": str(expected.processing_run_id),
                 "state": "finalizing",
@@ -272,7 +292,7 @@ def test_complete_projects_physical_gpu_identity_and_resolution_reason(
             return httpx.Response(
                 200,
                 json={
-                    "schemaVersion": "3.1",
+                    "schemaVersion": "3.2",
                     "jobId": str(expected.job_id),
                     "processingRunId": str(expected.processing_run_id),
                     "state": "finalizing",
@@ -284,7 +304,7 @@ def test_complete_projects_physical_gpu_identity_and_resolution_reason(
         injected = httpx.AsyncClient(
             transport=httpx.MockTransport(handler)
         )
-        client = WorkerApiClient(settings(tmp_path), injected)
+        client = client_for(settings(tmp_path), injected)
         try:
             await client.complete(
                 expected,
@@ -328,7 +348,7 @@ def test_complete_rechecks_authority_after_payload_projection_before_http(
 
     async def invoke() -> None:
         injected = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-        client = WorkerApiClient(settings(tmp_path), injected)
+        client = client_for(settings(tmp_path), injected)
         try:
             with pytest.raises(LeaseLostError):
                 await client.complete(

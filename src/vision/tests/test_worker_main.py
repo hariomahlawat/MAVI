@@ -276,12 +276,14 @@ def _settings(tmp_path: Path):
         request_timeout_seconds=30.0,
         ca_bundle=None,
         model_root=tmp_path / "models",
-        model_manifest_path=tmp_path / "manifest.json",
+        component_binding_path=tmp_path / "bindings.json",
+        role_id="vision",
+        overlay_root=tmp_path,
+        runtime_pack_manifest_path=None,
+        completion_schema_override=None,
         pipeline_profile_path=tmp_path / "profile.json",
-        runtime_profile_path=tmp_path / "runtime.json",
         deployment_profile_policy_path=tmp_path / "profiles.json",
         deployment_profile=None,
-        qualification_record_path=tmp_path / "qualification.json",
         build_id="build-a",
         commit_sha="a" * 40,
         device_policy="cpu",
@@ -291,6 +293,17 @@ def _settings(tmp_path: Path):
         inference_watchdog_seconds=120.0,
         watchdog_grace_seconds=15.0,
     )
+
+
+_COMPOSITION = SimpleNamespace(
+    completion=SimpleNamespace(version="3.2", override=None),
+    binding=SimpleNamespace(component_binding_sha256="b" * 64),
+)
+
+
+def _composition(settings):
+    del settings
+    return _COMPOSITION
 
 
 def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
@@ -309,16 +322,16 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
         def supervisor_factory(**kwargs):
             assert kwargs["lane"] is lane
             assert kwargs["activity"] is activity
-            assert kwargs["model_root"] == settings.model_root
-            assert kwargs["manifest_path"] == settings.model_manifest_path
-            assert kwargs["profile_path"] == settings.pipeline_profile_path
-            assert kwargs["runtime_profile_path"] == settings.runtime_profile_path
+            # One composition, from the binding, is the supervisor's only
+            # source of model/runtime/qualification identity.
+            assert kwargs["composition"] is _COMPOSITION
+            for retired in ("model_root", "manifest_path", "profile_path", "runtime_profile_path", "qualification_path"):
+                assert retired not in kwargs
             assert (
                 kwargs["deployment_profile_policy_path"]
                 == settings.deployment_profile_policy_path
             )
             assert kwargs["deployment_profile"] == settings.deployment_profile
-            assert kwargs["qualification_path"] == settings.qualification_record_path
             assert kwargs["device_policy"] == settings.device_policy
             assert kwargs["device_index"] == settings.device_index
             assert (
@@ -353,9 +366,17 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
             events.append("loop")
             return 0
 
+        client_kwargs: dict[str, object] = {}
+
+        def client_factory(settings_arg, **kwargs):
+            assert settings_arg is settings
+            client_kwargs.update(kwargs)
+            return client
+
         exit_code = await worker_main._run_worker(
             settings,
-            client_factory=lambda _: client,
+            client_factory=client_factory,
+            composition_factory=_composition,
             lane_factory=lambda: lane,
             activity_factory=lambda: activity,
             supervisor_factory=supervisor_factory,
@@ -366,6 +387,11 @@ def test_run_worker_composes_ready_processor_runner_and_single_owner_shutdown(
 
         supervisor = supervisor_holder[0]
         assert exit_code == 0
+        # The client emits the role's contract and names the resolved binding.
+        assert client_kwargs == {
+            "completion": _COMPOSITION.completion,
+            "component_binding_sha256": "b" * 64,
+        }
         assert events[:4] == [
             "supervisor-start",
             "processor-build",
@@ -444,7 +470,8 @@ def test_run_worker_does_not_build_processor_when_startup_is_unavailable(
 
         exit_code = await worker_main._run_worker(
             settings,
-            client_factory=lambda _: client,
+            client_factory=lambda _, **__: client,
+            composition_factory=_composition,
             lane_factory=lambda: lane,
             activity_factory=lambda: activity,
             supervisor_factory=lambda **_: supervisor,
@@ -495,7 +522,8 @@ def test_run_worker_bypasses_poisoned_lane_teardown_after_fatal_watchdog(
         with pytest.raises(_FatalCompositionSentinel, match="fatal-watchdog"):
             await worker_main._run_worker(
                 settings,
-                client_factory=lambda _: client,
+                client_factory=lambda _, **__: client,
+            composition_factory=_composition,
                 lane_factory=lambda: lane,
                 activity_factory=lambda: activity,
                 supervisor_factory=lambda **_: supervisor,
@@ -535,7 +563,8 @@ def test_run_worker_bypasses_lane_teardown_when_startup_watchdog_is_fatal(
         with pytest.raises(_FatalCompositionSentinel, match="startup-watchdog"):
             await worker_main._run_worker(
                 settings,
-                client_factory=lambda _: client,
+                client_factory=lambda _, **__: client,
+            composition_factory=_composition,
                 lane_factory=lambda: lane,
                 activity_factory=lambda: activity,
                 supervisor_factory=lambda **_: supervisor,
@@ -553,3 +582,45 @@ def test_run_worker_bypasses_lane_teardown_when_startup_watchdog_is_fatal(
         assert events == ["supervisor-start", "client-close"]
 
     asyncio.run(scenario())
+
+
+def test_a_refused_composition_exits_before_any_client_lane_or_runtime(tmp_path: Path, caplog) -> None:
+    import logging
+
+    built: list[str] = []
+
+    def refuse(settings):
+        del settings
+        raise ValueError("capability_binding_disabled")
+
+    async def scenario() -> int:
+        return await worker_main._run_worker(
+            _settings(tmp_path),
+            client_factory=lambda *_, **__: built.append("client"),
+            composition_factory=refuse,
+            lane_factory=lambda: built.append("lane"),
+            supervisor_factory=lambda **_: built.append("supervisor"),
+        )
+
+    with caplog.at_level(logging.ERROR):
+        assert asyncio.run(scenario()) == 2
+    assert built == []
+    assert any("capability_binding_disabled" in record.getMessage() for record in caplog.records)
+
+
+def test_the_default_composition_is_the_binding(tmp_path: Path) -> None:
+    from mavi_vision.worker.composition import role_composition_from_settings
+
+    assert worker_main._run_worker.__kwdefaults__["composition_factory"] is role_composition_from_settings
+
+
+def test_main_refuses_a_v1_composition_environment_before_settings(monkeypatch) -> None:
+    import pytest
+
+    monkeypatch.setenv("MAVI_QUALIFICATION_RECORD_PATH", "models/qualifications/x.json")
+    monkeypatch.setattr(
+        worker_main, "WorkerSettings", lambda: (_ for _ in ()).throw(AssertionError("settings loaded"))
+    )
+    with pytest.raises(SystemExit) as raised:
+        worker_main.main()
+    assert raised.value.code == 2

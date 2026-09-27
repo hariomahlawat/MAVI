@@ -7,11 +7,8 @@ import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import urlsplit
-
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
-
 
 _SHA256_LENGTH = 64
 
@@ -56,93 +53,6 @@ class ReleaseMetadataError(ValueError):
 class ArtifactRef:
     relative_path: str
     sha256: str
-
-
-@dataclass(frozen=True, slots=True)
-class ModelManifest:
-    schema_version: str
-    model_id: str
-    model_version: str
-    purpose: str
-    backend: str
-    architecture: str
-    class_vocabulary: tuple[str, ...]
-    checkpoint: ArtifactRef
-    resolved_config: ArtifactRef
-    runtime_profile_id: str
-    verification_status: Literal["verified", "unverified"]
-    qualification_id: str | None
-
-
-class _StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class _ArtifactRefSchema(_StrictModel):
-    relative_path: str = Field(alias="relativePath")
-    sha256: str
-
-    @field_validator("relative_path")
-    @classmethod
-    def validate_relative_path(cls, value: str) -> str:
-        validate_logical_relative_path(value)
-        return value
-
-    @field_validator("sha256")
-    @classmethod
-    def validate_sha256(cls, value: str) -> str:
-        validate_sha256_hex(value)
-        return value
-
-
-class _ModelManifestSchema(_StrictModel):
-    schema_version: Literal["1.0"] = Field(alias="schemaVersion")
-    model_id: str = Field(alias="modelId")
-    model_version: str = Field(alias="modelVersion")
-    purpose: str
-    backend: str
-    architecture: str
-    class_vocabulary: tuple[str, ...] = Field(alias="classVocabulary")
-    checkpoint: _ArtifactRefSchema
-    resolved_config: _ArtifactRefSchema = Field(alias="resolvedConfig")
-    runtime_profile_id: str = Field(alias="runtimeProfileId")
-    verification_status: Literal["verified", "unverified"] = Field(alias="verificationStatus")
-    qualification_id: str | None = Field(alias="qualificationId")
-
-    @field_validator(
-        "model_id",
-        "model_version",
-        "purpose",
-        "backend",
-        "architecture",
-        "runtime_profile_id",
-    )
-    @classmethod
-    def validate_nonempty_text(cls, value: str) -> str:
-        if not value or value != value.strip():
-            raise ValueError("release_metadata_text_invalid")
-        return value
-
-    @field_validator("class_vocabulary")
-    @classmethod
-    def validate_vocabulary(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if not value:
-            raise ValueError("model_vocabulary_empty")
-        if any(not item or item != item.strip() for item in value):
-            raise ValueError("model_vocabulary_entry_invalid")
-        if len(set(value)) != len(value):
-            raise ValueError("model_vocabulary_duplicate")
-        return value
-
-    @model_validator(mode="after")
-    def validate_verification_relationship(self) -> "_ModelManifestSchema":
-        if self.verification_status == "verified" and not self.qualification_id:
-            raise ValueError("verified_manifest_requires_qualification")
-        if self.qualification_id is not None and (
-            not self.qualification_id or self.qualification_id != self.qualification_id.strip()
-        ):
-            raise ValueError("qualification_id_invalid")
-        return self
 
 
 def validate_sha256_hex(value: str) -> None:
@@ -211,35 +121,6 @@ def sha256_release_file(path: Path) -> str:
     except OSError as exc:
         raise ReleaseMetadataError("release_artifact_unreadable") from exc
     return digest.hexdigest()
-
-
-def load_model_manifest(path: Path) -> ModelManifest:
-    raw = read_release_json(path, code="model_manifest_invalid")
-    try:
-        parsed = _ModelManifestSchema.model_validate(raw)
-    except ValidationError as exc:
-        raise ReleaseMetadataError("model_manifest_invalid") from exc
-
-    return ModelManifest(
-        schema_version=parsed.schema_version,
-        model_id=parsed.model_id,
-        model_version=parsed.model_version,
-        purpose=parsed.purpose,
-        backend=parsed.backend,
-        architecture=parsed.architecture,
-        class_vocabulary=parsed.class_vocabulary,
-        checkpoint=ArtifactRef(
-            relative_path=parsed.checkpoint.relative_path,
-            sha256=parsed.checkpoint.sha256,
-        ),
-        resolved_config=ArtifactRef(
-            relative_path=parsed.resolved_config.relative_path,
-            sha256=parsed.resolved_config.sha256,
-        ),
-        runtime_profile_id=parsed.runtime_profile_id,
-        verification_status=parsed.verification_status,
-        qualification_id=parsed.qualification_id,
-    )
 
 
 def _path_is_link_or_reparse(path: Path) -> bool:

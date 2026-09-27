@@ -1,50 +1,38 @@
+"""The release-artefact primitives every v2 manifest resolves through.
+
+The v1 manifest loader was deleted at the S2a.3 cut-over (plan §5: no runtime
+dual reader); its schema survives only in ``tools/vision/v1_release_schemas.py``
+for the one-shot migration generator. What remains here is shared by the v2
+Model Pack manifest: logical path and digest rules and contained resolution.
+"""
+
 from __future__ import annotations
 
 import hashlib
-import json
 from pathlib import Path
 
 import pytest
 
+import mavi_vision.runtime.manifest as manifest_module
 from mavi_vision.runtime.manifest import (
     ArtifactRef,
     ReleaseMetadataError,
-    load_model_manifest,
     resolve_release_artifact,
+    validate_logical_relative_path,
+    validate_sha256_hex,
 )
+from mavi_vision.runtime.model_manifest_v2 import load_model_manifest_v2
+from tests.component_binding_v2_fixtures import V1_MANIFEST
 
 
-def _manifest_payload() -> dict:
-    digest = "a" * 64
-    return {
-        "schemaVersion": "1.0",
-        "modelId": "model-a",
-        "modelVersion": "1.0.0",
-        "purpose": "test",
-        "backend": "mmdetection",
-        "architecture": "rtmdet-m",
-        "classVocabulary": ["person", "car", "motorcycle", "bus", "truck"],
-        "checkpoint": {"relativePath": "release/checkpoint.pth", "sha256": digest},
-        "resolvedConfig": {"relativePath": "release/config.py", "sha256": digest},
-        "runtimeProfileId": "runtime-a",
-        "verificationStatus": "unverified",
-        "qualificationId": None,
-    }
+def test_the_runtime_has_no_v1_manifest_reader() -> None:
+    for retired in ("ModelManifest", "load_model_manifest", "_ModelManifestSchema"):
+        assert not hasattr(manifest_module, retired), retired
 
 
-def _write_json(path: Path, payload: dict) -> None:
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
-
-
-def test_model_manifest_loads_strict_valid_metadata(tmp_path: Path) -> None:
-    path = tmp_path / "manifest.json"
-    _write_json(path, _manifest_payload())
-
-    manifest = load_model_manifest(path)
-
-    assert manifest.model_id == "model-a"
-    assert manifest.class_vocabulary == ("person", "car", "motorcycle", "bus", "truck")
-    assert manifest.verification_status == "unverified"
+def test_the_last_v1_manifest_is_refused_by_the_only_reader() -> None:
+    with pytest.raises(ReleaseMetadataError, match="model_manifest_schema_unsupported"):
+        load_model_manifest_v2(V1_MANIFEST)
 
 
 @pytest.mark.parametrize(
@@ -59,62 +47,15 @@ def test_model_manifest_loads_strict_valid_metadata(tmp_path: Path) -> None:
         "release//checkpoint.pth",
     ],
 )
-def test_model_manifest_rejects_unsafe_artifact_paths(
-    tmp_path: Path,
-    relative_path: str,
-) -> None:
-    payload = _manifest_payload()
-    payload["checkpoint"]["relativePath"] = relative_path
-    path = tmp_path / "manifest.json"
-    _write_json(path, payload)
-
-    with pytest.raises(ReleaseMetadataError, match="model_manifest_invalid"):
-        load_model_manifest(path)
+def test_unsafe_artifact_paths_are_rejected(relative_path: str) -> None:
+    with pytest.raises(ValueError, match="release_artifact_path_invalid"):
+        validate_logical_relative_path(relative_path)
 
 
 @pytest.mark.parametrize("digest", ["ABC" * 21 + "A", "g" * 64, "a" * 63])
-def test_model_manifest_rejects_malformed_sha256(tmp_path: Path, digest: str) -> None:
-    payload = _manifest_payload()
-    payload["checkpoint"]["sha256"] = digest
-    path = tmp_path / "manifest.json"
-    _write_json(path, payload)
-
-    with pytest.raises(ReleaseMetadataError, match="model_manifest_invalid"):
-        load_model_manifest(path)
-
-
-@pytest.mark.parametrize("vocabulary", [[], ["person", "person"], ["person", ""]])
-def test_model_manifest_rejects_invalid_vocabulary(
-    tmp_path: Path,
-    vocabulary: list[str],
-) -> None:
-    payload = _manifest_payload()
-    payload["classVocabulary"] = vocabulary
-    path = tmp_path / "manifest.json"
-    _write_json(path, payload)
-
-    with pytest.raises(ReleaseMetadataError, match="model_manifest_invalid"):
-        load_model_manifest(path)
-
-
-def test_verified_manifest_requires_qualification_id(tmp_path: Path) -> None:
-    payload = _manifest_payload()
-    payload["verificationStatus"] = "verified"
-    path = tmp_path / "manifest.json"
-    _write_json(path, payload)
-
-    with pytest.raises(ReleaseMetadataError, match="model_manifest_invalid"):
-        load_model_manifest(path)
-
-
-def test_model_manifest_rejects_unknown_fields(tmp_path: Path) -> None:
-    payload = _manifest_payload()
-    payload["unexpected"] = True
-    path = tmp_path / "manifest.json"
-    _write_json(path, payload)
-
-    with pytest.raises(ReleaseMetadataError, match="model_manifest_invalid"):
-        load_model_manifest(path)
+def test_malformed_sha256_is_rejected(digest: str) -> None:
+    with pytest.raises(ValueError, match="sha256_invalid"):
+        validate_sha256_hex(digest)
 
 
 def test_release_artifact_resolution_rejects_link_component(tmp_path: Path) -> None:
