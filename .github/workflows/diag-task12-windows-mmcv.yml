@@ -117,27 +117,32 @@ jobs:
           git -C .task12-mmcv checkout --detach FETCH_HEAD
       - name: Build 1
         working-directory: .task12-mmcv
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          python -m pip wheel --no-build-isolation --no-deps -v . -w ../diag-out/build1 > ../diag-out/build1.log 2>&1
-          sha256sum ../diag-out/build1/*.whl
-          mkdir -p ../diag-out/obj1 && cp -r build/temp.* ../diag-out/obj1/
+          $ErrorActionPreference = "Stop"
+          python -m pip wheel --no-build-isolation --no-deps -v . -w ../diag-out/build1 *> ../diag-out/build1.log
+          if ($LASTEXITCODE -ne 0) { Get-Content ../diag-out/build1.log -Tail 40; throw "build1 failed" }
+          Get-FileHash ../diag-out/build1/*.whl
+          New-Item -ItemType Directory ../diag-out/obj1 -Force | Out-Null
+          Copy-Item -Recurse build/temp.* ../diag-out/obj1/
       - name: Build 2 (clean, same directory)
         working-directory: .task12-mmcv
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
+          $ErrorActionPreference = "Stop"
           git clean -xfdq
-          python -m pip wheel --no-build-isolation --no-deps -v . -w ../diag-out/build2 > ../diag-out/build2.log 2>&1
-          sha256sum ../diag-out/build2/*.whl
-          mkdir -p ../diag-out/obj2 && cp -r build/temp.* ../diag-out/obj2/
+          python -m pip wheel --no-build-isolation --no-deps -v . -w ../diag-out/build2 *> ../diag-out/build2.log
+          if ($LASTEXITCODE -ne 0) { Get-Content ../diag-out/build2.log -Tail 40; throw "build2 failed" }
+          Get-FileHash ../diag-out/build2/*.whl
+          New-Item -ItemType Directory ../diag-out/obj2 -Force | Out-Null
+          Copy-Item -Recurse build/temp.* ../diag-out/obj2/
       - name: Compare builds on this runner
-        shell: bash
+        shell: pwsh
         run: |
-          set -uo pipefail
-          sha256sum diag-out/build1/*.whl diag-out/build2/*.whl
-          cmp diag-out/build1/*.whl diag-out/build2/*.whl && echo SAME-RUNNER-REPRODUCIBLE || echo SAME-RUNNER-DIFFERS
+          $a = Get-FileHash (Get-ChildItem diag-out/build1/*.whl).FullName
+          $b = Get-FileHash (Get-ChildItem diag-out/build2/*.whl).FullName
+          "build1 $($a.Hash)"; "build2 $($b.Hash)"
+          if ($a.Hash -eq $b.Hash) { "SAME-RUNNER-REPRODUCIBLE" } else { "SAME-RUNNER-DIFFERS" }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
