@@ -536,4 +536,38 @@ public sealed class VisionResultValidatorTests
             "7.5");
 
     private static VisionRuntimeProvenanceContract Provenance() => VisionResultValidatorTestProvenance.Create();
+
+    // Completion 3.2 component identity (S2a plan §4.5, §12.1). The wider matrix is in
+    // VisionResultValidatorV32Tests; these are the plan-named rows.
+
+    [Fact]
+    public void DigestChangesWithComponentBindingSha()
+    {
+        var body = Completion32Fixture.Node(Completion32Fixture.InstalledExample);
+        var baseline = Completion32Fixture.Validate(body).CompletionDigest;
+        var binding = Completion32Fixture.Provenance(body)["componentBindingSha256"]!.GetValue<string>();
+        Completion32Fixture.Provenance(body)["componentBindingSha256"] = (binding[0] == '9' ? "8" : "9") + binding[1..];
+
+        Assert.NotEqual(baseline, Completion32Fixture.Validate(body).CompletionDigest);
+    }
+
+    [Theory]
+    [InlineData("3.1")]
+    [InlineData("3.0")]
+    public void A3xBodyCarryingA32FieldIsRejected(string version)
+    {
+        var body = Completion32Fixture.Node(Completion32Fixture.InstalledExample);
+        body["schemaVersion"] = version;
+
+        Assert.Equal("provenance_v32_field_in_v3_body", Completion32Fixture.Rejection(body));
+    }
+
+    [Fact]
+    public void A32BodyWithoutThe32FieldsIsRejected()
+    {
+        var body = Completion32Fixture.WithoutComponentIdentity(
+            Completion32Fixture.Node(Completion32Fixture.InstalledExample), "3.2");
+
+        Assert.Equal("provenance_capability_invalid", Completion32Fixture.Rejection(body));
+    }
 }

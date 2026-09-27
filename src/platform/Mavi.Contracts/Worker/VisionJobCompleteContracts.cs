@@ -49,7 +49,15 @@ public sealed record VisionRuntimeProvenanceContract(
     string? FramePolicy,
     VisionTrackerParametersContract? TrackerParameters,
     string? InputColourSpace,
-    string? DeviceResolutionReason = null);
+    string? DeviceResolutionReason = null,
+    // Completion 3.2 only (Stage 2 S2a plan §4.5). A 2.0/3.0/3.1 body must omit all five;
+    // a null member is never written, so 3.1 serialisation stays byte-identical and a
+    // null RuntimePackId re-serialises as absent.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CapabilityId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ModelPackId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RuntimePackId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RuntimePackSource = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ComponentBindingSha256 = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionPlatformIdentityContract(
@@ -193,12 +201,21 @@ public sealed record VisionJobFinalizationResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     DateTimeOffset? CompletedAtUtc = null)
 {
-    public static VisionJobFinalizationResponse Finalizing(Guid jobId, Guid processingRunId, DateTimeOffset acceptedAtUtc, int tracksSubmitted) =>
-        new(WorkerContractRules.CompletionSchemaVersionV31, jobId, processingRunId,
+    /// <param name="schemaVersion">The asynchronous completion version the worker spoke; echoed so a
+    /// 3.1 worker keeps receiving exactly the 3.1 hand-off it validates.</param>
+    public static VisionJobFinalizationResponse Finalizing(
+        string schemaVersion, Guid jobId, Guid processingRunId, DateTimeOffset acceptedAtUtc, int tracksSubmitted) =>
+        new(AsynchronousVersion(schemaVersion), jobId, processingRunId,
             WorkerContractRules.FinalizationStateFinalizing, acceptedAtUtc, tracksSubmitted);
 
     public static VisionJobFinalizationResponse Completed(
-        Guid jobId, Guid processingRunId, DateTimeOffset acceptedAtUtc, int tracksSubmitted, DateTimeOffset completedAtUtc) =>
-        new(WorkerContractRules.CompletionSchemaVersionV31, jobId, processingRunId,
+        string schemaVersion, Guid jobId, Guid processingRunId, DateTimeOffset acceptedAtUtc, int tracksSubmitted,
+        DateTimeOffset completedAtUtc) =>
+        new(AsynchronousVersion(schemaVersion), jobId, processingRunId,
             WorkerContractRules.FinalizationStateCompleted, acceptedAtUtc, tracksSubmitted, completedAtUtc);
+
+    private static string AsynchronousVersion(string schemaVersion) =>
+        WorkerContractRules.IsAsynchronousCompletionSchemaVersion(schemaVersion)
+            ? schemaVersion
+            : throw new ArgumentException("A hand-off answers only an asynchronous completion version.", nameof(schemaVersion));
 }

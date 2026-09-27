@@ -182,10 +182,27 @@ def test_the_shipped_completion_default_is_3_1_and_3_0_remains_the_rollback_sett
     monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", "3.0")
     assert WorkerSettings().completion_schema_version == "3.0"
 
-    for unsupported in ("2.0", "3.2", ""):
+    for unsupported in ("2.0", "3.2", "3.3", ""):
         monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", unsupported)
         with pytest.raises(ValidationError):
             WorkerSettings()
+
+
+def test_completion_32_requires_binding(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # S2a.2 (Stage 2 S2a plan §13.0): the platform accepts completion 3.2, but this
+    # worker cannot yet supply its component identity, so selecting it fails
+    # closed with a stable code rather than as an unknown literal. S2a.3 retires
+    # MAVI_COMPLETION_SCHEMA_VERSION altogether.
+    seed_required(monkeypatch, tmp_path)
+    monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", "3.2")
+    with pytest.raises(ValidationError) as raised:
+        WorkerSettings()
+    assert "completion_32_requires_binding" in str(raised.value)
+
+    monkeypatch.setenv("MAVI_COMPLETION_SCHEMA_VERSION", "3.3")
+    with pytest.raises(ValidationError) as unknown:
+        WorkerSettings()
+    assert "completion_32_requires_binding" not in str(unknown.value)
 
 
 def test_worker_settings_do_not_expose_analytical_tuning_knobs() -> None:

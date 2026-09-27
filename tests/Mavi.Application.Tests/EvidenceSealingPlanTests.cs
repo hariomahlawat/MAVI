@@ -79,6 +79,33 @@ public sealed class EvidenceSealingPlanTests
     }
 
     [Fact]
+    public void TheV32EvidenceSetIsSealedAndQuotaCheckedExactlyLikeV3()
+    {
+        // Completion 3.2 is the same Evidence Set with component identity added (S2a plan
+        // §4.5): the crop quota, the accepted keys and the graph must not change with it.
+        var half = WorkerContractRules.MaximumCompletionEvidenceCropBytes / 2 + 1;
+        Assert.True(EvidenceSealingPlan.ExceedsAdmittedCropQuota(
+            Result(CompletionSchema.V32, 1, [ObservationType.Representative, ObservationType.NearView], cropBytes: half)));
+        Assert.False(EvidenceSealingPlan.ExceedsAdmittedCropQuota(
+            Result(CompletionSchema.V32, 1, [ObservationType.Representative, ObservationType.NearView], cropBytes: half - 1)));
+
+        var v3 = Result(CompletionSchema.V3, 2, [ObservationType.Representative, ObservationType.NearView]);
+        var v32 = Result(CompletionSchema.V32, 2, [ObservationType.Representative, ObservationType.NearView]);
+        var v3Units = EvidenceSealingPlan.Build(JobId, v3);
+        Assert.Equal(v3Units, EvidenceSealingPlan.Build(JobId, v32));
+        var accepted = v3Units.ToDictionary(x => x.SourceStorageKey, x => x.AcceptedStorageKey, StringComparer.Ordinal);
+        var v3Graph = FinalizationGraphBuilder.Build(v3, accepted, RunId, VideoId, Start, Start.AddMinutes(1));
+        var v32Graph = FinalizationGraphBuilder.Build(v32, accepted, RunId, VideoId, Start, Start.AddMinutes(1));
+        Assert.Equal(v3Graph.TrackCount, v32Graph.TrackCount);
+        static IEnumerable<(ArtifactType, string)> Artifacts(FinalizationGraphPlan graph) =>
+            graph.Tracks.SelectMany(track => track.Observations.Select(x => x.CropArtifact).Append(track.TrajectoryArtifact))
+                .Select(x => (x.ArtifactType, x.StorageKey));
+        Assert.Equal(Artifacts(v3Graph), Artifacts(v32Graph));
+        Assert.All(v32Graph.Tracks.SelectMany(track => track.Observations),
+            x => Assert.Equal(ArtifactType.EvidenceCrop, x.CropArtifact.ArtifactType));
+    }
+
+    [Fact]
     public void GraphBuilderIsPureDeterministicAndPairsTheRepresentative()
     {
         var result = Result(CompletionSchema.V3, 2, [ObservationType.Representative, ObservationType.NearView]);

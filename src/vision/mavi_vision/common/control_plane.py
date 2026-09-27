@@ -1018,7 +1018,8 @@ class VisionJobCompleteResponse(ControlPlaneModel):
 
 
 class VisionJobFinalizationResponse(ControlPlaneModel):
-    """Completion 3.1 acknowledgement (S1.4 B3 plan §5.2; ``vision-job-finalization-response-v3.1``).
+    """Completion 3.1/3.2 acknowledgement (S1.4 B3 plan §5.2; ``vision-job-finalization-response-v3.1``
+    and ``-v3.2``, identical apart from the version the platform echoes).
 
     ``finalizing`` means the platform durably owns the hand-off and still has
     to seal and publish; ``completed`` is the exact replay of a job the
@@ -1027,7 +1028,7 @@ class VisionJobFinalizationResponse(ControlPlaneModel):
     is present only with ``completed``.
     """
 
-    schema_version: Literal["3.1"]
+    schema_version: Literal["3.1", "3.2"]
     job_id: UUID
     processing_run_id: UUID
     state: Literal["finalizing", "completed"]

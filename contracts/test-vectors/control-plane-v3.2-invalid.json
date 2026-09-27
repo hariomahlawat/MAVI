@@ -1,0 +1,235 @@
+{
+  "description": "Completion 3.2 provenance bodies both boundaries must refuse (S2a plan sections 4.5 and 10). Each case patches the provenance of a 3.2 golden example ('installed': vision-job-complete-v3.2.example.json, 'unpacked': the unpacked-environment example): 'schemaVersion' relabels the body, 'remove' deletes provenance members, 'set' replaces them. The published schema of the resulting version must reject the payload, and the platform validator must reject it with 'code'.",
+  "cases": [
+    {
+      "name": "v3.1-body-with-component-identity",
+      "base": "installed",
+      "schemaVersion": "3.1",
+      "code": "provenance_v32_field_in_v3_body"
+    },
+    {
+      "name": "v3.0-body-with-component-identity",
+      "base": "installed",
+      "schemaVersion": "3.0",
+      "code": "provenance_v32_field_in_v3_body"
+    },
+    {
+      "name": "v3.1-body-with-only-a-component-binding",
+      "base": "installed",
+      "schemaVersion": "3.1",
+      "remove": [
+        "capabilityId",
+        "modelPackId",
+        "runtimePackId",
+        "runtimePackSource"
+      ],
+      "code": "provenance_v32_field_in_v3_body"
+    },
+    {
+      "name": "v3.2-body-without-capability",
+      "base": "installed",
+      "remove": [
+        "capabilityId"
+      ],
+      "code": "provenance_capability_invalid"
+    },
+    {
+      "name": "v3.2-body-without-model-pack",
+      "base": "installed",
+      "remove": [
+        "modelPackId"
+      ],
+      "code": "provenance_model_pack_invalid"
+    },
+    {
+      "name": "v3.2-body-without-runtime-pack-source",
+      "base": "installed",
+      "remove": [
+        "runtimePackSource"
+      ],
+      "code": "provenance_runtime_pack_source_invalid"
+    },
+    {
+      "name": "v3.2-body-without-component-binding",
+      "base": "installed",
+      "remove": [
+        "componentBindingSha256"
+      ],
+      "code": "provenance_component_binding_invalid"
+    },
+    {
+      "name": "v3.2-body-without-any-component-identity",
+      "base": "installed",
+      "remove": [
+        "capabilityId",
+        "modelPackId",
+        "runtimePackId",
+        "runtimePackSource",
+        "componentBindingSha256"
+      ],
+      "code": "provenance_capability_invalid"
+    },
+    {
+      "name": "capability-unregistered",
+      "base": "installed",
+      "set": {
+        "capabilityId": "face-recognition"
+      },
+      "code": "provenance_capability_invalid"
+    },
+    {
+      "name": "capability-wrong-case",
+      "base": "installed",
+      "set": {
+        "capabilityId": "Detector"
+      },
+      "code": "provenance_capability_invalid"
+    },
+    {
+      "name": "capability-is-a-model-name",
+      "base": "installed",
+      "set": {
+        "capabilityId": "rtmdet-m-coco-phase1"
+      },
+      "code": "provenance_capability_invalid"
+    },
+    {
+      "name": "capability-null",
+      "base": "installed",
+      "set": {
+        "capabilityId": null
+      },
+      "code": "provenance_capability_invalid"
+    },
+    {
+      "name": "model-pack-trailing-newline",
+      "base": "installed",
+      "set": {
+        "modelPackId": "mavi-model-v2-777777777777777777777777777777777777777777777777777777777777777\n"
+      },
+      "code": "provenance_model_pack_invalid"
+    },
+    {
+      "name": "model-pack-upper-case-hex",
+      "base": "installed",
+      "set": {
+        "modelPackId": "mavi-model-v2-777777777777777777777777777777777777777777777777777777777777777A"
+      },
+      "code": "provenance_model_pack_invalid"
+    },
+    {
+      "name": "model-pack-v1-prefix",
+      "base": "installed",
+      "set": {
+        "modelPackId": "mavi-model-v1-7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "code": "provenance_model_pack_invalid"
+    },
+    {
+      "name": "model-pack-holds-a-runtime-pack-id",
+      "base": "installed",
+      "set": {
+        "modelPackId": "mavi-runtime-v2-8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "code": "provenance_model_pack_invalid"
+    },
+    {
+      "name": "model-pack-bare-hash",
+      "base": "installed",
+      "set": {
+        "modelPackId": "7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "code": "provenance_model_pack_invalid"
+    },
+    {
+      "name": "runtime-pack-holds-a-model-pack-id",
+      "base": "installed",
+      "set": {
+        "runtimePackId": "mavi-model-v2-7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "code": "provenance_runtime_pack_invalid"
+    },
+    {
+      "name": "runtime-pack-trailing-newline",
+      "base": "installed",
+      "set": {
+        "runtimePackId": "mavi-runtime-v2-888888888888888888888888888888888888888888888888888888888888888\n"
+      },
+      "code": "provenance_runtime_pack_invalid"
+    },
+    {
+      "name": "runtime-pack-short",
+      "base": "installed",
+      "set": {
+        "runtimePackId": "mavi-runtime-v2-888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "code": "provenance_runtime_pack_invalid"
+    },
+    {
+      "name": "installed-pack-without-runtime-pack",
+      "base": "installed",
+      "remove": [
+        "runtimePackId"
+      ],
+      "code": "provenance_runtime_pack_required"
+    },
+    {
+      "name": "installed-pack-with-null-runtime-pack",
+      "base": "installed",
+      "set": {
+        "runtimePackId": null
+      },
+      "code": "provenance_runtime_pack_required"
+    },
+    {
+      "name": "unpacked-environment-with-runtime-pack",
+      "base": "unpacked",
+      "set": {
+        "runtimePackId": "mavi-runtime-v2-8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "code": "provenance_runtime_pack_required"
+    },
+    {
+      "name": "unpacked-environment-verified",
+      "base": "unpacked",
+      "set": {
+        "verificationStatus": "verified",
+        "qualificationId": "rtmdet-m-coco-phase1-qualification",
+        "qualificationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "code": "provenance_runtime_pack_required"
+    },
+    {
+      "name": "runtime-pack-source-unregistered",
+      "base": "installed",
+      "set": {
+        "runtimePackSource": "installed"
+      },
+      "code": "provenance_runtime_pack_source_invalid"
+    },
+    {
+      "name": "runtime-pack-source-wrong-case",
+      "base": "installed",
+      "set": {
+        "runtimePackSource": "Installed-Pack"
+      },
+      "code": "provenance_runtime_pack_source_invalid"
+    },
+    {
+      "name": "component-binding-upper-case",
+      "base": "installed",
+      "set": {
+        "componentBindingSha256": "999999999999999999999999999999999999999999999999999999999999999F"
+      },
+      "code": "provenance_component_binding_invalid"
+    },
+    {
+      "name": "component-binding-short",
+      "base": "installed",
+      "set": {
+        "componentBindingSha256": "999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "code": "provenance_component_binding_invalid"
+    }
+  ]
+}

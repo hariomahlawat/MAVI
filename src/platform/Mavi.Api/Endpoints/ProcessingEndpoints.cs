@@ -99,7 +99,12 @@ public static class ProcessingEndpoints
             source.TrackerVersion,
             source.FramesProcessed,
             source.TracksCreated,
-            source.ProcessingDurationMs);
+            source.ProcessingDurationMs,
+            value.CapabilityId,
+            value.ModelPackId,
+            value.RuntimePackId,
+            value.RuntimePackSource,
+            value.ComponentBindingSha256);
 
         return Results.Ok(response);
     }

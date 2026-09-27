@@ -36,6 +36,8 @@ from mavi_vision.runtime.provenance import (
     TrackerParameters,
 )
 from mavi_vision.worker.client import (
+    ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS,
+    SUPPORTED_COMPLETION_SCHEMA_VERSIONS,
     CompletionPayloadInvalid,
     PlatformContractUnsupported,
     WorkerApiClient,
@@ -192,9 +194,9 @@ def _accounting_from(wire: dict) -> EvidenceAccounting:
 
 
 def _response_for(body: dict, version: str = "3.1", state: str = "finalizing") -> httpx.Response:
-    """A completion acknowledgement: the 3.1 hand-off by default, or a
-    synchronous-style (2.0/3.0) echo for the version-skew tests."""
-    if version != "3.1":
+    """A completion acknowledgement: the 3.1 hand-off by default, a 3.2 hand-off,
+    or a synchronous-style (2.0/3.0) echo for the version-skew tests."""
+    if version not in ("3.1", "3.2"):
         return httpx.Response(
             200,
             json={
@@ -206,7 +208,7 @@ def _response_for(body: dict, version: str = "3.1", state: str = "finalizing") -
             },
         )
     payload = {
-        "schemaVersion": "3.1",
+        "schemaVersion": version,
         "jobId": body["jobId"],
         "processingRunId": "018fa7b6-2b31-7f42-9f33-9fd9f6fdd762",
         "state": state,
@@ -777,3 +779,91 @@ def test_python_v3_model_follows_the_shared_integer_conformance_corpus() -> None
                 or (e["loc"] == () and "completion integer" in e["msg"])
             ]
         assert (not located) is vector["accepted"], (vector["name"], located)
+
+
+# Completion 3.2 (Stage 2 S2a plan P-7, S2a.2): the platform accepts it; this
+# worker recognises it but can neither be configured for it nor emit it until
+# the S2a.3 cut-over supplies component identity.
+
+def test_the_worker_recognises_completion_3_2_as_an_asynchronous_version() -> None:
+    assert SUPPORTED_COMPLETION_SCHEMA_VERSIONS == ("3.0", "3.1", "3.2")
+    assert ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS == frozenset({"3.1", "3.2"})
+
+
+def test_a_3_1_worker_accepts_a_platform_that_also_lists_completion_3_2(tmp_path: Path) -> None:
+    capabilities = _run(
+        tmp_path,
+        _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1", "3.2"]}),
+        lambda client: client.get_contract_capabilities(),
+        version=None,
+    )
+    assert capabilities.completion_schema_versions == ("2.0", "3.1", "3.2")
+
+
+def test_a_platform_listing_only_completion_3_2_is_unsupported_for_a_3_1_worker(tmp_path: Path) -> None:
+    with pytest.raises(PlatformContractUnsupported):
+        _run(
+            tmp_path,
+            _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.2"]}),
+            lambda client: client.get_contract_capabilities(),
+            version=None,
+        )
+
+
+@pytest.mark.parametrize("state", ["finalizing", "completed"])
+def test_a_3_1_worker_refuses_a_3_2_hand_off_acknowledgement(tmp_path: Path, state: str) -> None:
+    """The hand-off model now reads both asynchronous versions, so the echo
+    check is what keeps a 3.1 worker from accepting another version's answer."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _response_for(json.loads(request.content), version="3.2", state=state)
+
+    with pytest.raises(WorkerApiError, match="unexpected version"):
+        _complete_golden(tmp_path, handler, version=None)
+
+
+def test_a_3_0_worker_refuses_a_3_2_hand_off_acknowledgement(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _response_for(json.loads(request.content), version="3.2")
+
+    with pytest.raises(WorkerApiError, match="unexpected version"):
+        _complete_golden(tmp_path, handler, version="3.0")
+
+
+def test_the_worker_cannot_be_configured_for_completion_3_2(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="completion_32_requires_binding"):
+        _settings(tmp_path, version="3.2")
+
+
+def test_the_worker_never_emits_a_completion_3_2_body(tmp_path: Path) -> None:
+    """Even settings forced past validation cannot produce a 3.2 body: the
+    completion model does not admit the version, so nothing is sent."""
+    forced = _settings(tmp_path).model_copy(update={"completion_schema_version": "3.2"})
+    sent: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request.content)
+        return _response_for(json.loads(request.content), version="3.2")
+
+    async def invoke():
+        golden = _golden()
+        client = WorkerApiClient(forced, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+        try:
+            return await client.complete(
+                _lease_for(golden),
+                VisionProcessingResult(
+                    job_id=_lease_for(golden).job_id,
+                    frames_processed=golden["framesProcessed"],
+                    tracks=tuple(_track_from(track) for track in golden["tracks"]),
+                    evidence_accounting=_accounting_from(golden["evidenceAccounting"]),
+                ),
+                golden["processingDurationMs"],
+                _provenance_from(golden["provenance"]),
+            )
+        finally:
+            await client.aclose()
+
+    with pytest.raises(CompletionPayloadInvalid):
+        asyncio.run(invoke())
+    assert sent == []
+    with pytest.raises(ValidationError):
+        VisionJobCompleteV3.model_validate({**_golden(), "schemaVersion": "3.2"})

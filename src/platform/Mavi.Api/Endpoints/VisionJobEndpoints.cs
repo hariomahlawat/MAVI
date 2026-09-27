@@ -133,9 +133,9 @@ public static class VisionJobEndpoints
         {
             return Results.Ok(result.State == WorkerContractRules.FinalizationStateCompleted
                 ? VisionJobFinalizationResponse.Completed(
-                    id, result.ProcessingRunId!.Value, result.AcceptedAtUtc!.Value, result.TracksSubmitted, result.CompletedAtUtc!.Value)
+                    request.SchemaVersion!, id, result.ProcessingRunId!.Value, result.AcceptedAtUtc!.Value, result.TracksSubmitted, result.CompletedAtUtc!.Value)
                 : VisionJobFinalizationResponse.Finalizing(
-                    id, result.ProcessingRunId!.Value, result.AcceptedAtUtc!.Value, result.TracksSubmitted));
+                    request.SchemaVersion!, id, result.ProcessingRunId!.Value, result.AcceptedAtUtc!.Value, result.TracksSubmitted));
         }
 
         var status = result.ErrorCode switch
@@ -156,7 +156,7 @@ public static class VisionJobEndpoints
     private static IResult VersionProblem() => Problem(400, "worker_contract_version_unsupported", "Worker contract version 2.0 is required.");
     private static IResult CompletionVersionProblem(bool asynchronousFinalization) => Problem(400, "worker_contract_version_unsupported",
         asynchronousFinalization
-            ? "Worker completion contract version 2.0 or 3.1 is required."
+            ? "Worker completion contract version 2.0, 3.1 or 3.2 is required."
             : "Worker completion contract version 2.0 or 3.0 is required.");
     private static IResult WorkerProblem() => Problem(400, "worker_id_invalid", "A valid worker ID is required.");
     private static IResult Result(OrchestrationResult result) => result.IsSuccess ? Results.Ok() : Problem(

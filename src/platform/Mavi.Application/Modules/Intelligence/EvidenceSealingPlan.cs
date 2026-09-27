@@ -46,7 +46,7 @@ public static class EvidenceSealingPlan
     public static bool ExceedsAdmittedCropQuota(ValidatedVisionResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
-        if (result.Schema != CompletionSchema.V3)
+        if (!result.Schema.IsEvidenceSet())
             return false;
         long admittedCropBytes = 0;
         foreach (var track in result.Tracks)

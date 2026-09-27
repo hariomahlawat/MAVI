@@ -21,6 +21,26 @@ public enum CompletionSchema
     V2,
     /// <summary>Completion 3.0: the bounded Track Evidence Set.</summary>
     V3,
+    /// <summary>
+    /// Completion 3.2: the same Evidence Set as 3.0 plus component-identity provenance,
+    /// under its own digest domain (S2a plan P-7, §4.5).
+    /// </summary>
+    V32,
+}
+
+public static class CompletionSchemaExtensions
+{
+    /// <summary>
+    /// Whether a schema carries the bounded Track Evidence Set (3.0 and 3.2). Every
+    /// evidence-shape rule branches on this, never on one version, so a new Evidence
+    /// Set version cannot silently skip a check.
+    /// </summary>
+    public static bool IsEvidenceSet(this CompletionSchema schema) => schema switch
+    {
+        CompletionSchema.V2 => false,
+        CompletionSchema.V3 or CompletionSchema.V32 => true,
+        _ => throw new ArgumentOutOfRangeException(nameof(schema)),
+    };
 }
 
 /// <summary>
@@ -116,22 +136,24 @@ public sealed class VisionResultValidator
 
         // 3.1 is the asynchronous exchange of the same Evidence Set body: one semantic
         // shape, one digest domain (plan §5.1, §15.5). The version string never enters
-        // the digest; only the schema-selected domain tag does.
+        // the digest; only the schema-selected domain tag does. 3.2 adds component
+        // identity to provenance and therefore has its own domain (S2a plan P-7).
         var schema = request.SchemaVersion switch
         {
             WorkerContractRules.CompletionSchemaVersionV2 => CompletionSchema.V2,
             WorkerContractRules.CompletionSchemaVersionV3 => CompletionSchema.V3,
             WorkerContractRules.CompletionSchemaVersionV31 => CompletionSchema.V3,
+            WorkerContractRules.CompletionSchemaVersionV32 => CompletionSchema.V32,
             _ => throw Invalid("schema_version_invalid"),
         };
         // Each version carries its own evidence members and forbids the other's,
         // so a body can never be read as the other version.
         if (schema == CompletionSchema.V2 && request.EvidenceAccounting is not null)
             throw Invalid("evidence_accounting_unexpected");
-        if (schema == CompletionSchema.V3 && request.EvidenceAccounting is null)
+        if (schema.IsEvidenceSet() && request.EvidenceAccounting is null)
             throw Invalid("evidence_accounting_missing");
 
-        var provenance = VisionRuntimeProvenanceParser.Parse(request.Provenance);
+        var provenance = VisionRuntimeProvenanceParser.Parse(request.Provenance, schema);
         var trackIds = new HashSet<string>(StringComparer.Ordinal);
         var artifactKeys = new HashSet<string>(StringComparer.Ordinal);
         var tracks = new List<ValidatedTrackResult>(request.Tracks.Count);
@@ -224,7 +246,7 @@ public sealed class VisionResultValidator
         }
 
         ValidatedEvidenceAccounting? accounting = null;
-        if (schema == CompletionSchema.V3)
+        if (schema.IsEvidenceSet())
             accounting = ValidateAccounting(
                 request.EvidenceAccounting!, tracks.Count, admittedCountByRole, admittedBytesByRole);
 
@@ -509,10 +531,15 @@ public sealed class VisionResultValidator
             Add(value.ToString(null, CultureInfo.InvariantCulture));
 
         // Domain-separated per version: a stored v2 digest can only ever match a
-        // v2 replay and a v3 digest only a v3 replay (plan §7.3).
-        Add(schema == CompletionSchema.V2
-            ? "mavi:vision-completion-digest:v2"
-            : "mavi:vision-completion-digest:v3");
+        // v2 replay, a v3 digest only a v3 replay (plan §7.3) and a v3.2 digest only
+        // a v3.2 replay (S2a plan §4.5).
+        Add(schema switch
+        {
+            CompletionSchema.V2 => "mavi:vision-completion-digest:v2",
+            CompletionSchema.V3 => "mavi:vision-completion-digest:v3",
+            CompletionSchema.V32 => "mavi:vision-completion-digest:v3.2",
+            _ => throw new ArgumentOutOfRangeException(nameof(schema)),
+        });
         Add(jobId.ToString("D"));
         AddNumber(attemptCount);
         AddNumber(framesProcessed);
@@ -533,6 +560,14 @@ public sealed class VisionResultValidator
         Add(provenance.RuntimeProfileSha256!);
         Add(provenance.RuntimeVariant!);
         AddNullable(provenance.PlatformLockSha256);
+        if (schema == CompletionSchema.V32)
+        {
+            Add(provenance.CapabilityId!);
+            Add(provenance.ModelPackId!);
+            AddNullable(provenance.RuntimePackId);
+            Add(provenance.RuntimePackSource!);
+            Add(provenance.ComponentBindingSha256!);
+        }
         Add(provenance.DetectorBackend!);
         AddNumber(provenance.DependencyVersions!.Count);
         foreach (var pair in provenance.DependencyVersions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -588,7 +623,7 @@ public sealed class VisionResultValidator
         AddNumber(tracker.LostTrackBufferSeconds!.Value);
         Add(provenance.InputColourSpace!);
 
-        if (schema == CompletionSchema.V3)
+        if (schema.IsEvidenceSet())
         {
             foreach (var role in new[] { accounting!.Representative, accounting.NearView, accounting.EarlyDiverse, accounting.LateDiverse })
             {
