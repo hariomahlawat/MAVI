@@ -12,6 +12,35 @@ permissions:
   contents: read
 
 jobs:
+  vs-instances:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - name: Enumerate VS instances and their 14.44 compilers
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          "ImageVersion=$env:ImageVersion"
+          & $vswhere -all -prerelease -products * -format json | Out-File vs.json -Encoding utf8
+          $instances = Get-Content vs.json -Raw | ConvertFrom-Json
+          foreach ($i in $instances) {
+            "== instance {0} {1} {2} {3}" -f $i.instanceId, $i.installationVersion, $i.catalog.productDisplayVersion, $i.installationPath
+            $msvc = Join-Path $i.installationPath "VC\Tools\MSVC"
+            if (Test-Path $msvc) {
+              Get-ChildItem $msvc -Directory | ForEach-Object {
+                $cl = Join-Path $_.FullName "bin\Hostx64\x64\cl.exe"
+                $c2 = Join-Path $_.FullName "bin\Hostx64\x64\c2.dll"
+                $link = Join-Path $_.FullName "bin\Hostx64\x64\link.exe"
+                if (Test-Path $cl) {
+                  "   toolset {0} cl={1} c2={2} link={3} clsha={4}" -f $_.Name, (Get-Item $cl).VersionInfo.FileVersion, (Get-Item $c2).VersionInfo.FileVersion, (Get-Item $link).VersionInfo.FileVersion, (Get-FileHash $cl).Hash
+                }
+              }
+            }
+            $aux = Join-Path $i.installationPath "VC\Auxiliary\Build"
+            Get-ChildItem $aux -Filter "Microsoft.VCToolsVersion*.txt" -ErrorAction SilentlyContinue | ForEach-Object { "   {0} = {1}" -f $_.Name, (Get-Content $_.FullName -Raw).Trim() }
+          }
+          Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Directory | ForEach-Object { "dir " + $_.FullName }
+          Get-ChildItem "C:\Program Files (x86)\Microsoft Visual Studio" -Directory -ErrorAction SilentlyContinue | ForEach-Object { "dir86 " + $_.FullName }
   build-twice:
     runs-on: windows-2025
     timeout-minutes: 90
