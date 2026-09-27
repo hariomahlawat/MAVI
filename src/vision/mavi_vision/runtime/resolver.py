@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -378,6 +379,7 @@ def _resolve_runtime_pack(
     runtime_variant: str,
     runtime_pack_manifest_path: Path | None,
     python_version: str,
+    interpreter_prefix: Path,
 ) -> ResolvedRuntimePack:
     family_id = family.role.runtime_pack_family_id
     # The resolver never consults the qualification record to find a Runtime Pack:
@@ -437,6 +439,12 @@ def _resolve_runtime_pack(
         raise _fail("runtime_pack_manifest_mismatch:nativeAbi")
     if manifest["pythonVersion"] != python_version:
         raise _fail("runtime_pack_manifest_mismatch:python")
+    # The pack must be the environment actually running, not a path someone set:
+    # an installed Runtime Pack's interpreter is <installRoot>/venv, beside its
+    # manifest (Install-MaviVisionRuntime.ps1). A venv pointed at a pack
+    # manifest is still an unpacked environment (P-8) and never claims its id.
+    if _resolved_path(interpreter_prefix) != _resolved_path(runtime_pack_manifest_path.parent / "venv"):
+        raise _fail("runtime_pack_not_running_environment")
     return ResolvedRuntimePack(
         runtime_pack_family_id=family_id,
         runtime_variant=runtime_variant,
@@ -445,6 +453,13 @@ def _resolve_runtime_pack(
         runtime_pack_source=INSTALLED_PACK,
         runtime_pack_id=derived,
     )
+
+
+def _resolved_path(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return path.absolute()
 
 
 _RUNTIME_PACK_MANIFEST_TEXT_FIELDS = (
@@ -766,6 +781,7 @@ class RoleComposition:
         python_version: str,
         profile_requirement: DeploymentProfile | None = None,
         deployment_profile_policy_sha256: str | None = None,
+        interpreter_prefix: Path | None = None,
     ) -> ResolvedRole:
         return resolve_role(
             binding=self._binding,
@@ -781,6 +797,7 @@ class RoleComposition:
             completion=self._completion,
             profile_requirement=profile_requirement,
             deployment_profile_policy_sha256=deployment_profile_policy_sha256,
+            interpreter_prefix=interpreter_prefix,
         )
 
 
@@ -799,6 +816,7 @@ def resolve_role(
     completion: CompletionContract,
     profile_requirement: DeploymentProfile | None = None,
     deployment_profile_policy_sha256: str | None = None,
+    interpreter_prefix: Path | None = None,
 ) -> ResolvedRole:
     """Resolve one role for the observed variant, or fail closed with a stable code.
 
@@ -812,6 +830,8 @@ def resolve_role(
         runtime_variant=runtime_variant,
         runtime_pack_manifest_path=runtime_pack_manifest_path,
         python_version=python_version,
+        # The running interpreter unless a caller verifying another environment names it.
+        interpreter_prefix=Path(sys.prefix) if interpreter_prefix is None else interpreter_prefix,
     )
 
     pipeline_profile = load_pipeline_profile(pipeline_profile_path)

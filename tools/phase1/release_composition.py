@@ -141,6 +141,11 @@ def resolve_vision_role(
         python_version=platform.python_identity.version,
         profile_requirement=profile_requirement,
         deployment_profile_policy_sha256=deployment_profile_policy_sha256,
+        # A tool assesses an installed pack on disk, not its own interpreter: it
+        # names the pack's own environment (<installRoot>/venv) explicitly.
+        interpreter_prefix=(
+            None if runtime_pack_manifest_path is None else runtime_pack_manifest_path.parent / "venv"
+        ),
     )
 
 

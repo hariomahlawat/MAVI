@@ -261,6 +261,7 @@ class Overlay:
         installed: bool = False,
         profile_requirement: DeploymentProfile | None = None,
         deployment_profile_policy_sha256: str | None = None,
+        interpreter_prefix: Path | None = None,
     ):
         if python_version is None:
             identity = self.runtime["platformVariants"][variant].get("pythonIdentity") or {}
@@ -272,6 +273,8 @@ class Overlay:
             python_version=python_version,
             profile_requirement=profile_requirement,
             deployment_profile_policy_sha256=deployment_profile_policy_sha256,
+            # An installed pack runs from its own venv (<installRoot>/venv).
+            interpreter_prefix=self.pack_manifest_path.parent / "venv" if interpreter_prefix is None else interpreter_prefix,
         )
 
     def copy(self) -> dict:

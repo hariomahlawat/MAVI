@@ -680,3 +680,24 @@ def test_the_family_itself_refuses_a_binding_that_omits_a_class_b_variant(overla
     assert _code(lambda: load_role_family(binding=binding, role_id="vision", overlay_root=overlay.root)) == (
         "binding_variant_missing:windows-x86_64-cuda"
     )
+
+
+def test_a_pack_manifest_the_running_interpreter_does_not_belong_to_is_refused(overlay: Overlay, tmp_path: Path) -> None:
+    """P-8: pointing a venv at a pack manifest does not make it that pack."""
+    overlay.install_pack("linux-x86_64-cpu")
+    assert _code(lambda: overlay.resolve(installed=True, interpreter_prefix=tmp_path / "some-venv")) == (
+        "runtime_pack_not_running_environment"
+    )
+    # The pack's own venv is accepted.
+    assert overlay.resolve(installed=True).runtime_pack.runtime_pack_source == INSTALLED_PACK
+
+
+def test_the_worker_checks_its_own_interpreter_by_default(overlay: Overlay) -> None:
+    import sys
+
+    overlay.install_pack("linux-x86_64-cpu")
+    composition = overlay.composition(installed=True)
+    assert Path(sys.prefix).resolve() != (overlay.pack_manifest_path.parent / "venv").resolve()
+    assert _code(
+        lambda: composition.resolve(runtime_variant="linux-x86_64-cpu", python_version="3.12.14")
+    ) == "runtime_pack_not_running_environment"
