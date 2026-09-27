@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "2.0",
+  "modelId": "embedding-fixture",
+  "modelVersion": "0.0.1",
+  "capabilityIds": [
+    "embedding"
+  ],
+  "artifacts": [
+    {
+      "artifactRole": "licence-notice",
+      "relativePath": "embedding-fixture-v1/LICENSE",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "artifactRole": "weights",
+      "relativePath": "embedding-fixture-v1/weights.bin",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "inputContract": {
+    "kind": "evidence-crop-rgb",
+    "colourSpace": "RGB"
+  },
+  "outputContract": {
+    "schemaId": "embedding-output-v1"
+  },
+  "runtimeCompatibility": {
+    "runtimePackFamilyIds": [
+      "mmdetection-phase1-v1"
+    ]
+  },
+  "licence": {
+    "spdxId": "LicenseRef-fixture",
+    "noticeArtifactRole": "licence-notice",
+    "reviewStatus": "pending-review"
+  },
+  "provenance": {
+    "publisher": "MAVI test fixture",
+    "sourceRepository": "fixture",
+    "sourceRevision": "0000000000000000000000000000000000000000"
+  },
+  "verificationStatus": "unverified",
+  "qualificationId": null,
+  "capabilitySpecific": {
+    "embedding": {
+      "dimension": 512
+    }
+  }
+}

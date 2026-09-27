@@ -1,0 +1,77 @@
+"""Shared builders for the component-binding v2 tests (S2a.1).
+
+The valid baseline documents are produced by the one-shot migration generator
+from the repository's real v1 artefacts, so every negative test mutates exactly
+what S2a.3 will ship rather than a hand-invented shape.
+"""
+
+from __future__ import annotations
+
+import copy
+import importlib.util
+import json
+import sys
+from functools import lru_cache
+from pathlib import Path
+
+REPOSITORY = Path(__file__).resolve().parents[3]
+TOOL_PATH = REPOSITORY / "tools" / "vision" / "migrate_component_binding_v1.py"
+V1_BINDING = REPOSITORY / "src/vision/config/components/mmdetection-phase1-v1.json"
+V1_MANIFEST = REPOSITORY / "models/manifests/rtmdet-m-coco-phase1-v1.json"
+V1_RUNTIME_PROFILE = REPOSITORY / "src/vision/runtime/mmdetection-phase1-v1/runtime.json"
+V1_QUALIFICATION = REPOSITORY / "models/qualifications/rtmdet-m-coco-phase1-v1.json"
+GATE_SETS = REPOSITORY / "config/acceptance/capability-gate-sets-v1.json"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "model-manifests"
+LICENCE_BYTES = b"Apache License\nVersion 2.0, January 2004\n"
+MMDETECTION_REVISION = "44ebd17b145c2372c4b700bfb9cb20dbd28ab64a"
+
+
+@lru_cache(maxsize=1)
+def load_migration_tool():
+    spec = importlib.util.spec_from_file_location("migrate_component_binding_v1", TOOL_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("migration_tool_unloadable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def generate(tmp_path: Path, *, licence_bytes: bytes = LICENCE_BYTES, **paths: Path) -> dict[str, bytes]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    licence = tmp_path / "LICENSE"
+    licence.write_bytes(licence_bytes)
+    tool = load_migration_tool()
+    return tool.build_v2_documents(
+        v1_binding_path=paths.get("v1_binding", V1_BINDING),
+        v1_manifest_path=paths.get("v1_manifest", V1_MANIFEST),
+        v1_runtime_profile_path=paths.get("v1_runtime_profile", V1_RUNTIME_PROFILE),
+        v1_qualification_path=paths.get("v1_qualification", V1_QUALIFICATION),
+        gate_sets_path=paths.get("gate_sets", GATE_SETS),
+        licence_notice_path=licence,
+        licence_spdx_id="Apache-2.0",
+        source_repository="open-mmlab/mmdetection",
+        source_revision=MMDETECTION_REVISION,
+        binding_id="phase1-v2",
+        qualification_id="rtmdet-m-coco-phase1-v2",
+    )
+
+
+@lru_cache(maxsize=1)
+def _baseline_cached() -> dict[str, str]:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        documents = generate(Path(directory))
+    return {key: value.decode("utf-8") for key, value in documents.items()}
+
+
+def baseline(name: str) -> dict:
+    """A fresh, mutable copy of one generated v2 document."""
+    return copy.deepcopy(json.loads(_baseline_cached()[name]))
+
+
+def gate_sets():
+    from mavi_vision.runtime.qualification_v2 import load_capability_gate_sets
+
+    return load_capability_gate_sets(GATE_SETS)

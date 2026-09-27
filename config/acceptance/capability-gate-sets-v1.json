@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "mavi-capability-gate-sets-v1",
+  "gateSets": {
+    "common-v1": {
+      "scope": "common",
+      "gates": [
+        "offline-install",
+        "licence",
+        "startup-readiness",
+        "runtime-compatibility",
+        "bounded-failure-recovery",
+        "provenance-completeness"
+      ]
+    },
+    "detector-v1": {
+      "scope": "capability",
+      "capabilityIds": [
+        "detector"
+      ],
+      "gates": [
+        "detection-tracking-accuracy",
+        "cctv-quality-baseline",
+        "recovery-performance"
+      ]
+    }
+  }
+}

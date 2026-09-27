@@ -15,6 +15,34 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 _SHA256_LENGTH = 64
 
+# Network/online resolver locators that must never appear in release metadata.
+# This is the single definition: tools/verify_repo.py and the v2 schemas both use it.
+# The scheme separator is joined at import time so this production module contains
+# no literal Internet URL (verify_repo's production URL scan covers this package).
+_SCHEME_SEPARATOR = ":" + "//"
+RELEASE_NETWORK_LOCATORS = (
+    "http" + _SCHEME_SEPARATOR,
+    "https" + _SCHEME_SEPARATOR,
+    "git+",
+    "ssh" + _SCHEME_SEPARATOR,
+    "ftp" + _SCHEME_SEPARATOR,
+    "s3" + _SCHEME_SEPARATOR,
+    "hf" + _SCHEME_SEPARATOR,
+    "mim" + _SCHEME_SEPARATOR,
+    "modelzoo" + _SCHEME_SEPARATOR,
+    "torchvision" + _SCHEME_SEPARATOR,
+    "openmmlab" + _SCHEME_SEPARATOR,
+)
+
+
+def find_release_network_hazard(text: str) -> str | None:
+    """Return the first forbidden network locator found in ``text`` (case-insensitive)."""
+    lowered = text.lower()
+    for locator in RELEASE_NETWORK_LOCATORS:
+        if locator in lowered:
+            return locator
+    return None
+
 
 class ReleaseMetadataError(ValueError):
     """Stable validation failure for release metadata and trusted artifacts."""

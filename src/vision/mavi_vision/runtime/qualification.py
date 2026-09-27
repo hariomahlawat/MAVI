@@ -23,6 +23,7 @@ from mavi_vision.runtime.manifest import (
     sha256_release_file,
     validate_sha256_hex,
 )
+from mavi_vision.runtime.variants import RUNTIME_VARIANTS
 from mavi_vision.runtime.profile import (
     PipelineProfile,
     load_pipeline_profile,
@@ -422,79 +423,70 @@ class _RuntimePlatformVariantSchema(_StrictModel):
 
     @model_validator(mode="after")
     def validate_evidence_shape(self) -> "_RuntimePlatformVariantSchema":
-        ci_evidence = (
-            self.workflow_run_id,
-            self.job_id,
-            self.evidence_head_sha,
+        check_platform_variant_evidence(
+            status=self.status,
+            workflow_run_id=self.workflow_run_id,
+            job_id=self.job_id,
+            evidence_head_sha=self.evidence_head_sha,
+            runtime_identity=(
+                self.resolved_config_sha256,
+                self.python_identity,
+                self.binary_versions,
+            ),
+            development_evidence=self.development_evidence,
         )
-        runtime_identity = (
-            self.resolved_config_sha256,
-            self.python_identity,
-            self.binary_versions,
-        )
-
-        if self.status in {
-            "qualified-hosted-cpu",
-            "qualified-hardware",
-        }:
-            if (
-                any(value is None for value in ci_evidence)
-                or any(value is None for value in runtime_identity)
-                or self.development_evidence is not None
-            ):
-                raise ValueError(
-                    "runtime_platform_evidence_required"
-                )
-            assert self.workflow_run_id is not None
-            assert self.job_id is not None
-            assert self.evidence_head_sha is not None
-            assert self.resolved_config_sha256 is not None
-            if (
-                not self.workflow_run_id.isdigit()
-                or not self.job_id.isdigit()
-            ):
-                raise ValueError(
-                    "runtime_platform_evidence_id_invalid"
-                )
-            if (
-                len(self.evidence_head_sha) not in {40, 64}
-                or self.evidence_head_sha.lower()
-                != self.evidence_head_sha
-                or any(
-                    ch not in "0123456789abcdef"
-                    for ch in self.evidence_head_sha
-                )
-            ):
-                raise ValueError(
-                    "runtime_platform_head_sha_invalid"
-                )
-            validate_sha256_hex(
-                self.resolved_config_sha256
-            )
-        elif self.status == "qualified-development-hardware":
-            if (
-                any(value is not None for value in ci_evidence)
-                or any(value is None for value in runtime_identity)
-                or self.development_evidence is None
-            ):
-                raise ValueError(
-                    "runtime_development_platform_evidence_required"
-                )
-            assert self.resolved_config_sha256 is not None
-            validate_sha256_hex(
-                self.resolved_config_sha256
-            )
-        else:
-            all_evidence = (
-                *ci_evidence,
-                *runtime_identity,
-                self.development_evidence,
-            )
-            if any(value is not None for value in all_evidence):
-                raise ValueError(
-                    "runtime_pending_platform_has_evidence"
-                )
+        if self.resolved_config_sha256 is not None:
+            validate_sha256_hex(self.resolved_config_sha256)
         return self
+
+
+def check_platform_variant_evidence(
+    *,
+    status: str,
+    workflow_run_id: str | None,
+    job_id: str | None,
+    evidence_head_sha: str | None,
+    runtime_identity: tuple[object | None, ...],
+    development_evidence: object | None,
+) -> None:
+    """The one evidence-shape rule for a runtime-profile platform variant.
+
+    Shared by runtime profile v1 and v2. ``runtime_identity`` holds the fields a
+    qualified variant must carry: v1 passes (resolved config SHA, Python identity,
+    binary versions); v2 passes (Python identity, binary versions) because model
+    identity no longer lives in the runtime profile (ADR-014 §4a).
+    """
+    ci_evidence = (workflow_run_id, job_id, evidence_head_sha)
+
+    if status in {"qualified-hosted-cpu", "qualified-hardware"}:
+        if (
+            any(value is None for value in ci_evidence)
+            or any(value is None for value in runtime_identity)
+            or development_evidence is not None
+        ):
+            raise ValueError("runtime_platform_evidence_required")
+        assert workflow_run_id is not None
+        assert job_id is not None
+        assert evidence_head_sha is not None
+        if not workflow_run_id.isdigit() or not job_id.isdigit():
+            raise ValueError("runtime_platform_evidence_id_invalid")
+        if (
+            len(evidence_head_sha) not in {40, 64}
+            or evidence_head_sha.lower() != evidence_head_sha
+            or any(ch not in "0123456789abcdef" for ch in evidence_head_sha)
+        ):
+            raise ValueError("runtime_platform_head_sha_invalid")
+    elif status == "qualified-development-hardware":
+        if (
+            any(value is not None for value in ci_evidence)
+            or any(value is None for value in runtime_identity)
+            or development_evidence is None
+        ):
+            raise ValueError("runtime_development_platform_evidence_required")
+    else:
+        all_evidence = (*ci_evidence, *runtime_identity, development_evidence)
+        if any(value is not None for value in all_evidence):
+            raise ValueError("runtime_pending_platform_has_evidence")
 
 
 class _RuntimeReleaseLockSchema(_StrictModel):
@@ -543,14 +535,7 @@ class _RuntimeResolvedConfigSchema(_StrictModel):
         return value
 
 
-_RUNTIME_VARIANTS = frozenset(
-    {
-        "linux-x86_64-cpu",
-        "windows-x86_64-cpu",
-        "linux-x86_64-cuda",
-        "windows-x86_64-cuda",
-    }
-)
+_RUNTIME_VARIANTS = RUNTIME_VARIANTS
 
 
 class _RuntimeProfileSchema(_StrictModel):
@@ -571,16 +556,12 @@ class _RuntimeProfileSchema(_StrictModel):
     @field_validator("runtime_profile_id")
     @classmethod
     def validate_runtime_profile_id(cls, value: str) -> str:
-        if not value or value != value.strip():
-            raise ValueError("runtime_profile_id_invalid")
-        return value
+        return check_runtime_profile_id(value)
 
     @field_validator("python_minor")
     @classmethod
     def validate_python_minor(cls, value: str) -> str:
-        if value not in {"3.11", "3.12"}:
-            raise ValueError("runtime_python_minor_invalid")
-        return value
+        return check_runtime_python_minor(value)
 
     @field_validator("platform_variants")
     @classmethod
@@ -588,26 +569,7 @@ class _RuntimeProfileSchema(_StrictModel):
         cls,
         value: dict[str, _RuntimePlatformVariantSchema],
     ) -> dict[str, _RuntimePlatformVariantSchema]:
-        if set(value) != _RUNTIME_VARIANTS:
-            raise ValueError("runtime_platform_variants_incomplete")
-
-        for variant_name, variant in value.items():
-            if variant_name.endswith("-cuda"):
-                if variant.status not in {
-                    "pending-hardware-qualification",
-                    "qualified-development-hardware",
-                    "qualified-hardware",
-                }:
-                    raise ValueError("runtime_cuda_variant_status_invalid")
-            elif variant_name.endswith("-cpu"):
-                if variant.status not in {
-                    "pending-hardware-qualification",
-                    "qualified-hosted-cpu",
-                }:
-                    raise ValueError("runtime_cpu_variant_status_invalid")
-            else:
-                raise ValueError("runtime_platform_variant_unknown")
-
+        check_runtime_platform_variant_statuses(value)
         return value
 
     @field_validator("release_locks")
@@ -616,8 +578,7 @@ class _RuntimeProfileSchema(_StrictModel):
         cls,
         value: dict[str, _RuntimeReleaseLockSchema],
     ) -> dict[str, _RuntimeReleaseLockSchema]:
-        if set(value) != _RUNTIME_VARIANTS:
-            raise ValueError("runtime_release_locks_incomplete")
+        check_runtime_release_lock_keys(value)
         return value
 
     @model_validator(mode="after")
@@ -628,34 +589,101 @@ class _RuntimeProfileSchema(_StrictModel):
                 and variant.resolved_config_sha256 != self.resolved_config.sha256
             ):
                 raise ValueError("runtime_variant_config_hash_mismatch")
-            if variant.python_identity is not None:
-                if not variant.python_identity.version.startswith(self.python_minor + "."):
-                    raise ValueError("runtime_python_minor_identity_mismatch")
-            if variant.binary_versions is not None:
-                if (
-                    variant.binary_versions.torch.split("+", 1)[0]
-                    != self.semantic_graph.torch
-                ):
-                    raise ValueError("runtime_torch_binary_semantic_mismatch")
-                if (
-                    variant.binary_versions.torchvision.split("+", 1)[0]
-                    != self.semantic_graph.torchvision
-                ):
-                    raise ValueError("runtime_torchvision_binary_semantic_mismatch")
+        check_runtime_graph_relationships(
+            python_minor=self.python_minor,
+            semantic_graph=self.semantic_graph,
+            platform_variants=self.platform_variants,
+        )
+        check_runtime_qualification_status(
+            qualification_status=self.qualification_status,
+            platform_variants=self.platform_variants,
+            release_locks=self.release_locks,
+        )
+        return self
 
-        has_pending = any(
-            variant.status in {
+
+def check_runtime_profile_id(value: str) -> str:
+    if not value or value != value.strip():
+        raise ValueError("runtime_profile_id_invalid")
+    return value
+
+
+def check_runtime_python_minor(value: str) -> str:
+    if value not in {"3.11", "3.12"}:
+        raise ValueError("runtime_python_minor_invalid")
+    return value
+
+
+def check_runtime_platform_variant_statuses(value: Mapping[str, object]) -> None:
+    """Platform-variant keys equal the closed universe; statuses fit CPU/CUDA."""
+    if set(value) != _RUNTIME_VARIANTS:
+        raise ValueError("runtime_platform_variants_incomplete")
+
+    for variant_name, variant in value.items():
+        status = getattr(variant, "status")
+        if variant_name.endswith("-cuda"):
+            if status not in {
                 "pending-hardware-qualification",
                 "qualified-development-hardware",
-            }
-            for variant in self.platform_variants.values()
-        ) or any(
-            lock.status != "qualified-offline-lock"
-            for lock in self.release_locks.values()
-        )
-        if self.qualification_status == "qualified" and has_pending:
-            raise ValueError("runtime_qualified_with_pending_gate")
-        return self
+                "qualified-hardware",
+            }:
+                raise ValueError("runtime_cuda_variant_status_invalid")
+        elif variant_name.endswith("-cpu"):
+            if status not in {
+                "pending-hardware-qualification",
+                "qualified-hosted-cpu",
+            }:
+                raise ValueError("runtime_cpu_variant_status_invalid")
+        else:
+            raise ValueError("runtime_platform_variant_unknown")
+
+
+def check_runtime_release_lock_keys(value: Mapping[str, object]) -> None:
+    if set(value) != _RUNTIME_VARIANTS:
+        raise ValueError("runtime_release_locks_incomplete")
+
+
+def check_runtime_graph_relationships(
+    *,
+    python_minor: str,
+    semantic_graph: "_RuntimeSemanticGraphSchema",
+    platform_variants: Mapping[str, object],
+) -> None:
+    """Python-minor and torch/torchvision binary-vs-semantic agreement per variant."""
+    for variant in platform_variants.values():
+        python_identity = getattr(variant, "python_identity")
+        binary_versions = getattr(variant, "binary_versions")
+        if python_identity is not None:
+            if not python_identity.version.startswith(python_minor + "."):
+                raise ValueError("runtime_python_minor_identity_mismatch")
+        if binary_versions is not None:
+            if binary_versions.torch.split("+", 1)[0] != semantic_graph.torch:
+                raise ValueError("runtime_torch_binary_semantic_mismatch")
+            if (
+                binary_versions.torchvision.split("+", 1)[0]
+                != semantic_graph.torchvision
+            ):
+                raise ValueError("runtime_torchvision_binary_semantic_mismatch")
+
+
+def check_runtime_qualification_status(
+    *,
+    qualification_status: str,
+    platform_variants: Mapping[str, object],
+    release_locks: Mapping[str, object],
+) -> None:
+    has_pending = any(
+        getattr(variant, "status") in {
+            "pending-hardware-qualification",
+            "qualified-development-hardware",
+        }
+        for variant in platform_variants.values()
+    ) or any(
+        getattr(lock, "status") != "qualified-offline-lock"
+        for lock in release_locks.values()
+    )
+    if qualification_status == "qualified" and has_pending:
+        raise ValueError("runtime_qualified_with_pending_gate")
 
 
 def load_runtime_profile(path: Path) -> _RuntimeProfileSchema:

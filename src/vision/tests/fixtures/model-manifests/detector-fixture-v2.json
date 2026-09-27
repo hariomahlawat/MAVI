@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "2.0",
+  "modelId": "detector-fixture",
+  "modelVersion": "0.0.1",
+  "capabilityIds": [
+    "detector"
+  ],
+  "artifacts": [
+    {
+      "artifactRole": "checkpoint",
+      "relativePath": "detector-fixture-v1/model.pth",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+    },
+    {
+      "artifactRole": "licence-notice",
+      "relativePath": "detector-fixture-v1/LICENSE",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    {
+      "artifactRole": "resolved-config",
+      "relativePath": "detector-fixture-v1/config.py",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ],
+  "inputContract": {
+    "kind": "video-frame-rgb",
+    "colourSpace": "RGB"
+  },
+  "outputContract": {
+    "schemaId": "detector-output-v1"
+  },
+  "runtimeCompatibility": {
+    "runtimePackFamilyIds": [
+      "mmdetection-phase1-v1"
+    ]
+  },
+  "licence": {
+    "spdxId": "Apache-2.0",
+    "noticeArtifactRole": "licence-notice",
+    "reviewStatus": "pending-review"
+  },
+  "provenance": {
+    "publisher": "MAVI test fixture",
+    "sourceRepository": "fixture",
+    "sourceRevision": "0000000000000000000000000000000000000000"
+  },
+  "verificationStatus": "unverified",
+  "qualificationId": null,
+  "capabilitySpecific": {
+    "detector": {
+      "backend": "mmdetection",
+      "architecture": "fixture",
+      "classVocabulary": [
+        "person",
+        "car"
+      ],
+      "checkpointArtifactRole": "checkpoint",
+      "resolvedConfigArtifactRole": "resolved-config"
+    }
+  }
+}
