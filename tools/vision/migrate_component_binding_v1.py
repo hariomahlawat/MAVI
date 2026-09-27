@@ -21,11 +21,16 @@ live pipeline profile is not read or hashed here. Reconciling ``policies.*``
 against the live pipeline profile is the job of the resolver and ``verify_repo``
 at the S2a.3 cut-over.
 
-Publication is all-or-nothing: every document is written to a temporary file
-beside its destination, then each destination is created (never replaced) from
-its temporary file; if any creation fails, every destination this invocation
-created is removed, so a failure leaves no partial v2 set and never touches a
-pre-existing file.
+Publication is create-only and rollback-protected: every document is written to
+a temporary file beside its destination, then each destination is created (never
+replaced) from its temporary file, so a pre-existing destination is never
+replaced. On a staging or publication failure, or an interrupt raised there, the
+generator attempts to remove every destination this invocation recorded as
+created; for an ordinary error it exits 2 and reports any it could not remove as
+``migration_publication_failed:left=...``, and an interrupt is re-raised after
+the same rollback attempt. This is not an unconditional atomicity guarantee: an
+asynchronous interrupt between creating a destination and recording it, a failed
+removal, or a killed process can leave a created file behind.
 """
 
 from __future__ import annotations
@@ -435,8 +440,9 @@ def main(argv: list[str] | None = None) -> int:
     except MigrationError as exc:
         print(exc.code, file=sys.stderr)
         return 2
-    # Stage every document, then create each destination; on any failure remove
-    # exactly the destinations this invocation created. Nothing else is touched.
+    # Stage every document, then create each destination; on a handled failure
+    # attempt to remove exactly the destinations this invocation recorded as
+    # created. Nothing else is touched.
     staged: list[tuple[Path, Path]] = []
     published: list[Path] = []
     try:
@@ -450,8 +456,9 @@ def main(argv: list[str] | None = None) -> int:
             _publish(temporary, path)
             published.append(path)
     except BaseException as exc:
-        # Any failure, including an interrupt, removes every destination this
-        # invocation created; one failed removal does not stop the others.
+        # Any handled failure, including an interrupt, attempts to remove every
+        # destination recorded in ``published``; one failed removal does not stop
+        # the others. An interrupt is re-raised; any other error is reported.
         left = _remove_all([path for path in reversed(published)])
         _remove_all([temporary for temporary, _path in staged])
         if not isinstance(exc, Exception):

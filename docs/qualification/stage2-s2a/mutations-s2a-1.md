@@ -13,7 +13,7 @@ Every new module is new in this slice, so every new test fails on `main` by cons
 M29–M43 cover the guards added after the first independent cold review of this slice. They cover licence and detector roles, strict booleans and integers, duplicate JSON keys, gate-set applicability, the stable cross-check error, the family-id rule, control characters, and generator output and identity checks.
 
 M44–M54 cover the guards added after the second cold review. They cover:
-- all-or-nothing, create-only publication of the generator's outputs, including rollback on an interrupt, rollback that continues past a failed removal, and no leaked temporary file when staging fails;
+- create-only, rollback-protected publication of the generator's outputs, including rollback on an interrupt, rollback that continues past a failed removal, and no leaked temporary file when staging fails;
 - the network-locator rule on manifest provenance, which is shared with `verify_repo` and pinned against the list `verify_repo` carried before;
 - `policies`, which is optional but never half-populated or explicitly null.
 
