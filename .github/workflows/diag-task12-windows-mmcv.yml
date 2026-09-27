@@ -1,0 +1,117 @@
+name: DIAG Task 12 Windows MMCV reproducibility (temporary)
+
+# Temporary investigation workflow; removed before the fix PR is final.
+on:
+  push:
+    branches:
+      - fix/task12-windows-mmcv-reproducibility
+    paths:
+      - '.github/workflows/diag-task12-windows-mmcv.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-twice:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    env:
+      MMCV_WITH_OPS: '1'
+      MAX_JOBS: '2'
+      PIP_DISABLE_PIP_VERSION_CHECK: '1'
+      PYTHONHASHSEED: '0'
+      SOURCE_DATE_EPOCH: '1704067200'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+      - name: Install connected build tooling (identical to Task 12)
+        run: >-
+          python -m pip install
+          "pip==26.2.1" "setuptools==80.9.0" "wheel==0.48.0" "ninja==1.13.2"
+          "psutil==7.2.2" "packaging==26.3" "numpy==2.5.3" "pydantic==2.13.5"
+          "pydantic-core==2.46.5" "annotated-types==0.8.0" "typing-extensions==4.16.0"
+          "typing-inspection==0.4.4"
+      - name: Install exact CPU PyTorch (identical to Task 12)
+        run: python -m pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cpu
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756
+        with:
+          toolset: "14.44"
+          sdk: "10.0.26100.0"
+          arch: x64
+      - name: Reproducibility flags (identical to Task 12)
+        shell: pwsh
+        run: |
+          "DISTUTILS_USE_SDK=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MSSdk=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CL=/Brepro" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "LINK=/Brepro" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Fingerprint toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "diag-out"
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          $f = "$out/toolchain.txt"
+          "ImageOS=$env:ImageOS ImageVersion=$env:ImageVersion" | Out-File $f -Encoding utf8
+          "VSCMD_VER=$env:VSCMD_VER VCToolsVersion=$env:VCToolsVersion WindowsSDKVersion=$env:WindowsSDKVersion UCRTVersion=$env:UCRTVersion" | Out-File $f -Append -Encoding utf8
+          "VCToolsInstallDir=$env:VCToolsInstallDir" | Out-File $f -Append -Encoding utf8
+          "VCToolsRedistDir=$env:VCToolsRedistDir" | Out-File $f -Append -Encoding utf8
+          & cl.exe 2>&1 | Select-Object -First 2 | Out-File $f -Append -Encoding utf8
+          & link.exe /? 2>&1 | Select-Object -First 2 | Out-File $f -Append -Encoding utf8
+          $bin = Join-Path $env:VCToolsInstallDir "bin\Hostx64\x64"
+          Get-ChildItem $bin -File -Include *.exe,*.dll -Recurse | Sort-Object FullName | ForEach-Object {
+            "{0} {1} {2}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.VersionInfo.FileVersion, $_.FullName.Substring($bin.Length)
+          } | Out-File "$out/msvc-bin.sha256" -Encoding utf8
+          foreach ($sub in @("include", "lib\x64")) {
+            $root = Join-Path $env:VCToolsInstallDir $sub
+            Get-ChildItem $root -File -Recurse | Sort-Object FullName | ForEach-Object {
+              "{0} {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.FullName.Substring($root.Length)
+            } | Out-File ("$out/msvc-" + ($sub -replace '[\\]', '-') + ".sha256") -Encoding utf8
+          }
+          $sdkLib = "C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0"
+          Get-ChildItem $sdkLib -File -Recurse -Include *.lib | Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName | ForEach-Object {
+            "{0} {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.FullName.Substring($sdkLib.Length)
+          } | Out-File "$out/sdk-lib-x64.sha256" -Encoding utf8
+          Get-Content $f
+      - name: Checkout immutable MMCV 2.1.0 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .task12-mmcv
+          git -C .task12-mmcv remote add origin https://github.com/open-mmlab/mmcv.git
+          git -C .task12-mmcv fetch --depth 1 origin 57c4e25e06e2d4f8a9357c84bcd24089a284dc88
+          git -C .task12-mmcv checkout --detach FETCH_HEAD
+      - name: Build 1
+        working-directory: .task12-mmcv
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip wheel --no-build-isolation --no-deps -v . -w ../diag-out/build1 > ../diag-out/build1.log 2>&1
+          sha256sum ../diag-out/build1/*.whl
+          mkdir -p ../diag-out/obj1 && cp -r build/temp.* ../diag-out/obj1/
+      - name: Build 2 (clean, same directory)
+        working-directory: .task12-mmcv
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clean -xfdq
+          python -m pip wheel --no-build-isolation --no-deps -v . -w ../diag-out/build2 > ../diag-out/build2.log 2>&1
+          sha256sum ../diag-out/build2/*.whl
+          mkdir -p ../diag-out/obj2 && cp -r build/temp.* ../diag-out/obj2/
+      - name: Compare builds on this runner
+        shell: bash
+        run: |
+          set -uo pipefail
+          sha256sum diag-out/build1/*.whl diag-out/build2/*.whl
+          cmp diag-out/build1/*.whl diag-out/build2/*.whl && echo SAME-RUNNER-REPRODUCIBLE || echo SAME-RUNNER-DIFFERS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: diag-task12-windows-mmcv
+          path: diag-out
+          retention-days: 7
