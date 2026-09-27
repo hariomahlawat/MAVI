@@ -18,7 +18,7 @@ import zipfile
 from email.parser import Parser
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Literal, Mapping
+from typing import Any, Literal, Mapping
 
 ROOT = Path(__file__).resolve().parents[2]
 VISION_ROOT = ROOT / "src" / "vision"
@@ -38,24 +38,39 @@ from mavi_vision.runtime.deployment_profiles import (  # noqa: E402
     DeploymentProfileError,
     load_policy as load_deployment_profile_policy,
 )
-from mavi_vision.runtime.manifest import (  # noqa: E402
-    ReleaseMetadataError,
-    load_model_manifest,
-)
+from mavi_vision.runtime.binding import load_component_binding  # noqa: E402
+from mavi_vision.runtime.manifest import ReleaseMetadataError  # noqa: E402
 from mavi_vision.runtime.offline_lock import (  # noqa: E402
     OfflineLockError,
     load_offline_runtime_lock,
 )
-from mavi_vision.runtime.qualification import (  # noqa: E402
-    load_runtime_profile,
-    verify_release_selection,
-    verify_runtime_release_locks,
+from mavi_vision.runtime.resolver import (  # noqa: E402
+    GATE_SETS_RELATIVE,
+    ResolvedRole,
+    RoleComposition,
+    RoleCompositionInputs,
+    resolve_completion_contract,
 )
 
 
 CANONICAL_DEPLOYMENT_PROFILE_POLICY = (
     ROOT / "config" / "acceptance" / "phase1-deployment-profiles-v1.json"
 )
+CANONICAL_COMPONENT_BINDING = (
+    ROOT / "src" / "vision" / "config" / "components" / "phase1-bindings-v2.json"
+)
+CANONICAL_PIPELINE_PROFILE = (
+    ROOT / "src" / "vision" / "config" / "pipelines" / "phase1-detection-tracking-v1.json"
+)
+ROLE_ID = "vision"
+# The bundle's ``release/`` directory is an application overlay (plan §5): the
+# repository-relative layout the resolver reads, so the worker composes a
+# bundle exactly as it composes a checkout.
+RELEASE_ROOT = "release"
+BUNDLED_BINDING = f"{RELEASE_ROOT}/src/vision/config/components/phase1-bindings-v2.json"
+BUNDLED_PIPELINE_PROFILE = f"{RELEASE_ROOT}/src/vision/config/pipelines/phase1-detection-tracking-v1.json"
+BUNDLED_DEPLOYMENT_POLICY = f"{RELEASE_ROOT}/config/acceptance/phase1-deployment-profiles-v1.json"
+BUNDLED_MODEL_ROOT = f"{RELEASE_ROOT}/models"
 
 
 class OfflineBundleError(ValueError):
@@ -105,6 +120,16 @@ class BundleManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class BundledModelArtifact:
+    """One Model Pack artefact, resolved and re-hashed by the resolver."""
+
+    artifact_role: str
+    relative_path: str
+    path: Path
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class VerifiedBundleInputs:
     source_commit: str
     release_status: Literal["qualification-candidate", "production"]
@@ -112,15 +137,17 @@ class VerifiedBundleInputs:
     python_version: str
     model_id: str
     runtime_profile_id: str
+    model_pack_id: str
+    component_binding_sha256: str
+    component_binding_path: Path
+    overlay_root: Path
+    model_root: Path
     model_manifest_path: Path
     qualification_path: Path
     pipeline_profile_path: Path
     runtime_profile_path: Path
     runtime_lock_path: Path
-    checkpoint_path: Path
-    resolved_config_path: Path
-    checkpoint_sha256: str
-    resolved_config_sha256: str
+    model_artifacts: tuple[BundledModelArtifact, ...]
     wheelhouse: Path
     deployment_profile_policy_path: Path
     deployment_profile_policy_sha256: str
@@ -197,14 +224,14 @@ def build_bundle_from_verified_inputs(
         raise OfflineBundleError("bundle_release_status_invalid")
 
     for path in (
+        inputs.component_binding_path,
         inputs.model_manifest_path,
         inputs.qualification_path,
         inputs.pipeline_profile_path,
         inputs.runtime_profile_path,
         inputs.runtime_lock_path,
-        inputs.checkpoint_path,
-        inputs.resolved_config_path,
         inputs.deployment_profile_policy_path,
+        *(artifact.path for artifact in inputs.model_artifacts),
     ):
         _assert_safe_regular_file(path)
     _assert_safe_directory(inputs.wheelhouse)
@@ -212,14 +239,13 @@ def build_bundle_from_verified_inputs(
         _assert_safe_regular_file(inputs.python_installer_path)
         if not inputs.platform_variant.startswith("windows-"):
             raise OfflineBundleError("python_installer_platform_mismatch")
-    verified_locks = _revalidate_assembly_boundary(inputs)
-    for lock_path in verified_locks.values():
-        _assert_safe_regular_file(lock_path)
+    family_files = _revalidate_assembly_boundary(inputs)
+    for family_path in family_files.values():
+        _assert_safe_regular_file(family_path)
 
-    if sha256_file(inputs.checkpoint_path) != inputs.checkpoint_sha256:
-        raise OfflineBundleError("checkpoint_hash_mismatch")
-    if sha256_file(inputs.resolved_config_path) != inputs.resolved_config_sha256:
-        raise OfflineBundleError("resolved_config_hash_mismatch")
+    for artifact in inputs.model_artifacts:
+        if sha256_file(artifact.path) != artifact.sha256:
+            raise OfflineBundleError(f"model_artifact_hash_mismatch:{artifact.artifact_role}")
 
     try:
         lock = load_offline_runtime_lock(inputs.runtime_lock_path)
@@ -296,48 +322,55 @@ def build_bundle_from_verified_inputs(
             )
 
         add_file(
+            inputs.component_binding_path,
+            BUNDLED_BINDING,
+            purpose="component-binding",
+        )
+        add_file(
             inputs.model_manifest_path,
-            "release/models/manifests/rtmdet-m-coco-phase1-v1.json",
+            _overlay_destination(inputs, inputs.model_manifest_path),
             purpose="model-manifest",
         )
         add_file(
             inputs.qualification_path,
-            "release/models/qualifications/rtmdet-m-coco-phase1-v1.json",
+            _overlay_destination(inputs, inputs.qualification_path),
             purpose="qualification-record",
         )
         add_file(
-            inputs.checkpoint_path,
-            f"release/models/rtmdet-m-coco-phase1-v1/{inputs.checkpoint_path.name}",
-            purpose="mavi-model-checkpoint",
+            inputs.overlay_root / GATE_SETS_RELATIVE,
+            f"{RELEASE_ROOT}/{GATE_SETS_RELATIVE.as_posix()}",
+            purpose="capability-gate-sets",
         )
-        add_file(
-            inputs.resolved_config_path,
-            f"release/models/rtmdet-m-coco-phase1-v1/{inputs.resolved_config_path.name}",
-            purpose="resolved-model-config",
-        )
+        for artifact in sorted(inputs.model_artifacts, key=lambda item: item.relative_path):
+            add_file(
+                artifact.path,
+                f"{BUNDLED_MODEL_ROOT}/{artifact.relative_path}",
+                purpose=f"model-{artifact.artifact_role}",
+            )
         add_file(
             inputs.pipeline_profile_path,
-            "release/config/pipelines/phase1-detection-tracking-v1.json",
+            BUNDLED_PIPELINE_PROFILE,
             purpose="pipeline-profile",
         )
         add_file(
             inputs.deployment_profile_policy_path,
-            "release/config/acceptance/phase1-deployment-profiles-v1.json",
+            BUNDLED_DEPLOYMENT_POLICY,
             purpose="deployment-profile-policy",
         )
         add_file(
             inputs.runtime_profile_path,
-            "release/runtime/mmdetection-phase1-v1/runtime.json",
+            _overlay_destination(inputs, inputs.runtime_profile_path),
             purpose="runtime-profile",
         )
-        for variant, lock_path in sorted(verified_locks.items()):
+        # Every lock and requirements file the binding pins, not only this
+        # variant's: the bundle stays a complete record of its runtime family
+        # (ADR-009 follow-up 5), and the resolver cross-checks each of them.
+        for name, family_path in sorted(family_files.items()):
+            variant, _, suffix = name.partition(".")
             add_file(
-                lock_path,
-                (
-                    "release/runtime/mmdetection-phase1-v1/"
-                    f"{variant}.lock"
-                ),
-                purpose="runtime-lock",
+                family_path,
+                _overlay_destination(inputs, family_path),
+                purpose="runtime-lock" if suffix == "lock" else "runtime-requirements",
                 platform_variant=variant,
             )
 
@@ -368,7 +401,14 @@ def build_bundle_from_verified_inputs(
 
         artifacts = sorted(artifacts, key=lambda item: item.relative_path)
         _verify_bundled_release_selection(stage, inputs)
-        bundle_id = _bundle_id(inputs, verified_locks)
+        bundle_id = _bundle_id(
+            inputs,
+            {
+                name.removesuffix(".lock"): path
+                for name, path in family_files.items()
+                if name.endswith(".lock")
+            },
+        )
         manifest = BundleManifest(
             schema_version="1.0",
             bundle_id=bundle_id,
@@ -407,17 +447,115 @@ def build_bundle_from_verified_inputs(
             shutil.rmtree(stage, ignore_errors=True)
 
 
+def _overlay_destination(inputs: VerifiedBundleInputs, path: Path) -> str:
+    """The bundle path of an overlay file: its repository-relative path under ``release/``."""
+    try:
+        relative = _absolute_path(path).relative_to(_absolute_path(inputs.overlay_root))
+    except ValueError as exc:
+        raise OfflineBundleError("bundle_overlay_file_outside_overlay") from exc
+    return f"{RELEASE_ROOT}/{relative.as_posix()}"
+
+
+def _select_deployment_profile(
+    *,
+    release_status: str,
+    platform_variant: str,
+    deployment_profile: str | None,
+    policy_path: Path,
+) -> tuple[DeploymentProfile | None, str]:
+    if release_status not in {"qualification-candidate", "production"}:
+        raise OfflineBundleError("bundle_release_status_invalid")
+    try:
+        profiles, policy_sha = load_deployment_profile_policy(policy_path)
+    except DeploymentProfileError as exc:
+        raise OfflineBundleError(exc.code) from exc
+    selected: DeploymentProfile | None = None
+    if deployment_profile is not None:
+        selected = profiles.get(deployment_profile)
+        if selected is None:
+            raise OfflineBundleError("bundle_deployment_profile_unknown")
+        if selected.runtime_variant != platform_variant:
+            raise OfflineBundleError("bundle_deployment_profile_variant_mismatch")
+    elif release_status == "production":
+        raise OfflineBundleError("production_deployment_profile_required")
+    return selected, policy_sha
+
+
+def resolve_bundle_role(
+    *,
+    overlay_root: Path,
+    component_binding_path: Path,
+    model_root: Path,
+    pipeline_profile_path: Path,
+    platform_variant: str,
+    release_status: str,
+    deployment_profile: DeploymentProfile | None,
+    deployment_profile_policy_sha256: str,
+) -> ResolvedRole:
+    """The vision role as the worker would resolve it on ``platform_variant``.
+
+    One resolver for every check (plan §5: no second reader). A bundle-built
+    environment is not an installed Runtime Pack (P-8), so a ``production``
+    bundle resolves in Production mode and is refused by the resolver's own
+    policy (``runtime_pack_required``, or earlier for an unverified manifest):
+    the monolithic bundle cannot carry a Production claim after the cut-over.
+    """
+    production = release_status == "production"
+    try:
+        binding = load_component_binding(component_binding_path)
+        completion = resolve_completion_contract(
+            binding.role(ROLE_ID),
+            override=None,
+            production_mode=production,
+            emittable_versions=("3.2",),
+        )
+        composition = RoleComposition(
+            RoleCompositionInputs(
+                component_binding_path=component_binding_path,
+                role_id=ROLE_ID,
+                overlay_root=overlay_root,
+                model_root=model_root,
+                pipeline_profile_path=pipeline_profile_path,
+                runtime_pack_manifest_path=None,
+                production_mode=production,
+            ),
+            completion=completion,
+            binding=binding,
+        )
+        family = composition.family()
+        platform = family.runtime_platform_variants.get(platform_variant)
+        if platform is None or platform.python_identity is None:
+            raise OfflineBundleError("bundle_platform_identity_missing")
+        return composition.resolve(
+            runtime_variant=platform_variant,
+            python_version=platform.python_identity.version,
+            profile_requirement=deployment_profile if production else None,
+            deployment_profile_policy_sha256=deployment_profile_policy_sha256 if production else None,
+        )
+    except ReleaseMetadataError as exc:
+        raise OfflineBundleError(exc.code) from exc
+
+
+def _family_files(resolved: ResolvedRole) -> dict[str, Path]:
+    """Every lock and requirements file the binding pins for the role's family."""
+    runtime_dir = resolved.family.runtime_profile_path.parent
+    files: dict[str, Path] = {}
+    for variant in sorted(resolved.binding.family_variants(resolved.role.runtime_pack_family_id)):
+        files[f"{variant}.lock"] = runtime_dir / f"{variant}.lock"
+        files[f"{variant}.requirements.txt"] = runtime_dir / f"{variant}.requirements.txt"
+    return files
+
+
 def resolve_verified_bundle_inputs(
     *,
     source_commit: str,
     release_status: str,
     platform_variant: str,
     model_root: Path,
-    manifest_path: Path,
-    qualification_path: Path,
-    pipeline_profile_path: Path,
-    runtime_profile_path: Path,
     wheelhouse: Path,
+    overlay_root: Path = ROOT,
+    component_binding_path: Path = CANONICAL_COMPONENT_BINDING,
+    pipeline_profile_path: Path = CANONICAL_PIPELINE_PROFILE,
     deployment_profile: str | None = None,
     deployment_profile_policy_path: Path = (
         CANONICAL_DEPLOYMENT_PROFILE_POLICY
@@ -428,78 +566,23 @@ def resolve_verified_bundle_inputs(
         source_commit,
         ROOT,
     )
-    try:
-        profiles, deployment_policy_sha = (
-            load_deployment_profile_policy(
-                deployment_profile_policy_path
-            )
-        )
-    except DeploymentProfileError as exc:
-        raise OfflineBundleError(exc.code) from exc
-
-    selected_profile: DeploymentProfile | None = None
-    if deployment_profile is not None:
-        try:
-            selected_profile = profiles[deployment_profile]
-        except KeyError as exc:
-            raise OfflineBundleError(
-                "bundle_deployment_profile_unknown"
-            ) from exc
-        if (
-            selected_profile.runtime_variant
-            != platform_variant
-        ):
-            raise OfflineBundleError(
-                "bundle_deployment_profile_variant_mismatch"
-            )
-    elif release_status == "production":
-        raise OfflineBundleError(
-            "production_deployment_profile_required"
-        )
-
-    verify_kwargs: dict[str, object] = {}
-    if (
-        release_status == "production"
-        and selected_profile is not None
-    ):
-        verify_kwargs = {
-            "required_profile":
-                selected_profile.profile_id,
-            "required_gates":
-                selected_profile.qualification_gates,
-            "required_runtime_variant":
-                selected_profile.runtime_variant,
-            "required_deployment_profile_policy_sha256":
-                deployment_policy_sha,
-        }
-
-    try:
-        selection = verify_release_selection(
-            model_root=model_root,
-            manifest_path=manifest_path,
-            profile_path=pipeline_profile_path,
-            runtime_profile_path=runtime_profile_path,
-            qualification_path=qualification_path,
-            allow_unverified=(
-                release_status == "qualification-candidate"
-            ),
-            **verify_kwargs,
-        )
-        runtime_profile = load_runtime_profile(
-            runtime_profile_path
-        )
-        verified_locks = verify_runtime_release_locks(
-            runtime_profile_path,
-            runtime_profile,
-        )
-    except ReleaseMetadataError as exc:
-        raise OfflineBundleError(exc.code) from exc
-
-    qualification = selection.qualification
-    if qualification is None:
-        raise OfflineBundleError(
-            "qualification_record_required"
-        )
+    selected_profile, deployment_policy_sha = _select_deployment_profile(
+        release_status=release_status,
+        platform_variant=platform_variant,
+        deployment_profile=deployment_profile,
+        policy_path=deployment_profile_policy_path,
+    )
+    resolved = resolve_bundle_role(
+        overlay_root=overlay_root,
+        component_binding_path=component_binding_path,
+        model_root=model_root,
+        pipeline_profile_path=pipeline_profile_path,
+        platform_variant=platform_variant,
+        release_status=release_status,
+        deployment_profile=selected_profile,
+        deployment_profile_policy_sha256=deployment_policy_sha,
+    )
+    selection = resolved.detector_selection()
     validate_release_mode(
         release_status,
         verification_status=selection.verification_status,
@@ -509,40 +592,27 @@ def resolve_verified_bundle_inputs(
             else None
         ),
     )
-
-    lock_path = verified_locks.get(platform_variant)
-    if lock_path is None:
-        raise OfflineBundleError(
-            "bundle_platform_lock_not_qualified"
-        )
-    platform = selection.runtime_platform_variants.get(
-        platform_variant
-    )
-    if platform is None or platform.python_identity is None:
-        raise OfflineBundleError(
-            "bundle_platform_identity_missing"
-        )
-
+    capability = selection.capability
+    platform = resolved.family.runtime_platform_variants[platform_variant]
+    assert platform.python_identity is not None  # resolve_bundle_role checked it
     return VerifiedBundleInputs(
         source_commit=source_commit,
         release_status=release_status,  # type: ignore[arg-type]
         platform_variant=platform_variant,
         python_version=platform.python_identity.version,
-        model_id=selection.manifest.model_id,
-        runtime_profile_id=selection.runtime_profile_id,
-        model_manifest_path=manifest_path,
-        qualification_path=qualification_path,
+        model_id=capability.manifest.model_id,
+        runtime_profile_id=resolved.family.runtime_profile.runtime_profile_id,
+        model_pack_id=capability.model_pack_id,
+        component_binding_sha256=resolved.component_binding_sha256,
+        component_binding_path=component_binding_path,
+        overlay_root=overlay_root,
+        model_root=model_root,
+        model_manifest_path=capability.manifest_path,
+        qualification_path=capability.qualification_path,
         pipeline_profile_path=pipeline_profile_path,
-        runtime_profile_path=runtime_profile_path,
-        runtime_lock_path=lock_path,
-        checkpoint_path=selection.checkpoint_path,
-        resolved_config_path=selection.resolved_config_path,
-        checkpoint_sha256=(
-            selection.manifest.checkpoint.sha256
-        ),
-        resolved_config_sha256=(
-            selection.manifest.resolved_config.sha256
-        ),
+        runtime_profile_path=resolved.family.runtime_profile_path,
+        runtime_lock_path=resolved.runtime_pack.lock_path,
+        model_artifacts=_bundled_artifacts(resolved),
         wheelhouse=wheelhouse,
         deployment_profile_policy_path=(
             deployment_profile_policy_path
@@ -559,235 +629,133 @@ def resolve_verified_bundle_inputs(
     )
 
 
+def _bundled_artifacts(resolved: ResolvedRole) -> tuple[BundledModelArtifact, ...]:
+    artifacts: list[BundledModelArtifact] = []
+    for capability in resolved.capabilities.values():
+        for item in capability.manifest.artifacts:
+            artifacts.append(
+                BundledModelArtifact(
+                    artifact_role=item.artifact_role,
+                    relative_path=item.relative_path,
+                    path=capability.artifact_paths[item.artifact_role],
+                    sha256=item.sha256,
+                )
+            )
+    return tuple(sorted(artifacts, key=lambda item: item.relative_path))
+
+
 def _absolute_path(path: Path) -> Path:
     return Path(os.path.abspath(os.fspath(path)))
-
-
-def _infer_model_root(inputs: VerifiedBundleInputs) -> Path:
-    try:
-        manifest = load_model_manifest(inputs.model_manifest_path)
-    except ReleaseMetadataError as exc:
-        raise OfflineBundleError(exc.code) from exc
-
-    root = _absolute_path(inputs.checkpoint_path)
-    for _ in PurePosixPath(manifest.checkpoint.relative_path).parts:
-        root = root.parent
-    return root
 
 
 def _revalidate_assembly_boundary(
     inputs: VerifiedBundleInputs,
 ) -> Mapping[str, Path]:
-    if inputs.release_status not in {
-        "qualification-candidate",
-        "production",
-    }:
-        raise OfflineBundleError(
-            "bundle_release_status_invalid"
-        )
-
-    try:
-        profiles, policy_sha = (
-            load_deployment_profile_policy(
-                inputs.deployment_profile_policy_path
-            )
-        )
-    except DeploymentProfileError as exc:
-        raise OfflineBundleError(exc.code) from exc
+    """Re-resolve from the inputs' own files; any identity that moved fails closed."""
+    selected_profile, policy_sha = _select_deployment_profile(
+        release_status=inputs.release_status,
+        platform_variant=inputs.platform_variant,
+        deployment_profile=inputs.deployment_profile_id,
+        policy_path=inputs.deployment_profile_policy_path,
+    )
     if policy_sha != inputs.deployment_profile_policy_sha256:
         raise OfflineBundleError(
             "bundle_deployment_profile_policy_changed"
         )
-
-    selected_profile: DeploymentProfile | None = None
-    verify_kwargs: dict[str, object] = {}
-    if inputs.deployment_profile_id is not None:
-        selected_profile = profiles.get(
-            inputs.deployment_profile_id
-        )
-        if selected_profile is None:
-            raise OfflineBundleError(
-                "bundle_deployment_profile_unknown"
-            )
-        if (
-            selected_profile.runtime_variant
-            != inputs.platform_variant
-        ):
-            raise OfflineBundleError(
-                "bundle_deployment_profile_variant_mismatch"
-            )
-    if (
-        inputs.release_status == "production"
-        and selected_profile is None
-    ):
-        raise OfflineBundleError(
-            "production_deployment_profile_required"
-        )
-    if (
-        inputs.release_status == "production"
-        and selected_profile is not None
-    ):
-        verify_kwargs = {
-            "required_profile":
-                selected_profile.profile_id,
-            "required_gates":
-                selected_profile.qualification_gates,
-            "required_runtime_variant":
-                selected_profile.runtime_variant,
-            "required_deployment_profile_policy_sha256":
-                policy_sha,
-        }
-
-    model_root = _infer_model_root(inputs)
-    try:
-        selection = verify_release_selection(
-            model_root=model_root,
-            manifest_path=inputs.model_manifest_path,
-            profile_path=inputs.pipeline_profile_path,
-            runtime_profile_path=inputs.runtime_profile_path,
-            qualification_path=inputs.qualification_path,
-            allow_unverified=(
-                inputs.release_status
-                == "qualification-candidate"
-            ),
-            **verify_kwargs,
-        )
-        runtime_profile = load_runtime_profile(
-            inputs.runtime_profile_path
-        )
-        verified_locks = verify_runtime_release_locks(
-            inputs.runtime_profile_path,
-            runtime_profile,
-        )
-    except ReleaseMetadataError as exc:
-        raise OfflineBundleError(exc.code) from exc
-
+    resolved = resolve_bundle_role(
+        overlay_root=inputs.overlay_root,
+        component_binding_path=inputs.component_binding_path,
+        model_root=inputs.model_root,
+        pipeline_profile_path=inputs.pipeline_profile_path,
+        platform_variant=inputs.platform_variant,
+        release_status=inputs.release_status,
+        deployment_profile=selected_profile,
+        deployment_profile_policy_sha256=policy_sha,
+    )
+    selection = resolved.detector_selection()
     validate_release_mode(
         inputs.release_status,
         verification_status=selection.verification_status,
         deployment_profile_id=inputs.deployment_profile_id,
     )
-
-    lock_path = verified_locks.get(
-        inputs.platform_variant
-    )
-    platform = selection.runtime_platform_variants.get(
-        inputs.platform_variant
-    )
+    capability = selection.capability
+    platform = resolved.family.runtime_platform_variants.get(inputs.platform_variant)
     if (
-        lock_path is None
-        or platform is None
+        platform is None
         or platform.python_identity is None
-        or selection.manifest.model_id != inputs.model_id
-        or selection.runtime_profile_id
-        != inputs.runtime_profile_id
-        or platform.python_identity.version
-        != inputs.python_version
-        or _absolute_path(lock_path)
-        != _absolute_path(inputs.runtime_lock_path)
-        or _absolute_path(selection.checkpoint_path)
-        != _absolute_path(inputs.checkpoint_path)
-        or _absolute_path(selection.resolved_config_path)
-        != _absolute_path(inputs.resolved_config_path)
-        or selection.manifest.checkpoint.sha256
-        != inputs.checkpoint_sha256
-        or selection.manifest.resolved_config.sha256
-        != inputs.resolved_config_sha256
+        or capability.manifest.model_id != inputs.model_id
+        or capability.model_pack_id != inputs.model_pack_id
+        or resolved.component_binding_sha256 != inputs.component_binding_sha256
+        or resolved.family.runtime_profile.runtime_profile_id != inputs.runtime_profile_id
+        or platform.python_identity.version != inputs.python_version
+        or _absolute_path(resolved.runtime_pack.lock_path) != _absolute_path(inputs.runtime_lock_path)
+        or _absolute_path(capability.manifest_path) != _absolute_path(inputs.model_manifest_path)
+        or _absolute_path(capability.qualification_path) != _absolute_path(inputs.qualification_path)
+        or _absolute_path(resolved.family.runtime_profile_path) != _absolute_path(inputs.runtime_profile_path)
+        or tuple(
+            (item.artifact_role, item.relative_path, _absolute_path(item.path), item.sha256)
+            for item in _bundled_artifacts(resolved)
+        )
+        != tuple(
+            (item.artifact_role, item.relative_path, _absolute_path(item.path), item.sha256)
+            for item in inputs.model_artifacts
+        )
     ):
         raise OfflineBundleError(
             "bundle_verified_inputs_mismatch"
         )
+    return _family_files(resolved)
 
-    return {inputs.platform_variant: lock_path}
+
+def _resolve_staged_bundle(
+    stage: Path,
+    *,
+    release_status: str,
+    platform_variant: str,
+    deployment_profile_id: str | None,
+    expected_policy_sha256: str,
+) -> ResolvedRole:
+    """Resolve the vision role from the staged ``release/`` overlay alone."""
+    selected_profile, policy_sha = _select_deployment_profile(
+        release_status=release_status,
+        platform_variant=platform_variant,
+        deployment_profile=deployment_profile_id,
+        policy_path=stage / BUNDLED_DEPLOYMENT_POLICY,
+    )
+    if policy_sha != expected_policy_sha256:
+        raise OfflineBundleError(
+            "bundle_staged_profile_policy_mismatch"
+        )
+    return resolve_bundle_role(
+        overlay_root=stage / RELEASE_ROOT,
+        component_binding_path=stage / BUNDLED_BINDING,
+        model_root=stage / BUNDLED_MODEL_ROOT,
+        pipeline_profile_path=stage / BUNDLED_PIPELINE_PROFILE,
+        platform_variant=platform_variant,
+        release_status=release_status,
+        deployment_profile=selected_profile,
+        deployment_profile_policy_sha256=policy_sha,
+    )
 
 
 def _verify_bundled_release_selection(
     stage: Path,
     inputs: VerifiedBundleInputs,
 ) -> None:
-    staged_policy = (
-        stage
-        / "release"
-        / "config"
-        / "acceptance"
-        / "phase1-deployment-profiles-v1.json"
+    resolved = _resolve_staged_bundle(
+        stage,
+        release_status=inputs.release_status,
+        platform_variant=inputs.platform_variant,
+        deployment_profile_id=inputs.deployment_profile_id,
+        expected_policy_sha256=inputs.deployment_profile_policy_sha256,
     )
-    try:
-        profiles, policy_sha = (
-            load_deployment_profile_policy(staged_policy)
-        )
-    except DeploymentProfileError as exc:
-        raise OfflineBundleError(exc.code) from exc
+    capability = resolved.capabilities["detector"]
     if (
-        policy_sha
-        != inputs.deployment_profile_policy_sha256
+        capability.model_pack_id != inputs.model_pack_id
+        or resolved.component_binding_sha256 != inputs.component_binding_sha256
+        or capability.manifest.model_id != inputs.model_id
     ):
-        raise OfflineBundleError(
-            "bundle_staged_profile_policy_mismatch"
-        )
-
-    verify_kwargs: dict[str, object] = {}
-    if inputs.release_status == "production":
-        if inputs.deployment_profile_id is None:
-            raise OfflineBundleError(
-                "production_deployment_profile_required"
-            )
-        profile = profiles.get(
-            inputs.deployment_profile_id
-        )
-        if profile is None:
-            raise OfflineBundleError(
-                "bundle_deployment_profile_unknown"
-            )
-        verify_kwargs = {
-            "required_profile": profile.profile_id,
-            "required_gates":
-                profile.qualification_gates,
-            "required_runtime_variant":
-                profile.runtime_variant,
-            "required_deployment_profile_policy_sha256":
-                policy_sha,
-        }
-
-    try:
-        verify_release_selection(
-            model_root=stage / "release" / "models",
-            manifest_path=(
-                stage
-                / "release"
-                / "models"
-                / "manifests"
-                / "rtmdet-m-coco-phase1-v1.json"
-            ),
-            profile_path=(
-                stage
-                / "release"
-                / "config"
-                / "pipelines"
-                / "phase1-detection-tracking-v1.json"
-            ),
-            runtime_profile_path=(
-                stage
-                / "release"
-                / "runtime"
-                / "mmdetection-phase1-v1"
-                / "runtime.json"
-            ),
-            qualification_path=(
-                stage
-                / "release"
-                / "models"
-                / "qualifications"
-                / "rtmdet-m-coco-phase1-v1.json"
-            ),
-            allow_unverified=(
-                inputs.release_status
-                == "qualification-candidate"
-            ),
-            **verify_kwargs,
-        )
-    except ReleaseMetadataError as exc:
-        raise OfflineBundleError(exc.code) from exc
+        raise OfflineBundleError("bundle_staged_identity_mismatch")
 
 
 def verify_bundled_release_manifest(
@@ -818,111 +786,29 @@ def verify_bundled_release_manifest(
         raise OfflineBundleError(
             "bundle_deployment_profile_policy_identity_invalid"
         )
+    if deployment_profile_id is not None and not isinstance(deployment_profile_id, str):
+        raise OfflineBundleError("bundle_deployment_profile_variant_mismatch")
 
-    staged_policy = (
-        stage
-        / "release"
-        / "config"
-        / "acceptance"
-        / "phase1-deployment-profiles-v1.json"
+    resolved = _resolve_staged_bundle(
+        stage,
+        release_status=release_status,
+        platform_variant=platform_variant,
+        deployment_profile_id=deployment_profile_id,
+        expected_policy_sha256=expected_policy_sha,
     )
-    try:
-        profiles, policy_sha = (
-            load_deployment_profile_policy(staged_policy)
-        )
-    except DeploymentProfileError as exc:
-        raise OfflineBundleError(exc.code) from exc
-    if policy_sha != expected_policy_sha:
-        raise OfflineBundleError(
-            "bundle_staged_profile_policy_mismatch"
-        )
-
-    verify_kwargs: dict[str, object] = {}
-    if release_status == "production":
-        if not isinstance(deployment_profile_id, str):
-            raise OfflineBundleError(
-                "production_deployment_profile_required"
-            )
-        profile = profiles.get(deployment_profile_id)
-        if profile is None:
-            raise OfflineBundleError(
-                "bundle_deployment_profile_unknown"
-            )
-        if profile.runtime_variant != platform_variant:
-            raise OfflineBundleError(
-                "bundle_deployment_profile_variant_mismatch"
-            )
-        verify_kwargs = {
-            "required_profile": profile.profile_id,
-            "required_gates": profile.qualification_gates,
-            "required_runtime_variant": profile.runtime_variant,
-            "required_deployment_profile_policy_sha256":
-                policy_sha,
-        }
-    elif deployment_profile_id is not None:
-        if (
-            not isinstance(deployment_profile_id, str)
-            or deployment_profile_id not in profiles
-            or profiles[
-                deployment_profile_id
-            ].runtime_variant
-            != platform_variant
-        ):
-            raise OfflineBundleError(
-                "bundle_deployment_profile_variant_mismatch"
-            )
-
-    try:
-        selection = verify_release_selection(
-            model_root=stage / "release" / "models",
-            manifest_path=(
-                stage
-                / "release"
-                / "models"
-                / "manifests"
-                / "rtmdet-m-coco-phase1-v1.json"
-            ),
-            profile_path=(
-                stage
-                / "release"
-                / "config"
-                / "pipelines"
-                / "phase1-detection-tracking-v1.json"
-            ),
-            runtime_profile_path=(
-                stage
-                / "release"
-                / "runtime"
-                / "mmdetection-phase1-v1"
-                / "runtime.json"
-            ),
-            qualification_path=(
-                stage
-                / "release"
-                / "models"
-                / "qualifications"
-                / "rtmdet-m-coco-phase1-v1.json"
-            ),
-            allow_unverified=(
-                release_status == "qualification-candidate"
-            ),
-            **verify_kwargs,
-        )
-    except ReleaseMetadataError as exc:
-        raise OfflineBundleError(exc.code) from exc
-
-    if selection.manifest.model_id != manifest.get("modelId"):
+    capability = resolved.capabilities["detector"]
+    if capability.manifest.model_id != manifest.get("modelId"):
         raise OfflineBundleError(
             "bundle_model_identity_mismatch"
         )
     if (
-        selection.runtime_profile_id
+        resolved.family.runtime_profile.runtime_profile_id
         != manifest.get("runtimeProfileId")
     ):
         raise OfflineBundleError(
             "bundle_runtime_profile_identity_mismatch"
         )
-    lock = selection.runtime_release_locks.get(
+    lock = resolved.family.runtime_release_locks.get(
         platform_variant
     )
     if (
@@ -941,12 +827,11 @@ def build_offline_bundle(
     release_status: str,
     platform_variant: str,
     model_root: Path,
-    manifest_path: Path,
-    qualification_path: Path,
-    pipeline_profile_path: Path,
-    runtime_profile_path: Path,
     wheelhouse: Path,
     output: Path,
+    overlay_root: Path = ROOT,
+    component_binding_path: Path = CANONICAL_COMPONENT_BINDING,
+    pipeline_profile_path: Path = CANONICAL_PIPELINE_PROFILE,
     deployment_profile: str | None = None,
     deployment_profile_policy_path: Path = (
         CANONICAL_DEPLOYMENT_PROFILE_POLICY
@@ -958,10 +843,9 @@ def build_offline_bundle(
         release_status=release_status,
         platform_variant=platform_variant,
         model_root=model_root,
-        manifest_path=manifest_path,
-        qualification_path=qualification_path,
+        overlay_root=overlay_root,
+        component_binding_path=component_binding_path,
         pipeline_profile_path=pipeline_profile_path,
-        runtime_profile_path=runtime_profile_path,
         wheelhouse=wheelhouse,
         deployment_profile=deployment_profile,
         deployment_profile_policy_path=(
@@ -1013,10 +897,7 @@ def _validate_wheelhouse(wheelhouse: Path, lock):
 
 
 def _install_instructions(inputs: VerifiedBundleInputs) -> str:
-    lock_rel = (
-        "./release/runtime/mmdetection-phase1-v1/"
-        f"{inputs.platform_variant}.lock"
-    )
+    lock_rel = "./" + _overlay_destination(inputs, inputs.runtime_lock_path)
     host = _bundle_host_compatibility(inputs.platform_variant)
     if host.os_family == "linux":
         host_lines = (
@@ -1045,18 +926,15 @@ def _install_instructions(inputs: VerifiedBundleInputs) -> str:
         f"--require-hashes --find-links ./wheels -r {lock_rel}\n"
         "python -m pip check\n"
         "\n"
-        "Runtime release paths:\n"
-        "MAVI_MODEL_ROOT=./release/models\n"
-        "MAVI_MODEL_MANIFEST_PATH="
-        "./release/models/manifests/rtmdet-m-coco-phase1-v1.json\n"
-        "MAVI_QUALIFICATION_RECORD_PATH="
-        "./release/models/qualifications/rtmdet-m-coco-phase1-v1.json\n"
-        "MAVI_PIPELINE_PROFILE_PATH="
-        "./release/config/pipelines/phase1-detection-tracking-v1.json\n"
-        "MAVI_RUNTIME_PROFILE_PATH="
-        "./release/runtime/mmdetection-phase1-v1/runtime.json\n"
-        "MAVI_DEPLOYMENT_PROFILE_POLICY_PATH="
-        "./release/config/acceptance/phase1-deployment-profiles-v1.json\n"
+        "Runtime composition (component binding v2; the worker refuses the\n"
+        "retired MAVI_MODEL_MANIFEST_PATH, MAVI_QUALIFICATION_RECORD_PATH and\n"
+        "MAVI_RUNTIME_PROFILE_PATH):\n"
+        f"MAVI_OVERLAY_ROOT=./{RELEASE_ROOT}\n"
+        f"MAVI_COMPONENT_BINDING_PATH=./{BUNDLED_BINDING}\n"
+        f"MAVI_ROLE_ID={ROLE_ID}\n"
+        f"MAVI_MODEL_ROOT=./{BUNDLED_MODEL_ROOT}\n"
+        f"MAVI_PIPELINE_PROFILE_PATH=./{BUNDLED_PIPELINE_PROFILE}\n"
+        f"MAVI_DEPLOYMENT_PROFILE_POLICY_PATH=./{BUNDLED_DEPLOYMENT_POLICY}\n"
         + (
             (
                 f"MAVI_DEPLOYMENT_PROFILE={inputs.deployment_profile_id}\n"
@@ -1074,13 +952,16 @@ def _install_instructions(inputs: VerifiedBundleInputs) -> str:
 
 def _bundle_id(
     inputs: VerifiedBundleInputs,
-    verified_locks: Mapping[str, Path],
+    release_locks: Mapping[str, Path],
 ) -> str:
+    """Every lock the bundle ships enters its identity (ADR-009 follow-up 5)."""
     identity = {
         "sourceCommit": inputs.source_commit,
         "platformVariant": inputs.platform_variant,
         "runtimeProfileId": inputs.runtime_profile_id,
         "runtimeProfileSha256": sha256_file(inputs.runtime_profile_path),
+        "componentBindingSha256": inputs.component_binding_sha256,
+        "modelPackId": inputs.model_pack_id,
         "modelManifestSha256": sha256_file(inputs.model_manifest_path),
         "pipelineProfileSha256": sha256_file(inputs.pipeline_profile_path),
         "qualificationRecordSha256": sha256_file(inputs.qualification_path),
@@ -1089,9 +970,9 @@ def _bundle_id(
         "deploymentProfilePolicySha256": (
             inputs.deployment_profile_policy_sha256
         ),
-        "qualifiedReleaseLocks": {
+        "releaseLocks": {
             variant: sha256_file(path)
-            for variant, path in sorted(verified_locks.items())
+            for variant, path in sorted(release_locks.items())
         },
         "hostCompatibility": asdict(
             _bundle_host_compatibility(inputs.platform_variant)
@@ -1488,11 +1369,10 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         default=CANONICAL_DEPLOYMENT_PROFILE_POLICY,
     )
-    parser.add_argument("--model-root", type=Path, required=True)
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--qualification", type=Path, required=True)
-    parser.add_argument("--pipeline-profile", type=Path, required=True)
-    parser.add_argument("--runtime-profile", type=Path, required=True)
+    parser.add_argument("--model-root", type=Path, required=True, help="Model Pack store root")
+    parser.add_argument("--overlay-root", type=Path, default=ROOT)
+    parser.add_argument("--component-binding", type=Path, default=CANONICAL_COMPONENT_BINDING)
+    parser.add_argument("--pipeline-profile", type=Path, default=CANONICAL_PIPELINE_PROFILE)
     parser.add_argument("--wheelhouse", type=Path, required=True)
     parser.add_argument("--python-installer", type=Path)
     parser.add_argument("--output", type=Path, required=True)
@@ -1507,10 +1387,9 @@ def main() -> int:
             release_status=args.release_status,
             platform_variant=args.platform_variant,
             model_root=args.model_root,
-            manifest_path=args.manifest,
-            qualification_path=args.qualification,
+            overlay_root=args.overlay_root,
+            component_binding_path=args.component_binding,
             pipeline_profile_path=args.pipeline_profile,
-            runtime_profile_path=args.runtime_profile,
             wheelhouse=args.wheelhouse,
             output=args.output,
             deployment_profile=args.deployment_profile,

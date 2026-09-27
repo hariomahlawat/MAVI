@@ -132,18 +132,32 @@ dependencies = []
         ),
     )
 
+    # An application overlay in the repository layout (the bundle mirrors it
+    # under release/); the payloads are placeholders because the resolver is
+    # bypassed here -- the resolver-backed paths are exercised further down.
+    overlay = source / "overlay"
     files: dict[str, Path] = {}
     payloads = {
-        "manifest": b'{"verificationStatus":"unverified"}\n',
-        "qualification": b'{"overallResult":"pending"}\n',
-        "profile": b'{"profileId":"profile-a"}\n',
-        "runtime": b'{"runtimeProfileId":"runtime-a"}\n',
-        "checkpoint": b"checkpoint",
-        "config": b"model = dict(type='RTMDet')\n",
-        "lock": serialize_offline_runtime_lock(lock),
+        "binding": ("binding.json", b'{"schemaVersion":"mavi-vision-component-binding-v2"}\n'),
+        "manifest": ("models/manifests/model-a.json", b'{"verificationStatus":"unverified"}\n'),
+        "qualification": ("models/qualifications/model-a.json", b'{"overallResult":"pending"}\n'),
+        "gate-sets": ("config/acceptance/capability-gate-sets-v1.json", b'{"gateSets":[]}\n'),
+        "profile": ("profile.json", b'{"profileId":"profile-a"}\n'),
+        "runtime": ("src/vision/runtime/runtime-a/runtime.json", b'{"runtimeProfileId":"runtime-a"}\n'),
+        "lock": ("src/vision/runtime/runtime-a/linux-x86_64-cpu.lock", serialize_offline_runtime_lock(lock)),
+        "requirements": (
+            "src/vision/runtime/runtime-a/linux-x86_64-cpu.requirements.txt",
+            b"# schema: mavi-vision-runtime-requirements-v1\n"
+            b"# platform-variant: linux-x86_64-cpu\n"
+            b"# python-version: 3.12.14\n"
+            b"torch==2.6.0+cpu\n",
+        ),
+        "checkpoint": ("store/model-a-v1/checkpoint.pth", b"checkpoint"),
+        "config": ("store/model-a-v1/config.py", b"model = dict(type='RTMDet')\n"),
+        "licence": ("store/model-a-v1/LICENSE", b"Apache License 2.0\n"),
     }
-    for name, payload in payloads.items():
-        path = source / f"{name}.bin"
+    for name, (relative, payload) in payloads.items():
+        path = overlay / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
         files[name] = path
@@ -156,15 +170,29 @@ dependencies = []
         python_version="3.12.14",
         model_id="model-a",
         runtime_profile_id="runtime-a",
+        model_pack_id="mavi-model-v2-" + "7" * 64,
+        component_binding_sha256=tool.sha256_file(files["binding"]),
+        component_binding_path=files["binding"],
+        overlay_root=overlay,
+        model_root=overlay / "store",
         model_manifest_path=files["manifest"],
         qualification_path=files["qualification"],
         pipeline_profile_path=files["profile"],
         runtime_profile_path=files["runtime"],
         runtime_lock_path=files["lock"],
-        checkpoint_path=files["checkpoint"],
-        resolved_config_path=files["config"],
-        checkpoint_sha256=tool.sha256_file(files["checkpoint"]),
-        resolved_config_sha256=tool.sha256_file(files["config"]),
+        model_artifacts=tuple(
+            tool.BundledModelArtifact(
+                artifact_role=role,
+                relative_path=files[name].relative_to(overlay / "store").as_posix(),
+                path=files[name],
+                sha256=tool.sha256_file(files[name]),
+            )
+            for role, name in (
+                ("checkpoint", "checkpoint"),
+                ("licence-notice", "licence"),
+                ("resolved-config", "config"),
+            )
+        ),
         wheelhouse=wheelhouse,
         deployment_profile_policy_path=(
             tool.CANONICAL_DEPLOYMENT_PROFILE_POLICY
@@ -176,7 +204,8 @@ dependencies = []
     )
     if bypass_revalidation:
         tool._revalidate_assembly_boundary = lambda _inputs: {
-            inputs.platform_variant: inputs.runtime_lock_path,
+            "linux-x86_64-cpu.lock": files["lock"],
+            "linux-x86_64-cpu.requirements.txt": files["requirements"],
         }
         tool._verify_bundled_release_selection = lambda _stage, _inputs: None
 
@@ -429,70 +458,46 @@ def test_direct_assembler_revalidates_candidate_metadata(
 ) -> None:
     tool, inputs = _fixture_inputs(tmp_path, bypass_revalidation=False)
 
-    with pytest.raises(tool.OfflineBundleError, match="model_manifest_invalid"):
+    # The placeholder binding is the first file the resolver reads.
+    with pytest.raises(tool.OfflineBundleError, match="component_binding_invalid"):
         tool.build_bundle_from_verified_inputs(
             inputs,
             tmp_path / "candidate-bundle",
         )
 
+def test_a_production_bundle_is_refused_by_the_resolver_policy(tmp_path: Path) -> None:
+    """P-8: a bundle-built environment is not an installed Runtime Pack.
 
-def test_direct_assembler_rechecks_production_release_eligibility(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tool, inputs = _fixture_inputs(tmp_path, bypass_revalidation=False)
+    An unverified manifest is refused first; a fully qualified one is still
+    refused, because Production requires an installed Runtime Pack. No bundle
+    path reaches a Production claim after the cut-over.
+    """
+    from mavi_vision.runtime.deployment_profiles import select_profile
+    from tests.resolver_overlay import DEPLOYMENT_PROFILES, Overlay
 
-    class Manifest:
-        verification_status = "unverified"
-        model_id = inputs.model_id
-        checkpoint = type("Artifact", (), {"sha256": inputs.checkpoint_sha256})()
-        resolved_config = type(
-            "Artifact",
-            (),
-            {"sha256": inputs.resolved_config_sha256},
-        )()
+    tool = _load_bundle_tool()
+    overlay = Overlay.create(tmp_path / "unverified")
+    profile, policy_sha = select_profile("P3", DEPLOYMENT_PROFILES)
 
-    class Qualification:
-        required_gates = {}
-        overall_result = "pending"
-
-    class Platform:
-        python_identity = type("PythonIdentity", (), {"version": inputs.python_version})()
-
-    class Selection:
-        manifest = Manifest()
-        qualification = Qualification()
-        verification_status = "unverified"
-        runtime_qualification_status = "partial"
-        runtime_profile_id = inputs.runtime_profile_id
-        runtime_platform_variants = {inputs.platform_variant: Platform()}
-        checkpoint_path = inputs.checkpoint_path
-        resolved_config_path = inputs.resolved_config_path
-
-    monkeypatch.setattr(tool, "_infer_model_root", lambda _: tmp_path)
-    monkeypatch.setattr(tool, "verify_release_selection", lambda **_: Selection())
-    monkeypatch.setattr(tool, "load_runtime_profile", lambda _: object())
-    monkeypatch.setattr(
-        tool,
-        "verify_runtime_release_locks",
-        lambda *_: {inputs.platform_variant: inputs.runtime_lock_path},
-    )
-
-    production_inputs = replace(
-        inputs,
-        release_status="production",
-        platform_variant="windows-x86_64-cpu",
-        deployment_profile_id="P3",
-    )
-    with pytest.raises(
-        tool.OfflineBundleError,
-        match="production_release_not_profile_qualified",
-    ):
-        tool.build_bundle_from_verified_inputs(
-            production_inputs,
-            tmp_path / "production-bundle",
+    def resolve(target):
+        return tool.resolve_bundle_role(
+            overlay_root=target.root,
+            component_binding_path=target.binding_path,
+            model_root=target.model_root,
+            pipeline_profile_path=target.pipeline_path,
+            platform_variant="windows-x86_64-cpu",
+            release_status="production",
+            deployment_profile=profile,
+            deployment_profile_policy_sha256=policy_sha,
         )
 
+    with pytest.raises(tool.OfflineBundleError, match="unverified_release_forbidden"):
+        resolve(overlay)
+
+    qualified = Overlay.create(tmp_path / "qualified")
+    qualified.qualify_for_production()
+    with pytest.raises(tool.OfflineBundleError, match="runtime_pack_required"):
+        resolve(qualified)
 
 def test_same_inputs_create_identical_bundle_bytes(tmp_path: Path) -> None:
     tool, inputs = _fixture_inputs(tmp_path)
@@ -506,87 +511,55 @@ def test_same_inputs_create_identical_bundle_bytes(tmp_path: Path) -> None:
     assert _relative_file_bytes(first) == _relative_file_bytes(second)
 
 
-def test_bundle_carries_only_selected_runtime_lock_and_ignores_unrelated_lock(
+def test_bundle_carries_every_binding_declared_lock_and_each_enters_its_identity(
     tmp_path: Path,
 ) -> None:
-    tool, inputs = _fixture_inputs(tmp_path)
-    selected_lock = tool.load_offline_runtime_lock(
-        inputs.runtime_lock_path
-    )
-    unrelated_lock = OfflineRuntimeLock(
-        schema_version=selected_lock.schema_version,
-        platform_variant="windows-x86_64-cpu",
-        python_version="3.12.10",
-        distributions=selected_lock.distributions,
-    )
-    unrelated_lock_path = (
-        tmp_path / "windows-x86_64-cpu.lock"
-    )
-    unrelated_lock_path.write_bytes(
-        serialize_offline_runtime_lock(unrelated_lock)
-    )
+    """The bundle is a complete record of its runtime family (ADR-009 follow-up 5).
 
-    # The assembly boundary deliberately returns only the selected profile
-    # variant. An unrelated qualified lock must not enter this bundle.
-    tool._revalidate_assembly_boundary = lambda _inputs: {
-        inputs.platform_variant: inputs.runtime_lock_path,
+    The resolver cross-checks every lock the binding pins, so the staged overlay
+    must carry all of them; and a lock that ships is part of the bundle identity.
+    """
+    tool, inputs = _fixture_inputs(tmp_path)
+    runtime_dir = inputs.runtime_lock_path.parent
+    other_lock = runtime_dir / "windows-x86_64-cpu.lock"
+    other_requirements = runtime_dir / "windows-x86_64-cpu.requirements.txt"
+    other_lock.write_bytes(b"# another variant's lock\n")
+    other_requirements.write_bytes(b"# another variant's requirements\n")
+    family = {
+        "linux-x86_64-cpu.lock": inputs.runtime_lock_path,
+        "linux-x86_64-cpu.requirements.txt": runtime_dir / "linux-x86_64-cpu.requirements.txt",
+        "windows-x86_64-cpu.lock": other_lock,
+        "windows-x86_64-cpu.requirements.txt": other_requirements,
     }
+    tool._revalidate_assembly_boundary = lambda _inputs: dict(family)
 
     first = tmp_path / "bundle-a"
-    first_manifest = tool.build_bundle_from_verified_inputs(
-        inputs,
-        first,
-    )
+    first_manifest = tool.build_bundle_from_verified_inputs(inputs, first)
 
-    selected_path = (
-        first
-        / "release"
-        / "runtime"
-        / "mmdetection-phase1-v1"
-        / "linux-x86_64-cpu.lock"
-    )
-    unrelated_path = (
-        first
-        / "release"
-        / "runtime"
-        / "mmdetection-phase1-v1"
-        / "windows-x86_64-cpu.lock"
-    )
-    assert selected_path.is_file()
-    assert not unrelated_path.exists()
-
-    artifact_variants = {
-        item.platform_variant
+    bundled = first / "release" / "src" / "vision" / "runtime" / "runtime-a"
+    assert sorted(path.name for path in bundled.iterdir()) == [
+        "linux-x86_64-cpu.lock",
+        "linux-x86_64-cpu.requirements.txt",
+        "runtime.json",
+        "windows-x86_64-cpu.lock",
+        "windows-x86_64-cpu.requirements.txt",
+    ]
+    assert {
+        (item.purpose, item.platform_variant)
         for item in first_manifest.artifacts
-        if item.purpose == "runtime-lock"
+        if item.purpose.startswith("runtime-l") or item.purpose == "runtime-requirements"
+    } == {
+        ("runtime-lock", "linux-x86_64-cpu"),
+        ("runtime-lock", "windows-x86_64-cpu"),
+        ("runtime-requirements", "linux-x86_64-cpu"),
+        ("runtime-requirements", "windows-x86_64-cpu"),
     }
-    assert artifact_variants == {"linux-x86_64-cpu"}
+    # The bundle's own lock is still the selected variant's.
+    assert first_manifest.lock_sha256 == tool.sha256_file(inputs.runtime_lock_path)
 
-    changed_unrelated_lock = replace(
-        unrelated_lock,
-        distributions=(
-            *unrelated_lock.distributions[:-1],
-            replace(
-                unrelated_lock.distributions[-1],
-                sha256="f" * 64,
-            ),
-        ),
-    )
-    unrelated_lock_path.write_bytes(
-        serialize_offline_runtime_lock(
-            changed_unrelated_lock
-        )
-    )
-
-    second = tmp_path / "bundle-b"
-    second_manifest = tool.build_bundle_from_verified_inputs(
-        inputs,
-        second,
-    )
-    assert second_manifest.bundle_id == first_manifest.bundle_id
-    assert _relative_file_bytes(second) == _relative_file_bytes(first)
-
-
+    other_lock.write_bytes(b"# another variant's lock, changed\n")
+    second_manifest = tool.build_bundle_from_verified_inputs(inputs, tmp_path / "bundle-b")
+    assert second_manifest.bundle_id != first_manifest.bundle_id
 
 def test_bundle_manifest_lists_every_product_file_once_except_itself(
     tmp_path: Path,
@@ -703,18 +676,17 @@ def test_bundle_rejects_wheel_hash_drift(tmp_path: Path) -> None:
         tool.build_bundle_from_verified_inputs(inputs, tmp_path / "bundle")
 
 
-def test_bundle_rejects_checkpoint_or_config_hash_drift(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("name", "role"),
+    [("checkpoint.pth", "checkpoint"), ("config.py", "resolved-config"), ("LICENSE", "licence-notice")],
+)
+def test_bundle_rejects_model_artefact_hash_drift(tmp_path: Path, name: str, role: str) -> None:
     tool, inputs = _fixture_inputs(tmp_path)
-    inputs.checkpoint_path.write_bytes(b"changed")
+    (inputs.model_root / "model-a-v1" / name).write_bytes(b"changed")
 
-    with pytest.raises(tool.OfflineBundleError, match="checkpoint_hash_mismatch"):
-        tool.build_bundle_from_verified_inputs(inputs, tmp_path / "checkpoint-output")
-
-    tool, inputs = _fixture_inputs(tmp_path / "second")
-    inputs.resolved_config_path.write_bytes(b"changed")
-    with pytest.raises(tool.OfflineBundleError, match="resolved_config_hash_mismatch"):
-        tool.build_bundle_from_verified_inputs(inputs, tmp_path / "config-output")
-
+    with pytest.raises(tool.OfflineBundleError, match=f"model_artifact_hash_mismatch:{role}"):
+        tool.build_bundle_from_verified_inputs(inputs, tmp_path / "output")
+    assert not (tmp_path / "output").exists()
 
 def test_bundle_rejects_symlink_input_and_leaves_no_partial_output(
     tmp_path: Path,
@@ -805,6 +777,12 @@ def test_install_instructions_are_offline_only(tmp_path: Path) -> None:
     assert "Portability: qualified-host-only" in instructions
     assert "http://" not in instructions
     assert "https://" not in instructions
+    # The worker composes the bundle through the binding; the retired paths are gone.
+    assert "MAVI_COMPONENT_BINDING_PATH=./release/src/vision/config/components/phase1-bindings-v2.json" in instructions
+    assert "MAVI_OVERLAY_ROOT=./release\n" in instructions
+    assert "MAVI_ROLE_ID=vision\n" in instructions
+    for retired in ("MAVI_MODEL_MANIFEST_PATH=", "MAVI_QUALIFICATION_RECORD_PATH=", "MAVI_RUNTIME_PROFILE_PATH="):
+        assert retired not in instructions
 
 
 def test_bundle_embeds_deployment_profile_policy(tmp_path: Path) -> None:
@@ -816,13 +794,7 @@ def test_bundle_embeds_deployment_profile_policy(tmp_path: Path) -> None:
         output,
     )
 
-    policy_path = (
-        output
-        / "release"
-        / "config"
-        / "acceptance"
-        / "phase1-deployment-profiles-v1.json"
-    )
+    policy_path = output / tool.BUNDLED_DEPLOYMENT_POLICY
     assert policy_path.is_file()
     assert (
         tool.sha256_file(policy_path)
@@ -876,3 +848,84 @@ def test_every_qualified_lock_enters_the_bundle_identity_of_every_variant(
     assert tool._bundle_id(inputs, only_this_variant) != tool._bundle_id(
         inputs, with_a_foreign_lock
     )
+
+
+# --------------------------------------------------------------------------- resolver-backed
+
+
+def _overlay_bundle_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Real v2 composition (resolver overlay); only the wheel checks are stubbed."""
+    from tests.resolver_overlay import Overlay
+
+    tool = _load_bundle_tool()
+    overlay = Overlay.create(tmp_path)
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    monkeypatch.setattr(tool, "_validate_wheelhouse", lambda *_: {})
+    monkeypatch.setattr(tool, "_verify_mavi_wheel_source", lambda **_: None)
+    inputs = tool.resolve_verified_bundle_inputs(
+        source_commit=tool._repository_head(tool.ROOT),
+        release_status="qualification-candidate",
+        platform_variant="linux-x86_64-cpu",
+        model_root=overlay.model_root,
+        wheelhouse=wheelhouse,
+        overlay_root=overlay.root,
+        component_binding_path=overlay.binding_path,
+        pipeline_profile_path=overlay.pipeline_path,
+    )
+    return tool, overlay, inputs
+
+
+def test_a_candidate_bundle_is_a_resolvable_overlay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tool, overlay, inputs = _overlay_bundle_inputs(tmp_path, monkeypatch)
+    output = tmp_path / "bundle"
+    manifest = tool.build_bundle_from_verified_inputs(inputs, output)
+
+    assert inputs.model_pack_id == overlay.derived_model_pack_id()
+    assert inputs.component_binding_sha256 == tool.sha256_file(overlay.binding_path)
+    shipped = {item.relative_path for item in manifest.artifacts}
+    for required in (
+        "release/src/vision/config/components/phase1-bindings-v2.json",
+        "release/models/manifests/rtmdet-m-coco-phase1-v2.json",
+        "release/models/qualifications/rtmdet-m-coco-phase1-v2.json",
+        "release/config/acceptance/capability-gate-sets-v1.json",
+        "release/models/rtmdet-m-coco-phase1-v1/LICENSE",
+        "release/src/vision/runtime/mmdetection-phase1-v1/runtime.json",
+        "release/src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.lock",
+        "release/src/vision/runtime/mmdetection-phase1-v1/windows-x86_64-cuda.requirements.txt",
+    ):
+        assert required in shipped, required
+    # The shipped overlay resolves on its own, to the same identities.
+    payload = json.loads((output / "bundle-manifest.json").read_text(encoding="utf-8"))
+    tool.verify_bundled_release_manifest(output, payload)
+    staged = tool._resolve_staged_bundle(
+        output,
+        release_status="qualification-candidate",
+        platform_variant="linux-x86_64-cpu",
+        deployment_profile_id=None,
+        expected_policy_sha256=inputs.deployment_profile_policy_sha256,
+    )
+    assert staged.capabilities["detector"].model_pack_id == inputs.model_pack_id
+    assert staged.component_binding_sha256 == inputs.component_binding_sha256
+    assert staged.runtime_pack.runtime_pack_id is None
+
+
+def test_a_tampered_bundled_binding_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tool, _overlay, inputs = _overlay_bundle_inputs(tmp_path, monkeypatch)
+    output = tmp_path / "bundle"
+    tool.build_bundle_from_verified_inputs(inputs, output)
+    payload = json.loads((output / "bundle-manifest.json").read_text(encoding="utf-8"))
+
+    bundled = output / tool.BUNDLED_BINDING
+    document = json.loads(bundled.read_text(encoding="utf-8"))
+    document["capabilityBindings"][0]["enabled"] = False
+    bundled.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(tool.OfflineBundleError, match="capability_binding_disabled"):
+        tool.verify_bundled_release_manifest(output, payload)
+
+
+def test_the_assembly_boundary_refuses_inputs_that_moved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tool, _overlay, inputs = _overlay_bundle_inputs(tmp_path, monkeypatch)
+    moved = replace(inputs, model_pack_id="mavi-model-v2-" + "1" * 64)
+    with pytest.raises(tool.OfflineBundleError, match="bundle_verified_inputs_mismatch"):
+        tool.build_bundle_from_verified_inputs(moved, tmp_path / "bundle")
