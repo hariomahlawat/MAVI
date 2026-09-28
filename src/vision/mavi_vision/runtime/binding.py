@@ -53,7 +53,7 @@ COMPONENT_BINDING_V2_SCHEMA = "mavi-vision-component-binding-v2"
 # provenance contract; startup enforcement against the worker's effective
 # completion schema is the resolver's job (P-16, S2a.3).
 KNOWN_READINESS_CONTRACTS = frozenset({"worker-health-v2"})
-KNOWN_PROVENANCE_CONTRACTS = frozenset({"vision-job-complete-v3.2"})
+KNOWN_PROVENANCE_CONTRACTS = frozenset({"vision-job-complete-v3.2", "visual-attribute-complete-v1"})
 
 _ENTRY_POINT_RE = re.compile(r"^[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)+$")
 

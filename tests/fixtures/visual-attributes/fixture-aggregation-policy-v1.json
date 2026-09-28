@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "mavi-visual-attribute-aggregation-v1",
+  "aggregationPolicyId": "mean-score-argmax",
+  "aggregationPolicyVersion": "1.0.0",
+  "method": "mean-score-argmax",
+  "minimumConfidence": 0.5
+}

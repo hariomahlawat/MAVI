@@ -9,6 +9,8 @@ using Mavi.Application.Modules.Evidence;
 using Mavi.Application.Modules.SceneAnalytics.Configuration;
 using Mavi.Application.Modules.SceneAnalytics.Lifecycle;
 using Mavi.Application.Modules.SceneAnalytics.Aggregates;
+using Mavi.Application.Modules.VisualAttributes;
+using Mavi.Infrastructure.VisualAttributes;
 using Mavi.Infrastructure.SceneAnalytics;
 using Mavi.Infrastructure.Finalization;
 using Mavi.Infrastructure.Media;
@@ -126,6 +128,7 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<VisionFinalizationOptions>, VisionFinalizationOptionsValidator>();
         services.AddSceneAnalyticsOptions(configuration);
+        services.AddVisualAttributes(configuration);
         services.AddTrackSearchOptions(configuration);
         services.AddOptions<LocalizationOptions>()
             .Bind(configuration.GetSection(LocalizationOptions.SectionName))
@@ -234,5 +237,41 @@ public static class SceneAnalyticsOptionsRegistration
                 "SceneAnalytics:LeaseSeconds must be at least twice MaxUnitDurationSeconds.")
             .ValidateOnStart();
         return services;
+    }
+}
+
+/// <summary>
+/// The Visual Attribute lifecycle's registrations (S2b). Validated at start whether or not
+/// the host loop is enabled, so a misconfigured section fails before anything is served.
+/// </summary>
+public static class VisualAttributeRegistration
+{
+    public static IServiceCollection AddVisualAttributes(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddOptions<VisualAttributeOptions>()
+            .Bind(configuration.GetSection(VisualAttributeOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<VisualAttributeOptions>, VisualAttributeOptionsValidator>();
+        services.AddSingleton<IVisualAttributeRelease, VisualAttributeReleaseSource>();
+        services.AddSingleton<VisualAttributeWorkerPresence>();
+        services.AddSingleton<IAttributeStagingStore, AttributeStagingStore>();
+        services.AddScoped<IVisualAttributeLifecycle, VisualAttributeLifecycle>();
+        services.AddScoped<IVisualAttributeReadinessReader, VisualAttributeReadinessReader>();
+        services.AddScoped<VisualAttributeReadinessService>();
+        services.AddScoped<IVisualAttributeStagingJanitor, AttributeStagingJanitor>();
+        services.AddSingleton<VisualAttributeIntegrityMonitor>();
+        services.AddScoped<Mavi.Application.Modules.VisualAttributes.Completion.IVisualAttributeCompletionService, VisualAttributeCompletionService>();
+        return services;
+    }
+}
+
+internal sealed class VisualAttributeOptionsValidator : IValidateOptions<VisualAttributeOptions>
+{
+    public ValidateOptionsResult Validate(string? name, VisualAttributeOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var problems = options.Validate();
+        return problems.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(problems);
     }
 }

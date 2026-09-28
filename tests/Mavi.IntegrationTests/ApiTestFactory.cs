@@ -29,6 +29,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     public TimeProvider Clock { get; init; } = TimeProvider.System;
     public Action<DbContextOptionsBuilder>? ConfigureDbContext { get; init; }
     public Action<IServiceCollection>? OverrideServices { get; init; }
+
+    /// <summary>Configuration applied over the defaults above (for example a lease policy).</summary>
+    public IReadOnlyDictionary<string, string?>? AdditionalConfiguration { get; init; }
     public string? StaticWebRoot { get; init; }
     public bool EnableStartupMigrations { get; init; }
 
@@ -76,12 +79,22 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
 
     public const string DefaultCursorSigningKey = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 
+    /// <summary>
+    /// The attribute release overlay (S2b): a Component Binding with an <c>attributes</c> role
+    /// and its pipeline profile. Unset, the platform reads no attribute release.
+    /// </summary>
+    public string? VisualAttributeComponentBindingPath { get; init; }
+
+    /// <summary>The host environment; "Testing" unless a test is about another one.</summary>
+    public string EnvironmentName { get; init; } = "Testing";
+    public string? VisualAttributePipelineProfilePath { get; init; }
+
     public int StartupMigrationLockTimeoutSeconds { get; init; } = 30;
     public int StartupMigrationCommandTimeoutSeconds { get; init; } = 120;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Testing");
+        builder.UseEnvironment(EnvironmentName);
         if (!string.IsNullOrWhiteSpace(StaticWebRoot))
             builder.UseWebRoot(StaticWebRoot);
         builder.UseSetting("ConnectionStrings:Mavi", ConnectionString);
@@ -104,11 +117,17 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["StagingJanitor:Enabled"] = EnableStagingJanitorHost ? "true" : "false",
                 ["VisionFinalization:Enabled"] = EnableAsynchronousFinalization ? "true" : "false",
                 ["TrackSearch:CursorSigningKey"] = CursorSigningKey,
+                // The loop stays off: attribute tests drive RunCycleAsync themselves.
+                ["VisualAttributes:Enabled"] = "false",
+                ["VisualAttributes:ComponentBindingPath"] = VisualAttributeComponentBindingPath ?? string.Empty,
+                ["VisualAttributes:PipelineProfilePath"] = VisualAttributePipelineProfilePath ?? string.Empty,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["DatabaseMigrations:CommandTimeoutSeconds"] =
                     StartupMigrationCommandTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
             });
+            if (AdditionalConfiguration is not null)
+                configuration.AddInMemoryCollection(AdditionalConfiguration);
         });
         builder.ConfigureServices(services =>
         {

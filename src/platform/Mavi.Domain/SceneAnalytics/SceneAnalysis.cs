@@ -336,8 +336,7 @@ public sealed class SceneAnalysis
     private bool IsReclaimable(DateTimeOffset nowUtc, TimeSpan reclaimGrace) =>
         LeaseExpiresAtUtc is { } expiry && nowUtc > expiry.Add(reclaimGrace);
 
-    private static bool IsCanonicalSha256(string value) =>
-        value is { Length: 64 } && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+    private static bool IsCanonicalSha256(string value) => CanonicalSha256.IsCanonical(value);
 
     private static DomainValidationException Invalid() =>
         new(SceneAnalyticsErrorCodes.TransitionInvalid, "The scene analysis operation is invalid.");

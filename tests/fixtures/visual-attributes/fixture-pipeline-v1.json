@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "mavi-visual-attribute-pipeline-v1",
+  "pipelineId": "visual-attributes-fixture",
+  "pipelineVersion": "1.0.0",
+  "developmentOnly": true,
+  "attributeSchema": {
+    "file": "fixture-attribute-schema-v1.json",
+    "sha256": "174b0aa0562abaea769f08661132291f018fcadb02d3de9837887685643d85b0"
+  },
+  "aggregationPolicy": {
+    "file": "fixture-aggregation-policy-v1.json",
+    "sha256": "dbe2244c8dd1252f0ed28b3f9e49eb6df47169c146d43a3f8a1050fb6c0030a3"
+  },
+  "parameters": {
+    "file": "fixture-parameters-v1.json",
+    "sha256": "80a1df3f73ced9e3df680553d5ecbb19b901f9ea3b2ea33b414675ebccd70513"
+  }
+}

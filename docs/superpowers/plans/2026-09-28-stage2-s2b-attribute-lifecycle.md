@@ -74,7 +74,7 @@ Claim uses domain-specific `FOR UPDATE SKIP LOCKED`, increments attempt, issues 
 
 Pin typed failure codes as **retryable** or **terminal**. Retryable failure returns unit to Queued if attempts/deadline permit, clears active lease and preserves diagnostic history. Terminal failure marks Failed. Attempt exhaustion or absolute deadline is terminal.
 
-Deadline enforcement must not depend on another worker request: add a bounded reconciler/sweep or equivalent platform authority that can transition claimed units whose absolute deadline is exceeded even when no worker is polling. Model/capability loss after a legitimate claim follows failure taxonomy and consumes that attempt.
+Deadline enforcement must not depend on another worker request: add a bounded reconciler/sweep or equivalent platform authority that can transition claimed units whose absolute deadline is exceeded even when no worker is polling. *(Implementation clarification, ADR-013 amendment item 4: no platform transition overtakes a completion that passed Phase A inside its bounded publication window; the deadline therefore bounds when a completion must be validated, and its publication may end at most one lease duration later.)* Model/capability loss after a legitimate claim follows failure taxonomy and consumes that attempt.
 
 S2b does not invent an operator `Cancelled` state unless a concrete operator API is intentionally added. “Cancellation” in D7 means request/process cancellation and lease loss: stop work promptly, publish nothing, and let reclaim/deadline semantics decide the unit.
 

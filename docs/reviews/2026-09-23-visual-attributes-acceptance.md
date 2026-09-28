@@ -1,6 +1,6 @@
 # Visual Attributes — Stage-2 Acceptance Register
 
-**Status:** Open — S2a closed; S2b planning  
+**Status:** Open — S2a closed; S2b implemented (draft PR)  
 **Date opened:** 2026-09-23  
 **Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c`  
 **Reconciled:** 2026-09-28 against current implementation baseline `main@406172657599350ecbb27819865ecc9482c6c97d`
@@ -13,7 +13,7 @@ Nothing unexecuted is marked PASS.
 
 **ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE NEXT.**
 
-S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`. C1–C7 are reconciled below from retained S2a implementation and exact-head verification evidence. S2b remains unimplemented; D/E rows remain OPEN until executed evidence exists.
+S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`. C1–C7 are reconciled below from retained S2a implementation and exact-head verification evidence. S2b is implemented on `feature/stage2-s2b-attribute-lifecycle` (draft PR, not merged); D1–D8 and E1–E4 carry the executed branch evidence of `docs/qualification/stage2-s2b/implementation-record.md` and close fully on the exact-head CI of that PR; E5–E8 remain OPEN for S3.
 
 ## Governing documents
 
@@ -85,14 +85,14 @@ S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qual
 
 | ID | Requirement | Status |
 |---|---|---|
-| D1 | VisualAttributeAnalysis unit/lifecycle is independent of ProcessingRun success | OPEN |
-| D2 | Shared fencing/hash primitives are extracted only where semantics match; no third copy-and-diverge implementation | OPEN — deliberate requirement amendment from the architecture-freeze wording: generic claim/state-machine extraction is explicitly not required because eligibility/reclaim semantics differ across control planes |
-| D3 | Python-facing lease/heartbeat/complete/fail endpoints and transport contracts are contract-tested | OPEN — deliberate requirement amendment: S2b uses header-only lease capability rather than a body token/generic envelope that would persist or digest the capability |
-| D4 | Lease-scoped evidence read and prediction-upload endpoints authorise only the leased unit's Observations/artefact; worker verifies SHA/size before decode; the attribute role touches no platform filesystem | OPEN |
-| D5 | Attribute worker runs as an independent process/role with independent READY/device/provenance/failure domain | OPEN |
-| D6 | Model unavailable at startup leaves work Queued without consuming attempts | OPEN |
-| D7 | Stale attempts, reclaim, retry, cancellation, malformed output and failure isolation pass | OPEN |
-| D8 | Prediction-level outputs are sealed as bounded `AttributePredictions`; lifecycle publication is atomic and final relational rows remain Track-level only | OPEN |
+| D1 | VisualAttributeAnalysis unit/lifecycle is independent of ProcessingRun success | PASS (branch evidence; exact-head CI on the S2b draft PR pending) — separate aggregate/table, queued only for completed visible runs within the current activation (`OnlyVisibleApplicableRunsOfTheCurrentActivationAreQueued`); a Failed unit never touches the run (`ATerminalFailureEndsTheUnit`); record `docs/qualification/stage2-s2b/implementation-record.md` §5, M18–M20 |
+| D2 | Shared fencing/hash primitives are extracted only where semantics match; no third copy-and-diverge implementation | PASS (branch evidence; exact-head CI pending) — deliberate requirement amendment retained: `CanonicalSha256` extracted and adopted by VisionJob/SceneAnalysis/Artifact (regression suites green); `LeaseCapabilityService` reused unchanged; claim SQL deliberately not genericised; record `docs/qualification/stage2-s2b/implementation-record.md` §1 |
+| D3 | Python-facing lease/heartbeat/complete/fail endpoints and transport contracts are contract-tested | PASS (branch evidence; exact-head CI pending) — deliberate requirement amendment retained: header-only capability. `VisualAttributeApiTests` (header only, body token refused, no echo, cap/cap+1 per route), `VisualAttributeContractBoundTests`, worker `test_contract_constants_match_the_platform`; mutations M10, M11, M27; record `docs/qualification/stage2-s2b/implementation-record.md` §4, §6 |
+| D4 | Lease-scoped evidence read and prediction-upload endpoints authorise only the leased unit's Observations/artefact; worker verifies SHA/size before decode; the attribute role touches no platform filesystem | PASS (branch evidence; exact-head CI pending) — cross-run IDOR and other-attempt upload refused (`EvidenceIsServedWithItsRecordedSizeAndOnlyToTheLeasedRun`, `AnUploadIsVerifiedAgainstItsDeclaredDigestAndLease`); at-rest size checked before headers; worker digest before decode (`test_evidence_transport_is_never_evidence`); settings carry no media root; mutations M12, M13, M21, M22, M28 |
+| D5 | Attribute worker runs as an independent process/role with independent READY/device/provenance/failure domain | PASS (branch evidence; exact-head CI pending) — `attributes` role through the shared registry/resolver/environment policy (`test_the_attributes_role_resolves_through_the_shared_resolver`, contract-capability refusals); real process E2E `TheFixtureWorkerPublishesARunThroughTheRealLeasePlane` (run by the quality gate); Production refuses the fixture on both sides (M14, M15) |
+| D6 | Model unavailable at startup leaves work Queued without consuming attempts | PASS (branch evidence; exact-head CI pending) — UNAVAILABLE worker never creates a lease client (`test_a_missing_model_pack_leaves_the_role_unavailable_and_it_never_leases`, M30); a worker of another identity never consumes an attempt (`AWorkerOfAnotherIdentityNeverClaimsOrConsumesAnAttempt`, M20); readiness reports `no_ready_attributes_worker` |
+| D7 | Stale attempts, reclaim, retry, cancellation, malformed output and failure isolation pass | PASS (branch evidence; exact-head CI pending) — reclaim between Phase A and C, expiry without reclaim, crash after seal, ambiguous commit, concurrent duplicates (`VisualAttributeCompletionProtocolTests`); retryable/terminal/deadline/exhaustion (`VisualAttributeLifecycleTests`); lease loss cancels work without `/fail`, malformed output terminal (`test_attribute_role.py`); cancellation here is worker-side lease-loss cancellation — the attribute plane has no operator cancel; mutations M01–M05, M17–M19, M31–M33 |
+| D8 | Prediction-level outputs are sealed as bounded `AttributePredictions`; lifecycle publication is atomic and final relational rows remain Track-level only | PASS (branch evidence; exact-head CI pending) — canonical JSON artefact sealed content-addressed in Phase B; one publication transaction behind the visibility barrier (`PublicationWaitsForTheVisibilityBarrier`, M16); schema refused unless its worst-case artefact fits 64 MiB in both languages (vector, M29); synchronous completion measured at 10,000 Tracks (≤ 3.7 s, barrier ≤ 14.3 ms); record `docs/qualification/stage2-s2b/implementation-record.md` §4–§5 |
 
 ## E. Persistence/search semantics acceptance
 
@@ -100,10 +100,10 @@ Ownership is split deliberately: **S2b establishes and proves E1–E4 persistenc
 
 | ID | Requirement | Status / owner |
 |---|---|---|
-| E1 | Analysis/outcome/attribute relational constraints match ADR-013, including Restrict evidence linkage and unique final outcome | OPEN — S2b |
-| E2 | Every applicable completed Track/attribute has exactly one `Observed` or `Unknown` row; missing row is not Unknown; run readiness distinguishes NotConfigured from NotApplicable | OPEN — S2b |
-| E3 | Track-level `Unavailable` is explicit with reason and never masquerades as Unknown/Absent | OPEN — S2b |
-| E4 | Supersession occurs only on successful completion; historical analysis remains readable and late obsolete completion cannot become default | OPEN — S2b |
+| E1 | Analysis/outcome/attribute relational constraints match ADR-013, including Restrict evidence linkage and unique final outcome | PASS (branch evidence; exact-head CI pending) — S2b — `VisualAttributePersistenceTests` (CHECK shapes, Restrict FKs, unique (analysis, Track, type), unique (run, identity)); COPY writes keep every constraint (M35) |
+| E2 | Every applicable completed Track/attribute has exactly one `Observed` or `Unknown` row; missing row is not Unknown; run readiness distinguishes NotConfigured from NotApplicable | PASS (branch evidence; exact-head CI pending) — S2b — row cardinality and Observed/Unknown shape (`VisualAttributeCompletionValidatorTests`, M24, M25); readiness states (`VisualAttributeReadinessRuleTests`) |
+| E3 | Track-level `Unavailable` is explicit with reason and never masquerades as Unknown/Absent | PASS (branch evidence; exact-head CI pending) — S2b — authoritative reasons only, transport never evidence (`test_evidence_transport_is_never_evidence`, M07, M08); E2E publishes `evidence_missing` for a Track whose crops are gone |
+| E4 | Supersession occurs only on successful completion; historical analysis remains readable and late obsolete completion cannot become default | PASS (branch evidence; exact-head CI pending) — S2b — `ALateObsoleteCompletionIsHistoryAndARollbackReDerivesItAsTheDefault`, `APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot` (M06, M23) |
 | E5 | v4 HMAC cursor pins resolved attribute identity/coverage and rejects tampering | OPEN — S3 |
 | E6 | Repeated attribute predicates are canonical in URL, fingerprint and cache key | OPEN — S3 |
 | E7 | Attribute-only search supports multi-camera scope; combined analytics predicates retain analytics camera scope and pin both identities | OPEN — S3 |

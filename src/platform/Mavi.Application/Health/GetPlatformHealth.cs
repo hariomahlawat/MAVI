@@ -12,7 +12,10 @@ public sealed record PlatformHealth(
     PlatformHealthDetails? Details = null);
 
 /// <summary>Operational details of platform background services (additive).</summary>
-public sealed record PlatformHealthDetails(StagingJanitorHealth StagingJanitor, VisionFinalizationHealth? VisionFinalization = null);
+public sealed record PlatformHealthDetails(
+    StagingJanitorHealth StagingJanitor,
+    VisionFinalizationHealth? VisionFinalization = null,
+    Mavi.Application.Modules.VisualAttributes.VisualAttributeIntegrityHealth? VisualAttributeIntegrity = null);
 
 public static class GetPlatformHealth
 {
