@@ -357,3 +357,23 @@ Non-claims unchanged by this amendment: RTMDet remains `pending` on every varian
 ## Proposed note 2026-09-28 (S2c planning): Development overlay binding
 
 **Status: Proposed with the S2c plan (`docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md` §12.8); effective on acceptance of that planning change.** The repository today tracks exactly one binding and refuses any tracked Model Pack manifest or qualification record that no binding uses. S2c must run unverified learned attribute packs in Development without changing the release binding (whose SHA is the kit compatibility boundary and appears in every VisionJob's provenance) and without placing unverified packs in any Production kit. Decision: a tracked binding is either **the release binding** or a declared **Development overlay binding**. An overlay contains the release binding's roles, families and bindings unchanged and may add roles and their capability bindings; `verify_repo` checks the containment, counts a pack as bound when an overlay binds it, and refuses an overlay that alters anything the release binding declares. Only Development deployment profiles may select an overlay. This is enforced in code as well as by Setup: every pipeline profile an overlay role uses is `developmentOnly: true`, so the platform refuses it outside Development/Testing and the worker resolver refuses it in Production. An overlay is declared by an explicit path list owned by `verify_repo`, and its file name must start with `development-`; any other additional tracked binding still fails `binding_multiple_not_supported`. No binding schema field changes. *Trade-off:* two tracked bindings to verify, in exchange for keeping the release binding, its kit boundary and detector provenance untouched while an attribute capability is still unverified.
+
+## Proposed note 2026-09-28 (S2c planning): Model Selection Records
+
+**Status: Proposed with the S2c plan (§9.0, §9.6); effective on acceptance of that planning change.**
+
+**Context.** Capability-scoped qualification (§6) records whether an exact Model Pack passed its gates. It does not record why that model was chosen, which alternatives were considered, or what a successor must beat. Without that history a later replacement can be justified by novelty alone.
+
+**Decision.**
+- Every Model Pack bound for a learned capability is the outcome of a recorded **Model Selection Event** under `docs/qualification/model-selection/README.md` (MSR method v1).
+- The event keeps three assessments separate: technical, operational/engineering, and licence/deployment qualification. Licence never enters the technical ranking.
+- The event retains every candidate, with the exact bytes evaluated.
+- The event separates reported from MAVI-measured evidence.
+- Once closed, the record is immutable.
+- The capability's gate set gains a `model-selection` gate. Its evidence is the closed record, cited by path and SHA-256 with the existing `{kind, reference, sha256}` evidence shape, and `verify_repo` re-derives the hash.
+- A replacement opens a new event and compares the challenger with the re-measured incumbent (§7 already makes a new pack a new qualification identity).
+- Packs bound before this note (the Phase-1 detector) have no record. Their first replacement event states "selection history unrecorded (pre-methodology)".
+
+No schema field changes. The MSR is decision history: the acceptance register remains the acceptance authority, and the qualification record the qualification authority.
+
+*Trade-off:* each selection costs a written record and one hash check. In exchange, model choices stay auditable and reversible on evidence rather than memory.

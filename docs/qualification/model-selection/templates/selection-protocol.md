@@ -1,0 +1,34 @@
+# <event-id> — Selection protocol (template)
+
+> Copy to `<capabilityId>/<event-id>-protocol.md` and commit it at `PROTOCOL_FROZEN`, **before any candidate sees MAVI evaluation data** (methodology §3.2). Once its SHA-256 is recorded in the event record, the file is immutable. Any change is a numbered protocol revision recorded in the record, and it voids every result the change could bias.
+
+**Event:** `<event-id>` · **Capability:** `<capabilityId>` · **Qualification protocol instantiated:** `<path>` @ `<commit>` (this file may not weaken it)
+**Frozen at:** `<commit>` · **Frozen by:** `<owner>` · **Reviewed by:** `<independent reviewer>`
+
+## 1. Task and scope
+Task definitions and attribute/value vocabulary: reference the schema id, version and SHA. Record operating envelope, exclusions, and why each excluded dimension (methodology §7) does not apply.
+
+## 2. Candidates
+| Id | Role | Exact identity (repository, revision, file, SHA-256, or method: backbone identity + training recipe) | Preprocessing hash | Evaluation permitted (human, date) | Reason for inclusion |
+|---|---|---|---|---|---|
+
+Also record the not-shortlisted candidates, each with its **technical** reason, and the reference-only candidates with their snapshotted reported evidence.
+
+## 3. Data
+Corpus manifest hash; partition manifest hash; partitions each step may read (training / tuning / selection); the frozen test sealed and **not readable**; near-duplicate and leakage checks.
+
+## 4. Measurements
+Metrics per attribute kind; primary metric(s), which are threshold-free; strata; levels (crop / Representative-only / Track); engineering probes (latency p50/p95, memory, load time, determinism, offline run, pack size); host class; thread count; precision; batch caps.
+
+## 5. Gates (pass/fail; each names its measurement and evidence class)
+| Gate | Kind (technical / engineering / qualification) | Rule | Measurement |
+|---|---|---|---|
+
+## 6. Comparative scoring (ordering aid only)
+Criteria and weights; the rule converting each measurement into a criterion score; tie rule (difference within the interval scores as a tie); sensitivity perturbation to report; MPID and the extension bar; the replacement bar against the incumbent (upgrade events).
+
+## 7. Statistics
+Resampling unit, interval, seeds.
+
+## 8. Report format
+The tables the record must contain (methodology §9) and the result artefacts to retain, by hash.

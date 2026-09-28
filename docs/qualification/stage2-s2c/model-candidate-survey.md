@@ -1,7 +1,7 @@
 # Stage 2 S2c — Model Candidate Survey (planning record)
 
 **Status:** Planning record for `docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md` §9. Survey date 2026-09-28.
-**Nature of every figure below:** *reported by the cited source; not reproduced by MAVI.* No MAVI measurement exists yet. Nothing here selects a model; it feeds the shortlist that the S2c bake-off protocol freezes (plan §9.2, slice S2c.2), which re-runs this survey at freeze time.
+**Nature of every figure below:** *reported by the cited source; not reproduced by MAVI.* No MAVI measurement exists yet. Nothing here selects a model. This record is the **discovery input** to the two Model Selection Events `msr-person-attributes-2026-01` and `msr-vehicle-attributes-2026-01` (`docs/qualification/model-selection/`). Their protocols freeze the shortlist at slice S2c.2, re-running this survey then; any re-survey is a dated addendum here, never a rewrite. The decision, exact checkpoint identities, snapshotted evidence and every disposition live in those records, not here.
 **Domain.** MAVI is a domain-neutral visual-intelligence platform; nothing in this record infers an application domain, and no candidate is excluded because of one. Technical strength (§§2–4) and licence qualification (§6) are recorded separately.
 **Licence statements** are what the cited page says. Model-card use statements, dataset terms and "do weights inherit dataset restrictions" are **not legal conclusions**; every one is an input to the human licence review (plan §23, U1). "UNVERIFIED" marks a claim that could not be confirmed from a primary source.
 

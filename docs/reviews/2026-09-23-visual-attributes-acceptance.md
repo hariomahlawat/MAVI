@@ -27,6 +27,8 @@ S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qual
 - ADR-005 / ADR-006 / ADR-007 / ADR-009 / ADR-011 / ADR-012
 - dependency/offline-packaging policy
 
+Evidence, not authority: the Model Selection Records under `docs/qualification/model-selection/` (MSR method v1, proposed with the S2c plan) record why each capability's model was chosen. A row may cite a closed record; no record is an acceptance claim.
+
 ## A. Architecture-freeze gate
 
 | ID | Requirement | Status |

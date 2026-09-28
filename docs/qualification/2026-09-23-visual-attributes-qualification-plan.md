@@ -378,3 +378,14 @@ Any later exception is documented as a protocol revision and invalidates prior f
 4. **S5:** the frozen test set is scored once for the frozen identity.
 
 "Implemented" in §18 therefore means "qualified or used to influence a freeze decision", not "integrated as code". No prior final-test claim exists, so R1 invalidates nothing. Any access to the sealed partition before step 4 is recorded and voids it; a new frozen set must then be sealed.
+
+## 20. Protocol revision R2 (2026-09-28, S2c planning): model selection records
+
+**Status: Proposed with the S2c plan; effective on acceptance of that planning change.** R2 only adds requirements; it removes nothing.
+
+1. **Retained evidence.** §17 additionally requires one **closed Model Selection Record** per learned capability (`docs/qualification/model-selection/`, MSR method v1). Each record comes with its frozen selection protocol, cited by SHA-256.
+2. **Selection protocol.** Each event's selection protocol instantiates this plan: its partitions, labelling, metrics and freeze order. It may not weaken them.
+3. **Frozen test excluded from selection.** Selection reads only training, tuning and selection partitions. The frozen qualification test is never used to choose between candidates.
+4. **Frozen-test access log.** Every event records how many times, and for which identities, the frozen test has been scored. Whether a reused frozen test must be refreshed for a later identity is decided under §16 and §18 of this plan, not by the record.
+5. **Evidence classes.** A reported (published) figure is never a qualification result. Only MAVI measurements under this plan can satisfy a gate.
+6. **Identity unchanged.** §2 is unchanged. A model replacement is already a trigger (§16), and it now also requires a new selection event.
