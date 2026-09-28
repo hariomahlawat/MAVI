@@ -430,3 +430,15 @@ def test_a_failed_seal_leaves_no_ledger_entry_and_can_be_retried(tmp_path, capsy
     assert AnnotationLedger(store / ANNOTATION_LEDGER).seals() == []
     assert main(_seal_args(tmp_path, store, "access.jsonl", "seal.json")) == 0
     assert len(AnnotationLedger(store / ANNOTATION_LEDGER).seals()) == 1
+
+
+def test_a_forged_but_self_consistent_pilot_report_is_refused(tmp_path) -> None:
+    record, store = build_chain(tmp_path)
+    document = json.loads((store / f"{record['labelling']['pilotReportSha256']}.json").read_text())
+    document["timing"]["activeSeconds"] += 1
+    del document["reportSha256"]
+    document["reportSha256"] = document_sha256(document)
+    write_canonical(store / f"{document_sha256(document)}.json", document)
+    record["labelling"]["pilotReportSha256"] = document_sha256(document)
+    with pytest.raises(CorpusError, match="f1_pilot_report_not_reproducible"):
+        f1_verdict(record, tmp_path, store)

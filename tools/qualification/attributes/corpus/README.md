@@ -289,7 +289,7 @@ These tests were written against the implemented rules. They kill each fault by 
 | Guard removed | Result |
 |---|---|
 | main-report recomputation in F1 | killed |
-| pilot-report recomputation in F1 | killed |
+| pilot-report recomputation in F1 | killed. After the third review it survived (the strict partition check had been masking it) until `test_a_forged_but_self_consistent_pilot_report_is_refused` was added |
 | every task attribute required in F1 | killed |
 | frozen guide for main labelling in F1 | killed |
 | latest seal in the ledger, in F1 | killed (after adding `test_f1_refuses_a_seal_the_ledger_does_not_name_as_latest`; the first test was masked by the view binding) |
