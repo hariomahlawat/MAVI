@@ -1,7 +1,7 @@
 # Stage 2 — S2a.4 Setup / offline integration plan
 
 - **Date:** 2026-09-28
-- **Status:** implementation-ready after post-S2a.3 cold review
+- **Status:** implemented on `feature/stage2-s2a-4-offline-kit`; implementation record and errata in the parent plan §20, mutation record `docs/qualification/stage2-s2a/mutations-s2a-4.md`
 - **Baseline:** `d99d259f5202815e7f312b3364c74574ead9f005` (`main`, PR #110 merge)
 - **Parent plan:** `docs/superpowers/plans/2026-09-27-stage2-s2a-component-binding-v2.md`, especially §§7, 10, 12 and 13
 - **Governing decisions:** ADR-014, ADR-007, ADR-009
@@ -59,6 +59,8 @@ Before invoking either installer, Setup MUST establish all of the following:
 9. All required source directories are readable and resolve beneath the expected kit/component root; traversal/symlink protections remain fail closed through the existing verifier.
 
 Only after the complete required set passes preflight may Setup begin installation.
+
+Implementation note (parent plan §20, E4-15/E4-16): the preflight covers every component Setup will rely on, whether it comes from the selected source or is already installed. Packs from a component store or a Runtime Bundle are re-hashed by the store's component validator, and an already-installed Model Pack passes the launcher's per-pack checks (`Assert-MaviVisionInstalledModelPackIntegrity`) before the first installer runs.
 
 The legacy/manual Runtime Bundle path remains supported only where already intentionally supported, but D-1 is repaired: installability is determined by `runtime-pack-manifest.json`, never by legacy `bundle-manifest.json`. A directory containing only `bundle-manifest.json` is reported as not installable and is never treated as a valid Runtime Pack.
 

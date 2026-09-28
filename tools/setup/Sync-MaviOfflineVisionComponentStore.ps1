@@ -3,11 +3,13 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$KitRoot,
 
+    # Every Runtime Pack to store (one per bound platform variant being shipped).
     [Parameter(Mandatory = $true)]
-    [string]$RuntimePackRoot,
+    [string[]]$RuntimePackRoot,
 
+    # Every Model Pack the component binding requires for those variants.
     [Parameter(Mandatory = $true)]
-    [string]$ModelPackRoot,
+    [string[]]$ModelPackRoot,
 
     [string]$RepositoryRoot = (Join-Path $PSScriptRoot "..\..")
 )
@@ -17,10 +19,10 @@ $ErrorActionPreference = "Stop"
 
 $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot.Trim().Trim('"'))
 $KitRoot = [IO.Path]::GetFullPath($KitRoot.Trim().Trim('"'))
-$RuntimePackRoot = [IO.Path]::GetFullPath($RuntimePackRoot.Trim().Trim('"'))
-$ModelPackRoot = [IO.Path]::GetFullPath($ModelPackRoot.Trim().Trim('"'))
+$RuntimePackRoot = @($RuntimePackRoot | ForEach-Object { [IO.Path]::GetFullPath($_.Trim().Trim('"')) })
+$ModelPackRoot = @($ModelPackRoot | ForEach-Object { [IO.Path]::GetFullPath($_.Trim().Trim('"')) })
 
-foreach ($path in @($KitRoot, $RuntimePackRoot, $ModelPackRoot, $RepositoryRoot)) {
+foreach ($path in @(@($KitRoot, $RepositoryRoot) + $RuntimePackRoot + $ModelPackRoot)) {
     if (-not (Test-Path -LiteralPath $path -PathType Container)) {
         throw "Required directory does not exist: $path"
     }
@@ -38,8 +40,12 @@ if (-not $git) { throw "git.exe is required to identify the Application Overlay 
 $head = (& $git.Source -C $RepositoryRoot rev-parse HEAD 2>$null | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { throw "Unable to determine repository HEAD." }
 
+# The tool reads the binding through mavi_vision, so the workspace environment
+# (which has its dependencies) is preferred over a bare interpreter.
 $python = $null
-$py = Get-Command py.exe -ErrorAction SilentlyContinue
+$workspacePython = Join-Path $RepositoryRoot ".venv\Scripts\python.exe"
+if (Test-Path -LiteralPath $workspacePython -PathType Leaf) { $python = $workspacePython }
+$py = if ($python) { $null } else { Get-Command py.exe -ErrorAction SilentlyContinue }
 if ($py -and $py.Source) {
     try {
         $candidate = (& $py.Source -3.13 -c "import sys; print(sys.executable)" 2>$null | Out-String).Trim()
@@ -55,12 +61,10 @@ if (-not $python) {
 }
 if (-not $python) { throw "Python is required to synchronize the offline Vision component store." }
 
-& $python $tool sync `
-    --kit-root $KitRoot `
-    --runtime-pack $RuntimePackRoot `
-    --model-pack $ModelPackRoot `
-    --component-binding $componentBinding `
-    --application-revision $head
+$syncArguments = @($tool, "sync", "--kit-root", $KitRoot, "--component-binding", $componentBinding, "--application-revision", $head)
+foreach ($root in $RuntimePackRoot) { $syncArguments += @("--runtime-pack", $root) }
+foreach ($root in $ModelPackRoot) { $syncArguments += @("--model-pack", $root) }
+& $python @syncArguments
 if ($LASTEXITCODE -ne 0) { throw "Vision component-store synchronization failed with exit code $LASTEXITCODE." }
 
 & $python $tool verify --kit-root $KitRoot
@@ -75,5 +79,7 @@ if ($LASTEXITCODE -ne 0) { throw "Vision component ownership verification failed
 Write-Host ""
 Write-Host "MAVI offline Vision component store synchronized and verified." -ForegroundColor Green
 Write-Host "  Kit root     : $KitRoot"
-Write-Host "  Application  : $head"
+Write-Host "  Application  : $head (provenance; the binding SHA-256 in the inventory is the compatibility identity)"
+Write-Host "  Runtime Packs: $($RuntimePackRoot.Count)"
+Write-Host "  Model Packs  : $($ModelPackRoot.Count)"
 Write-Host "  Inventory    : $(Join-Path $KitRoot 'vision\component-inventory.json')"

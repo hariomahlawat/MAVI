@@ -22,26 +22,23 @@ The launcher auto-detects and verifies the sibling kit. Approve the Administrato
 
 After the first setup, restart Visual Studio once and press **F5**.
 
-### Vision runtime bundle
+### Vision components
 
-The ordinary Development binary kit prepares the UI/API/database and the lightweight Python Development environment. Actual RTMDet inference uses a separate, source-bound **MAVI Vision Runtime Bundle** because the qualified Windows CPU graph is CPython 3.12.10 with the frozen Torch/MMDetection wheel closure and model checkpoint.
+The ordinary Development binary kit prepares the UI/API/database and the lightweight Python Development environment. Actual RTMDet inference also needs the **Vision components**: the Windows CPU Runtime Pack (CPython 3.12.10 with the frozen Torch/MMDetection wheel closure) and the Model Pack(s) named by the component binding `src/vision/config/components/phase1-bindings-v2.json`.
 
-For the supported Windows CPU Development path, extract the exact Task-12 artifact beside the repository as:
+The supported source is the Vision component store inside the binary kit:
 
 ```text
 <workspace>/
   MAVI/
   MAVI-Offline-Binary-Kit/
-  MAVI-Vision-Runtime-Bundle/
-    bundle-manifest.json
-    wheels/
-    release/
-    prerequisites/
+    vision/
+      component-inventory.json
+      runtime/<runtimePackId>/
+      models/<modelPackId>/
 ```
 
-A nested `windows-x86_64-cpu/` directory is also accepted.
-
-Rerun `Setup-MAVI-Development.cmd`. Setup verifies every runtime-bundle artifact SHA-256, requires the bundle source commit to match the repository HEAD, installs the bundled signed CPython 3.12.10 runtime into ProgramData, creates an isolated runtime venv, installs the exact reviewed lock with `--no-index --require-hashes`, and records the installed bundle identity.
+Rerun `Setup-MAVI-Development.cmd`. Setup preflights the complete set against the repository binding, then installs the Runtime Pack and every bound Model Pack, and finally runs the launcher's compatibility check. The Vision composition is ready only when Setup reports `Vision composition OK READY`. The preflight rules, the other accepted sources (`MAVI_VISION_BUNDLE_ROOT`, a `MAVI-Vision-Runtime-Bundle` directory holding a `runtime-pack-manifest.json`), failure codes and rerun behaviour are in `docs/runbooks/mavi-offline-setup.md` ("Vision components (Development)"). A legacy runtime bundle with only `bundle-manifest.json` is not installable.
 
 With Mavi.Api running from Visual Studio, start the worker by double-clicking:
 
@@ -49,7 +46,7 @@ With Mavi.Api running from Visual Studio, start the worker by double-clicking:
 Start-MAVI-Vision-Worker.cmd
 ```
 
-The launcher refuses a source/runtime commit mismatch and supplies the installed model/profile/runtime paths to the worker. A queued Development video should then move to Processing once the runtime reports READY.
+The launcher re-checks the installed Runtime Pack and Model Packs against the binding before the worker starts, and the worker resolves the binding again. A queued Development video should then move to Processing once the runtime reports READY.
 
 The canonical MAVI services are deliberately fixed: Development PostgreSQL runs as `MAVI-Dev-PostgreSQL-18` on `127.0.0.1:55433`. Developers should not edit ports, PATH, connection strings or pgvector installation manually.
 

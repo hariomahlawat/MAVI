@@ -10,6 +10,10 @@ Since S2a.3 the store is described by the component binding v2 (plan §7): any
 number of Runtime Packs and Model Packs, and a kit is complete only when every
 id the binding reaches for the synchronized variants is present
 (``kit_incomplete:<id>``) and nothing unbound is (``kit_unbound_component:<id>``).
+
+``plan`` is the Setup preflight (S2a.4): from the repository binding it names the
+Runtime Pack and every enabled Model Pack a role needs on one variant and, given a
+kit, checks the kit against that binding and returns each pack's source by id.
 """
 
 from __future__ import annotations
@@ -400,6 +404,179 @@ def verify_vision_component_store(kit_root: Path) -> dict[str, object]:
     return inventory
 
 
+def _role_requirements(
+    binding: ComponentBindingV2, *, role_id: str, variant: str
+) -> tuple[dict[str, object], list[dict[str, object]]]:
+    """The Runtime Pack of ``variant`` and every enabled Model Pack of ``role_id``."""
+    try:
+        role = binding.role(role_id)
+        family_variants = binding.family_variants(role.runtime_pack_family_id)
+    except ReleaseMetadataError as exc:
+        raise VisionComponentStoreError(f"component_binding_invalid:{exc.code}") from exc
+    entry = family_variants.get(variant)
+    if entry is None:
+        raise VisionComponentStoreError(f"kit_variant_not_bound:{variant}")
+    runtime = {
+        "platformVariant": variant,
+        "runtimePackId": entry.runtime_pack_id,
+        "thirdPartyLockSha256": entry.third_party_lock_sha256,
+        "runtimeRequirementsSha256": entry.runtime_requirements_sha256,
+        "nativeAbi": entry.native_abi,
+    }
+    capabilities: dict[str, list[str]] = {}
+    for capability_binding in binding.bindings_for_role(role_id):
+        if capability_binding.enabled:
+            capabilities.setdefault(capability_binding.model_pack_id, []).append(capability_binding.capability_id)
+    models = [
+        {"modelPackId": model_pack_id, "capabilityIds": sorted(capabilities[model_pack_id])}
+        for model_pack_id in sorted(capabilities)
+    ]
+    return runtime, models
+
+
+def _bound_component_ids(binding: ComponentBindingV2) -> set[str]:
+    """Every Runtime Pack and enabled Model Pack id the binding reaches for any role and variant."""
+    bound: set[str] = set()
+    for role in binding.roles.values():
+        bound.update(entry.runtime_pack_id for entry in binding.family_variants(role.runtime_pack_family_id).values())
+        bound.update(
+            capability_binding.model_pack_id
+            for capability_binding in binding.bindings_for_role(role.role_id)
+            if capability_binding.enabled
+        )
+    return bound
+
+
+def plan_vision_components(
+    *,
+    component_binding_path: Path,
+    role_id: str,
+    variant: str,
+    optional_variants: list[str] | None = None,
+    kit_root: Path | None = None,
+    runtime_pack_roots: list[Path] | None = None,
+) -> dict[str, object]:
+    """What Setup must install for ``role_id`` on ``variant``, decided before any installation.
+
+    The requirement comes from the validated repository binding alone. With a
+    ``kit_root`` the kit must pass ``verify_vision_component_store`` and match
+    that binding: the inventory's binding SHA-256 must be the repository
+    binding's (``kit_binding_mismatch``), every required pack must be in the
+    inventory (``kit_incomplete:<id>``) and nothing unbound may be
+    (``kit_unbound_component:<id>``). Each source is the inventory entry of the
+    required id, never a directory found by scanning.
+
+    ``runtime_pack_roots`` are the Runtime Pack directories of a Runtime Bundle
+    source. Each is validated by the same component validator the store uses
+    (every artefact's size and SHA-256, no undeclared file, no symlink) and
+    must be the binding's entry for its variant, so a Runtime Bundle's packs are
+    proven before any installer runs, as a kit's are.
+
+    ``applicationOverlay.revision`` is reported as provenance only: a kit
+    assembled at another application commit stays usable while the binding is
+    the same, because the binding, not the commit, is the composition identity.
+    """
+    try:
+        binding = load_component_binding(component_binding_path)
+    except ReleaseMetadataError as exc:
+        raise VisionComponentStoreError(f"component_binding_invalid:{exc.code}") from exc
+    runtime, models = _role_requirements(binding, role_id=role_id, variant=variant)
+    optional: list[dict[str, object]] = []
+    for name in sorted(set(optional_variants or ()) - {variant}):
+        try:
+            optional.append(_role_requirements(binding, role_id=role_id, variant=name)[0])
+        except VisionComponentStoreError:
+            # An optional variant the binding does not declare is simply not offered.
+            continue
+
+    result: dict[str, object] = {
+        "componentBinding": component_binding_path.name,
+        "componentBindingSha256": binding.component_binding_sha256,
+        "roleId": role_id,
+        "runtimePack": runtime,
+        "modelPacks": models,
+        "optionalRuntimePacks": optional,
+        "kit": None,
+        "runtimeBundle": None,
+    }
+    if kit_root is not None and runtime_pack_roots:
+        raise VisionComponentStoreError("plan_source_ambiguous")
+    if runtime_pack_roots:
+        by_variant = {str(item["platformVariant"]): item for item in [runtime, *optional]}
+        validated: dict[str, dict[str, object]] = {}
+        for root in runtime_pack_roots:
+            manifest = _validate_component(root, "runtime-pack-manifest.json", kind="runtime")
+            variant = str(manifest.get("platformVariant"))
+            required = by_variant.get(variant)
+            if required is None or manifest.get("runtimePackId") != required["runtimePackId"]:
+                raise VisionComponentStoreError(f"kit_unbound_component:{manifest.get('runtimePackId')}")
+            for key in ("thirdPartyLockSha256", "runtimeRequirementsSha256", "nativeAbi"):
+                if manifest.get(key) != required[key]:
+                    raise VisionComponentStoreError(f"runtime_requirement_mismatch:{key}")
+            if variant in validated:
+                raise VisionComponentStoreError("kit_component_duplicate")
+            validated[variant] = {**required, "sourceRoot": str(root)}
+        selected = validated.get(str(runtime["platformVariant"]))
+        if selected is None:
+            raise VisionComponentStoreError(f"kit_incomplete:{runtime['runtimePackId']}")
+        result["runtimeBundle"] = {
+            "runtimePack": selected,
+            "optionalRuntimePacks": [validated[name] for name in sorted(validated) if name != runtime["platformVariant"]],
+        }
+        return result
+    if kit_root is None:
+        return result
+
+    inventory = verify_vision_component_store(kit_root)
+    overlay = inventory["applicationOverlay"]
+    assert isinstance(overlay, dict)
+    if (
+        overlay.get("componentBindingSha256") != binding.component_binding_sha256
+        or overlay.get("componentBinding") != component_binding_path.name
+    ):
+        raise VisionComponentStoreError("kit_binding_mismatch")
+
+    runtimes = {str(entry["runtimePackId"]): entry for entry in inventory["runtimePacks"]}  # type: ignore[index,union-attr]
+    stored_models = {str(entry["modelPackId"]): entry for entry in inventory["modelPacks"]}  # type: ignore[index,union-attr]
+    bound = _bound_component_ids(binding)
+    for identifier in sorted(set(runtimes) | set(stored_models)):
+        if identifier not in bound:
+            raise VisionComponentStoreError(f"kit_unbound_component:{identifier}")
+
+    def runtime_source(required: dict[str, object]) -> dict[str, object] | None:
+        entry = runtimes.get(str(required["runtimePackId"]))
+        if entry is None:
+            return None
+        material = entry.get("materialIdentity")
+        if entry.get("platformVariant") != required["platformVariant"] or not isinstance(material, dict):
+            raise VisionComponentStoreError("runtime_requirement_mismatch:platformVariant")
+        for key in ("platformVariant", "thirdPartyLockSha256", "runtimeRequirementsSha256", "nativeAbi"):
+            if material.get(key) != required[key]:
+                raise VisionComponentStoreError(f"runtime_requirement_mismatch:{key}")
+        return {**required, "sourceRoot": str(kit_root.joinpath(*PurePosixPath(str(entry["relativePath"])).parts))}
+
+    runtime_selected = runtime_source(runtime)
+    if runtime_selected is None:
+        raise VisionComponentStoreError(f"kit_incomplete:{runtime['runtimePackId']}")
+    models_selected = []
+    for required in models:
+        entry = stored_models.get(str(required["modelPackId"]))
+        if entry is None:
+            raise VisionComponentStoreError(f"kit_incomplete:{required['modelPackId']}")
+        models_selected.append(
+            {**required, "sourceRoot": str(kit_root.joinpath(*PurePosixPath(str(entry["relativePath"])).parts))}
+        )
+    optional_selected = [item for item in (runtime_source(required) for required in optional) if item is not None]
+    result["kit"] = {
+        "kitRoot": str(kit_root),
+        "applicationRevision": overlay["revision"],
+        "runtimePack": runtime_selected,
+        "modelPacks": models_selected,
+        "optionalRuntimePacks": optional_selected,
+    }
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -411,9 +588,25 @@ def main() -> int:
     sync.add_argument("--application-revision", required=True)
     verify = sub.add_parser("verify")
     verify.add_argument("--kit-root", type=Path, required=True)
+    plan = sub.add_parser("plan", help="Setup preflight: what to install for a role, checked against the binding")
+    plan.add_argument("--component-binding", type=Path, required=True)
+    plan.add_argument("--role", default="vision")
+    plan.add_argument("--variant", required=True)
+    plan.add_argument("--optional-variant", action="append", default=[])
+    plan.add_argument("--kit-root", type=Path)
+    plan.add_argument("--runtime-pack", type=Path, action="append", default=[], help="a Runtime Bundle's Runtime Pack directory, validated like a stored pack")
     args = parser.parse_args()
     try:
-        if args.command == "sync":
+        if args.command == "plan":
+            result = plan_vision_components(
+                component_binding_path=args.component_binding,
+                role_id=args.role,
+                variant=args.variant,
+                optional_variants=args.optional_variant,
+                kit_root=args.kit_root,
+                runtime_pack_roots=args.runtime_pack,
+            )
+        elif args.command == "sync":
             result = sync_vision_components(
                 kit_root=args.kit_root,
                 runtime_pack_roots=args.runtime_pack,

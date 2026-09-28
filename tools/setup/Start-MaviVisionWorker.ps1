@@ -5,7 +5,11 @@ param(
     [string]$WorkerId = "dev-worker-01",
     [string]$MediaRoot = "C:\ProgramData\MAVI\Development\Data",
     [ValidateSet("cpu","cuda","auto")][string]$DevicePolicy = "auto",
-    [int]$DeviceIndex = 0
+    [int]$DeviceIndex = 0,
+    # Run every launch check (Runtime Pack, overlay, Model Pack store, component
+    # compatibility) and stop before the worker environment is prepared or the
+    # worker starts. Setup-MAVI uses this as its readiness boundary.
+    [switch]$VerifyOnly
 )
 
 Set-StrictMode -Version Latest
@@ -200,6 +204,14 @@ foreach ($bound in @($storeResolution.ModelPacks)) {
 if ($resolvedDevicePolicy -eq "cuda" -and $runtimeVariant -ne "windows-x86_64-cuda") { Stop-MaviLaunch launch_cuda_policy_requires_cuda_pack "Resolved CUDA device policy requires the Windows CUDA Runtime Pack." }
 if ($resolvedDevicePolicy -eq "cpu" -and $runtimeVariant -ne "windows-x86_64-cpu") { Stop-MaviLaunch launch_cpu_policy_requires_cpu_pack "Resolved CPU device policy requires the Windows CPU Runtime Pack." }
 [void](Invoke-MaviLaunchStep launch_component_compatibility_failed { Assert-MaviVisionWorkerComponentCompatibility -RuntimeState $runtimeState -RuntimeManifest $runtimeManifest -RequiredRuntimePackId ([string]$runtimeRequirement.runtimePackId) -RequiredThirdPartyLockSha256 ([string]$runtimeRequirement.thirdPartyLockSha256) -RequiredRuntimeRequirementsSha256 ([string]$runtimeRequirement.runtimeRequirementsSha256) -RequiredModelPacks @($storeResolution.ModelPacks) })
+
+if ($VerifyOnly) {
+    Write-Host "MAVI Vision composition verified for launch." -ForegroundColor Green
+    Write-Host "  Runtime Pack : $($runtimeManifest.runtimePackId) ($runtimeVariant)"
+    foreach ($bound in @($storeResolution.ModelPacks)) { Write-Host "  Model Pack   : $($bound.ModelPackId) ($($bound.CapabilityId))" }
+    Write-Host "  Binding      : $componentBindingPath (role vision)"
+    return
+}
 
 # Worker composition environment (plan §5.2, P-9). The retired per-path
 # variables are removed, not emptied: the worker refuses to start if any is

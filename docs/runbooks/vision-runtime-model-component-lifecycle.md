@@ -4,13 +4,13 @@ This runbook defines when the large MAVI Vision offline payloads must be rebuilt
 
 ## Component boundaries
 
-> **Stage-2 note (2026-09-23):** the table below describes the current detector-era binding, in which the component-requirements file names one Model Pack. Accepted ADR-014 replaces it with capability binding v2 — Runtime Pack families keyed by platform variant, declared roles and `capabilityBindings[]` — when Stage-2 slice S2a is implemented. Until that slice merges, this runbook remains the operative procedure; afterwards it is revised in the same change.
+Since Stage 2 S2a.3 the composition is the component binding v2, `src/vision/config/components/phase1-bindings-v2.json` (ADR-014): Runtime Pack families keyed by platform variant, the `vision` role, and one `capabilityBindings[]` entry per capability naming its Model Pack.
 
 | Component | Contains | Stable identity | Rebuild when |
 | --- | --- | --- | --- |
 | Runtime Binary Pack | CPython/native identity, third-party wheels, exact third-party lock, application runtime-requirements projection | `runtimePackId` | dependency declaration/lock/projection, Python/platform/native ABI/toolchain, Runtime Pack schema/builder materially changes |
-| Model Pack | RTMDet checkpoint + resolved config | `modelPackId` | checkpoint, resolved config or model identity changes |
-| Application / Release Overlay | current `mavi_vision`, pipeline/qualification/release metadata, component requirements | application revision + file fingerprints | normal application development/release changes |
+| Model Pack | every model artefact of one capability's model, the licence notice included (RTMDet: checkpoint, resolved config, licence notice) | `modelPackId` | any artefact or the model identity changes |
+| Application / Release Overlay | current `mavi_vision`, pipeline/qualification/release metadata, the component binding | the binding's SHA-256 (composition); the application revision (provenance) | normal application development/release changes |
 
 A normal edit under `src/vision/mavi_vision/` does **not** justify rebuilding or downloading the Runtime Binary Pack or Model Pack.
 
@@ -35,22 +35,49 @@ Application source is supplied from the current checkout through `PYTHONPATH`. W
 
 ## Offline Binary Kit / component store
 
-After the ordinary offline binary kit has been prepared, reusable Vision packs can be synchronized into its content-addressed component store:
+After the ordinary offline binary kit has been prepared, the reusable Vision packs are synchronized into its content-addressed component store. Pass every Runtime Pack being shipped (one per bound platform variant) and every Model Pack the binding requires for them:
+
+From a PowerShell prompt in the repository (list several packs separated by commas):
 
 ```powershell
-$head = (git rev-parse HEAD).Trim()
+.\tools\setup\Sync-MaviOfflineVisionComponentStore.ps1 `
+  -KitRoot ..\MAVI-Offline-Binary-Kit `
+  -RuntimePackRoot <windows-cpu-runtime-pack>, <windows-cuda-runtime-pack> `
+  -ModelPackRoot <model-pack>, <another-model-pack>
+```
+
+The wrapper runs, with the workspace Python:
+
+```powershell
 python tools/vision/sync_offline_vision_components.py sync `
   --kit-root ..\MAVI-Offline-Binary-Kit `
-  --runtime-pack <path-to-windows-runtime-pack> `
-  --model-pack <path-to-model-pack> `
-  --component-requirements src\vision\config\components\mmdetection-phase1-v1.json `
-  --application-revision $head
+  --runtime-pack <runtime-pack> [--runtime-pack <runtime-pack> ...] `
+  --model-pack <model-pack> [--model-pack <model-pack> ...] `
+  --component-binding src\vision\config\components\phase1-bindings-v2.json `
+  --application-revision (git rev-parse HEAD)
 
-python tools/vision/sync_offline_vision_components.py verify `
+python tools/vision/sync_offline_vision_components.py verify --kit-root ..\MAVI-Offline-Binary-Kit
+python tools/vision/verify_offline_component_ownership.py --kit-root ..\MAVI-Offline-Binary-Kit
+```
+
+The store uses `vision/runtime/<runtimePackId>` and `vision/models/<modelPackId>`, described by `vision/component-inventory.json` (`mavi-offline-vision-component-inventory-v2`). Synchronization refuses a kit that lacks any pack the binding reaches for the supplied variants (`kit_incomplete:<id>`) or carries a pack it does not (`kit_unbound_component:<id>`). Re-running it with another provenance manifest for the same material component reuses the existing heavy directory. A reused ID with different material hashes is rejected as a collision.
+
+The inventory's `applicationOverlay` records:
+- `componentBindingSha256`, the SHA-256 of the binding the store was assembled for. This is the compatibility identity.
+- `revision`, the application commit the store was assembled at. This is provenance only: a store built at an earlier commit remains usable at a later one as long as the binding bytes are unchanged.
+
+To see what Setup would install from a store, without installing anything:
+
+```powershell
+python tools/vision/sync_offline_vision_components.py plan `
+  --component-binding src\vision\config\components\phase1-bindings-v2.json `
+  --variant windows-x86_64-cpu --optional-variant windows-x86_64-cuda `
   --kit-root ..\MAVI-Offline-Binary-Kit
 ```
 
-The store uses `vision/runtime/<runtimePackId>` and `vision/models/<modelPackId>`. Re-running synchronization with another provenance manifest for the same material component reuses the existing heavy directory. A reused ID with different material hashes is rejected as a collision.
+## Guided Setup (Stage 2 S2a.4)
+
+`Setup-MAVI-Development.cmd` installs the Vision composition from this store: it preflights the complete set against the repository binding, installs the Windows CPU Runtime Pack and every bound Model Pack with the installers above, and reports READY only after the launcher's own compatibility check passes (`Start-MaviVisionWorker.ps1 -VerifyOnly`). It never uses a legacy `bundle-manifest.json`. Sources, failure codes, partial-install and rerun behaviour are described in `docs/runbooks/mavi-offline-setup.md` ("Vision components (Development)"). The manual steps in "One-time v1 -> v2 migration" remain valid.
 
 ## What requires a new large download?
 
@@ -94,7 +121,7 @@ Since S2a.3 the worker composes the vision role from one file, `src/vision/confi
 - **Forward-only.** Rolling back S2a.3 is a `git revert` of its PR plus a re-install with the previous installer (v2 install state is refused by v1 code and vice versa).
 - **Qualification and promotion.** RTMDet stays `unverified` with its record `pending`; `tools/phase1/promote_phase1_release.py` and `compute_target_verified_manifest.py` refuse with `v2_promotion_not_supported_by_this_slice` until a later slice defines v2 promotion.
 
-Kit assembly for N packs and the Setup-MAVI repair are Stage 2 S2a.4; the kit sections above are unchanged by S2a.3.
+Kit assembly for N packs and the guided Setup installation followed in Stage 2 S2a.4 (see "Offline Binary Kit / component store" and "Guided Setup" above).
 
 ## Completion contract v3 deployment order
 
