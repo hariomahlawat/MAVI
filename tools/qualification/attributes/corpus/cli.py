@@ -133,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     add("submit", ("--ledger", p(required=True)), ("--assignment", p(required=True)), ("--task", p()), ("--labels-csv", p(required=True)), ("--batch-id", {"required": True}), ("--active-seconds", {"type": int}), ("--out", p(required=True)))
     add("reveal", ("--ledger", p(required=True)), ("--id", {"required": True}), ("--recipient", {"required": True}), ("--units", p(required=True)), ("--phase", {"choices": ("pilot", "main"), "default": "main"}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--out", p(required=True)))
     add("cancel-assignment", ("--ledger", p(required=True)), ("--assignment-id", {"required": True}), ("--replacement-id", {"required": True}), ("--actor", {"required": True}), ("--reason", {"required": True}))
-    add("recall-sample", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--recurrence", p(required=True)), ("--size", {"type": int, "required": True}), ("--by", {"required": True}), ("--out", p(required=True)))
+    add("recall-sample", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--recurrence", p(required=True)), ("--by", {"required": True}), ("--out", p(required=True)))
     for name in ("agreement", "pilot-report"):
         add(name, ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--task", p()), ("--ledger", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--adjudications", {"type": Path, "nargs": "*", "default": []}), ("--phase", {"choices": ("pilot", "main"), "default": "main"}), ("--include-frozen-custodian-only", {"action": "store_true"}), ("--out", p(required=True)), ("--markdown", p()))
     add("adjudicate", ("--ledger", p(required=True)), ("--adjudication", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--task", p()))
@@ -219,8 +219,8 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
     elif command == "recall-sample":
         corpus = parse_corpus(read_json(args.corpus))
         partition = read_json(args.partition)
-        _, confirmed = parse_recurrence(read_json(args.recurrence), corpus)
-        sample = draw_recall_sample(corpus, partition, confirmed, args.size)
+        parse_recurrence(read_json(args.recurrence), corpus)  # the audit must match the corpus
+        sample = draw_recall_sample(corpus, partition)
         # A review sheet: the reviewer fills each pair's decision, then it becomes the audit's
         # ``recallSample``. Only the decisions may change; F1 regenerates the pairs.
         _emit(args.out, {**sample, "by": args.by, "date": _now()[:10], "note": "decisions pending review"})

@@ -44,6 +44,7 @@ from .agreement import agreement_report
 from .annotation import (
     VALIDITY,
     AnnotationLedger,
+    build_assignment,
     build_ground_truth,
     build_reveal_packet,
     load_evaluation_view,
@@ -59,7 +60,7 @@ from .ledger import Ledger
 from .manifest import parse_corpus
 from .partition import PARTITIONS, partition_of, verify_partition
 from .pilot import pilot_report
-from .recurrence import RECALL_MINIMUM_PAIRS, draw_recall_sample, parse_recurrence, recurrence_document_sha256
+from .recurrence import RECALL_SAMPLE_PAIRS, draw_recall_sample, parse_recurrence, recurrence_document_sha256
 from .task import freeze_task, parse_task, verify_confirmed_candidate, verify_freeze_consistent_with_pilot
 
 RECORD_SCHEMA = "mavi-s2c-f1-evidence-record-v1"
@@ -109,6 +110,30 @@ def _labelling_inputs(ledger: AnnotationLedger, store: _Store, phase: str, task)
     return assignments, batches
 
 
+def _verify_assignments(ledger: AnnotationLedger, store: _Store, corpus, phase: str, expected_task) -> None:
+    """Every issued assignment must be exactly what ``build_assignment`` produces from the
+    corpus, partition and task it names: its units, object classes and per-unit attribute
+    lists cannot be edited (an assignment that quietly drops attributes on hard or frozen
+    units would otherwise pass). Pilot assignments name the candidate task, main ones the
+    frozen task. Labels made on an earlier corpus revision count only if the labelled crops
+    are byte-identical (same SHA-256s) in the final corpus."""
+    for entry in ledger.of_kind_payloads("assignment-issued"):
+        if entry["phase"] != phase:
+            continue
+        assignment = store.load(entry["assignmentSha256"], "assignment")
+        require(assignment["taskSha256"] == expected_task.sha256, f"f1_assignment_task_mismatch:{assignment['assignmentId']}")
+        named = corpus if assignment["corpusManifestSha256"] == corpus.sha256 else parse_corpus(store.raw(assignment["corpusManifestSha256"], "assignment corpus manifest"))
+        require(named.sha256 == assignment["corpusManifestSha256"], "f1_record_hash_mismatch:assignment corpus manifest")
+        partition = store.load(assignment["partitionManifestSha256"], "assignment partition manifest")
+        units = [(u["unitKind"], u["trackId"], u["observationId"]) for u in assignment["units"]]
+        rebuilt = build_assignment(assignment["assignmentId"], assignment["annotatorId"], assignment["phase"], assignment["round"], units, named, partition, assignment["partitionManifestSha256"], expected_task, assignment["guideSha256"])
+        require(rebuilt == assignment, f"f1_assignment_not_reproducible:{assignment['assignmentId']}")
+        if assignment["phase"] == "main" and named is not corpus:
+            for unit in assignment["units"]:
+                track = unit["trackId"]
+                require(track in corpus.tracks and [o.sha256 for o in named.tracks[track].observations] == [o.sha256 for o in corpus.tracks[track].observations], f"f1_labelled_imagery_changed:{track}")
+
+
 def _verify_chain(record: dict, store: _Store, missing: list[str], repo: Path) -> None:
     refs, labelling, seal_ref = record["corpus"], record["labelling"], record["seal"]
     # Corpus and audits are identified by their normalised hashes (producer order is free).
@@ -129,10 +154,10 @@ def _verify_chain(record: dict, store: _Store, missing: list[str], repo: Path) -
     if sample is None:
         missing.append("recurrence audit recall sample")
     else:
-        regenerated = draw_recall_sample(corpus, partition, recurrence_links, sample["sampleSize"])
+        regenerated = draw_recall_sample(corpus, partition, sample["sampleSize"])
         require(sample["seed"] == regenerated["seed"], "f1_recall_sample_seed_not_derived")
-        if sample["sampleSize"] < RECALL_MINIMUM_PAIRS:
-            missing.append(f"recall sample of at least {RECALL_MINIMUM_PAIRS} reviewed pairs (has {sample['sampleSize']})")
+        if sample["sampleSize"] != RECALL_SAMPLE_PAIRS:
+            missing.append(f"recall sample of exactly {RECALL_SAMPLE_PAIRS} reviewed pairs (has {sample['sampleSize']})")
         require(regenerated["populationSha256"] == sample["populationSha256"], "f1_recall_sample_population_mismatch")
         require([p["trackIds"] for p in regenerated["pairs"]] == [p["trackIds"] for p in sample["pairs"]], "f1_recall_sample_not_reproducible")
         decisions = [p["decision"] for p in sample["pairs"]]
@@ -174,6 +199,7 @@ def _verify_chain(record: dict, store: _Store, missing: list[str], repo: Path) -
     committed_path = (repo / record["attributeTask"]["candidatePath"]).resolve()
     require(committed_path.is_relative_to(repo.resolve()) and committed_path.is_file(), "f1_committed_candidate_missing")
     verify_confirmed_candidate(read_json(committed_path), candidate.document)
+    _verify_assignments(ledger, store, corpus, "pilot", candidate)
     pilot_assignments, pilot_batches = _labelling_inputs(ledger, store, "pilot", candidate)
     registered = set(ledger.batch_hashes())
     pilot = store.load(labelling["pilotReportSha256"], "pilot report")
@@ -196,6 +222,7 @@ def _verify_chain(record: dict, store: _Store, missing: list[str], repo: Path) -
     verify_freeze_consistent_with_pilot(candidate, pilot, decision)  # pilot failures resolved
     require(task.document == freeze_task(candidate, pilot, decision), "f1_frozen_task_not_reproducible")
 
+    _verify_assignments(ledger, store, corpus, "main", task)
     main_assignments, main_batches = _labelling_inputs(ledger, store, "main", task)
     guide_sha = record["annotationGuide"]["frozenSha256"]
     if any(a["guideSha256"] != guide_sha for a in main_assignments.values()):

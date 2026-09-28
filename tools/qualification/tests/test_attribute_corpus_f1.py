@@ -37,7 +37,7 @@ from attributes.corpus.frozen import build_seal, declare_improper_access, open_a
 from attributes.corpus.manifest import parse_corpus, revise_corpus
 from attributes.corpus.partition import build_partition
 from attributes.corpus.pilot import pilot_report, sample_pilot_tracks
-from attributes.corpus.recurrence import RECALL_MINIMUM_PAIRS, draw_recall_sample, parse_recurrence, recurrence_document_sha256
+from attributes.corpus.recurrence import RECALL_SAMPLE_PAIRS, draw_recall_sample, parse_recurrence, recurrence_document_sha256
 from attributes.corpus.task import attribute_verdicts
 from attributes.corpus.task import load_task, parse_task
 
@@ -57,8 +57,10 @@ def _choice(unit, attribute):
     return ("unscorable", None, "occluded") if h % 7 == 0 else ("value", ("absent", "present")[h % 2], None)
 
 
-def _labelled(ledger, name, annotator, phase, units, corpus, partition, psha, task, guide_sha, retained, choose=_choice):
+def _labelled(ledger, name, annotator, phase, units, corpus, partition, psha, task, guide_sha, retained, choose=_choice, edit=None):
     assignment = build_assignment(name, annotator, phase, "independent", units, corpus, partition, psha, task, guide_sha)
+    if edit:
+        edit(assignment)
     ledger.issue_assignment(assignment, T0)
     rows = [
         {"unitKind": u["unitKind"], "trackId": u["trackId"], "observationId": None, "attributeType": a, "outcome": choose(u, a)[0], "value": choose(u, a)[1], "unscorableReason": choose(u, a)[2]}
@@ -78,14 +80,14 @@ def _conflicting_choice(unit, attribute):
     return base
 
 
-def reviewed_recall_sample(corpus, partition, confirmed, decision="not-recurrence", size=RECALL_MINIMUM_PAIRS):
-    sample = draw_recall_sample(corpus, partition, confirmed, size)
+def reviewed_recall_sample(corpus, partition, _confirmed=None, decision="not-recurrence", size=RECALL_SAMPLE_PAIRS):
+    sample = draw_recall_sample(corpus, partition, size)
     for pair in sample["pairs"]:
         pair["decision"] = decision
     return {**sample, "by": "reviewer-1", "date": "2026-10-02", "note": "second reviewer, reproducible sample"}
 
 
-def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, context: dict | None = None, single_labelled_class: str | None = None, abandoned_pilot: bool = False, pilot_choose_b=None, forge_freeze: bool = False, conflicts: str | None = None, candidate_edit=None, recall_size: int = RECALL_MINIMUM_PAIRS, **policy_overrides: object) -> tuple[dict, Path]:
+def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, context: dict | None = None, single_labelled_class: str | None = None, abandoned_pilot: bool = False, pilot_choose_b=None, forge_freeze: bool = False, conflicts: str | None = None, candidate_edit=None, recall_size: int = RECALL_SAMPLE_PAIRS, main_assignment_edit=None, main_corpus_edit=None, **policy_overrides: object) -> tuple[dict, Path]:
     """Run the whole S2c.1 workflow and retain every record in a hash-addressed store."""
     store = tmp / "store"
     store.mkdir()
@@ -156,7 +158,13 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
     for annotator in ("ann-a", "ann-b"):
         units = main_units if annotator == "ann-a" or single_labelled_class is None else [u for u in main_units if corpus.tracks[u[1]].object_class != single_labelled_class]
         choose = _conflicting_choice if annotator == "ann-b" and conflicts else _choice
-        a, b = _labelled(ledger, f"main-{annotator}", annotator, "main", units, corpus, partition, psha, task, main_guide or guide_sha, retained, choose)
+        labelled_on = corpus
+        if main_corpus_edit:  # labels made on another corpus revision (for example re-extracted crops)
+            edited = json.loads(json.dumps(raw_corpus))
+            main_corpus_edit(edited)
+            labelled_on = parse_corpus(edited)
+            write_canonical(store / f"{labelled_on.sha256}.json", edited)  # corpora are stored by their identity
+        a, b = _labelled(ledger, f"main-{annotator}", annotator, "main", units, labelled_on, partition, psha, task, main_guide or guide_sha, retained, choose, main_assignment_edit)
         main_assignments[a["assignmentId"]], main_batches = a, main_batches + [b]
     adjudications, adjudication_shas = [], []
     if conflicts:
@@ -533,7 +541,7 @@ def test_r1_recovery_needs_new_footage_and_then_reaches_pass(tmp_path) -> None:
     half_view = seal_evaluation_view(h_eval, half_seal)
     half_main = agreement_report("main", corpus, half, document_sha256(half), task.sha256, batches, assignments, ledger.annotators(), set(), set(ledger.batch_hashes()))
     half_recurrence = {**recurrence, "recallSample": reviewed_recall_sample(corpus, half, recurrence_links)}
-    for name, document in ((corpus.sha256, raw), (recurrence_document_sha256(half_recurrence), half_recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (half, half_main, half_seal, half_view, *retained))):
+    for name, document in ((corpus.sha256, raw), (recurrence_document_sha256(half_recurrence), half_recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (half, partition, half_main, half_seal, half_view, *retained))):
         write_canonical(store2 / f"{name}.json", document)
     half_record = json.loads(json.dumps(record))
     half_record["corpus"] = {"corpusKind": "operational", "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": document_sha256(half), "recurrenceAuditSha256": recurrence_document_sha256(half_recurrence), "duplicateAuditSha256": duplicate_sha}
@@ -680,14 +688,14 @@ def test_the_recall_sample_is_reproducible_from_seed_and_inputs(tmp_path) -> Non
     build_chain(tmp_path, context=ctx)
     corpus, partition = ctx["corpus"], ctx["partition"]
     links = ctx["links"]
-    first = draw_recall_sample(corpus, partition, links, 25)
-    assert first == draw_recall_sample(corpus, partition, links, 25)
+    first = draw_recall_sample(corpus, partition, 25)
+    assert first == draw_recall_sample(corpus, partition, 25)
     # Seed and population come only from the corpus, the Track assignments and the confirmed
     # groups: an edit that moves no Track (a rejected group's note, say) draws the same pairs.
     renamed = dict(partition, policy={**partition["policy"], "policyId": "renamed-policy"})
-    assert draw_recall_sample(corpus, renamed, links, 25) == first
+    assert draw_recall_sample(corpus, renamed, 25) == first
     # A larger sample extends the smaller one, so regrowing cannot push a found pair out.
-    assert draw_recall_sample(corpus, partition, links, 40)["pairs"][:25] == first["pairs"]
+    assert draw_recall_sample(corpus, partition, 40)["pairs"][:25] == first["pairs"]
     parts = {a["trackId"]: a["partition"] for a in partition["assignments"]}
     for pair in first["pairs"]:
         a, b = pair["trackIds"]
@@ -769,7 +777,7 @@ def test_a_failed_seal_write_leaves_nothing_behind_and_retries_cleanly(tmp_path,
 
 def test_a_tiny_or_reseeded_recall_sample_does_not_pass(tmp_path) -> None:
     record, store = build_chain(tmp_path, recall_size=1)
-    assert f1_verdict(record, tmp_path, store)["missing"] == [f"recall sample of at least {RECALL_MINIMUM_PAIRS} reviewed pairs (has 1)"]
+    assert f1_verdict(record, tmp_path, store)["missing"] == [f"recall sample of exactly {RECALL_SAMPLE_PAIRS} reviewed pairs (has 1)"]
     (tmp_path / "again").mkdir()
     record, store2 = build_chain(tmp_path / "again")
     with pytest.raises(CorpusError, match="f1_recall_sample_seed_not_derived"):
@@ -858,7 +866,7 @@ def test_a_rejected_group_nonce_cannot_regenerate_the_recall_sample(tmp_path) ->
     assert groups_sha != ctx["hashes"]["recurrence"]
     rebuilt = build_partition(corpus, partition["policy"], new_links + [l for l in links if l.kind == "duplicate"], {"recurrence": groups_sha, "duplicate": ctx["hashes"]["duplicate"]})
     assert document_sha256(rebuilt) != document_sha256(partition) and rebuilt["assignments"] == partition["assignments"]
-    assert draw_recall_sample(corpus, rebuilt, new_links, 50) == draw_recall_sample(corpus, partition, links, 50)
+    assert draw_recall_sample(corpus, rebuilt, 50) == draw_recall_sample(corpus, partition, 50)
 
 
 def test_the_candidate_path_is_pinned_to_the_committed_candidate(tmp_path) -> None:
@@ -866,3 +874,60 @@ def test_the_candidate_path_is_pinned_to_the_committed_candidate(tmp_path) -> No
     record["attributeTask"]["candidatePath"] = "guide.md"
     with pytest.raises(CorpusError, match="f1_candidate_path_not_the_committed_candidate"):
         f1_verdict(record, tmp_path, store)
+
+
+
+# ---- independent re-review of 6e3fe74 ------------------------------------------------------------
+
+
+def test_an_edited_assignment_that_drops_attributes_is_refused(tmp_path) -> None:
+    """Units may not quietly lose attributes (for example on frozen-test Tracks)."""
+    def drop(assignment):
+        for unit in assignment["units"]:
+            if unit["objectClass"] == "person":
+                unit["attributeTypes"] = unit["attributeTypes"][:2]
+
+    record, store = build_chain(tmp_path, main_assignment_edit=drop)
+    with pytest.raises(CorpusError, match="f1_assignment_not_reproducible"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_labels_on_other_imagery_do_not_count(tmp_path) -> None:
+    """Main labels made on a corpus revision whose crops differ from the final corpus's."""
+    def reextracted(raw):
+        raw["revision"] = 2
+        raw["supersedes"] = "c" * 64
+        raw["tracks"][0]["observations"][0]["sha256"] = "d" * 64
+
+    record, store = build_chain(tmp_path, main_corpus_edit=reextracted)
+    with pytest.raises(CorpusError, match="f1_labelled_imagery_changed"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_a_confirmed_group_inside_one_partition_cannot_reseed_the_recall_sample(tmp_path) -> None:
+    ctx: dict = {}
+    build_chain(tmp_path, context=ctx)
+    corpus, partition, links = ctx["corpus"], ctx["partition"], ctx["links"]
+    parts = {a["trackId"]: a["partition"] for a in partition["assignments"]}
+    by_partition = {}
+    pair = None
+    for track in sorted(corpus.tracks):
+        key = (parts[track], corpus.tracks[track].object_class)
+        if key in by_partition:
+            pair = [by_partition[key], track]
+            break
+        by_partition[key] = track
+    audit = dict(ctx["recurrence"])
+    audit.pop("recallSample", None)
+    audit["groups"] = [{"groupId": "same-side", "subjectKind": corpus.tracks[pair[0]].object_class, "trackIds": sorted(pair), "status": "confirmed",
+                        "proposer": {"kind": "reviewer", "family": None}, "decision": {"by": "reviewer-1", "date": "2026-10-02", "note": "same person, same partition"}}]
+    groups_sha, new_links = parse_recurrence(audit, corpus)
+    rebuilt = build_partition(corpus, partition["policy"], new_links + [l for l in links if l.kind == "duplicate"], {"recurrence": groups_sha, "duplicate": ctx["hashes"]["duplicate"]})
+    assert rebuilt["assignments"] == partition["assignments"]
+    assert draw_recall_sample(corpus, rebuilt) == draw_recall_sample(corpus, partition)
+
+
+def test_a_recall_sample_larger_than_the_fixed_size_is_refused(tmp_path) -> None:
+    """A free, larger size would let a reviewer draw more pairs and stop before a found one."""
+    record, store = build_chain(tmp_path, recall_size=RECALL_SAMPLE_PAIRS + 50)
+    assert f1_verdict(record, tmp_path, store)["missing"] == [f"recall sample of exactly {RECALL_SAMPLE_PAIRS} reviewed pairs (has {RECALL_SAMPLE_PAIRS + 50})"]

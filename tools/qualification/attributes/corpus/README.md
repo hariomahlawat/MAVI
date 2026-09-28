@@ -117,9 +117,9 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
   - Rejected groups are retained.
   - This is bookkeeping, not re-identification.
   - **Recall is bounded by the reviewers.** The `recallSample` is a reproducible human second look, with no ReID, embeddings or face matching:
-    - `recall-sample --size` draws it deterministically (method `recall-sample-v1`) from the population of same-class Track pairs in different partitions;
-    - the seed and the population identity are **derived** (`recall_seed`), never chosen, and only from content that decides the sample: the corpus, which Track is in which partition, and the *confirmed* recurrence groups. An edit that moves no Track (a rejected group's note, a renamed policy) draws the same pairs, so a sample that found a recurrence cannot be regenerated. A larger sample extends a smaller one. Re-partitioning with another policy seed changes the Track assignments, which is visible and must be justified in the MSR (recorded residual);
-    - F1 needs at least `RECALL_MINIMUM_PAIRS` (100) reviewed pairs, a provisional floor: with no recurrence found in n random pairs, the one-sided 95% upper bound on the miss rate is about 3/n;
+    - `recall-sample` draws it deterministically (method `recall-sample-v1`) from the population of same-class Track pairs in different partitions;
+    - the seed is **derived** from Track identity only (`recall_seed`: every Track ID and its object class), never chosen, and independent of the partition, the audits and any metadata. The pair order is therefore fixed for the corpus. No edit can redraw the sample: a new recurrence group, a policy field, a metadata revision. A found pair leaves the sample only if a re-partition really puts both Tracks in one partition, which is exactly when it stops leaking;
+    - the size is fixed at `RECALL_SAMPLE_PAIRS` (100) by the method, so a reviewer cannot draw more pairs and stop before a found one. Raising it is a reviewed change to that constant. With no recurrence found in n random pairs, the one-sided 95% upper bound on the miss rate is about 3/n;
     - the population is identified by the corpus, the final partition and the recurrence groups (`populationSha256`);
     - the sample holds the exact sampled pairs, and the reviewer records one decision per pair: `recurrence`, `not-recurrence` or `uncertain`;
     - F1 regenerates the sample and requires the same population and the same pairs, in order. An altered, added or foreign pair is refused;
@@ -248,6 +248,7 @@ This is the foundation for later camera/site generalisation analysis, and delibe
 
 The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, statistic, seal status or camera support. The checker independently re-verifies all machine-verifiable retained evidence, and fails closed when required retained evidence or human attestations are missing or inconsistent.
 - **Ledger replay:** a hash chain proves order, not validity. `AnnotationLedger.replay` re-applies every write rule (registration, assignment, submission, cancellation, reveal, adjudication) to every retained entry, loading the documents it names. Each payload must equal what the rule computes. A hand-written entry the tool would have refused is refused again: a cancellation without a fresh replacement, an adjudication on a packet never issued, widened conflict keys.
+- **Assignment rebuild:** every retained assignment must equal what `build_assignment` produces from the corpus, partition and task it names: the candidate for the pilot, the frozen task for main. Units, object classes and per-unit attribute lists cannot be edited. Main labels made on an earlier corpus revision count only if the labelled crops are byte-identical in the final corpus.
 - **Candidate binding:** `attributeTask.candidatePath` must be the committed candidate file (pinned), and the candidate behind the pilot must equal it, apart from an owner confirmation of its pilot rules. The raisable thresholds may only be equal or higher, and every other rule (for example `mergeConfusionShare`) is unchanged. It loads everything from the store, re-derives identities, and **recomputes** every conclusion from the primary inputs: assignments, batches, adjudications and the ledger. The labelling state it uses is the ledger as it stood at the ground truth's head.
 - **Partition**, from the corpus and both audits (`verify_partition`).
 - **Pilot report**, recomputed from the candidate task and every ledger-registered pilot batch, on the partition and corpus the pilot ran on (both retained). It must equal the retained report.
@@ -292,6 +293,8 @@ A malformed retained record is refused. The guide path must resolve inside the r
   - truncating the annotation ledger after a `seal-created` entry, then re-sealing plainly, hides a compromised seal.
 
   Hash chains cannot detect truncation on their own. Commit the F1 record (seal SHA-256, `annotationLedgerHead`, `accessLogHead`) at sealing and whenever either log changes, so Git history anchors the heads.
+- The pilot units are chosen by the operator (`assign --tracks`, from training). F1 checks that they are training Tracks, but not that they are the seeded `pilot-sample`. Selecting easy pilot units could inflate pilot agreement; the pilot sample seed and size belong in the MSR.
+- Re-partitioning with a different policy seed or duplicate threshold changes Track assignments (visible, to be justified in the MSR); it cannot reseed the recall sample, though it changes the population filter.
 - The pilot's own retained partition is loaded by hash but not re-verified against its audits. Only the check that matters for leakage is enforced: every pilot Track is in training in the final partition.
 - Double-labelling agreement on the frozen test itself is computed only in custodian-only reports (`--include-frozen-custodian-only`). It is not part of F1, because F1's agreement evidence must stay free of frozen-test label statistics.
 
@@ -409,3 +412,7 @@ Tests added after the third review:
 | one replacement per cancellation | killed (`test_one_replacement_cannot_cover_several_cancellations`) |
 | recall seed from sample-deciding content only (confirming review of `fc98b98`) | killed (`test_a_rejected_group_nonce_cannot_regenerate_the_recall_sample`) |
 | candidate path pinned | killed (`test_the_candidate_path_is_pinned_to_the_committed_candidate`) |
+| assignment rebuilt against its named corpus, partition and task (independent re-review of `6e3fe74`) | killed (`test_an_edited_assignment_that_drops_attributes_is_refused`) |
+| labelled crops unchanged in the final corpus | killed (`test_labels_on_other_imagery_do_not_count`) |
+| recall seed from Track identity only | killed (`test_a_confirmed_group_inside_one_partition_cannot_reseed_the_recall_sample`) |
+| recall sample size fixed | killed (`test_a_recall_sample_larger_than_the_fixed_size_is_refused`; it first survived with only the too-small test) |
