@@ -60,10 +60,12 @@ def _assignments_sha256(partition: dict) -> str:
 
 def recall_seed(corpus: CorpusManifest) -> str:
     """The seed depends only on which Tracks exist (and their class), never on the partition,
-    the audits or any metadata: the pair order is fixed for the corpus, so no edit — a new
-    recurrence group, a policy field, a corpus metadata revision — can redraw the sample. A
-    found pair leaves the sample only if a re-partition really puts both Tracks in one
-    partition, which is exactly the case in which it no longer leaks."""
+    the audits or any metadata: the pair order is fixed for the corpus, so no edit that
+    leaves the Track assignments unchanged (a new recurrence group, a policy field, a corpus
+    metadata revision) can redraw the sample. A re-partition that changes assignments
+    changes which of the ordered pairs are cross-partition, and can therefore push a found
+    pair out of the fixed-size sample; that lever is visible (the assignments change) and
+    is a recorded residual."""
     return f"{RECALL_METHOD}:{_track_identity_sha256(corpus)}"
 
 

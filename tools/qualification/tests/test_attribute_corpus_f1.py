@@ -931,3 +931,16 @@ def test_a_recall_sample_larger_than_the_fixed_size_is_refused(tmp_path) -> None
     """A free, larger size would let a reviewer draw more pairs and stop before a found one."""
     record, store = build_chain(tmp_path, recall_size=RECALL_SAMPLE_PAIRS + 50)
     assert f1_verdict(record, tmp_path, store)["missing"] == [f"recall sample of exactly {RECALL_SAMPLE_PAIRS} reviewed pairs (has {RECALL_SAMPLE_PAIRS + 50})"]
+
+
+
+def test_labels_on_a_track_whose_class_changed_do_not_count(tmp_path) -> None:
+    def reclassified(raw):
+        raw["revision"] = 2
+        raw["supersedes"] = "c" * 64
+        track = raw["tracks"][0]
+        track["objectClass"] = "vehicle" if track["objectClass"] == "person" else "person"
+
+    record, store = build_chain(tmp_path, main_corpus_edit=reclassified)
+    with pytest.raises(CorpusError, match="f1_labelled_imagery_changed|f1_assignment_not_reproducible"):
+        f1_verdict(record, tmp_path, store)

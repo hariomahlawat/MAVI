@@ -118,7 +118,7 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
   - This is bookkeeping, not re-identification.
   - **Recall is bounded by the reviewers.** The `recallSample` is a reproducible human second look, with no ReID, embeddings or face matching:
     - `recall-sample` draws it deterministically (method `recall-sample-v1`) from the population of same-class Track pairs in different partitions;
-    - the seed is **derived** from Track identity only (`recall_seed`: every Track ID and its object class), never chosen, and independent of the partition, the audits and any metadata. The pair order is therefore fixed for the corpus. No edit can redraw the sample: a new recurrence group, a policy field, a metadata revision. A found pair leaves the sample only if a re-partition really puts both Tracks in one partition, which is exactly when it stops leaking;
+    - the seed is **derived** from Track identity only (`recall_seed`: every Track ID and its object class), never chosen, and independent of the partition, the audits and any metadata. The pair order is therefore fixed for the corpus. No edit that leaves the Track assignments unchanged can redraw the sample, whether a new recurrence group, a policy field or a metadata revision;
     - the size is fixed at `RECALL_SAMPLE_PAIRS` (100) by the method, so a reviewer cannot draw more pairs and stop before a found one. Raising it is a reviewed change to that constant. With no recurrence found in n random pairs, the one-sided 95% upper bound on the miss rate is about 3/n;
     - the population is identified by the corpus, the final partition and the recurrence groups (`populationSha256`);
     - the sample holds the exact sampled pairs, and the reviewer records one decision per pair: `recurrence`, `not-recurrence` or `uncertain`;
@@ -294,7 +294,7 @@ A malformed retained record is refused. The guide path must resolve inside the r
 
   Hash chains cannot detect truncation on their own. Commit the F1 record (seal SHA-256, `annotationLedgerHead`, `accessLogHead`) at sealing and whenever either log changes, so Git history anchors the heads.
 - The pilot units are chosen by the operator (`assign --tracks`, from training). F1 checks that they are training Tracks, but not that they are the seeded `pilot-sample`. Selecting easy pilot units could inflate pilot agreement; the pilot sample seed and size belong in the MSR.
-- Re-partitioning with a different policy seed or duplicate threshold changes Track assignments (visible, to be justified in the MSR); it cannot reseed the recall sample, though it changes the population filter.
+- Re-partitioning with a different policy seed or duplicate threshold changes Track assignments (visible, to be justified in the MSR); it cannot reseed the recall sample, but it changes which of the ordered pairs are cross-partition. A found pair can therefore be pushed out of the fixed-size sample even though its Tracks still cross partitions. Treat any re-partition after a recall review as requiring the MSR to report the previous sample and its findings.
 - The pilot's own retained partition is loaded by hash but not re-verified against its audits. Only the check that matters for leakage is enforced: every pilot Track is in training in the final partition.
 - Double-labelling agreement on the frozen test itself is computed only in custodian-only reports (`--include-frozen-custodian-only`). It is not part of F1, because F1's agreement evidence must stay free of frozen-test label statistics.
 

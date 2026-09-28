@@ -116,7 +116,7 @@ def _verify_assignments(ledger: AnnotationLedger, store: _Store, corpus, phase: 
     lists cannot be edited (an assignment that quietly drops attributes on hard or frozen
     units would otherwise pass). Pilot assignments name the candidate task, main ones the
     frozen task. Labels made on an earlier corpus revision count only if the labelled crops
-    are byte-identical (same SHA-256s) in the final corpus."""
+    are byte-identical in the final corpus (same observations, SHA-256s and object class)."""
     for entry in ledger.of_kind_payloads("assignment-issued"):
         if entry["phase"] != phase:
             continue
@@ -131,7 +131,9 @@ def _verify_assignments(ledger: AnnotationLedger, store: _Store, corpus, phase: 
         if assignment["phase"] == "main" and named is not corpus:
             for unit in assignment["units"]:
                 track = unit["trackId"]
-                require(track in corpus.tracks and [o.sha256 for o in named.tracks[track].observations] == [o.sha256 for o in corpus.tracks[track].observations], f"f1_labelled_imagery_changed:{track}")
+                labelled = [(o.observation_id, o.sha256) for o in named.tracks[track].observations]
+                final = [(o.observation_id, o.sha256) for o in corpus.tracks[track].observations] if track in corpus.tracks else None
+                require(final == labelled and corpus.tracks[track].object_class == named.tracks[track].object_class, f"f1_labelled_imagery_changed:{track}")
 
 
 def _verify_chain(record: dict, store: _Store, missing: list[str], repo: Path) -> None:
