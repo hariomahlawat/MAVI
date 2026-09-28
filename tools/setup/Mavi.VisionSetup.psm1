@@ -17,6 +17,7 @@ $ErrorActionPreference = "Stop"
 # installers reuse a verified installed pack.
 
 Import-Module (Join-Path $PSScriptRoot "Mavi.VisionRuntime.Common.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot "Mavi.VisionRuntime.Integrity.psm1") -Force
 
 $script:VisionSetupRole = "vision"
 $script:VisionSetupVariant = "windows-x86_64-cpu"
@@ -185,9 +186,17 @@ function Invoke-MaviVisionComponentPreflight {
         })
         $installed = Resolve-MaviVisionBoundModelPacks -StoreRoot $ModelStoreRoot -CapabilityBindings $bindings
         foreach ($item in @($toolPlan.modelPacks)) {
-            $status = @(@($installed.ModelPacks) | Where-Object { $_.ModelPackId -ceq [string]$item.modelPackId } | ForEach-Object { $_.Status })
-            if ($installed.LegacyInstallation -or @($status | Where-Object { $_ -ne "installed" }).Count -gt 0 -or $status.Count -eq 0) {
+            $entries = @(@($installed.ModelPacks) | Where-Object { $_.ModelPackId -ceq [string]$item.modelPackId })
+            if ($installed.LegacyInstallation -or $entries.Count -eq 0 -or @($entries | Where-Object { $_.Status -ne "installed" }).Count -gt 0) {
                 throw "kit_incomplete:$($item.modelPackId): the Runtime Bundle '$root' carries no Model Pack, and Model Pack '$($item.modelPackId)' is not installed in '$ModelStoreRoot'. Use a Vision component store (vision\component-inventory.json) or install the Model Pack first."
+            }
+            # "installed" only means a matching manifest and a v2 state exist.
+            # Before anything is installed, the pack must also pass the checks
+            # the launcher applies to it: state bound to the manifest, state
+            # identity equal to the manifest, and every artefact re-hashed.
+            foreach ($entry in $entries) {
+                try { Assert-MaviVisionSetupInstalledModelPack -Entry $entry -StoreRoot $ModelStoreRoot }
+                catch { throw "kit_incomplete:$($item.modelPackId): the installed Model Pack in '$($entry.PackPath)' is not valid ($($_.Exception.Message)); re-install it or use a Vision component store." }
             }
             $modelPacks.Add([pscustomobject][ordered]@{ ModelPackId = [string]$item.modelPackId; CapabilityIds = @($item.capabilityIds | ForEach-Object { [string]$_ }); SourceRoot = $null })
         }
@@ -205,6 +214,26 @@ function Invoke-MaviVisionComponentPreflight {
         ModelPacks = $modelPacks.ToArray()
         OptionalRuntimePacks = $optional.ToArray()
     }
+}
+
+function Assert-MaviVisionSetupInstalledModelPack {
+    <#
+    .SYNOPSIS
+    The launcher's non-mutating checks of one installed Model Pack (Start-MaviVisionWorker.ps1, per bound pack).
+    #>
+    param(
+        [Parameter(Mandatory = $true)][object]$Entry,
+        [Parameter(Mandatory = $true)][string]$StoreRoot
+    )
+    $manifest = $Entry.ModelManifest
+    [void](Assert-MaviVisionModelPackManifest -Manifest $manifest)
+    if ((Get-MaviVisionModelPackDirectory -Manifest $manifest) -cne [string]$Entry.PackDirectory) { throw "the manifest declares another pack directory" }
+    $manifestSha = (Get-FileHash -LiteralPath ([string]$Entry.ManifestPath) -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($manifestSha -cne (Get-MaviVisionPropertyText -Value $Entry.ModelState -Name "modelPackManifestSha256").ToLowerInvariant()) { throw "model-install.json does not bind the installed manifest" }
+    $mismatch = Get-MaviVisionModelInstallStateMismatch -State $Entry.ModelState -Manifest $manifest
+    if ($null -ne $mismatch) { throw "model-install.json does not match the manifest ($mismatch)" }
+    if (@($manifest.capabilityIds) -cnotcontains [string]$Entry.CapabilityId) { throw "the pack does not provide capability '$($Entry.CapabilityId)'" }
+    [void](Assert-MaviVisionInstalledModelPackIntegrity -ModelRoot $StoreRoot -Manifest $manifest)
 }
 
 function Resolve-MaviVisionRuntimeBundleEntry {
@@ -323,4 +352,4 @@ function Format-MaviVisionInstalled {
     return ($Completed -join ", ")
 }
 
-Export-ModuleMember -Function Get-MaviVisionSetupModelStoreRoot, Resolve-MaviVisionSetupSource, Invoke-MaviVisionComponentPlanTool, Invoke-MaviVisionComponentPreflight, Resolve-MaviVisionRuntimeBundleEntry, Invoke-MaviVisionComponentInstallation
+Export-ModuleMember -Function Get-MaviVisionSetupModelStoreRoot, Assert-MaviVisionSetupInstalledModelPack, Resolve-MaviVisionSetupSource, Invoke-MaviVisionComponentPlanTool, Invoke-MaviVisionComponentPreflight, Resolve-MaviVisionRuntimeBundleEntry, Invoke-MaviVisionComponentInstallation

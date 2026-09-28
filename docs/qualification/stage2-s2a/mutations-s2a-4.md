@@ -8,7 +8,7 @@
 
 Each mutation replaced one exact anchor in one file. The guarding suites were then run and the file was restored byte for byte, with its SHA-256 checked after restoration. A mutation counts as **caught** only if at least one guarding suite fails. The four mutations the plan requires are M01 (binding-SHA check), M03 and M04 (the full required-model loop, on the Python and PowerShell sides), M05 (the final compatibility assertion) and M07 (revision made a hard gate).
 
-## Results: 25 of 25 caught
+## Results: 26 of 26 caught
 
 | Id | Mutation | File | Caught by |
 |---|---|---|---|
@@ -37,6 +37,7 @@ Each mutation replaced one exact anchor in one file. The guarding suites were th
 | M23 | launcher `-VerifyOnly` returns nowhere (check removed) | `tools/setup/Start-MaviVisionWorker.ps1` | Setup contracts: `-VerifyOnly` must stop after the compatibility assertion and before the worker starts |
 | M24 | Setup restores a `bundle-manifest.json` probe | `tools/setup/Setup-MAVI.ps1` | Setup contracts: D-1 source pin |
 | M25 | combined setup bundle omits the Vision component store (PR review, added after it) | `tools/setup/New-MaviOfflineSetupBundle.ps1` | Setup contracts: bundle-builder source pin |
+| M26 | Runtime Bundle preflight trusts an installed Model Pack's status without the launcher's state/integrity checks (owner review, added after it) | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: a corrupt artefact or stale `model-install.json` is refused before the Runtime Pack is installed (without the check it surfaces only at readiness, after the runtime install) |
 
 M16 first survived: no case put a Runtime Pack at the bundle root. The flat-bundle case was added, and M16 is now caught.
 

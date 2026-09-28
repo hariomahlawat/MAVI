@@ -447,6 +447,25 @@ try {
     $manual = Invoke-VisionSetup -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $bundleOnly; Origin = "explicit" }) -Binding $happyBinding -StoreRoot $happyStore -Compose
     Assert-Equal $script:Calls @("preflight-ok", "runtime:$cpuId", "assert") "a Runtime Bundle over already installed Model Packs"
     Assert-Equal $manual.Status "ready" "the Runtime Bundle path"
+    # An installed Model Pack that is stale or corrupt fails the Runtime Bundle
+    # preflight itself, before the Runtime Pack is installed.
+    foreach ($damage in @("artefact", "state")) {
+        $damagedStore = Join-Path $tempRoot ("store-damaged-" + $damage)
+        Copy-Item -LiteralPath $happyStore -Destination $damagedStore -Recurse
+        if ($damage -eq "artefact") {
+            Write-Utf8File -Path (Join-Path $damagedStore (Join-Path "fixture-embedding" "weights.bin")) -Text "corrupted"
+        }
+        else {
+            $statePath = Join-Path $damagedStore (Join-Path "fixture-embedding" "model-install.json")
+            $damagedState = Read-JsonFile $statePath
+            $damagedState.modelPackManifestSha256 = ("0" * 64)
+            Write-JsonFile -Path $statePath -Value $damagedState
+        }
+        Reset-Calls
+        Assert-Throws { Invoke-VisionSetup -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $bundleOnly; Origin = "explicit" }) -Binding $happyBinding -StoreRoot $damagedStore -Compose } "kit_incomplete:$modelB"
+        Assert-Equal $script:Calls.Count 0 "a damaged installed Model Pack ($damage) must be refused before the Runtime Pack is installed"
+    }
+
     # A flat Runtime Bundle (the CPU pack at its root) offers no CUDA pack: the
     # optional CUDA lookup must not take the CPU manifest it finds there.
     $flatBundle = Join-Path $tempRoot "flat-runtime"

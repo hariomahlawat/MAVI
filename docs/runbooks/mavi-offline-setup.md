@@ -238,7 +238,7 @@ MAVI-Offline-Binary-Kit\
     models\<modelPackId>\model-pack-manifest.json ...
 ~~~
 
-A Runtime Bundle root holds one Runtime Pack, at `<root>\runtime-pack-manifest.json` or `<root>\windows-x86_64-cpu\runtime-pack-manifest.json` (and optionally `<root>\windows-x86_64-cuda\`). It carries no Model Pack, so every bound Model Pack must already be installed. A directory that only has the legacy `bundle-manifest.json` is **not** an installable Runtime Pack; Setup fails and says so.
+A Runtime Bundle root holds one Runtime Pack, at `<root>\runtime-pack-manifest.json` or `<root>\windows-x86_64-cpu\runtime-pack-manifest.json` (and optionally `<root>\windows-x86_64-cuda\`). It carries no Model Pack, so every bound Model Pack must already be installed, and intact: its install state must match its manifest and every artefact must re-hash, or Setup fails before installing the Runtime Pack. A directory that only has the legacy `bundle-manifest.json` is **not** an installable Runtime Pack; Setup fails and says so.
 
 **Preflight, then install.** Before installing anything, Setup checks the complete set:
 
