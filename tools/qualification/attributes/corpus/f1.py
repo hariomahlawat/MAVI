@@ -189,7 +189,11 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     for older, newer in zip(seals, seals[1:]):
         old_seal = store.load(older["sealSha256"], "superseded seal")
         new_seal = store.load(newer["sealSha256"], "superseding seal")
-        verify_superseding_seal(new_seal, old_seal, store.ledger(f"frozen-access-log-{older['sealSha256']}.jsonl"))
+        verify_superseding_seal(
+            new_seal, old_seal, store.ledger(f"frozen-access-log-{older['sealSha256']}.jsonl"), corpus,
+            store.load(old_seal["partitionManifestSha256"], "superseded partition manifest"),
+            partition if newer is seals[-1] else store.load(new_seal["partitionManifestSha256"], "superseding partition manifest"),
+        )
     log = store.ledger(ACCESS_LOG)
     require(bool(log.entries) and log.entries[0]["kind"] == "seal-created" and log.entries[0]["payload"]["sealSha256"] == seal_ref["sealSha256"], "f1_access_log_not_bound_to_seal")
     log.require_extends(seal_ref["accessLogHead"])

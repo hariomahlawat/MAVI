@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     add("adjudicate", ("--ledger", p(required=True)), ("--adjudication", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--task", p()))
     add("freeze-task", ("--task", p(required=True)), ("--pilot-report", p(required=True)), ("--decision", p(required=True)), ("--out", p(required=True)))
     add("ground-truth", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--task", p(required=True)), ("--ledger", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--adjudications", {"type": Path, "nargs": "*", "default": []}), ("--evaluation-out", p(required=True)), ("--frozen-out", p(required=True)))
-    add("seal", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--frozen", p(required=True)), ("--evaluation", p(required=True)), ("--sealed-evaluation-out", p(required=True)), ("--ledger", p(required=True)), ("--by", {"required": True}), ("--custody-note", {"required": True}), ("--access-log", p(required=True)), ("--supersedes", p()), ("--supersedes-reason", {}), ("--superseded-access-log", p()), ("--out", p(required=True)))
+    add("seal", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--frozen", p(required=True)), ("--evaluation", p(required=True)), ("--sealed-evaluation-out", p(required=True)), ("--ledger", p(required=True)), ("--by", {"required": True}), ("--custody-note", {"required": True}), ("--access-log", p(required=True)), ("--supersedes", p()), ("--supersedes-reason", {}), ("--superseded-access-log", p()), ("--superseded-partition", p()), ("--out", p(required=True)))
     add("frozen-access", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--frozen", p(required=True)), ("--actor", {"required": True}), ("--purpose", {"required": True}), ("--stage", {"required": True}))
     add("declare-improper-access", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--actor", {"required": True}), ("--stage", {"required": True}), ("--description", {"required": True}))
     add("seal-status", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--recorded-head", {}))
@@ -238,12 +238,12 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
             require(target.parent.is_dir(), f"seal_output_directory_missing:{target.name}")
         supersedes = None
         if args.supersedes:
-            require(args.supersedes_reason and args.superseded_access_log, "seal_supersedes_needs_reason_and_old_log")
+            require(args.supersedes_reason and args.superseded_access_log and args.superseded_partition, "seal_supersedes_needs_reason_old_log_and_old_partition")
             old_seal = read_json(args.supersedes)
             supersedes = {"sealSha256": document_sha256(old_seal), "reason": args.supersedes_reason}
         seal = build_seal(corpus, partition, document_sha256(partition), read_json(args.frozen), evaluation, ledger.head, args.by, _now(), args.custody_note, supersedes)
         if supersedes is not None:
-            verify_superseding_seal(seal, old_seal, Ledger(args.superseded_access_log))
+            verify_superseding_seal(seal, old_seal, Ledger(args.superseded_access_log), corpus, read_json(args.superseded_partition), partition)
         # Validate everything, write the seal's files, and only then record it in the ledger:
         # a failed run leaves no ledger entry, so a retry is not mistaken for a re-seal.
         ledger.check_seal(seal)

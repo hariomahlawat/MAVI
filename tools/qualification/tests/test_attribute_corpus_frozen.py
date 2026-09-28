@@ -140,8 +140,8 @@ def test_a_compromised_seal_requires_a_new_frozen_set(sealed) -> None:
     declare_improper_access(sealed["log"], sealed["seal"], "engineer-1", "S2c.3", "file opened while debugging the harness", T0)
     assert seal_status(sealed["log"], sealed["seal"])["status"] == "compromised"
     reused = build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["frozen"], sealed["evaluation"], sealed["ledger"].head, "custodian-1", T0, "x", supersedes={"sealSha256": document_sha256(sealed["seal"]), "reason": "compromised in S2c.3"})
-    with pytest.raises(CorpusError, match="seal_reuses_compromised_frozen_set"):
-        verify_superseding_seal(reused, sealed["seal"], sealed["log"])
+    with pytest.raises(CorpusError, match="seal_reuses_compromised_frozen_tracks"):
+        verify_superseding_seal(reused, sealed["seal"], sealed["log"], sealed["corpus"], sealed["partition"], sealed["partition"])
 
 
 def test_corpus_report_carries_diversity_and_the_synthetic_banner(sealed) -> None:

@@ -92,7 +92,10 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - moves only ever go into training, so an evaluation partition can lose clusters but never gain a leaking one;
    - every move is recorded (`clusterId`, `from`, `to`, `reasons`), and each cluster keeps its `initialPartition`. Nothing is deleted.
 5. **Checks:** Track and camera counts per partition, and cameras unseen outside the frozen test. Shortfalls (fewer than `minimumCamerasPerPartition`, no unseen frozen camera) are recorded as **limitations**, never waived.
-6. **Pinned training Tracks.** The optional `policy.pinnedTrainingTrackIds` names Tracks that must stay in training, such as the pilot Tracks when the corpus is re-partitioned after a compromised seal. Their clusters move to training (reason `pinned-training`) before link resolution. The policy is embedded in the manifest, so this is reproducible.
+6. **Pinned training Tracks.** The optional `policy.pinnedTrainingTrackIds` names Tracks that must stay in training. Their clusters move to training (reason `pinned-training`) before link resolution. The policy is embedded in the manifest, so this is reproducible.
+   - An R1 re-partition after a compromised seal pins the pilot Tracks and **every compromised frozen Track**.
+   - Pinning moves whole clusters, so it can cost the held-out camera: a pinned Track in a held-out site pulls that site's cluster into training. That shortfall is recorded as a limitation.
+   - In practice, a frozen set with an unseen camera after a compromise usually needs new footage (a new site or camera).
 7. **Audits are bound.** The manifest records the recurrence and duplicate audit hashes. An operational corpus cannot be partitioned without both audits (`partition_operational_requires_audits`).
 
 `verify_partition` takes the audits actually supplied, re-derives everything and refuses:
@@ -130,9 +133,12 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
 7. `reveal`, then `adjudicate` (records the JSON decision file in the ledger), then `ground-truth`, then `agreement --phase main`.
    - An adjudication counts only if the ledger issued its reveal packet to that adjudicator, covering every unit it decides.
    - A unit × attribute already decided can be decided again only by a correction that names the earlier adjudication in `supersedes`. The superseded adjudication stays in the ledger but stops counting.
+   - An adjudication with no decisions is refused, so an adjudication cannot be withdrawn without replacing it.
 8. `seal` commits both views, records a `seal-created` event in the annotation ledger, writes the sealed evaluation view and creates the access log. Then use `frozen-access` / `seal-status` for any later access.
    - The command validates every input and output path, then writes the access log, the seal and the sealed view, and only then appends `seal-created`. A failed run leaves no ledger entry, so a retry is not mistaken for a re-seal.
-   - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason` and `--superseded-access-log`. That old log must show the old seal compromised, and the new frozen member set must differ.
+   - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason`, `--superseded-access-log` and `--superseded-partition`.
+   - That old log must show the old seal compromised.
+   - Both member sets are recomputed from their partitions, and the new frozen set may contain **no** Track of the compromised one.
 
 **The ledger** is append-only and hash-chained. It enforces independence:
 - no reveal packet while an independent assignment covering its units is unsubmitted;
@@ -215,7 +221,7 @@ The committed record names each artefact by SHA-256 and asserts nothing else: no
 - **Seal:**
   - its frozen member set is recomputed;
   - it must be the latest `seal-created` in the ledger;
-  - every earlier seal must be compromised (by its own retained log) and superseded by a different set.
+  - every earlier seal must be compromised (by its own retained log) and superseded by a frozen set disjoint from it.
 - **Access log:** it must begin with this seal, extend the recorded head and show no improper access.
 - **Camera support**, from the partition's checks. The record must carry every partition limitation.
 
@@ -236,7 +242,7 @@ A malformed retained record is refused. The guide path must resolve inside the r
   - truncating the annotation ledger after a `seal-created` entry, then re-sealing plainly, hides a compromised seal.
 
   Hash chains cannot detect truncation on their own. Commit the F1 record (seal SHA-256, `annotationLedgerHead`, `accessLogHead`) at sealing and whenever either log changes, so Git history anchors the heads.
-- A superseding seal needs only a *different* frozen member set, and a single moved cluster is enough. The overlap with the compromised set is not bounded by the tool. Report it in the MSR limitations.
+- The pilot's own retained partition is loaded by hash but not re-verified against its audits. Only the check that matters for leakage is enforced: every pilot Track is in training in the final partition.
 - Double-labelling agreement on the frozen test itself is computed only in custodian-only reports (`--include-frozen-custodian-only`). It is not part of F1, because F1's agreement evidence must stay free of frozen-test label statistics.
 
 ## 11. Mutation and adversarial record
@@ -299,6 +305,6 @@ These tests were written against the implemented rules. They kill each fault by 
 | valid subject never `non-subject` | killed |
 
 Tests added after the third review:
-- `test_r1_recovery_after_a_compromise_can_reach_pass` covers compromise, a pinned re-partition and a superseding seal reaching PASS, and refuses the same re-partition without pinning;
+- `test_r1_recovery_after_a_compromise_re_verifies_with_a_disjoint_frozen_set` covers compromise, a re-partition pinning the pilot and the compromised Tracks, and a superseding seal. The whole chain re-verifies, and F1 stays OPEN only for the unseen camera, which needs new footage. It also shows two refusals: a set that pins only the pilot is refused, and F1 refuses without the superseded seal's log;
 - `test_an_adjudication_is_corrected_only_by_superseding_it`;
 - `test_a_failed_seal_leaves_no_ledger_entry_and_can_be_retried`.

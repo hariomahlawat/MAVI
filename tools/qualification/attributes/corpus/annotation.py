@@ -208,6 +208,7 @@ class AnnotationLedger(Ledger):
         sha = document_sha256(adjudication)
         require(sha not in self.adjudication_hashes(), "ledger_adjudication_duplicate")
         keys = sorted({f"{d['unit']}|{d['attributeType']}" for d in adjudication["decisions"]})
+        require(keys, "ledger_adjudication_empty")  # a withdrawal is not an adjudication
         supersedes = adjudication.get("supersedes")
         effective = self.effective_adjudications()
         if supersedes is not None:

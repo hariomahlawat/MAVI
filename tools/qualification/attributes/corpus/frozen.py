@@ -183,8 +183,19 @@ def seal_status(log: Ledger, seal: dict) -> dict:
     }
 
 
-def verify_superseding_seal(new_seal: dict, old_seal: dict, old_log: Ledger) -> None:
-    """A replacement seal must name the compromised one and a genuinely new frozen set."""
+def verify_superseding_seal(new_seal: dict, old_seal: dict, old_log: Ledger, corpus: CorpusManifest, old_partition: dict, new_partition: dict) -> None:
+    """A replacement seal must name the compromised one and a genuinely new frozen set.
+
+    Both member sets are recomputed from their partitions and must match their seals. The
+    new set may not contain **any** Track of the compromised one: its labels were exposed
+    (R1). Re-partitioning can guarantee this by pinning the compromised Tracks to training
+    (``policy.pinnedTrainingTrackIds``).
+    """
     require(new_seal["supersedes"] is not None and new_seal["supersedes"]["sealSha256"] == document_sha256(old_seal), "seal_supersedes_mismatch")
     require(seal_status(old_log, old_seal)["status"] == "compromised", "seal_superseded_while_intact")
-    require(new_seal["frozenMembers"]["membersSha256"] != old_seal["frozenMembers"]["membersSha256"], "seal_reuses_compromised_frozen_set")
+    old_members = frozen_members(corpus, old_partition)
+    new_members = frozen_members(corpus, new_partition)
+    require(document_sha256(old_members) == old_seal["frozenMembers"]["membersSha256"] and old_seal["partitionManifestSha256"] == document_sha256(old_partition), "seal_superseded_members_not_reproducible")
+    require(document_sha256(new_members) == new_seal["frozenMembers"]["membersSha256"] and new_seal["partitionManifestSha256"] == document_sha256(new_partition), "seal_superseding_members_not_reproducible")
+    reused = {m["trackId"] for m in old_members} & {m["trackId"] for m in new_members}
+    require(not reused, f"seal_reuses_compromised_frozen_tracks:{len(reused)}")
