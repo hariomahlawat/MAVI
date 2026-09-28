@@ -37,6 +37,7 @@ builder.Services.AddHostedService<VisionFinalizationHostedService>();
 // configured it idles and the release reports NotConfigured.
 builder.Services.AddSingleton<VisualAttributeHostedService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<VisualAttributeHostedService>());
+builder.Services.AddSingleton<VisualAttributeAudit>();
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -63,10 +64,12 @@ await app.ApplyDatabaseMigrationsAsync();
 // application failures (or debugger user-unhandled breaks) at the HTTP boundary.
 app.UseMaviRequestCancellationHandling();
 app.UseVisionCompletionRequestLimits();
+app.UseVisualAttributeRequestLimits();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor, IVisionFinalizationMonitor visionFinalization) =>
+app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor, IVisionFinalizationMonitor visionFinalization,
+    Mavi.Application.Modules.VisualAttributes.VisualAttributeIntegrityMonitor visualAttributeIntegrity) =>
 {
     var assembly = typeof(Program).Assembly;
     var version = assembly.GetName().Version?.ToString() ?? "0.1.0";
@@ -77,7 +80,7 @@ app.MapGet("/api/health", (IStagingJanitorMonitor stagingJanitor, IVisionFinaliz
     metadata.TryGetValue("MaviBuild", out var build);
     metadata.TryGetValue("MaviCommit", out var commit);
     return Results.Ok(GetPlatformHealth.Execute(
-        version, build, commit, new PlatformHealthDetails(stagingJanitor.Current, visionFinalization.Current)));
+        version, build, commit, new PlatformHealthDetails(stagingJanitor.Current, visionFinalization.Current, visualAttributeIntegrity.Current)));
 });
 
 app.MapHealthChecks("/health/live");
@@ -86,6 +89,7 @@ app.MapVideoEndpoints();
 app.MapProcessingEndpoints();
 app.MapStorageTopologyEndpoints();
 app.MapVisionJobEndpoints();
+app.MapVisualAttributeEndpoints();
 app.MapTrackEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapArtifactEndpoints();

@@ -88,6 +88,13 @@ public interface IVisualAttributeLifecycle
     Task<VisualAttributeEvidenceAuthorization> AuthorizeEvidenceReadAsync(Guid analysisId, string workerId, string leaseToken,
         int attemptCount, Guid observationId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Authorises one prediction upload: an active lease of this attempt. Returns the refusal,
+    /// or <see langword="null"/> when the attempt may write its own staging.
+    /// </summary>
+    Task<VisualAttributeRefusal?> AuthorizeUploadAsync(Guid analysisId, string workerId, string leaseToken, int attemptCount,
+        CancellationToken cancellationToken);
+
     /// <summary>The schema text of an identity the platform has activated, or none.</summary>
     Task<string?> AttributeSchemaJsonAsync(string identityFingerprint, CancellationToken cancellationToken);
 }

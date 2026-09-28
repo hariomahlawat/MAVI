@@ -76,6 +76,13 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
 
     public const string DefaultCursorSigningKey = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 
+    /// <summary>
+    /// The attribute release overlay (S2b): a Component Binding with an <c>attributes</c> role
+    /// and its pipeline profile. Unset, the platform reads no attribute release.
+    /// </summary>
+    public string? VisualAttributeComponentBindingPath { get; init; }
+    public string? VisualAttributePipelineProfilePath { get; init; }
+
     public int StartupMigrationLockTimeoutSeconds { get; init; } = 30;
     public int StartupMigrationCommandTimeoutSeconds { get; init; } = 120;
 
@@ -104,6 +111,10 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["StagingJanitor:Enabled"] = EnableStagingJanitorHost ? "true" : "false",
                 ["VisionFinalization:Enabled"] = EnableAsynchronousFinalization ? "true" : "false",
                 ["TrackSearch:CursorSigningKey"] = CursorSigningKey,
+                // The loop stays off: attribute tests drive RunCycleAsync themselves.
+                ["VisualAttributes:Enabled"] = "false",
+                ["VisualAttributes:ComponentBindingPath"] = VisualAttributeComponentBindingPath ?? string.Empty,
+                ["VisualAttributes:PipelineProfilePath"] = VisualAttributePipelineProfilePath ?? string.Empty,
                 ["DatabaseMigrations:LockTimeoutSeconds"] =
                     StartupMigrationLockTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["DatabaseMigrations:CommandTimeoutSeconds"] =

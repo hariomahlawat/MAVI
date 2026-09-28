@@ -331,6 +331,18 @@ public sealed class VisualAttributeLifecycle(
             crop.MimeType, crop.SizeBytes, crop.Sha256), null);
     }
 
+    public async Task<VisualAttributeRefusal?> AuthorizeUploadAsync(
+        Guid analysisId, string workerId, string leaseToken, int attemptCount, CancellationToken cancellationToken)
+    {
+        db.ChangeTracker.Clear();
+        var unit = await db.VisualAttributeAnalyses.AsNoTracking().SingleOrDefaultAsync(x => x.Id == analysisId, cancellationToken);
+        if (unit is null) return new VisualAttributeRefusal("visual_attribute_analysis_not_found");
+        if (unit.Status != VisualAttributeAnalysisStatus.Running) return new VisualAttributeRefusal("visual_attribute_not_running");
+        return unit.HoldsActiveLease(workerId, TokenMatches(leaseToken, unit.LeaseTokenHash), attemptCount, timeProvider.GetUtcNow())
+            ? null
+            : new VisualAttributeRefusal("visual_attribute_lease_invalid");
+    }
+
     public Task<string?> AttributeSchemaJsonAsync(string identityFingerprint, CancellationToken cancellationToken) =>
         db.VisualAttributeIdentityActivations.AsNoTracking()
             .Where(x => x.Fingerprint == identityFingerprint)

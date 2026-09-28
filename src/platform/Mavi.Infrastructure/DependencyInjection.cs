@@ -260,6 +260,8 @@ public static class VisualAttributeRegistration
         services.AddScoped<IVisualAttributeReadinessReader, VisualAttributeReadinessReader>();
         services.AddScoped<VisualAttributeReadinessService>();
         services.AddScoped<IVisualAttributeStagingJanitor, AttributeStagingJanitor>();
+        services.AddSingleton<VisualAttributeIntegrityMonitor>();
+        services.AddScoped<Mavi.Application.Modules.VisualAttributes.Completion.IVisualAttributeCompletionService, VisualAttributeCompletionService>();
         return services;
     }
 }
