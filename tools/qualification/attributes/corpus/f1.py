@@ -66,6 +66,7 @@ RECORD_SCHEMA = "mavi-s2c-f1-evidence-record-v1"
 REPO = Path(__file__).resolve().parents[4]
 ANNOTATION_LEDGER = "annotation-ledger.jsonl"
 ACCESS_LOG = "frozen-access-log.jsonl"
+CANDIDATE_PATH = "tools/qualification/attributes/corpus/data/attribute-task-v1-candidate.json"
 MINIMUM_CAMERAS_PER_PARTITION = 3
 
 
@@ -128,7 +129,7 @@ def _verify_chain(record: dict, store: _Store, missing: list[str], repo: Path) -
     if sample is None:
         missing.append("recurrence audit recall sample")
     else:
-        regenerated = draw_recall_sample(corpus, partition, psha, recurrence_sha, sample["sampleSize"])
+        regenerated = draw_recall_sample(corpus, partition, recurrence_links, sample["sampleSize"])
         require(sample["seed"] == regenerated["seed"], "f1_recall_sample_seed_not_derived")
         if sample["sampleSize"] < RECALL_MINIMUM_PAIRS:
             missing.append(f"recall sample of at least {RECALL_MINIMUM_PAIRS} reviewed pairs (has {sample['sampleSize']})")
@@ -169,6 +170,7 @@ def _verify_chain(record: dict, store: _Store, missing: list[str], repo: Path) -
     candidate = parse_task(store.load(task.document["derivedFrom"]["candidateTaskSha256"], "candidate attribute task"))
     # The candidate behind the pilot must be the committed candidate, owner-confirmed with
     # thresholds equal or higher: never lowered, never another vocabulary.
+    require(record["attributeTask"]["candidatePath"] == CANDIDATE_PATH, "f1_candidate_path_not_the_committed_candidate")
     committed_path = (repo / record["attributeTask"]["candidatePath"]).resolve()
     require(committed_path.is_relative_to(repo.resolve()) and committed_path.is_file(), "f1_committed_candidate_missing")
     verify_confirmed_candidate(read_json(committed_path), candidate.document)

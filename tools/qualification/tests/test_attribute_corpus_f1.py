@@ -78,8 +78,8 @@ def _conflicting_choice(unit, attribute):
     return base
 
 
-def reviewed_recall_sample(corpus, partition, groups_sha, decision="not-recurrence", size=RECALL_MINIMUM_PAIRS):
-    sample = draw_recall_sample(corpus, partition, document_sha256(partition), groups_sha, size)
+def reviewed_recall_sample(corpus, partition, confirmed, decision="not-recurrence", size=RECALL_MINIMUM_PAIRS):
+    sample = draw_recall_sample(corpus, partition, confirmed, size)
     for pair in sample["pairs"]:
         pair["decision"] = decision
     return {**sample, "by": "reviewer-1", "date": "2026-10-02", "note": "second reviewer, reproducible sample"}
@@ -106,7 +106,7 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
     partition = build_partition(corpus, policy(**policy_overrides), recurrence_links + duplicate_links, {"recurrence": recurrence_sha, "duplicate": duplicate_sha})
     psha = document_sha256(partition)
     if recall:
-        recurrence["recallSample"] = reviewed_recall_sample(corpus, partition, recurrence_sha, size=recall_size)
+        recurrence["recallSample"] = reviewed_recall_sample(corpus, partition, recurrence_links, size=recall_size)
     recurrence_doc_sha = recurrence_document_sha256(recurrence)
 
     ledger = AnnotationLedger(store / ANNOTATION_LEDGER)
@@ -532,7 +532,7 @@ def test_r1_recovery_needs_new_footage_and_then_reaches_pass(tmp_path) -> None:
     half_log = open_access_log(store2 / ACCESS_LOG, half_seal, T0, create=True)
     half_view = seal_evaluation_view(h_eval, half_seal)
     half_main = agreement_report("main", corpus, half, document_sha256(half), task.sha256, batches, assignments, ledger.annotators(), set(), set(ledger.batch_hashes()))
-    half_recurrence = {**recurrence, "recallSample": reviewed_recall_sample(corpus, half, recurrence_sha)}
+    half_recurrence = {**recurrence, "recallSample": reviewed_recall_sample(corpus, half, recurrence_links)}
     for name, document in ((corpus.sha256, raw), (recurrence_document_sha256(half_recurrence), half_recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (half, half_main, half_seal, half_view, *retained))):
         write_canonical(store2 / f"{name}.json", document)
     half_record = json.loads(json.dumps(record))
@@ -548,7 +548,7 @@ def test_r1_recovery_needs_new_footage_and_then_reaches_pass(tmp_path) -> None:
     new_log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
     ledger.record_seal(seal, corpus, partition, T0)
     view = seal_evaluation_view(evaluation, seal)
-    recurrence["recallSample"] = reviewed_recall_sample(corpus, partition, recurrence_sha)
+    recurrence["recallSample"] = reviewed_recall_sample(corpus, partition, recurrence_links)
     for name, document in ((corpus.sha256, raw), (recurrence_document_sha256(recurrence), recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (partition, main, seal, view, *retained))):
         write_canonical(store / f"{name}.json", document)
     record["corpus"] = {"corpusKind": "operational", "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": psha, "recurrenceAuditSha256": recurrence_document_sha256(recurrence), "duplicateAuditSha256": duplicate_sha}
@@ -679,13 +679,15 @@ def test_the_recall_sample_is_reproducible_from_seed_and_inputs(tmp_path) -> Non
     ctx: dict = {}
     build_chain(tmp_path, context=ctx)
     corpus, partition = ctx["corpus"], ctx["partition"]
-    groups = ctx["hashes"]["recurrence"]
-    first = draw_recall_sample(corpus, partition, document_sha256(partition), groups, 25)
-    assert first == draw_recall_sample(corpus, partition, document_sha256(partition), groups, 25)
-    # The seed is derived from the inputs: other groups (or another partition) give another sample.
-    assert first["pairs"] != draw_recall_sample(corpus, partition, document_sha256(partition), "0" * 64, 25)["pairs"]
+    links = ctx["links"]
+    first = draw_recall_sample(corpus, partition, links, 25)
+    assert first == draw_recall_sample(corpus, partition, links, 25)
+    # Seed and population come only from the corpus, the Track assignments and the confirmed
+    # groups: an edit that moves no Track (a rejected group's note, say) draws the same pairs.
+    renamed = dict(partition, policy={**partition["policy"], "policyId": "renamed-policy"})
+    assert draw_recall_sample(corpus, renamed, links, 25) == first
     # A larger sample extends the smaller one, so regrowing cannot push a found pair out.
-    assert draw_recall_sample(corpus, partition, document_sha256(partition), groups, 40)["pairs"][:25] == first["pairs"]
+    assert draw_recall_sample(corpus, partition, links, 40)["pairs"][:25] == first["pairs"]
     parts = {a["trackId"]: a["partition"] for a in partition["assignments"]}
     for pair in first["pairs"]:
         a, b = pair["trackIds"]
@@ -837,3 +839,30 @@ def test_a_failed_ledger_append_leaves_no_partial_entry_and_the_seal_retries(tmp
     monkeypatch.setattr(ledger_module.os, "fsync", real)
     assert main(args) == 0
     assert len(AnnotationLedger(store / ANNOTATION_LEDGER).seals()) == 1
+
+
+def test_a_rejected_group_nonce_cannot_regenerate_the_recall_sample(tmp_path) -> None:
+    """Adding a rejected recurrence group changes the audit and partition hashes but moves no
+    Track: the derived seed, the population and the pairs stay the same."""
+    ctx: dict = {}
+    build_chain(tmp_path, context=ctx)
+    corpus, partition, links = ctx["corpus"], ctx["partition"], ctx["links"]
+    audit = dict(ctx["recurrence"])
+    audit.pop("recallSample", None)
+    two = sorted(corpus.tracks)[:2]
+    audit["groups"] = [{"groupId": "nonce-1", "subjectKind": corpus.tracks[two[0]].object_class, "trackIds": two, "status": "rejected",
+                        "proposer": {"kind": "reviewer", "family": None}, "decision": {"by": "reviewer-1", "date": "2026-10-02", "note": "nonce 8f3a"}}]
+    if corpus.tracks[two[0]].object_class != corpus.tracks[two[1]].object_class:
+        pytest.skip("fixture Tracks differ in class")
+    groups_sha, new_links = parse_recurrence(audit, corpus)
+    assert groups_sha != ctx["hashes"]["recurrence"]
+    rebuilt = build_partition(corpus, partition["policy"], new_links + [l for l in links if l.kind == "duplicate"], {"recurrence": groups_sha, "duplicate": ctx["hashes"]["duplicate"]})
+    assert document_sha256(rebuilt) != document_sha256(partition) and rebuilt["assignments"] == partition["assignments"]
+    assert draw_recall_sample(corpus, rebuilt, new_links, 50) == draw_recall_sample(corpus, partition, links, 50)
+
+
+def test_the_candidate_path_is_pinned_to_the_committed_candidate(tmp_path) -> None:
+    record, store = build_chain(tmp_path)
+    record["attributeTask"]["candidatePath"] = "guide.md"
+    with pytest.raises(CorpusError, match="f1_candidate_path_not_the_committed_candidate"):
+        f1_verdict(record, tmp_path, store)

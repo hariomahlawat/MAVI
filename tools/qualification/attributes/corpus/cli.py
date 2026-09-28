@@ -219,8 +219,8 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
     elif command == "recall-sample":
         corpus = parse_corpus(read_json(args.corpus))
         partition = read_json(args.partition)
-        groups_sha, _ = parse_recurrence(read_json(args.recurrence), corpus)
-        sample = draw_recall_sample(corpus, partition, document_sha256(partition), groups_sha, args.size)
+        _, confirmed = parse_recurrence(read_json(args.recurrence), corpus)
+        sample = draw_recall_sample(corpus, partition, confirmed, args.size)
         # A review sheet: the reviewer fills each pair's decision, then it becomes the audit's
         # ``recallSample``. Only the decisions may change; F1 regenerates the pairs.
         _emit(args.out, {**sample, "by": args.by, "date": _now()[:10], "note": "decisions pending review"})
