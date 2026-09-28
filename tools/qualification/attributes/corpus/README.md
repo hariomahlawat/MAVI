@@ -136,7 +136,7 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - An adjudication with no decisions is refused, so an adjudication cannot be withdrawn without replacing it.
 8. `seal` commits both views, records a `seal-created` event in the annotation ledger, writes the sealed evaluation view and creates the access log. Then use `frozen-access` / `seal-status` for any later access.
    - The command validates every input and output path, then writes the access log, the seal and the sealed view, and only then appends `seal-created`. A failed run leaves no ledger entry, so a retry is not mistaken for a re-seal.
-   - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason`, `--superseded-access-log` and `--superseded-partition`.
+   - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason`, `--superseded-access-log` and `--superseded-partition` (plus `--superseded-corpus` when the corpus was revised since that seal).
    - That old log must show the old seal compromised.
    - Both member sets are recomputed from their partitions, and the new frozen set may contain **no** Track of the compromised one.
    - `seal-created` records each seal's frozen Track IDs, recomputed from the corpus and partition. A new seal may reuse no Track of **any** earlier seal in the chain, not only its predecessor.

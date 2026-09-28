@@ -183,7 +183,7 @@ def seal_status(log: Ledger, seal: dict) -> dict:
     }
 
 
-def verify_superseding_seal(new_seal: dict, old_seal: dict, old_log: Ledger, corpus: CorpusManifest, old_partition: dict, new_partition: dict) -> None:
+def verify_superseding_seal(new_seal: dict, old_seal: dict, old_log: Ledger, corpus: CorpusManifest, old_partition: dict, new_partition: dict, new_corpus: CorpusManifest | None = None) -> None:
     """A replacement seal must name the compromised one and a genuinely new frozen set.
 
     Both member sets are recomputed from their partitions and must match their seals. The
@@ -193,8 +193,8 @@ def verify_superseding_seal(new_seal: dict, old_seal: dict, old_log: Ledger, cor
     """
     require(new_seal["supersedes"] is not None and new_seal["supersedes"]["sealSha256"] == document_sha256(old_seal), "seal_supersedes_mismatch")
     require(seal_status(old_log, old_seal)["status"] == "compromised", "seal_superseded_while_intact")
-    old_members = frozen_members(corpus, old_partition)
-    new_members = frozen_members(corpus, new_partition)
+    old_members = frozen_members(corpus, old_partition)  # corpus: the old seal's own corpus
+    new_members = frozen_members(new_corpus or corpus, new_partition)
     require(document_sha256(old_members) == old_seal["frozenMembers"]["membersSha256"] and old_seal["partitionManifestSha256"] == document_sha256(old_partition), "seal_superseded_members_not_reproducible")
     require(document_sha256(new_members) == new_seal["frozenMembers"]["membersSha256"] and new_seal["partitionManifestSha256"] == document_sha256(new_partition), "seal_superseding_members_not_reproducible")
     reused = {m["trackId"] for m in old_members} & {m["trackId"] for m in new_members}
