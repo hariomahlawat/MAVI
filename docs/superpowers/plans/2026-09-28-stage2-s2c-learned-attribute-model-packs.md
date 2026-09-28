@@ -84,7 +84,7 @@ S3: search v4, predicates, cursor, indexes, query plans (E5–E8), attribute fil
 3. **Unknown is measured, not a failure.** Abstention has reasons, rates and strata.
 4. **No capability is exposed because a model can emit it.** Attributes that cannot meet their gate stay disabled.
 5. **Replaceability is structural.** A better model later changes a Model Pack, a binding and a qualification record — nothing else (parent plan §7).
-6. **Extend only where S2c demonstrates the need.** Every contract and code change S2c makes is listed in §12.9 and each is forced by a concrete gap in §3; the architectural ones are frozen first in the proposed ADR-013 items 8–10 and the ADR-014 overlay note.
+6. **Extend only where S2c demonstrates the need.** Every contract and code change S2c makes is listed in §12.9 and each is forced by a concrete gap in §3; the architectural ones are governed by the accepted ADR-013 items 8–10 and ADR-014 overlay note.
 7. **Owner constraint A — MAVI is non-commercial.** "Enterprise-grade" means engineering quality, not commercial use. Licence qualification assesses the declared MAVI non-commercial deployment profile and the exact rights it exercises, never a hypothetical commercial product (MSR method §2.1; §9.3 here).
 8. **Owner constraint B — scale to 500 cameras.** This is a standing architectural and qualification requirement. No model or composition is chosen on single-worker accuracy alone if its resource profile would make MAVI unsuitable at that scale. S2c measures the lower-level quantities and projects them with a reproducible workload model, and it never claims a 500-camera qualification it did not execute (§14.1; MSR method §7.1).
 
