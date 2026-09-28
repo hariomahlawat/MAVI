@@ -1,8 +1,9 @@
 # Visual Attributes — Stage-2 Acceptance Register
 
-**Status:** Open — architecture-first acceptance register  
+**Status:** Open — S2a closed; S2b planning  
 **Date opened:** 2026-09-23  
-**Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c`
+**Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c`  
+**Reconciled:** 2026-09-28 against current implementation baseline `main@406172657599350ecbb27819865ecc9482c6c97d`
 
 This register is authoritative for Stage-2 exit criteria. Other plans must reference this table rather than maintain a second independently numbered acceptance list.
 
@@ -10,9 +11,9 @@ Nothing unexecuted is marked PASS.
 
 ## Current verdict
 
-**ARCHITECTURE FROZEN — S1.3 MERGED; S1.4 HARDENING/QUALIFICATION ACTIVE.**
+**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE NEXT.**
 
-The documentation/architecture gate remains closed. S1.1, S1.2 and S1.3 are merged; S1.3b merged in PR #83 at `main@81b43dec32bec0c5e876d2df372503016c05dbdf`. S1.4 supplies the acceptance/qualification evidence under `docs/superpowers/plans/2026-09-24-stage2-s1-4-hardening-qualification-implementation.md`. Nothing in section B is marked PASS before that evidence is executed.
+S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`. C1–C7 are reconciled below from retained S2a implementation and exact-head verification evidence. S2b remains unimplemented; D/E rows remain OPEN until executed evidence exists.
 
 ## Governing documents
 
@@ -60,39 +61,53 @@ The documentation/architecture gate remains closed. S1.1, S1.2 and S1.3 are merg
 
 | ID | Requirement | Status |
 |---|---|---|
-| C1 | `capabilityBindings[]` schema supports detector + future capability ids without Stage-2-only structural fields | OPEN |
-| C2 | Model-manifest v2 common schema is capability-neutral; detector-specific config is optional/capability-specific | OPEN |
-| C3 | Runtime profile is decoupled from a privileged model checkpoint and supports independently startable roles | OPEN |
-| C4 | Capability-scoped qualification-record shape and common/capability-specific gates are implemented | OPEN |
-| C5 | modelPackId/runtimePackId/capabilityId are persisted in provenance/digests | OPEN |
-| C6 | verify_repo, offline packaging and CI fail closed on binding/manifest/runtime mismatch | OPEN |
-| C7 | Existing detector qualification hashes/records affected by profile v2 are deliberately reconciled and behaviour-regression tests pass | OPEN |
+| C1 | `capabilityBindings[]` schema supports detector + future capability ids without Stage-2-only structural fields | PASS — implemented across S2a; retained mutation evidence: `docs/qualification/stage2-s2a/mutations-s2a-1.md`, `mutations-s2a-2.md`, `mutations-s2a-3.md`, and `mutations-s2a-4.md`; merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d` |
+| C2 | Model-manifest v2 common schema is capability-neutral; detector-specific config is optional/capability-specific | PASS — manifest-v2 cut-over is covered by the retained S2a mutation records above and the exact-head repository/model-pack gates on PR #112 head `911ae9f27fcbc9ebf48431d6fdc9dd9ae2750ad9` |
+| C3 | Runtime profile is decoupled from a privileged model checkpoint and supports independently startable roles | PASS — schema/runtime identity decoupling is implemented and retained in the S2a mutation evidence. Limitation: only `vision` is implemented/startable on the S2a baseline; activation of the independent `attributes` role is D5/S2b, not evidence that a second role already exists |
+| C4 | Capability-scoped qualification-record shape and common/capability-specific gates are implemented | PASS — retained S2a mutation records exercise the capability-scoped qualification shape and fail-closed gates; PR #112 exact-head Quality Gate/Task 12/Vision Model Pack/Task 17 all passed; no Production/CUDA promotion implied |
+| C5 | modelPackId/runtimePackId/capabilityId are persisted in provenance/digests | PASS — S2a.3 retained evidence includes `docs/qualification/stage2-s2a/mutations-s2a-3.md` and `docs/qualification/stage2-s2a/record-replay-s2a-3/`; exact-head PR #112 gates revalidated the merged contracts |
+| C6 | verify_repo, offline packaging and CI fail closed on binding/manifest/runtime mismatch | PASS — PR #112 exact head `911ae9f27fcbc9ebf48431d6fdc9dd9ae2750ad9`: MAVI Quality Gate PASS; Task 12 PASS; Vision Model Pack PASS; Task 17 PASS. S2a.4 retained mutation record `docs/qualification/stage2-s2a/mutations-s2a-4.md` records 28/28 deliberate mutations caught |
+| C7 | Existing detector qualification hashes/records affected by profile v2 are deliberately reconciled and behaviour-regression tests pass | PASS — retained reconciliation: `docs/qualification/stage2-s2a/2026-09-27-detector-identity-reconciliation.md`; retained S2a.3/S2a.4 mutation and record/replay evidence above; RTMDet remains pending/unverified and no Production/CUDA promotion occurred |
+
+### C-section retained evidence record
+
+- implementation chain: S2a.1–S2a.4, culminating in PR #112;
+- merged baseline/result SHA: `406172657599350ecbb27819865ecc9482c6c97d`;
+- final PR #112 exact head: `911ae9f27fcbc9ebf48431d6fdc9dd9ae2750ad9`;
+- environment/runtime/model/capability identities: repository/component identities frozen by the S2a binding/manifest/runtime files and identity-freeze tests; Windows PowerShell 5.1 and PowerShell 7 exercised for Setup contracts in Task 17;
+- commands/workflows/runs: PR #112 exact-head MAVI Quality Gate, Task 12, Vision Model Pack and Task 17 — all PASS before merge;
+- retained reports/artefacts: `docs/qualification/stage2-s2a/mutations-s2a-1.md`, `mutations-s2a-2.md`, `mutations-s2a-3.md`, `mutations-s2a-4.md`, `record-replay-s2a-3/`, and `2026-09-27-detector-identity-reconciliation.md`; their repository blob/content hashes are retained by Git at the merged baseline;
+- result: C1–C7 satisfied at the S2a boundary described above;
+- limitation/non-claim: C3 does not claim an implemented second role; C1–C7 do not claim RTMDet Production qualification, CUDA qualification, family-wide Production qualification, or any real attribute Model Pack;
+- reviewer/date: independent cold reviews of the S2a implementation and final exact-head merge gate completed in the PR #112 review history on 2026-09-28; this register reconciliation does not substitute for that retained review history.
 
 ## D. Attribute lifecycle and evidence-read acceptance
 
 | ID | Requirement | Status |
 |---|---|---|
 | D1 | VisualAttributeAnalysis unit/lifecycle is independent of ProcessingRun success | OPEN |
-| D2 | Shared fencing/hash/claim primitives are extracted where semantics match; no third copy-and-diverge implementation | OPEN |
-| D3 | Python-facing lease/heartbeat/complete/fail endpoints and generic transport envelope are contract-tested | OPEN |
+| D2 | Shared fencing/hash primitives are extracted only where semantics match; no third copy-and-diverge implementation | OPEN — deliberate requirement amendment from the architecture-freeze wording: generic claim/state-machine extraction is explicitly not required because eligibility/reclaim semantics differ across control planes |
+| D3 | Python-facing lease/heartbeat/complete/fail endpoints and transport contracts are contract-tested | OPEN — deliberate requirement amendment: S2b uses header-only lease capability rather than a body token/generic envelope that would persist or digest the capability |
 | D4 | Lease-scoped evidence read and prediction-upload endpoints authorise only the leased unit's Observations/artefact; worker verifies SHA/size before decode; the attribute role touches no platform filesystem | OPEN |
 | D5 | Attribute worker runs as an independent process/role with independent READY/device/provenance/failure domain | OPEN |
 | D6 | Model unavailable at startup leaves work Queued without consuming attempts | OPEN |
 | D7 | Stale attempts, reclaim, retry, cancellation, malformed output and failure isolation pass | OPEN |
-| D8 | Prediction-level outputs are sealed as bounded `AttributePredictions`; final relational rows remain Track-level only | OPEN |
+| D8 | Prediction-level outputs are sealed as bounded `AttributePredictions`; lifecycle publication is atomic and final relational rows remain Track-level only | OPEN |
 
 ## E. Persistence/search semantics acceptance
 
-| ID | Requirement | Status |
+Ownership is split deliberately: **S2b establishes and proves E1–E4 persistence/integrity semantics as part of the lifecycle publication boundary; S3 adds and proves E5–E8 search/cursor/query-plan semantics.** E1–E4 remain OPEN until S2b implementation evidence exists.
+
+| ID | Requirement | Status / owner |
 |---|---|---|
-| E1 | Analysis/outcome/attribute relational constraints match ADR-013, including Restrict evidence linkage and unique final outcome | OPEN |
-| E2 | Every applicable completed Track/attribute has exactly one `Observed` or `Unknown` row; missing row is not Unknown; run readiness distinguishes NotConfigured from NotApplicable | OPEN |
-| E3 | Track-level `Unavailable` is explicit with reason and never masquerades as Unknown/Absent | OPEN |
-| E4 | Supersession occurs only on successful completion; historical analysis remains readable | OPEN |
-| E5 | v4 HMAC cursor pins resolved attribute identity/coverage and rejects tampering | OPEN |
-| E6 | Repeated attribute predicates are canonical in URL, fingerprint and cache key | OPEN |
-| E7 | Attribute-only search supports multi-camera scope; combined analytics predicates retain analytics camera scope and pin both identities | OPEN |
-| E8 | PostgreSQL plan/query-count/p50/p95 evidence passes at realistic and worst-supported fact volume with no N+1 evidence I/O | OPEN |
+| E1 | Analysis/outcome/attribute relational constraints match ADR-013, including Restrict evidence linkage and unique final outcome | OPEN — S2b |
+| E2 | Every applicable completed Track/attribute has exactly one `Observed` or `Unknown` row; missing row is not Unknown; run readiness distinguishes NotConfigured from NotApplicable | OPEN — S2b |
+| E3 | Track-level `Unavailable` is explicit with reason and never masquerades as Unknown/Absent | OPEN — S2b |
+| E4 | Supersession occurs only on successful completion; historical analysis remains readable and late obsolete completion cannot become default | OPEN — S2b |
+| E5 | v4 HMAC cursor pins resolved attribute identity/coverage and rejects tampering | OPEN — S3 |
+| E6 | Repeated attribute predicates are canonical in URL, fingerprint and cache key | OPEN — S3 |
+| E7 | Attribute-only search supports multi-camera scope; combined analytics predicates retain analytics camera scope and pin both identities | OPEN — S3 |
+| E8 | PostgreSQL plan/query-count/p50/p95 evidence passes at realistic and worst-supported fact volume with no N+1 evidence I/O | OPEN — S3 |
 
 ## F. Model/qualification acceptance
 
