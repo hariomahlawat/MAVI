@@ -1,9 +1,9 @@
 # Visual Attributes — Stage-2 Acceptance Register
 
-**Status:** Open — S2a closed; S2b implemented (draft PR)  
+**Status:** Open — S2a closed; S2b merged (PR #114); S2c planned  
 **Date opened:** 2026-09-23  
 **Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c`  
-**Reconciled:** 2026-09-28 against current implementation baseline `main@406172657599350ecbb27819865ecc9482c6c97d`
+**Reconciled:** 2026-09-28 against current implementation baseline `main@406172657599350ecbb27819865ecc9482c6c97d`; status text (not row status) re-reconciled 2026-09-28 against `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f` (PR #114 merged) by the S2c planning change
 
 This register is authoritative for Stage-2 exit criteria. Other plans must reference this table rather than maintain a second independently numbered acceptance list.
 
@@ -11,9 +11,9 @@ Nothing unexecuted is marked PASS.
 
 ## Current verdict
 
-**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE NEXT.**
+**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE MERGED (D/E1–E4 closure entry pending); S2c LEARNED MODEL PACKS PLANNED.**
 
-S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`. C1–C7 are reconciled below from retained S2a implementation and exact-head verification evidence. S2b is implemented on `feature/stage2-s2b-attribute-lifecycle` (draft PR, not merged); D1–D8 and E1–E4 carry the executed branch evidence of `docs/qualification/stage2-s2b/implementation-record.md` and close fully on the exact-head CI of that PR; E5–E8 remain OPEN for S3.
+S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`. C1–C7 are reconciled below from retained S2a implementation and exact-head verification evidence. S2b was merged through PR #114 at `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f` (final PR head `37376fb28e4be181642eace65d09dec7884c550f`, whose exact-head MAVI Quality Gate — including the real-process attribute E2E — deterministic-validation, windows-script-validation and CPU ubuntu/windows jobs passed before merge). D1–D8 and E1–E4 carry the executed evidence of `docs/qualification/stage2-s2b/implementation-record.md`; their row text still reads "exact-head CI pending" and is **not** changed here: a separate S2b closure entry must record the exact-head and post-merge evidence in the evidence log before those qualifiers are removed (S2c plan §21, item R1). E5–E8 remain OPEN for S3. S2c is planned in `docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md`; no F/G row changes status because of that plan.
 
 ## Governing documents
 
@@ -96,7 +96,7 @@ S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qual
 
 ## E. Persistence/search semantics acceptance
 
-Ownership is split deliberately: **S2b establishes and proves E1–E4 persistence/integrity semantics as part of the lifecycle publication boundary; S3 adds and proves E5–E8 search/cursor/query-plan semantics.** E1–E4 remain OPEN until S2b implementation evidence exists.
+Ownership is split deliberately: **S2b establishes and proves E1–E4 persistence/integrity semantics as part of the lifecycle publication boundary; S3 adds and proves E5–E8 search/cursor/query-plan semantics.** *(2026-09-28: S2b implementation evidence now exists — see the row text and the pending S2b closure entry noted under Current verdict.)*
 
 | ID | Requirement | Status / owner |
 |---|---|---|
@@ -111,18 +111,20 @@ Ownership is split deliberately: **S2b establishes and proves E1–E4 persistenc
 
 ## F. Model/qualification acceptance
 
-| ID | Requirement | Status |
-|---|---|---|
-| F1 | Annotation guide, double-label agreement/adjudication and corpus partition manifests are frozen before final evaluation | OPEN |
-| F2 | Minimum class/value support table and operational gates are frozen from validation/tuning evidence before frozen-test scoring | OPEN |
-| F3 | Person/vehicle Model Packs have complete licence, integrity, offline and provenance records | OPEN |
-| F4 | Crop-level, Representative-only and aggregated Track-level metrics are reported with abstention/Unknown rates | OPEN |
-| F5 | Held-camera/unseen-camera generalisation meets declared gates or limitations disable affected exposure | OPEN |
-| F6 | Non-subject/error crops demonstrate safe abstention behaviour | OPEN |
-| F7 | Operator-facing predicate retrieval precision-at-N/coverage evidence meets declared gates | OPEN |
-| F8 | CPU Development qualification passes; CUDA Development evidence is recorded where applicable without Production claim | OPEN |
-| F9 | Runtime/model version-skew, OOM/failure recovery and shared-host process isolation pass | OPEN |
-| F10 | Requalification-trigger matrix is exercised/documented for the final Stage-2 identity | OPEN |
+Ownership (clarified 2026-09-28 by the S2c plan; no status changes): the parent plan assigns S2c "labelled-corpus engineering evaluation" and S5 "freeze thresholds, frozen-test evaluation, CPU/CUDA Development evidence" and "all remaining F/G requirements". The owner column below states which slice is expected to close each row; *contributes* means the slice produces evidence the closing slice consumes. An owner is not a claim.
+
+| ID | Requirement | Status | Closing owner |
+|---|---|---|---|
+| F1 | Annotation guide, double-label agreement/adjudication and corpus partition manifests are frozen before final evaluation | OPEN | S2c |
+| F2 | Minimum class/value support table and operational gates are frozen from validation/tuning evidence before frozen-test scoring | OPEN | S5 (S2c contributes validation evidence) |
+| F3 | Person/vehicle Model Packs have complete licence, integrity, offline and provenance records | OPEN | S2c (licence approval is a human gate) |
+| F4 | Crop-level, Representative-only and aggregated Track-level metrics are reported with abstention/Unknown rates | OPEN | S5 (S2c contributes validation-partition metrics) |
+| F5 | Held-camera/unseen-camera generalisation meets declared gates or limitations disable affected exposure | OPEN | S5 (S2c contributes validation leave-one-camera-out) |
+| F6 | Non-subject/error crops demonstrate safe abstention behaviour | OPEN | S5 (S2c contributes) |
+| F7 | Operator-facing predicate retrieval precision-at-N/coverage evidence meets declared gates | OPEN | S5 after S3 (needs search v4) |
+| F8 | CPU Development qualification passes; CUDA Development evidence is recorded where applicable without Production claim | OPEN | S5 (S2c contributes CPU, and CUDA where hardware exists, Development execution evidence) |
+| F9 | Runtime/model version-skew, OOM/failure recovery and shared-host process isolation pass | OPEN | S2c |
+| F10 | Requalification-trigger matrix is exercised/documented for the final Stage-2 identity | OPEN | S5 (S2c drafts the matrix) |
 
 ## G. Operator/offline/security acceptance
 

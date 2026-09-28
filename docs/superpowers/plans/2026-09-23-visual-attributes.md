@@ -549,7 +549,9 @@ S0 architecture closure is complete. Feature coding remains a separate follow-on
 
 No slice may claim later qualification early.
 
-**S2b status (2026-09-28):** implemented with the deterministic fixture on `feature/stage2-s2b-attribute-lifecycle` (draft PR, not merged); the S2b plan is `docs/superpowers/plans/2026-09-28-stage2-s2b-attribute-lifecycle.md` and its evidence `docs/qualification/stage2-s2b/implementation-record.md`. Per the register's ownership split, S2b also carries E1–E4; E5–E8 stay with S3. No real model is shipped.
+**S2b status (2026-09-28):** implemented with the deterministic fixture and merged through PR #114 at `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`; the S2b plan is `docs/superpowers/plans/2026-09-28-stage2-s2b-attribute-lifecycle.md` and its evidence `docs/qualification/stage2-s2b/implementation-record.md`. Per the register's ownership split, S2b also carries E1–E4; E5–E8 stay with S3. No real model is shipped.
+
+**S2c status (2026-09-28):** planned — implementation-grade plan `docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md`. S2c selects learned person/vehicle attribute Model Packs by a MAVI bake-off and runs them through the unchanged S2b lifecycle as Development/unverified capabilities; it closes F1, F3 and F9 only on executed evidence and contributes evidence to the F rows S5 closes.
 
 ## 23. Stage-2 exit gate
 
