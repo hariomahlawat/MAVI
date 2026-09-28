@@ -3,9 +3,9 @@
 **Status:** Implementation plan — proposed; awaiting independent plan review. Planning only: no production code, model, weight or dependency accompanies it.
 **Date:** 2026-09-28
 **Starting baseline:** `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f` (merge of PR #114, S2b)
-**Governing:** ADR-013 (with the proposed 2026-09-28 S2c amendment, items 8–11), ADR-014, ADR-005, ADR-006, ADR-007, ADR-008, ADR-009, the Stage-2 parent plan, the Stage-2 qualification plan (with proposed protocol revision R1, §19), the authoritative Stage-2 acceptance register, the dependency/offline-packaging policy.
+**Governing:** ADR-013 (with the proposed 2026-09-28 S2c amendment, items 8–10), ADR-014 (with the proposed 2026-09-28 Development overlay note), ADR-014, ADR-005, ADR-006, ADR-007, ADR-008, ADR-009, the Stage-2 parent plan, the Stage-2 qualification plan (with proposed protocol revision R1, §19), the authoritative Stage-2 acceptance register, the dependency/offline-packaging policy.
 **Companion records:** `docs/qualification/stage2-s2c/model-candidate-survey.md` (reported state of the art; nothing reproduced).
-**Exit gate:** §20. S2c closes F1, F3 and F9 on executed evidence and runs learned person/vehicle attribute Model Packs through the unchanged S2b lifecycle as **Development / unverified** capabilities. It does not claim model-quality qualification, CUDA qualification or Production.
+**Exit gate:** §20. S2c closes F1 and F3 on executed evidence and runs learned person/vehicle attribute Model Packs through the unchanged S2b lifecycle as **Development / unverified** capabilities. It does not claim model-quality qualification, CUDA qualification or Production.
 
 ---
 
@@ -31,17 +31,17 @@ S2c adds no lifecycle, persistence path, worker protocol or publication shortcut
 |---|---|---|
 | Aggregate | `VisualAttributeAnalysis` (Queued/Running/Completed/Failed/Superseded), one unit per (run, identity) | reused |
 | Identity | canonical tuple (schema, pipeline, aggregation, parameters SHA, sorted capability→modelPackId), fingerprint SHA-256; Python `attributes/pipeline.py` and .NET `VisualAttributeRelease.cs` pinned by `contracts/test-vectors/visual-attribute-identity-v1.json` | a real pack is a new identity; existing fixture analyses become Stale (ADR-013 §9, amendment item 5) |
-| Preferred identity | platform reads `VisualAttributes:ComponentBindingPath` + `PipelineProfilePath`; nothing configured → `NotConfigured`; lease fenced on the worker's fingerprint | reused; §12.6 decides what the shipped release configures |
+| Preferred identity | platform reads `VisualAttributes:ComponentBindingPath` + `PipelineProfilePath`; nothing configured → `NotConfigured`; lease fenced on the worker's fingerprint | reused; §12.8: the shipped binding is unchanged and a Development overlay configures the learned role |
 | Lease/attempts | header-only capability, heartbeat, reclaim, deadline (default 6 h), attempts (default 3), publication window | reused; the deadline drives the performance budget (§14) |
 | Evidence read | lease-scoped, lifetime-fenced stream; worker verifies size + SHA before decode; transport ≠ evidence | reused; learned models only ever see verified bytes |
 | Upload / staging / janitor | streamed, capped (64 MiB), create-once per attempt; janitor judges every directory | reused |
 | Completion | three-phase (A validate + publication window, B content-addressed seal, C re-fence + COPY + visibility barrier) | reused |
-| Artefact | `mavi-attribute-predictions-v1`, canonical JSON, exact coverage of leased crops, bound ≤ 64 MiB | extended to v2 for abstention (§12.3); v1 stays valid history |
+| Artefact | `mavi-attribute-predictions-v1`, canonical JSON, exact coverage of leased crops, bound ≤ 64 MiB | extended to v2 for abstention (§12.3), versioned through identity v2 (§12.4); v1 stays valid history |
 | Rows | one `Observed`/`Unknown` row per applicable (Track, type); `Unavailable` Track outcome with reason; supporting Observation for Observed | reused |
 | Default/Stale | derived from the preferred fingerprint; supersession only on success | reused |
 | Worker | `mavi_vision.attributes` role on the Component Binding v2 registry → resolver → supervisor; UNAVAILABLE never leases; one serial inference lane; heartbeat task stopped before `/complete` | reused; inferencer seam extended (§12.1); device policy implemented (§11) |
-| Inferencer seam | `inference.py`: `AttributeInferencer.score(VerifiedCrop, attributes) → {type: {value: float}}`; `inferencer_for` returns only the fixture, receives no artefact paths | **the only model plug-in point**; extended per ADR-013 amendment item 8 |
-| Aggregation | `predictions.py`: `mean-score-argmax` + one global `minimumConfidence`; ties by schema order; supporting = crop scoring the value highest | extended with a second, versioned method (§7.4); the platform validates structure only and never recomputes |
+| Inferencer seam | `inference.py`: `AttributeInferencer.score(VerifiedCrop, attributes) → {type: {value: float}}`; `inferencer_for` returns only the fixture, receives no artefact paths | **the only model plug-in point**; replaced by the adapter registry (ADR-013 item 8, §12.1), the fixture path kept |
+| Aggregation | `predictions.py`: `mean-score-argmax` + one global `minimumConfidence`; ties by schema order; supporting = crop scoring the value highest; the .NET release parser accepts only this method | a second versioned method (§7.4) whose document both languages parse (§12.5); the platform never recomputes decisions |
 | Fixture refusal | worker `attribute_development_profile_forbidden` in Production; platform refuses `developmentOnly` outside Development/Testing | reused; real packs are Development/unverified by manifest status, not by the fixture flag |
 | Provenance | per-capability modelPackId, manifest SHA, qualification id/SHA, verificationStatus; runtime pack id/source; binding and profile SHAs; configured policy; actual device | reused; `actualDevice` becomes `cuda:N` when CUDA runs |
 | Integrity health | per-crop incidents counted once, recorded at artefact validation | reused |
@@ -62,16 +62,16 @@ S2c adds no lifecycle, persistence path, worker protocol or publication shortcut
 | Model discovery and selection | survey record, shortlist, bake-off protocol, bake-off on the MAVI validation partition, model-selection record (§9) |
 | Corpus | corpus and partition manifests, annotation guide, double-labelling, agreement report, sealing of the frozen test set (§10); closes **F1** |
 | Model Packs | real person/vehicle packs: source manifests, licence notices, acquisition/build, built manifests, install; **F3** |
-| Inference adapters | preprocessing, inference, decoding, calibration, admissibility — behind the capability adapter (ADR-013 item 8) |
-| Artefact v2 | abstention recording (ADR-013 item 9), both languages |
-| Aggregation v2 | a second versioned aggregation method with per-attribute operating points (§7.4) |
-| Device policy | truthful CPU/CUDA/auto for the attributes role (ADR-013 item 10) |
-| Runtime Pack | only if the bake-off selects a model outside the vision family's dependency graph (§12.5) |
-| Failure/isolation | model load, OOM, timeout, NaN, crash, version skew, co-residency; closes **F9** |
+| Inference adapters | preprocessing, inference, output decoding and calibration behind the capability adapter; crop decode and admissibility in the worker before it (ADR-013 items 8–9) |
+| Artefact v2, pipeline profile v2, identity v2 | abstention recording and artefact versioning in identity (ADR-013 item 9), both languages, one migration |
+| Aggregation v2 | a second versioned aggregation method with per-attribute operating points (§7.4), parsed by both languages (§12.5) |
+| Device policy | truthful CPU/CUDA/Development-auto for the attributes role (ADR-013 §8) |
+| Runtime Pack | only if the bake-off selects a model outside the vision family's dependency graph (§12.7, ADR-013 item 10) |
+| Failure/isolation | model load, OOM, timeout, NaN, crash, version skew, co-residency; contributes to **F9** |
 | Performance | inference and end-to-end measurement at the 10,000-Track bound (§14) |
-| Offline/Setup | pack inventory, offline policy entries, Setup/sync for the `attributes` role (§15) |
+| Offline/Setup | pack inventory, offline policy entries (runtime and tooling), Development overlay binding, Setup/sync for the `attributes` role in Development profiles (§12.8, §15) |
 | Development execution evidence | CPU on every deployable CPU variant; CUDA only where the Development GPU host is available (§11) |
-| Validation-partition quality evidence | crop/Representative/Track metrics, leave-one-camera-out, abstention, calibration — *contributing* evidence for F2, F4, F5, F6, F8, F10 |
+| Development quality estimates | crop/Representative/Track metrics, retrained leave-one-camera-out, abstention, calibration on held-out folds — *contributing* evidence for F2, F4, F5, F6, F8, F9, F10 |
 
 ### 4.2 S2c does not own
 
@@ -84,7 +84,7 @@ S3: search v4, predicates, cursor, indexes, query plans (E5–E8), attribute fil
 3. **Unknown is measured, not a failure.** Abstention has reasons, rates and strata.
 4. **No capability is exposed because a model can emit it.** Attributes that cannot meet their gate stay disabled.
 5. **Replaceability is structural.** A better model later changes a Model Pack, a binding and a qualification record — nothing else (parent plan §7).
-6. **Extend only where S2c demonstrates the need.** The four ADR-013 items are the only architectural changes; each is forced by a concrete gap in §3.
+6. **Extend only where S2c demonstrates the need.** Every contract and code change S2c makes is listed in §12.9 and each is forced by a concrete gap in §3; the architectural ones are frozen first in the proposed ADR-013 items 8–10 and the ADR-014 overlay note.
 
 ## 6. Task definitions — before any model is considered
 
@@ -133,16 +133,16 @@ Any vocabulary change is a new attribute-schema version (new identity, requalifi
 
 ### 7.4 Aggregation across the Evidence Set (aggregation method v2)
 
-A new method `calibrated-mean-margin-v1` (name provisional), versioned beside S2b's `mean-score-argmax`, Python-only (the platform validates structure, never recomputes; §13):
+A new method `calibrated-mean-margin-v1` (name provisional), versioned beside S2b's `mean-score-argmax`, defined by an aggregation-v2 document both languages parse (§12.5) and executed only in Python:
 
-1. inputs: for each attribute type, the calibrated per-value scores of the crops that were **scored** for that type (abstained crops contribute nothing);
-2. `k_min`: minimum number of scored crops (per attribute type; default 1, tuned);
-3. per value: mean calibrated score; best value `v*` with deterministic tie rule (S2b's: higher mean, then schema order);
-4. Observed iff `mean(v*) ≥ τ(type, v*)` **and** `mean(v*) − mean(v₂) ≥ δ(type)` (margin against the runner-up; guards against inconsistent crops); otherwise Unknown;
-5. supporting Observation: S2b's rule (crop scoring `v*` highest, then lower evidence rank);
-6. presence attributes (single value `present`): Observed iff mean ≥ τ; otherwise Unknown — never Absent.
+1. inputs per attribute type: the calibrated per-value scores of crops **scored** for that type — abstained crops contribute nothing; Representative crops follow `representativePolicy` (§8.2);
+2. if fewer than `kMin(type)` crops were scored → **Unknown**;
+3. per value: mean calibrated score; best value `v*`, runner-up `v₂`; deterministic tie rule (S2b's: higher mean, then schema order);
+4. **Observed** iff `n_scored ≥ kMin(type)` **and** `mean(v*) ≥ τ(type, v*)` **and** `mean(v*) − mean(v₂) ≥ δ(type)`; otherwise **Unknown**;
+5. supporting Observation: S2b's rule (the scored crop with the highest `v*` score, then lower evidence rank), restricted to crops the Representative policy allows as support;
+6. presence attributes (single value `present`): Observed iff `n_scored ≥ kMin` and mean ≥ τ; otherwise Unknown — never Absent.
 
-`τ`, `δ`, `k_min` and any role weighting are parameters (in identity), chosen on the validation partition by the procedure of §10.5, and frozen before frozen-test scoring (R1 step 3). Whether evidence-role weighting (e.g. NearView over a fallback Representative) helps is a bake-off question; the default is unweighted.
+The *family* (this rule shape) and the *threshold-selection method* (§10.5) are frozen in S2c.2 before any MAVI result (R1 step 1); only the parameter values (`kMin`, τ, δ) are tuned on the tuning partition (R1 step 2) and frozen before frozen-test scoring (R1 step 3).
 
 ## 8. Evidence quality and applicability
 
@@ -170,11 +170,11 @@ A new method `calibrated-mean-margin-v1` (name provisional), versioned beside S2
 | Blur | model abstention; sharpness not re-measured in S2c unless the bake-off shows material benefit | stratum: blur (annotated) |
 | Extreme pose | model abstention | stratum: viewpoint |
 | Night / IR / greyscale | deterministic achromatic test (chroma statistics on the crop) → colour types abstain `achromatic_evidence`; presence types still scored | stratum: day/night; achromatic rate |
-| Fallback Representative | treated like any crop under the same admissibility contract (ADR-013 item 9); role weighting is a bake-off parameter | Representative-only vs Evidence-Set metrics (qualification plan §6.3) |
+| Fallback Representative | the lease cannot say whether a Representative is a qualified frame or a fallback (the selector's `qualified` flag is neither persisted nor leased), and it cannot be derived (a qualified frame can fill NearView yet fail to displace a fallback Representative under the 64 KiB cap). Default `representativePolicy: abstain` — every Representative crop is recorded as abstained `representative_qualification_unknown`, so Observed values rest only on qualified supplemental evidence and Representative-only Tracks are Analysed with every attribute Unknown. This is the conservative reading of parent plan §8.2; its coverage cost is measured, and the bake-off also scores Representative crops *for evaluation only* to quantify what an explicit qualification contract would recover (decision U7) | Representative-only vs Evidence-Set metrics (qualification plan §6.3); coverage lost to the policy |
 | Inconsistent crops within a Track | the margin δ turns disagreement into Unknown | aggregation error analysis |
 | Vehicle partially visible | admissibility minimum; model abstention | stratum |
 
-Abstention reason vocabulary (closed, schema-versioned): `subject_too_small`, `region_too_small`, `achromatic_evidence`, `modality_unsupported`. Additions are schema changes.
+Abstention reason vocabulary (closed, versioned with the admissibility method): `subject_too_small`, `region_too_small`, `achromatic_evidence`, `modality_unsupported`, `representative_qualification_unknown`. Additions are versioned changes.
 
 ## 9. Model discovery and selection
 
@@ -197,7 +197,7 @@ Ordered within each task by the strength and domain relevance of the *reported* 
 
 | Id | Candidate | Kind | Reported technical evidence | Technical risk |
 |---|---|---|---|---|
-| PC-1 | Frozen **SigLIP 2** tower + trained cross-attention/linear heads, region-cropped (VLM-PAR design) | method (backbone checkpoint + MAVI head) | VLM-PAR reports SOTA on PA-100K/PETA/Market (Dec 2025); SigLIP 2 NaFlex handles tall crops | ≈ 0.2–0.4 B params at base; low-res degradation; no MAVI evidence |
+| PC-1 | Frozen **SigLIP 2** tower + trained cross-attention/linear heads, region-cropped (VLM-PAR design) | method (backbone checkpoint + MAVI head) | VLM-PAR reports SOTA on PA-100K/PETA/Market (Dec 2025); SigLIP 2 NaFlex handles tall crops | ≈ 86–93 M image-tower parameters at base (≈ 0.4 B with the text tower, which is not needed at inference); low-res degradation; no MAVI evidence |
 | PC-2 | Frozen **DINOv3** (ViT-S/B or ConvNeXt) + MAVI heads; **DINOv2** as the paired alternative | method | DINOv3 features used by the strongest reported vehicle-colour ensemble; DINOv2 strong general probes | colour sensitivity of invariance-trained features unmeasured |
 | PC-3 | **PromptPAR / VTB** (CLIP ViT-L/14 or ViT-B prompt tuning) | method; released checkpoints trained on PETA/RAP subsets | 87–89 mA in-domain (PromptPAR); the eval subsets it reports exclude colour | GPU-class (L/14); CLIP binding weakness; cross-domain drop (78.8 → 63.2 on MSP60K) |
 | PC-4 | **UPAR-trained** ConvNeXt-B baseline / **C2T-Net** (UPAR 2024 winner) | checkpoint (C2T-Net released) | trained on 11-colour upper/lower labels; cross-domain mA ≈ 70 | heavy (Swin + EVA-ViT); domain of source datasets |
@@ -257,8 +257,9 @@ Rules:
 - **Separation from production.** Candidates run in a *separate evaluation environment* under `tools/qualification/attributes/` (an isolated, pinned venv that may contain `open_clip`, `transformers`, `onnxruntime`, `openvino` for conversion and parity), never in the Runtime Pack. No candidate is integrated into `mavi_vision.attributes` before it wins.
 - **Same conditions for all.** The same crops (the real MAVI Evidence Sets of the validation partition, exactly as leased), the same admissibility policy, the same aggregation method family, the same metric code, the same hardware class, recorded thread counts and precision.
 - **Inputs.** Crops come from the corpus store by SHA; each candidate's preprocessing is recorded as data; checkpoints are loaded from a hash-pinned local cache populated once from pinned revisions (never a floating tag).
-- **Probe/fine-tune candidates** train on the *training* partition only, tune on the validation partition, with fixed seeds and a recorded environment (§9.7).
-- **Measurements:** §10.4 quality metrics at crop, Representative-only and Track level with abstention; risk–coverage; calibration; strata (§8.2); per-camera and leave-one-camera-out within the validation partition; CPU and (where available) CUDA latency p50/p95 per crop and per Track, batch behaviour, peak RSS/VRAM, model-load time; determinism on repeat.
+- **Folds.** Heads and calibrations are fitted on the *training* partition with camera- and site-grouped cross-fitting; `kMin`/τ/δ and admissibility parameters are tuned on the *tuning* partition; candidates are **compared** on a separate *selection* partition untouched by any fit or tuning; the frozen test is sealed (§10.2). Leave-one-camera-out means retraining each head without the held-out camera. Every S2c number is labelled a development estimate, never a qualification result.
+- **Probe/fine-tune candidates** train on the training partition only, with fixed seeds and a recorded environment (§9.7).
+- **Measurements:** §10.4 quality metrics at crop, Representative-only and Track level with abstention; risk–coverage; calibration (on held-out folds only — never in-sample); strata (§8.2); per-camera and retrained leave-one-camera-out; CPU and (where available) CUDA latency p50/p95 per crop and per Track, batch behaviour, peak RSS/VRAM, model-load time; determinism on repeat.
 - **Statistics.** Differences are reported with a paired bootstrap over Tracks, resampled by camera, 95 % intervals; "better" means the interval excludes zero.
 - **Protocol frozen first.** Candidates, weights, gates, strata, the minimum practically important difference (MPID) and the report format are committed (slice S2c.2) **before** any candidate sees MAVI data.
 
@@ -270,16 +271,16 @@ Rules:
 |---|---|
 | G1 Licence qualification | applied after evaluation (§9.3 rule 2): the candidate is qualifiable for the target release profile — L-A after review, L-B with a recorded per-deployment use determination, L-C only under a separate licence, L-D never; a candidate failing G1 stays in the record as the technical reference |
 | G2 Offline | loads from pack artefacts alone; no hub, index or network call; verified by a network-denied run |
-| G3 Determinism | repeated CPU runs give identical Track decisions and scores within 1e-6; CPU/CUDA variants agree on Track decisions within the predeclared equivalence tolerance (qualification plan §10) or only one variant may be bound |
-| G4 Runtime budget | Development-CPU p95 per crop within the budget of §14, or within it on CUDA where the release profile binds CUDA |
-| G5 Baseline | beats the deterministic baseline (B0) on the primary quality metric with the bootstrap interval excluding zero; if no learned candidate does, the baseline is selectable and the plan records that the learned capability did not beat it |
+| G3 Determinism | repeated CPU runs with the pinned thread count give identical Track decisions and scores within 1e-6; where CUDA is measured, the CPU/CUDA Track-decision agreement tolerance is **declared in S2c.2** (qualification plan §10 requires one but declares none) and a variant outside it may not be bound |
+| G4 Runtime budget | p95 end-to-end per crop within the §14 budget on the pinned Development CPU host class (CPU-mandatory in S2c) |
+| G5 Baseline | beats the deterministic baseline (B0) on the **primary metric** with the bootstrap interval excluding zero; primary metrics are threshold-free and frozen in S2c.2: Track-level **AURC** (area under the risk–coverage curve) for every attribute, with Track-level macro-F1 at full coverage (colour) and average precision (presence) as co-primary; if no learned candidate beats B0, the baseline is selectable and the record says the learned capability did not beat it |
 | G6 Abstention sanity | on non-subject/error crops of the validation partition it produces Unknown/abstention at a higher rate than on valid crops (F6 direction), and no confident prediction on achromatic crops for colour types |
 
 **Weighted technical decision** (weights proposed here, reviewed and frozen in S2c.2 before results exist). Licence is deliberately **not** a weighted criterion: the weighted score ranks candidates technically, and G1 then decides which of them can be qualified (§9.3); both rankings are reported:
 
 | Group | Criterion | Weight |
 |---|---|---|
-| Operational quality (50) | Track-level primary metric at the operating coverage (validation) | 20 |
+| Operational quality (50) | Track-level primary metrics (AURC; macro-F1 / AP) on the selection partition | 20 |
 | | worst of the difficult strata (low-res, partial, occlusion, low light) | 10 |
 | | calibration and risk–coverage (ECE, AURC) | 10 |
 | | leave-one-camera-out stability | 10 |
@@ -295,7 +296,7 @@ Rules:
 | | training-data provenance disclosed | 5 |
 | | packaging reproducibility | 4 |
 
-A quality difference inside the bootstrap interval is a tie. **A candidate that needs a Runtime Pack extension** (§12.5) must beat the best candidate on the existing graph by at least the MPID with the interval's lower bound above zero; otherwise the existing-graph candidate is selected. Conversely a candidate is never rejected for needing a reasonable extension when it clears that bar.
+A quality difference inside the bootstrap interval is a tie. **A candidate that needs a Runtime Pack extension** (§12.7) must beat the best candidate on the existing graph by at least the MPID with the interval's lower bound above zero; otherwise the existing-graph candidate is selected. Conversely a candidate is never rejected for needing a reasonable extension when it clears that bar.
 
 ### 9.6 Model-selection record
 
@@ -318,8 +319,9 @@ The Stage-2 qualification plan governs, with protocol revision R1 (freeze order,
 | Source | owner-supplied recorded video representative of MAVI deployment (multiple cameras/scenes, day and night), processed through the **real** MAVI VisionJob so crops are the operational Evidence Sets (fallback Representatives, byte-cap re-encoding included) |
 | Storage | outside Git (AGENTS.md: no CCTV in Git); access-controlled evidence store; retention recorded; no cloud labelling service |
 | Manifests (in Git) | corpus manifest (video ids, camera ids, ProcessingRun ids, crop SHA-256s, strata tags — no imagery) and partition manifest, each content-hashed |
-| Partitions | training / tuning-validation / **frozen test**, grouped by camera and by video so no Track, video or camera-day spans partitions; the frozen test contains whole held-out cameras plus held-out videos of seen cameras |
-| Camera count | enough that every partition has at least three cameras and the frozen test has at least one camera unseen elsewhere; the achieved count is a recorded limitation, never waived silently |
+| Partitions | **training / tuning / selection / frozen test**, grouped by **site and date** (all cameras of one site on one day fall in one partition, so the same person cannot appear on another camera in two partitions); the frozen test contains whole held-out sites or cameras plus held-out dates of seen ones |
+| Raw-evidence pin | the corpus manifest records the vision pipeline profile SHA and Evidence Set selector version that produced every crop; a change to either (S1.4 is still open: B1–B6) invalidates crop-level labels under qualification-plan §16 — slice S2c.1 stops and re-derives the affected crops rather than mixing versions |
+| Camera count | enough that every partition has at least three cameras and the frozen test at least one camera unseen elsewhere; the achieved count is a recorded limitation, never waived silently |
 | Size | derived, not guessed: for each exposed value the frozen test needs enough positives that a precision estimate at the owner's target has the owner's accepted interval half-width (normal approximation `n ≈ z²·p(1−p)/e²`, e.g. p = 0.9, e = 0.05 → ≈ 139 positives at 95 %); the pilot supplies prevalence per value, from which the number of Tracks to label per partition follows. Values that cannot reach it are reported as insufficient evidence (qualification plan §5) |
 | Public data | PA-100K may enter the training partition if the licence review clears it; never the frozen test (qualification plan §3.1); research-only datasets are not used |
 | Contamination | frozen test is MAVI-sourced, so disjoint from third-party training data by construction; near-duplicate check (perceptual hash) across partitions |
@@ -328,7 +330,7 @@ The Stage-2 qualification plan governs, with protocol revision R1 (freeze order,
 
 ### 10.3 Labels
 
-Annotation guide per attribute (allowed values with reference swatches, Unknown/Unlabelable criteria, partial visibility, patterns, bag/headwear boundaries, vehicle dominant-colour rule, minimum visual evidence). **Pilot:** a small double-labelled pilot measures agreement per value pair and fixes merges before the schema is frozen. **Main labelling:** crop-level and Track-level ground truth, blind to model output; a representative double-labelled subset with at least one annotator independent of model selection; agreement by Cohen's κ (two annotators) or Krippendorff's α (more, nominal); adjudication recorded. Model- or VLM-proposed labels, if used to speed labelling, are recorded as proposals and never accepted without a human decision; they are not used on the double-labelled subset.
+Annotation guide per attribute (allowed values with reference swatches, Unknown/Unlabelable criteria, partial visibility, patterns, bag/headwear boundaries, vehicle dominant-colour rule, minimum visual evidence). **Pilot:** a small double-labelled pilot, drawn **only from the training partition** (its results drive vocabulary merges, so none of it may enter tuning, selection or the frozen test), measures agreement per value pair and fixes merges before the schema is frozen. **Main labelling:** crop-level and Track-level ground truth, blind to model output; a representative double-labelled subset with at least one annotator independent of model selection; agreement by Cohen's κ (two annotators) or Krippendorff's α (more, nominal); adjudication recorded. Model- or VLM-proposed labels, if used to speed labelling, are recorded as proposals with the proposer's model family, are never accepted without a human decision, are not used on the double-labelled subset, and are never produced by a model of the same family as a bake-off candidate (it would bias ground truth toward that candidate).
 
 ### 10.4 Metrics
 
@@ -342,8 +344,8 @@ Annotation guide per attribute (allowed values with reference swatches, Unknown/
 
 No percentage is set in this plan. The procedure:
 
-1. S2c reports, per attribute and value, the validation **precision–coverage frontier** of the selected candidate with bootstrap intervals, plus the support measured per value.
-2. The owner declares, per exposed attribute, a **target precision** (an operational policy decision, recorded with its rationale) and the minimum support; the operating point `τ` is the lowest threshold whose **lower** 95 % bound meets the target, maximising coverage; δ and `k_min` are chosen the same way.
+1. S2c reports, per attribute and value, the **precision–coverage frontier** of the selected candidate on the tuning partition (and confirms it on the selection partition) with bootstrap intervals, plus the support measured per value. The frontier is threshold-free, so model selection (§9.5) never needs the owner's targets.
+2. The owner declares, per exposed attribute, a **target precision** (an operational policy decision, recorded with its rationale) and the minimum support; the operating point `τ` is the lowest threshold whose **lower** 95 % bound meets the target, maximising coverage; δ and `kMin` are chosen the same way. This *method* is frozen in S2c.2; only its outputs are produced later.
 3. Those values are frozen (R1 step 3) before S5 scores the frozen test.
 
 Gate classes kept separate: **functional** (tests, contracts, mutations — S2c), **model quality** (frozen-test gates — S5), **performance** (derived budgets, §14 — S2c measures, S5 re-confirms on the frozen identity), **packaging/reproducibility** (pack id re-derivation, rebuild, offline install — S2c), **Production promotion** (out of Stage-2 S2c; ADR-009).
@@ -360,100 +362,143 @@ Gate classes kept separate: **functional** (tests, contracts, mutations — S2c)
 
 Model identity is unchanged across variants (ADR-013 §11); runtime pack id/source, variant and actual device remain provenance.
 
-## 12. Model Pack and Runtime Pack design
+## 12. Model Pack, Runtime Pack and contract changes
 
 ### 12.1 Capability adapter (ADR-013 item 8)
 
-- `inferencer_for` is replaced by an adapter registry keyed by `adapterId` (closed set, like `IMPLEMENTED_CAPABILITIES`); the supervisor passes each capability's resolved artefact paths (already resolved and hash-checked by `resolve_role`) to its adapter.
-- Adapter contract: `load(artifacts, device) → loaded`; `score_batch(crops, attributes) → [{type: {value: score∈[0,1]}} | abstention]`; the runner dispatches by the Track's capability; batches are bounded (§14).
-- The fixture becomes one registered adapter (`fixture-v1`, Development-only) so the S2b path is unchanged.
-- Admissibility runs before the adapter, from pipeline parameters (identity-bearing), on verified bytes.
+- **Decode once, in the worker.** The worker verifies the crop (S2b), decodes it once under a pixel bound (≤ 1024 × 1024 × 3, the Evidence Set maximum), and raises S2b's `CropDecodeError` there; admissibility then runs on the decoded image; the adapter receives decoded pixels, never bytes. Preprocessing (resize/pad/normalise, region bands) is the adapter's, from its pack artefact.
+- **Registry.** `inferencer_for` is replaced by an adapter registry keyed by `adapterId` — a closed set in code, like `IMPLEMENTED_CAPABILITIES`. The supervisor passes each capability's already resolved and hash-checked artefact paths (`resolve_role`) to its adapter.
+- **Contract.** `load(artifacts, device) → loaded`; `score_batch(images, attributes) → [{type: {value: score ∈ [0,1]}}]`. The runner groups a Track's admissible crops by type, calls the adapter for the Track's capability in bounded batches (§14), and validates every output (shape, finite, [0,1]) before aggregation.
+- **Fixture unchanged.** A manifest without an attribute `capabilitySpecific` section, bound by a Development-only profile whose parameters carry `fixtureSeed`, keeps selecting the S2b fixture exactly as today (its pack identity does not change). A learned pack must carry the section.
+- **Generic before specific.** Adapters are data-driven where possible (for example one `torch-classifier-v1` adapter parameterised by a declared architecture from a closed set, preprocessing JSON and output mapping), so a replacement model that fits an existing adapter changes only the Model Pack, binding and qualification record (parent plan §7). A model family that fits no existing adapter needs new worker code (and possibly a Runtime Pack) — reviewed as a code change, never smuggled in as data.
 
-### 12.2 Model Pack contents (manifest v2, unchanged schema; new registered sections)
+### 12.2 Model Pack contents (manifest v2 common schema unchanged)
 
 | Element | Content |
 |---|---|
-| `modelId`/`modelVersion` | MAVI-assigned, e.g. `person-attributes-<family>-v1` (named after the winner, chosen after the bake-off) |
+| `modelId`/`modelVersion` | MAVI-assigned after the bake-off (e.g. `person-attributes-<family>-v1`) |
 | `capabilityIds` | `person-attributes` and/or `vehicle-attributes` |
-| Artefacts | third-party checkpoint(s) (`checkpoint` or `component:<name>`); MAVI-trained head/calibration (`head`, `calibration`); `preprocessing` (JSON: resize/pad/normalise, colour order, region bands); `output-mapping` (JSON: model outputs → schema values, discarded outputs listed); `licence-notice` for **every** third-party component (`licence-notice`, `licence-notice:<component>`) |
-| `inputContract` | `evidence-crop-jpeg` / `RGB` (registered for attributes) |
-| `outputContract.schemaId` | `attribute-scores-v2` (calibrated per-value scores + abstention) |
-| `runtimeCompatibility` | the Runtime Pack family the adapter runs on |
-| `licence` | SPDX id of the composite (or `LicenseRef-…`), notice roles, `reviewStatus` from the human review |
-| `provenance` | publisher, source repository, immutable revision per component; MAVI training manifest hash for MAVI artefacts |
-| `capabilitySpecific.person-attributes` / `.vehicle-attributes` | **new registered sections**: `adapterId`, `preprocessingArtifactRole`, `outputMappingArtifactRole`, `attributeSchema {id, version, sha256}`, `components[]` (role → artefact roles) |
+| Artefacts (kebab-case roles, `KEBAB_ID_RE`) | `checkpoint` or `checkpoint-<component>`; MAVI-trained `head` / `head-<component>` and `calibration`; `preprocessing` (JSON); `output-mapping` (JSON: model outputs → schema values; outputs outside the schema — e.g. gender or age heads of a third-party model — are listed as discarded); `component-provenance` (JSON: per component publisher, repository, immutable revision, licence, notice file hash; MAVI training-manifest hash); `licence-notice` — **one** MAVI-assembled notice file containing every component's licence text byte-exactly under a header per component (the single reserved role of `model_manifest_v2.py`) |
+| `licence.spdxId` | an SPDX expression covering every component (e.g. `Apache-2.0 AND MIT`); the field is free text today; `LicenseRef-…` for non-SPDX terms |
+| `provenance` | the MAVI assembly (publisher MAVI, this repository, the assembling commit); third-party provenance lives in `component-provenance` |
+| `inputContract` | `evidence-crop-jpeg` / `RGB` (already registered) |
+| `outputContract.schemaId` | `attribute-scores-v2` |
+| `capabilitySpecific.person-attributes` / `.vehicle-attributes` | **newly registered sections** (the registry has only `detector` and `embedding`): `adapterId`, `architecture` (for generic adapters), artefact roles of `preprocessing`/`output-mapping`/`component-provenance`, `attributeSchema {id, version, sha256}`, `artifactByteLimits {role: bytes}` checked by the resolver before load |
 | `verificationStatus` / `qualificationId` | `unverified` / `null` throughout S2c |
 
-A pack may compose several models (e.g. one for colour, one for carried objects) because a capability binds exactly one pack (ADR-014 §1); replacing a component is a new pack.
+One capability binds exactly one pack (ADR-014 §1), so a pack may compose several components; replacing one is a new pack.
 
 ### 12.3 Artefact v2 (ADR-013 item 9)
 
-Per observation: `status` `scored` (the crop was verified and decoded) or `unavailable` (S2b reasons); a scored observation carries, per applicable attribute type, either `scores` (every schema value, calibrated, finite, [0,1]) or `abstained: <reason>`. Track rule: `analysed` iff ≥ 1 observation is `scored` (verified **and** decoded), even if all its types abstained; exact coverage of leased crops unchanged; decisions equal rows; a supporting Observation must have `scores` for that type. **Version selection:** the artefact schema version is a consequence of the aggregation method — `mean-score-argmax` produces v1, the v2 method produces v2 — and the aggregation policy is identity-bearing, so one identity can never produce both. The platform validator dispatches on the artefact's own `schemaVersion` header (both validated streaming, v1 unchanged); the release parser's schema bound uses the v2 formula (the larger) for every schema. Units already Running under a fixture identity when a learned identity becomes preferred finish under their own identity and become history (S2b default derivation); nothing is converted.
+- Observation `status` stays `scored` (verified and decoded) or `unavailable` (S2b reasons). A scored observation keeps S2b's `scores` map, now holding only the types actually scored, plus an `abstained` map `{type: reason}` for the rest; together they cover every applicable type exactly once. This adds no bytes per scored type, so the v2 worst case equals v1's plus one empty-map constant per observation.
+- Track rule: `analysed` iff ≥ 1 observation is scored, even if every type abstained; exact coverage of leased crops unchanged; decisions equal rows; a supporting Observation must have `scores` for that type; scores finite **and in [0,1]** (the .NET validator gains the range check the worker already applies).
+- **Bound:** the §7.1 candidate vocabulary measures 59,654,096 B under the S2b formula (88.9 % of 64 MiB); the vocabulary frozen by the pilot must keep the v2 worst case under the cap, with both loaders refusing otherwise.
 
-### 12.4 Qualification records and gate sets
+### 12.4 Pipeline profile v2 and identity v2 (ADR-013 item 9)
 
-One record per capability (`models/qualifications/<pack>-<capability>.json`), all variants `pending`, `overallResult: pending`, policies pinning the pipeline profile id/SHA. New capability gate sets `person-attributes-v1` and `vehicle-attributes-v1` in `config/acceptance/capability-gate-sets-v1.json` naming the §10.5 gate families (every gate `pending` in S2c).
+The artefact version must be part of identity, and the platform must know it for every unit it may still complete (claims are fenced on the *worker's* fingerprint, so a unit of a non-preferred identity can still be leased and completed). Therefore:
 
-### 12.5 Runtime Pack decision
+- pipeline profile schema `mavi-visual-attribute-pipeline-v2` adds `predictionsSchemaVersion` and an `admissibility {method, version}` pair (the method's code is versioned; its parameters live in the parameters file);
+- canonical identity `mavi-visual-attribute-identity-v2` includes both; v1 and v2 identities cannot collide (the schema version is inside the canonical bytes); new cross-language identity vector;
+- the platform persists `predictions_schema_version` on the identity-activation row (migration; existing rows `v1`) and validates each unit's artefact against the version of **that unit's identity**, requiring the artefact header to match;
+- units of the fixture identity still Queued or Running when the learned identity becomes preferred keep their own identity: they complete (v1) or fail as history and become Stale; nothing is converted.
 
-- **Default:** the selected adapter runs on `mmdetection-phase1-v1` (torch 2.6.0, torchvision 0.21.0, OpenCV, Pillow, NumPy). An OpenVINO-IR candidate is ported to a first-party torch module with a build-time parity test; a SigLIP/DINOv2 tower is reimplemented on torch or loaded as a state dict into first-party code; `torch.load(weights_only=True)` only.
-- **Extension (only past the §9.5 MPID bar):** a new family `attributes-<engine>-v1` for the attributes role (ADR-013 item 10), with its own locks per variant, `runtime.json`, offline wheel entries, licence inventory, CI build and ADR-009 status per variant (CUDA starts `pending-hardware-qualification`). The vision family's lock is never changed for an attribute model.
+### 12.5 Aggregation policy v2 (both loaders)
 
-### 12.6 What the shipped release binds
+The .NET release parser accepts only `mean-score-argmax` with fixed keys, so aggregation v2 is a document schema both languages parse: `mavi-visual-attribute-aggregation-v2` with `method: calibrated-mean-margin-v1`, per-type `kMin`, `margin` (δ), `thresholds {value: τ}` and `representativePolicy` (§8.2). Python executes it; .NET validates it structurally (types, values, ranges, coverage of the schema) and never recomputes decisions; a shared release-parse vector holds both to the same acceptance.
 
-S2c adds the `attributes` role and the two capability bindings to the tracked `phase1-bindings-v2.json` only in slice S2c.8, when the packs exist in the kit; the change moves `componentBindingSha256`, which is the kit compatibility boundary (S2a closure). **Unverified packs must not reach a Production install.** Setup/sync therefore plan roles from the selected deployment profile's enabled roles (today Setup hard-codes `vision`): Development profiles enable `attributes`; Production profiles do not until S5 promotes the packs, so a Production kit neither requires nor installs them. If per-profile role selection cannot be delivered in S2c.8, the attributes role stays in a Development-only overlay and the tracked binding is unchanged (decision U5). The platform's `VisualAttributes:ComponentBindingPath`/`PipelineProfilePath` stay unset in shipped Production configuration and are set by the Development runbook; the Production worker refuses unverified packs regardless. The real attribute pipeline profile moves from test fixtures to `src/vision/config/attributes/` and gains a `verify_repo` loader (vision profiles and attribute profiles are distinct loaders).
+### 12.6 Qualification records and gate sets
+
+One record per capability (`models/qualifications/<pack>-<capability>.json`), every variant `pending`, `overallResult: pending`, policies pinning the pipeline profile id/SHA. New gate sets `person-attributes-v1` and `vehicle-attributes-v1` in `config/acceptance/capability-gate-sets-v1.json` naming the §10.5 gate families plus `licence-use-determination` for L-B packs (all `pending` in S2c).
+
+### 12.7 Runtime Pack decision
+
+- **Default:** the adapter runs on `mmdetection-phase1-v1` (torch 2.6.0, torchvision 0.21.0, OpenCV, Pillow, NumPy). An OpenVINO-IR or ONNX candidate is ported to a first-party torch module with a build-time parity test; SigLIP 2 / DINOv2 / DINOv3 towers are reimplemented or loaded as state dicts into first-party code; `torch.load(weights_only=True)` only.
+- **Extension (only past the §9.5 MPID bar):** a separate family `attributes-<engine>-v1` for the attributes role, with its own locks per variant, `runtime.json`, offline wheels, licence inventory, CI build and ADR-009 status per variant (CUDA starts `pending-hardware-qualification`). The vision family's lock is never widened for an attribute model (ADR-013 item 10).
+
+### 12.8 Release overlay: the shipped binding stays unchanged in S2c
+
+`verify_repo` fails any tracked manifest or record no binding uses and allows exactly one tracked binding; binding real packs in that binding would make every kit and CI build depend on MAVI-trained artefacts CI cannot rebuild, and would change the vision role's `componentBindingSha256` for every VisionJob. S2c therefore:
+
+- keeps `src/vision/config/components/phase1-bindings-v2.json` **unchanged**;
+- adds one tracked **Development overlay binding** (`src/vision/config/components/development-attributes-v2.json`: the shipped roles plus the `attributes` role and its bindings) and the real pipeline profile under `src/vision/config/attributes/`; `verify_repo` learns an explicit overlay class — every tracked binding is either the release binding or a declared Development overlay, and an overlay may add roles but may not change the release binding's roles, packs or families (an ADR-014 note records this);
+- merges each attribute manifest and record **in the same change as the overlay entry that binds it**, so the "no unbound manifest" rule keeps holding;
+- the vision worker keeps using the release binding (its provenance is unchanged); the attributes worker and the platform's `VisualAttributes:*` paths use the overlay in Development only;
+- Setup/sync plan the `attributes` role only for a Development deployment profile; Production Setup neither plans, installs nor starts it, and a Production kit never contains the unverified packs;
+- owner-built artefacts (MAVI-trained heads) enter a Development kit through a documented assembly step that verifies each by the hash in the source manifest;
+- the CI E2E keeps the fixture overlay (no private artefacts in CI).
+
+### 12.9 Complete list of contract and code changes (nothing else changes)
+
+| Change | Where | Governed by |
+|---|---|---|
+| Capability adapter registry; worker-side single decode | `attributes/inference.py`, `supervisor.py`, `runner.py` | ADR-013 item 8 |
+| Runner batching per Track and type; output validation; timeout; OOM/exit sequence | `runner.py`, `main.py`, `settings.py` | §14, §17 |
+| Artefact v2 (both languages) and bound v2 | `predictions.py`, `AttributePredictionsValidator.cs`, `VisualAttributeRelease.cs`, vectors | ADR-013 item 9 |
+| Pipeline profile v2, identity v2, activation migration | `pipeline.py`, `VisualAttributeRelease.cs`, EF migration, vectors | ADR-013 item 9 |
+| Aggregation v2 document (both loaders) | `pipeline.py`, `predictions.py`, `VisualAttributeRelease.cs`, vector | §12.5 |
+| Admissibility method + abstention vocabulary | `attributes/admissibility.py`, `contracts.py`, `VisualAttributeContractRules.cs` | ADR-013 item 9 |
+| Registered attribute manifest sections; resolver byte limits | `model_manifest_v2.py`, `resolver.py` | ADR-014 §3 (registry extension) |
+| Attribute gate sets | `capability-gate-sets-v1.json` | ADR-014 §6 |
+| Development overlay binding class; attribute profile loader | `verify_repo.py`, `binding.py` | ADR-014 note (§12.8) |
+| Attributes device policy (`cpu`/`cuda`/Development `auto`) | `supervisor.py`, `settings.py` | ADR-013 §8 (item 10) |
+| Setup/sync per deployment profile role set | `Mavi.VisionSetup.psm1`, sync tool | §15 |
+| Generalised Model Pack workflow | `.github/workflows/` | §15 |
+| Lease crop geometry | **not changed** unless U6 decides it with evidence | U6 |
 
 ## 13. Cross-language contract
 
 | Item | Where pinned | Rule |
 |---|---|---|
-| Attribute schema | Python `pipeline.py`, .NET `VisualAttributeRelease.cs` | unchanged format; real vocabulary; new vector case |
-| Identity fingerprint | `visual-attribute-identity-v1.json` | unchanged derivation; add a vector with real-shaped pack ids |
-| Artefact v2 | Python encoder, .NET streaming validator | new vector `visual-attribute-predictions-v2.json` (valid, abstained, all-abstained, coverage failures) |
-| Worst-case bound v2 | both loaders | re-derived formula including abstention records; `visual-attribute-artifact-bound-v2.json` with accepted/refused pair |
-| Abstention vocabulary | `contracts.py`, `VisualAttributeContractRules.cs` | closed set; constant-parity test (as S2b's `test_contract_constants_match_the_platform`) |
-| Confidence | both | finite, [0,1]; Unknown carries none (unchanged) |
-| Aggregation | **Python only** | the platform validates structure and row equality, never recomputes; golden vectors `aggregation-v2-vectors.json` consumed by Python tests only |
-| Provenance | both | unchanged fields; `actualDevice` `cuda:N` exercised |
+| Attribute schema | `pipeline.py`, `VisualAttributeRelease.cs` | format unchanged; real vocabulary; new vector case |
+| Pipeline profile v2 + identity v2 | both | new vector `visual-attribute-identity-v2.json` (real-shaped pack ids, both artefact versions); v1 vector retained |
+| Aggregation v2 document | both parse; Python executes | release-parse vector (accepted/refused documents); decision golden vectors consumed by Python only |
+| Artefact v2 | Python encoder, .NET streaming validator | `visual-attribute-predictions-v2.json` (scored, partly abstained, all-abstained Analysed, abstained-type-as-supporting refused, out-of-range refused, coverage failures) |
+| Worst-case bound v2 | both | `visual-attribute-artifact-bound-v2.json` with accepted/refused pair |
+| Abstention vocabulary | `contracts.py`, `VisualAttributeContractRules.cs` | closed set; constant-parity test |
+| Confidence | both | finite, [0,1]; Unknown carries none |
+| Provenance | both | fields unchanged; `actualDevice` `cuda:N` exercised |
 
-No business rule is implemented twice except where both sides must refuse the same input (schema, artefact, bound, vocabulary), and each of those is held to a shared vector.
+Decisions are computed once, in Python; the platform refuses the same *inputs* the worker refuses, each held to a shared vector.
 
 ## 14. Performance
 
-**Derived budget.** At the 10,000-Track × 4-crop bound (40,000 crops) one attempt must finish within **half** the configured maximum analysis duration (default 6 h), so that a retry after a late failure still fits the absolute deadline: ≤ 10,800 s / 40,000 ≈ **0.27 s per crop end to end** (evidence read + verify + decode + admissibility + inference + aggregation), on the Development CPU host. A candidate over budget fails G4 unless the release profile binds CUDA for the role and it meets the budget there. Raising the deadline is a lifecycle configuration change that needs its own justification; it is never used to hide model slowness.
+**Derived budget.** At the 10,000-Track × 4-crop bound (40,000 crops) the deadline D (default 6 h) runs from first claim, so a retry must fit after a late failure. Per-attempt budget = (D − T_restart − T_load − T_lease) / 2, where T_restart is the launcher's restart delay (§17), T_load the measured model-load/READY time and T_lease one lease duration (reclaim delay). With placeholder values of 60 s, 120 s and 120 s this is ≈ 10,650 s, i.e. **≈ 0.266 s per crop end to end** (evidence read + verify + decode + admissibility + inference + aggregation). S2c.2 pins the **Development CPU host class** (CPU model, cores, RAM, OS) and the inference thread count (leaving one core for the event loop so heartbeats keep their schedule), and recomputes the figure with measured values. **G4 is CPU-mandatory in S2c**: no release profile binds the attributes role to CUDA in S2c, so a candidate cannot pass G4 on CUDA alone. Raising D is a lifecycle configuration change with its own justification, never a way to hide model slowness.
 
 | Measure | How | Where |
 |---|---|---|
 | READY / model-load time, RSS after load | supervisor timings | S2c.7 |
-| Per-crop and per-Track inference p50/p95/p99 by batch size | worker instrumentation (inference separated from evidence read and upload) | bake-off and S2c.9 |
-| Evidence read time per crop | client timings | S2c.9 |
+| Per-crop and per-Track inference p50/p95/p99 by batch size | worker instrumentation, inference separated from evidence read and upload | bake-off and S2c.9 |
+| Evidence read per crop | client timings | S2c.9 |
+| Heartbeat latency under full inference load | heartbeat timestamps vs schedule | S2c.9 |
 | Peak RSS; VRAM on CUDA; detector co-resident on one host | process sampling | S2c.9 |
-| CPU utilisation, thread count (fixed and recorded) | sampling | S2c.9 |
-| 10,000-Track run (synthetic Evidence Sets with real crop sizes) | a scale harness like S2b's timing test, driving the real worker | S2c.9 |
-| Artefact size at the bound (v2) | measured vs the derived bound | S2c.5 / S2c.9 |
-| Completion/publication time | unchanged S2b measurement repeated with a real identity | S2c.9 |
+| 10,000-Track run (synthetic Evidence Sets with real crop sizes) | scale harness driving the real worker | S2c.9 |
+| Artefact size at the bound (v2) | measured vs derived bound | S2c.5 / S2c.9 |
+| Completion/publication time | S2b measurement repeated with a real identity | S2c.9 |
 
-Batching is bounded by a byte and count cap derived from the crop bounds (≤ 160 KiB encoded, decoded ≤ 1024² × 3); the serial inference lane stays (no concurrent model entry). Worker concurrency stays one unit per process.
+**Batches** are bounded by count and decoded bytes: the count cap `B` and byte cap are fixed in S2c.2 from measured peak memory at the Development host (so that detector + attributes role fit together), never raised at run time. The serial inference lane stays; one unit per process.
 
 ## 15. Offline deployment
 
 | Item | Rule |
 |---|---|
 | Weights in Git | never (`verify_repo` refuses weight extensions; 10 MiB cap) |
-| Acquisition | a generalised Model Pack workflow (the RTMDet workflow is hard-wired today) fetches third-party checkpoints on a connected CI runner from **pinned immutable URLs/revisions**, verifies SHA-256 against the source manifest, extracts licence notices byte-exactly, and runs `build_model_pack.py` |
-| MAVI-trained artefacts | built on the owner-controlled machine from a recorded training manifest (§9.7); only their hashes are in Git; they enter the kit by hash |
-| Kit | content-addressed `vision/models/<modelPackId>/`; `component-inventory.json`; the sync tool already collects every enabled pack of a role |
-| Setup | `Mavi.VisionSetup.psm1` and the sync `plan` step extended from `vision` to every startable role, so the attributes packs are installed and verified by the same launcher |
-| Policy | `offline-dependency-policy-v1.json`: model entries for each pack (source, licence, notice, hashes, owner); `offline-binary-inventory.md`: Model Pack rows; any new Python package: `managedSources.python`, wheelhouse, lock, and (§12.5) a new family |
-| No hidden download | adapters import no hub-capable library at runtime; the learned E2E runs with outbound network denied except the platform endpoint; `HF_HUB_OFFLINE`/`TORCH_HOME`-style hooks are not relied on — absence of the code path is |
-| Verification | `verify_repo` re-derives pack ids, checks licence-notice artefacts, attribute profiles and bindings; installer verifies hashes before use |
+| Acquisition | a generalised Model Pack workflow (the RTMDet workflow is hard-wired today) fetches third-party checkpoints on a connected CI runner from **pinned immutable URLs/revisions**, verifies SHA-256 against the source manifest, extracts licence texts byte-exactly into the assembled notice, and runs `build_model_pack.py` |
+| MAVI-trained artefacts | built on the owner-controlled machine from a recorded training manifest (§9.7); only hashes in Git; they enter a Development kit by hash (§12.8) |
+| Kit | content-addressed `vision/models/<modelPackId>/`; `component-inventory.json`; Development kits only for attribute packs in S2c |
+| Setup | Setup/sync plan roles from the deployment profile's role set; Development plans `attributes`, Production does not |
+| Runtime policy | `offline-dependency-policy-v1.json`: an entry per attribute pack (source, licence, notice, hashes, owner); `offline-binary-inventory.md`: Model Pack rows; any new runtime Python package: `managedSources.python`, wheelhouse, lock, and (§12.7) a separate family |
+| Tooling policy | the evaluation environment (`tools/qualification/attributes/`: e.g. `open_clip`, `transformers`, `onnxruntime`, `openvino`) and any build-time conversion toolchain are new dependencies: each gets a policy entry (non-runtime scope), an exact-hash lock and a licence record in S2c.3 / S2c.6, per CLAUDE.md |
+| No hidden download | torch 2.6.0 ships `torch.hub` and `load_state_dict_from_url`, and `requests`/`httpx` are on the lock, so absence of the library is impossible; instead: a static ban (`torch.hub`, torchvision `weights=` arguments, `load_state_dict_from_url`, `from_pretrained`, `hf_hub_download`) enforced by a test over the adapter modules; a socket-deny unit test around adapter load and inference; and the network-denied learned E2E (§18) |
+| Evaluation environment | runs network-denied too once checkpoints are cached, because it processes private CCTV crops |
+| Verification | `verify_repo` re-derives pack ids, checks the notice artefact and component provenance, attribute profiles and the overlay binding; the installer verifies hashes before use |
 
 ## 16. Security and trust boundary
 
 S2b's boundary is unchanged: no filesystem access to accepted evidence, lease-scoped and lifetime-fenced reads, cross-run IDOR refused, capability never logged. S2c adds:
 
 - **Artefact integrity before deserialisation.** Every artefact is hash-checked by the resolver before load (ADR-005 §6); state dicts load with `weights_only=True`; TorchScript/pickled full models are not accepted; converted OpenVINO models are shipped as first-party torch modules plus state dict.
-- **Bounded loads.** Artefact byte caps per role in the source manifest check; JSON artefacts (preprocessing, mapping) parsed with the strict release-JSON reader and schema-validated.
+- **Bounded loads.** `artifactByteLimits` in the attribute manifest section, checked by the resolver before any load; JSON artefacts (preprocessing, mapping, component provenance) parsed with the strict release-JSON reader and schema-validated; decoded crops bounded by the Evidence Set pixel maximum.
 - **Decompression.** Packs are directories, not archives; kit archive handling is the existing verified path.
 - **Output validation.** Adapter outputs are checked for shape, finiteness and range before aggregation; a violation is terminal `output_invalid` for the attempt (S2b).
 - **Provenance truthfulness.** The worker reports only resolved identities; `verified` from an unpacked environment is refused by the platform (S2b); the identity fence prevents a worker with other packs from claiming units.
@@ -471,14 +516,14 @@ S2b's boundary is unchanged: no filesystem access to accepted evidence, lease-sc
 | Incompatible model/runtime pair | same (`runtimeCompatibility`) | operator-visible |
 | Unknown `adapterId` / section | same | operator-visible |
 | Model load failure / OOM at load | UNAVAILABLE; reason recorded | operator-visible |
-| CUDA unavailable with `cuda` policy | UNAVAILABLE `attribute_device_unavailable:cuda`; no CPU fallback | operator-visible |
+| CUDA unavailable with `cuda` policy | UNAVAILABLE (today's code refuses `cuda` outright with `attribute_device_unsupported:cuda`; S2c keeps a refusal code for a variant the pack does not support and adds `attribute_device_unavailable:cuda` for CUDA that is supported but absent); no CPU fallback | operator-visible |
 | `auto` in Development | resolves visibly; provenance records the device | — |
 | Inference exception | attempt fails retryable `visual_attribute_inference_failed`; no Track outcome | retryable attempt failure |
-| OOM during inference | the runner stops its heartbeat, reports `/fail` with `visual_attribute_inference_failed` (retryable), then the process exits non-zero so its launcher starts a fresh process that must reach READY again; if `/fail` cannot be delivered the lease expires and the unit is reclaimed (S2b). A degraded process never leases again | retryable + operator-visible |
-| Inference timeout (per batch, `inference_timeout_seconds` in worker settings — not identity — set from the measured p99 × a recorded margin and bounded below the lease so a heartbeat cycle always fits) | same order as OOM: `/fail` retryable, then exit, because a hung native call on the inference thread cannot be cancelled and the serial lane must not be reused | retryable |
+| OOM during inference (`MemoryError`, `torch.cuda.OutOfMemoryError` — caught explicitly, not by the generic handler that today reports `inference_failed` and keeps leasing) | fixed sequence: stop the heartbeat → `/fail` `visual_attribute_inference_failed` (retryable) bounded by the request timeout → `os._exit(75)` (a hard exit: `runner.close()` joins executor threads, so a normal exit can hang). The role's launcher restarts it with exponential backoff (T_restart in §14); the fresh process must reach READY, whose start-up includes a one-batch memory probe. A kernel OOM-kill (SIGKILL) gives no `/fail`: the lease expires and S2b reclaims. A deterministic OOM consumes the unit's attempts and fails it — operator-visible, by design | retryable + operator-visible |
+| Inference timeout (per batch, `inference_timeout_seconds` in worker settings — not identity — fixed in S2c.2 from the measured p99 batch time × a declared margin, and below the lease duration) | same sequence with `os._exit(76)`: a hung native call cannot be cancelled, and `run_once` would otherwise wait on the in-flight future forever | retryable |
 | Worker crash | lease expires; reclaim; attempts bound (S2b) | retryable |
 | Capability unavailable mid-lease (device lost) | as inference exception/timeout | retryable |
-| Malformed output, NaN/Inf, out-of-range | terminal `visual_attribute_output_invalid` (deterministic model defect) | terminal unit failure |
+| Malformed output, NaN/Inf, out-of-range | terminal `visual_attribute_output_invalid` — deliberately: a deterministic model defect must surface rather than be hidden as abstention, even though one pathological crop fails a whole unit; the bake-off and regression corpus must show a zero rate, and the trade-off is recorded | terminal unit failure |
 | Preprocessing failure on a decodable crop | terminal `output_invalid` (adapter defect), distinct from decode failure | terminal |
 | Undecodable crop | observation Unavailable `evidence_decode_failed` (S2b) | Track Unavailable if all crops |
 | Unsupported / inadmissible crop | abstained with reason | attribute Unknown |
@@ -493,7 +538,8 @@ S2b's boundary is unchanged: no filesystem access to accepted evidence, lease-sc
 - **Contract:** Model Pack manifest sections (registered, closed); licence notice per component; qualification record identity; gate sets; binding with the attributes role; cross-language vectors (§13); `verify_repo` negative fixtures (unregistered adapter, missing notice, weight file in Git, attribute profile hash mismatch, network locator).
 - **Integration (.NET + real worker):** lease → evidence reads → learned inference → upload → completion → persistence → default selection, with no database shortcut; Stale of the fixture analyses when the real identity becomes preferred.
 - **E2E:** the real attributes worker process with the actual selected packs (installed pack and unpacked environment), real platform (Kestrel) and PostgreSQL, network denied except the platform; run in CI where the packs are obtainable from the CI kit build, otherwise as a retained Development run (the CI E2E keeps using the fixture pack so it never needs private artefacts). Network denial is enforced inside the worker process by a test-only launcher that installs a `sys.addaudithook` refusing `socket.connect`/`getaddrinfo` to anything but the platform's loopback address and fails the run on any refused attempt, plus a static import guard that the adapters import no hub-capable module.
-- **Regression corpus:** a small, licence-clean, repository-owned regression set (synthetic or owner-cleared crops, hashes only in Git, bytes in the kit) with expected Track decisions and scores within tolerance, run on every pack change.
+- **Regression corpus:** a small regression set with expected Track decisions and scores within tolerance, run on every pack change. Owner crops stay in the evaluation/CI evidence store (hashes only in Git) and **never enter a kit**; anything shipped or run in public CI is synthetic and licence-clean.
+- **Failure paths:** one test per §17 sequence (OOM → `/fail` → exit 75; timeout → exit 76; SIGKILL → reclaim), with the launcher's restart/backoff tested separately.
 - **Negative:** corrupt checkpoint, wrong hash, wrong pack id in binding, incompatible Runtime Pack, unknown adapter, NaN/Inf output, wrong output shape, simulated OOM at load and in inference, timeout, CUDA requested but absent, Production start refused, fixture in Production refused, network attempt from an adapter import.
 
 ## 19. Mutation programme
@@ -520,6 +566,11 @@ S2b's boundary is unchanged: no filesystem access to accepted evidence, lease-sc
 | S18 | OOM in inference leaves the process leasing | failure-isolation test (process exits, restart READY) |
 | S19 | timeout not enforced | inference-timeout test |
 | S20 | verified status from an unpacked environment | S2b platform validator |
+| S21 | score Representative crops under `representativePolicy: abstain` | aggregation v2 vector + v2 validator (Representative as supporting refused) |
+| S22 | validate a unit's artefact against the *preferred* identity's version instead of the unit's own | platform test with a fixture-identity unit completing after the learned identity is preferred |
+| S23 | drop `predictionsSchemaVersion`/admissibility from the canonical identity | identity v2 vector |
+| S24 | allow the overlay binding to change a release-binding role or pack | `verify_repo` negative fixture |
+| S25 | plan/install the attributes role in a Production profile | Setup contract test |
 
 Target: every S-mutant killed; equivalents recorded with the reason, as in S2b.
 
@@ -531,7 +582,7 @@ No row changes in this planning change. At S2c exit:
 |---|---|---|---|---|---|---|
 | F1 | **PASS** | annotation guide per attribute, corpus + partition manifests (hashed), sealing record | agreement computation unit tests | pilot + main agreement/adjudication report | manifests, guide, report hashes | camera count achieved |
 | F3 | **PASS** if the licence review approves every component; otherwise OPEN with the review's finding | source/built manifests, notices, offline policy + inventory entries, pack build workflow | `verify_repo`, resolver, installer tests | licence review record; offline install run | built manifests, kit inventory, review | Development/unverified only |
-| F9 | **PASS** | failure containment, device policy, version-skew refusal, co-residency | §17 negative tests, mutations S12, S18, S19 | co-resident run on the Development host(s) | run logs, RSS/VRAM samples | CUDA co-residency only if a GPU host was available |
+| F9 | contributes (closing owner S5, which the parent plan gives "resilience") | failure containment, device policy, version-skew refusal, co-residency | §17 tests, mutations S12, S18, S19 | co-resident run on the Development host(s) | run logs, RSS/VRAM samples | S5 re-runs on the frozen identity |
 | F2, F4, F5, F6, F8, F10 | contributes | — | — | validation-partition reports, model-selection record, draft requalification matrix | reports | closed by S5 on the frozen identity |
 | F7 | none | — | — | — | — | needs S3 search |
 | G3, G4 | contributes | Setup for the attributes role; network-denied E2E | — | disconnected run of the learned role | run record | full G3/G4 is S5 |
@@ -550,7 +601,8 @@ The historical acceptance criteria are not rewritten.
 | R5 | S2a/S2b reconciliation bridge "S2b … next" | must amend before | **done here** (dated status notes) |
 | R6 | Both roadmaps' Stage-2 status (S1.4 active) | must amend before | **done here** (status text) |
 | R7 | Qualification plan §18 freeze order not executable | must amend before | **proposed here** as protocol revision R1 |
-| R8 | ADR-013 open points (adapter, abstention, device/runtime, §9 claim-helper record) | must amend before | **proposed here** as amendment items 8–11 |
+| R8 | ADR-013 open points (adapter, abstention/identity, vision-lock rule) and ADR-014 binding cardinality | must amend before | **proposed here**: ADR-013 items 8–10; ADR-014 overlay note |
+| R8a | ADR-013 §9 still lists a generic claim helper and digest verifier that S2b deliberately did not extract (register D2 amendment) | must amend before | recorded in the S2b closure entry (R1), not as an S2c ADR item |
 | R9 | Setup/runbooks vision-role-only (`mavi-offline-setup.md`, `Mavi.VisionSetup.psm1`) | amend during S2c | S2c.8 |
 | R10 | Lifecycle runbook detector-centric wording; `local-development.md` "no attribute worker exists" | amend during S2c | S2c.8 |
 | R11 | `offline-dependency-policy-v1.json` `setupIntegration` predates S2a.4; `offline-binary-inventory.md` has no Model Pack rows; CUDA CPython row imprecise | amend during S2c | S2c.6 |
@@ -564,37 +616,86 @@ Each slice is a reviewable PR on the S2c feature branch (or a sequence of PRs), 
 
 | Slice | Purpose | Likely files | Tests first | Evidence | Stop conditions | Deferred |
 |---|---|---|---|---|---|---|
-| **S2c.0 Baseline** | S2b closure entry (R1); acceptance of ADR-013 items 8–11 and R1; record the licence-review and corpus owners | register evidence log; ADR status | — | closure entry | amendments not accepted → stop | — |
-| **S2c.1 Task + corpus + labels** | corpus/partition manifest schemas and tooling (hashing, near-duplicate check, grouping); annotation guide v1; pilot; agreement tooling; vocabulary freeze; main labelling; **seal the frozen test** | `tools/qualification/attributes/corpus/`, `docs/qualification/stage2-s2c/annotation-guide.md`, manifests | manifest schema, grouping/leakage, agreement computation (known κ/α cases) | pilot + agreement report; sealed manifest hash (**F1**) | agreement too low for an attribute → the attribute is removed or merged, recorded | frozen-test scoring (S5) |
-| **S2c.2 Protocol freeze** | re-run the technical survey; licence matrix for every shortlisted candidate and the human review of (a) evaluation permission and (b) qualification class; commit bake-off protocol (candidates, gates, weights, MPID, strata, report format) | `docs/qualification/stage2-s2c/bake-off-protocol.md`, survey update | — | protocol hash committed before results | no candidate of a task may even be evaluated → that task is re-scoped with the owner; a technically strong candidate that cannot be evaluated stays in the record with its reported figures | — |
-| **S2c.3 Evaluation harness** | isolated eval environment; candidate runners; metrics; bootstrap; stratified reports; latency/memory probes | `tools/qualification/attributes/` | metrics on synthetic predictions with known answers; bootstrap determinism; runner interface | harness self-test report | — | no production code |
-| **S2c.4 Bake-off** | run candidates on the validation partition; train probe heads where shortlisted; selection record per task | evidence store; `model-selection-*.md` | — | raw results, selection records | no candidate passes G1–G6 for an attribute → attribute disabled for S2c; baseline-only outcome recorded | — |
-| **S2c.5 Contracts** | artefact v2, bound v2, abstention vocabulary, aggregation v2, admissibility parameters, registered manifest sections, gate sets, adapter registry (fixture as `fixture-v1`) | `attributes/{inference,predictions,pipeline,contracts}.py`, `model_manifest_v2.py`, `AttributePredictionsValidator.cs`, `VisualAttributeRelease.cs`, `VisualAttributeContractRules.cs`, vectors | vectors and validators first | vectors, mutations S6–S9, S16, S17 | — | — |
-| **S2c.6 Model Packs** | source manifests, notices, pinned acquisition, generalised pack workflow, built manifests, qualification records, offline policy/inventory; Runtime Pack family only if §12.5 bar met | `models/manifests/`, `models/qualifications/`, `.github/workflows/`, `config/dependencies/`, `docs/architecture/offline-binary-inventory.md` | `verify_repo` negatives, pack-id derivation | built packs, pack ids (**F3** part) | licence review not approved → F3 stays OPEN; Development use only if the review allows evaluation use | Production promotion |
-| **S2c.7 Adapters + device** | adapters for the winners; parity with the harness (same crops → same scores within tolerance); device policy; batching; timeout; OOM containment | `attributes/adapters/`, `supervisor.py`, `runner.py`, `settings.py` | parity, device, failure tests | parity report; mutations S1–S5, S11–S14, S18, S19 | parity fails → fix adapter, never retune on the frozen test | — |
-| **S2c.8 Lifecycle + release** | attributes role and bindings in the shipped binding; real pipeline profile under `src/vision/config/attributes/`; `verify_repo` attribute loader; Setup/sync for the role; runbooks | binding, profile, `verify_repo.py`, `Mavi.VisionSetup.psm1`, sync tool, runbooks | integration and learned E2E (network denied) | E2E record; mutation S15 | — | S3 search |
-| **S2c.9 Performance + Development execution** | 10,000-Track run; CPU on both CPU variants; CUDA and co-residency where the GPU host is available; determinism and variant equivalence | scale harness | — | performance report; ADR-009 Development evidence (**F9**) | budget missed → back to S2c.4 (next candidate) or record limitation; never relax the deadline silently | CUDA qualification |
-| **S2c.10 Closure** | mutation programme, documentation reconciliation R9–R13, register evidence for F1/F3/F9, contributing reports, independent cold review | docs | — | mutation record; register entries | open P1/P2 → not done | S5 freeze and frozen-test scoring |
+| **S2c.0 Baseline** | S2b closure entry (R1); acceptance of ADR-013 items 8–10, the ADR-014 overlay note and protocol revision R1; name the licence-review and corpus owners | register evidence log; ADR status | — | closure entry | amendments not accepted → stop | — |
+| **S2c.1 Task + corpus + labels** | corpus/partition manifest schemas and tooling (hashing, site/date grouping, near-duplicate check, raw-evidence pin); annotation guide v1; pilot from the training partition; agreement tooling; vocabulary freeze (bound re-checked); main labelling; **seal the frozen test** | `tools/qualification/attributes/corpus/`, `docs/qualification/stage2-s2c/annotation-guide.md`, manifests | manifest schema, grouping/leakage, agreement computation (known κ/α cases) | pilot + agreement report; sealed manifest hash (**F1**) | agreement too low for an attribute → removed or merged, recorded; a selector/profile change (open S1.4) → re-derive affected crops | frozen-test scoring (S5) |
+| **S2c.2 Protocol freeze** | re-run the technical survey; licence matrix and the human review of evaluation permission and qualification class for every shortlisted candidate; commit the bake-off protocol: candidates, folds, aggregation family, threshold method, primary metrics, gates (incl. G3 tolerance), weights, MPID, strata, Development CPU host class and thread count, batch caps, timeout margin, report format | `docs/qualification/stage2-s2c/bake-off-protocol.md`, survey update | — | protocol hash committed before any result | no candidate of a task may even be evaluated → re-scope with the owner; strong candidates that cannot be evaluated stay in the record with reported figures | — |
+| **S2c.3 Evaluation harness** | isolated, network-denied evaluation environment with its own lock and policy entry; candidate runners; metrics; bootstrap; stratified reports; latency/memory probes | `tools/qualification/attributes/`, `config/dependencies/` | metrics on synthetic predictions with known answers; bootstrap determinism; runner interface | harness self-test report | — | no production code |
+| **S2c.4 Bake-off** | run evaluable candidates; fit heads/calibration with cross-fitting; tune on the tuning partition; compare on the selection partition; selection record per task reporting the technically strongest and the strongest qualifiable candidate | evidence store; `model-selection-*.md` | — | raw results, selection records | no candidate passes G1–G6 for an attribute → attribute disabled for S2c; baseline-only outcome recorded | — |
+| **S2c.5 Contracts** | artefact v2 + bound v2; pipeline profile v2 + identity v2 + activation migration; aggregation v2 document (both loaders); admissibility method + vocabulary; registered manifest sections + byte limits; gate sets; adapter registry with the fixture path unchanged; runner batching and output validation | `attributes/{inference,predictions,pipeline,contracts,admissibility}.py`, `model_manifest_v2.py`, `resolver.py`, `AttributePredictionsValidator.cs`, `VisualAttributeRelease.cs`, `VisualAttributeContractRules.cs`, EF migration, vectors | vectors and validators first | vectors; mutations S6–S9, S16, S17, S21–S23 | — | — |
+| **S2c.6 Packs, overlay and release** | per task: source manifest, assembled notice, component provenance, qualification records **and** the overlay-binding entry in one change; the real pipeline profile; `verify_repo` overlay class and attribute-profile loader; generalised pack workflow; offline policy/inventory; Development kit assembly for owner-built artefacts; Setup/sync per profile role set; runbooks; Runtime Pack family only if the §12.7 bar is met | `models/`, `src/vision/config/components/development-attributes-v2.json`, `src/vision/config/attributes/`, `tools/verify_repo.py`, `.github/workflows/`, `config/dependencies/`, `tools/setup/`, sync tool, runbooks | `verify_repo` negatives (S24), pack-id derivation, Setup contract (S25) | built packs, pack ids (**F3**) | licence review not approved → F3 stays OPEN; Development use only where evaluation/use is permitted | Production promotion |
+| **S2c.7 Adapters + device** | adapters for the winners; parity with the harness (same crops → same scores within tolerance); device policy; timeout; OOM/exit sequence; launcher restart policy | `attributes/adapters/`, `supervisor.py`, `runner.py`, `main.py`, `settings.py`, launcher | parity, device and failure-path tests | parity report; mutations S1–S5, S11–S14, S18, S19 | parity fails → fix the adapter, never retune on the frozen test | — |
+| **S2c.8 Learned lifecycle** | learned integration and E2E through the real lease plane (network denied); Stale of fixture analyses; in-flight fixture units complete under their own identity | integration tests, E2E harness | integration and E2E first | E2E record; mutations S15, S22 | — | S3 search |
+| **S2c.9 Performance + Development execution** | 10,000-Track run; CPU on both CPU variants; heartbeat latency under load; CUDA and co-residency where the GPU host is available; determinism and variant agreement | scale harness | — | performance report; ADR-009 Development evidence (contributes to F8, F9) | budget missed → next candidate (S2c.4) or recorded limitation; never relax D silently | CUDA qualification |
+| **S2c.10 Closure** | mutation programme, documentation reconciliation R9–R13, register evidence for F1 and F3, contributing reports, independent cold review | docs | — | mutation record; register entries | open P1/P2 → not done | S5 freeze and frozen-test scoring |
 
 ## 23. Risks, unresolved decisions and external dependencies
 
 | # | Item | Owner | Blocks |
 |---|---|---|---|
-| U1 | **Licence review**, separate from technical ranking, of every shortlisted candidate: (a) whether MAVI may *evaluate* it; (b) its class L-A…L-D; (c) for L-B candidates, the per-deployment end-use determination — made from each deployment's actual use, never inferred from MAVI's domain-neutral product definition. Open items include ImageNet-pretraining provenance of torchvision weights; OMZ training-data provenance; PA-100K images/data protection; binding force of CLIP/OpenCLIP model-card "surveillance" statements; SigLIP 2/WebLI; evaluation-only use of research datasets | owner + legal | S2c.2 (selection), F3 |
+| U1 | **Licence and data review**, separate from technical ranking, of every shortlisted candidate: (a) whether MAVI may *evaluate* it; (b) its class L-A…L-D; (c) for L-B candidates, the per-deployment end-use determination — made from each deployment's actual use, never inferred from MAVI's domain-neutral product definition. Open items include ImageNet-pretraining provenance of torchvision weights; OMZ training-data provenance; PA-100K images/data protection; binding force of CLIP/OpenCLIP model-card "surveillance" statements; SigLIP 2/WebLI; DINOv2 LVD-142M; evaluation-only use of research datasets and restricted checkpoints; privacy and retention of labelling operational CCTV crops (faces and plates visible) | owner + legal | S2c.2 (selection), F3 |
 | U2 | **Corpus footage** (cameras, day/night) and **annotators** (≥ 2, one independent) | owner | S2c.1, S2c.4 |
 | U3 | **Product decisions**: colour merges after the pilot; target precision per attribute; MPID; whether headwear stays a candidate | owner | S2c.1/S2c.2 (MPID), S5 (targets) |
 | U4 | Development GPU host availability for CUDA evidence | owner | S2c.9 (CUDA part only) |
-| U5 | Enabling the attributes role in the shipped binding moves the kit compatibility boundary (§12.6) | reviewer | S2c.8 |
+| U5 | When (after S5) the attributes role moves from the Development overlay into the release binding, which moves the kit compatibility boundary and the vision role's binding SHA (§12.8) | owner | post-S2c |
+| U7 | Whether to recover Representative-only coverage by an explicit qualification contract — persisting and leasing the selector's `qualified` flag for new ProcessingRuns (touches S1: VisionJob completion, persistence, lease) — decided from the bake-off's measured coverage cost of `representativePolicy: abstain` | owner + ADR-013 §4 amendment | after S2c.4 |
+| U8 | The launcher/service that restarts the attributes role (§17) on each Development host (Windows service or scheduled task; Linux systemd unit) | owner | S2c.7 |
 | U6 | Whether truncation needs explicit crop geometry in the lease (additive field) | bake-off evidence | S2c.4 → possibly S2c.5 |
 | R-a | No *qualifiable* candidate reaches a useful precision for colour on MAVI imagery (the technically strongest may be L-C) | — | mitigated by B0 floor and MAVI-trained heads; outcome may be "attribute disabled" |
 | R-b | Probe candidates need more labels than the owner can provide | — | pilot measures learning curves early |
-| R-c | CPU budget excludes the most accurate backbone | — | CUDA binding for the role or a smaller tower; §9.5 decides |
+| R-c | CPU budget excludes the most accurate backbone | — | a smaller tower or distillation within S2c; a CUDA binding for the role only after CUDA qualification (not S2c); §9.5 decides |
 | R-d | MAVI-trained artefacts cannot be rebuilt in CI | — | recorded training manifest + owner-machine rebuild check (§9.7) |
 
 ## 24. Cold review of this plan
 
-PENDING
+Three review inputs were applied to the first written draft (commit `458ca2e`): the author's own re-read, an owner context correction, and an independent read-only review against the code on `main`. Every finding and its disposition:
+
+**Author's re-read (before the independent review)**
+
+| # | Finding | Disposition |
+|---|---|---|
+| A1 | OOM/timeout order of `/fail` vs exit undefined | §17 sequence (later made precise by I-11) |
+| A2 | How the platform chooses the artefact validator was unstated | first fix superseded by I-1 |
+| A3 | "Verified crop" ambiguous for the all-abstained rule | "verified and decoded" in §12.3 and ADR-013 item 9 |
+| A4 | Network-denied E2E had no mechanism | audit-hook launcher + import ban (§15, §18) |
+| A5 | Corpus size was unspecified | derivation rule in §10.2 |
+| A6 | Unverified packs could reach a Production kit | Development-only role planning (§12.8) |
+
+**Owner context correction (2026-09-28)**
+
+MAVI is a domain-neutral platform. The first draft excluded DINOv3, SAM 3, MobileCLIP, DFN and MetaCLIP and let licence terms pre-filter the shortlist. The repository-context check found **no** document that characterises MAVI itself as military or defence-specific (only normal "defence in depth" code comments); the framing came from the planner's own research prompts. Changed: the technical shortlist is licence-blind (§9.2); licence qualification is a separate analysis with classes L-A–L-D and a per-candidate matrix (§9.3, survey §6); licence is a selection gate after evaluation, not a pre-filter; end-use clauses (DINOv3, SAM 3, CLIP/OpenCLIP cards) are per-deployment determinations recorded in the qualification record; every previously excluded model is back in the comparison with its terms marked. No licence was reinterpreted.
+
+**Independent review of `ec13a15`** (4 P1, 15 P2, 6 P3)
+
+| # | Sev. | Finding | Disposition |
+|---|---|---|---|
+| I-1 | P1 | Artefact v1/v2 dispatch had no basis: the profile has no version field, identity excludes it, claims are fenced on the worker's fingerprint | **Fixed:** pipeline profile v2 + identity v2 include artefact version and admissibility method; version persisted on the activation (migration); validation against the unit's own identity (§12.4, ADR-013 item 9, mutations S22–S23) |
+| I-2 | P1 | "Manifest v2 unchanged" false: role names, single notice role, single provenance, no byte caps | **Fixed without a common-schema change:** kebab roles, one assembled notice, SPDX expression (the field is free text), `component-provenance` artefact, byte limits in the registered attribute section (§12.2) |
+| I-3 | P1 | Shipped-binding strategy broke `verify_repo` slice order, CI/kit builds, vision provenance and Production hygiene | **Fixed:** release binding unchanged; tracked Development overlay binding (proposed ADR-014 note); manifests merged with their overlay entry; Production Setup never plans the role (§12.8; slices S2c.6/S2c.8 reordered) |
+| I-4 | P1 | The admissibility contract did not satisfy parent plan §8.2 (no qualification floors; fallback flag not leased; not derivable) | **Fixed:** the claim is withdrawn; default `representativePolicy: abstain` so Observed values rest only on qualified supplemental evidence; coverage cost measured; an explicit S1-touching contract is a separate evidence-driven decision U7 (§8.2, ADR-013 item 9) |
+| I-5 | P2 | Aggregation v2 not Python-only (the .NET parser refuses other methods); parameter location unspecified; `kMin` missing from the rule | **Fixed:** aggregation-v2 document parsed by both, executed in Python, vector; rule includes `kMin` (§7.4, §12.5) |
+| I-6 | P2 | Artefact bound tight (59,654,096 B, 88.9 % — re-computed and confirmed) | **Fixed:** v2 encoding adds no bytes per scored type; bound stated (§12.3) |
+| I-7 | P2 | Validation evidence circular (fit, tune, select and report on one partition; in-sample ECE; LOCO meaningless) | **Fixed:** training/tuning/selection/frozen partitions, cross-fitting, held-out calibration, retrained LOCO; numbers labelled development estimates (§9.4, §10.2) |
+| I-8 | P2 | Leakage: pilot source, same person across cameras, VLM-proposer bias | **Fixed:** pilot from training only; site-and-date grouping; proposer family recorded and never a candidate's family (§10.2–§10.3) |
+| I-9 | P2 | R1 moved the aggregation family and threshold method, which §18 can freeze first | **Fixed:** frozen at R1 step 1 / S2c.2; only parameter values are tuned |
+| I-10 | P2 | Operating point needed in S2c but targets deferred to S5; primary metric unnamed | **Fixed:** threshold-free primary metrics (AURC; macro-F1 at full coverage / AP) frozen in S2c.2 (§9.5) |
+| I-11 | P2 | OOM/timeout exit unworkable (no restart; normal exit joins hung threads; CUDA OOM swallowed; SIGKILL) | **Fixed:** explicit catch, stop heartbeat → bounded `/fail` → `os._exit(75/76)`; launcher restart with backoff (U8); tests per path (§17, §18) |
+| I-12 | P2 | Budget had no margin; host unspecified; CUDA loophole in G4 | **Fixed:** (D − T_restart − T_load − T_lease)/2; host class and threads pinned in S2c.2; G4 CPU-mandatory (§14) |
+| I-13 | P2 | "No hub-capable library" false (torch.hub, requests, httpx on the lock) | **Fixed:** static ban list, socket-deny test, network-denied E2E and evaluation environment (§15) |
+| I-14 | P2 | Evaluation/build dependencies ungoverned | **Fixed:** tooling policy entries, locks and licence records in S2c.3/S2c.6 (§15) |
+| I-15 | P2 | Plan pre-empted the licence review; L-B treated inconsistently; RAP mislabelled; U1 incomplete | **Fixed** by the context correction and U1 extension (DINOv2 LVD-142M, CCTV-labelling privacy); RAP marked UNVERIFIED (L-D) |
+| I-16 | P2 | Replaceability overstated for a closed adapter registry | **Fixed:** stated limit; data-driven generic adapters preferred (§12.1) |
+| I-17 | P2 | Regression-corpus bytes would ship in kits | **Fixed:** owner crops never enter a kit (§18) |
+| I-18 | P2 | Corpus depends on the still-open S1 | **Fixed:** raw-evidence pin and stop condition (§10.2, S2c.1) |
+| I-19 | P2 | Contract changes unacknowledged | **Fixed:** complete list §12.9; §5.6 and §25 corrected |
+| I-20 | P3 | ADR items 10–11 not minimal | **Fixed:** item 10 reduced to the new rule; item 11 moved to the S2b closure entry (R8a) |
+| I-21 | P3 | Fixture-as-adapter would change the fixture pack identity | **Fixed:** fixture path unchanged (§12.1) |
+| I-22 | P3 | Who decodes the JPEG was ambiguous | **Fixed:** worker decodes once (§12.1, ADR-013 item 8) |
+| I-23 | P3 | Code drift (device reason; validator range check; profile "moves") | **Fixed** (§17, §12.3, §12.8) |
+| I-24 | P3 | Unspecified numbers (batch caps, timeout margin, G3 tolerance); SigLIP 2 size | **Fixed:** fixed in S2c.2 protocol; size corrected |
+| I-25 | P3 | Register verdict without run ids; F9 owner vs parent plan; NaN policy; heartbeat under load | **Fixed:** run ids cited; F9 closing owner S5; NaN terminal stated as a deliberate trade-off; heartbeat latency measured (§14) |
+
+A second independent pass over the amended plan is recorded below.
 
 ## 25. Scope guard
 
-S2c changes no lifecycle state, publication protocol, evidence boundary, identity derivation, supersession rule, search, UI, detector, tracker, Evidence Set or Production gate. It adds no generic job framework, no training platform and no network path. Any change outside §4.1 needs its own ADR amendment and plan revision first.
+S2c changes no lifecycle state, publication protocol, evidence-read boundary, supersession rule, search, UI, detector, tracker, Evidence Set selection or Production gate. Every contract and code change it makes is listed in §12.9; the identity derivation, the artefact, the pipeline profile and the aggregation document change only as listed there, under the proposed ADR-013 items 8–10 and the ADR-014 overlay note. It adds no generic job framework, no training platform and no runtime network path. Any change outside §4.1 and §12.9 needs its own ADR amendment and plan revision first.

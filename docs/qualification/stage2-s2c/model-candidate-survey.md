@@ -61,7 +61,7 @@
 
 | Family | Licence (weights) | Relevant evidence | Limitation |
 |---|---|---|---|
-| SigLIP / SigLIP 2 | Apache-2.0 | VLM-PAR builds on frozen SigLIP 2 | ≈ 0.2 B+ parameters at base; no training-free PAR result found; CPU cost |
+| SigLIP / SigLIP 2 | Apache-2.0 | VLM-PAR builds on frozen SigLIP 2 | base image tower ≈ 86–93 M parameters (text tower not needed at inference); no training-free PAR result found; CPU cost |
 | DINOv2 | Apache-2.0 | strong linear probes generally; none found for PAR/colour | colour may be suppressed by invariance training (UNVERIFIED hypothesis) |
 | OpenAI CLIP / OpenCLIP (LAION, DataComp) | MIT, with card use statements | attribute-binding weakness documented ([arXiv 2502.03566](https://arxiv.org/pdf/2502.03566)); low-res degradation ([LR0.FM, arXiv 2502.03950](https://arxiv.org/abs/2502.03950)) | surveillance/deployed use out of scope on the cards |
 | MobileCLIP 2 / DFN | Apple ML Research Model Licence (research only) | MobileCLIP 2 is the most CPU-efficient contrastive tower in the survey | licence class L-C (§6) |
@@ -79,10 +79,12 @@
 4. PA-100K: does CC-BY 4.0 cover the images as well as annotations; data-protection position for training on images of real people.
 5. OpenAI/LAION card "surveillance out of scope": binding restriction or advisory?
 6. SigLIP 2 / WebLI: any terms beyond Apache-2.0?
-7. May checkpoints trained on non-commercial data (PETA, RAP, Market, UPAR, LUPerson, VeRi, UFPR) be used for **internal evaluation** as upper-bound references?
-8. RAP v2, MSP60K, Chen 2014 dataset terms.
-9. NVIDIA TAO / DeepStream model terms (only if revisited).
-10. Privacy/retention for labelling operational CCTV crops (faces and plates visible).
+7. DINOv2 was trained on LVD-142M (curated, undisclosed sources): acceptable provenance?
+8. May checkpoints trained on non-commercial data (PETA, RAP, Market, UPAR, LUPerson, VeRi, UFPR) be used for **internal evaluation** as upper-bound references?
+9. RAP v2, MSP60K, Chen 2014 dataset terms.
+10. NVIDIA TAO / DeepStream model terms (only if revisited).
+11. Privacy/retention for labelling operational CCTV crops (faces and plates visible).
+12. For every L-B candidate: the per-deployment end-use determination (made from each deployment's actual use).
 
 ## 6. Licence qualification matrix (separate from technical ranking)
 
@@ -109,5 +111,6 @@ One row per serious candidate. "Applies to" states whether a term binds code, we
 | ViTA-PAR | CC BY-NC-ND 4.0 | [arXiv](https://arxiv.org/html/2506.01411) | **no** | ND | — | — | — | code/weights | L-C |
 | torchvision / timm ImageNet weights | BSD-3 / Apache-2.0 code; weights "may have their own licenses … derived from the dataset" | [torchvision](https://docs.pytorch.org/vision/stable/models.html), [ImageNet](https://www.image-net.org/download.php) | code yes; weights review | code yes | none | none | ImageNet terms non-commercial research/education; SWAG weights CC-BY-NC | weights | L-A code / weights to review |
 | PA-100K dataset | CC-BY 4.0 (stated) | [HydraPlus-Net README](https://github.com/xh-liu/HydraPlus-Net#pa-100k-dataset) | yes (as stated) | yes, attribution | none stated | none stated | images of real people: data-protection review | data | L-A (to confirm) |
-| PETA / Market-1501 attributes / RAP / VeRi / UFPR / CompCars | research-only / none / UNVERIFIED / NC / NC agreement / NC | see §1 item 3 | **no** | no | — | — | — | data and derived weights (treated as inheriting) | L-C |
+| PETA / Market-1501 attributes / VeRi / UFPR / CompCars | research-only / none stated / NC / NC agreement / NC | see §1 item 3 | **no** | no | — | — | — | data and derived weights (treated as inheriting) | L-C (Market: L-D) |
+| RAP v1/v2 | UNVERIFIED (site unreachable; believed request-based research use) | see §1 item 3 | UNVERIFIED | UNVERIFIED | — | — | — | data and derived weights | L-D until verified |
 | Rethinking-PAR, PARFormer, HAP repo, Vehicle Color-24, VCoR, `w2c` | none found | see §2–§4 | unknown | unknown | — | — | — | code/data | L-D |
