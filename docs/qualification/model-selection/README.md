@@ -176,7 +176,7 @@ Some capabilities are served by one Model Pack that composes components solving 
    - every tuple of finalists that **share a backbone** (one tower serving both sub-tasks with separate heads), which is evaluated as its own candidate because its heads are trained on the shared features;
    - the protocol's cap on further tuples from the finalist product, ordered by the sum of sub-task ranks.
 
-   Each composition is written as an exact tuple (`<T-PC component>`, `<T-PO component>`, optional shared backbone or region component), each element with its exact identity (§5). No composition may be proposed after results are seen.
+   Non-packageable baselines never enter a tuple. Each composition is written as an exact tuple (`<T-PC component>`, `<T-PO component>`, optional shared backbone or region component), each element with its exact identity (§5). No composition may be proposed after results are seen.
 3. **Composition evaluation**, on the same partitions and hosts. Each composition records:
    - combined per-attribute quality, with each sub-task's primary metrics taken from its components;
    - end-to-end CPU latency per crop and per Track, and aggregate throughput;
@@ -187,8 +187,8 @@ Some capabilities are served by one Model Pack that composes components solving 
    - whether a backbone is shared;
    - the system-scale projection (§7.1);
    - the failure-domain implications (one process holding all components, and what one component's failure takes down).
-   **Every composition must pass the protocol's technical and engineering gates as a unit** (budget, memory, determinism, abstention, system scale): components that each fit can exceed the envelope together. Failing compositions are recorded with the reason. So are attributes that no component in the tuple passes the baseline gate for; those are disabled in that composition.
-4. **Pareto frontier.** Compositions are compared on scalar axes frozen in the protocol: a quality scalar (for example the equal-weight mean over enabled attributes of the primary-metric improvement over baseline), per-crop cost and memory. Dominated compositions are recorded as dominated, not deleted. Non-packageable baselines never enter a tuple. The frontier is typically two to four compositions, and the comparative score of §8 ranks within it.
+   **Every composition must pass the protocol's technical and engineering gates as a unit** (offline, determinism, budget, abstention, system scale, with memory inside the scale/host envelope); gates judged on heads are re-run on the composition's actual heads: components that each fit can exceed the envelope together. Failing compositions are recorded with the reason. So are attributes that no component in the tuple passes the baseline gate for; those are disabled in that composition.
+4. **Pareto frontier.** Compositions are compared on scalar axes frozen in the protocol: a quality scalar (for example the equal-weight mean over a fixed attribute set of the primary-metric improvement over baseline, with disabled attributes scored as zero, which keeps dominance transitive), per-crop cost and memory. Dominated compositions are recorded as dominated, not deleted. The frontier is typically two to four compositions, and the comparative score of §8 ranks within it.
 5. **Implementation composition.** The owner chooses a frontier composition under the same rules as a single implementation candidate (§4, §9). Its components all need licence status `CLEARED` for the target profile.
 
 A single-component capability skips steps 2–4. Its composition is the implementation candidate itself.
@@ -245,7 +245,7 @@ The protocol freezes a **scaling evaluation method**. The record retains, per fi
   - aggregate memory and storage growth (evidence and artefacts).
 
   The projection is reproducible from the measured quantities and the workload model by a script retained by hash.
-- **Validation of the extrapolation:** accelerated or synthetic load at a meaningful fraction of the target, with several workers on more than one host where available. The record states the load actually executed.
+- **Validation of the extrapolation:** accelerated or synthetic load at a meaningful fraction of the target, with several workers on more than one host where available. The record states the load actually executed. **If the validation disagrees with the projection beyond the protocol's tolerance, the selection is re-opened** with the measured quantities.
 
 A projection is class **M-E (projected)** and never a scale qualification. No record claims a 500-camera qualification unless one was physically executed. Horizontal scaling relies on the existing lease model: several attribute workers, on one or many hosts, claim units concurrently (S2b `FOR UPDATE SKIP LOCKED` claims per worker id). A candidate whose projection needs an architectural change to reach the target is recorded with that need (§1) and does not pass the protocol's scale gate until the change exists.
 
@@ -286,7 +286,7 @@ Evidence units are correlated: Tracks from one camera, cameras within one site, 
 - The interval is the percentile interval at the protocol's level (95 % in S2c).
 - Seeds and replicate count are recorded.
 
-**Sufficiency is determined, not assumed.** Before any candidate result, S2c.2 runs a calibration simulation on the **training-partition pilot**:
+**Sufficiency is determined, not assumed.** Before any candidate result, a calibration simulation runs on the **training-partition pilot**. The protocol freezes its method and perturbation model; its output, the minimum cluster count, is appended to the protocol by hash before selection data is read. The simulation works as follows:
 - It takes the baseline's predictions and a synthetic perturbation of them with the same expected quality.
 - It swaps the two **at cluster level** at random, which creates a known zero difference.
 - It checks that the procedure's interval covers zero at close to its nominal rate across simulated cluster counts. The protocol freezes the minimum number of top-level clusters at which coverage stays within its declared tolerance, and the same check is applied per stratum.
