@@ -1,468 +1,189 @@
 # Stage 2 S2b — Attribute Lifecycle with Fixture Inferencer
 
-**Status:** Implementation plan — cold-reviewed before implementation  
+**Status:** Implementation plan — amended after independent Claude 5 review and repository verification  
 **Date:** 2026-09-28  
 **Starting baseline:** `main@406172657599350ecbb27819865ecc9482c6c97d`  
-**Governing:** ADR-013, ADR-014, ADR-006, ADR-009, Stage-2 Visual Attributes plan, Stage-2 acceptance register  
-**Exit gate:** Stage-2 acceptance D1–D8 PASS using deterministic fixture inference; no real attribute model.
+**Governing:** ADR-013, ADR-014, ADR-006, ADR-009, Stage-2 parent plan, authoritative Stage-2 acceptance register  
+**Exit gate:** D1–D8 plus S2b-owned E1–E4 PASS from executed evidence; deterministic fixture only; no real attribute model.
 
 ## 1. Objective
 
-Implement the complete Visual Attribute asynchronous lifecycle and transport boundary without introducing a learned attribute model.
+Implement the complete Visual Attribute asynchronous lifecycle and transport boundary without introducing a learned attribute model. S2b proves queueing, leasing, heartbeat, authorised evidence transport, bounded prediction upload, fenced completion/failure, recovery/retry, atomic publication, supersession and independent worker failure isolation. The deterministic fixture replaces only learned inference computation and traverses the same process/HTTP/evidence/upload/completion path that S2c will use.
 
-S2b proves that MAVI can queue, lease, heartbeat, execute, read authorised accepted evidence, upload bounded prediction evidence, complete/fail with fencing, recover/retry and preserve raw-processing validity in a separate attribute-worker failure domain.
+## 2. Non-goals and ownership
 
-The deterministic fixture inferencer is a test instrument. It must exercise the same worker/platform contracts that S2c real Model Packs will use; no fixture-only shortcut may bypass evidence reads, upload/sealing, fencing or completion validation.
+S2b does not introduce real person/vehicle checkpoints, learned-model qualification, operational vocabulary, attribute search/cursor v4, final operator UI, Production/CUDA promotion, direct Python access to platform evidence/staging, or a generic IntelligenceJob abstraction.
 
-## 2. Non-goals
+S2b owns lifecycle persistence/integrity required to publish a completed analysis (acceptance E1–E4). S3 owns search/cursor/predicate/query-plan work (E5–E8). The acceptance register is authoritative for this split.
 
-S2b does **not**:
+## 3. Reconcile current main before coding
 
-- introduce person/vehicle learned Model Packs;
-- qualify attribute accuracy or operational vocabulary;
-- implement Stage-2 attribute search/cursor v4 (S3);
-- implement final operator attribute UI (S4);
-- promote RTMDet, CUDA or Production qualification;
-- alter Component Binding v2 identity rules;
-- give Python direct filesystem access to accepted evidence or platform staging;
-- turn `VisualAttributeAnalysis` into a generic IntelligenceJob table;
-- perform automatic historical backfill;
-- supersede an earlier completed analysis after a failed replacement;
-- reuse `EmbeddingExtractor` as a generic attribute inferencer abstraction. Remove it if truly unused, or explicitly retain/document it as Stage-5-only groundwork.
+Record exact `main` SHA and inspect intervening commits. Read ADR-006/009/011/013/014; Stage-2 parent plan/register; VisionJob and SceneAnalysis lifecycle code; accepted-evidence reader/sealing/finalization; current staging janitor; worker HTTP client; Component Binding/runtime resolver/launcher; request-limit middleware; and `EmbeddingExtractor` usages.
 
-## 3. Repository reconciliation before coding
+Do not assume “VisionJob shape” means identical failure semantics. Reuse only proven-common primitives. If this plan conflicts with a governing ADR, stop and reconcile documentation.
 
-The implementer must begin from current `main`, record the exact SHA, and reconcile this plan against the actual code. Read at minimum:
+## 4. Domain aggregate, identity and default selection
 
-- ADR-013 §§8–14 and ADR-014;
-- `docs/superpowers/plans/2026-09-23-visual-attributes.md`;
-- `docs/reviews/2026-09-23-visual-attributes-acceptance.md`;
-- VisionJob lease/heartbeat/complete/fail implementation and tests;
-- SceneAnalysis claim/retry/supersession implementation and tests;
-- accepted-evidence reader/sealing implementation from S1;
-- Observation/Track/ProcessingRun persistence and completion contracts;
-- current worker HTTP client/transport code;
-- current role/component binding and launcher code from S2a;
-- `EmbeddingExtractor` declaration/usages.
+Create capability-specific `VisualAttributeAnalysis`, one unit per `(ProcessingRun, immutable analysis identity)`.
 
-If current `main` has advanced beyond the baseline, inspect intervening commits before implementation. If a governing ADR and this plan conflict, stop and reconcile documentation rather than silently choosing a third design.
+Semantic identity is exactly: ProcessingRunId; attribute schema version/SHA; attribute pipeline version; aggregation-policy version/SHA; ordered capability/Model Pack identities; parameters SHA-256. Runtime Pack/variant, actual device, worker id, platform build and repository commit are provenance, not semantic identity.
 
-## 4. Architectural boundary
+States: `Queued`, `Running`, `Completed`, `Failed`, `Superseded`.
 
-### 4.1 Domain aggregate
+The currently enabled Component Binding determines the **preferred/default identity** for a run. Completion order does not. On successful completion, lock the run's relevant analyses in deterministic id order. A completion matching the current preferred identity may supersede the previous default. A late completion of an obsolete identity completes directly as historical/Superseded and must not displace the preferred completed analysis. Failed replacement work never supersedes successful history.
 
-Create capability-specific `VisualAttributeAnalysis` with one unit per:
+Readiness derives `Stale` when the completed/default semantic identity no longer matches the currently enabled identity. Binding change does not rewrite history or automatically backfill old runs.
 
-`(ProcessingRun, immutable analysis identity)`.
+## 5. Independent attributes role
 
-Identity is exactly the ADR-013 tuple:
+Activate an independently startable `attributes` role with its own READY/device/provenance/lease/heartbeat/crash/OOM domain. S2a provided multi-role schema but only `vision` is currently startable; S2b implements the second role explicitly.
 
-- ProcessingRunId;
-- attribute schema version/SHA;
-- attribute pipeline version;
-- aggregation-policy version/SHA;
-- ordered capability/model-pack identities;
-- parameters SHA-256.
+The fixture identity is Development/test-only. Production profiles must refuse it; enabling fixture support must not make a Production component registry accept it.
 
-Runtime-pack identity/variant, actual device, platform build and commit are provenance, not analysis identity.
+The transport must not require shared filesystem access. “Future remote GPU node” means remote-capable transport topology; S2b does not silently claim worker authentication beyond the repository's current trust posture.
 
-Lifecycle states:
+## 6. Shared primitives — deliberately narrow
 
-- Queued;
-- Running;
-- Completed;
-- Failed;
-- Superseded.
+Extract/reuse only semantics that are genuinely common: lease capability generation/hash/constant-time validation/non-echo handling and canonical SHA-256 validation/representation.
 
-A binding/identity change does not rewrite history. Existing completed analyses remain readable; a newer successful identity may supersede the previous default. Failed replacement work never supersedes a completed predecessor.
+Do not force a generic claim helper/state machine merely because all planes use `SKIP LOCKED`; eligibility/reclaim semantics differ. Completion replay/digest logic may be shared only if exact semantics are first proven identical. Regression tests prove VisionJob and SceneAnalysis behaviour is unchanged.
 
-### 4.2 Independent process/failure domain
+## 7. Persistence and migration
 
-Add/activate an `attributes` worker role as a separate process with independent:
+Persist analysis identity, status, attempt, worker, lease material/expiry, heartbeat, absolute deadline, completion digest, prediction artefact descriptor/link, provenance, coverage/counts, visibility sequence and supersession/default linkage.
 
-- READY/health state;
-- device policy;
-- lease/heartbeat;
-- provenance;
-- crash/OOM/failure containment.
+Implement lifecycle fact rows now:
+- `VisualAttributeTrackOutcome(AnalysisId, TrackId)` — `Analysed | Unavailable`, deterministic reason where applicable;
+- final `VisualAttribute` — exactly one per applicable `(AnalysisId, TrackId, AttributeType)` for Analysed Tracks, `Observed | Unknown`; Observed requires schema-coded value, confidence and supporting Observation; Unknown has no fabricated negative meaning.
 
-A fixture-worker crash or failed analysis must never invalidate a completed detector/tracker ProcessingRun.
+Evidence FKs use Restrict. Producer provenance belongs on the analysis header. The existing placeholder `VisualAttribute` entity/table is explicitly replaced/reshaped rather than left as a contradictory second schema.
 
-S2b must not assume the worker shares a filesystem or process with the platform. The contract must remain valid for a future remote GPU node.
+Constraints/indexes enforce one unit per `(run, identity)`, one outcome per Track, final-row uniqueness, and bounded queue claims. Do not add S3 search indexes except integrity/claim indexes required for S2b.
 
-## 5. Shared asynchronous primitives — extract before third copy
+## 8. Queue, claim, heartbeat, retry, deadline and cancellation
 
-Before implementing the third asynchronous plane, inspect VisionJob and SceneAnalysis for semantically identical infrastructure. Extract/reuse only where semantics genuinely match:
+A reconciler queues only when a completed/visible ProcessingRun has an enabled attribute identity and applicable Tracks. No capability => `NotConfigured`; no applicable Tracks => `NotApplicable`.
 
-1. lease capability/token generation, constant-time validation and non-echo rules;
-2. canonical SHA-256 representation/validation;
-3. `FOR UPDATE SKIP LOCKED` claim helper/pattern;
-4. idempotent completion-digest verification.
+Worker supervisor does not call lease while required fixture/capability is unavailable. Startup-unavailable leaves work Queued and consumes no attempt. Use bounded readiness polling/backoff.
 
-Do not genericise the domain aggregates. VisionJob, SceneAnalysis and VisualAttributeAnalysis retain their own state machines and typed payloads.
+Claim uses domain-specific `FOR UPDATE SKIP LOCKED`, increments attempt, issues fresh capability and sets lease expiry. Heartbeat extends only an unexpired matching lease and runs concurrently with evidence reads, inference and upload using an explicit safety margin derived from the existing worker rule. Expired lease is reclaimable; new attempt/token fences the old executor.
 
-Regression tests must prove the extraction does not change existing VisionJob or SceneAnalysis behaviour.
+Pin typed failure codes as **retryable** or **terminal**. Retryable failure returns unit to Queued if attempts/deadline permit, clears active lease and preserves diagnostic history. Terminal failure marks Failed. Attempt exhaustion or absolute deadline is terminal.
 
-## 6. Persistence and migration
+Deadline enforcement must not depend on another worker request: add a bounded reconciler/sweep or equivalent platform authority that can transition expired/deadline-exceeded units even when no worker is polling. Model/capability loss after a legitimate claim follows failure taxonomy and consumes that attempt.
 
-Introduce the S2b persistence required for lifecycle execution, but do not prematurely implement S3 search semantics.
+S2b does not invent an operator `Cancelled` state unless a concrete operator API is intentionally added. “Cancellation” in D7 means request/process cancellation and lease loss: stop work promptly, publish nothing, and let reclaim/deadline semantics decide the unit.
 
-### 6.1 VisualAttributeAnalysis
+## 9. HTTP/token contract and replay precedence
 
-Persist at least:
+Endpoints: lease, heartbeat, evidence read, prediction upload, complete, fail.
 
-- analysis id;
-- ProcessingRun id;
-- immutable identity fields/fingerprint;
-- status;
-- attempt count;
-- worker id;
-- lease expiry;
-- lease/fencing material in the established secure form;
-- heartbeat timestamps;
-- maximum-duration/deadline state;
-- completion digest;
-- prediction artefact linkage/SHA/size;
-- provenance;
-- coverage/output counts;
-- visibility sequence/supersession linkage needed by the lifecycle contract.
+Attribute routes use **header-only lease capability**. Do not include `leaseToken` in JSON envelope, completion digest, persistence, URL/query, errors or logs. Reject a body token. Envelope contains schemaVersion, analysis/job id, worker id, attempt, provenance and typed payload.
 
-Constraints/indexes must enforce one unit per run + immutable identity and support bounded SKIP LOCKED claims.
+Replay precedence:
+- previously committed completion + same digest returns stored success even if old lease has expired;
+- committed completion + different digest => conflict;
+- first-time completion requires Running + matching active attempt + unexpired lease;
+- upload replay in same active attempt: same SHA/size => idempotent; different descriptor => conflict;
+- fail replay is idempotent only for the same recorded transition and never overwrites/resurrects a later attempt.
 
-### 6.2 Track outcome / final attribute rows
+Provenance fields required by ADR-013 remain in completion-digest replay identity; semantic analysis identity remains separate.
 
-S2b must implement enough typed completion persistence to prove D8 and ADR-013 outcome semantics with the fixture:
+## 10. Lease-scoped evidence read
 
-- `VisualAttributeTrackOutcome` — `(AnalysisId, TrackId)`, `Analysed | Unavailable`, optional reason;
-- final `VisualAttribute` rows — one per applicable `(AnalysisId, TrackId, AttributeType)`, `Observed | Unknown`, nullable value/confidence, supporting Observation required for Observed.
+Lease grants no browsing capability. Requested Observation must join through Track to the analysis ProcessingRun and be an authorised accepted EvidenceCrop.
 
-Foreign keys to supporting evidence use Restrict semantics. Per-row model name/version is not authoritative; producer provenance lives on the analysis header.
+Before response headers, validate Running/attempt/lease, ownership, artefact type and accepted object's recorded size. Stream only through `IAcceptedEvidenceReader`; no listing/search endpoint; audit analysis/attempt/Observation/bytes/outcome without secrets. Worker verifies complete received size and SHA before decode.
 
-Do not add S3 query/index optimisation beyond integrity/claim indexes unless measurement demonstrates it is required for S2b execution.
+Distinguish permanent evidence condition from transport failure:
+- explicit platform-authoritative sealed-object missing/integrity failure, or a fully received body whose size/SHA disagrees, may produce deterministic Track `Unavailable` and raises an operator-visible integrity/audit signal;
+- connection reset, timeout, 5xx, truncated transfer or other transient transport error gets bounded retry inside the active lease; persistent transport failure fails the **attempt as retryable** and must not publish Track Unavailable.
 
-## 7. Queue/reconciliation semantics
+Foreign/stale/mismatched requests fail before body emission. Lease loss/cancellation aborts streaming.
 
-A reconciler queues an analysis only for a completed/visible ProcessingRun when an enabled attribute capability identity is resolvable.
+## 11. Prediction artefact encoding
 
-Rules:
+Do not add a .NET MessagePack dependency merely because Python already has msgpack. Correct ADR-013's dependency wording during implementation documentation reconciliation.
 
-- no enabled attribute capability → readiness is NotConfigured; do not manufacture a job;
-- capability enabled but no applicable Tracks → NotApplicable; do not consume worker attempts;
-- otherwise create/reuse exactly one queued unit for `(run, identity)`;
-- queue-time identity is frozen from enabled bindings/configuration;
-- binding change does not automatically backfill historical runs;
-- explicit bounded re-analysis remains a later/API operation unless needed to prove lifecycle tests.
+**S2b encoding decision:** canonical UTF-8 JSON for `AttributePredictions`, unless implementation-baseline dependency review identifies an already-qualified cross-language format requiring no new package. JSON uses existing platform/Python stacks.
 
-Concurrent reconcilers must not create duplicate units.
+Platform validates the artefact structurally at completion sufficiently to bind schema id/version, analysis identity fingerprint, deterministic observation identifiers, bounded prediction/aggregation records, and consistency with completion descriptor/final relational counts. Canonical serialization rules are pinned for digest/replay stability. Maximum accepted artefact size: 64 MiB.
 
-## 8. Lease/heartbeat/reclaim/failure semantics
+## 12. Upload staging and janitor authority
 
-Follow the **VisionJob lease shape**, not SceneAnalysis's in-process execution shape.
+Use a dedicated platform-owned namespace such as `staging-attributes/{analysisId}/attempt-NNNN/`; never place uploads where the VisionJob `StagingJanitor` interprets them as unknown jobs.
 
-Required behaviour:
+Streaming writer writes a temp file under the authorised attempt, enforces declared/streamed cap while hashing, flushes/fsyncs as supported, atomically renames, and records size/SHA. Attribute staging has its own janitor authority keyed by `VisualAttributeAnalysis`: keep current Running attempt; delete older attempts; delete terminal staging after defined grace; never delete current attempt merely because it is old. Add reclaim/janitor race tests. Worker cannot nominate arbitrary platform paths.
 
-- claim uses SKIP LOCKED semantics;
-- claim increments/sets attempt state and issues a fresh lease capability;
-- heartbeat extends an unexpired matching lease;
-- completion, failure, evidence reads and prediction upload require Running + matching attempt + active lease;
-- expired/mismatched/stale attempts receive conflict semantics and cannot publish;
-- reclaim issues a new attempt and new token;
-- stale token cannot read evidence, upload predictions, fail or complete;
-- maximum analysis duration fails the unit as a whole rather than publishing partial results;
-- duplicate identical completion is idempotent according to the established digest rule;
-- duplicate completion with a different digest is rejected;
-- startup capability/model unavailable leaves units Queued and does not consume attempts.
+## 13. Publication protocol — ADR-006 order
 
-Lease duration must exceed heartbeat interval by an explicit configured margin and tests must pin that invariant.
+Sealing is filesystem publication and is **not** inside a DB transaction.
 
-## 9. Python-facing HTTP contract
+### Phase A — fenced validation
+Under row locks validate state/attempt/lease (or committed replay), typed bounds, Track/Observation ownership, staged descriptor, exact outcome/final-row cardinality and completion digest.
 
-Implement typed endpoints/transport for:
+### Phase B — idempotent seal
+Seal staged `AttributePredictions` with create-new semantics to a content-addressed accepted key. Existing identical object is verified/adopted. Never delete an accepted sealed object as rollback compensation. Crash after seal/before commit leaves DB unpublished; retry adopts identical bytes. Ambiguous DB commit is resolved by committed-digest replay first.
 
-- lease/claim;
-- heartbeat;
-- evidence read;
-- prediction artefact upload;
-- complete;
-- fail.
+### Phase C — one DB publication transaction
+Persist final outcomes/attribute rows, accepted artefact reference, provenance, counts and digest; perform expensive row work before the visibility barrier where possible; acquire established visibility sequencing/barrier as late as correctness permits; mark Completed/assign sequence; apply deterministic preferred/default/supersession rule.
 
-Use the reusable envelope defined by ADR-013:
+Any failure before DB commit leaves no fact-bearing analysis. Orphan accepted bytes are tolerated/reusable; partial relational publication is not.
 
-`schemaVersion, jobId, workerId, leaseToken, attemptCount, provenance, payload`.
+### Completion execution mode
+Synchronous completion is permitted only if measurement at the 10,000-Track supported bound demonstrates safe request/lock/visibility margin. Measure before freezing. If not, use the established asynchronous `Finalizing` hand-off pattern rather than arbitrarily increasing timeouts. Record decision/evidence in implementation PR.
 
-Capability payloads remain typed.
+## 14. Deterministic fixture inferencer
 
-Lease capability is carried in a header, never URL/query. No response, exception or structured log may echo the token.
+Fixture replaces only learned inference computation. It uses the real independent process, lease, concurrent heartbeat, HTTP evidence reads, byte verification, production prediction encoding, upload, completion/failure, fencing, sealing and publication paths.
 
-Malformed payloads fail closed without advancing lifecycle state.
+Outputs derive from evidence/fixture identity, not clock/random state. It produces Observed and Unknown. Permanent platform-authoritative evidence failures exercise Unavailable; transport failures exercise retryable attempt failure. No fixture-only endpoint, direct DB/filesystem access or publication shortcut.
 
-## 10. Lease-scoped accepted-evidence read
+## 15. Numeric bounds and request limits
 
-Python must never browse or mount the accepted-evidence root.
+Derive concrete numbers before endpoints are complete. Do not inherit the repository-wide ~3 GiB Kestrel import limit.
 
-The lease identifies permitted Observation descriptors for Tracks in that ProcessingRun, including expected size and SHA-256.
+Pin/enforce:
+- Tracks per analysis: existing maximum 10,000;
+- descriptors per Track: Evidence Set bound;
+- total lease descriptor count/serialized response bytes; if unsuitable for one response, use bounded lease-fenced paging;
+- completion body maximum derived from 10,000 Tracks × applicable attribute types + protocol overhead;
+- prediction upload: 64 MiB hard request/stream cap;
+- heartbeat/fail: small explicit caps;
+- evidence response: exactly recorded accepted-object size;
+- no unbounded in-memory buffering.
 
-The read endpoint must:
+Add route-specific limits and cap+1 tests. Synthetic worst-shape payloads may exercise validators without slow inference.
 
-1. validate active lease/attempt;
-2. verify requested Observation belongs to a Track in the leased ProcessingRun and is an authorised accepted EvidenceCrop;
-3. stream only through `IAcceptedEvidenceReader`;
-4. bound the response to recorded `SizeBytes`;
-5. expose no listing/search primitive;
-6. log unit id, attempt, Observation id, bytes and outcome without lease secrets;
-7. terminate/deny reads after cancellation/expiry/reclaim.
+## 16. Required race/security tests
 
-The worker independently verifies received size and SHA before decode. Integrity mismatch or inaccessible evidence becomes Track-level `Unavailable` with a deterministic reason; bytes must never be passed to inference after integrity failure.
-
-A foreign Observation, stale lease or mismatched attempt returns conflict/denial with no partial body.
-
-## 11. Prediction artefact upload and sealing
-
-Use one bounded `AttributePredictions` artefact per completed analysis.
-
-### 11.1 Encoding decision
-
-Use **MessagePack only if it is already on the qualified dependency graph on implementation baseline**; otherwise use an existing already-qualified serialization mechanism. S2b must not add a new serialization dependency merely for this artefact.
-
-The document is versioned and self-describing and contains:
-
-- schema id/version;
-- analysis identity/fingerprint;
-- per-observation fixture outputs/scores;
-- aggregation inputs;
-- aggregation decisions;
-- retained internal outputs allowed by the schema.
-
-Hard cap: existing 64 MiB per-artefact limit. The implementation must reject declared or streamed overflow without unbounded buffering.
-
-### 11.2 Reverse transport
-
-Worker uploads through the active lease; it never writes platform staging directly.
-
-Platform:
-
-- streams into attempt-scoped staging;
-- validates declared size/SHA while streaming;
-- binds upload to analysis + attempt;
-- permits at most the defined artefact contract;
-- seals under ADR-006 only as part of successful fenced completion;
-- rejects completion when declared descriptor does not match uploaded bytes;
-- removes/abandons stale-attempt staging according to existing artefact cleanup patterns.
-
-No prediction artefact becomes accepted/fact-bearing before successful completion.
-
-## 12. Deterministic fixture inferencer
-
-Implement a deterministic fixture inferencer behind the same worker abstraction that S2c will replace with real capability-bound inference.
-
-Requirements:
-
-- deterministic output from fixture/evidence identity, not wall-clock/random state;
-- no network;
-- no learned checkpoint;
-- exercises real evidence download + size/SHA verification;
-- produces both Observed and Unknown outcomes;
-- supports deterministic Unavailable scenarios via evidence failure fixtures;
-- produces a real bounded `AttributePredictions` upload;
-- aggregation is deterministic and versioned;
-- fixture identity is explicitly Development/test-only and cannot be mistaken for a qualified Model Pack.
-
-Do not add fixture-specific platform endpoints or bypass component/lifecycle contracts.
-
-## 13. Completion transaction and publication
-
-Completion is the atomic publication boundary for an analysis attempt.
-
-Inside the fenced completion transaction:
-
-1. revalidate Running state, attempt and unexpired lease;
-2. validate typed payload bounds and referential integrity;
-3. validate completion digest/idempotence;
-4. validate uploaded prediction artefact descriptor against staged bytes;
-5. validate every Track belongs to the ProcessingRun and every supporting Observation belongs to that Track/run;
-6. enforce exactly one Track outcome for every applicable Track represented by the fixture contract;
-7. enforce exactly one final row per applicable `(Track, AttributeType)` for Analysed Tracks;
-8. enforce Observed ⇒ schema-coded non-null value + confidence [0,1] + supporting Observation;
-9. enforce Unknown ⇒ null value and no fabricated negative meaning;
-10. seal prediction artefact;
-11. persist final relational rows/header counts/provenance;
-12. mark Completed and advance visibility sequence;
-13. supersede a prior default only after the new completion succeeds.
-
-Any validation failure publishes nothing from that attempt.
-
-## 14. Failure isolation and retry
-
-Tests must prove:
-
-- fixture worker crash leaves ProcessingRun valid;
-- failure increments/records only the attribute analysis attempt semantics;
-- retry/reclaim can subsequently complete;
-- stale attempt cannot publish after reclaim;
-- failed replacement leaves prior completed analysis fact-bearing;
-- cancellation/expiry prevents subsequent evidence read/upload/complete;
-- malformed prediction artefact or completion fails without partial rows;
-- one Track's inaccessible evidence yields that Track's Unavailable outcome without corrupting other Tracks, unless the unit-level contract itself is invalid.
-
-## 15. Bounds and resource safety
-
-Contract-test at the existing 10,000-Track bound.
-
-Pin explicit limits for:
-
-- Tracks per analysis;
-- Observations/evidence descriptors per Track according to Evidence Set contract;
-- completion request size;
-- prediction artefact ≤64 MiB;
-- evidence response exactly bounded by recorded size;
-- no unbounded in-memory accumulation of evidence bytes or prediction upload;
-- heartbeat/max-duration relationship.
-
-The fixture does not need to make a 10,000-Track test slow; generated descriptors/payloads may be synthetic, but the production validators and bounds must be exercised.
-
-## 16. Security tests
-
-At minimum prove:
-
-- lease token absent from URLs and logs;
-- foreign Observation denied;
-- Observation from another ProcessingRun denied;
-- stale/reclaimed token denied for read/upload/complete/fail;
-- expired lease denied;
-- hash/size mismatch never reaches inference;
-- path traversal/storage-key manipulation cannot escape accepted-evidence abstraction;
-- upload over cap is rejected while streaming;
-- completion cannot reference another attempt's upload;
-- Python worker has no direct accepted-evidence-root/staging dependency.
+Prove: concurrent claim uniqueness; stale/expired/reclaimed lease denial; same-digest completion replay after expiry; foreign run/Observation denial before body; token absence from body/URL/log/error; transient/truncated evidence never becomes permanent Unavailable; authoritative integrity failure gives pinned reason/audit; no decode before size/SHA verification; same-SHA upload replay idempotent/different-SHA conflict; 64 MiB streaming cap; janitor current-attempt safety; crash after seal recovery; ambiguous commit replay; late obsolete identity cannot become default; retryable vs terminal failure and exhaustion/deadline; deadline transition without polling worker; binding change => Stale; failed replacement preserves prior success; Production refuses fixture; VisionJob/SceneAnalysis regression tests remain green.
 
 ## 17. Test-first implementation sequence
 
-### S2b.1 — Shared primitives
+1. **S2b.1 — contracts/shared primitives:** regression tests; narrow lease/SHA extraction; token/replay/request-limit contracts.
+2. **S2b.2 — domain/persistence/reconciler:** aggregate, migration, placeholder-table replacement, preferred identity/supersession, deadline/retry taxonomy.
+3. **S2b.3 — independent role/lifecycle HTTP:** role activation, READY, lease/heartbeat/fail/reclaim/sweep.
+4. **S2b.4 — evidence transport:** authorised streaming, bounded retries, permanent-vs-transient split.
+5. **S2b.5 — upload/staging/janitor:** dedicated namespace, streaming hash/caps, replay, cleanup races.
+6. **S2b.6 — seal/publication:** three-phase ADR-006 protocol, crash/replay tests, completion-budget measurement; Finalizing if required.
+7. **S2b.7 — fixture end-to-end:** real process/contracts only; Observed/Unknown/Unavailable; Production refusal.
+8. **S2b.8 — bounds/reconciliation:** 10k worst-shape tests, mutation tests, docs/register evidence, cold review.
 
-Write regression tests first; extract lease/SHA/claim/digest primitives without changing existing planes.
+Each sub-slice leaves repository green.
 
-### S2b.2 — Domain + persistence + queueing
+## 18. Mutation/discriminating targets
 
-Add aggregate/entities/migration/reconciler and concurrency/idempotence tests.
+Kill mutations that: omit attempt fencing; accept expired lease; check expiry before committed replay; permit foreign Observation/run; skip size/SHA verification; map transient transport failure to Unavailable; decode after integrity failure; remove request/upload cap; accept another attempt's upload; allow different-SHA upload replay; publish DB rows before successful publication transaction; delete sealed accepted object on rollback; supersede by completion order; supersede on failed replacement; consume attempt when startup capability unavailable; remove deadline sweep/exhaustion; treat Unknown as Absent; permit Observed without supporting Observation; include runtime/device/commit in semantic identity; duplicate `(run, identity)` units; echo/persist token; use VisionJob janitor authority for attribute staging; let fixture bypass production transport; allow Production profile to accept fixture.
 
-### S2b.3 — Lease/heartbeat/fail plane
+## 19. Verification and completion report
 
-Implement typed HTTP lifecycle without evidence/predictions first; prove fencing/reclaim/startup-unavailable semantics.
+Run repository-prescribed verification plus focused S2b .NET/Python suites, VisionJob/SceneAnalysis regression suites, accepted-evidence tests, migration tests, request-limit/bounds tests, worker-role/offline/component checks affected by role activation, `verify_repo`, and mutation matrix.
 
-### S2b.4 — Evidence read
+Implementation PR reports exact starting SHA, final exact head, changed files, migrations, lifecycle/publication decision, measured completion budget, local results, exact-head CI, review-thread state and deferred items. Do not merge from the implementation session.
 
-Add lease-authorised streaming read and worker-side integrity verification; prove foreign/stale/hash failure cases.
+## 20. Scope guard
 
-### S2b.5 — Prediction upload/sealing
+Real attribute Model Packs/checkpoints, learned qualification, search/cursor v4, final attribute UI, RTMDet Production/CUDA state, and Component Binding identity changes are out of S2b unless a governing contradiction is first raised and resolved.
 
-Add bounded reverse streaming, attempt-scoped staging and completion descriptor validation.
-
-### S2b.6 — Fixture worker + completion
-
-Run deterministic fixture end-to-end through real contracts; publish Track outcomes/final rows/prediction artefact.
-
-### S2b.7 — Resilience/bounds/reconciliation
-
-Run 10k contract bounds, retry/reclaim/cancellation/malformed-output tests, docs reconciliation and cold review.
-
-Each sub-slice must leave the repository green; avoid one monolithic implementation commit.
-
-## 18. Expected repository areas
-
-Exact files must be discovered from current `main`; do not invent parallel layers. Expected areas include:
-
-- platform Domain/Application/Infrastructure persistence for analysis aggregate and shared primitives;
-- platform API endpoints for lifecycle/evidence/upload;
-- platform tests for lifecycle, persistence, security and accepted-evidence integration;
-- `src/vision` worker role/client/fixture inferencer and tests;
-- migration under the existing persistence migration directory;
-- configuration for bounded lease/heartbeat/max-duration values using existing configuration patterns;
-- Stage-2 documentation/acceptance evidence.
-
-Changes to component binding, model manifests, runtime locks, qualification status or real model files are presumptively out of scope and require an explicit architectural explanation.
-
-## 19. Discriminating tests / mutation targets
-
-The final test suite must kill, at minimum, mutations that:
-
-1. accept a stale lease after reclaim;
-2. omit attempt-number validation;
-3. permit evidence from a foreign ProcessingRun;
-4. skip worker-side SHA verification;
-5. allow inference after evidence integrity failure;
-6. remove prediction upload size cap;
-7. permit completion without a matching uploaded artefact;
-8. publish relational rows before fenced completion succeeds;
-9. supersede prior analysis on failed replacement;
-10. consume an attempt when capability/model is unavailable at startup;
-11. treat Unknown as Absent/false;
-12. permit Observed without supporting Observation;
-13. include runtime variant/commit in immutable analysis identity;
-14. allow duplicate `(run, identity)` queue units;
-15. echo lease token in an error/log;
-16. let fixture code bypass the production evidence/upload path.
-
-Record mutation evidence or an equivalent deliberate regression demonstration for each critical guard.
-
-## 20. Local verification
-
-Before opening/declaring the implementation PR ready, run all repository-prescribed checks plus:
-
-- focused S2b platform tests;
-- existing VisionJob/SceneAnalysis regression suites affected by shared extraction;
-- accepted-evidence tests;
-- complete relevant .NET test projects;
-- `src/vision` pytest suite;
-- repository verification / `verify_repo`;
-- frontend/build checks if shared API contracts affect generated/client code;
-- migration/model snapshot validation;
-- offline/component checks if and only if files under those boundaries change.
-
-Run a cold diff review against the starting baseline after tests are green.
-
-## 21. Exact-head CI and review gate
-
-The implementation PR must remain unmerged until:
-
-- exact-head MAVI Quality Gate is green;
-- every path-triggered Stage-2/vision acceptance workflow is green;
-- Task 17 is green where triggered/required by changed paths;
-- any manually required workflow identified by repository policy is run on the exact head;
-- PR is mergeable;
-- no unresolved review thread remains;
-- no unresolved P1/P2 attributable to S2b remains;
-- identity/qualification diff review confirms no accidental S2c/Production/CUDA promotion.
-
-Do not claim a workflow ran if path filters legitimately excluded it; document the filter determination instead.
-
-## 22. D1–D8 exit mapping
-
-S2b is complete only when retained evidence supports:
-
-- **D1** VisualAttributeAnalysis lifecycle independent of ProcessingRun success;
-- **D2** shared fencing/hash/claim primitives extracted where semantics match, with no third divergent copy;
-- **D3** Python lease/heartbeat/complete/fail + typed transport contract-tested;
-- **D4** lease-scoped evidence read and prediction upload authorised/integrity checked with no Python evidence-root access;
-- **D5** independent attributes worker process/role with independent READY/device/provenance/failure domain;
-- **D6** capability/model unavailable at startup leaves work Queued without consuming attempts;
-- **D7** stale attempts, reclaim, retry, cancellation, malformed output and failure isolation pass;
-- **D8** prediction-level output sealed as bounded AttributePredictions while final relational rows remain Track-level only.
-
-Update the authoritative Stage-2 acceptance register only from executed evidence. Planned tests are not PASS evidence.
-
-## 23. Cold-review amendments incorporated before implementation
-
-The independent pre-implementation cold review specifically hardened these points:
-
-1. **Fixture parity:** fixture inference may not bypass the production evidence-read/upload path.
-2. **Publication atomicity:** prediction artefact and final rows become fact-bearing only through fenced completion.
-3. **Startup unavailable:** D6 is a claim/worker-availability condition, not a failed attempt.
-4. **Identity discipline:** runtime variant/device/commit remain provenance and cannot create analysis identities.
-5. **No generic-job overreach:** shared transport/fencing primitives do not justify a generic intelligence domain table.
-6. **Streaming bounds:** evidence and prediction bytes are bounded/streamed; no hidden whole-run byte accumulation.
-7. **Replacement safety:** supersession occurs only after successful completion.
-8. **S2b/S2c boundary:** no learned checkpoint, model qualification or operational vocabulary enters this slice.
-9. **Evidence security:** stale/foreign access is denied before bytes are emitted and tokens are never echoed.
-10. **Existing-plane regression:** shared-primitives extraction must be proven behaviour-preserving for VisionJob/SceneAnalysis.
-
-No unresolved architecture P1/P2 remains in this plan. Implementation discoveries that contradict a governing ADR must stop the slice and return to documentation rather than being improvised in code.
+S2b is complete only when executed evidence closes D1–D8 and S2b-owned E1–E4 in the authoritative register. Planned tests are not PASS evidence.
