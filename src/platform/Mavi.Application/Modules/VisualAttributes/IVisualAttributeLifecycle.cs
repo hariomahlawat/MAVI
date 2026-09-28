@@ -22,7 +22,8 @@ public sealed record VisualAttributeLeaseGrant(
 /// <summary>An operation refused with a stable code (never echoing a capability).</summary>
 public sealed record VisualAttributeRefusal(string Code);
 
-public sealed record VisualAttributeHeartbeatOutcome(DateTimeOffset? LeaseExpiresAtUtc, VisualAttributeRefusal? Refusal)
+/// <param name="IdentityFingerprint">The renewed unit's identity: a renewal is proof of a READY worker for it.</param>
+public sealed record VisualAttributeHeartbeatOutcome(DateTimeOffset? LeaseExpiresAtUtc, VisualAttributeRefusal? Refusal, string? IdentityFingerprint = null)
 {
     public bool IsSuccess => Refusal is null;
 }

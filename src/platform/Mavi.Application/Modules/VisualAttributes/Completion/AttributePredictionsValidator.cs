@@ -45,11 +45,11 @@ public static class AttributePredictionsValidator
         ValidatedAttributeCompletion Completion);
 
     /// <summary>
-    /// The outcome of validating an artefact: an error code, or none and the number of accepted
-    /// crops the worker found missing or not matching their recorded digest — an integrity signal
-    /// the platform cannot see for itself, since the worker hashes what it reads.
+    /// The outcome of validating an artefact: an error code, or none and the accepted crops the
+    /// worker found missing or not matching their recorded digest — an integrity signal the
+    /// platform cannot see for itself, since the worker hashes what it reads.
     /// </summary>
-    public sealed record Result(string? Error, int IntegrityIncidents);
+    public sealed record Result(string? Error, IReadOnlyList<Guid> IntegrityIncidents);
 
     public static async Task<Result> ValidateAsync(Stream stream, Expectation expectation, CancellationToken cancellationToken)
     {
@@ -71,7 +71,7 @@ public static class AttributePredictionsValidator
                 }
 
                 var consumed = machine.Process(buffer.AsSpan(0, filled), final);
-                if (machine.Error is not null) return new Result(machine.Error, 0);
+                if (machine.Error is not null) return new Result(machine.Error, []);
                 if (machine.IsDone)
                     return await OnlyWhitespaceRemainsAsync(stream, buffer.AsMemory(consumed, filled - consumed), cancellationToken)
                         ? new Result(null, machine.IntegrityIncidents)
@@ -101,7 +101,7 @@ public static class AttributePredictionsValidator
         return Invalid;
     }
 
-    private static readonly Result Invalid = new(InvalidCode, 0);
+    private static readonly Result Invalid = new(InvalidCode, []);
 
     private static async Task<bool> OnlyWhitespaceRemainsAsync(Stream stream, ReadOnlyMemory<byte> pending, CancellationToken cancellationToken)
     {
@@ -226,7 +226,7 @@ public static class AttributePredictionsValidator
 
         public bool IsDone => _phase == Phase.Done;
 
-        public int IntegrityIncidents { get; private set; }
+        public List<Guid> IntegrityIncidents { get; } = [];
 
         private void Header(string name, ref Utf8JsonReader reader)
         {
@@ -343,8 +343,9 @@ public static class AttributePredictionsValidator
                 return;
             }
 
-            IntegrityIncidents += track.Observations.Count(observation =>
-                observation.Status == "unavailable" && observation.Reason is "evidence_integrity_failed" or "evidence_missing");
+            IntegrityIncidents.AddRange(track.Observations
+                .Where(observation => observation.Status == "unavailable" && observation.Reason is "evidence_integrity_failed" or "evidence_missing")
+                .Select(observation => observation.ObservationId));
 
             // The aggregation decisions are the final rows, value for value.
             if (track.Decisions.Count != completed.Rows.Count)

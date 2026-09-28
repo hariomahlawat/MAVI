@@ -59,6 +59,9 @@ public sealed partial class VisualAttributeCompletionService(
     /// <summary>Test seam: runs in place of the Phase C commit's success (the ambiguous commit).</summary>
     internal Func<Task>? BeforeCommit { get; init; }
 
+    /// <summary>Test seam: runs after the commit, so a fault here is a commit that landed but reported failure.</summary>
+    internal Func<Task>? AfterCommit { get; init; }
+
     public async Task<VisualAttributeCompletionResult> CompleteAsync(
         Guid analysisId, string leaseToken, VisualAttributeCompleteRequest request, CancellationToken cancellationToken)
     {
@@ -130,13 +133,21 @@ public sealed partial class VisualAttributeCompletionService(
             return VisualAttributeCompletionResult.Refused(409, "visual_attribute_prediction_not_staged");
         }
 
-        int integrityIncidents;
         await using (var stream = predictions)
         {
             var validation = await AttributePredictionsValidator.ValidateAsync(
                 stream, new AttributePredictionsValidator.Expectation(analysisId, identity, schema, scope, completion), cancellationToken);
             if (validation.Error is not null) return VisualAttributeCompletionResult.Refused(422, validation.Error);
-            integrityIncidents = validation.IntegrityIncidents;
+
+            // Recorded now, not after the commit: what the owner observed about accepted evidence
+            // is a fact whether or not this publication lands, and a commit that lands but reports
+            // failure is answered by replay, which never reaches the post-commit path. Each crop
+            // counts once, so the retry of an ambiguous commit adds nothing.
+            if (validation.IntegrityIncidents.Count > 0)
+            {
+                LogIntegrityReported(logger, analysisId, attempt, validation.IntegrityIncidents.Count);
+                integrity.RecordCompletionIncidents(analysisId, validation.IntegrityIncidents, timeProvider.GetUtcNow());
+            }
         }
 
         var artefact = clock.Elapsed;
@@ -252,6 +263,7 @@ public sealed partial class VisualAttributeCompletionService(
             {
                 if (BeforeCommit is not null) await BeforeCommit();
                 await transaction.CommitAsync(publication);
+                if (AfterCommit is not null) await AfterCommit();
             }
             catch (Exception exception) when (exception is DbUpdateException or InvalidOperationException or Npgsql.NpgsqlException or IOException)
             {
@@ -265,9 +277,6 @@ public sealed partial class VisualAttributeCompletionService(
         }
 
         var end = clock.Elapsed;
-        // One incident per accepted crop the worker found missing or corrupt, whether or not its
-        // Track was still analysed from its other crops.
-        if (integrityIncidents > 0) integrity.RecordCompletionIncidents(analysisId, integrityIncidents, timeProvider.GetUtcNow());
         var timings = new VisualAttributeCompletionTimings(phaseA, artefact - phaseA, phaseB - artefact, end - phaseCStart,
             rowsWritten - phaseCStart, end - barrierAcquired);
         LogPublished(logger, analysisId, attempt, published.Status, completion.Tracks.Count,
@@ -338,6 +347,10 @@ public sealed partial class VisualAttributeCompletionService(
     [LoggerMessage(EventId = 1993, EventName = "visual_attribute_persistence_failed", Level = LogLevel.Error,
         Message = "Visual attribute analysis {AnalysisId} attempt {Attempt}: the publication rows were refused; nothing was published.")]
     private static partial void LogPersistenceFailed(ILogger logger, Guid analysisId, int attempt, Exception exception);
+
+    [LoggerMessage(EventId = 1994, EventName = "visual_attribute_evidence_integrity_reported", Level = LogLevel.Error,
+        Message = "Visual attribute analysis {AnalysisId} attempt {Attempt}: the worker reported {Crops} accepted evidence crop(s) missing or not matching their recorded digest.")]
+    private static partial void LogIntegrityReported(ILogger logger, Guid analysisId, int attempt, int crops);
 
     [LoggerMessage(EventId = 1992, EventName = "visual_attribute_commit_ambiguous", Level = LogLevel.Error,
         Message = "Visual attribute analysis {AnalysisId} attempt {Attempt}: the publication commit outcome is unknown; a retry is answered by committed replay.")]

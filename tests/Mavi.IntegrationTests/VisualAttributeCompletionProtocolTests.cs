@@ -40,9 +40,9 @@ public sealed class VisualAttributeCompletionProtocolTests(PostgresFixture fixtu
 
     private static async Task<VisualAttributeCompletionResult> CompleteThroughSeamsAsync(
         VisualAttributeApiHost host, LeasedUnit unit, BuiltCompletion completion,
-        Func<CancellationToken, Task>? beforePhaseC = null, Func<Task>? beforeCommit = null)
+        Func<CancellationToken, Task>? beforePhaseC = null, Func<Task>? beforeCommit = null, Func<Task>? afterCommit = null)
     {
-        var (service, scope) = host.CompletionService(beforePhaseC, beforeCommit);
+        var (service, scope) = host.CompletionService(beforePhaseC, beforeCommit, afterCommit);
         using (scope)
             return await service.CompleteAsync(unit.AnalysisId, unit.Capability, completion.Request, CancellationToken.None);
     }
@@ -214,6 +214,101 @@ public sealed class VisualAttributeCompletionProtocolTests(PostgresFixture fixtu
         await using var db = host.World.Read();
         var published = await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync();
         Assert.Equal(3, await db.VisualAttributeTrackOutcomes.CountAsync(x => x.AnalysisId == published.Id));
+    }
+
+    /// <summary>A completion whose first person Track was scored from one crop; the other failed its digest.</summary>
+    private static async Task<(BuiltCompletion Completion, Guid CorruptCrop)> StagedWithACorruptCropAsync(
+        VisualAttributeApiHost host, LeasedUnit unit, SeededRun run)
+    {
+        var corrupt = run.Track(0).Observations[0].ObservationId;
+        var completion = AttributeCompletionBuilder.Build(unit, unavailableObservation: id => id == corrupt ? "evidence_integrity_failed" : null);
+        using var uploaded = await host.UploadAsync(unit, completion.Predictions);
+        Assert.Equal(HttpStatusCode.OK, uploaded.StatusCode);
+        return (completion, corrupt);
+    }
+
+    private static VisualAttributeIntegrityHealth Integrity(VisualAttributeApiHost host) =>
+        host.Factory.Services.GetRequiredService<VisualAttributeIntegrityMonitor>().Current;
+
+    [Fact]
+    public async Task ACorruptCropIsAnIncidentEvenWhenTheCommitLandedAmbiguouslyAndTheRetryIsAReplay()
+    {
+        var (host, run) = await HostWithQueuedRunAsync();
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var (completion, _) = await StagedWithACorruptCropAsync(host, unit, run);
+
+        var ambiguous = await CompleteThroughSeamsAsync(host, unit, completion,
+            afterCommit: () => throw new IOException("connection reset after COMMIT"));
+        Assert.Equal("visual_attribute_publication_ambiguous", ambiguous.Code);
+
+        // The commit landed: the worker's identical retry is answered by committed replay.
+        using var replay = await host.CompleteAsync(unit, completion.Request);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        await using (var db = host.World.Read())
+            Assert.Equal(VisualAttributeAnalysisStatus.Completed, (await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync()).Status);
+        var integrity = Integrity(host);
+        Assert.Equal(1, integrity.CompletionIncidents);
+        Assert.Equal(unit.AnalysisId, integrity.LastIncidentAnalysisId);
+    }
+
+    [Fact]
+    public async Task ACorruptCropIsCountedOnceAcrossAFailedCommitAndItsRetry()
+    {
+        var (host, run) = await HostWithQueuedRunAsync();
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var (completion, _) = await StagedWithACorruptCropAsync(host, unit, run);
+
+        var ambiguous = await CompleteThroughSeamsAsync(host, unit, completion,
+            beforeCommit: () => throw new IOException("connection reset during COMMIT"));
+        Assert.Equal("visual_attribute_publication_ambiguous", ambiguous.Code);
+        using (var retry = await host.CompleteAsync(unit, completion.Request))
+            Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        using (var replay = await host.CompleteAsync(unit, completion.Request))
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+
+        Assert.Equal(1, Integrity(host).CompletionIncidents);
+    }
+
+    [Fact]
+    public async Task AHeartbeatingWorkerIsPresentForReadinessThroughALongAnalysis()
+    {
+        var (host, run) = await HostWithQueuedRunAsync();
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var presence = TimeSpan.FromSeconds(new VisualAttributeOptions().WorkerPresenceSeconds);
+
+        // Well past the presence window since the lease poll, the worker still renews its lease.
+        var step = presence / 2 + TimeSpan.FromSeconds(10);
+        for (var elapsed = TimeSpan.Zero; elapsed <= presence; elapsed += step)
+        {
+            host.World.Clock.Advance(step);
+            using var heartbeat = await host.HeartbeatAsync(unit);
+            Assert.Equal(HttpStatusCode.OK, heartbeat.StatusCode);
+        }
+
+        var during = await ReadinessAsync(host, run.RunId);
+        Assert.DoesNotContain(VisualAttributeReadinessRule.NoReadyWorker, during, StringComparison.Ordinal);
+        Assert.Contains("\"running\"", during, StringComparison.Ordinal);
+
+        // A worker that stops renewing ages out like one that stops polling.
+        host.World.Clock.Advance(presence + TimeSpan.FromSeconds(1));
+        Assert.Contains(VisualAttributeReadinessRule.NoReadyWorker, await ReadinessAsync(host, run.RunId), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ARefusedHeartbeatIsNotPresence()
+    {
+        var (host, run) = await HostWithQueuedRunAsync();
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        host.World.Clock.Advance(TimeSpan.FromSeconds(new VisualAttributeOptions().WorkerPresenceSeconds + 1));
+
+        // The lease has expired: the renewal is refused, and proves nothing about a READY worker.
+        using (var heartbeat = await host.HeartbeatAsync(unit))
+            Assert.NotEqual(HttpStatusCode.OK, heartbeat.StatusCode);
+        Assert.Contains(VisualAttributeReadinessRule.NoReadyWorker, await ReadinessAsync(host, run.RunId), StringComparison.Ordinal);
     }
 
     [Fact]

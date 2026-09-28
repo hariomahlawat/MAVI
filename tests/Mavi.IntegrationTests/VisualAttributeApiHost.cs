@@ -229,7 +229,8 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
     /// </summary>
     public (VisualAttributeCompletionService Service, IServiceScope Scope) CompletionService(
         Func<CancellationToken, Task>? beforePhaseC = null,
-        Func<Task>? beforeCommit = null)
+        Func<Task>? beforeCommit = null,
+        Func<Task>? afterCommit = null)
     {
         var scope = Factory.Services.CreateScope();
         var services = scope.ServiceProvider;
@@ -246,6 +247,7 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
         {
             BeforePhaseC = beforePhaseC,
             BeforeCommit = beforeCommit,
+            AfterCommit = afterCommit,
         };
         return (service, scope);
     }

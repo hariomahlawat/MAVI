@@ -216,7 +216,7 @@ public sealed class VisualAttributeLifecycle(
 
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new(unit.LeaseExpiresAtUtc, null);
+        return new(unit.LeaseExpiresAtUtc, null, unit.IdentityFingerprint);
     }
 
     public async Task<VisualAttributeFailureOutcome> FailAsync(

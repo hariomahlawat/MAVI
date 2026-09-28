@@ -239,7 +239,7 @@ To exercise it in Development:
    python -m mavi_vision.attributes.main
    ```
 
-   It exits `2` if the binding has no `attributes` role and `3` if the role cannot become READY (for example a missing Model Pack); it never leases while not READY. `GET /api/processing/runs/{id}/visual-attributes` reports readiness, including `no_ready_attributes_worker` while no READY worker has polled for the preferred identity.
+   It exits `2` if the binding has no `attributes` role and `3` if the role cannot become READY (for example a missing Model Pack); it never leases while not READY. `GET /api/processing/runs/{id}/visual-attributes` reports readiness, including `no_ready_attributes_worker` while no READY worker has polled for the preferred identity, or renewed a lease of it, within `VisualAttributes:WorkerPresenceSeconds` (a worker busy with a long analysis stays present through its heartbeats).
 
 ## Analytic search cursor signing key
 

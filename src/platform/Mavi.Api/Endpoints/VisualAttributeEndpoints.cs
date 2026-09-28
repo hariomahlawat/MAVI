@@ -90,6 +90,7 @@ public static class VisualAttributeEndpoints
         HttpContext context,
         VisualAttributeHeartbeatRequest request,
         IVisualAttributeLifecycle lifecycle,
+        VisualAttributeWorkerPresence presence,
         IOptions<VisualAttributeOptions> options,
         CancellationToken cancellationToken)
     {
@@ -100,6 +101,9 @@ public static class VisualAttributeEndpoints
         if (Capability(context) is not { } capability) return CapabilityProblem();
 
         var outcome = await lifecycle.HeartbeatAsync(id, workerId, capability, attempt, options.Value.LeasePolicy, cancellationToken);
+        // A worker busy with a long analysis does not poll, but it renews: an accepted renewal is
+        // as much proof of a READY worker for that identity as a lease poll (readiness, plan §5).
+        if (outcome.IsSuccess) presence.RecordPoll(workerId, outcome.IdentityFingerprint!);
         return outcome.IsSuccess
             ? Results.Ok(new VisualAttributeHeartbeatResponse(VisualAttributeContractRules.SchemaVersion, outcome.LeaseExpiresAtUtc!.Value))
             : Refused(outcome.Refusal!);
