@@ -107,5 +107,67 @@ The first measurement used change-tracked EF inserts and was **not** safe at the
 
 ### 5.4 Final verification
 
-Recorded at the final head in §7.
+Recorded at the final head in §8.
 
+
+## 6. Mutation matrix
+
+Runner: `mutate_s2b.py` (scratchpad, not shipped) applies one exact-text mutation, rebuilds the solution for a .NET mutation, runs the guarding suites (Domain/Application/Integration `VisualAttribute*`, the latter with the E2E enabled; or the Python role/pipeline/resolver suites) and restores the file byte for byte (SHA-256 checked); the solution is rebuilt clean at the end. A mutation that does not build would be recorded `invalid`; none was.
+
+Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were closed before run 2:
+
+- **M18** (deadline anchored at queue) — the deadline test queued and first-claimed at the same instant; it now claims five hours after queueing.
+- **M19** (claim ignores the deadline) — `CanClaim` re-checks the deadline in memory, so the SQL predicate's job is liveness; new `AUnitPastItsDeadlineNeverStarvesQueuedWork` proves an expired unit is passed over rather than selected and skipped on every poll.
+- **M20** (claim not fenced on identity) — the other-identity test never activated identity B, so the claim returned before reaching SQL; it now activates B first.
+
+**Final: 35 of 35 killed.**
+
+| ID | Mutation | File | Result | First killing test |
+|---|---|---|---|---|
+| M01 | attempt fencing omitted (IsOwnedBy) | `VisualAttributeAnalysis.cs` | **killed** | `ARefusedHeartbeatChangesNothing` |
+| M02 | capability-hash fencing omitted (IsOwnedBy) | `VisualAttributeAnalysis.cs` | **killed** | `ARefusedHeartbeatChangesNothing` |
+| M03 | Phase C re-fence omitted | `VisualAttributeCompletionService.cs` | **killed** | `AReclaimBetweenPhaseAAndPhaseCIsRefusedAndTheSealedOrphanIsSafe` |
+| M04 | Phase C re-fences status only (not attempt/capability) | `VisualAttributeCompletionService.cs` | **killed** | `AReclaimBetweenPhaseAAndPhaseCIsRefusedAndTheSealedOrphanIsSafe` |
+| M05 | lease expiry checked before committed replay | `VisualAttributeCompletionService.cs` | **killed** | `AnAmbiguousCommitPublishesNothingAndTheRetryPublishesOnce` |
+| M06 | supersession by completion order (every completion is preferred) | `VisualAttributeCompletionService.cs` | **killed** | `ALateObsoleteCompletionIsHistoryAndARollbackReDerivesItAsTheDefault` |
+| M07 | transient evidence transport mapped to Unavailable (client) | `client.py` | **killed** | `test_evidence_transport_is_never_evidence[truncated]` |
+| M08 | transient evidence transport mapped to Unavailable (runner) | `runner.py` | **killed** | `test_evidence_transport_fails_the_attempt_as_retryable_and_never_as_unavailable` |
+| M09 | VisionJob janitor given authority over attribute staging | `StagingJanitor.cs` | **killed** | `TheVisionJobJanitorHasNoAuthorityOverAttributeStaging` |
+| M10 | attribute route limits removed | `Program.cs` | **killed** | `EvidenceAndUnknownAttributeRoutesAdmitNoBody` |
+| M11 | body capability token accepted (heartbeat) | `VisualAttributeContracts.cs` | **killed** | `ABodyNamingTheCapabilityIsRefusedOnEveryControlRequest` |
+| M12 | cross-run evidence authorised | `VisualAttributeLifecycle.cs` | **killed** | `EvidenceIsAuthorisedOnlyForTheLeasedRunsAcceptedCrops` |
+| M13 | worker SHA-256 verification skipped | `client.py` | **killed** | `test_evidence_transport_is_never_evidence[persistent-digest]` |
+| M14 | fixture allowed in Production (worker) | `resolver.py` | **killed** | `test_production_refuses_the_fixture` |
+| M15 | fixture allowed in Production (platform) | `VisualAttributeReleaseStartup.cs` | **killed** | `TheDevelopmentOnlyFixtureStartsOnlyInDevelopmentOrTesting` |
+| M16 | visibility barrier bypassed | `VisualAttributeCompletionService.cs` | **killed** | `PublicationWaitsForTheVisibilityBarrier` |
+| M17 | Phase C reads the tracked (stale) unit | `VisualAttributeCompletionService.cs` | **killed** | `ConcurrentIdenticalCompletionsPublishOnce` |
+| M18 | deadline anchored at queue creation | `VisualAttributeAnalysis.cs` | **killed** (run 2, after the tests were strengthened) | `TheDeadlineIsEnforcedWithNoWorkerPolling` |
+| M19 | claim ignores the deadline | `VisualAttributeLifecycle.cs` | **killed** (run 2, after the tests were strengthened) | `AUnitPastItsDeadlineNeverStarvesQueuedWork` |
+| M20 | claim not fenced on the worker's identity | `VisualAttributeLifecycle.cs` | **killed** (run 2, after the tests were strengthened) | `AWorkerOfAnotherIdentityNeverClaimsOrConsumesAnAttempt` |
+| M21 | another attempt's upload accepted | `VisualAttributeLifecycle.cs` | **killed** | `AnUploadIsVerifiedAgainstItsDeclaredDigestAndLease` |
+| M22 | different-SHA upload replay accepted | `AttributeStagingStore.cs` | **killed** | `AnUploadIsStagedOnceAndOnlyTheSameBytesReplay` |
+| M23 | rollback does not re-derive a Superseded analysis as default | `VisualAttributeReadiness.cs` | **killed** | `RollbackReDerivesTheDefaultFromTheExistingSuccessfulAnalysis` |
+| M24 | Unknown treated as Absent (worker aggregation) | `predictions.py` | **killed** | `test_mean_score_argmax_observes_above_the_floor_and_is_unknown_below_it` |
+| M25 | Observed row with a foreign supporting Observation accepted | `VisualAttributeCompletionValidator.cs` | **killed** | `EachRuleRefusesAloneWithItsCode` |
+| M26 | device included in the semantic identity (worker) | `pipeline.py` | **killed** | `test_the_identity_vector_is_reproduced` |
+| M27 | capability echoed on heartbeat | `VisualAttributeEndpoints.cs` | **killed** | `AHeartbeatNeedsTheHeaderCapabilityAndNeverTheBody` |
+| M28 | evidence served without the at-rest size check | `VisualAttributeEndpoints.cs` | **killed** | `AnAcceptedObjectThatDisagreesWithItsRecordIsAnAuthoritativeIntegrityFailure` |
+| M29 | schema artefact bound removed (platform) | `VisualAttributeRelease.cs` | **killed** | `ASchemaWhoseWorstCaseArtefactExceedsTheUploadCapIsRefused` |
+| M30 | worker leases while UNAVAILABLE | `main.py` | **killed** | `test_a_missing_model_pack_leaves_the_role_unavailable_and_it_never_leases` |
+| M31 | heartbeat not concurrent with the attempt | `runner.py` | **killed** | `test_the_heartbeat_runs_concurrently_with_slow_inference` |
+| M32 | lost lease answered with /fail | `runner.py` | **killed** | `test_a_lost_lease_cancels_the_work_and_is_never_answered_with_fail` |
+| M33 | expired lease accepted by lease-scoped operations | `VisualAttributeAnalysis.cs` | **killed** | `ARefusedHeartbeatChangesNothing` |
+| M34 | janitor removes the Running attempt's staging | `AttributeStagingJanitor.cs` | **killed** | `TheJanitorNeverRemovesTheRunningAttemptsStaging` |
+| M35 | COPY fact writes skipped (rows never persisted) | `VisualAttributeCompletionService.cs` | **killed** | `TheFixtureWorkerPublishesARunThroughTheRealLeasePlane` |
+
+Plan §17 mutations that have no code path in this design are recorded rather than invented: *delete a sealed object on rollback* (no deletion call exists; `AReclaimBetweenPhaseAAndPhaseCIsRefusedAndTheSealedOrphanIsSafe` asserts the orphan survives), *supersede on failed replacement* (supersession runs only inside a successful preferred Phase C; `APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot`), *publish rows before the publication transaction* (rows are written only inside it; `AnAmbiguousCommitPublishesNothingAndTheRetryPublishesOnce`), *duplicate (run, identity) units* (the unique index arbitrates; `ConcurrentReconcilersCreateOneUnit`) and *let the fixture bypass production transport* (the fixture has no transport of its own; the E2E runs the real process).
+
+## 7. Deferred and out of scope
+
+- **Explicit re-analysis request** (ADR-013 §9: "an explicit, bounded request per run or camera/time window") has no API in S2b; the plan does not scope one. Supersession and rollback are proven with a sibling unit inserted directly (`APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot`), standing in for that request.
+- Real Model Packs (S2c), search v4 and E5–E8 (S3), UI (S4), Production/CUDA promotion, a generic IntelligenceJob: not in S2b.
+- The worker reports `cuda` unsupported (`attribute_device_unsupported:cuda`) — the fixture is CPU-only; device policy for real models is S2c's.
+
+## 8. Final verification
+
+Recorded at the final head in the pull request.

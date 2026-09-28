@@ -39,6 +39,7 @@ from mavi_vision.common.lease import LeaseGuard, LeaseLostError
 
 _LOGGER = logging.getLogger(__name__)
 COMPLETION_REPLAY_ATTEMPTS = 3
+_ARTIFACT_INTEGRITY_FAILED = "vision_result_artifact_integrity_failed"
 
 
 class AttributeApi(Protocol):
@@ -156,7 +157,9 @@ class AttributeRunner:
         except AttributeLeaseLost:
             raise
         except AttributeApiError as exc:
-            if exc.status_code is None or exc.status_code >= 500:
+            # The worker hashes exactly the bytes it sends, so a digest the platform does not
+            # reproduce means the bytes changed in transit: transport, retryable.
+            if exc.status_code is None or exc.status_code >= 500 or exc.code == _ARTIFACT_INTEGRITY_FAILED:
                 raise _AttemptFailed("visual_attribute_upload_transport_failed", "prediction upload failed") from exc
             raise _AttemptFailed("visual_attribute_contract_violation", f"prediction upload refused ({exc.code})") from exc
 

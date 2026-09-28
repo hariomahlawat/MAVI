@@ -549,6 +549,8 @@ S0 architecture closure is complete. Feature coding remains a separate follow-on
 
 No slice may claim later qualification early.
 
+**S2b status (2026-09-28):** implemented with the deterministic fixture on `feature/stage2-s2b-attribute-lifecycle` (draft PR, not merged); the S2b plan is `docs/superpowers/plans/2026-09-28-stage2-s2b-attribute-lifecycle.md` and its evidence `docs/qualification/stage2-s2b/implementation-record.md`. Per the register's ownership split, S2b also carries E1–E4; E5–E8 stay with S3. No real model is shipped.
+
 ## 23. Stage-2 exit gate
 
 The **only authoritative Stage-2 acceptance list** is:

@@ -551,3 +551,23 @@ def test_the_resolver_serves_exactly_the_attribute_capabilities() -> None:
     from mavi_vision.runtime.resolver import ATTRIBUTE_PROVENANCE_CONTRACT, CONTRACT_CAPABILITIES
 
     assert CONTRACT_CAPABILITIES[ATTRIBUTE_PROVENANCE_CONTRACT] == frozenset(ATTRIBUTE_CAPABILITIES)
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (AttributeApiError("reset"), "visual_attribute_upload_transport_failed"),
+        (AttributeApiError("changed", status_code=422, code="vision_result_artifact_integrity_failed"), "visual_attribute_upload_transport_failed"),
+        (AttributeApiError("too large", status_code=413), "visual_attribute_contract_violation"),
+    ],
+    ids=["transport", "digest-in-transit", "refused"],
+)
+def test_upload_failures_are_classified(profile, error, code) -> None:
+    class Refusing(FakeApi):
+        async def upload(self, leased, content):
+            raise error
+
+    api = Refusing(_person_lease())
+    outcome = asyncio.run(_runner(api, profile).run_once())
+    assert (outcome.status, outcome.failure_code) == ("failed", code)
+    assert api.completions == []

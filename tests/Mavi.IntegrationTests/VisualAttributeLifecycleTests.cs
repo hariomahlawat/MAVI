@@ -141,6 +141,10 @@ public sealed class VisualAttributeLifecycleTests(PostgresFixture fixture)
     {
         var (world, run, _) = await WorldWithQueuedUnitAsync();
         using var owned = world;
+        // B is activated too, so its worker passes every pre-check and only the claim's
+        // identity predicate stands between it and A's unit.
+        world.Clock.Advance(TimeSpan.FromSeconds(1));
+        await Lifecycle(world).EnsureActivationAsync(B, CancellationToken.None);
 
         Assert.Null(await Lifecycle(world).ClaimNextAsync("attributes-02", B.Identity.Fingerprint, Policy, CancellationToken.None));
         Assert.Null(await Lifecycle(world).ClaimNextAsync("attributes-02", new string('9', 64), Policy, CancellationToken.None));
@@ -255,6 +259,8 @@ public sealed class VisualAttributeLifecycleTests(PostgresFixture fixture)
     {
         var (world, run, _) = await WorldWithQueuedUnitAsync();
         using var owned = world;
+        // Queued long before the first claim: the deadline counts from the claim, not the queue.
+        world.Clock.Advance(TimeSpan.FromHours(5));
         _ = await Lifecycle(world).ClaimNextAsync("attributes-01", A.Identity.Fingerprint, Policy, CancellationToken.None);
 
         world.Clock.Advance(Policy.MaximumAnalysisDuration - TimeSpan.FromSeconds(1));
@@ -265,6 +271,25 @@ public sealed class VisualAttributeLifecycleTests(PostgresFixture fixture)
         var unit = await UnitAsync(world, run.RunId);
         Assert.Equal(VisualAttributeAnalysisStatus.Failed, unit.Status);
         Assert.Equal("visual_attribute_deadline_exceeded", unit.FailureCode);
+    }
+
+    [Fact]
+    public async Task AUnitPastItsDeadlineNeverStarvesQueuedWork()
+    {
+        var (world, _, activated) = await WorldWithQueuedUnitAsync();
+        using var owned = world;
+        var second = await world.SeedRunAsync(1, 0, 1, completedAtUtc: world.Clock.GetUtcNow());
+        Assert.Equal(1, await Lifecycle(world).QueueEligibleAsync(A, activated, 100, CancellationToken.None));
+        var first = (await Lifecycle(world).ClaimNextAsync("attributes-01", A.Identity.Fingerprint, Policy, CancellationToken.None))!;
+
+        // The first unit's lease and deadline have both passed and no sweep has run yet: the
+        // claim must pass it over for the queued unit rather than select it and give up.
+        world.Clock.Advance(Policy.MaximumAnalysisDuration + TimeSpan.FromSeconds(1));
+        var next = await Lifecycle(world).ClaimNextAsync("attributes-02", A.Identity.Fingerprint, Policy, CancellationToken.None);
+
+        Assert.NotNull(next);
+        Assert.NotEqual(first.AnalysisId, next.AnalysisId);
+        Assert.Equal(second.RunId, next.ProcessingRunId);
     }
 
     [Fact]
