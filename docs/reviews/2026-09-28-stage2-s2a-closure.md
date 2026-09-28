@@ -6,13 +6,13 @@
 
 ## 1. Closure statement
 
-S2a is complete. The repository has migrated from the detector-centric single-model component contract to Component Binding v2 and has integrated that contract through validation, runtime/model installation, offline component-store assembly, Setup-MAVI preflight and final readiness verification.
+S2a implementation is complete. The repository migrated from the detector-centric single-model component contract to Component Binding v2 and integrated that contract through validation, runtime/model installation, offline component-store assembly, Setup-MAVI preflight and final readiness verification.
 
 The governing composition authority is the repository Component Binding. Runtime Pack, Model Pack and capability identities are selected by binding id, not by directory order, timestamps or implicit detector assumptions.
 
 ## 2. Merged implementation chain
 
-S2a was delivered through the reviewed S2a implementation sequence culminating in:
+S2a culminated in:
 
 - PR #110 — Component Binding v2 cut-over / S2a.3;
 - PR #111 — hardened S2a.4 implementation plan;
@@ -20,19 +20,13 @@ S2a was delivered through the reviewed S2a implementation sequence culminating i
 
 PR #112 merged only after exact-head Quality Gate, Task 12, Vision Model Pack and Task 17 evidence was green and all P1/P2 review findings were resolved.
 
-## 3. Acceptance C1–C7 reconciliation
+## 3. Acceptance authority
 
-The Stage-2 acceptance register remains authoritative. On the merged S2a baseline, C1–C7 are satisfied by implementation and retained verification evidence:
+`docs/reviews/2026-09-23-visual-attributes-acceptance.md` is the sole authoritative Stage-2 acceptance register. This closure record does not maintain an independent PASS list.
 
-- **C1 PASS** — `capabilityBindings[]` is the capability-neutral composition shape and supports detector plus future capability ids without Stage-2-only structural fields.
-- **C2 PASS** — Model manifest v2 has a capability-neutral common shape; detector-specific resolved configuration is capability-specific rather than universally mandatory.
-- **C3 PASS** — Runtime profile v2 is decoupled from a privileged checkpoint and declares independently startable roles.
-- **C4 PASS** — qualification records are capability-scoped and separate common from capability-specific gates.
-- **C5 PASS** — capability/model/runtime identities are durable provenance and participate where required in binding/digest contracts.
-- **C6 PASS** — repository verification, component-store verification, offline packaging, Setup preflight and CI fail closed on binding/manifest/runtime/model mismatch.
-- **C7 PASS** — detector-era identity migration was deliberately reconciled; S2a did not silently promote RTMDet or change Production/CUDA qualification state.
+PR #113 reconciles the register itself with the retained S2a evidence. In particular, C3 is deliberately narrow: Component Binding/runtime-profile v2 provides the multi-role schema and decouples runtime identity from a privileged checkpoint, but only the `vision` role is implemented/startable on the S2a baseline. Activating an independently startable `attributes` role is S2b work.
 
-A follow-on documentation reconciliation should reflect these PASS states in `docs/reviews/2026-09-23-visual-attributes-acceptance.md`; this closure record is evidence, not a second acceptance register.
+No S2a closure statement claims RTMDet Production qualification, CUDA qualification, family-wide Production qualification, a real attribute Model Pack, or S2b functionality.
 
 ## 4. Frozen S2a invariants carried into S2b
 
