@@ -4,6 +4,7 @@ using Mavi.Domain.Media;
 using Mavi.Domain.Processing;
 using Mavi.Domain.Scene;
 using Mavi.Domain.SceneAnalytics;
+using Mavi.Domain.VisualAttributes;
 using Microsoft.EntityFrameworkCore;
 
 namespace Mavi.Infrastructure.Persistence;
@@ -19,7 +20,6 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<VisionFinalizationPayload> VisionFinalizationPayloads => Set<VisionFinalizationPayload>();
     public DbSet<Track> Tracks => Set<Track>();
     public DbSet<Observation> Observations => Set<Observation>();
-    public DbSet<VisualAttribute> VisualAttributes => Set<VisualAttribute>();
     public DbSet<Entity> Entities => Set<Entity>();
     public DbSet<SceneConfiguration> SceneConfigurations => Set<SceneConfiguration>();
     public DbSet<SceneConfigurationRevision> SceneConfigurationRevisions => Set<SceneConfigurationRevision>();
@@ -29,6 +29,11 @@ public sealed class MaviDbContext(DbContextOptions<MaviDbContext> options) : DbC
     public DbSet<TrackZoneSummary> TrackZoneSummaries => Set<TrackZoneSummary>();
     public DbSet<TrackLineCrossing> TrackLineCrossings => Set<TrackLineCrossing>();
     public DbSet<TrackMotionSummary> TrackMotionSummaries => Set<TrackMotionSummary>();
+    public DbSet<VisualAttributeAnalysis> VisualAttributeAnalyses => Set<VisualAttributeAnalysis>();
+    public DbSet<VisualAttributeAttemptFailure> VisualAttributeAttemptFailures => Set<VisualAttributeAttemptFailure>();
+    public DbSet<VisualAttributeIdentityActivation> VisualAttributeIdentityActivations => Set<VisualAttributeIdentityActivation>();
+    public DbSet<VisualAttributeTrackOutcome> VisualAttributeTrackOutcomes => Set<VisualAttributeTrackOutcome>();
+    public DbSet<VisualAttribute> VisualAttributes => Set<VisualAttribute>();
 
     // Model configuration
     protected override void OnModelCreating(ModelBuilder modelBuilder)
