@@ -2,10 +2,10 @@
 
 **Status:** Open — S2a closed; S2b planning  
 **Date opened:** 2026-09-23  
-**Reconciled:** 2026-09-28  
-**Current implementation baseline:** `main@406172657599350ecbb27819865ecc9482c6c97d`
+**Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c`  
+**Reconciled:** 2026-09-28 against current implementation baseline `main@406172657599350ecbb27819865ecc9482c6c97d`
 
-This register is authoritative for Stage-2 exit criteria. Other plans reference this table rather than maintain a second independently numbered acceptance list.
+This register is authoritative for Stage-2 exit criteria. Other plans must reference this table rather than maintain a second independently numbered acceptance list.
 
 Nothing unexecuted is marked PASS.
 
@@ -39,56 +39,59 @@ S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qual
 | A6 | Accepted-evidence reads are platform-served, lease-scoped and hash-verified; Python direct evidence-root access remains prohibited | PASS |
 | A7 | VisualAttributeAnalysis lifecycle/control-plane semantics are frozen, including heartbeat/fencing/retry/supersession | PASS |
 | A8 | Observed / Unknown / Unavailable / Pending / Failed / Absent semantics are non-overlapping and reflected in persistence/API/UI plans | PASS |
-| A9 | v4 attribute-search cursor identity and combined analytics+attribute semantics are frozen | PASS |
+| A9 | v4 attribute-search cursor identity (capability identity fingerprint, not the full tuple) and combined analytics+attribute semantics are frozen | PASS |
 | A10 | UI/UX specification is amended for Unknown, Evidence Set review and row-density rules | PASS |
 | A11 | Qualification protocol covers annotation agreement, data splits, support, generalisation, aggregation, abstention, licensing, retrieval and requalification triggers | PASS |
-| A12 | Final independent cold architecture review reports no open P1/P2; ADR-013/014 can move to Accepted | PASS |
+| A12 | Final independent cold architecture review reports no open P1/P2; ADR-013/014 can move to Accepted | PASS — Fable's second pass amended R-01–R-22; the final handover review then found and amended R-23 (tracker-retirement contract / staging contradiction). PASS applies only to the final amended documentation head; see the review-resolution record. |
+
+**Implementation gate:** satisfied for architecture. S1/S2 implementation may begin only in a follow-on implementation change; this documentation PR contains no Stage-2 feature code.
 
 ## B. Evidence-set / raw-processing acceptance
 
 | ID | Requirement | Status |
 |---|---|---|
-| B1 | Deterministic four-role candidate selector implemented with documented tie-breaking | OPEN — implementation merged; retained S1.4 evidence entry still required |
-| B2 | JPEG encoding occurs in-loop; exact-once retirement/finalisation and live-memory bound are proven | OPEN — implementation merged; retained S1.4 evidence entry still required |
-| B3 | Crop/run byte caps and 10,000-Track completion-body bound are enforced | OPEN — implementation merged; retained S1.4 evidence entry still required |
-| B4 | Vision completion schema v3/digest v3 and Observation evolution pass contract tests | OPEN — implementation merged; retained S1.4 evidence entry still required |
-| B5 | TrackDetail observations and Evidence Set viewer expose accepted roles without breaking Representative behaviour | OPEN — implementation merged; real-video/operator evidence entry still required |
+| B1 | Deterministic four-role candidate selector implemented with documented tie-breaking | OPEN — implemented and merged in S1.2c / PR #79; the two-tier Representative and scorer `quality-v2` follow the accepted ADR-013 §4 amendments; evidence pending S1.4 |
+| B2 | JPEG encoding occurs in-loop; the model-neutral tracker emits exact-once retired Track ids with no post-retirement reappearance (mapping released on retirement, fresh id on backend id reuse); the whole Track — trajectory, Representative, supplemental candidates — is finalised and staged once at retirement/end-of-stream and only descriptors remain; earlier attempts' staging is removed on new lease; retirement/reactivation/no-reappearance/end-of-stream tests, on both the ByteTrack adapter and the fixture tracker, prove the live-Track memory bound | OPEN — in-loop encoding, retirement finalisation (S1.1), bounded trajectory spool (S1.2b) and the bounded Evidence Set (S1.2c / PR #79) are merged; live memory per Track constant by construction; RSS evidence pending S1.4 |
+| B3 | Representative and supplemental byte caps, reduction floors, score-ordered admission and the 1 GiB run EvidenceCrop quota are enforced; body bound re-derived; all contract-tested at the 10,000-Track bound | OPEN — implemented and merged in S1.2c / PR #79, worker worst-shape body 24.72 MiB; evidence pending S1.4 |
+| B4 | Vision completion schema v3, digest v3, validator/store/sealing and Observation evolution pass contract tests | OPEN — platform side merged in S1.2a; worker emission and cross-language vectors merged in S1.2c / PR #79; evidence pending S1.4 |
+| B5 | `TrackDetail.observations[]` and evidence viewer expose accepted roles without breaking Representative behaviour | OPEN — implementation is merged: server read contract in S1.3a / PR #82 and viewer in S1.3b / PR #83 (`main@81b43dec32bec0c5e876d2df372503016c05dbdf`); real-video/operator acceptance evidence remains S1.4 |
 | B6 | Relevant Task-10 CPU matrices are rerun; CUDA/E2E evidence is rebound when produced; no stale qualification claim remains | OPEN |
 
 ## C. Component-binding v2 acceptance
 
 | ID | Requirement | Status |
 |---|---|---|
-| C1 | `capabilityBindings[]` schema supports detector + future capability ids without Stage-2-only structural fields | PASS — S2a merged through PR #110/#112; repository/binding validation retained on the merged baseline |
-| C2 | Model-manifest v2 common schema is capability-neutral; detector-specific config is optional/capability-specific | PASS — S2a manifest-v2 cut-over merged and exercised by exact-head repository/model-pack gates |
-| C3 | Runtime profile is decoupled from a privileged model checkpoint and the schema supports independently startable roles | PASS — schema/runtime identity decoupling is merged. Limitation: only `vision` is implemented/startable on the S2a baseline; activation of the independent `attributes` role is D5/S2b, not evidence that a second role already exists |
-| C4 | Capability-scoped qualification-record shape and common/capability-specific gates are implemented | PASS — capability-scoped qualification shape merged; no Production/CUDA promotion implied |
-| C5 | modelPackId/runtimePackId/capabilityId are persisted in provenance/digests where the S2a contracts require them | PASS — completion/provenance validation and persistence merged and covered by exact-head gates |
-| C6 | verify_repo, offline packaging and CI fail closed on binding/manifest/runtime mismatch | PASS — PR #112 exact head `911ae9f27fcbc9ebf48431d6fdc9dd9ae2750ad9`: Quality Gate, Task 12, Vision Model Pack and Task 17 green before merge |
-| C7 | Existing detector qualification hashes/records affected by profile v2 are deliberately reconciled and behaviour-regression tests pass | PASS — S2a identity freeze/reconciliation retained detector qualification state; RTMDet remained pending/unverified and no Production/CUDA promotion occurred |
+| C1 | `capabilityBindings[]` schema supports detector + future capability ids without Stage-2-only structural fields | PASS — implemented across S2a; retained mutation evidence: `docs/qualification/stage2-s2a/mutations-s2a-1.md`, `mutations-s2a-2.md`, `mutations-s2a-3.md`, and `mutations-s2a-4.md`; merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d` |
+| C2 | Model-manifest v2 common schema is capability-neutral; detector-specific config is optional/capability-specific | PASS — manifest-v2 cut-over is covered by the retained S2a mutation records above and the exact-head repository/model-pack gates on PR #112 head `911ae9f27fcbc9ebf48431d6fdc9dd9ae2750ad9` |
+| C3 | Runtime profile is decoupled from a privileged model checkpoint and supports independently startable roles | PASS — schema/runtime identity decoupling is implemented and retained in the S2a mutation evidence. Limitation: only `vision` is implemented/startable on the S2a baseline; activation of the independent `attributes` role is D5/S2b, not evidence that a second role already exists |
+| C4 | Capability-scoped qualification-record shape and common/capability-specific gates are implemented | PASS — retained S2a mutation records exercise the capability-scoped qualification shape and fail-closed gates; PR #112 exact-head Quality Gate/Task 12/Vision Model Pack/Task 17 all passed; no Production/CUDA promotion implied |
+| C5 | modelPackId/runtimePackId/capabilityId are persisted in provenance/digests | PASS — S2a.3 retained evidence includes `docs/qualification/stage2-s2a/mutations-s2a-3.md` and `docs/qualification/stage2-s2a/record-replay-s2a-3/`; exact-head PR #112 gates revalidated the merged contracts |
+| C6 | verify_repo, offline packaging and CI fail closed on binding/manifest/runtime mismatch | PASS — PR #112 exact head `911ae9f27fcbc9ebf48431d6fdc9dd9ae2750ad9`: MAVI Quality Gate PASS; Task 12 PASS; Vision Model Pack PASS; Task 17 PASS. S2a.4 retained mutation record `docs/qualification/stage2-s2a/mutations-s2a-4.md` records 28/28 deliberate mutations caught |
+| C7 | Existing detector qualification hashes/records affected by profile v2 are deliberately reconciled and behaviour-regression tests pass | PASS — retained reconciliation: `docs/qualification/stage2-s2a/2026-09-27-detector-identity-reconciliation.md`; retained S2a.3/S2a.4 mutation and record/replay evidence above; RTMDet remains pending/unverified and no Production/CUDA promotion occurred |
 
 ### C-section retained evidence record
 
-- implementation chain: PR #110 (S2a.3 cut-over), PR #111 (S2a.4 plan), PR #112 (S2a.4 implementation);
-- merged baseline: `406172657599350ecbb27819865ecc9482c6c97d`;
+- implementation chain: S2a.1–S2a.4, culminating in PR #112;
+- merged baseline/result SHA: `406172657599350ecbb27819865ecc9482c6c97d`;
 - final PR #112 exact head: `911ae9f27fcbc9ebf48431d6fdc9dd9ae2750ad9`;
-- environment: repository CI plus Windows PowerShell 5.1 and PowerShell 7 coverage in Task 17 for Setup contracts;
-- workflows/results: MAVI Quality Gate PASS; Task 12 PASS; Vision Model Pack PASS; Task 17 PASS;
-- retained implementation evidence: PR #112 records 28/28 deliberate mutations caught and no unresolved P1/P2 at merge;
+- environment/runtime/model/capability identities: repository/component identities frozen by the S2a binding/manifest/runtime files and identity-freeze tests; Windows PowerShell 5.1 and PowerShell 7 exercised for Setup contracts in Task 17;
+- commands/workflows/runs: PR #112 exact-head MAVI Quality Gate, Task 12, Vision Model Pack and Task 17 — all PASS before merge;
+- retained reports/artefacts: `docs/qualification/stage2-s2a/mutations-s2a-1.md`, `mutations-s2a-2.md`, `mutations-s2a-3.md`, `mutations-s2a-4.md`, `record-replay-s2a-3/`, and `2026-09-27-detector-identity-reconciliation.md`; their repository blob/content hashes are retained by Git at the merged baseline;
+- result: C1–C7 satisfied at the S2a boundary described above;
 - limitation/non-claim: C3 does not claim an implemented second role; C1–C7 do not claim RTMDet Production qualification, CUDA qualification, family-wide Production qualification, or any real attribute Model Pack;
-- reviewer/date: independent cold review completed before PR #112 merge; register reconciled 2026-09-28.
+- reviewer/date: independent cold reviews of the S2a implementation and final exact-head merge gate completed in the PR #112 review history on 2026-09-28; this register reconciliation does not substitute for that retained review history.
 
 ## D. Attribute lifecycle and evidence-read acceptance
 
 | ID | Requirement | Status |
 |---|---|---|
 | D1 | VisualAttributeAnalysis unit/lifecycle is independent of ProcessingRun success | OPEN |
-| D2 | Shared fencing/hash primitives are extracted only where semantics match; no third copy-and-diverge implementation | OPEN |
-| D3 | Python-facing lease/heartbeat/complete/fail endpoints and transport contracts are contract-tested | OPEN |
-| D4 | Lease-scoped evidence read and prediction-upload endpoints authorise only the leased unit's Observations/artefact; worker verifies SHA/size before decode; attribute role touches no platform filesystem | OPEN |
+| D2 | Shared fencing/hash primitives are extracted only where semantics match; no third copy-and-diverge implementation | OPEN — deliberate requirement amendment from the architecture-freeze wording: generic claim/state-machine extraction is explicitly not required because eligibility/reclaim semantics differ across control planes |
+| D3 | Python-facing lease/heartbeat/complete/fail endpoints and transport contracts are contract-tested | OPEN — deliberate requirement amendment: S2b uses header-only lease capability rather than a body token/generic envelope that would persist or digest the capability |
+| D4 | Lease-scoped evidence read and prediction-upload endpoints authorise only the leased unit's Observations/artefact; worker verifies SHA/size before decode; the attribute role touches no platform filesystem | OPEN |
 | D5 | Attribute worker runs as an independent process/role with independent READY/device/provenance/failure domain | OPEN |
 | D6 | Model unavailable at startup leaves work Queued without consuming attempts | OPEN |
-| D7 | Stale attempts, reclaim, retry, cancellation semantics, malformed output and failure isolation pass | OPEN |
+| D7 | Stale attempts, reclaim, retry, cancellation, malformed output and failure isolation pass | OPEN |
 | D8 | Prediction-level outputs are sealed as bounded `AttributePredictions`; lifecycle publication is atomic and final relational rows remain Track-level only | OPEN |
 
 ## E. Persistence/search semantics acceptance
@@ -135,13 +138,13 @@ Ownership is split deliberately: **S2b establishes and proves E1–E4 persistenc
 | G8 | Final independent Stage-2 cold review has no open P1/P2/material review thread | OPEN |
 | G9 | Post-merge critical verification on `main` is green | OPEN |
 
-## Evidence log rule
+## Evidence log
 
 For every PASS entry retain:
 - exact commit SHA;
-- environment/runtime/model/capability identities where applicable;
+- environment/runtime/model/capability identities;
 - corpus/protocol version where applicable;
-- command/workflow/run or equivalent retained evidence;
+- command/workflow/run number;
 - result;
 - retained artefact/report hash where applicable;
 - limitation/non-claim;
