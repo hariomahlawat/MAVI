@@ -146,6 +146,7 @@ $hostingDestination = Join-Path $destination "prerequisites\hosting\win-x64"
 New-Item -ItemType Directory -Path $hostingDestination -Force | Out-Null
 Copy-Item -LiteralPath $hostingBundle -Destination (Join-Path $hostingDestination "dotnet-hosting.exe")
 
+$includesVisionStore = $false
 if ($IncludeDevelopmentPayload) {
     $developerDestination = Join-Path $destination "prerequisites\developer\win-x64"
     New-Item -ItemType Directory -Path $developerDestination -Force | Out-Null
@@ -159,6 +160,28 @@ if ($IncludeDevelopmentPayload) {
             throw "Developer dependency cache is incomplete: $cacheDirectory"
         }
         Copy-Tree -Source $source -Target (Join-Path $developerDestination $cacheDirectory)
+    }
+
+    # The kit's Vision component store travels with the Development payload so
+    # Setup, run from this bundle with -RepositoryRoot, installs the binding's
+    # Runtime Pack and Model Packs from <bundle>\vision. Every copied file is
+    # hashed into mavi-offline-bundle.json below, and Setup's preflight checks
+    # the store against the repository binding before installing anything.
+    $visionStore = Join-Path $BinaryKitRoot "vision"
+    if (Test-Path -LiteralPath (Join-Path $visionStore "component-inventory.json") -PathType Leaf) {
+        $workspacePython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+        if (Test-Path -LiteralPath $workspacePython -PathType Leaf) {
+            & $workspacePython (Join-Path $repoRoot "tools\vision\sync_offline_vision_components.py") verify --kit-root $BinaryKitRoot | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "The Vision component store in '$BinaryKitRoot' fails verification; re-synchronize it before assembling setup media." }
+        }
+        else {
+            Write-Warning "Vision component store copied without build-time verification (no workspace Python at '$workspacePython'); Setup verifies it before installing."
+        }
+        Copy-Tree -Source $visionStore -Target (Join-Path $destination "vision")
+        $includesVisionStore = $true
+    }
+    else {
+        Write-Warning "MAVI-Offline-Binary-Kit has no Vision component store (vision\component-inventory.json); the bundle's Development setup will report the Vision composition as not installed."
     }
 }
 
@@ -295,4 +318,5 @@ $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash
 Write-Host "MAVI offline setup bundle created."
 Write-Host "  Destination : $destination"
 Write-Host "  Files       : $($artifactFiles.Count)"
+Write-Host "  Vision store: $(if ($includesVisionStore) { 'included (vision\component-inventory.json)' } else { 'not included' })"
 Write-Host "  Manifest SHA-256: $manifestHash"

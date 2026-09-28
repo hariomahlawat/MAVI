@@ -295,6 +295,11 @@ try {
     foreach ($retired in @("MAVI_MODEL_MANIFEST_PATH", "MAVI_QUALIFICATION_RECORD_PATH", "MAVI_RUNTIME_PROFILE_PATH", "MAVI_COMPLETION_SCHEMA_VERSION")) {
         if ($setupText.Contains($retired)) { throw "Setup-MAVI.ps1 must not set the retired composition variable $retired." }
     }
+    # A combined Development bundle carries the kit's Vision store before its
+    # manifest is written, so bundle Setup finds <bundle>\vision (Windows-only builder).
+    $bundleBuilder = Get-Content -LiteralPath (Join-Path $PSScriptRoot "New-MaviOfflineSetupBundle.ps1") -Raw
+    $storeCopyAt = $bundleBuilder.IndexOf('Copy-Tree -Source $visionStore -Target (Join-Path $destination "vision")')
+    if ($storeCopyAt -lt 0 -or $storeCopyAt -gt $bundleBuilder.IndexOf('$artifactFiles = @(')) { throw "New-MaviOfflineSetupBundle.ps1 must copy the Vision component store into the bundle before hashing its files." }
     $launcherText = Get-Content -LiteralPath (Join-Path $PSScriptRoot "Start-MaviVisionWorker.ps1") -Raw
     $verifyAt = $launcherText.IndexOf("if (`$VerifyOnly)")
     if ($verifyAt -lt 0 -or $verifyAt -lt $launcherText.IndexOf("launch_component_compatibility_failed") -or $verifyAt -gt $launcherText.IndexOf("& `$python -m mavi_vision.worker.main")) {

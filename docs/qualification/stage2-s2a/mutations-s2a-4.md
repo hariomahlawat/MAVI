@@ -8,7 +8,7 @@
 
 Each mutation replaced one exact anchor in one file. The guarding suites were then run and the file was restored byte for byte, with its SHA-256 checked after restoration. A mutation counts as **caught** only if at least one guarding suite fails. The four mutations the plan requires are M01 (binding-SHA check), M03 and M04 (the full required-model loop, on the Python and PowerShell sides), M05 (the final compatibility assertion) and M07 (revision made a hard gate).
 
-## Results: 24 of 24 caught
+## Results: 25 of 25 caught
 
 | Id | Mutation | File | Caught by |
 |---|---|---|---|
@@ -36,6 +36,7 @@ Each mutation replaced one exact anchor in one file. The guarding suites were th
 | M22 | Setup drops `-VerifyOnly` (no launcher readiness check) | `tools/setup/Setup-MAVI.ps1` | Setup contracts: readiness-boundary source pin |
 | M23 | launcher `-VerifyOnly` returns nowhere (check removed) | `tools/setup/Start-MaviVisionWorker.ps1` | Setup contracts: `-VerifyOnly` must stop after the compatibility assertion and before the worker starts |
 | M24 | Setup restores a `bundle-manifest.json` probe | `tools/setup/Setup-MAVI.ps1` | Setup contracts: D-1 source pin |
+| M25 | combined setup bundle omits the Vision component store (PR review, added after it) | `tools/setup/New-MaviOfflineSetupBundle.ps1` | Setup contracts: bundle-builder source pin |
 
 M16 first survived: no case put a Runtime Pack at the bundle root. The flat-bundle case was added, and M16 is now caught.
 
@@ -43,4 +44,4 @@ M16 first survived: no case put a Runtime Pack at the bundle root. The flat-bund
 
 `Install-MaviVisionRuntime.ps1` needs Windows, a signed CPython 3.12.10 installer and a wheelhouse. Its step is therefore instrumented: it records the call and does not run the installer. The Model Pack step is the real installer. The readiness step is the launcher's own functions (`Get-MaviVisionBindingRole`, `Resolve-MaviVisionBoundModelPacks`, `Assert-MaviVisionInstalledModelPackIntegrity`, `Assert-MaviVisionWorkerComponentCompatibility`) over the real installed store.
 
-Setup's wiring of the real runtime installer and of `Start-MaviVisionWorker.ps1 -VerifyOnly` is pinned from source (M21–M24). Task 17 runs the suite on PowerShell 7 (Linux) and on Windows PowerShell 5.1.
+Setup's wiring of the real runtime installer and of `Start-MaviVisionWorker.ps1 -VerifyOnly` is pinned from source (M21–M25). Task 17 runs the suite on PowerShell 7 (Linux) and on Windows PowerShell 5.1.

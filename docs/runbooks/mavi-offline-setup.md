@@ -90,7 +90,7 @@ MAVI-Offline-Setup/
 
 `mavi-offline-bundle.json` contains SHA-256 and size for every payload file and, when the companion kit was used, records the source binary-kit/catalog hashes.
 
-A combined Development+Production bundle can still be generated with `-IncludeDevelopmentPayload`; only then are `Setup-MAVI-Development.cmd`, the .NET SDK, Node, Python and Development dependency caches copied into the final setup media. The preferred Development workflow is the source repository plus the separately retained binary kit.
+A combined Development+Production bundle can still be generated with `-IncludeDevelopmentPayload`; only then are `Setup-MAVI-Development.cmd`, the .NET SDK, Node, Python and Development dependency caches copied into the final setup media, together with the kit's Vision component store (`vision\`) when the kit has one. The preferred Development workflow is the source repository plus the separately retained binary kit.
 
 ## Preparing the release media
 
@@ -225,7 +225,7 @@ With the repository attached, Setup also installs the Vision composition: the Wi
 **Where Setup looks, in this order:**
 
 1. `MAVI_VISION_BUNDLE_ROOT`, if set (process, then machine). It is used as given: a Vision component store if it contains `vision\component-inventory.json`, otherwise a Runtime Bundle root. If it does not exist, Setup fails rather than looking elsewhere.
-2. The component store inside the Setup bundle or binary kit (`<kit>\vision\component-inventory.json`).
+2. The component store inside the binary kit or a combined setup bundle (`<kit>\vision\component-inventory.json`). A combined bundle's own Development launcher does not attach the repository, so rerun its Setup with `-RepositoryRoot` to install the Vision components from it.
 3. A `MAVI-Vision-Runtime-Bundle` directory beside the repository, as a Runtime Bundle root.
 
 A component store has this layout (see the component lifecycle runbook for how to build it):

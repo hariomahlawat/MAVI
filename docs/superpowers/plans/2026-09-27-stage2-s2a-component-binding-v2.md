@@ -655,6 +655,7 @@ Scope and gate: `docs/superpowers/plans/2026-09-28-stage2-s2a-4-setup-offline-in
 | E4-11 | §7 `Sync-MaviOfflineVisionComponentStore.ps1` | `-RuntimePackRoot`/`-ModelPackRoot` take several packs; the wrapper prefers the workspace `.venv` Python, which has `mavi_vision`'s dependencies. | N-pack kit assembly end to end. |
 | E4-12 | §10 Task 17 | `Test-MaviVisionSetupContracts.ps1` runs in Task 17 on PowerShell 7 (Linux job) and Windows PowerShell 5.1 (Windows job, after `pip install -e ./src/vision`). `tools/vision/**` is added to Task 17's paths. | The contracts are only as good as the job that runs them. |
 | E4-13 | documentation scope | `docs/runbooks/local-development.md` is also rewritten. It told operators to use a `bundle-manifest.json` Runtime Bundle whose commit matches HEAD. | §9: remove every instruction relying on `bundle-manifest.json`. |
+| E4-14 | combined setup bundle (PR review) | `New-MaviOfflineSetupBundle.ps1 -IncludeDevelopmentPayload` copies the kit's `vision\` store into the bundle before hashing its files, after running the store verifier when the workspace Python exists. Setup run from the bundle with `-RepositoryRoot` then finds `<bundle>\vision\component-inventory.json`. | Without it the combined bundle could never deliver the Vision components. |
 
 Recorded and not changed in S2a.4:
 
