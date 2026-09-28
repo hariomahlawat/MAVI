@@ -62,7 +62,7 @@ The following decisions were accepted by PR #115 and are recorded here as govern
 4. Qualification-plan protocol revisions R1 and R2.
 5. Model Selection Record method v1.
 
-Nothing in this activation selects a model or marks any F/G acceptance row PASS.
+Nothing in this reconciliation selects a model or marks any F/G acceptance row PASS.
 
 ## 4. Accountable owners for the next slices
 
