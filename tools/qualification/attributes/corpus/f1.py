@@ -4,7 +4,11 @@ F1: "Annotation guide, double-label agreement/adjudication and corpus partition 
 are frozen before final evaluation."
 
 The committed evidence record names each retained artefact by SHA-256 and says nothing
-else about it. The checker takes nothing on trust. It loads every artefact from the
+else about it. The checker independently re-verifies all machine-verifiable retained
+evidence and fails closed when required retained evidence or human attestations are
+missing or inconsistent. Human attestations remain an external trust input: the
+recurrence review and recall-sample decisions, the declared stage of a frozen-test access,
+and the custodian's handling of the store outside the evaluation environment. It loads every artefact from the
 Corpus Custodian's retained-record store (``--store``), a directory outside Git that holds
 every document as ``<sha256>.json`` plus the ledgers. It re-derives each identity and
 then **recomputes** the chain rather than reading its conclusions:
@@ -40,6 +44,7 @@ from .annotation import (
     VALIDITY,
     AnnotationLedger,
     build_ground_truth,
+    build_reveal_packet,
     load_evaluation_view,
     parse_adjudication,
     parse_batch,
@@ -53,8 +58,8 @@ from .ledger import Ledger
 from .manifest import parse_corpus
 from .partition import PARTITIONS, partition_of, verify_partition
 from .pilot import pilot_report
-from .recurrence import parse_recurrence
-from .task import freeze_task, parse_task
+from .recurrence import draw_recall_sample, parse_recurrence, recurrence_document_sha256
+from .task import freeze_task, parse_task, verify_freeze_consistent_with_pilot
 
 RECORD_SCHEMA = "mavi-s2c-f1-evidence-record-v1"
 REPO = Path(__file__).resolve().parents[4]
@@ -109,18 +114,29 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     require(corpus.sha256 == refs["corpusManifestSha256"], "f1_record_hash_mismatch:corpus manifest")
     require(corpus.corpus_kind == refs["corpusKind"], "f1_corpus_kind_mismatch")
     recurrence_doc = store.raw(refs["recurrenceAuditSha256"], "recurrence audit")
-    recurrence_sha, recurrence_links = parse_recurrence(recurrence_doc, corpus)
-    require(recurrence_sha == refs["recurrenceAuditSha256"], "f1_record_hash_mismatch:recurrence audit")
+    recurrence_sha, recurrence_links = parse_recurrence(recurrence_doc, corpus)  # groups identity
+    require(recurrence_document_sha256(recurrence_doc) == refs["recurrenceAuditSha256"], "f1_record_hash_mismatch:recurrence audit")
     duplicate_sha, duplicate_links = parse_duplicate_audit(store.raw(refs["duplicateAuditSha256"], "duplicate audit"), corpus)
     require(duplicate_sha == refs["duplicateAuditSha256"], "f1_record_hash_mismatch:duplicate audit")
     partition = store.load(refs["partitionManifestSha256"], "partition manifest")
     psha = refs["partitionManifestSha256"]
     verify_partition(corpus, partition, recurrence_links + duplicate_links, {"recurrence": recurrence_sha, "duplicate": duplicate_sha})
+    # The recall sample is regenerated from the corpus, the final partition and the
+    # recurrence groups: the pairs, not a count, carry the evidence.
     sample = recurrence_doc.get("recallSample")
     if sample is None:
         missing.append("recurrence audit recall sample")
-    elif sample["missedRecurrences"] > 0:
-        missing.append("recurrence re-audit: the recall sample found missed recurrences")
+    else:
+        regenerated = draw_recall_sample(corpus, partition, psha, recurrence_sha, sample["seed"], sample["sampleSize"])
+        require(regenerated["populationSha256"] == sample["populationSha256"], "f1_recall_sample_population_mismatch")
+        require([p["trackIds"] for p in regenerated["pairs"]] == [p["trackIds"] for p in sample["pairs"]], "f1_recall_sample_not_reproducible")
+        decisions = [p["decision"] for p in sample["pairs"]]
+        if None in decisions:
+            missing.append(f"recall sample: {decisions.count(None)} sampled pairs not reviewed")
+        if "recurrence" in decisions:
+            missing.append(f"recurrence re-audit: the recall sample found {decisions.count('recurrence')} recurrences missing from the audit (add them, re-partition, re-sample)")
+        if "uncertain" in decisions:
+            missing.append(f"recall sample follow-up: {decisions.count('uncertain')} pairs marked uncertain")
 
     full_ledger = store.ledger(ANNOTATION_LEDGER, AnnotationLedger)
     full_ledger.require_extends(labelling["annotationLedgerHead"])
@@ -134,6 +150,11 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     # Nothing that changes labels may be recorded after the sealed ground truth.
     later = full_ledger.entries[len(ledger.entries):]
     require(not any(e["kind"] in ("assignment-issued", "batch-submitted", "adjudication-recorded", "reveal-issued") for e in later), "f1_labels_recorded_after_sealed_ground_truth")
+
+    # No issued assignment may be silently abandoned (a convenient subset would stand for
+    # the sample): each is submitted, or cancelled in favour of an identical replacement.
+    ledger.require_phase_complete("pilot")
+    ledger.require_phase_complete("main")
 
     task = parse_task(store.load(record["attributeTask"]["frozenSha256"], "frozen attribute task"))
     require(task.status == "frozen", "f1_task_not_frozen")
@@ -157,6 +178,7 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     # The frozen task must be exactly what the owner decision produces from the candidate
     # and the pilot (only pre-declared merges and removals).
     decision = store.load(task.document["derivedFrom"]["ownerDecisionSha256"], "owner freeze decision")
+    verify_freeze_consistent_with_pilot(candidate, pilot, decision)  # pilot failures resolved
     require(task.document == freeze_task(candidate, pilot, decision), "f1_frozen_task_not_reproducible")
 
     main_assignments, main_batches = _labelling_inputs(ledger, store, "main", task)
@@ -168,7 +190,15 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     require(sorted(labelling["adjudicationSha256s"]) == sorted(recorded), "f1_adjudications_differ_from_ledger")
     for sha in recorded:
         store.load(sha, "adjudication")  # superseded ones are retained too
-    adjudications = [parse_adjudication(store.load(sha, "adjudication"), task, object_class) for sha, e in ledger.effective_adjudications().items() if e["keys"]]
+    effective = [store.load(sha, "adjudication") for sha, e in ledger.effective_adjudications().items() if e["keys"]]
+    adjudications = [parse_adjudication(document, task, object_class) for document in effective]
+    # Each adjudication must rest on complete evidence: its retained reveal packet must equal
+    # the packet rebuilt from every main batch covering its units.
+    main_documents = [b for b, _ in main_batches]
+    for document in effective:
+        packet = store.load(document["revealPacketSha256"], "reveal packet")
+        rebuilt_packet = build_reveal_packet(packet["packetId"], packet["recipientId"], packet["units"], "main", main_documents)
+        require(packet == rebuilt_packet, "f1_reveal_packet_not_reproducible")
     adjudicated = {key for decisions in adjudications for key in decisions}
     main = store.load(labelling["mainAgreementReportSha256"], "main agreement report")
     rebuilt = agreement_report("main", corpus, partition, psha, task.sha256, main_batches, main_assignments, ledger.annotators(), adjudicated, registered)

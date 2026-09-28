@@ -7,17 +7,26 @@ no identity, no embedding. A proposal from an evaluation-only similarity pass (S
 never shipped, never of a bake-off candidate's family) is imported as ``proposed`` and
 applies only once a reviewer confirms it. Rejected groups are kept, never deleted.
 
-Reviewers can only confirm recurrences they notice. ``recallSample`` records a reviewer's
-second look at a random sample of cross-partition Track pairs: the number of pairs
-examined and the recurrences found that the audit had missed. F1 needs one. Without a
-biometric matcher (excluded by design), recall stays an estimate. That limitation is
-accepted and recorded.
+Reviewers can only confirm recurrences they notice. ``recallSample`` records a human
+second look at a **reproducible** sample of cross-partition Track pairs
+(``draw_recall_sample``, method ``recall-sample-v1``): the seed, the population identity,
+the exact sampled pairs and one reviewer decision per pair (``recurrence``,
+``not-recurrence`` or ``uncertain``). F1 regenerates the sample from the corpus, the final
+partition and the recurrence groups, so neither the pairs nor a zero-miss claim can be
+asserted without the reviewed pairs. There is no biometric matcher (excluded by design):
+the decisions themselves remain a human attestation, and recall stays an estimate.
+
+Identity: ``parse_recurrence`` returns the SHA-256 of the recurrence **groups** (the audit
+without its recall sample), which is what a partition binds. The sample is drawn on that
+partition afterwards, so ``recurrence_document_sha256`` (including the sample) is what an
+evidence record names.
 """
 
 from __future__ import annotations
 
 from .canonical import (
     document_sha256,
+    hash_rank,
     refuse_path_leaks,
     require,
     require_date,
@@ -31,6 +40,8 @@ from .manifest import CorpusManifest
 from .partition import LinkGroup
 
 RECURRENCE_SCHEMA = "mavi-attribute-recurrence-audit-v1"
+RECALL_METHOD = "recall-sample-v1"
+RECALL_DECISIONS = ("recurrence", "not-recurrence", "uncertain")
 STATUSES = ("proposed", "confirmed", "rejected")
 PROPOSERS = ("reviewer", "similarity-pass")
 
@@ -44,12 +55,19 @@ def parse_recurrence(document: dict, corpus: CorpusManifest) -> tuple[str, list[
     sample = document.get("recallSample")
     if sample is not None:
         scode = f"{code}:recallSample"
-        require_keys(sample, scode, ("by", "date", "sampledPairs", "missedRecurrences", "note"))
+        require_keys(sample, scode, ("method", "seed", "sampleSize", "populationSha256", "pairs", "by", "date", "note"))
+        require(sample["method"] == RECALL_METHOD, f"{scode}:method")
+        require(isinstance(sample["seed"], str) and 1 <= len(sample["seed"]) <= 128, f"{scode}:seed")
+        require(isinstance(sample["sampleSize"], int) and not isinstance(sample["sampleSize"], bool) and sample["sampleSize"] >= 1, f"{scode}:size")
+        require_sha256(sample["populationSha256"], scode)
+        require(isinstance(sample["pairs"], list) and len(sample["pairs"]) == sample["sampleSize"], f"{scode}:pairs")
+        for pair in sample["pairs"]:
+            require_keys(pair, f"{scode}:pair", ("trackIds", "decision"))
+            ids = [require_uuid(t, f"{scode}:pair") for t in pair["trackIds"]]
+            require(len(ids) == 2 and ids == sorted(set(ids)) and all(t in corpus.tracks for t in ids), f"{scode}:pair")
+            require(pair["decision"] is None or pair["decision"] in RECALL_DECISIONS, f"{scode}:decision")
         require_pseudonym(sample["by"], scode)
         require_date(sample["date"], scode)
-        for key in ("sampledPairs", "missedRecurrences"):
-            require(isinstance(sample[key], int) and not isinstance(sample[key], bool) and sample[key] >= 0, scode)
-        require(sample["sampledPairs"] > 0 and sample["missedRecurrences"] <= sample["sampledPairs"], scode)
         require_free_text(sample["note"], scode)
     applied: list[LinkGroup] = []
     seen: set[str] = set()
@@ -81,8 +99,60 @@ def parse_recurrence(document: dict, corpus: CorpusManifest) -> tuple[str, list[
         # Only a human-confirmed recurrence moves Tracks.
         if group["status"] == "confirmed":
             applied.append(LinkGroup(group_id, "recurrence", frozenset(track_ids)))
+    return recurrence_groups_sha256(document), applied
+
+
+def _normal(document: dict) -> dict:
     normal = dict(document)
-    normal["groups"] = sorted(
-        ({**g, "trackIds": sorted(g["trackIds"])} for g in document["groups"]), key=lambda g: g["groupId"]
+    normal["groups"] = sorted(({**g, "trackIds": sorted(g["trackIds"])} for g in document["groups"]), key=lambda g: g["groupId"])
+    return normal
+
+
+def recurrence_groups_sha256(document: dict) -> str:
+    """Identity of the recurrence decisions (without the recall sample): what a partition binds."""
+    return document_sha256({k: v for k, v in _normal(document).items() if k != "recallSample"})
+
+
+def recurrence_document_sha256(document: dict) -> str:
+    """Identity of the whole audit, recall sample included: what an evidence record names."""
+    return document_sha256(_normal(document))
+
+
+def recall_population_sha256(corpus_sha256: str, partition_sha256: str, groups_sha256: str) -> str:
+    return document_sha256(
+        {
+            "method": RECALL_METHOD,
+            "corpusManifestSha256": corpus_sha256,
+            "partitionManifestSha256": partition_sha256,
+            "recurrenceGroupsSha256": groups_sha256,
+            "population": "unordered Track pairs of the same object class in different partitions",
+        }
     )
-    return document_sha256(normal), applied
+
+
+def draw_recall_sample(corpus: CorpusManifest, partition: dict, partition_sha256: str, groups_sha256: str, seed: str, size: int) -> dict:
+    """Deterministic sample of ``size`` distinct cross-partition, same-class Track pairs.
+
+    Two seeded permutations P1, P2 of the Tracks; step i pairs P1[i mod n] with
+    P2[(i div n + i) mod n], which visits every ordered pair once, in a seed-determined
+    order. Invalid pairs (same Track, different class, same partition) and repeats are
+    skipped. The decisions start empty for the reviewer to fill."""
+    require(isinstance(size, int) and size >= 1, "recall_sample_size")
+    parts = {a["trackId"]: a["partition"] for a in partition["assignments"]}
+    require(set(parts) == set(corpus.tracks), "recall_sample_partition_mismatch")
+    first = sorted(corpus.tracks, key=lambda t: hash_rank(seed, "recall-a", t))
+    second = sorted(corpus.tracks, key=lambda t: hash_rank(seed, "recall-b", t))
+    n = len(first)
+    seen: set[tuple[str, str]] = set()
+    pairs: list[dict] = []
+    for i in range(n * n):
+        a, b = first[i % n], second[(i // n + i) % n]
+        pair = tuple(sorted((a, b)))
+        if a == b or pair in seen or parts[a] == parts[b] or corpus.tracks[a].object_class != corpus.tracks[b].object_class:
+            continue
+        seen.add(pair)
+        pairs.append({"trackIds": list(pair), "decision": None})
+        if len(pairs) == size:
+            break
+    require(len(pairs) == size, "recall_population_too_small")
+    return {"method": RECALL_METHOD, "seed": seed, "sampleSize": size, "populationSha256": recall_population_sha256(corpus.sha256, partition_sha256, groups_sha256), "pairs": pairs}

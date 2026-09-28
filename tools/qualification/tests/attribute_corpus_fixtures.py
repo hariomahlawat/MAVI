@@ -112,13 +112,40 @@ def policy(**overrides: object) -> dict:
     return base
 
 
+def passing_pilot_report(candidate, overrides: dict | None = None) -> dict:
+    """A correctly hashed fixture pilot report whose statistics pass every confirmed rule.
+    ``overrides`` maps attributeType -> replacement stats (to make one fail)."""
+    from attributes.corpus import task as task_module
+    from attributes.corpus.canonical import document_sha256
+
+    stats = {
+        spec.attribute_type: {"attributeType": spec.attribute_type, "doubleLabelledUnits": 100, "value": {"krippendorffAlpha": 1.0}, "scorability": {"krippendorffAlpha": 1.0}}
+        for spec in candidate.attributes
+    }
+    for name, replacement in (overrides or {}).items():
+        if replacement is None:
+            stats.pop(name)
+        else:
+            stats[name] = {**stats[name], **replacement}
+    report = {
+        "schemaVersion": "mavi-attribute-pilot-report-v1",
+        "corpusKind": "synthetic-fixture",
+        "taskSha256": candidate.sha256,
+        "pilotDecisionRules": task_module.require_confirmed_rules(candidate),
+        "agreement": {"attributes": sorted(stats.values(), key=lambda a: a["attributeType"])},
+        "valueMergeRecommendations": [],
+        "attributeMergeRecommendations": [],
+    }
+    report["reportSha256"] = document_sha256(report)
+    return report
+
+
 def frozen_task(candidate):
     """Freeze a confirmed candidate with no changes (fixture pilot report, correctly hashed)."""
     from attributes.corpus import task as task_module
     from attributes.corpus.canonical import document_sha256
 
-    report = {"schemaVersion": "mavi-attribute-pilot-report-v1", "corpusKind": "synthetic-fixture", "taskSha256": candidate.sha256}
-    report["reportSha256"] = document_sha256(report)
+    report = passing_pilot_report(candidate)
     decision = {
         "schemaVersion": "mavi-attribute-task-freeze-decision-v1",
         "decidedBy": "owner-1",

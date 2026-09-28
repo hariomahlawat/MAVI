@@ -178,6 +178,7 @@ class AnnotationLedger(Ledger):
         require(issued["assignmentSha256"] == document_sha256(assignment) == batch["assignmentSha256"], "ledger_batch_assignment_mismatch")
         require(issued["annotatorId"] == batch["annotatorId"], "ledger_batch_wrong_annotator")
         require(batch["assignmentId"] not in self._submitted(), "ledger_batch_already_submitted")
+        require(batch["assignmentId"] not in self._cancelled(), "ledger_batch_assignment_cancelled")
         if issued["round"] == "independent":
             seen = self._revealed_units(batch["annotatorId"]) & set(issued["units"])
             require(not seen, "ledger_independence_violated:annotator_saw_other_labels")
@@ -187,15 +188,71 @@ class AnnotationLedger(Ledger):
             at,
         )
 
-    def issue_reveal(self, packet: dict, at: str) -> None:
-        """Other annotators' labels may be shown only once every independent label is in."""
+    def _cancelled(self) -> dict[str, dict]:
+        return {e["payload"]["assignmentId"]: e["payload"] for e in self.of_kind("assignment-cancelled")}
+
+    def cancel_assignment(self, assignment_id: str, actor: str, reason: str, replacement_id: str, at: str) -> None:
+        """Cancel an issued, unsubmitted assignment, **only** in favour of an already issued
+        replacement with exactly the same phase, round and units (for example an annotator
+        who left). The sample cannot shrink or change, so cancellation cannot select units.
+        It is refused once the assignment's own labels exist (submitted) or once any reveal
+        has shown labels for its units."""
+        assignments = self._assignments()
+        issued = assignments.get(assignment_id)
+        require(issued is not None, "ledger_cancel_unknown_assignment")
+        require(assignment_id not in self._submitted(), "ledger_cancel_after_submission")
+        cancelled = self._cancelled()
+        require(assignment_id not in cancelled, "ledger_cancel_duplicate")
+        require_pseudonym(actor, "ledger_cancel_actor")
+        require_free_text(reason, "ledger_cancel_reason")
+        replacement = assignments.get(replacement_id)
+        require(replacement is not None and replacement_id != assignment_id and replacement_id not in cancelled, "ledger_cancel_requires_replacement")
+        require((replacement["phase"], replacement["round"], replacement["units"]) == (issued["phase"], issued["round"], issued["units"]), "ledger_cancel_replacement_mismatch")
+        units = set(issued["units"])
+        require(not any(units & set(e["payload"]["units"]) for e in self.of_kind("reveal-issued")), "ledger_cancel_after_reveal")
+        self.append("assignment-cancelled", {"assignmentId": assignment_id, "actor": actor, "reason": reason, "replacementAssignmentId": replacement_id}, at)
+
+    def require_phase_complete(self, phase: str) -> None:
+        """Every issued assignment of ``phase`` has exactly one submitted batch, unless it was
+        cancelled in favour of a replacement (which must then be submitted itself). An
+        abandoned assignment would let a convenient subset stand for the whole sample."""
+        submitted, cancelled = self._submitted(), self._cancelled()
+        open_ = sorted(aid for aid, a in self._assignments().items() if a["phase"] == phase and aid not in submitted and aid not in cancelled)
+        require(not open_, f"ledger_assignments_unsubmitted:{phase}:{len(open_)}")
+
+    def issue_reveal(self, packet: dict, batches: list[dict], at: str) -> None:
+        """Other annotators' labels may be shown only once every independent label is in, and
+        the packet must be the canonical one: built from **every** submitted batch of its phase
+        that covers its units (``build_reveal_packet``), so no label can be withheld."""
         submitted = self._submitted()
         units = set(packet["units"])
         for assignment in self._assignments().values():
             if assignment["round"] == "independent" and units & set(assignment["units"]):
                 require(assignment["assignmentId"] in submitted, f"ledger_reveal_before_independent_submission:{assignment['assignmentId']}")
         require(packet["recipientId"] in self.annotators(), "ledger_reveal_unregistered_recipient")
-        self.append("reveal-issued", {"packetId": packet["packetId"], "recipientId": packet["recipientId"], "units": sorted(units), "packetSha256": document_sha256(packet)}, at)
+        assignments = self._assignments()
+        expected = {
+            e["batchSha256"]
+            for e in submitted.values()
+            if assignments[e["assignmentId"]]["phase"] == packet["phase"] and units & set(assignments[e["assignmentId"]]["units"])
+        }
+        supplied = {document_sha256(b) for b in batches}
+        require(supplied == expected, f"ledger_reveal_batches_incomplete:{len(expected - supplied)}")
+        canonical = build_reveal_packet(packet["packetId"], packet["recipientId"], sorted(units), packet["phase"], batches)
+        require(canonical == packet, "ledger_reveal_packet_not_canonical")
+        self.append(
+            "reveal-issued",
+            {
+                "packetId": packet["packetId"],
+                "recipientId": packet["recipientId"],
+                "phase": packet["phase"],
+                "units": sorted(units),
+                "packetSha256": document_sha256(packet),
+                "conflictKeys": packet["conflictKeys"],
+                "reasonConflictKeys": packet["reasonConflictKeys"],
+            },
+            at,
+        )
 
     def record_adjudication(self, adjudication: dict, at: str) -> None:
         """An adjudication counts only if its reveal packet was issued, through this ledger, to
@@ -205,6 +262,15 @@ class AnnotationLedger(Ledger):
         require(packet is not None, "ledger_adjudication_packet_not_issued")
         require(packet["recipientId"] == adjudication["adjudicatorId"], "ledger_adjudication_packet_other_recipient")
         require({d["unit"] for d in adjudication["decisions"]} <= set(packet["units"]), "ledger_adjudication_outside_packet")
+        require(packet.get("phase") == "main", "ledger_adjudication_requires_main_packet")
+        # Only a real disagreement shown in the packet can be adjudicated. Where raters agree
+        # the unit is unscorable but name different reasons, only the reason may be decided.
+        conflicts, reason_conflicts = set(packet["conflictKeys"]), set(packet["reasonConflictKeys"])
+        for decision in adjudication["decisions"]:
+            key = f"{decision['unit']}|{decision['attributeType']}"
+            require(key in conflicts or key in reason_conflicts, f"ledger_adjudication_without_conflict:{key}")
+            if key in reason_conflicts:
+                require(decision["outcome"] == OUTCOME_UNSCORABLE, f"ledger_adjudication_overrides_consensus:{key}")
         sha = document_sha256(adjudication)
         require(sha not in self.adjudication_hashes(), "ledger_adjudication_duplicate")
         keys = sorted({f"{d['unit']}|{d['attributeType']}" for d in adjudication["decisions"]})
@@ -362,15 +428,37 @@ def parse_batch(batch: dict, assignment: dict, task: Task) -> list[Label]:
 # ---- adjudication and ground truth ---------------------------------------------------------
 
 
-def build_reveal_packet(packet_id: str, recipient_id: str, units: list[str], batches: list[tuple[dict, list[Label]]]) -> dict:
-    """The adjudication view: every submitted label for the named units, with its source batch."""
+def build_reveal_packet(packet_id: str, recipient_id: str, units: list[str], phase: str, batches: list[dict]) -> dict:
+    """The canonical adjudication view: every submitted label for the named units from the
+    given batches, with its source batch, plus the keys that actually conflict.
+
+    Built from the raw batch documents, so the ledger (``issue_reveal``) and F1 can rebuild
+    it and prove nothing was withheld. ``conflictKeys``: raters differ on outcome or value.
+    ``reasonConflictKeys``: all raters say ``unscorable`` but name different reasons."""
+    require(phase in PHASES, "reveal_phase")
     wanted = set(units)
     labels = []
-    for batch, parsed in batches:
-        for label in parsed:
-            if label.unit in wanted:
-                labels.append({"unit": label.unit, "attributeType": label.attribute_type, "annotatorId": batch["annotatorId"], "batchSha256": document_sha256(batch), "outcome": label.outcome, "value": label.value, "unscorableReason": label.reason})
-    return {"schemaVersion": REVEAL_SCHEMA, "packetId": require_pseudonym(packet_id, "reveal_id"), "recipientId": require_pseudonym(recipient_id, "reveal_recipient"), "units": sorted(wanted), "labels": sorted(labels, key=lambda l: (l["unit"], l["attributeType"], l["annotatorId"]))}
+    for batch in batches:
+        for row in batch["labels"]:
+            unit = unit_key(row["unitKind"], row["trackId"], row["observationId"])
+            if unit in wanted:
+                labels.append({"unit": unit, "attributeType": row["attributeType"], "annotatorId": batch["annotatorId"], "batchSha256": document_sha256(batch), "outcome": row["outcome"], "value": row["value"], "unscorableReason": row["unscorableReason"]})
+    by_key: dict[str, list[dict]] = defaultdict(list)
+    for label in labels:
+        by_key[f"{label['unit']}|{label['attributeType']}"].append(label)
+    conflicts = sorted(k for k, ls in by_key.items() if len({(l["outcome"], l["value"]) for l in ls}) > 1)
+    reason_conflicts = sorted(k for k, ls in by_key.items() if k not in conflicts and len({l["unscorableReason"] for l in ls}) > 1)
+    return {
+        "schemaVersion": REVEAL_SCHEMA,
+        "packetId": require_pseudonym(packet_id, "reveal_id"),
+        "recipientId": require_pseudonym(recipient_id, "reveal_recipient"),
+        "phase": phase,
+        "units": sorted(wanted),
+        "batchSha256s": sorted({document_sha256(b) for b in batches if any(unit_key(r["unitKind"], r["trackId"], r["observationId"]) in wanted for r in b["labels"])}),
+        "labels": sorted(labels, key=lambda l: (l["unit"], l["attributeType"], l["annotatorId"], l["batchSha256"])),
+        "conflictKeys": conflicts,
+        "reasonConflictKeys": reason_conflicts,
+    }
 
 
 def parse_adjudication(document: dict, task: Task, object_class_of: dict[str, str]) -> dict[tuple[str, str], dict]:
@@ -447,6 +535,7 @@ def build_ground_truth(
         reasons = sorted({l["unscorableReason"] for l in submitted if l["unscorableReason"]}, key=REASON_PRECEDENCE.index)
         reason_disagreement = len(reasons) > 1
         if (unit, attribute) in decided:
+            require(len(distinct) > 1 or reason_disagreement, f"ground_truth_adjudication_without_conflict:{unit}|{attribute}")
             final = decided[(unit, attribute)]
             resolution, source = "adjudicated", final["adjudicationSha256"]
             final_value = (final["outcome"], final["value"], final["unscorableReason"])
@@ -479,6 +568,7 @@ def build_ground_truth(
     phases = {a["assignmentId"]: a["phase"] for a in ledger.of_kind_payloads("assignment-issued")}
     registered_main = {e["batchSha256"] for e in ledger.of_kind_payloads("batch-submitted") if phases[e["assignmentId"]] == "main"}
     require(seen_batches == registered_main, f"ground_truth_batches_incomplete:{len(registered_main - seen_batches)}")
+    ledger.require_phase_complete("main")
     # Final labels must agree with the final subject validity, including after adjudication.
     finals: dict[str, dict[str, dict]] = defaultdict(dict)
     for row in rows:

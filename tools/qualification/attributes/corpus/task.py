@@ -197,6 +197,62 @@ def confirm_rules(task_document: dict, confirmed_by: str, confirmed_at: str, ove
     return document
 
 
+def attribute_verdicts(task: Task, agreement: dict, rules: dict) -> dict[str, dict]:
+    """The pilot's per-attribute verdict under the owner-confirmed rules (deterministic).
+
+    ``keep``: every threshold met. ``insufficient-evidence``: too few double-labelled units
+    (or no labels); more pilot labels under the same rules, or removal. ``merge-or-remove``:
+    enough support but an agreement threshold failed."""
+    by_attribute = {a["attributeType"]: a for a in agreement["attributes"]}
+    verdicts = {}
+    for spec in task.attributes:
+        stats = by_attribute.get(spec.attribute_type)
+        if stats is None:
+            verdicts[spec.attribute_type] = {"attributeType": spec.attribute_type, "recommendation": "insufficient-evidence", "reasons": ["no_pilot_labels"]}
+            continue
+        reasons = []
+        if stats["doubleLabelledUnits"] < rules["minimumDoubleLabelledUnitsPerAttribute"]:
+            reasons.append(f"double_labelled_units_below_minimum:{stats['doubleLabelledUnits']}")
+        for facet, key in (("value", "minimumValueAlpha"), ("scorability", "minimumScorabilityAlpha")):
+            alpha = stats[facet]["krippendorffAlpha"]
+            if alpha is None or alpha < rules[key]:
+                reasons.append(f"{facet}_alpha_below_minimum:{alpha}")
+        verdict = "keep" if not reasons else ("insufficient-evidence" if reasons[0].startswith("double") else "merge-or-remove")
+        verdicts[spec.attribute_type] = {"attributeType": spec.attribute_type, "recommendation": verdict, "reasons": reasons}
+    return verdicts
+
+
+def verify_freeze_consistent_with_pilot(candidate: Task, pilot_report: dict, decision: dict) -> None:
+    """The owner decision must resolve every attribute the pilot failed (plan §10.3:
+    "if an attribute cannot be labelled reliably, it is removed or merged"):
+
+    * ``keep``: may stay unchanged;
+    * ``insufficient-evidence``: must be removed. To keep it, label more pilot units under the
+      same rules and produce a new pilot report;
+    * ``merge-or-remove``: must be removed, or merged by a pre-declared attribute merge the
+      pilot recommended. If only value agreement failed, a pre-declared value merge the
+      pilot recommended on that attribute also resolves it. Scorability failure is not
+      addressed by merging values.
+
+    The verdicts are recomputed from the report's statistics under the candidate's
+    confirmed rules; the report must have been produced under exactly those rules."""
+    rules = require_confirmed_rules(candidate)
+    require(pilot_report.get("pilotDecisionRules") == rules, "freeze_pilot_rules_differ_from_confirmed")
+    verdicts = attribute_verdicts(candidate, pilot_report["agreement"], rules)
+    recommended_values = {(m["attributeType"], tuple(sorted(m["values"]))) for m in pilot_report["valueMergeRecommendations"] if m["recommendMerge"]}
+    recommended_attributes = {tuple(sorted(m["attributeTypes"])) for m in pilot_report["attributeMergeRecommendations"] if m["recommendMerge"]}
+    removed = set(decision["attributeRemovals"])
+    merged_by_recommendation = {name for m in decision["attributeMerges"] if tuple(sorted(m["attributeTypes"])) in recommended_attributes for name in m["attributeTypes"]}
+    value_merged = {m["attributeType"] for m in decision["valueMerges"] if (m["attributeType"], tuple(sorted(m["values"]))) in recommended_values}
+    for name, verdict in sorted(verdicts.items()):
+        if verdict["recommendation"] == "keep" or name in removed:
+            continue
+        if verdict["recommendation"] == "insufficient-evidence":
+            raise CorpusError(f"freeze_unresolved_insufficient_evidence:{name}")
+        only_value = all(r.startswith("value_alpha") for r in verdict["reasons"])
+        require(name in merged_by_recommendation or (only_value and name in value_merged), f"freeze_failing_attribute_retained:{name}")
+
+
 def freeze_task(candidate: Task, pilot_report: dict, decision: dict) -> dict:
     """Produce the frozen task from the candidate, the pilot report and the owner decision.
 
@@ -266,4 +322,5 @@ def freeze_task(candidate: Task, pilot_report: dict, decision: dict) -> dict:
         original = next((s for s in candidate.attributes if s.attribute_type == spec.attribute_type), None)
         if original is not None:
             require(spec.allowed_values <= original.allowed_values, f"freeze_added_value:{spec.attribute_type}")
+    verify_freeze_consistent_with_pilot(candidate, pilot_report, decision)
     return frozen.document

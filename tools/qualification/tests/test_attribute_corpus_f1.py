@@ -21,8 +21,11 @@ from attributes.corpus.annotation import (
     build_assignment,
     build_batch,
     build_ground_truth,
+    build_reveal_packet,
+    parse_adjudication,
     parse_batch,
     split_ground_truth,
+    unit_key,
 )
 from attributes.corpus.cli import main
 from attributes.corpus.canonical import CorpusError, document_sha256, lf_normalised_sha256, write_canonical
@@ -34,7 +37,8 @@ from attributes.corpus.frozen import build_seal, declare_improper_access, open_a
 from attributes.corpus.manifest import parse_corpus, revise_corpus
 from attributes.corpus.partition import build_partition
 from attributes.corpus.pilot import pilot_report, sample_pilot_tracks
-from attributes.corpus.recurrence import parse_recurrence
+from attributes.corpus.recurrence import draw_recall_sample, parse_recurrence, recurrence_document_sha256
+from attributes.corpus.task import attribute_verdicts
 from attributes.corpus.task import load_task, parse_task
 
 T0 = "2026-10-20T09:00:00Z"
@@ -42,13 +46,15 @@ COMMITTED = REPO / "docs" / "qualification" / "stage2-s2c" / "corpus" / "f1-evid
 
 
 def _choice(unit, attribute):
+    """Varied labels on which every annotator agrees, so every alpha is defined (1.0)."""
+    h = int(sha(unit["trackId"], attribute)[:8], 16)
     if attribute == "subject-validity":
         return ("value", "valid", None)
     if attribute.endswith("colour"):
-        return ("value", "black", None)
+        return ("unscorable", None, "occluded") if h % 5 == 0 else ("value", ("black", "white", "blue")[h % 3], None)
     if attribute == "person-headwear":
-        return ("unscorable", None, "not-visible")
-    return ("value", "absent", None)
+        return ("unscorable", None, "not-visible") if h % 3 == 0 else ("value", ("absent", "present")[(h // 3) % 2], None)
+    return ("unscorable", None, "occluded") if h % 7 == 0 else ("value", ("absent", "present")[h % 2], None)
 
 
 def _labelled(ledger, name, annotator, phase, units, corpus, partition, psha, task, guide_sha, retained, choose=_choice):
@@ -64,7 +70,22 @@ def _labelled(ledger, name, annotator, phase, units, corpus, partition, psha, ta
     return assignment, (batch, parse_batch(batch, assignment, task))
 
 
-def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, context: dict | None = None, **policy_overrides: object) -> tuple[dict, Path]:
+def _conflicting_choice(unit, attribute):
+    """ann-b disagrees with ann-a on the backpack of every fourth person Track."""
+    base = _choice(unit, attribute)
+    if attribute == "person-backpack" and int(sha(unit["trackId"], "conflict")[:8], 16) % 4 == 0:
+        return ("value", "absent", None) if base == ("value", "present", None) else ("value", "present", None)
+    return base
+
+
+def reviewed_recall_sample(corpus, partition, groups_sha, decision="not-recurrence", size=50):
+    sample = draw_recall_sample(corpus, partition, document_sha256(partition), groups_sha, "recall-seed", size)
+    for pair in sample["pairs"]:
+        pair["decision"] = decision
+    return {**sample, "by": "reviewer-1", "date": "2026-10-02", "note": "second reviewer, reproducible sample"}
+
+
+def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, context: dict | None = None, single_labelled_class: str | None = None, abandoned_pilot: bool = False, pilot_choose_b=None, forge_freeze: bool = False, conflicts: str | None = None, **policy_overrides: object) -> tuple[dict, Path]:
     """Run the whole S2c.1 workflow and retain every record in a hash-addressed store."""
     store = tmp / "store"
     store.mkdir()
@@ -74,41 +95,82 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
     raw_corpus = build_corpus(sites=4, cameras_per_site=3, days=12, tracks_per_source=tracks_per_source, kind=kind)
     corpus = parse_corpus(raw_corpus)
     recurrence = {"schemaVersion": "mavi-attribute-recurrence-audit-v1", "corpusManifestSha256": corpus.sha256, "groups": []}
-    if recall:
-        recurrence["recallSample"] = {"by": "reviewer-1", "date": "2026-10-02", "sampledPairs": 200, "missedRecurrences": 0, "note": "random cross-partition pairs, second reviewer"}
+    recurrence.pop("recallSample", None)
     recurrence_sha, recurrence_links = parse_recurrence(recurrence, corpus)
     fingerprints = {o: sha("fp", o)[:16] for o in sorted(corpus.observations)}
     duplicates = build_duplicate_audit(corpus, fingerprints, 6)
     duplicate_sha, duplicate_links = parse_duplicate_audit(duplicates, corpus)
     partition = build_partition(corpus, policy(**policy_overrides), recurrence_links + duplicate_links, {"recurrence": recurrence_sha, "duplicate": duplicate_sha})
     psha = document_sha256(partition)
+    if recall:
+        recurrence["recallSample"] = reviewed_recall_sample(corpus, partition, recurrence_sha)
+    recurrence_doc_sha = recurrence_document_sha256(recurrence)
 
     ledger = AnnotationLedger(store / ANNOTATION_LEDGER)
     ledger.register_annotator("ann-a", False, T0)
     ledger.register_annotator("ann-b", True, T0)
     candidate = parse_task(task_module.confirm_rules(load_task().document, "owner-1", "2026-10-01T09:00:00Z"))
     retained: list[dict] = [candidate.document]
-    pilot_units = [("track", t, None) for t in sample_pilot_tracks(corpus, partition, 30, "pilot-seed")]
+    pilot_units = [("track", t, None) for t in sample_pilot_tracks(corpus, partition, 160, "pilot-seed")]
     assignments, batches = {}, []
     for annotator in ("ann-a", "ann-b"):
-        a, b = _labelled(ledger, f"pilot-{annotator}", annotator, "pilot", pilot_units, corpus, partition, psha, candidate, guide_sha, retained)
+        choose = pilot_choose_b if annotator == "ann-b" and pilot_choose_b else _choice
+        a, b = _labelled(ledger, f"pilot-{annotator}", annotator, "pilot", pilot_units, corpus, partition, psha, candidate, guide_sha, retained, choose)
         assignments[a["assignmentId"]], batches = a, batches + [b]
+    if abandoned_pilot:  # issued, never submitted: the report below silently omits it
+        spare = next(t for t in sample_pilot_tracks(corpus, partition, 400, "spare") if ("track", t, None) not in pilot_units)
+        ledger.issue_assignment(build_assignment("pilot-abandoned", "ann-a", "pilot", "independent", [("track", spare, None)], corpus, partition, psha, candidate, guide_sha), T0)
     pilot = pilot_report(candidate, corpus, partition, psha, batches, assignments, ledger.annotators(), set(ledger.batch_hashes()))
+    # The owner follows the pilot: anything it did not keep is removed.
+    removals = sorted(name for name, v in attribute_verdicts(candidate, pilot["agreement"], candidate.document["pilotDecisionRules"]).items() if v["recommendation"] != "keep")
+    if forge_freeze:
+        removals = []  # a hand-forged freeze that keeps what the pilot failed
     decision = {
         "schemaVersion": "mavi-attribute-task-freeze-decision-v1", "decidedBy": "owner-1", "decidedAt": "2026-10-09T09:00:00Z",
-        "valueMerges": [], "attributeMerges": [], "valueRemovals": [], "attributeRemovals": [], "rationale": "fixture freeze",
+        "valueMerges": [], "attributeMerges": [], "valueRemovals": [], "attributeRemovals": removals, "rationale": "fixture freeze",
     }
-    frozen_doc = task_module.freeze_task(candidate, pilot, decision)
+    if forge_freeze:
+        original = task_module.verify_freeze_consistent_with_pilot
+        task_module.verify_freeze_consistent_with_pilot = lambda *_: None
+        try:
+            frozen_doc = task_module.freeze_task(candidate, pilot, decision)
+        finally:
+            task_module.verify_freeze_consistent_with_pilot = original
+    else:
+        frozen_doc = task_module.freeze_task(candidate, pilot, decision)
     retained.append(decision)
     task = parse_task(frozen_doc)
 
     main_units = [("track", t, None) for t in sorted(corpus.tracks)]
     main_assignments, main_batches = {}, []
     for annotator in ("ann-a", "ann-b"):
-        a, b = _labelled(ledger, f"main-{annotator}", annotator, "main", main_units, corpus, partition, psha, task, main_guide or guide_sha, retained)
+        units = main_units if annotator == "ann-a" or single_labelled_class is None else [u for u in main_units if corpus.tracks[u[1]].object_class != single_labelled_class]
+        choose = _conflicting_choice if annotator == "ann-b" and conflicts else _choice
+        a, b = _labelled(ledger, f"main-{annotator}", annotator, "main", units, corpus, partition, psha, task, main_guide or guide_sha, retained, choose)
         main_assignments[a["assignmentId"]], main_batches = a, main_batches + [b]
-    main = agreement_report("main", corpus, partition, psha, task.sha256, main_batches, main_assignments, ledger.annotators(), set(), set(ledger.batch_hashes()))
-    truth = build_ground_truth(corpus, partition, psha, task, main_batches, [], ledger, main_assignments)
+    adjudications, adjudication_shas = [], []
+    if conflicts:
+        documents = [b for b, _ in main_batches]
+        units = sorted({unit_key("track", u[1], None) for u in main_units if _conflicting_choice({"trackId": u[1]}, "person-backpack") != _choice({"trackId": u[1]}, "person-backpack") and corpus.tracks[u[1]].object_class == "person"})
+        shown = documents if conflicts == "genuine" else documents[:1]  # "forged": only ann-a's labels
+        packet = build_reveal_packet("reveal-main", "ann-a", units, "main", shown)
+        if conflicts == "genuine":
+            ledger.issue_reveal(packet, documents, T0)
+        else:  # written straight into the ledger, bypassing issue_reveal's completeness check
+            full = build_reveal_packet("reveal-main", "ann-a", units, "main", documents)
+            ledger.append("reveal-issued", {"packetId": packet["packetId"], "recipientId": "ann-a", "phase": "main", "units": units, "packetSha256": document_sha256(packet), "conflictKeys": full["conflictKeys"], "reasonConflictKeys": []}, T0)
+        adjudication = {
+            "schemaVersion": "mavi-attribute-adjudication-v1", "adjudicationId": "adj-main", "adjudicatorId": "ann-a", "revealPacketSha256": document_sha256(packet), "decidedAt": T0,
+            "decisions": [{"unit": u, "attributeType": "person-backpack", "outcome": "value", "value": "absent", "unscorableReason": None, "rationale": "strap only"} for u in units],
+        }
+        ledger.record_adjudication(adjudication, T0)
+        object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for a in main_assignments.values() for u in a["units"]}
+        adjudications = [parse_adjudication(adjudication, task, object_class)]
+        adjudication_shas = [document_sha256(adjudication)]
+        retained.extend([packet, adjudication])
+    adjudicated = {key for decisions in adjudications for key in decisions}
+    main = agreement_report("main", corpus, partition, psha, task.sha256, main_batches, main_assignments, ledger.annotators(), adjudicated, set(ledger.batch_hashes()))
+    truth = build_ground_truth(corpus, partition, psha, task, main_batches, adjudications, ledger, main_assignments)
     evaluation, frozen = split_ground_truth(truth, None)
     sealing = seal
     seal = build_seal(corpus, partition, psha, frozen, evaluation, ledger.head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
@@ -124,7 +186,7 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
     write_canonical(custody / "partition.json", partition)
 
     for name, document in (
-        (corpus.sha256, raw_corpus), (recurrence_sha, recurrence), (duplicate_sha, duplicates), (psha, partition),
+        (corpus.sha256, raw_corpus), (recurrence_doc_sha, recurrence), (duplicate_sha, duplicates), (psha, partition),
         (document_sha256(pilot), pilot), (task.sha256, frozen_doc), (document_sha256(main), main),
         (document_sha256(seal), seal), (document_sha256(sealed_view), sealed_view),
         *((document_sha256(d), d) for d in retained),
@@ -133,14 +195,14 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
     record = json.loads(COMMITTED.read_text())
     record["annotationGuide"] = {"path": "guide.md", "frozenSha256": guide_sha}
     record["attributeTask"]["frozenSha256"] = task.sha256
-    record["corpus"] = {"corpusKind": kind, "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": psha, "recurrenceAuditSha256": recurrence_sha, "duplicateAuditSha256": duplicate_sha}
-    record["labelling"] = {"pilotReportSha256": document_sha256(pilot), "mainAgreementReportSha256": document_sha256(main), "adjudicationSha256s": [], "groundTruthSha256": document_sha256(sealed_view), "annotationLedgerHead": ledger.head}
+    record["corpus"] = {"corpusKind": kind, "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": psha, "recurrenceAuditSha256": recurrence_doc_sha, "duplicateAuditSha256": duplicate_sha}
+    record["labelling"] = {"pilotReportSha256": document_sha256(pilot), "mainAgreementReportSha256": document_sha256(main), "adjudicationSha256s": adjudication_shas, "groundTruthSha256": document_sha256(sealed_view), "annotationLedgerHead": ledger.head}
     record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": log.head} if sealing else {"sealSha256": None, "accessLogHead": None}
     record["limitations"] = list(partition["checks"]["limitations"])
     record["custodian"] = "custodian-1"
     if context is not None:
         context.update(
-            corpus=corpus, links=recurrence_links + duplicate_links, hashes={"recurrence": recurrence_sha, "duplicate": duplicate_sha},
+            corpus=corpus, links=recurrence_links + duplicate_links, recurrence=recurrence, guide_sha=guide_sha, hashes={"recurrence": recurrence_sha, "duplicate": duplicate_sha},
             ledger=ledger, task=task, partition=partition, main_batches=main_batches, main_assignments=main_assignments, pilot_units=pilot_units, seal=seal,
         )
     return record, store
@@ -342,8 +404,8 @@ def test_f1_recomputes_the_sealed_member_set(tmp_path) -> None:
 
 
 def test_f1_needs_double_labels_for_every_task_attribute(tmp_path) -> None:
-    """An all-person corpus leaves the vehicle attribute unlabelled: F1 stays OPEN."""
-    record, store = build_chain(tmp_path, tracks_per_source=1)
+    """A frozen-task attribute labelled by one annotator only in main: F1 stays OPEN."""
+    record, store = build_chain(tmp_path, single_labelled_class="vehicle")
     missing = f1_verdict(record, tmp_path, store)["missing"]
     assert missing == ["double-labelled units for vehicle-colour"]
 
@@ -407,8 +469,7 @@ def test_r1_recovery_needs_new_footage_and_then_reaches_pass(tmp_path) -> None:
     raw = build_corpus(sites=5, cameras_per_site=3, days=12, tracks_per_source=4, kind="operational")
     raw.update(revision=2, supersedes=old_corpus.sha256)
     corpus = revise_corpus(old_corpus, raw)
-    recurrence = {"schemaVersion": "mavi-attribute-recurrence-audit-v1", "corpusManifestSha256": corpus.sha256, "groups": [],
-                  "recallSample": {"by": "reviewer-1", "date": "2026-10-22", "sampledPairs": 200, "missedRecurrences": 0, "note": "re-sampled after the corpus revision"}}
+    recurrence = {"schemaVersion": "mavi-attribute-recurrence-audit-v1", "corpusManifestSha256": corpus.sha256, "groups": []}
     recurrence_sha, recurrence_links = parse_recurrence(recurrence, corpus)
     duplicates = build_duplicate_audit(corpus, {o: sha("fp", o)[:16] for o in sorted(corpus.observations)}, 6)
     duplicate_sha, duplicate_links = parse_duplicate_audit(duplicates, corpus)
@@ -461,10 +522,11 @@ def test_r1_recovery_needs_new_footage_and_then_reaches_pass(tmp_path) -> None:
     half_log = open_access_log(store2 / ACCESS_LOG, half_seal, T0, create=True)
     half_view = seal_evaluation_view(h_eval, half_seal)
     half_main = agreement_report("main", corpus, half, document_sha256(half), task.sha256, batches, assignments, ledger.annotators(), set(), set(ledger.batch_hashes()))
-    for name, document in ((corpus.sha256, raw), (recurrence_sha, recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (half, half_main, half_seal, half_view, *retained))):
+    half_recurrence = {**recurrence, "recallSample": reviewed_recall_sample(corpus, half, recurrence_sha)}
+    for name, document in ((corpus.sha256, raw), (recurrence_document_sha256(half_recurrence), half_recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (half, half_main, half_seal, half_view, *retained))):
         write_canonical(store2 / f"{name}.json", document)
     half_record = json.loads(json.dumps(record))
-    half_record["corpus"] = {"corpusKind": "operational", "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": document_sha256(half), "recurrenceAuditSha256": recurrence_sha, "duplicateAuditSha256": duplicate_sha}
+    half_record["corpus"] = {"corpusKind": "operational", "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": document_sha256(half), "recurrenceAuditSha256": recurrence_document_sha256(half_recurrence), "duplicateAuditSha256": duplicate_sha}
     half_record["labelling"].update(mainAgreementReportSha256=document_sha256(half_main), groundTruthSha256=document_sha256(half_view), annotationLedgerHead=ledger2.head)
     half_record["seal"] = {"sealSha256": document_sha256(half_seal), "accessLogHead": half_log.head}
     half_record["limitations"] = list(half["checks"]["limitations"])
@@ -476,9 +538,10 @@ def test_r1_recovery_needs_new_footage_and_then_reaches_pass(tmp_path) -> None:
     new_log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
     ledger.record_seal(seal, corpus, partition, T0)
     view = seal_evaluation_view(evaluation, seal)
-    for name, document in ((corpus.sha256, raw), (recurrence_sha, recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (partition, main, seal, view, *retained))):
+    recurrence["recallSample"] = reviewed_recall_sample(corpus, partition, recurrence_sha)
+    for name, document in ((corpus.sha256, raw), (recurrence_document_sha256(recurrence), recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (partition, main, seal, view, *retained))):
         write_canonical(store / f"{name}.json", document)
-    record["corpus"] = {"corpusKind": "operational", "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": psha, "recurrenceAuditSha256": recurrence_sha, "duplicateAuditSha256": duplicate_sha}
+    record["corpus"] = {"corpusKind": "operational", "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": psha, "recurrenceAuditSha256": recurrence_document_sha256(recurrence), "duplicateAuditSha256": duplicate_sha}
     record["labelling"]["mainAgreementReportSha256"] = document_sha256(main)
     record["labelling"]["groundTruthSha256"] = document_sha256(view)
     record["labelling"]["annotationLedgerHead"] = ledger.head
@@ -564,3 +627,121 @@ def test_f1_refuses_a_ledger_seal_entry_that_misstates_the_frozen_tracks(tmp_pat
     record["labelling"]["groundTruthSha256"] = document_sha256(view)
     with pytest.raises(CorpusError, match="f1_seal_ledger_members_mismatch"):
         f1_verdict(record, tmp_path, store)
+
+
+
+# ---- trust boundaries (fifth review round) ---------------------------------------------------
+
+
+def test_f1_refuses_an_abandoned_pilot_assignment(tmp_path) -> None:
+    record, store = build_chain(tmp_path, abandoned_pilot=True)
+    with pytest.raises(CorpusError, match="ledger_assignments_unsubmitted:pilot:1"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_f1_accepts_a_genuine_reveal_and_adjudication(tmp_path) -> None:
+    record, store = build_chain(tmp_path, conflicts="genuine")
+    assert record["labelling"]["adjudicationSha256s"]
+    assert f1_verdict(record, tmp_path, store)["computed"] == "PASS"
+
+
+def test_f1_refuses_an_adjudication_built_on_an_incomplete_reveal(tmp_path) -> None:
+    """A packet showing only the favourable annotator, forged straight into the ledger."""
+    record, store = build_chain(tmp_path, conflicts="forged")
+    with pytest.raises(CorpusError, match="f1_reveal_packet_not_reproducible"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_f1_refuses_a_frozen_task_that_keeps_what_the_pilot_failed(tmp_path) -> None:
+    def disagree(unit, attribute):
+        base = _choice(unit, attribute)
+        if attribute == "person-bag" and base[0] == "value":
+            return ("value", "absent" if base[1] == "present" else "present", None)
+        return base
+
+    record, store = build_chain(tmp_path, pilot_choose_b=disagree, forge_freeze=True)
+    with pytest.raises(CorpusError, match="freeze_failing_attribute_retained:person-bag"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_the_recall_sample_is_reproducible_from_seed_and_inputs(tmp_path) -> None:
+    ctx: dict = {}
+    build_chain(tmp_path, context=ctx)
+    corpus, partition = ctx["corpus"], ctx["partition"]
+    groups = ctx["hashes"]["recurrence"]
+    first = draw_recall_sample(corpus, partition, document_sha256(partition), groups, "seed-1", 25)
+    assert first == draw_recall_sample(corpus, partition, document_sha256(partition), groups, "seed-1", 25)
+    assert first["pairs"] != draw_recall_sample(corpus, partition, document_sha256(partition), groups, "seed-2", 25)["pairs"]
+    parts = {a["trackId"]: a["partition"] for a in partition["assignments"]}
+    for pair in first["pairs"]:
+        a, b = pair["trackIds"]
+        assert parts[a] != parts[b] and corpus.tracks[a].object_class == corpus.tracks[b].object_class
+
+
+def _with_sample(record, store, mutate):
+    audit = json.loads((store / f"{record['corpus']['recurrenceAuditSha256']}.json").read_text())
+    mutate(audit["recallSample"])
+    write_canonical(store / f"{recurrence_document_sha256(audit)}.json", audit)
+    record["corpus"]["recurrenceAuditSha256"] = recurrence_document_sha256(audit)
+    return record
+
+
+def test_an_altered_or_foreign_recall_pair_is_refused(tmp_path) -> None:
+    record, store = build_chain(tmp_path)
+
+    def swap(sample):  # a pair the method never drew, with a decision on it
+        first, second = sample["pairs"][0]["trackIds"][0], sample["pairs"][1]["trackIds"][1]
+        sample["pairs"][0] = {"trackIds": sorted([first, second]), "decision": "not-recurrence"}
+
+    with pytest.raises(CorpusError, match="f1_recall_sample_not_reproducible"):
+        f1_verdict(_with_sample(record, store, swap), tmp_path, store)
+    (tmp_path / "again").mkdir()
+    record, store2 = build_chain(tmp_path / "again")
+    with pytest.raises(CorpusError, match="f1_recall_sample_population_mismatch"):
+        f1_verdict(_with_sample(record, store2, lambda s: s.update(populationSha256="1" * 64)), tmp_path / "again", store2)
+
+
+def test_a_count_only_recall_claim_is_refused(tmp_path) -> None:
+    record, store = build_chain(tmp_path)
+
+    def counts_only(sample):
+        for key in ("pairs", "populationSha256", "method", "seed"):
+            sample.pop(key)
+        sample.update(sampledPairs=200, missedRecurrences=0)
+
+    with pytest.raises(CorpusError, match="recurrence_invalid:recallSample"):
+        f1_verdict(_with_sample(record, store, counts_only), tmp_path, store)
+
+
+def test_a_found_recurrence_not_propagated_keeps_f1_open(tmp_path) -> None:
+    record, store = build_chain(tmp_path)
+    verdict = f1_verdict(_with_sample(record, store, lambda s: s["pairs"][3].update(decision="recurrence")), tmp_path, store)
+    assert verdict["computed"] == "OPEN"
+    assert verdict["missing"] == ["recurrence re-audit: the recall sample found 1 recurrences missing from the audit (add them, re-partition, re-sample)"]
+    (tmp_path / "unreviewed").mkdir()
+    record, store2 = build_chain(tmp_path / "unreviewed")
+    verdict = f1_verdict(_with_sample(record, store2, lambda s: s["pairs"][0].update(decision=None)), tmp_path / "unreviewed", store2)
+    assert verdict["missing"] == ["recall sample: 1 sampled pairs not reviewed"]
+
+
+def test_a_failed_seal_write_leaves_nothing_behind_and_retries_cleanly(tmp_path, monkeypatch) -> None:
+    """P3-1: a write failure after the access log was prepared leaves no partial artefact."""
+    from attributes.corpus import cli
+
+    record, store = build_chain(tmp_path, seal=False)
+    custody = tmp_path / "custody"
+    real = cli.write_canonical
+
+    def failing(path, document):
+        if "sealed-" in path.name:
+            raise OSError(28, "No space left on device", str(path))
+        return real(path, document)
+
+    monkeypatch.setattr(cli, "write_canonical", failing)
+    args = _seal_args(tmp_path, store, "access.jsonl", "seal.json")
+    assert main(args) == 2
+    assert sorted(p.name for p in custody.iterdir()) == ["corpus.json", "evaluation.json", "frozen.json", "partition.json"]
+    assert AnnotationLedger(store / ANNOTATION_LEDGER).seals() == []
+    monkeypatch.setattr(cli, "write_canonical", real)
+    assert main(args) == 0
+    assert (custody / "access.jsonl").exists() and len(AnnotationLedger(store / ANNOTATION_LEDGER).seals()) == 1

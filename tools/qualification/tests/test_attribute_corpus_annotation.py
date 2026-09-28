@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 
 import pytest
-from attribute_corpus_fixtures import build_corpus, frozen_task, policy
+from attribute_corpus_fixtures import build_corpus, frozen_task, passing_pilot_report, policy
 
 from attributes.corpus import task as task_module
 from attributes.corpus.agreement import agreement_report, cohen_kappa, krippendorff_alpha_nominal, raw_agreement, render_markdown, verify_report_hash
@@ -98,6 +98,20 @@ def _default_choice(unit, attribute):
     return ("value", "absent", None)
 
 
+def _varied_choice(unit, attribute):
+    """Varied labels (every alpha defined) that both annotators can agree on."""
+    import hashlib
+
+    h = int(hashlib.sha256(f"{unit['trackId']}|{attribute}".encode()).hexdigest()[:8], 16)
+    if attribute == "subject-validity":
+        return ("value", "valid", None)
+    if attribute.endswith("colour"):
+        return ("unscorable", None, "occluded") if h % 5 == 0 else ("value", ("black", "white", "blue")[h % 3], None)
+    if attribute == "person-headwear":
+        return ("unscorable", None, "not-visible") if h % 3 == 0 else ("value", ("absent", "present")[(h // 3) % 2], None)
+    return ("unscorable", None, "occluded") if h % 7 == 0 else ("value", ("absent", "present")[h % 2], None)
+
+
 def _pilot(world, choose_b=None, size=40, choose_a=None, phase="pilot"):
     tracks = sample_pilot_tracks(world["corpus"], world["partition"], size, "pilot-seed")
     if phase == "main":
@@ -157,9 +171,9 @@ def test_mutation_annotator_b_cannot_submit_after_seeing_a(world) -> None:
     world["ledger"].issue_assignment(b, T0)
     batch_a = build_batch("batch-a", a, T0, _labels_for(a, _default_choice), None, world["task"])
     world["ledger"].submit_batch(batch_a, a, T0)
-    packet = build_reveal_packet("reveal-1", "ann-b", [unit_key("track", t, None) for t in tracks], [(batch_a, parse_batch(batch_a, a, world["task"]))])
+    packet = build_reveal_packet("reveal-1", "ann-b", [unit_key("track", t, None) for t in tracks], "pilot", [batch_a])
     with pytest.raises(CorpusError, match="ledger_reveal_before_independent_submission"):
-        world["ledger"].issue_reveal(packet, T0)
+        world["ledger"].issue_reveal(packet, [batch_a], T0)
     # Even if a packet reached B out of band and was logged, B's independent batch is refused.
     world["ledger"].append("reveal-issued", {"packetId": "leak", "recipientId": "ann-b", "units": sorted(unit_key("track", t, None) for t in tracks), "packetSha256": "e" * 64}, T0)
     batch_b = build_batch("batch-b", b, T0, _labels_for(b, _default_choice), None, world["task"])
@@ -233,14 +247,14 @@ def test_conflicts_require_adjudication_and_originals_are_kept(world) -> None:
         build_ground_truth(world["corpus"], world["partition"], world["psha"], task, batches, [], world["ledger"], _assignments(made))
     conflict_units = sorted({l.unit for _, labels in batches for l in labels if l.attribute_type == "person-backpack"})
     object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for u in made["ann-a"]["units"]}
-    packet = build_reveal_packet("reveal-1", "ann-a", conflict_units, batches)
+    packet = build_reveal_packet("reveal-1", "ann-a", conflict_units, "main", [b for b, _ in batches])
     adjudication = _adjudication(packet, "ann-a", conflict_units, object_class)
     # Not yet issued through the ledger: the adjudication cannot be recorded or used.
     with pytest.raises(CorpusError, match="ledger_adjudication_packet_not_issued"):
         world["ledger"].record_adjudication(adjudication, T0)
     with pytest.raises(CorpusError, match="ground_truth_adjudication_not_in_ledger"):
         build_ground_truth(world["corpus"], world["partition"], world["psha"], task, batches, [parse_adjudication(adjudication, task, object_class)], world["ledger"], _assignments(made))
-    world["ledger"].issue_reveal(packet, T0)
+    world["ledger"].issue_reveal(packet, [b for b, _ in batches], T0)
     with pytest.raises(CorpusError, match="ledger_adjudication_packet_other_recipient"):
         world["ledger"].record_adjudication(_adjudication(packet, "ann-b", conflict_units, object_class), T0)
     world["ledger"].record_adjudication(adjudication, T0)
@@ -299,8 +313,7 @@ def test_attribute_merge_cannot_collide_or_mix_kinds(world) -> None:
     document = copy.deepcopy(world["task"].document)
     document["attributeMergeCandidates"] = [{"attributeTypes": ["person-backpack", "person-upper-colour"], "mergedAttributeType": "person-bag"}]
     candidate = parse_task(document)
-    report = {"schemaVersion": "mavi-attribute-pilot-report-v1", "taskSha256": candidate.sha256}
-    report["reportSha256"] = document_sha256(report)
+    report = passing_pilot_report(candidate)
     decision = {
         "schemaVersion": "mavi-attribute-task-freeze-decision-v1", "decidedBy": "owner-1", "decidedAt": "2026-10-09T09:00:00Z",
         "valueMerges": [], "attributeMerges": [{"attributeTypes": ["person-backpack", "person-upper-colour"]}], "valueRemovals": [], "attributeRemovals": [], "rationale": "x",
@@ -346,14 +359,10 @@ def test_agreement_report_on_a_known_disagreement(world) -> None:
 
 def test_pilot_report_and_freeze_apply_only_predeclared_changes(world) -> None:
     def confuse_grey_white(unit, attribute):
-        if attribute == "person-upper-colour":
-            return ("value", "grey", None)
-        return _default_choice(unit, attribute)
+        choice = _varied_choice(unit, attribute)
+        return ("value", "grey", None) if attribute == "person-upper-colour" and choice == ("value", "white", None) else choice
 
-    def white(unit, attribute):
-        if attribute == "person-upper-colour":
-            return ("value", "white", None)
-        return _default_choice(unit, attribute)
+    white = _varied_choice
 
     made, batches = _pilot(world, choose_a=confuse_grey_white, choose_b=white)
     assignments = {a["assignmentId"]: a for a in made.values()}
@@ -372,8 +381,8 @@ def test_pilot_report_and_freeze_apply_only_predeclared_changes(world) -> None:
         "valueMerges": [{"attributeType": "person-upper-colour", "values": ["grey", "white"], "mergedValue": "grey"}],
         "attributeMerges": [],
         "valueRemovals": [{"attributeType": "person-upper-colour", "value": "multicolour"}],
-        "attributeRemovals": ["person-headwear"],
-        "rationale": "pilot confusion; headwear not labelable",
+        "attributeRemovals": ["person-headwear", "vehicle-colour"],
+        "rationale": "pilot confusion; headwear not labelable; no vehicles in the pilot",
     }
     frozen = parse_task(task_module.freeze_task(world2["task"], report, decision))
     assert frozen.status == "frozen"
@@ -398,14 +407,14 @@ def test_cli_adjudicate_records_the_decision_in_the_ledger(world) -> None:
     made, batches = _pilot(world, choose_b=_disagree_on_backpack, phase="main")
     conflict_units = sorted({l.unit for _, labels in batches for l in labels if l.attribute_type == "person-backpack"})
     object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for u in made["ann-a"]["units"]}
-    packet = build_reveal_packet("reveal-1", "ann-a", conflict_units, batches)
+    packet = build_reveal_packet("reveal-1", "ann-a", conflict_units, "main", [b for b, _ in batches])
     adjudication = _adjudication(packet, "ann-a", conflict_units, object_class)
     tmp = world["tmp"]
     for name, document in (("adjudication.json", adjudication), ("assignment.json", made["ann-a"]), ("task.json", world["frozen"].document)):
         write_canonical(tmp / name, document)
     args = ["adjudicate", "--ledger", str(world["ledger"].path), "--adjudication", str(tmp / "adjudication.json"), "--assignments", str(tmp / "assignment.json"), "--task", str(tmp / "task.json")]
     assert main(args) == 2, "the reveal packet was never issued"
-    world["ledger"].issue_reveal(packet, T0)
+    world["ledger"].issue_reveal(packet, [b for b, _ in batches], T0)
     assert main(args) == 0
     assert main(args) == 2, "the same adjudication cannot be recorded twice"
     ledger = AnnotationLedger(world["ledger"].path)
@@ -433,8 +442,8 @@ def test_an_adjudication_is_corrected_only_by_superseding_it(world) -> None:
     task = world["frozen"]
     conflict_units = sorted({l.unit for _, labels in batches for l in labels if l.attribute_type == "person-backpack"})
     object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for u in made["ann-a"]["units"]}
-    packet = build_reveal_packet("reveal-1", "ann-a", conflict_units, batches)
-    world["ledger"].issue_reveal(packet, T0)
+    packet = build_reveal_packet("reveal-1", "ann-a", conflict_units, "main", [b for b, _ in batches])
+    world["ledger"].issue_reveal(packet, [b for b, _ in batches], T0)
     first = _adjudication(packet, "ann-a", conflict_units, object_class)
     world["ledger"].record_adjudication(first, T0)
     second = dict(_adjudication(packet, "ann-a", conflict_units, object_class, reason="occluded"), adjudicationId="adj-2")

@@ -116,7 +116,16 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
   - A proposal from an evaluation-only similarity pass (S2c.3, never shipped, never a bake-off candidate's family) must declare its proposer family, and applies only once a reviewer confirms it.
   - Rejected groups are retained.
   - This is bookkeeping, not re-identification.
-  - **Recall is bounded by the reviewers.** The optional `recallSample` records a second review of a random sample of cross-partition Track pairs (`sampledPairs`, `missedRecurrences`). F1 requires it. With no biometric matcher (excluded by design), recall remains an estimate, and that is a recorded limitation.
+  - **Recall is bounded by the reviewers.** The `recallSample` is a reproducible human second look, with no ReID, embeddings or face matching:
+    - `recall-sample --seed --size` draws it deterministically (method `recall-sample-v1`) from the population of same-class Track pairs in different partitions;
+    - the population is identified by the corpus, the final partition and the recurrence groups (`populationSha256`);
+    - the sample holds the exact sampled pairs, and the reviewer records one decision per pair: `recurrence`, `not-recurrence` or `uncertain`;
+    - F1 regenerates the sample and requires the same population and the same pairs, in order. An altered, added or foreign pair is refused;
+    - a count-only claim is refused;
+    - F1 stays OPEN while any pair is unreviewed, marked `uncertain`, or marked `recurrence`. A found recurrence must be added to the audit, the corpus re-partitioned, and a new sample drawn on the new partition;
+    - the partition binds the recurrence **groups** (`recurrence_groups_sha256`, the audit without its sample), so attaching the sample does not change the partition. The evidence record names the whole audit (`recurrence_document_sha256`).
+
+    The per-pair decisions remain a human attestation, and recall remains an estimate.
   - **Deviation from the plan's wording:** the plan describes recurrence pairs by crop SHA-256. The audit records Track UUIDs, since a Track owns its crops through the manifest. The link is the same, and it is also robust to crop re-derivation under a new raw-evidence pin.
 - **Duplicates** (`duplicates.py`): two methods.
   - Exact duplicates: same SHA-256 under two Observation UUIDs. These always apply and cannot be rejected.
@@ -132,13 +141,25 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
 3. `pilot-sample`, then `assign --phase pilot`: the pilot sample is camera-stratified and training-only. Assignments carry no labels.
 4. `submit --labels-csv`: the batch must cover every assigned unit × attribute exactly once, and each label must be valid under the task. If `subject-validity` is not `valid`, every attribute must be `unscorable/non-subject`.
 5. `pilot-report`, then `freeze-task`: the owner decision may apply only the pre-declared merges and removals, never an addition. The artefact bound therefore can only fall from the candidate vocabulary's measured value (S2c plan §12.3).
+   - The pilot verdicts bind the freeze. `freeze_task` (and F1, independently) recomputes each attribute's verdict from the report's statistics, under the confirmed rules, which the report must carry unchanged:
+     - `keep`: the attribute may stay;
+     - `insufficient-evidence` (fewer double-labelled units than the minimum, or no labels): the attribute must be removed, or more pilot labels collected under the same rules and a new report produced. It is never an implicit pass;
+     - `merge-or-remove`: the attribute must be removed, or merged by a pre-declared attribute merge the pilot recommended. If only value agreement failed, a pre-declared value merge the pilot recommended also resolves it; a value merge cannot repair a scorability failure.
 6. `assign --phase main` (requires the frozen task), then `submit`.
+   - **No assignment may be abandoned.** `require_phase_complete` (used by `pilot-report`, `agreement`, `ground-truth` and F1) refuses while any issued assignment of the phase lacks its one submitted batch. Leaving hard units unsubmitted cannot shrink the sample.
+   - `cancel-assignment` is the only exception, and it is narrow. It needs an actor, a reason and an **already issued replacement with exactly the same phase, round and units**, so the sample cannot change. It is refused once the assignment's labels exist (submitted), or once any reveal has shown labels for its units. A cancelled assignment cannot be submitted; its replacement must be.
 7. `reveal`, then `adjudicate` (records the JSON decision file in the ledger), then `ground-truth`, then `agreement --phase main`.
-   - An adjudication counts only if the ledger issued its reveal packet to that adjudicator, covering every unit it decides.
+   - **A reveal packet is canonical.**
+     - `build_reveal_packet` builds it from the raw batch documents: every label, with its source batch, plus `conflictKeys` (outcome or value differ) and `reasonConflictKeys` (all say `unscorable`, with different reasons).
+     - `issue_reveal` requires exactly the set of submitted batches of that phase that cover the packet's units, and rebuilds the packet: omitting a batch or trimming a label is refused.
+   - An adjudication counts only if the ledger issued its reveal packet to that adjudicator, in the main phase, covering every unit it decides.
+   - It may decide **only** keys in the packet's `conflictKeys` or `reasonConflictKeys`. It cannot override consensus. For a reason-only conflict, it may choose the reason but must keep `unscorable`.
+   - Ground truth independently refuses an adjudication of a key with no disagreement in the submitted labels.
+   - F1 rebuilds each effective adjudication's reveal packet from every main batch at the ground-truth head, and requires it to equal the retained packet. An adjudication based on incomplete evidence, including a packet forged straight into the ledger, is refused.
    - A unit × attribute already decided can be decided again only by a correction that names the earlier adjudication in `supersedes`. The superseded adjudication stays in the ledger but stops counting.
    - An adjudication with no decisions is refused, so an adjudication cannot be withdrawn without replacing it.
 8. `seal` commits both views, records a `seal-created` event in the annotation ledger, writes the sealed evaluation view and creates the access log. Then use `frozen-access` / `seal-status` for any later access.
-   - The command validates every input and output path, then writes the access log, the seal and the sealed view, and only then appends `seal-created`. A failed run leaves no ledger entry, so a retry is not mistaken for a re-seal.
+   - The command validates every input and output path, then writes the seal, the sealed view and the access log to `.partial` files, and moves them into place. Only then does it append `seal-created`, the one irreversible step. Any failure removes every file the run created, so a retry needs no manual cleanup and is never mistaken for a re-seal.
    - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason`, `--superseded-access-log` and `--superseded-partition` (plus `--superseded-corpus` when the corpus was revised since that seal).
    - That old log must show the old seal compromised.
    - Both member sets are recomputed from their partitions, and the new frozen set may contain **no** Track of the compromised one.
@@ -217,11 +238,14 @@ This is the foundation for later camera/site generalisation analysis, and delibe
 
 `check-f1 --record <record> --store <retained-record store>` computes the verdict.
 
-The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, statistic, seal status or camera support. The checker trusts none of it. It loads everything from the store, re-derives identities, and **recomputes** every conclusion from the primary inputs: assignments, batches, adjudications and the ledger. The labelling state it uses is the ledger as it stood at the ground truth's head.
+The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, statistic, seal status or camera support. The checker independently re-verifies all machine-verifiable retained evidence, and fails closed when required retained evidence or human attestations are missing or inconsistent. It loads everything from the store, re-derives identities, and **recomputes** every conclusion from the primary inputs: assignments, batches, adjudications and the ledger. The labelling state it uses is the ledger as it stood at the ground truth's head.
 - **Partition**, from the corpus and both audits (`verify_partition`).
 - **Pilot report**, recomputed from the candidate task and every ledger-registered pilot batch, on the partition and corpus the pilot ran on (both retained). It must equal the retained report.
 - **Frozen task**, re-derived with `freeze_task` from the candidate, the pilot report and the retained owner decision. It must equal the retained frozen task, so only pre-declared merges and removals can shape it. Every pilot Track must be in **training in the final partition**; after a re-partition, pin them (§4).
 - Main assignments' `partitionManifestSha256` is informational. Main labels do not depend on the partition, and the recomputed reports and views use the final partition.
+- **Assignment completeness**: every issued pilot and main assignment at the ground-truth head was submitted exactly once, or cancelled in favour of an identical replacement.
+- **Recall sample**, regenerated from the corpus, the final partition and the recurrence groups (§5).
+- **Reveal packets**, rebuilt for every effective adjudication (§6).
 - **Main agreement report**, recomputed from every registered main batch and every ledger-recorded adjudication. It must equal the retained report, so compute it after adjudication. The adjudications listed in the record must equal the ledger's.
 - **Both ground-truth views**, recomputed. Their hashes must equal the seal's, so the frozen labels are verified without leaving the store.
 - **Seal:**
@@ -245,6 +269,12 @@ The committed record names each artefact by SHA-256 and asserts nothing else: no
 - a named custodian.
 
 A malformed retained record is refused. The guide path must resolve inside the repository. Without the store the verdict is OPEN. A record may never claim more than the checker computes.
+
+**Human-attestation boundary (external trust inputs; the tool checks presence and consistency, not truth):**
+- the recurrence review and the per-pair recall-sample decisions;
+- each annotator's labels and each adjudicator's decisions, and the annotators' declared independence;
+- the declared `stage` of a frozen-test access;
+- the custodian's handling of the store outside the evaluation environment.
 
 **Residual trust (recorded, not solved):**
 - The custodian holds the store. Someone who hand-edits the files outside the tool can hide history unless an earlier recorded head exists:
@@ -319,3 +349,30 @@ Tests added after the third review:
 - `test_an_adjudication_is_corrected_only_by_superseding_it`;
 - `test_a_failed_seal_leaves_no_ledger_entry_and_can_be_retried`.
 - A→B→C chain reuse (fifth review): `ledger_seal_reuses_earlier_frozen_tracks` and `f1_seal_chain_reuses_frozen_tracks`, in the recovery test; `test_f1_refuses_a_ledger_seal_entry_that_misstates_the_frozen_tracks`. In the targeted mutation run, all four chain guards were killed (two only after these tests were added).
+
+**Source-mutation run on the trust-boundary repairs** (after the cold review of `afda79e`; `mut5`, each guard removed in turn):
+
+| Guard removed | Result |
+|---|---|
+| phase completeness in the ledger (`require_phase_complete`) | killed |
+| main completeness in ground truth | killed |
+| pilot completeness in F1 | killed |
+| main completeness in F1 | **survived, equivalent**: F1 rebuilds ground truth with `build_ground_truth`, which runs the same check on the same ledger prefix. The explicit call is kept for clarity |
+| a cancelled assignment cannot be submitted | killed |
+| cancellation needs an identical replacement | killed |
+| no cancellation after a reveal | killed |
+| reveal batch completeness | killed |
+| canonical reveal packet | killed |
+| adjudication needs a packet conflict (ledger) | killed |
+| adjudication needs a label conflict (ground truth) | killed |
+| reveal packet rebuilt in F1 | killed |
+| freeze consistency inside `freeze_task` | killed |
+| explicit freeze check in F1 | **survived, equivalent**: F1 also re-derives the frozen task with `freeze_task`, which runs the same check. Removing both copies together is killed |
+| pilot rules equal the confirmed rules | killed |
+| insufficient evidence must be removed | killed |
+| a failing attribute must be resolved | killed |
+| recall-sample population identity | killed |
+| recall-sample regeneration | killed |
+| a found recurrence keeps F1 open | killed |
+| an unreviewed pair keeps F1 open | killed |
+| cleanup after a failed seal write | killed |

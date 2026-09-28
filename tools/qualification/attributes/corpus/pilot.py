@@ -16,7 +16,7 @@ from .annotation import Label
 from .canonical import document_sha256, hash_rank, require, require_int
 from .manifest import CorpusManifest
 from .partition import TRAINING, partition_of
-from .task import Task, require_confirmed_rules
+from .task import Task, attribute_verdicts, require_confirmed_rules
 
 PILOT_SCHEMA = "mavi-attribute-pilot-report-v1"
 
@@ -94,22 +94,7 @@ def pilot_report(
     agreement = agreement_report("pilot", corpus, partition, partition_sha256, task.sha256, batches, assignments, annotators, set(), registered_batches)
 
     grouped = independent_labels(batches, assignments)
-    by_attribute = {a["attributeType"]: a for a in agreement["attributes"]}
-    recommendations = []
-    for spec in task.attributes:
-        stats = by_attribute.get(spec.attribute_type)
-        if stats is None:
-            recommendations.append({"attributeType": spec.attribute_type, "recommendation": "insufficient-evidence", "reason": "no pilot labels"})
-            continue
-        reasons = []
-        if stats["doubleLabelledUnits"] < rules["minimumDoubleLabelledUnitsPerAttribute"]:
-            reasons.append(f"double_labelled_units_below_minimum:{stats['doubleLabelledUnits']}")
-        for facet, key in (("value", "minimumValueAlpha"), ("scorability", "minimumScorabilityAlpha")):
-            alpha = stats[facet]["krippendorffAlpha"]
-            if alpha is None or alpha < rules[key]:
-                reasons.append(f"{facet}_alpha_below_minimum:{alpha}")
-        verdict = "keep" if not reasons else ("insufficient-evidence" if reasons[0].startswith("double") else "merge-or-remove")
-        recommendations.append({"attributeType": spec.attribute_type, "recommendation": verdict, "reasons": reasons})
+    recommendations = list(attribute_verdicts(task, agreement, rules).values())
     merges = []
     for candidate in task.document["valueMergeCandidates"]:
         a, b = sorted(candidate["values"])

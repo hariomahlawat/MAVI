@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,7 +39,7 @@ from .ledger import Ledger
 from .manifest import parse_corpus
 from .partition import build_partition, verify_partition
 from .pilot import pilot_report, sample_pilot_tracks
-from .recurrence import parse_recurrence
+from .recurrence import draw_recall_sample, parse_recurrence
 from .report import corpus_report, render_markdown as render_report
 from .task import confirm_rules, freeze_task, load_task, parse_task
 
@@ -50,6 +51,34 @@ def _now() -> str:
 def _emit(path: Path, document: dict) -> None:
     digest = write_canonical(path, document)
     print(f"{path.name} sha256={digest}")
+
+
+def _seal_outputs_atomically(args: argparse.Namespace, seal: dict, sealed_view: dict, record) -> None:
+    """Write the seal, the sealed view and the new access log to temporary files, move them
+    into place, and only then append ``seal-created`` (the one irreversible step). Any
+    failure removes everything this run created, so a clean retry needs no manual cleanup."""
+    finals = [(args.out, seal), (args.sealed_evaluation_out, sealed_view), (args.access_log, None)]
+    partials = [final.with_name(final.name + ".partial") for final, _ in finals]
+    created: list[Path] = []
+    try:
+        for partial in partials:
+            partial.unlink(missing_ok=True)
+        for (final, document), partial in zip(finals, partials):
+            if document is None:
+                open_access_log(partial, seal, _now(), create=True)
+            else:
+                write_canonical(partial, document)
+        for (final, _), partial in zip(finals, partials):
+            os.replace(partial, final)
+            created.append(final)
+        record()
+    except BaseException:
+        for path in [*partials, *created]:
+            path.unlink(missing_ok=True)
+        raise
+    for (final, document) in finals:
+        if document is not None:
+            print(f"{final.name} sha256={document_sha256(document)}")
 
 
 def _links(corpus, recurrence: Path | None, duplicates: Path | None):
@@ -101,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
         ("--tracks", p(required=True)), ("--unit-kind", {"choices": ("track", "crop"), "default": "track"}), ("--out", p(required=True)),
     )
     add("submit", ("--ledger", p(required=True)), ("--assignment", p(required=True)), ("--task", p()), ("--labels-csv", p(required=True)), ("--batch-id", {"required": True}), ("--active-seconds", {"type": int}), ("--out", p(required=True)))
-    add("reveal", ("--ledger", p(required=True)), ("--id", {"required": True}), ("--recipient", {"required": True}), ("--units", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--task", p()), ("--out", p(required=True)))
+    add("reveal", ("--ledger", p(required=True)), ("--id", {"required": True}), ("--recipient", {"required": True}), ("--units", p(required=True)), ("--phase", {"choices": ("pilot", "main"), "default": "main"}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--out", p(required=True)))
+    add("cancel-assignment", ("--ledger", p(required=True)), ("--assignment-id", {"required": True}), ("--replacement-id", {"required": True}), ("--actor", {"required": True}), ("--reason", {"required": True}))
+    add("recall-sample", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--recurrence", p(required=True)), ("--seed", {"required": True}), ("--size", {"type": int, "required": True}), ("--by", {"required": True}), ("--out", p(required=True)))
     for name in ("agreement", "pilot-report"):
         add(name, ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--task", p()), ("--ledger", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--adjudications", {"type": Path, "nargs": "*", "default": []}), ("--phase", {"choices": ("pilot", "main"), "default": "main"}), ("--include-frozen-custodian-only", {"action": "store_true"}), ("--out", p(required=True)), ("--markdown", p()))
     add("adjudicate", ("--ledger", p(required=True)), ("--adjudication", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--task", p()))
@@ -178,11 +209,20 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         AnnotationLedger(args.ledger).submit_batch(batch, assignment, _now())
         _emit(args.out, batch)
     elif command == "reveal":
-        task = _task(args.task)
-        assignments = {a["assignmentId"]: a for a in map(read_json, args.assignments)}
-        packet = build_reveal_packet(args.id, args.recipient, read_json(args.units)["units"], _load_batches(args.batches, assignments, task))
-        AnnotationLedger(args.ledger).issue_reveal(packet, _now())
+        batches = [read_json(path) for path in args.batches]
+        packet = build_reveal_packet(args.id, args.recipient, read_json(args.units)["units"], args.phase, batches)
+        AnnotationLedger(args.ledger).issue_reveal(packet, batches, _now())
         _emit(args.out, packet)
+    elif command == "cancel-assignment":
+        AnnotationLedger(args.ledger).cancel_assignment(args.assignment_id, args.actor, args.reason, args.replacement_id, _now())
+    elif command == "recall-sample":
+        corpus = parse_corpus(read_json(args.corpus))
+        partition = read_json(args.partition)
+        groups_sha, _ = parse_recurrence(read_json(args.recurrence), corpus)
+        sample = draw_recall_sample(corpus, partition, document_sha256(partition), groups_sha, args.seed, args.size)
+        # A review sheet: the reviewer fills each pair's decision, then it becomes the audit's
+        # ``recallSample``. Only the decisions may change; F1 regenerates the pairs.
+        _emit(args.out, {**sample, "by": args.by, "date": _now()[:10], "note": "decisions pending review"})
     elif command in ("agreement", "pilot-report"):
         corpus = parse_corpus(read_json(args.corpus))
         partition = read_json(args.partition)
@@ -191,6 +231,7 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         assignments = {a["assignmentId"]: a for a in map(read_json, args.assignments)}
         batches = _load_batches(args.batches, assignments, task)
         registered = set(ledger.batch_hashes())
+        ledger.require_phase_complete(args.phase if command == "agreement" else "pilot")
         if command == "pilot-report":
             document = pilot_report(task, corpus, partition, document_sha256(partition), batches, assignments, ledger.annotators(), registered)
             markdown = render_agreement(document["agreement"])
@@ -250,10 +291,7 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         # a failed run leaves no ledger entry, so a retry is not mistaken for a re-seal.
         ledger.check_seal(seal, corpus, partition)
         sealed_view = seal_evaluation_view(evaluation, seal)
-        open_access_log(args.access_log, seal, _now(), create=True)
-        _emit(args.out, seal)
-        _emit(args.sealed_evaluation_out, sealed_view)
-        ledger.record_seal(seal, corpus, partition, _now())
+        _seal_outputs_atomically(args, seal, sealed_view, lambda: ledger.record_seal(seal, corpus, partition, _now()))
     elif command == "frozen-access":
         seal = read_json(args.seal)
         result = access_frozen(open_access_log(args.access_log, seal, _now()), seal, args.frozen, args.actor, args.purpose, args.stage, _now())
