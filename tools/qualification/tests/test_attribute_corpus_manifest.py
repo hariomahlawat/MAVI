@@ -118,6 +118,7 @@ def test_canonical_encoding_is_stable() -> None:
         (lambda d: d["sources"][0].__setitem__("cameraId", "/mnt/evidence/cam1"), "corpus_path_leak"),
         (lambda d: d["sources"][1].__setitem__("processingRunId", d["sources"][0]["processingRunId"]), "corpus_duplicate_processing_run"),
         (lambda d: d.__setitem__("corpusKind", "real"), "corpus_invalid:kind"),
+        (lambda d: d["sources"][1].update(cameraId=d["sources"][0]["cameraId"], siteId="site-other"), "corpus_camera_in_two_sites"),
         (lambda d: d["tracks"][0].__setitem__("evidencePath", "C:\\evidence\\x.jpg"), "corpus_path_leak"),
     ],
 )
@@ -130,7 +131,7 @@ def test_manifest_refusals(mutate, code: str) -> None:
 
 def test_path_leak_guard_allows_ordinary_prose_but_not_paths() -> None:
     refuse_path_leaks({"note": "upper/lower garments; see guide §3"})
-    for leak in ("/home/user/crops/", "~/evidence", "D:\\evidence", "file:x", "\\\\server\\share", "https://example.invalid/x"):
+    for leak in ("/home/user/crops/", "/mnt", "see /evidence", "~/evidence", "D:\\evidence", "file:x", "\\\\server\\share", "https://example.invalid/x"):
         with pytest.raises(CorpusError):
             refuse_path_leaks({"note": leak})
 

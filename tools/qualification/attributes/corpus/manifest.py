@@ -155,6 +155,10 @@ def parse_corpus(document: dict) -> CorpusManifest:
             frame_height=_optional_dimension(conditions["frameHeight"], f"{scode}:frame"),
             source_class=conditions["sourceClass"],
         )
+    site_of_camera: dict[str, str] = {}
+    for source in sources.values():
+        # A camera belongs to one site; otherwise its footage would fall into two site clusters.
+        require(site_of_camera.setdefault(source.camera_id, source.site_id) == source.site_id, f"corpus_camera_in_two_sites:{source.camera_id}")
     runs = [s.processing_run_id for s in sources.values()]
     require(len(runs) == len(set(runs)), "corpus_duplicate_processing_run")
     videos = [s.video_asset_id for s in sources.values() if s.video_asset_id is not None]

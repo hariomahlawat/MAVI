@@ -32,7 +32,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 # Free text may use "/" ordinarily ("upper/lower"); these shapes are paths or locators.
 _PATH_LIKE_RE = re.compile(
-    r"(?:^|[\s\"'(=])(?:/[^\s/]+/|~[/\\]|[A-Za-z]:[\\/]|\\\\|\.\.[/\\])|file:|[a-z][a-z0-9+.-]*://",
+    r"(?:^|[\s\"'(=])(?:/[A-Za-z0-9._~-]|~[/\\]|[A-Za-z]:[\\/]|\\\\|\.\.[/\\])|file:|[a-z][a-z0-9+.-]*://",
     re.IGNORECASE,
 )
 
