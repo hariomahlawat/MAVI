@@ -181,7 +181,28 @@ public sealed class VisualAttributeAnalysis
 
         var now = nowUtc.ToUniversalTime();
         LastHeartbeatUtc = now;
-        LeaseExpiresAtUtc = CapAtDeadline(now.Add(policy.HeartbeatExtension), policy);
+        // A renewal never shortens a lease: after Phase A the lease may already cover the
+        // publication window (BeginPublication), which a late heartbeat must not cut back.
+        LeaseExpiresAtUtc = Later(LeaseExpiresAtUtc, CapAtDeadline(now.Add(policy.HeartbeatExtension), policy));
+    }
+
+    /// <summary>
+    /// Phase A of a completion passed: the owner holds its lease for one publication window — a
+    /// lease duration from now — so that no reclaim, attempts-exhausted or deadline transition
+    /// can overtake the seal (Phase B) of a completion validated while the lease was live. The
+    /// window may outlast the absolute deadline, by at most one lease duration; a completion
+    /// validated before the deadline is entitled to publish, and nothing can extend it further.
+    /// Phase C is still fenced on ownership, not on this expiry.
+    /// </summary>
+    public void BeginPublication(string workerId, bool tokenMatches, int attemptCount, DateTimeOffset nowUtc, VisualAttributeLeasePolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        RequireActiveLease(workerId, tokenMatches, attemptCount, nowUtc);
+        if (policy.LeaseDuration <= TimeSpan.Zero) throw Invalid();
+        var window = nowUtc.ToUniversalTime().Add(policy.LeaseDuration);
+        if (Deadline(policy.MaximumAnalysisDuration) is { } deadline && deadline.Add(policy.LeaseDuration) < window)
+            window = deadline.Add(policy.LeaseDuration);
+        LeaseExpiresAtUtc = Later(LeaseExpiresAtUtc, window);
     }
 
     public VisualAttributeFailResult FailAttempt(
@@ -242,12 +263,25 @@ public sealed class VisualAttributeAnalysis
         return Status == VisualAttributeAnalysisStatus.Running && AttemptCount >= policy.MaximumAttempts && !HasLiveLease(nowUtc);
     }
 
-    /// <summary>The platform ends a claimed unit that reached its deadline, whatever its lease.</summary>
+    /// <summary>
+    /// Whether the platform may end the unit for its deadline now: the deadline has passed and no
+    /// lease is live. An ordinary lease never outlives the deadline (it is capped at it), so this
+    /// differs from <see cref="IsDeadlineExceeded"/> only while a completion validated before the
+    /// deadline is publishing inside its bounded window (<see cref="BeginPublication"/>).
+    /// </summary>
+    public bool IsDeadlineEnforceable(DateTimeOffset nowUtc, VisualAttributeLeasePolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        return Status is VisualAttributeAnalysisStatus.Queued or VisualAttributeAnalysisStatus.Running &&
+               IsDeadlineExceeded(nowUtc, policy.MaximumAnalysisDuration) &&
+               !HasLiveLease(nowUtc);
+    }
+
+    /// <summary>The platform ends a claimed unit whose deadline passed and whose lease ended.</summary>
     public void FailDeadlineExceeded(DateTimeOffset nowUtc, VisualAttributeLeasePolicy policy)
     {
         ArgumentNullException.ThrowIfNull(policy);
-        if (Status is not (VisualAttributeAnalysisStatus.Queued or VisualAttributeAnalysisStatus.Running) ||
-            !IsDeadlineExceeded(nowUtc, policy.MaximumAnalysisDuration))
+        if (!IsDeadlineEnforceable(nowUtc, policy))
             throw Invalid();
         ClearLease();
         Terminate(DeadlineExceededCode, null, nowUtc.ToUniversalTime());
@@ -376,6 +410,9 @@ public sealed class VisualAttributeAnalysis
         if (!HoldsActiveLease(workerId, tokenMatches, attemptCount, nowUtc))
             throw new DomainValidationException("visual_attribute_lease_invalid", "The lease is not held by this attempt.");
     }
+
+    private static DateTimeOffset Later(DateTimeOffset? current, DateTimeOffset proposed) =>
+        current is { } existing && existing > proposed ? existing : proposed;
 
     private DateTimeOffset CapAtDeadline(DateTimeOffset expiry, VisualAttributeLeasePolicy policy) =>
         Deadline(policy.MaximumAnalysisDuration) is { } deadline && deadline < expiry ? deadline : expiry;

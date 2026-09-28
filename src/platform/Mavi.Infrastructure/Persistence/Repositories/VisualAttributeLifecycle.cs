@@ -261,16 +261,20 @@ public sealed class VisualAttributeLifecycle(
         var nowUtc = timeProvider.GetUtcNow();
         var deadlineCutoffUtc = nowUtc - policy.MaximumAnalysisDuration;
 
-        // SKIP LOCKED: a unit whose owner is publishing right now is locked, and the
-        // publication wins; the next sweep finds it no longer Running.
+        // Neither transition overtakes a live lease. A unit in a Phase A or Phase C
+        // transaction is locked (SKIP LOCKED) and the publication wins; a unit between them,
+        // sealing in Phase B, holds its publication window as its lease (BeginPublication), so
+        // it is left alone until that window lapses — and then, if the owner vanished, ended.
         var overdue = await db.VisualAttributeAnalyses.FromSqlInterpolated($"""
             SELECT * FROM visual_attribute_analyses
             WHERE status IN ('Queued', 'Running')
               AND first_claimed_at_utc IS NOT NULL
               AND first_claimed_at_utc <= {deadlineCutoffUtc}
+              AND (lease_expires_at_utc IS NULL OR lease_expires_at_utc <= {nowUtc})
             ORDER BY first_claimed_at_utc, id
             FOR UPDATE SKIP LOCKED LIMIT {batchSize}
             """).ToListAsync(cancellationToken);
+        overdue = overdue.Where(unit => unit.IsDeadlineEnforceable(nowUtc, policy)).ToList();
         foreach (var unit in overdue)
             unit.FailDeadlineExceeded(nowUtc, policy);
 
@@ -328,7 +332,7 @@ public sealed class VisualAttributeLifecycle(
             return new(null, new VisualAttributeRefusal("visual_attribute_evidence_forbidden"));
 
         return new(new VisualAttributeEvidenceGrant(unit.Id, unit.AttemptCount, observationId, crop.Id, crop.StorageKey,
-            crop.MimeType, crop.SizeBytes, crop.Sha256), null);
+            crop.MimeType, crop.SizeBytes, crop.Sha256, unit.LeaseExpiresAtUtc!.Value), null);
     }
 
     public async Task<VisualAttributeRefusal?> AuthorizeUploadAsync(
@@ -341,6 +345,16 @@ public sealed class VisualAttributeLifecycle(
         return unit.HoldsActiveLease(workerId, TokenMatches(leaseToken, unit.LeaseTokenHash), attemptCount, timeProvider.GetUtcNow())
             ? null
             : new VisualAttributeRefusal("visual_attribute_lease_invalid");
+    }
+
+    public async Task<DateTimeOffset?> RevalidateLeaseAsync(
+        Guid analysisId, string workerId, string leaseToken, int attemptCount, CancellationToken cancellationToken)
+    {
+        var unit = await db.VisualAttributeAnalyses.AsNoTracking().SingleOrDefaultAsync(x => x.Id == analysisId, cancellationToken);
+        return unit is not null &&
+               unit.HoldsActiveLease(workerId, TokenMatches(leaseToken, unit.LeaseTokenHash), attemptCount, timeProvider.GetUtcNow())
+            ? unit.LeaseExpiresAtUtc
+            : null;
     }
 
     public Task<string?> AttributeSchemaJsonAsync(string identityFingerprint, CancellationToken cancellationToken) =>

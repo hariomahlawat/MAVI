@@ -399,4 +399,80 @@ public sealed class VisualAttributeAnalysisTests
             unit.Complete(Worker, true, 1, T0.AddSeconds(10), Facts with { VisibilitySequence = 0 }, true));
         Assert.Equal(VisualAttributeAnalysisStatus.Running, unit.Status);
     }
+
+    // --- Publication window (plan §13; ADR-013 implementation amendment item 4) ------------------
+
+    [Fact]
+    public void APublicationWindowHoldsTheUnitForOneLeaseFromPhaseA()
+    {
+        var unit = Claimed();
+        unit.BeginPublication(Worker, tokenMatches: true, 1, T0.AddSeconds(100), Policy);
+
+        Assert.Equal(T0.AddSeconds(100) + Policy.LeaseDuration, unit.LeaseExpiresAtUtc);
+        // Past the claim's own lease, inside the window: not reclaimable, not exhausted.
+        Assert.False(unit.CanClaim(T0.AddSeconds(130), Policy));
+        Assert.True(unit.HasLiveLease(T0.AddSeconds(130)));
+        Assert.False(unit.CanClaim(T0.AddSeconds(219), Policy));
+        Assert.True(unit.CanClaim(T0.AddSeconds(220), Policy));
+    }
+
+    [Fact]
+    public void APublicationWindowOutlivesTheDeadlineByAtMostOneLease()
+    {
+        var policy = Policy with { MaximumAnalysisDuration = TimeSpan.FromSeconds(150) };
+        var unit = Queued();
+        unit.Claim(Worker, Hash(1), T0, policy);
+        unit.Heartbeat(Worker, tokenMatches: true, 1, T0.AddSeconds(100), policy);
+        Assert.Equal(T0.AddSeconds(150), unit.LeaseExpiresAtUtc);   // an ordinary lease is capped at the deadline
+
+        unit.BeginPublication(Worker, tokenMatches: true, 1, T0.AddSeconds(140), policy);
+        Assert.Equal(T0.AddSeconds(140) + policy.LeaseDuration, unit.LeaseExpiresAtUtc);   // +260 s, past the +150 s deadline
+
+        // Past the deadline the window protects the validated completion from the deadline...
+        Assert.True(unit.IsDeadlineExceeded(T0.AddSeconds(200), policy.MaximumAnalysisDuration));
+        Assert.False(unit.IsDeadlineEnforceable(T0.AddSeconds(200), policy));
+        Assert.Throws<DomainValidationException>(() => unit.FailDeadlineExceeded(T0.AddSeconds(200), policy));
+        // ...but a repeated Phase A cannot push it past deadline + one lease, and once that lapses
+        // the deadline wins.
+        unit.BeginPublication(Worker, tokenMatches: true, 1, T0.AddSeconds(250), policy);
+        Assert.Equal(T0.AddSeconds(150) + policy.LeaseDuration, unit.LeaseExpiresAtUtc);
+        Assert.True(unit.IsDeadlineEnforceable(T0.AddSeconds(270), policy));
+        unit.FailDeadlineExceeded(T0.AddSeconds(270), policy);
+        Assert.Equal(VisualAttributeAnalysisStatus.Failed, unit.Status);
+    }
+
+    [Fact]
+    public void AHeartbeatNeverShortensAPublicationWindow()
+    {
+        var unit = Claimed();
+        unit.BeginPublication(Worker, tokenMatches: true, 1, T0.AddSeconds(100), Policy);
+        unit.Heartbeat(Worker, tokenMatches: true, 1, T0.AddSeconds(10), Policy);
+
+        Assert.Equal(T0.AddSeconds(100) + Policy.LeaseDuration, unit.LeaseExpiresAtUtc);
+    }
+
+    [Theory]
+    [InlineData("attributes-01", true, 2, 10)]   // another attempt
+    [InlineData("attributes-01", false, 1, 10)]  // another capability
+    [InlineData("attributes-02", true, 1, 10)]   // another worker
+    [InlineData("attributes-01", true, 1, 500)]  // an expired lease: Phase A would have refused it
+    public void OnlyTheActiveOwnerCanBeginAPublication(string worker, bool tokenMatches, int attempt, int seconds)
+    {
+        var unit = Claimed();
+        var before = unit.LeaseExpiresAtUtc;
+        Assert.Throws<DomainValidationException>(() => unit.BeginPublication(worker, tokenMatches, attempt, T0.AddSeconds(seconds), Policy));
+        Assert.Equal(before, unit.LeaseExpiresAtUtc);
+    }
+
+    [Fact]
+    public void TheFinalAttemptIsNotExhaustedWhilePublishing()
+    {
+        var policy = Policy with { MaximumAttempts = 1 };
+        var unit = Queued();
+        unit.Claim(Worker, Hash(1), T0, policy);
+        unit.BeginPublication(Worker, tokenMatches: true, 1, T0.AddSeconds(110), policy);
+
+        Assert.False(unit.IsExhausted(T0.AddSeconds(200), policy));
+        Assert.True(unit.IsExhausted(T0.AddSeconds(230), policy));
+    }
 }

@@ -43,7 +43,8 @@ public sealed record VisualAttributeEvidenceGrant(
     string StorageKey,
     string MimeType,
     long SizeBytes,
-    string Sha256);
+    string Sha256,
+    DateTimeOffset LeaseExpiresAtUtc);
 
 public sealed record VisualAttributeEvidenceAuthorization(VisualAttributeEvidenceGrant? Grant, VisualAttributeRefusal? Refusal)
 {
@@ -93,6 +94,14 @@ public interface IVisualAttributeLifecycle
     /// or <see langword="null"/> when the attempt may write its own staging.
     /// </summary>
     Task<VisualAttributeRefusal?> AuthorizeUploadAsync(Guid analysisId, string workerId, string leaseToken, int attemptCount,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The current lease expiry when this attempt still holds an active lease, otherwise null:
+    /// the re-check a streamed evidence read or upload makes over its lifetime (plan §10, §12).
+    /// One primary-key read; no lock, no write.
+    /// </summary>
+    Task<DateTimeOffset?> RevalidateLeaseAsync(Guid analysisId, string workerId, string leaseToken, int attemptCount,
         CancellationToken cancellationToken);
 
     /// <summary>The schema text of an identity the platform has activated, or none.</summary>

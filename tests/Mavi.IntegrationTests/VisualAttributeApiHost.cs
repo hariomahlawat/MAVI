@@ -13,6 +13,8 @@ using Mavi.Infrastructure.Persistence;
 using Mavi.Infrastructure.VisualAttributes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Mavi.Domain.VisualAttributes;
+using Microsoft.EntityFrameworkCore;
 
 namespace Mavi.IntegrationTests;
 
@@ -32,11 +34,18 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
     private readonly string _releaseDirectory = Path.Combine(Path.GetTempPath(), $"mavi-va-release-{Guid.NewGuid():N}");
 
     private readonly string _pipelineProfile;
+    private readonly IReadOnlyDictionary<string, string?>? _configuration;
+    private readonly Action<IServiceCollection>? _services;
+    private readonly bool _kestrel;
 
-    private VisualAttributeApiHost(VisualAttributeWorld world, string pipelineProfile)
+    private VisualAttributeApiHost(VisualAttributeWorld world, string pipelineProfile,
+        IReadOnlyDictionary<string, string?>? configuration, Action<IServiceCollection>? services, bool kestrel)
     {
         World = world;
         _pipelineProfile = pipelineProfile;
+        _configuration = configuration;
+        _services = services;
+        _kestrel = kestrel;
     }
 
     public VisualAttributeWorld World { get; }
@@ -49,10 +58,12 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
     public HttpClient Client { get; private set; } = null!;
 
     public static async Task<VisualAttributeApiHost> CreateAsync(
-        PostgresFixture fixture, DateTimeOffset nowUtc, bool identityB = false, string? pipelineProfile = null)
+        PostgresFixture fixture, DateTimeOffset nowUtc, bool identityB = false, string? pipelineProfile = null,
+        IReadOnlyDictionary<string, string?>? configuration = null, Action<IServiceCollection>? services = null,
+        bool kestrel = false)
     {
         var host = new VisualAttributeApiHost(await VisualAttributeWorld.CreateAsync(fixture, nowUtc),
-            pipelineProfile ?? VisualAttributeReleaseFixture.PipelineProfile);
+            pipelineProfile ?? VisualAttributeReleaseFixture.PipelineProfile, configuration, services, kestrel);
         host.Start(identityB);
         return host;
     }
@@ -74,13 +85,41 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
             EvidenceRootOverride = World.EvidenceRoot,
             VisualAttributeComponentBindingPath = VisualAttributeReleaseFixture.WriteBinding(_releaseDirectory, identityB),
             VisualAttributePipelineProfilePath = _pipelineProfile,
-            OverrideServices = services => services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(Logs),
+            AdditionalConfiguration = _configuration,
+            OverrideServices = services =>
+            {
+                services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(Logs);
+                _services?.Invoke(services);
+            },
         };
+        if (_kestrel)
+        {
+            // A real socket: the in-memory test server buffers a request body before the endpoint
+            // runs, which would hide any race inside a streamed upload.
+            Factory.UseKestrel(0);
+            Factory.StartServer();
+        }
+
         Client = Factory.CreateClient();
     }
 
     public Task<VisualAttributeCycleResult> RunCycleAsync() =>
         Factory.Services.GetRequiredService<VisualAttributeHostedService>().RunCycleAsync(CancellationToken.None);
+
+    /// <summary>One platform sweep with the host's configured lease policy, as the hosted loop runs it.</summary>
+    public async Task<VisualAttributeSweepResult> SweepAsync()
+    {
+        await using var scope = Factory.Services.CreateAsyncScope();
+        var options = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<VisualAttributeOptions>>().Value;
+        return await scope.ServiceProvider.GetRequiredService<IVisualAttributeLifecycle>()
+            .SweepAsync(options.LeasePolicy, options.ReconcileBatchSize, CancellationToken.None);
+    }
+
+    public async Task<VisualAttributeAnalysisStatus> StatusAsync(Guid analysisId)
+    {
+        await using var db = World.Read();
+        return (await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync(x => x.Id == analysisId)).Status;
+    }
 
     public string PreferredFingerprint =>
         Factory.Services.GetRequiredService<IVisualAttributeRelease>().Resolution.Definition!.Identity.Fingerprint;
@@ -202,6 +241,7 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
             services.GetRequiredService<IAttributeStagingStore>(),
             services.GetRequiredService<IAcceptedEvidenceStore>(),
             services.GetRequiredService<VisualAttributeIntegrityMonitor>(),
+            services.GetRequiredService<Microsoft.Extensions.Options.IOptions<VisualAttributeOptions>>(),
             NullLogger<VisualAttributeCompletionService>.Instance)
         {
             BeforePhaseC = beforePhaseC,

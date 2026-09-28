@@ -109,7 +109,6 @@ The first measurement used change-tracked EF inserts and was **not** safe at the
 
 Recorded at the final head in §8.
 
-
 ## 6. Mutation matrix
 
 Runner: `mutate_s2b.py` (scratchpad, not shipped) applies one exact-text mutation, rebuilds the solution for a .NET mutation, runs the guarding suites (Domain/Application/Integration `VisualAttribute*`, the latter with the E2E enabled; or the Python role/pipeline/resolver suites) and restores the file byte for byte (SHA-256 checked); the solution is rebuilt clean at the end. A mutation that does not build would be recorded `invalid`; none was.
@@ -120,7 +119,7 @@ Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were
 - **M19** (claim ignores the deadline) — `CanClaim` re-checks the deadline in memory, so the SQL predicate's job is liveness; new `AUnitPastItsDeadlineNeverStarvesQueuedWork` proves an expired unit is passed over rather than selected and skipped on every poll.
 - **M20** (claim not fenced on identity) — the other-identity test never activated identity B, so the claim returned before reaching SQL; it now activates B first.
 
-**Final: 39 of 39 killed** (M36–M39 were added for the cold-review fixes, §6.1; M38 and M39 first survived and their tests were made deterministic).
+**Final: 48 of 48 killed** (M36–M39 guard the cold-review fixes, §6.1; M40–M48 the lease-lifetime repairs, §6.2. M38 and M39 first survived and their tests were made deterministic; M40 was first written so that it did not compile and was rerun as a valid mutant).
 
 | ID | Mutation | File | Result | First killing test |
 |---|---|---|---|---|
@@ -163,6 +162,17 @@ Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were
 | M37 | heartbeat left running during `/complete` | `runner.py` | **killed** | `test_a_renewal_refused_while_completing_neither_cancels_nor_misreports_the_publication` |
 | M38 | next lease does not wait for in-flight inference | `runner.py` | **killed** (after the test asserted lease ordering) | `test_inference_is_serial_and_no_lease_is_taken_while_it_runs` |
 | M39 | caller shutdown swallowed as lease loss | `runner.py` | **killed** (after the race was made deterministic) | `test_shutdown_during_a_lease_loss_is_not_swallowed` |
+| M40 | Phase A does not open a publication window | `VisualAttributeCompletionService.cs` | **killed** | `AnAbandonedPublicationPastTheDeadlineIsFailedOnceItsWindowLapses` |
+| M41 | a heartbeat may shorten the lease | `VisualAttributeAnalysis.cs` | **killed** | `AHeartbeatNeverShortensAPublicationWindow` |
+| M42 | publication window unbounded past the deadline | `VisualAttributeAnalysis.cs` | **killed** | `APublicationWindowOutlivesTheDeadlineByAtMostOneLease` |
+| M43 | deadline transition ignores a live lease (domain) | `VisualAttributeAnalysis.cs` | **killed** | `APublicationWindowOutlivesTheDeadlineByAtMostOneLease` |
+| M44 | deadline sweep selects units with a live lease (batch liveness) | `VisualAttributeLifecycle.cs` | **killed** | `APublishingUnitNeverStarvesTheDeadlineSweepOfAnAbandonedOne` |
+| M45 | fence skips the check after a blocking read | `LeaseFencedStream.cs` | **killed** | `AnEvidenceStreamStopsWhenTheLeaseExpiresMidRead` |
+| M46 | fence re-checks only at lease expiry (no interval) | `LeaseFencedStream.cs` | **killed** | `AnEvidenceStreamStopsWhenTheOwnerGaveUpAndAnotherAttemptHoldsTheUnit` |
+| M47 | upload body not fenced | `VisualAttributeEndpoints.cs` | **killed** | `AnUploadStopsWhenOwnershipIsReclaimedMidBodyAndStagesNothing` |
+| M48 | evidence fence never revalidates ownership | `VisualAttributeEndpoints.cs` | **killed** | `AnEvidenceStreamStopsWhenTheLeaseExpiresMidRead` |
+
+Plan §17 mutations that have no code path in this design are recorded rather than invented: *delete a sealed object on rollback* (no deletion call exists; `AReclaimBetweenPhaseAAndPhaseCIsRefusedAndTheSealedOrphanIsSafe` asserts the orphan survives), *supersede on failed replacement* (supersession runs only inside a successful preferred Phase C; `APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot`), *publish rows before the publication transaction* (rows are written only inside it; `AnAmbiguousCommitPublishesNothingAndTheRetryPublishesOnce`), *duplicate (run, identity) units* (the unique index arbitrates; `ConcurrentReconcilersCreateOneUnit`) and *let the fixture bypass production transport* (the fixture has no transport of its own; the E2E runs the real process).
 
 ### 6.1 Cold review
 
@@ -180,7 +190,39 @@ An independent read-only review of `ad01c2b..5c0ff30` found no P1. Dispositions:
 | 8 | P3 | A claim commits the attempt before its Tracks are read; a database failure there costs one attempt with no grant | **Accepted.** The failure is a platform database fault; the attempt is bounded and reclaimed on lease expiry, exactly as a worker crash straight after a lease. Reading the grant inside the claim transaction would hold the row lock across a 10,000-Track read |
 | 9 | P3 | Hosts configured with different releases would alternate activations and stop queueing | **Accepted as a stated assumption:** every platform host of one deployment serves the same release overlay (MAVI runs one platform host per installation; a rolling redeploy of a different release is a release change, and rollback semantics apply). Recorded here and in §7 |
 
-Plan §17 mutations that have no code path in this design are recorded rather than invented: *delete a sealed object on rollback* (no deletion call exists; `AReclaimBetweenPhaseAAndPhaseCIsRefusedAndTheSealedOrphanIsSafe` asserts the orphan survives), *supersede on failed replacement* (supersession runs only inside a successful preferred Phase C; `APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot`), *publish rows before the publication transaction* (rows are written only inside it; `AnAmbiguousCommitPublishesNothingAndTheRetryPublishesOnce`), *duplicate (run, identity) units* (the unique index arbitrates; `ConcurrentReconcilersCreateOneUnit`) and *let the fixture bypass production transport* (the fixture has no transport of its own; the E2E runs the real process).
+### 6.2 Second review: ownership over the lifetime of an operation (PR #114 repair)
+
+An independent review of head `97ff8f2` raised two findings; both were verified against plan §10, §12 and §13 and the code before any change, and both hold.
+
+**Finding A — lease loss during an evidence read or upload (P2, fixed).** Authorisation happened only before the first byte: `Results.Stream` then copied the whole object, and the upload body streamed into staging, whatever happened to ownership meanwhile. Plan §10 requires that "lease loss/cancellation aborts streaming". A stale upload was never *usable* — staging is attempt-scoped and only the owning attempt's Phase A reads it — but it was still a write by a non-owner, and a stale evidence read delivered protected bytes after ownership ended.
+
+*Invariant:* a lease-scoped stream is authorised for its lifetime. It continues only while the same worker, capability and attempt hold an unexpired lease; when that stops being true — plain expiry, a reclaim, or the owner's own failure followed by another attempt's claim — no further byte is delivered or staged. Mechanism: `LeaseFencedStream` brackets every read with a clock comparison and reads the unit's row (one primary-key read, no lock) only when the last-granted expiry is reached (a heartbeat may have renewed it) or every 5 s. That is exact because a unit changes executor before its lease expires only after its owner's own failure, which the interval catches. Evidence lost after the first byte aborts the connection (the worker sees an incomplete transfer and re-authorisation then reports the lost lease); lost before it, or during an upload, is a 409 `visual_attribute_lease_invalid`, and the staging store's temporary file is discarded — create-once semantics unchanged.
+
+**Finding B — Phase B versus the platform sweep (P2, fixed).** Phase A released its row lock before sealing, and the sweep's "a publishing unit is locked" held only for the Phase A and C transactions. A final attempt whose lease expired during Phase B was failed `visual_attribute_attempts_exhausted`, and any unit whose absolute deadline passed during Phase B was failed `visual_attribute_deadline_exceeded`; Phase C then refused a completion no one else owned — contrary to §13 ("lease expiry by itself does not invalidate Phase C if no reclaim has occurred"), and dependent on when the sweep happened to run.
+
+The existing state model represents the required invariant, so no new lifecycle state was introduced. *Invariant:* a completion validated at Phase A while its lease is live holds the unit for one publication window — a lease duration from Phase A, never more than one lease past the absolute deadline — and within it no reclaim, exhaustion or deadline transition can take the unit; Phase C remains fenced on ownership, not on the clock. Mechanism: Phase A extends the owner's lease (`BeginPublication`, in its existing short transaction); every rule that already waits for an expired lease therefore waits for the window; the deadline transition now also requires no live lease (in SQL, so a batch of protected units cannot starve an abandoned one, and in the domain); a heartbeat never shortens a lease. An ordinary lease is still capped at the deadline, so the deadline behaves exactly as before for every unit that is not publishing. When the window lapses unpublished — a crashed platform process, a stalled seal — reclaim, exhaustion and deadline proceed as for any expired lease, and the old attempt's Phase C is refused by ownership: abandoned work stays bounded by one lease. Replay precedence, attempt and capability fencing, atomic publication and the visibility barrier are unchanged; all state is in PostgreSQL, so the rule holds across hosts.
+
+**Discriminating tests** (`VisualAttributeLeaseLifetimeTests`, real PostgreSQL; transfer tests on a real Kestrel socket with a raw two-half upload, because the in-memory test server buffers a request body before the endpoint runs, and gated so that ownership changes only once the platform is already streaming). Against the previous head `97ff8f2`, the ten tests targeting A and B failed and the three controls passed:
+
+| Test | `97ff8f2` | fixed |
+|---|---|---|
+| `TheSweepCannotExhaustAFinalAttemptWhosePublicationIsInFlight` | fail | pass |
+| `TheDeadlineSweepCannotFailAPublicationValidatedBeforeTheDeadline` | fail | pass |
+| `AnAbandonedPublicationOfTheFinalAttemptIsExhaustedOnceItsWindowLapses` | fail | pass |
+| `AnAbandonedPublicationPastTheDeadlineIsFailedOnceItsWindowLapses` | fail | pass |
+| `APublicationWithinItsWindowIsNotReclaimable` | fail | pass |
+| `APublicationOutlivingItsWindowIsReclaimedAndRefusedAtPhaseC` (control) | pass | pass |
+| `AnEvidenceStreamStopsWhenOwnershipIsReclaimedMidRead` | fail | pass |
+| `AnEvidenceStreamStopsWhenTheLeaseExpiresMidRead` | fail | pass |
+| `AnEvidenceStreamStopsWhenTheOwnerGaveUpAndAnotherAttemptHoldsTheUnit` | fail | pass |
+| `AnEvidenceStreamKeptAliveByHeartbeatsCompletes` (control) | pass | pass |
+| `AnUploadStopsWhenOwnershipIsReclaimedMidBodyAndStagesNothing` | fail | pass |
+| `AnUploadStopsWhenTheLeaseExpiresMidBody` | fail | pass |
+| `AnUploadWhoseLeaseHoldsThroughoutIsStaged` (control) | pass | pass |
+
+Added with the repair: `APublishingUnitNeverStarvesTheDeadlineSweepOfAnAbandonedOne` (sweep batch liveness) and five domain tests (`APublicationWindowHoldsTheUnitForOneLeaseFromPhaseA`, `APublicationWindowOutlivesTheDeadlineByAtMostOneLease`, `AHeartbeatNeverShortensAPublicationWindow`, `OnlyTheActiveOwnerCanBeginAPublication`, `TheFinalAttemptIsNotExhaustedWhilePublishing`). Existing race tests — reclaim between Phase A and C, expiry without reclaim, crash after seal, ambiguous commit and exact replay — pass unchanged.
+
+**Adjacent review — P3, not changed:** (1) a unit leased before an operator *lowers* `MaximumAnalysisDurationSeconds` may hold an ordinary lease past its new deadline; the deadline transition now waits for that lease, at most one lease — bounded and consistent with the invariant. (2) `visual_attribute_evidence_read` (2000) is now logged when the object has been fully served rather than when serving starts; an interrupted read logs 2004 (lease lost) or nothing (client cancellation).
 
 ## 7. Deferred and out of scope
 

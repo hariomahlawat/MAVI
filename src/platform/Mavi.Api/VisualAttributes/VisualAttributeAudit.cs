@@ -24,6 +24,10 @@ public sealed partial class VisualAttributeAudit(
         LogEvidenceIntegrityIncident(logger, analysisId, attempt, observationId, reason);
     }
 
+    /// <summary>The attempt lost ownership mid-stream; the read was stopped.</summary>
+    public void EvidenceLeaseLost(Guid analysisId, int attempt, Guid observationId) =>
+        LogEvidenceLeaseLost(logger, analysisId, attempt, observationId);
+
     public void UploadHandled(Guid analysisId, int attempt, long bytes, string outcome) =>
         LogUpload(logger, analysisId, attempt, bytes, outcome);
 
@@ -38,6 +42,10 @@ public sealed partial class VisualAttributeAudit(
     [LoggerMessage(EventId = 2002, EventName = "visual_attribute_evidence_integrity_incident", Level = LogLevel.Error,
         Message = "Accepted evidence integrity incident: analysis {AnalysisId} attempt {Attempt} Observation {ObservationId} ({Reason}).")]
     private static partial void LogEvidenceIntegrityIncident(ILogger logger, Guid analysisId, int attempt, Guid observationId, string reason);
+
+    [LoggerMessage(EventId = 2004, EventName = "visual_attribute_evidence_read_lease_lost", Level = LogLevel.Warning,
+        Message = "Evidence read: analysis {AnalysisId} attempt {Attempt} Observation {ObservationId}, stopped: the attempt lost its lease.")]
+    private static partial void LogEvidenceLeaseLost(ILogger logger, Guid analysisId, int attempt, Guid observationId);
 
     [LoggerMessage(EventId = 2003, EventName = "visual_attribute_upload", Level = LogLevel.Information,
         Message = "Prediction upload: analysis {AnalysisId} attempt {Attempt}, {Bytes} bytes, {Outcome}.")]

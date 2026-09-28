@@ -35,7 +35,11 @@ namespace Mavi.Infrastructure.VisualAttributes;
 /// unit must still be Running, the same attempt and the same capability. A reclaim since
 /// Phase A aborts publication and leaves the sealed object as a tolerated orphan. Rows are
 /// written before the visibility barrier; the barrier is held only for the sequence, the
-/// completion and supersession. Lease expiry alone does not stop Phase C: ownership does.</item>
+/// completion and supersession. Lease expiry alone does not stop Phase C: ownership does. A
+/// completion that passes Phase A holds the unit for one publication window (its lease is
+/// extended by a lease duration, at most one lease past the deadline), so no reclaim,
+/// attempts-exhausted or deadline transition can overtake Phases B and C; once the window
+/// lapses unpublished, those proceed as for any expired lease.</item>
 /// </list>
 /// </remarks>
 public sealed partial class VisualAttributeCompletionService(
@@ -46,6 +50,7 @@ public sealed partial class VisualAttributeCompletionService(
     IAttributeStagingStore staging,
     IAcceptedEvidenceStore acceptedEvidence,
     VisualAttributeIntegrityMonitor integrity,
+    Microsoft.Extensions.Options.IOptions<VisualAttributeOptions> options,
     ILogger<VisualAttributeCompletionService> logger) : IVisualAttributeCompletionService
 {
     /// <summary>Test seam: runs between Phase B and Phase C (the reclaim race).</summary>
@@ -103,6 +108,11 @@ public sealed partial class VisualAttributeCompletionService(
             if (staged is null) return VisualAttributeCompletionResult.Refused(409, "visual_attribute_prediction_not_staged");
             if (staged.SizeBytes != completion.PredictionSizeBytes)
                 return VisualAttributeCompletionResult.Refused(422, VisualAttributeContractRules.ArtifactIntegrityFailedCode);
+
+            // The validated completion holds the unit for one publication window, so neither a
+            // reclaim nor the platform sweep can overtake the lock-free work that follows.
+            unit.BeginPublication(workerId, tokenMatches, attempt, timeProvider.GetUtcNow(), options.Value.LeasePolicy);
+            await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
 

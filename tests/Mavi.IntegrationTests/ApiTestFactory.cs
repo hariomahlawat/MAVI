@@ -29,6 +29,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     public TimeProvider Clock { get; init; } = TimeProvider.System;
     public Action<DbContextOptionsBuilder>? ConfigureDbContext { get; init; }
     public Action<IServiceCollection>? OverrideServices { get; init; }
+
+    /// <summary>Configuration applied over the defaults above (for example a lease policy).</summary>
+    public IReadOnlyDictionary<string, string?>? AdditionalConfiguration { get; init; }
     public string? StaticWebRoot { get; init; }
     public bool EnableStartupMigrations { get; init; }
 
@@ -123,6 +126,8 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
                 ["DatabaseMigrations:CommandTimeoutSeconds"] =
                     StartupMigrationCommandTimeoutSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture),
             });
+            if (AdditionalConfiguration is not null)
+                configuration.AddInMemoryCollection(AdditionalConfiguration);
         });
         builder.ConfigureServices(services =>
         {

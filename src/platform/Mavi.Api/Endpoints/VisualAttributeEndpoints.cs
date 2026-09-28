@@ -141,6 +141,7 @@ public static class VisualAttributeEndpoints
         IVisualAttributeLifecycle lifecycle,
         IAcceptedEvidenceReader evidenceReader,
         VisualAttributeAudit audit,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         if (Capability(context) is not { } capability) return CapabilityProblem();
@@ -182,10 +183,50 @@ public static class VisualAttributeEndpoints
             return Problem(422, "visual_attribute_evidence_integrity_failed", "The accepted evidence object does not match its record.");
         }
 
-        audit.EvidenceServed(id, attempt, observationId, grant.SizeBytes);
-        context.Response.Headers.ContentLength = grant.SizeBytes;
-        context.Response.Headers.CacheControl = "no-store";
-        return Results.Stream(stream, grant.MimeType, enableRangeProcessing: false);
+        // Authorised for the lifetime of the stream, not only for its first byte (plan §10).
+        var fenced = new LeaseFencedStream(stream,
+            token => lifecycle.RevalidateLeaseAsync(id, workerId, capability, attempt, token), clock, grant.LeaseExpiresAtUtc);
+        return new FencedEvidenceResult(fenced, grant, () => audit.EvidenceLeaseLost(id, attempt, observationId),
+            () => audit.EvidenceServed(id, attempt, observationId, grant.SizeBytes));
+    }
+
+    /// <summary>
+    /// Streams a fenced evidence object. Ownership lost before the first byte is a 409; after it,
+    /// the connection is aborted, so the worker sees an incomplete transfer — never a short 200.
+    /// </summary>
+    private sealed class FencedEvidenceResult(LeaseFencedStream stream, VisualAttributeEvidenceGrant grant, Action leaseLost, Action served) : IResult
+    {
+        public async Task ExecuteAsync(HttpContext httpContext)
+        {
+            await using var source = stream;
+            var response = httpContext.Response;
+            response.ContentType = grant.MimeType;
+            response.ContentLength = grant.SizeBytes;
+            response.Headers.CacheControl = "no-store";
+            var buffer = new byte[81_920];
+            try
+            {
+                int read;
+                while ((read = await source.ReadAsync(buffer, httpContext.RequestAborted)) > 0)
+                    await response.Body.WriteAsync(buffer.AsMemory(0, read), httpContext.RequestAborted);
+            }
+            catch (VisualAttributeLeaseLostException)
+            {
+                leaseLost();
+                if (response.HasStarted)
+                {
+                    httpContext.Abort();
+                    return;
+                }
+
+                response.ContentLength = null;
+                response.Headers.CacheControl = default;
+                await Refused(new VisualAttributeRefusal("visual_attribute_lease_invalid")).ExecuteAsync(httpContext);
+                return;
+            }
+
+            served();
+        }
     }
 
     // --- Prediction upload ---------------------------------------------------------------------
@@ -196,6 +237,7 @@ public static class VisualAttributeEndpoints
         IVisualAttributeLifecycle lifecycle,
         IAttributeStagingStore staging,
         VisualAttributeAudit audit,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         if (Capability(context) is not { } capability) return CapabilityProblem();
@@ -211,7 +253,23 @@ public static class VisualAttributeEndpoints
         var authorization = await lifecycle.AuthorizeUploadAsync(id, workerId, capability, attempt, cancellationToken);
         if (authorization is not null) return Refused(authorization);
 
-        var result = await staging.WriteAsync(id, attempt, context.Request.Body, length, sha256, cancellationToken);
+        // The body is authorised for as long as it streams: an attempt that loses ownership
+        // mid-upload stages nothing (its temporary file is discarded; nothing is published).
+        AttributeUploadResult result;
+        await using (var body = new LeaseFencedStream(context.Request.Body,
+                         token => lifecycle.RevalidateLeaseAsync(id, workerId, capability, attempt, token), clock, DateTimeOffset.MinValue))
+        {
+            try
+            {
+                result = await staging.WriteAsync(id, attempt, body, length, sha256, cancellationToken);
+            }
+            catch (VisualAttributeLeaseLostException)
+            {
+                audit.UploadHandled(id, attempt, 0, "LeaseLost");
+                return Refused(new VisualAttributeRefusal("visual_attribute_lease_invalid"));
+            }
+        }
+
         audit.UploadHandled(id, attempt, result.SizeBytes, result.Status.ToString());
         return result.Status switch
         {
