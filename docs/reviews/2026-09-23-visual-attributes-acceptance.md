@@ -1,9 +1,9 @@
 # Visual Attributes — Stage-2 Acceptance Register
 
-**Status:** Open — S2a closed; S2b closed; S2c.0 baseline activated; S2c.1 next  
+**Status:** Open — S2a closed; S2b closed; S2c.0 baseline reconciliation in progress; S2c.1 follows only after S2c.0 exact-head CI and merge  
 **Date opened:** 2026-09-23  
 **Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c`  
-**Reconciled:** 2026-09-28 against S2a `main@406172657599350ecbb27819865ecc9482c6c97d`; S2b closure reconciled against `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`; S2c.0 authority baseline established from PR #115 merge `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`
+**Reconciled:** 2026-09-28 against S2a `main@406172657599350ecbb27819865ecc9482c6c97d`; S2b closure evidence reconciled against `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`; PR #115 acceptance authority is `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; the S2c.0 implementation baseline becomes effective only when the current reconciliation change merges
 
 This register is authoritative for Stage-2 exit criteria. Other plans must reference this table rather than maintain a second independently numbered acceptance list.
 
@@ -11,9 +11,9 @@ Nothing unexecuted is marked PASS.
 
 ## Current verdict
 
-**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE CLOSED; S2c.0 BASELINE ACTIVATED; S2c.1 TASK/CORPUS/LABELS NEXT.**
+**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE CLOSED; PR #115 S2c PLAN ACCEPTED; S2c.0 BASELINE RECONCILIATION IN PROGRESS. S2c.1 IS NOT YET AUTHORIZED.**
 
-S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`; C1–C7 remain reconciled below. S2b is closed through PR #114 at `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`: final PR head `37376fb28e4be181642eace65d09dec7884c550f` passed exact-head runs 36403353060, 36403353027 and 36403353097, and merged main passed MAVI Quality Gate #2150 (36406745354), Task 17 #1284 (36406745355) and Task 10 #807 (36406745357). The durable closure record is `docs/reviews/2026-09-28-stage2-s2c-0-baseline.md`; the obsolete "exact-head CI pending" qualifiers are therefore removed from D1–D8/E1–E4 without changing their already-recorded PASS status. E5–E8 remain OPEN for S3. PR #115 merged the independently reviewed S2c plan at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; S2c.0 activates its governing ADR/qualification/MSR decisions. No F/G row changes status because of S2c.0.
+S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`; C1–C7 remain reconciled below. S2b is closed through PR #114 at `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`: final PR head `37376fb28e4be181642eace65d09dec7884c550f` passed exact-head runs 36403353060, 36403353027 and 36403353097, and merged main passed MAVI Quality Gate #2150 (36406745354), Task 17 #1284 (36406745355) and Task 10 #807 (36406745357). The durable closure record is `docs/reviews/2026-09-28-stage2-s2c-0-baseline.md`; the obsolete "exact-head CI pending" qualifiers are therefore removed from D1–D8/E1–E4 without changing their already-recorded PASS status. E5–E8 remain OPEN for S3. PR #115 merged the independently reviewed S2c plan at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge accepted its governing ADR/qualification/MSR decisions. S2c.0 only reconciles those already-effective decisions and establishes the implementation baseline on its own merge. No F/G row changes status because of S2c.0.
 
 ## Governing documents
 
@@ -144,14 +144,14 @@ Ownership (clarified 2026-09-28 by the S2c plan; no status changes): the parent 
 
 ## Evidence log
 
-### S2b closure / S2c.0 baseline activation — 2026-09-28
+### S2b closure / S2c.0 baseline reconciliation — 2026-09-28
 
 - S2b final PR head: `37376fb28e4be181642eace65d09dec7884c550f`; merged baseline: `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`.
 - Exact-head PR runs: MAVI Quality Gate `36403353060`, deterministic/Windows validation `36403353027`, CPU Ubuntu/Windows runtime qualification `36403353097` — all success.
 - Post-merge main runs: MAVI Quality Gate #2150 (`36406745354`), Task 17 #1284 (`36406745355`), Task 10 #807 (`36406745357`) — all success.
 - Retained S2b implementation record: `docs/qualification/stage2-s2b/implementation-record.md`.
 - S2c planning acceptance: PR #115 head `33a701d0045b6fa8961a10f69189313d60e6111c`, MAVI Quality Gate #2159 PASS, Task 17 #1293 PASS, zero unresolved review threads at merge.
-- S2c.0 baseline/authority record: `docs/reviews/2026-09-28-stage2-s2c-0-baseline.md`.
+- S2c.0 reconciliation record: `docs/reviews/2026-09-28-stage2-s2c-0-baseline.md`; it becomes the implementation baseline only after this change passes exact-head CI and merges.
 - Non-claims: no learned model selected; no F/G model-quality row promoted; no CUDA or Production qualification implied.
 
 For every PASS entry retain:
