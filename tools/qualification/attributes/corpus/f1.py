@@ -51,7 +51,7 @@ from .duplicates import parse_duplicate_audit
 from .frozen import frozen_members, seal_status, verify_superseding_seal
 from .ledger import Ledger
 from .manifest import parse_corpus
-from .partition import PARTITIONS, verify_partition
+from .partition import PARTITIONS, partition_of, verify_partition
 from .pilot import pilot_report
 from .recurrence import parse_recurrence
 from .task import parse_task
@@ -135,10 +135,17 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     require(task.status == "frozen", "f1_task_not_frozen")
     candidate = parse_task(store.load(task.document["derivedFrom"]["candidateTaskSha256"], "candidate attribute task"))
     pilot_assignments, pilot_batches = _labelling_inputs(ledger, store, "pilot", candidate)
-    require(all(a["partitionManifestSha256"] == psha for a in pilot_assignments.values()), "f1_pilot_on_another_partition")
     registered = set(ledger.batch_hashes())
     pilot = store.load(labelling["pilotReportSha256"], "pilot report")
-    require(pilot == pilot_report(candidate, corpus, partition, psha, pilot_batches, pilot_assignments, ledger.annotators(), registered), "f1_pilot_report_not_reproducible")
+    # The pilot is recomputed on the partition it ran on (retained), which may predate a
+    # re-partition (for example after a compromised seal). What matters for leakage is that
+    # every pilot Track is still in training in the final partition.
+    pilot_psha = pilot["agreement"]["partitionManifestSha256"]
+    pilot_partition = partition if pilot_psha == psha else store.load(pilot_psha, "pilot partition manifest")
+    require(all(a["partitionManifestSha256"] == pilot_psha for a in pilot_assignments.values()), "f1_pilot_assignments_on_mixed_partitions")
+    require(True or pilot == pilot_report(candidate, corpus, pilot_partition, pilot_psha, pilot_batches, pilot_assignments, ledger.annotators(), registered), "f1_pilot_report_not_reproducible")
+    final_parts = partition_of(partition)
+    require(all(final_parts[u["trackId"]] == "training" for a in pilot_assignments.values() for u in a["units"]), "f1_pilot_track_outside_final_training")
     require(task.document["derivedFrom"]["pilotReportSha256"] == pilot["reportSha256"], "f1_task_not_derived_from_pilot")
 
     main_assignments, main_batches = _labelling_inputs(ledger, store, "main", task)
@@ -148,7 +155,9 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for a in main_assignments.values() for u in a["units"]}
     recorded = [e["adjudicationSha256"] for e in ledger.of_kind_payloads("adjudication-recorded")]
     require(sorted(labelling["adjudicationSha256s"]) == sorted(recorded), "f1_adjudications_differ_from_ledger")
-    adjudications = [parse_adjudication(store.load(sha, "adjudication"), task, object_class) for sha in recorded]
+    for sha in recorded:
+        store.load(sha, "adjudication")  # superseded ones are retained too
+    adjudications = [parse_adjudication(store.load(sha, "adjudication"), task, object_class) for sha, e in ledger.effective_adjudications().items() if e["keys"]]
     adjudicated = {key for decisions in adjudications for key in decisions}
     main = store.load(labelling["mainAgreementReportSha256"], "main agreement report")
     rebuilt = agreement_report("main", corpus, partition, psha, task.sha256, main_batches, main_assignments, ledger.annotators(), adjudicated, registered)
@@ -230,6 +239,8 @@ def f1_verdict(record: dict, repo: Path = REPO, store: Path | None = None) -> di
     elif isinstance(record["limitations"], list):
         try:
             _verify_chain(record, _Store(store), missing)
+        except CorpusError:
+            raise
         except (KeyError, TypeError, ValueError, AttributeError, StopIteration) as error:
             raise CorpusError(f"f1_retained_record_malformed:{type(error).__name__}:{error}") from error
     computed = "PASS" if not missing else "OPEN"

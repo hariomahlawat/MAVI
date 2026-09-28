@@ -121,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
     except CorpusError as error:
         print(f"refused: {error}", file=sys.stderr)
         return 2
+    except OSError as error:
+        print(f"refused: file_error:{type(error).__name__}:{error.filename}", file=sys.stderr)
+        return 2
 
 
 def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per command
@@ -193,11 +196,11 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
             markdown = render_agreement(document["agreement"])
         else:
             object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for a in assignments.values() for u in a["units"]}
-            recorded = ledger.adjudication_hashes()
+            recorded = set(ledger.effective_adjudications())
             adjudicated = set()
             for path in args.adjudications:
                 document = read_json(path)
-                require(document_sha256(document) in recorded, "agreement_adjudication_not_in_ledger")
+                require(document_sha256(document) in recorded, "agreement_adjudication_not_in_ledger_or_superseded")
                 adjudicated |= set(parse_adjudication(document, task, object_class))
             document = agreement_report(args.phase, corpus, partition, document_sha256(partition), task.sha256, batches, assignments, ledger.annotators(), adjudicated, registered, args.include_frozen_custodian_only)
             markdown = render_agreement(document)
@@ -230,7 +233,9 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         partition = read_json(args.partition)
         evaluation = read_json(args.evaluation)
         ledger = AnnotationLedger(args.ledger)
-        require(not Ledger(args.access_log).entries, "access_log_already_exists")
+        require(not args.access_log.exists(), "access_log_already_exists")
+        for target in (args.access_log, args.out, args.sealed_evaluation_out):
+            require(target.parent.is_dir(), f"seal_output_directory_missing:{target.name}")
         supersedes = None
         if args.supersedes:
             require(args.supersedes_reason and args.superseded_access_log, "seal_supersedes_needs_reason_and_old_log")
@@ -239,10 +244,14 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         seal = build_seal(corpus, partition, document_sha256(partition), read_json(args.frozen), evaluation, ledger.head, args.by, _now(), args.custody_note, supersedes)
         if supersedes is not None:
             verify_superseding_seal(seal, old_seal, Ledger(args.superseded_access_log))
-        ledger.record_seal(seal, _now())
+        # Validate everything, write the seal's files, and only then record it in the ledger:
+        # a failed run leaves no ledger entry, so a retry is not mistaken for a re-seal.
+        ledger.check_seal(seal)
+        sealed_view = seal_evaluation_view(evaluation, seal)
         open_access_log(args.access_log, seal, _now(), create=True)
         _emit(args.out, seal)
-        _emit(args.sealed_evaluation_out, seal_evaluation_view(evaluation, seal))
+        _emit(args.sealed_evaluation_out, sealed_view)
+        ledger.record_seal(seal, _now())
     elif command == "frozen-access":
         seal = read_json(args.seal)
         result = access_frozen(open_access_log(args.access_log, seal, _now()), seal, args.frozen, args.actor, args.purpose, args.stage, _now())

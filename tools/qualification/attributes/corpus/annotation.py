@@ -207,26 +207,45 @@ class AnnotationLedger(Ledger):
         require({d["unit"] for d in adjudication["decisions"]} <= set(packet["units"]), "ledger_adjudication_outside_packet")
         sha = document_sha256(adjudication)
         require(sha not in self.adjudication_hashes(), "ledger_adjudication_duplicate")
-        self.append("adjudication-recorded", {"adjudicationId": adjudication["adjudicationId"], "adjudicatorId": adjudication["adjudicatorId"], "adjudicationSha256": sha}, at)
+        keys = sorted({f"{d['unit']}|{d['attributeType']}" for d in adjudication["decisions"]})
+        supersedes = adjudication.get("supersedes")
+        effective = self.effective_adjudications()
+        if supersedes is not None:
+            require(supersedes in effective, "ledger_adjudication_supersedes_unknown_or_superseded")
+        # A key already decided may be decided again only by explicitly superseding the
+        # adjudication that decided it (a correction); the superseded one stops counting.
+        decided = {k: a["adjudicationSha256"] for a in effective.values() for k in a["keys"]}
+        for key in keys:
+            require(key not in decided or decided[key] == supersedes, f"ledger_adjudication_key_already_decided:{key}")
+        self.append("adjudication-recorded", {"adjudicationId": adjudication["adjudicationId"], "adjudicatorId": adjudication["adjudicatorId"], "adjudicationSha256": sha, "keys": keys, "supersedes": supersedes}, at)
 
     def record_seal(self, seal: dict, at: str) -> None:
         """The first seal on a ledger is plain; any later one must supersede the latest seal.
         (``frozen.verify_superseding_seal`` proves the old seal compromised and the frozen set
         new; the caller runs it, because it needs the old access log.)"""
-        seals = self.seals()
+        self.check_seal(seal)
         sha = document_sha256(seal)
-        require(sha not in {s["sealSha256"] for s in seals}, "ledger_seal_duplicate")
+        self.append("seal-created", {"sealSha256": sha, "membersSha256": seal["frozenMembers"]["membersSha256"], "supersedes": None if seal["supersedes"] is None else seal["supersedes"]["sealSha256"]}, at)
+
+    def check_seal(self, seal: dict) -> None:
+        seals = self.seals()
+        require(document_sha256(seal) not in {s["sealSha256"] for s in seals}, "ledger_seal_duplicate")
         if seals:
             require(seal["supersedes"] is not None and seal["supersedes"]["sealSha256"] == seals[-1]["sealSha256"], "ledger_reseal_requires_supersedes")
         else:
             require(seal["supersedes"] is None, "ledger_first_seal_supersedes")
-        self.append("seal-created", {"sealSha256": sha, "membersSha256": seal["frozenMembers"]["membersSha256"], "supersedes": None if seal["supersedes"] is None else seal["supersedes"]["sealSha256"]}, at)
 
     def seals(self) -> list[dict]:
         return self.of_kind_payloads("seal-created")
 
     def adjudication_hashes(self) -> set[str]:
         return {e["payload"]["adjudicationSha256"] for e in self.of_kind("adjudication-recorded")}
+
+    def effective_adjudications(self) -> dict[str, dict]:
+        """Recorded adjudications that no later adjudication superseded."""
+        entries = self.of_kind_payloads("adjudication-recorded")
+        superseded = {e["supersedes"] for e in entries if e.get("supersedes")}
+        return {e["adjudicationSha256"]: e for e in entries if e["adjudicationSha256"] not in superseded}
 
     def batch_hashes(self) -> dict[str, str]:
         return {e["payload"]["batchSha256"]: e["payload"]["annotatorId"] for e in self.of_kind("batch-submitted")}
@@ -330,7 +349,9 @@ def build_reveal_packet(packet_id: str, recipient_id: str, units: list[str], bat
 
 def parse_adjudication(document: dict, task: Task, object_class_of: dict[str, str]) -> dict[tuple[str, str], dict]:
     code = "adjudication_invalid"
-    require_keys(document, code, ("schemaVersion", "adjudicationId", "adjudicatorId", "revealPacketSha256", "decidedAt", "decisions"))
+    require_keys(document, code, ("schemaVersion", "adjudicationId", "adjudicatorId", "revealPacketSha256", "decidedAt", "decisions"), ("supersedes",))
+    if document.get("supersedes") is not None:
+        require_sha256(document["supersedes"], f"{code}:supersedes")
     require(document["schemaVersion"] == ADJUDICATION_SCHEMA, f"{code}:schema")
     refuse_path_leaks(document, "adjudication_path_leak")
     require_pseudonym(document["adjudicationId"], code)
@@ -366,7 +387,7 @@ def build_ground_truth(
 ) -> dict:
     """Derive final labels from main-phase batches; any unresolved conflict is an error."""
     registered = ledger.batch_hashes()
-    recorded_adjudications = ledger.adjudication_hashes()
+    recorded_adjudications = set(ledger.effective_adjudications())
     labels: dict[tuple[str, str], list[dict]] = defaultdict(list)
     seen_batches: set[str] = set()
     for batch, parsed in batches:
@@ -381,6 +402,12 @@ def build_ground_truth(
             labels[(label.unit, label.attribute_type)].append(
                 {"annotatorId": batch["annotatorId"], "batchSha256": batch_sha, "outcome": label.outcome, "value": label.value, "unscorableReason": label.reason}
             )
+    supplied = {d["adjudicationSha256"] for a in adjudications for d in a.values()}
+    require(supplied <= recorded_adjudications, "ground_truth_adjudication_not_in_ledger")
+    # Every effective (recorded, not superseded) adjudication that decides something must be
+    # supplied, just as every registered batch must be.
+    wanted = {sha for sha, e in ledger.effective_adjudications().items() if e["keys"]}
+    require(supplied == wanted, f"ground_truth_adjudications_incomplete:{len(wanted - supplied)}")
     decided: dict[tuple[str, str], dict] = {}
     for adjudication in adjudications:
         for key, decision in adjudication.items():

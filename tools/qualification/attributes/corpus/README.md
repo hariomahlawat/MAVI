@@ -92,7 +92,8 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - moves only ever go into training, so an evaluation partition can lose clusters but never gain a leaking one;
    - every move is recorded (`clusterId`, `from`, `to`, `reasons`), and each cluster keeps its `initialPartition`. Nothing is deleted.
 5. **Checks:** Track and camera counts per partition, and cameras unseen outside the frozen test. Shortfalls (fewer than `minimumCamerasPerPartition`, no unseen frozen camera) are recorded as **limitations**, never waived.
-6. **Audits are bound.** The manifest records the recurrence and duplicate audit hashes. An operational corpus cannot be partitioned without both audits (`partition_operational_requires_audits`).
+6. **Pinned training Tracks.** The optional `policy.pinnedTrainingTrackIds` names Tracks that must stay in training, such as the pilot Tracks when the corpus is re-partitioned after a compromised seal. Their clusters move to training (reason `pinned-training`) before link resolution. The policy is embedded in the manifest, so this is reproducible.
+7. **Audits are bound.** The manifest records the recurrence and duplicate audit hashes. An operational corpus cannot be partitioned without both audits (`partition_operational_requires_audits`).
 
 `verify_partition` takes the audits actually supplied, re-derives everything and refuses:
 - audit hashes that differ from the manifest's;
@@ -128,7 +129,9 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
 6. `assign --phase main` (requires the frozen task), then `submit`.
 7. `reveal`, then `adjudicate` (records the JSON decision file in the ledger), then `ground-truth`, then `agreement --phase main`.
    - An adjudication counts only if the ledger issued its reveal packet to that adjudicator, covering every unit it decides.
+   - A unit × attribute already decided can be decided again only by a correction that names the earlier adjudication in `supersedes`. The superseded adjudication stays in the ledger but stops counting.
 8. `seal` commits both views, records a `seal-created` event in the annotation ledger, writes the sealed evaluation view and creates the access log. Then use `frozen-access` / `seal-status` for any later access.
+   - The command validates every input and output path, then writes the access log, the seal and the sealed view, and only then appends `seal-created`. A failed run leaves no ledger entry, so a retry is not mistaken for a re-seal.
    - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason` and `--superseded-access-log`. That old log must show the old seal compromised, and the new frozen member set must differ.
 
 **The ledger** is append-only and hash-chained. It enforces independence:
@@ -142,7 +145,7 @@ Agreement and pilot reports accept only ledger-registered batches.
 - **Every** main batch the ledger registered must be supplied. A subset is refused, since dropping one annotator's batch would hide its disagreements.
 - The final labels must agree with the final `subject-validity`: `non-subject` if and only if the subject is not valid. This holds after adjudication too. A batch that marks a valid subject `non-subject` is refused.
 - It keeps every original label beside the final one.
-- A conflict without an adjudication recorded in the ledger is an error.
+- A conflict without an adjudication recorded in the ledger is an error. Every effective (not superseded) recorded adjudication must be supplied, and a superseded one is refused.
 - `unscorable` stays `unscorable`.
 - Consensus is on the outcome and value. When raters agree a unit is unscorable but give different reasons, the final reason follows `REASON_PRECEDENCE` (guide §3.1), and the row carries `reasonDisagreement: true`.
 
@@ -205,7 +208,8 @@ This is the foundation for later camera/site generalisation analysis, and delibe
 
 The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, statistic, seal status or camera support. The checker trusts none of it. It loads everything from the store, re-derives identities, and **recomputes** every conclusion from the primary inputs: assignments, batches, adjudications and the ledger. The labelling state it uses is the ledger as it stood at the ground truth's head.
 - **Partition**, from the corpus and both audits (`verify_partition`).
-- **Pilot report**, recomputed from the candidate task and every ledger-registered pilot batch. It must equal the retained report, the pilot must have used the final partition, and the frozen task must derive from it.
+- **Pilot report**, recomputed from the candidate task and every ledger-registered pilot batch, on the partition the pilot ran on (retained). It must equal the retained report, and the frozen task must derive from it. Every pilot Track must be in **training in the final partition**; after a re-partition, pin them (§4).
+- Main assignments' `partitionManifestSha256` is informational. Main labels do not depend on the partition, and the recomputed reports and views use the final partition.
 - **Main agreement report**, recomputed from every registered main batch and every ledger-recorded adjudication. It must equal the retained report, so compute it after adjudication. The adjudications listed in the record must equal the ledger's.
 - **Both ground-truth views**, recomputed. Their hashes must equal the seal's, so the frozen labels are verified without leaving the store.
 - **Seal:**
@@ -227,7 +231,12 @@ The committed record names each artefact by SHA-256 and asserts nothing else: no
 A malformed retained record is refused. The guide path must resolve inside the repository. Without the store the verdict is OPEN. A record may never claim more than the checker computes.
 
 **Residual trust (recorded, not solved):**
-- The custodian holds the store. Someone who deletes and hand-recreates an access log outside the tool can hide an improper access unless an earlier recorded head exists. Commit the F1 record's `accessLogHead` whenever the log changes, so Git history anchors it.
+- The custodian holds the store. Someone who hand-edits the files outside the tool can hide history unless an earlier recorded head exists:
+  - deleting and recreating an access log hides an improper access;
+  - truncating the annotation ledger after a `seal-created` entry, then re-sealing plainly, hides a compromised seal.
+
+  Hash chains cannot detect truncation on their own. Commit the F1 record (seal SHA-256, `annotationLedgerHead`, `accessLogHead`) at sealing and whenever either log changes, so Git history anchors the heads.
+- A superseding seal needs only a *different* frozen member set, and a single moved cluster is enough. The overlap with the compromised set is not bounded by the tool. Report it in the MSR limitations.
 - Double-labelling agreement on the frozen test itself is computed only in custodian-only reports (`--include-frozen-custodian-only`). It is not part of F1, because F1's agreement evidence must stay free of frozen-test label statistics.
 
 ## 11. Mutation and adversarial record
@@ -288,3 +297,8 @@ These tests were written against the implemented rules. They kill each fault by 
 | re-seal requires `--supersedes` (ledger) | killed |
 | batch completeness in ground truth | killed |
 | valid subject never `non-subject` | killed |
+
+Tests added after the third review:
+- `test_r1_recovery_after_a_compromise_can_reach_pass` covers compromise, a pinned re-partition and a superseding seal reaching PASS, and refuses the same re-partition without pinning;
+- `test_an_adjudication_is_corrected_only_by_superseding_it`;
+- `test_a_failed_seal_leaves_no_ledger_entry_and_can_be_retried`.

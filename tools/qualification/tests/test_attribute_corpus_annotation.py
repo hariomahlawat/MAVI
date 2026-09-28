@@ -426,3 +426,27 @@ def test_non_subject_is_reserved_for_invalid_subjects(world) -> None:
 
     with pytest.raises(CorpusError, match="batch_valid_subject_marked_non_subject"):
         _pilot(world, choose_a=choose)
+
+
+def test_an_adjudication_is_corrected_only_by_superseding_it(world) -> None:
+    made, batches = _pilot(world, choose_b=_disagree_on_backpack, phase="main")
+    task = world["frozen"]
+    conflict_units = sorted({l.unit for _, labels in batches for l in labels if l.attribute_type == "person-backpack"})
+    object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for u in made["ann-a"]["units"]}
+    packet = build_reveal_packet("reveal-1", "ann-a", conflict_units, batches)
+    world["ledger"].issue_reveal(packet, T0)
+    first = _adjudication(packet, "ann-a", conflict_units, object_class)
+    world["ledger"].record_adjudication(first, T0)
+    second = dict(_adjudication(packet, "ann-a", conflict_units, object_class, reason="occluded"), adjudicationId="adj-2")
+    with pytest.raises(CorpusError, match="ledger_adjudication_key_already_decided"):
+        world["ledger"].record_adjudication(second, T0)
+    second["supersedes"] = document_sha256(first)
+    world["ledger"].record_adjudication(second, T0)
+    parsed_first, parsed_second = (parse_adjudication(a, task, object_class) for a in (first, second))
+    with pytest.raises(CorpusError, match="ground_truth_adjudication_not_in_ledger"):
+        build_ground_truth(world["corpus"], world["partition"], world["psha"], task, batches, [parsed_first, parsed_second], world["ledger"], _assignments(made))
+    with pytest.raises(CorpusError, match="ground_truth_adjudications_incomplete"):
+        build_ground_truth(world["corpus"], world["partition"], world["psha"], task, batches, [], world["ledger"], _assignments(made))
+    truth = build_ground_truth(world["corpus"], world["partition"], world["psha"], task, batches, [parsed_second], world["ledger"], _assignments(made))
+    row = next(r for r in truth["rows"] if r["attributeType"] == "person-backpack" and r["resolution"] == "adjudicated")
+    assert row["final"]["unscorableReason"] == "occluded"

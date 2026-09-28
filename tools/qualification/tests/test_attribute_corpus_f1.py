@@ -28,7 +28,7 @@ from attributes.corpus.canonical import CorpusError, document_sha256, lf_normali
 from attributes.corpus.duplicates import build_duplicate_audit, parse_duplicate_audit
 from attributes.corpus.f1 import ACCESS_LOG, ANNOTATION_LEDGER, REPO, f1_verdict
 from attributes.corpus.ledger import Ledger
-from attributes.corpus.frozen import build_seal, declare_improper_access, open_access_log, seal_evaluation_view
+from attributes.corpus.frozen import build_seal, declare_improper_access, open_access_log, seal_evaluation_view, verify_superseding_seal
 from attributes.corpus.manifest import parse_corpus
 from attributes.corpus.partition import build_partition
 from attributes.corpus.pilot import pilot_report, sample_pilot_tracks
@@ -62,7 +62,7 @@ def _labelled(ledger, name, annotator, phase, units, corpus, partition, psha, ta
     return assignment, (batch, parse_batch(batch, assignment, task))
 
 
-def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, **policy_overrides: object) -> tuple[dict, Path]:
+def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, context: dict | None = None, **policy_overrides: object) -> tuple[dict, Path]:
     """Run the whole S2c.1 workflow and retain every record in a hash-addressed store."""
     store = tmp / "store"
     store.mkdir()
@@ -135,6 +135,11 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
     record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": log.head} if sealing else {"sealSha256": None, "accessLogHead": None}
     record["limitations"] = list(partition["checks"]["limitations"])
     record["custodian"] = "custodian-1"
+    if context is not None:
+        context.update(
+            corpus=corpus, links=recurrence_links + duplicate_links, hashes={"recurrence": recurrence_sha, "duplicate": duplicate_sha},
+            ledger=ledger, task=task, main_batches=main_batches, main_assignments=main_assignments, pilot_units=pilot_units, seal=seal,
+        )
     return record, store
 
 
@@ -375,3 +380,53 @@ def test_a_main_report_naming_an_unregistered_batch_is_refused(tmp_path) -> None
     record["labelling"]["mainAgreementReportSha256"] = document_sha256(document)
     with pytest.raises(CorpusError, match="f1_main_agreement_report_not_reproducible"):
         f1_verdict(record, tmp_path, store)
+
+
+def test_r1_recovery_after_a_compromise_can_reach_pass(tmp_path) -> None:
+    """Compromise, re-partition with the pilot pinned to training, re-seal a new frozen set."""
+    ctx: dict = {}
+    record, store = build_chain(tmp_path, context=ctx)
+    corpus, ledger, task = ctx["corpus"], ctx["ledger"], ctx["task"]
+    old_seal = ctx["seal"]
+    old_sha = document_sha256(old_seal)
+    log = open_access_log(store / ACCESS_LOG, old_seal, T0)
+    declare_improper_access(log, old_seal, "engineer-1", "S2c.3", "opened while debugging", T0)
+    assert f1_verdict(record, tmp_path, store)["computed"] == "OPEN"
+    (store / ACCESS_LOG).rename(store / f"frozen-access-log-{old_sha}.jsonl")
+
+    pinned = sorted(u[1] for u in ctx["pilot_units"])
+    partition = build_partition(corpus, policy(seed="r1-5", dateBlockDays=2, pinnedTrainingTrackIds=pinned), ctx["links"], ctx["hashes"])
+    psha = document_sha256(partition)
+    ledger = AnnotationLedger(store / ANNOTATION_LEDGER)
+    main = agreement_report("main", corpus, partition, psha, task.sha256, ctx["main_batches"], ctx["main_assignments"], ledger.annotators(), set(), set(ledger.batch_hashes()))
+    evaluation, frozen = split_ground_truth(build_ground_truth(corpus, partition, psha, task, ctx["main_batches"], [], ledger, ctx["main_assignments"]), None)
+    seal = build_seal(corpus, partition, psha, frozen, evaluation, ledger.head, "custodian-1", T0, "new frozen set", {"sealSha256": old_sha, "reason": "compromised in S2c.3"})
+    verify_superseding_seal(seal, old_seal, Ledger(store / f"frozen-access-log-{old_sha}.jsonl"))
+    new_log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
+    ledger.record_seal(seal, T0)
+    view = seal_evaluation_view(evaluation, seal)
+    for document in (partition, main, seal, view):
+        write_canonical(store / f"{document_sha256(document)}.json", document)
+    record["corpus"]["partitionManifestSha256"] = psha
+    record["labelling"]["mainAgreementReportSha256"] = document_sha256(main)
+    record["labelling"]["groundTruthSha256"] = document_sha256(view)
+    record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": new_log.head}
+    record["limitations"] = list(partition["checks"]["limitations"])
+    assert f1_verdict(record, tmp_path, store) == {"computed": "PASS", "claimed": "OPEN", "missing": []}
+    # Without the pilot pinned, a re-partition that moved pilot Tracks out of training is refused.
+    unpinned = build_partition(corpus, policy(seed="r1-5", dateBlockDays=2), ctx["links"], ctx["hashes"])
+    assert any(dict((a["trackId"], a["partition"]) for a in unpinned["assignments"])[t] != "training" for t in pinned)
+    write_canonical(store / f"{document_sha256(unpinned)}.json", unpinned)
+    record["corpus"]["partitionManifestSha256"] = document_sha256(unpinned)
+    with pytest.raises(CorpusError, match="f1_pilot_track_outside_final_training"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_a_failed_seal_leaves_no_ledger_entry_and_can_be_retried(tmp_path, capsys) -> None:
+    record, store = build_chain(tmp_path, seal=False)
+    bad = _seal_args(tmp_path, store, "no-such-dir/access.jsonl", "seal.json")
+    assert main(bad) == 2
+    assert "seal_output_directory_missing" in capsys.readouterr().err
+    assert AnnotationLedger(store / ANNOTATION_LEDGER).seals() == []
+    assert main(_seal_args(tmp_path, store, "access.jsonl", "seal.json")) == 0
+    assert len(AnnotationLedger(store / ANNOTATION_LEDGER).seals()) == 1
