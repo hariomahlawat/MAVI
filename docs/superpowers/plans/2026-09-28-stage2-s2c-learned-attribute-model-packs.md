@@ -75,7 +75,7 @@ S2c adds no lifecycle, persistence path, worker protocol or publication shortcut
 
 ### 4.2 S2c does not own
 
-S3: search v4, predicates, cursor, indexes, query plans (E5–E8), attribute filtering or browsing UI. S4: operator UI, Investigation/Review changes. S5: freezing gates and support, frozen-test scoring, retrieval precision (F7), CPU/CUDA *qualification* PASS, requalification matrix closure, Stage-2 acceptance. Also out: vehicle subclass (Stage 3), demographics/face/identity attributes (parent plan §2), a generic IntelligenceJob, a new lifecycle, tracking/detection/Evidence Set changes, scene analytics, live cameras, Production promotion, Task 18, training infrastructure beyond the minimal reproducible probe/fine-tune path the bake-off needs (§9.6), re-analysis requests (ADR-013 §9, not scoped by any slice yet), retention policy (ADR-013 §19; triggers before Production).
+S3: search v4, predicates, cursor, indexes, query plans (E5–E8), attribute filtering or browsing UI. S4: operator UI, Investigation/Review changes. S5: freezing gates and support, frozen-test scoring, retrieval precision (F7), CPU/CUDA *qualification* PASS, requalification matrix closure, Stage-2 acceptance. Also out: vehicle subclass (Stage 3), demographics/face/identity attributes (parent plan §2), a generic IntelligenceJob, a new lifecycle, tracking/detection/Evidence Set changes, scene analytics, live cameras, Production promotion, Task 18, training infrastructure beyond the minimal reproducible probe/fine-tune path the bake-off needs (§9.7), re-analysis requests (ADR-013 §9, not scoped by any slice yet), retention policy (ADR-013 §19; triggers before Production).
 
 ## 5. Quality principles for S2c
 
@@ -182,63 +182,100 @@ Abstention reason vocabulary (closed, schema-versioned): `subject_too_small`, `r
 
 `docs/qualification/stage2-s2c/model-candidate-survey.md` records the 2026-09 survey: supervised pedestrian-attribute recognition (PAR) models and datasets, vehicle-colour methods and datasets, contrastive VLMs, self-supervised backbones, small generative VLMs, segmentation/colour-naming pipelines and industrial models (Intel Open Model Zoo, PaddleDetection, NVIDIA TAO/DeepStream). Its conclusions that shape S2c:
 
-- **Licence, not architecture, is the binding constraint.** Every public dataset with clothing-colour labels (PETA, RAP, Market-1501 attributes, UPAR) and every public vehicle-colour dataset with CCTV imagery (VeRi-776, UFPR-VCR/VeSV, CompCars) is research-only or grants no rights; models trained on them are treated as carrying those restrictions. PA-100K is stated as CC-BY 4.0 but has no colour labels.
-- **Published accuracy does not transfer.** Vehicle colour reported at 92–98 % on a saturated frontal benchmark falls to ≈ 66 % top-1 for the same backbone on real CCTV with night imagery; night is < 10 % of that data and ≈ 32 % of its errors. PAR state of the art (≈ 85–93 % mA on PA-100K/PETA/RAP) is measured in-domain on research-only data, and cross-domain splits cost ≈ 15–25 mA points.
-- **Published PAR scores mostly do not measure colour.** The standard PETA-35/RAPv1-51 evaluation subsets drop colour labels and PA-100K has none; colour is scored only on Market-1501 attributes and UPAR (both restricted). MAVI's colour quality therefore cannot be inferred from leaderboard numbers at all.
-- **Model-card use restrictions matter.** OpenAI CLIP and LAION/DataComp OpenCLIP cards place surveillance and deployed use out of scope; Apple MobileCLIP/DFN weights are research-only; MetaCLIP is CC-BY-NC; DINOv3 and SAM 3 prohibit military/espionage use. SigLIP/SigLIP 2 and DINOv2 are Apache-2.0.
-- **Industrial models are the only permissively licensed, task-shaped checkpoints**, with undisclosed training data and OpenVINO-IR-only distribution.
-- **MAVI-owned labelled data is the realistic foundation** for a quality learned capability: a frozen Apache-2.0 backbone plus a MAVI-trained head, or a small fine-tuned network, both need MAVI labels.
+- **Published accuracy does not transfer.** Vehicle colour reported at 92–98 % on a saturated frontal benchmark falls to ≈ 66 % top-1 for the same backbone on real CCTV with night imagery; night is < 10 % of that data and ≈ 32 % of its errors. PAR state of the art (≈ 85–93 % mA on PA-100K/PETA/RAP) is measured in-domain, and cross-domain splits cost ≈ 15–25 mA points.
+- **Published PAR scores mostly do not measure colour.** The standard PETA-35/RAPv1-51 evaluation subsets drop colour labels and PA-100K has none; colour is scored on Market-1501 attributes and UPAR. MAVI's colour quality cannot be inferred from leaderboard numbers.
+- **The strongest reported approaches are frozen foundation backbones with task heads** (VLM-PAR on SigLIP 2; the Orrú vehicle-colour ensemble on DINOv3) and **task-shaped CCTV models** (Awiros, Intel OMZ, PP-Human/PP-Vehicle); both routes need MAVI-domain labels to be measured, and the backbone-plus-head route needs them to be trained.
+- **Licences differ by kind, not by application domain.** The survey records permissive, use-scoped, non-commercial and unstated terms separately for code, weights, derived models and training data (§9.3). MAVI is a domain-neutral platform; no candidate is excluded because of an assumed application domain.
 
-### 9.2 Shortlist for the bake-off (candidates, not choices)
+Technical ranking (§9.2) and licence qualification (§9.3) are **separate analyses**. Licence convenience never shapes the technical shortlist: a technically strong candidate with a problematic licence stays in the comparison with the issue marked, and the strongest legally usable alternative is evaluated beside it.
 
-Each family is evaluated only after its licence gate (§9.4 G1) is at least *provisionally admissible* by the human licence review; a family the review excludes is dropped before any MAVI data is used.
+### 9.2 Technical shortlist (licence-blind; candidates, not choices)
 
-| Task | Id | Candidate family | Why shortlisted | Main risk |
+Ordered within each task by the strength and domain relevance of the *reported* evidence (survey record). A *method* entry means the architecture/recipe trained on MAVI-permitted labels; a *checkpoint* entry means released weights.
+
+**T-PC person clothing colour**
+
+| Id | Candidate | Kind | Reported technical evidence | Technical risk |
 |---|---|---|---|---|
-| T-PC | PC-B0 | **Deterministic baseline:** region band + dominant chroma cluster + MAVI-owned CIE-Lab colour naming (no learned weights) | licence-free floor every learned candidate must beat | illumination/white balance |
-| T-PC | PC-1 | Frozen **SigLIP 2** image tower (base class) on region crops + MAVI-trained linear/MLP head + calibration | Apache-2.0; strongest licence-clean open-vocabulary features; region cropping avoids upper/lower binding errors | ≈ 0.2 B parameters (CPU cost); low-res degradation; new runtime dependency unless reimplemented on torch |
-| T-PC | PC-2 | Frozen **DINOv2** (S or B) + MAVI head | Apache-2.0; efficient; strong probes | colour may be under-represented in invariance-trained features |
-| T-PC | PC-3 | **Small CNN fine-tuned** on MAVI labels (torchvision MobileNetV3 / ResNet / ConvNeXt-T family) | runs on the existing Runtime Pack graph; cheap on CPU | ImageNet-pretraining provenance (legal question); needs more labels |
-| T-PC | PC-4 | **Intel OMZ person-attributes-recognition-crossroad-0230** colour points + PC-B0 naming | Apache-2.0; tiny; designed for crossroad CCTV | undisclosed training data; IR→torch port and parity; point sampling, not region colour |
-| T-PO | PO-1 | **Intel OMZ 0230** `has_backpack`, `has_bag`, `has_hat` | Apache-2.0; task-shaped; tiny | undisclosed data; no published per-attribute accuracy; port |
-| T-PO | PO-2 | SigLIP 2 + MAVI head (shared tower with PC-1) | one backbone serves T-PC and T-PO | as PC-1 |
-| T-PO | PO-3 | Small CNN fine-tuned on **PA-100K (CC-BY 4.0)** + MAVI labels | the one large permissive PAR dataset covers backpack/bag/hat | data-protection review of PA-100K imagery; domain shift |
-| T-PO | PO-4 | DINOv2 + MAVI head | as PC-2 | as PC-2 |
-| T-PC + T-PO | PX-5 | **Awiros ConvNeXt V2-Tiny** (ONNX; heads for top/bottom colour, backpack, handbag, head accessory) — **conditional** | the only released task-shaped model trained on CCTV crops; vendor reports colour ≈ 75 %, backpack ≈ 94 % on its own benchmark | licence terms not stated, gated access; pseudo-labels from an unnamed VLM; gender/age heads must be discarded by the adapter; needs onnxruntime or conversion |
-| T-VC | VC-B0 | **Deterministic baseline:** body-region chroma clustering + Lab naming | licence-free floor | glare, white balance |
-| T-VC | VC-1 | **Intel OMZ vehicle-attributes-recognition-barrier-0042** (0039 as a small reference) | Apache-2.0; task-shaped; fast | 7 colours only; undisclosed data; front-view bias; upstream deprecated |
-| T-VC | VC-2 | SigLIP 2 or DINOv2 + MAVI colour head | full vocabulary control; Apache-2.0 | labelling cost; long tail |
-| T-VC | VC-3 | Small CNN fine-tuned on MAVI labels | existing graph; cheap | labels; provenance |
-| T-VC | VC-R | SigLIP 2 zero-shot prompts — **reference only** | no labels needed; sanity check | uncalibrated; not a deployable candidate |
+| PC-1 | Frozen **SigLIP 2** tower + trained cross-attention/linear heads, region-cropped (VLM-PAR design) | method (backbone checkpoint + MAVI head) | VLM-PAR reports SOTA on PA-100K/PETA/Market (Dec 2025); SigLIP 2 NaFlex handles tall crops | ≈ 0.2–0.4 B params at base; low-res degradation; no MAVI evidence |
+| PC-2 | Frozen **DINOv3** (ViT-S/B or ConvNeXt) + MAVI heads; **DINOv2** as the paired alternative | method | DINOv3 features used by the strongest reported vehicle-colour ensemble; DINOv2 strong general probes | colour sensitivity of invariance-trained features unmeasured |
+| PC-3 | **PromptPAR / VTB** (CLIP ViT-L/14 or ViT-B prompt tuning) | method; released checkpoints trained on PETA/RAP subsets | 87–89 mA in-domain (PromptPAR); the eval subsets it reports exclude colour | GPU-class (L/14); CLIP binding weakness; cross-domain drop (78.8 → 63.2 on MSP60K) |
+| PC-4 | **UPAR-trained** ConvNeXt-B baseline / **C2T-Net** (UPAR 2024 winner) | checkpoint (C2T-Net released) | trained on 11-colour upper/lower labels; cross-domain mA ≈ 70 | heavy (Swin + EVA-ViT); domain of source datasets |
+| PC-5 | **Awiros ConvNeXt V2-Tiny** | checkpoint (ONNX) | vendor CCTV benchmark: top 74.8 %, bottom 75.2 % | vendor-reported only; pseudo-labels from an unnamed VLM; gender/age heads must be discarded |
+| PC-6 | OpenAI **CLIP** / **OpenCLIP**, **MobileCLIP 2**, **MetaCLIP**, **EVA-CLIP** towers + MAVI heads | method | alternative contrastive towers; MobileCLIP 2 is the most CPU-efficient | as PC-1; binding weakness |
+| PC-7 | **Intel OMZ person-attributes-recognition-crossroad-0230** colour points + Lab naming | checkpoint (OpenVINO IR) | designed for crossroad CCTV; tiny | point sampling, not region colour; no colour accuracy published |
+| PC-8 | Small **CNN fine-tuned** on MAVI labels (MobileNetV3 / ResNet / ConvNeXt-T; strong-baseline recipe) | method | 80–85 mA class in-domain for the recipe | label volume |
+| PC-B0 | **Deterministic baseline**: region band + dominant chroma cluster + MAVI-owned CIE-Lab naming | MAVI-owned | floor every learned candidate must beat | illumination/white balance |
 
-**Conditionally admitted** (evaluated only if the licence review clears them): OpenCLIP/CLIP ViT-B probes (model-card surveillance statement), Awiros PX-5 (unstated terms). **Upper-bound references** (never deployable; run internally only if the licence review permits evaluation use of restricted-data checkpoints): the UPAR ConvNeXt-B baseline, the UPAR 2024 winner C2T-Net, PromptPAR — they quantify how much quality the licence-clean candidates give up, including on colour. **Excluded** from deployment: every checkpoint trained on research-only data (PromptPAR/VTB/SequencePAR/Rethinking-PAR on PETA/RAP, PP-Human/PP-Vehicle attribute weights, VeRi/UFPR-trained vehicle models), MobileCLIP/DFN, MetaCLIP, DINOv3, SAM 3, NVIDIA DeepStream CarColor (deprecated, EULA-bound). Their **reported** numbers may be cited as context; MAVI does not reproduce them on restricted data unless the licence review permits evaluation use. **Generative VLMs** (Florence-2, SmolVLM, Qwen-VL, Moondream) are not candidates for the classifier role (no native calibration, decoding non-determinism, cost at 40,000 crops); an offline one may be used only as a labelling *assistant* whose output is never ground truth (§10.3).
+**T-PO person carried objects and headwear**
 
-The shortlist is a floor, not a ceiling: slice S2c.2 re-runs the survey at freeze time and may add a candidate published since, under the same gates.
+| Id | Candidate | Kind | Reported technical evidence | Technical risk |
+|---|---|---|---|---|
+| PO-1 | SigLIP 2 heads (shared tower with PC-1) | method | as PC-1 | small objects at low resolution |
+| PO-2 | DINOv3 / DINOv2 heads | method | as PC-2 | as PC-2 |
+| PO-3 | **PromptPAR / VTB / strong baseline** trained on **PA-100K** (hat, backpack, handbag, shoulder bag) | method + released checkpoints | 80–87 mA on PA-100K | domain shift to MAVI views |
+| PO-4 | **Awiros ConvNeXt V2-Tiny** | checkpoint | vendor: backpack 94.2 %, handbag 91.3 %, head accessory 84.7 % | as PC-5 |
+| PO-5 | **PP-Human attribute** (PP-LCNet/PP-HGNet, 26 attributes incl. hat and bags) | checkpoint (Paddle) | mA 94.5–95.4 on a mixed set | Paddle toolchain or conversion |
+| PO-6 | **Intel OMZ 0230** `has_backpack`/`has_bag`/`has_hat` (0234/0238 for hat) | checkpoint (IR) | F1 backpack 0.77, bag 0.66, hat 0.64 | weak reported F1; ≥ 80 px width |
+| PO-7 | Small CNN fine-tuned on PA-100K + MAVI labels | method | as PC-8 | as PC-8 |
 
-### 9.3 The bake-off
+**T-VC vehicle dominant colour** (independent survey and bake-off; no assumption that a person model serves it)
+
+| Id | Candidate | Kind | Reported technical evidence | Technical risk |
+|---|---|---|---|---|
+| VC-1 | Frozen **DINOv3** (and DINOv2) + MAVI colour head; ensemble with CNNs as in Orrú 2026 | method | UFPR-VeSV 94.6 % micro / 79.7 % macro for the ensemble; ≈ 58 % of residual errors judged ambiguous (IR, grey/silver) | cost of an ensemble; long tail |
+| VC-2 | SigLIP 2 + MAVI colour head | method | general features; no VCR result | as PC-1 |
+| VC-3 | **PP-Vehicle PP-LCNet** attribute model | checkpoint (Paddle) | colour 90.81 % on VeRi val | single-site training domain; Paddle toolchain |
+| VC-4 | Fine-tuned CNN / ViT on MAVI labels (Lima et al. recipe) | method | 92.8 % Chen, 66.2 % UFPR-VCR for ViT-B/16 — the CCTV figure is the relevant one | labels |
+| VC-5 | **Intel OMZ vehicle-attributes-recognition-barrier-0042** (0039 small reference) | checkpoint (IR) | colour avg 82.7 % (vendor), yellow 61.5 % | 7 colours; front-facing bias |
+| VC-R | SigLIP 2 / CLIP zero-shot prompts | reference | no VCR result | uncalibrated; reference only |
+| VC-B0 | **Deterministic baseline**: body-region chroma clustering + Lab naming | MAVI-owned | floor | glare, white balance |
+
+**Not candidates for the classifier role, on technical grounds:** small generative VLMs (Florence-2, SmolVLM 2, Qwen-VL, Moondream, InternVL) — no native calibration, decoding non-determinism, per-crop cost at 40,000 crops; an offline one may assist labelling, never as ground truth (§10.3). Billion-parameter PAR (LLM-PAR) — not viable on the Development CPU at the §14 budget; cited as the reported ceiling. **Segmentation** (SAM 2.1, SAM 3, human parsing) is a *component* candidate for the region step of PC-1/PC-B0/VC-B0, evaluated only if unmasked bands lose materially in the bake-off.
+
+The shortlist is a floor, not a ceiling: slice S2c.2 re-runs the survey at freeze time and may add a candidate published since.
+
+### 9.3 Licence qualification (separate analysis)
+
+Every shortlisted candidate has a row in the survey record's licence matrix (`model-candidate-survey.md` §6) giving: exact licence and its source; commercial-use, redistribution, surveillance/security/law-enforcement, military/defence and other use restrictions; and whether each applies to code, weights, derived models or training data. The classes:
+
+| Class | Meaning | Examples (per survey; human review decides) |
+|---|---|---|
+| **L-A permissive** | no use restriction beyond attribution/notice | SigLIP/SigLIP 2, DINOv2, SAM 2.1 (Apache-2.0); OMZ models (Apache-2.0 via `model.yml`, training data undisclosed); PA-100K (CC-BY 4.0 stated); PP-Human/PP-Vehicle *code* (Apache-2.0) |
+| **L-B use-scoped** | commercial use and redistribution permitted, but certain **end uses** are prohibited or declared out of scope — qualification depends on the deployment's actual use, determined per deployment profile, never inferred from MAVI's (domain-neutral) product definition | DINOv3 and SAM 3 (trade-controls/ITAR clause covering military, warfare, nuclear, espionage and illegal-weapons end uses; applies to weights, code and derivatives); OpenAI CLIP and LAION/DataComp OpenCLIP (MIT, but model cards state surveillance and deployed use out of scope — binding force for review); Awiros ("other", gated, stated intended use and "not for identity"); NVIDIA TAO (NVIDIA model licence + Trustworthy-AI terms) |
+| **L-C non-commercial / research-only** | the grant excludes commercial products or product development | Apple MobileCLIP/MobileCLIP 2/DFN (Apple ML Research Model Licence: weights and derivatives, research purposes only, excludes product development); MetaCLIP (CC-BY-NC); UPAR-trained checkpoints (CC-BY-NC-SA data); PETA/RAP/Market-1501/VeRi/UFPR/CompCars-trained checkpoints including PP-Vehicle and PromptPAR's released checkpoints; LUPerson-pretrained backbones (SOLIDER, HAP); ViTA-PAR (CC BY-NC-ND) |
+| **L-D unstated** | no licence found | Rethinking-PAR, PARFormer, HAP repo, Vehicle Color-24, VCoR images, the van de Weijer `w2c` table |
+
+Rules:
+1. **Evaluation permission is its own question.** A candidate enters the MAVI bake-off only if MAVI's evaluation use is permitted by its terms (some L-C grants cover "testing" for research but exclude product development). Where a checkpoint cannot be evaluated but its *method* code is permissive, the method trained on MAVI-permitted data represents it (e.g. PC-3 re-trained on MAVI labels instead of the PETA/RAP checkpoint); where neither is possible, its reported figures remain in the comparison, marked "not reproduced by MAVI".
+2. **Selection needs qualification for the target release profile** (gate G1, §9.5), applied *after* evaluation: L-A subject to review; L-B only with a recorded per-deployment use determination; L-C only with a separately negotiated licence; L-D not selectable.
+3. **The record reports both** the technically strongest evaluated candidate and the strongest qualifiable one, with the measured gap. If they differ, the owner decides whether to seek a licence for the stronger one; the plan does not decide it.
+4. The per-deployment determination for an L-B pack is recorded as a gate (`licence-use-determination`) in the capability qualification record's per-profile qualification (existing `profileQualifications` shape; no schema change), so a release profile cannot bind the pack without it.
+
+### 9.4 The bake-off
 
 - **Separation from production.** Candidates run in a *separate evaluation environment* under `tools/qualification/attributes/` (an isolated, pinned venv that may contain `open_clip`, `transformers`, `onnxruntime`, `openvino` for conversion and parity), never in the Runtime Pack. No candidate is integrated into `mavi_vision.attributes` before it wins.
 - **Same conditions for all.** The same crops (the real MAVI Evidence Sets of the validation partition, exactly as leased), the same admissibility policy, the same aggregation method family, the same metric code, the same hardware class, recorded thread counts and precision.
 - **Inputs.** Crops come from the corpus store by SHA; each candidate's preprocessing is recorded as data; checkpoints are loaded from a hash-pinned local cache populated once from pinned revisions (never a floating tag).
-- **Probe/fine-tune candidates** train on the *training* partition only, tune on the validation partition, with fixed seeds and a recorded environment (§9.6).
+- **Probe/fine-tune candidates** train on the *training* partition only, tune on the validation partition, with fixed seeds and a recorded environment (§9.7).
 - **Measurements:** §10.4 quality metrics at crop, Representative-only and Track level with abstention; risk–coverage; calibration; strata (§8.2); per-camera and leave-one-camera-out within the validation partition; CPU and (where available) CUDA latency p50/p95 per crop and per Track, batch behaviour, peak RSS/VRAM, model-load time; determinism on repeat.
 - **Statistics.** Differences are reported with a paired bootstrap over Tracks, resampled by camera, 95 % intervals; "better" means the interval excludes zero.
 - **Protocol frozen first.** Candidates, weights, gates, strata, the minimum practically important difference (MPID) and the report format are committed (slice S2c.2) **before** any candidate sees MAVI data.
 
-### 9.4 Selection gates and weighted decision
+### 9.5 Selection gates and weighted decision
 
 **Hard gates (eliminate):**
 
 | Gate | Rule |
 |---|---|
-| G1 Licence | code, weights and training-data terms permit offline redistribution and MAVI's operational use, per the human licence review; unresolved → not selectable (may still be *evaluated* if evaluation use is permitted) |
+| G1 Licence qualification | applied after evaluation (§9.3 rule 2): the candidate is qualifiable for the target release profile — L-A after review, L-B with a recorded per-deployment use determination, L-C only under a separate licence, L-D never; a candidate failing G1 stays in the record as the technical reference |
 | G2 Offline | loads from pack artefacts alone; no hub, index or network call; verified by a network-denied run |
 | G3 Determinism | repeated CPU runs give identical Track decisions and scores within 1e-6; CPU/CUDA variants agree on Track decisions within the predeclared equivalence tolerance (qualification plan §10) or only one variant may be bound |
 | G4 Runtime budget | Development-CPU p95 per crop within the budget of §14, or within it on CUDA where the release profile binds CUDA |
 | G5 Baseline | beats the deterministic baseline (B0) on the primary quality metric with the bootstrap interval excluding zero; if no learned candidate does, the baseline is selectable and the plan records that the learned capability did not beat it |
 | G6 Abstention sanity | on non-subject/error crops of the validation partition it produces Unknown/abstention at a higher rate than on valid crops (F6 direction), and no confident prediction on achromatic crops for colour types |
 
-**Weighted decision among survivors** (weights proposed here, reviewed and frozen in S2c.2 before results exist):
+**Weighted technical decision** (weights proposed here, reviewed and frozen in S2c.2 before results exist). Licence is deliberately **not** a weighted criterion: the weighted score ranks candidates technically, and G1 then decides which of them can be qualified (§9.3); both rankings are reported:
 
 | Group | Criterion | Weight |
 |---|---|---|
@@ -254,17 +291,17 @@ The shortlist is a floor, not a ceiling: slice S2c.2 re-runs the survey at freez
 | Engineering (15) | dependency burden / Runtime Pack impact | 6 |
 | | implementation stability and maintenance status | 5 |
 | | exportability and replaceability | 4 |
-| Deployment (15) | licence risk grade after review | 6 |
+| Deployment (15) | offline self-containment and pack size | 6 |
 | | training-data provenance disclosed | 5 |
 | | packaging reproducibility | 4 |
 
 A quality difference inside the bootstrap interval is a tie. **A candidate that needs a Runtime Pack extension** (§12.5) must beat the best candidate on the existing graph by at least the MPID with the interval's lower bound above zero; otherwise the existing-graph candidate is selected. Conversely a candidate is never rejected for needing a reasonable extension when it clears that bar.
 
-### 9.5 Model-selection record
+### 9.6 Model-selection record
 
 Per task, retained at `docs/qualification/stage2-s2c/model-selection-<task>.md` with raw results under the qualification evidence store: candidates considered; exact checkpoint identities, source revisions and SHA-256s; licences and review outcome; corpus and partition manifest hashes; hardware; runtime and environment lock; preprocessing; metrics and raw per-Track predictions; performance; the reason each candidate was eliminated; the reason the winner was chosen; known weaknesses. The winner is described as *"selected as the strongest qualified candidate for MAVI's defined S2c operating envelope based on retained bake-off evidence"* — never "best".
 
-### 9.6 Minimal training path
+### 9.7 Minimal training path
 
 Only where a probe/fine-tune candidate is shortlisted: a pinned, seeded script in `tools/qualification/attributes/` that reads the training partition by manifest, writes the head/calibration artefacts with SHA-256s and a training manifest (inputs, seed, environment lock, code revision). Because the corpus is private CCTV, CI cannot rebuild these artefacts; reproducibility is proven by re-running the recorded manifest on the owner-controlled machine and matching the artefact hash (or, where CPU kernels are not bit-stable, the recorded tolerance on decisions). No general training platform, experiment tracker or hyper-parameter service is introduced.
 
@@ -360,7 +397,7 @@ One record per capability (`models/qualifications/<pack>-<capability>.json`), al
 ### 12.5 Runtime Pack decision
 
 - **Default:** the selected adapter runs on `mmdetection-phase1-v1` (torch 2.6.0, torchvision 0.21.0, OpenCV, Pillow, NumPy). An OpenVINO-IR candidate is ported to a first-party torch module with a build-time parity test; a SigLIP/DINOv2 tower is reimplemented on torch or loaded as a state dict into first-party code; `torch.load(weights_only=True)` only.
-- **Extension (only past the §9.4 MPID bar):** a new family `attributes-<engine>-v1` for the attributes role (ADR-013 item 10), with its own locks per variant, `runtime.json`, offline wheel entries, licence inventory, CI build and ADR-009 status per variant (CUDA starts `pending-hardware-qualification`). The vision family's lock is never changed for an attribute model.
+- **Extension (only past the §9.5 MPID bar):** a new family `attributes-<engine>-v1` for the attributes role (ADR-013 item 10), with its own locks per variant, `runtime.json`, offline wheel entries, licence inventory, CI build and ADR-009 status per variant (CUDA starts `pending-hardware-qualification`). The vision family's lock is never changed for an attribute model.
 
 ### 12.6 What the shipped release binds
 
@@ -404,7 +441,7 @@ Batching is bounded by a byte and count cap derived from the crop bounds (≤ 16
 |---|---|
 | Weights in Git | never (`verify_repo` refuses weight extensions; 10 MiB cap) |
 | Acquisition | a generalised Model Pack workflow (the RTMDet workflow is hard-wired today) fetches third-party checkpoints on a connected CI runner from **pinned immutable URLs/revisions**, verifies SHA-256 against the source manifest, extracts licence notices byte-exactly, and runs `build_model_pack.py` |
-| MAVI-trained artefacts | built on the owner-controlled machine from a recorded training manifest (§9.6); only their hashes are in Git; they enter the kit by hash |
+| MAVI-trained artefacts | built on the owner-controlled machine from a recorded training manifest (§9.7); only their hashes are in Git; they enter the kit by hash |
 | Kit | content-addressed `vision/models/<modelPackId>/`; `component-inventory.json`; the sync tool already collects every enabled pack of a role |
 | Setup | `Mavi.VisionSetup.psm1` and the sync `plan` step extended from `vision` to every startable role, so the attributes packs are installed and verified by the same launcher |
 | Policy | `offline-dependency-policy-v1.json`: model entries for each pack (source, licence, notice, hashes, owner); `offline-binary-inventory.md`: Model Pack rows; any new Python package: `managedSources.python`, wheelhouse, lock, and (§12.5) a new family |
@@ -529,7 +566,7 @@ Each slice is a reviewable PR on the S2c feature branch (or a sequence of PRs), 
 |---|---|---|---|---|---|---|
 | **S2c.0 Baseline** | S2b closure entry (R1); acceptance of ADR-013 items 8–11 and R1; record the licence-review and corpus owners | register evidence log; ADR status | — | closure entry | amendments not accepted → stop | — |
 | **S2c.1 Task + corpus + labels** | corpus/partition manifest schemas and tooling (hashing, near-duplicate check, grouping); annotation guide v1; pilot; agreement tooling; vocabulary freeze; main labelling; **seal the frozen test** | `tools/qualification/attributes/corpus/`, `docs/qualification/stage2-s2c/annotation-guide.md`, manifests | manifest schema, grouping/leakage, agreement computation (known κ/α cases) | pilot + agreement report; sealed manifest hash (**F1**) | agreement too low for an attribute → the attribute is removed or merged, recorded | frozen-test scoring (S5) |
-| **S2c.2 Protocol freeze** | re-run the survey; licence review of shortlisted families; commit bake-off protocol (candidates, gates, weights, MPID, strata, report format) | `docs/qualification/stage2-s2c/bake-off-protocol.md`, survey update | — | protocol hash committed before results | no family survives G1 for a task → that task is re-scoped with the owner | — |
+| **S2c.2 Protocol freeze** | re-run the technical survey; licence matrix for every shortlisted candidate and the human review of (a) evaluation permission and (b) qualification class; commit bake-off protocol (candidates, gates, weights, MPID, strata, report format) | `docs/qualification/stage2-s2c/bake-off-protocol.md`, survey update | — | protocol hash committed before results | no candidate of a task may even be evaluated → that task is re-scoped with the owner; a technically strong candidate that cannot be evaluated stays in the record with its reported figures | — |
 | **S2c.3 Evaluation harness** | isolated eval environment; candidate runners; metrics; bootstrap; stratified reports; latency/memory probes | `tools/qualification/attributes/` | metrics on synthetic predictions with known answers; bootstrap determinism; runner interface | harness self-test report | — | no production code |
 | **S2c.4 Bake-off** | run candidates on the validation partition; train probe heads where shortlisted; selection record per task | evidence store; `model-selection-*.md` | — | raw results, selection records | no candidate passes G1–G6 for an attribute → attribute disabled for S2c; baseline-only outcome recorded | — |
 | **S2c.5 Contracts** | artefact v2, bound v2, abstention vocabulary, aggregation v2, admissibility parameters, registered manifest sections, gate sets, adapter registry (fixture as `fixture-v1`) | `attributes/{inference,predictions,pipeline,contracts}.py`, `model_manifest_v2.py`, `AttributePredictionsValidator.cs`, `VisualAttributeRelease.cs`, `VisualAttributeContractRules.cs`, vectors | vectors and validators first | vectors, mutations S6–S9, S16, S17 | — | — |
@@ -543,16 +580,16 @@ Each slice is a reviewable PR on the S2c feature branch (or a sequence of PRs), 
 
 | # | Item | Owner | Blocks |
 |---|---|---|---|
-| U1 | **Licence review** of every shortlisted family: ImageNet-pretraining provenance of torchvision weights; OMZ training-data provenance; PA-100K images/data protection; binding force of CLIP/OpenCLIP model-card "surveillance" statements; SigLIP 2/WebLI; evaluation-only use of research datasets | owner + legal | S2c.2 (selection), F3 |
+| U1 | **Licence review**, separate from technical ranking, of every shortlisted candidate: (a) whether MAVI may *evaluate* it; (b) its class L-A…L-D; (c) for L-B candidates, the per-deployment end-use determination — made from each deployment's actual use, never inferred from MAVI's domain-neutral product definition. Open items include ImageNet-pretraining provenance of torchvision weights; OMZ training-data provenance; PA-100K images/data protection; binding force of CLIP/OpenCLIP model-card "surveillance" statements; SigLIP 2/WebLI; evaluation-only use of research datasets | owner + legal | S2c.2 (selection), F3 |
 | U2 | **Corpus footage** (cameras, day/night) and **annotators** (≥ 2, one independent) | owner | S2c.1, S2c.4 |
 | U3 | **Product decisions**: colour merges after the pilot; target precision per attribute; MPID; whether headwear stays a candidate | owner | S2c.1/S2c.2 (MPID), S5 (targets) |
 | U4 | Development GPU host availability for CUDA evidence | owner | S2c.9 (CUDA part only) |
 | U5 | Enabling the attributes role in the shipped binding moves the kit compatibility boundary (§12.6) | reviewer | S2c.8 |
 | U6 | Whether truncation needs explicit crop geometry in the lease (additive field) | bake-off evidence | S2c.4 → possibly S2c.5 |
-| R-a | No licence-clean candidate reaches a useful precision for colour on MAVI imagery | — | mitigated by B0 floor and MAVI-trained heads; outcome may be "attribute disabled" |
+| R-a | No *qualifiable* candidate reaches a useful precision for colour on MAVI imagery (the technically strongest may be L-C) | — | mitigated by B0 floor and MAVI-trained heads; outcome may be "attribute disabled" |
 | R-b | Probe candidates need more labels than the owner can provide | — | pilot measures learning curves early |
-| R-c | CPU budget excludes the most accurate backbone | — | CUDA binding for the role or a smaller tower; §9.4 decides |
-| R-d | MAVI-trained artefacts cannot be rebuilt in CI | — | recorded training manifest + owner-machine rebuild check (§9.6) |
+| R-c | CPU budget excludes the most accurate backbone | — | CUDA binding for the role or a smaller tower; §9.5 decides |
+| R-d | MAVI-trained artefacts cannot be rebuilt in CI | — | recorded training manifest + owner-machine rebuild check (§9.7) |
 
 ## 24. Cold review of this plan
 
