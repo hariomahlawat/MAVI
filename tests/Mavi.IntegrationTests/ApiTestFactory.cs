@@ -81,6 +81,9 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
     /// and its pipeline profile. Unset, the platform reads no attribute release.
     /// </summary>
     public string? VisualAttributeComponentBindingPath { get; init; }
+
+    /// <summary>The host environment; "Testing" unless a test is about another one.</summary>
+    public string EnvironmentName { get; init; } = "Testing";
     public string? VisualAttributePipelineProfilePath { get; init; }
 
     public int StartupMigrationLockTimeoutSeconds { get; init; } = 30;
@@ -88,7 +91,7 @@ public sealed class ApiTestFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Testing");
+        builder.UseEnvironment(EnvironmentName);
         if (!string.IsNullOrWhiteSpace(StaticWebRoot))
             builder.UseWebRoot(StaticWebRoot);
         builder.UseSetting("ConnectionStrings:Mavi", ConnectionString);

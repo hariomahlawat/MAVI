@@ -210,6 +210,33 @@ public sealed class VisualAttributeCompletionProtocolTests(PostgresFixture fixtu
         Assert.Equal(1, await db.Artifacts.CountAsync(x => x.ArtifactType == ArtifactType.AttributePredictions));
     }
 
+    [Fact]
+    public async Task PublicationWaitsForTheVisibilityBarrier()
+    {
+        var (host, _) = await HostWithQueuedRunAsync();
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var completion = await StagedAsync(host, unit);
+
+        // A first-page search in flight holds the barrier shared.
+        await using var search = host.World.Read();
+        await using var searchTransaction = await search.Database.BeginTransactionAsync();
+        await Mavi.Infrastructure.Persistence.ProcessingVisibilityBarrier.AcquireSearchSharedAsync(search, CancellationToken.None);
+        var sequenceBefore = await Mavi.Infrastructure.Persistence.ProcessingVisibilityBarrier.AllocateSequenceAsync(search, CancellationToken.None);
+
+        var publishing = host.CompleteAsync(unit, completion.Request);
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        Assert.False(publishing.IsCompleted);
+        await using (var db = host.World.Read())
+            Assert.Equal(VisualAttributeAnalysisStatus.Running, (await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync()).Status);
+
+        await searchTransaction.CommitAsync();
+        using var response = await publishing;
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await using (var db = host.World.Read())
+            Assert.True((await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync()).VisibilitySequence > sequenceBefore);
+    }
+
     // --- Preferred identity, supersession and rollback -----------------------------------------
 
     [Fact]

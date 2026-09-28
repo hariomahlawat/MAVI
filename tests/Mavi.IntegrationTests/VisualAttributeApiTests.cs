@@ -136,6 +136,9 @@ public sealed class VisualAttributeApiTests(PostgresFixture fixture)
         host.World.Clock.Advance(TimeSpan.FromSeconds(30));
         using var extended = await host.HeartbeatAsync(unit);
         Assert.Equal(HttpStatusCode.OK, extended.StatusCode);
+        // The capability is issued once, at lease; nothing ever echoes it back.
+        Assert.False(extended.Headers.Contains(VisualAttributeContractRules.CapabilityHeader));
+        Assert.DoesNotContain(unit.Capability, await extended.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         var response = await extended.Content.ReadFromJsonAsync<VisualAttributeHeartbeatResponse>();
         Assert.True(response!.LeaseExpiresAtUtc > unit.Lease.LeaseExpiresAtUtc);
     }
@@ -410,6 +413,39 @@ public sealed class VisualAttributeApiTests(PostgresFixture fixture)
         Assert.Equal(VisualAttributeAnalysisStatus.Running, (await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync()).Status);
         Assert.False(await db.VisualAttributeTrackOutcomes.AnyAsync());
         Assert.False(Directory.Exists(Path.Combine(host.World.EvidenceRoot, "attributes")));
+    }
+
+    // --- Startup ---------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("Production", true)]
+    [InlineData("Staging", true)]
+    [InlineData("Development", false)]
+    [InlineData("Testing", false)]
+    public void TheDevelopmentOnlyFixtureStartsOnlyInDevelopmentOrTesting(string environment, bool refused)
+    {
+        var definition = VisualAttributeReleaseFixture.Definition();
+        Assert.True(definition.DevelopmentOnly);
+        var host = new StartupEnvironment { EnvironmentName = environment };
+        if (!refused)
+        {
+            Mavi.Api.Startup.VisualAttributeReleaseStartup.RequireAllowed(definition, host);
+            return;
+        }
+
+        var exception = Assert.Throws<InvalidOperationException>(() => Mavi.Api.Startup.VisualAttributeReleaseStartup.RequireAllowed(definition, host));
+        Assert.Equal(Mavi.Api.Startup.VisualAttributeReleaseStartup.FixtureForbiddenCode, exception.Message);
+        // A definition that is not Development-only is not this rule's to refuse.
+        Mavi.Api.Startup.VisualAttributeReleaseStartup.RequireAllowed(definition with { DevelopmentOnly = false }, host);
+    }
+
+    private sealed class StartupEnvironment : Microsoft.Extensions.Hosting.IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Production";
+        public string ApplicationName { get; set; } = "Mavi.Api";
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
     }
 
     // --- Route bounds (plan §9): cap accepted, cap+1 refused before the endpoint ---------------

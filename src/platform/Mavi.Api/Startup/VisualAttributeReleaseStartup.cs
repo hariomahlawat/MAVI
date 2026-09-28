@@ -35,9 +35,16 @@ public static class VisualAttributeReleaseStartup
             return;
         }
 
-        if (definition.DevelopmentOnly && !app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"))
-            throw new InvalidOperationException(FixtureForbiddenCode);
-
+        RequireAllowed(definition, app.Environment);
         LogConfigured(logger, definition.Identity.Fingerprint, null);
+    }
+
+    /// <summary>A Development-only definition (the S2b fixture) starts only in Development or Testing.</summary>
+    public static void RequireAllowed(Mavi.Application.Modules.VisualAttributes.Release.VisualAttributeReleaseDefinition definition, IHostEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(environment);
+        if (definition.DevelopmentOnly && !environment.IsDevelopment() && !environment.IsEnvironment("Testing"))
+            throw new InvalidOperationException(FixtureForbiddenCode);
     }
 }
