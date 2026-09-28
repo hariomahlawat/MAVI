@@ -143,7 +143,7 @@ Historical plans and evidence documents are never rewritten to match this roadma
 
    **UI Foundation programme is complete:** UI-1 → UI-5 are merged. Slice 5 extended the one Evidence Player/timeline/layer contract and is merged; Slice 6 heatmap UI uses the UI-2 Workbench grammar. This UI sequencing does not renumber Scene Analytics slices (0–7) or capability stages.
 
-4. **Visual Attributes — Stage 2, IN PROGRESS.** Architecture freeze is complete; S1 is merged (B1–B6 OPEN pending S1.4 evidence); S2a is closed (PR #112); S2b is merged (PR #114, `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`). **S2c — learned person/vehicle attribute Model Packs selected by a MAVI bake-off — is next**, per `2026-09-28-stage2-s2c-learned-attribute-model-packs.md`. The acceptance register is authoritative for row state.
+4. **Visual Attributes — Stage 2, IN PROGRESS.** Architecture freeze is complete; S1 is merged (B1–B6 OPEN pending S1.4 evidence); S2a is closed (PR #112); S2b is closed through PR #114 (`main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`) with its closure evidence being reconciled by S2c.0. PR #115 accepted the S2c learned-Model-Pack plan. **S2c.0 baseline reconciliation is the current slice; S2c.1 Task + corpus + labels follows only after S2c.0 exact-head CI and merge.** The acceptance register is authoritative for row state.
 5. Expanded operational object / vehicle classes where useful.
 6. ANPR / OCR.
 7. Visual Similarity / Find Similar.
