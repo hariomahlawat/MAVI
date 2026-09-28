@@ -4,6 +4,7 @@ using Mavi.Api.Finalization;
 using Mavi.Api.Middleware;
 using Mavi.Api.SceneAnalytics;
 using Mavi.Api.Storage;
+using Mavi.Api.VisualAttributes;
 using Mavi.Application.Abstractions.Storage;
 using Mavi.Api.Startup;
 using Mavi.Application.Health;
@@ -31,6 +32,11 @@ builder.Services.AddHostedService<StagingJanitorHostedService>();
 // publishes the graph. VisionFinalization:Enabled gates it together with completion 3.1; while
 // off it only refreshes the Finalizing counts for /api/health.
 builder.Services.AddHostedService<VisionFinalizationHostedService>();
+// The Visual Attribute authority loop (S2b): activation, queueing, the deadline/exhaustion
+// sweep and attribute staging reclamation. VisualAttributes:Enabled gates it; with nothing
+// configured it idles and the release reports NotConfigured.
+builder.Services.AddSingleton<VisualAttributeHostedService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<VisualAttributeHostedService>());
 // Canonical API JSON policy: property names are case-sensitive and numeric properties must be JSON numbers.
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -50,6 +56,7 @@ builder.Services.Configure<FormOptions>(options =>
 var app = builder.Build();
 await app.VerifyNativeMediaToolsAsync();
 app.VerifyTrackCursorSigning();
+app.VerifyVisualAttributeRelease();
 await app.ApplyDatabaseMigrationsAsync();
 // Client-aborted requests are expected control flow. Keep cancellation propagation intact in
 // repositories and services, but prevent routine RequestAborted exceptions from surfacing as
