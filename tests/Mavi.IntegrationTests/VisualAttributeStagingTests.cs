@@ -5,6 +5,7 @@ using Mavi.Application.Modules.VisualAttributes;
 using Mavi.Domain.VisualAttributes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Mavi.Infrastructure.Storage;
 
 namespace Mavi.IntegrationTests;
 
@@ -144,6 +145,47 @@ public sealed class VisualAttributeStagingTests(PostgresFixture fixture)
         Assert.Equal(1, await JanitorAsync(host));
         Assert.False(Directory.Exists(unknown));
         Assert.True(Directory.Exists(foreign));
+    }
+
+    private static string StagingRoot(VisualAttributeApiHost host) =>
+        Path.Combine(host.World.MediaRoot, AttributeStagingLayout.RootDirectoryName);
+
+    private static void CreateOrphans(VisualAttributeApiHost host, int count, TimeSpan age)
+    {
+        for (var index = 0; index < count; index++)
+        {
+            var directory = Path.Combine(StagingRoot(host), Guid.CreateVersion7().ToString("D"));
+            Directory.CreateDirectory(Path.Combine(directory, "attempt-0001"));
+            Directory.SetLastWriteTimeUtc(directory, (Now - age).UtcDateTime);
+        }
+    }
+
+    [Fact]
+    public async Task AReclaimableDirectoryListedAfterTheFirstThousandIsStillReclaimed()
+    {
+        await using var host = await VisualAttributeApiHost.CreateAsync(fixture, Now);
+        // More directories than one cycle's cap, none of them removable yet.
+        CreateOrphans(host, AttributeStagingJanitor.MaximumDirectoriesPerCycle + 100, TimeSpan.FromHours(1));
+        // The directory the listing yields last becomes the one removable entry.
+        var listed = Directory.EnumerateDirectories(StagingRoot(host)).ToList();
+        var last = listed[^1];
+        Directory.SetLastWriteTimeUtc(last, Now.UtcDateTime.AddHours(-25));
+        Assert.True(listed.Count > AttributeStagingJanitor.MaximumDirectoriesPerCycle);
+
+        Assert.Equal(1, await JanitorAsync(host));
+        Assert.False(Directory.Exists(last));
+        Assert.Equal(listed.Count - 1, Directory.EnumerateDirectories(StagingRoot(host)).Count());
+    }
+
+    [Fact]
+    public async Task TheCycleCapBoundsRemovalsAndTheNextCycleTakesTheRest()
+    {
+        await using var host = await VisualAttributeApiHost.CreateAsync(fixture, Now);
+        CreateOrphans(host, AttributeStagingJanitor.MaximumDirectoriesPerCycle + 5, TimeSpan.FromHours(25));
+
+        Assert.Equal(AttributeStagingJanitor.MaximumDirectoriesPerCycle, await JanitorAsync(host));
+        Assert.Equal(5, await JanitorAsync(host));
+        Assert.Empty(Directory.EnumerateDirectories(StagingRoot(host)));
     }
 
     [Fact]

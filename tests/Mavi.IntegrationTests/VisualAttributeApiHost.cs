@@ -76,16 +76,25 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
         Start(identityB);
     }
 
-    private void Start(bool identityB)
+    /// <summary>A platform restart with the attribute release removed (NotConfigured).</summary>
+    public async Task RestartNotConfiguredAsync(IReadOnlyDictionary<string, string?>? configuration = null)
+    {
+        Client.Dispose();
+        await Factory.DisposeAsync();
+        Start(identityB: false, configured: false, configuration);
+    }
+
+    private void Start(bool identityB, bool configured = true, IReadOnlyDictionary<string, string?>? configuration = null)
     {
         Factory = new ApiTestFactory
         {
             Clock = World.Clock,
             MediaRootOverride = World.MediaRoot,
             EvidenceRootOverride = World.EvidenceRoot,
-            VisualAttributeComponentBindingPath = VisualAttributeReleaseFixture.WriteBinding(_releaseDirectory, identityB),
-            VisualAttributePipelineProfilePath = _pipelineProfile,
-            AdditionalConfiguration = _configuration,
+            VisualAttributeComponentBindingPath = configured ? VisualAttributeReleaseFixture.WriteBinding(_releaseDirectory, identityB) : null,
+            VisualAttributePipelineProfilePath = configured ? _pipelineProfile : null,
+            AdditionalConfiguration = configuration is null ? _configuration
+                : new Dictionary<string, string?>((_configuration ?? new Dictionary<string, string?>()).Concat(configuration)),
             OverrideServices = services =>
             {
                 services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(Logs);

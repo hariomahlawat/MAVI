@@ -511,6 +511,54 @@ def test_the_heartbeat_runs_concurrently_with_slow_inference(profile) -> None:
     assert api.heartbeats >= 5
 
 
+def test_a_renewal_whose_response_arrives_after_the_old_deadline_is_honoured(profile) -> None:
+    class SlowInferencer(FixtureAttributeInferencer):
+        def score(self, crop, attributes):
+            import time
+            time.sleep(0.3)
+            return super().score(crop, attributes)
+
+    lease = _person_lease(count=3, expires_in=0.5)
+    old_deadline = lease.lease_expires_at_utc
+    skew = [timedelta(0)]
+
+    def now() -> datetime:
+        return datetime.now(timezone.utc) + skew[0]
+
+    async def late(count):
+        # The platform accepted the renewal while the lease was live; its response reaches the
+        # worker just after the old deadline (latency, scheduling, clock skew) and carries the
+        # authoritative new expiry.
+        skew[0] = old_deadline - datetime.now(timezone.utc) + timedelta(milliseconds=50)
+        return HeartbeatResponse.model_construct(schema_version=contracts.CONTROL_VERSION,
+                                                 lease_expires_at_utc=now() + timedelta(seconds=120))
+
+    api = FakeApi(lease, heartbeat=late)
+    runner = AttributeRunner(api, worker_id="attributes-01", profile=profile, inferencer=SlowInferencer("seed"),
+                             provenance={}, heartbeat_interval_seconds=0.05, request_timeout_seconds=0.05, now_utc=now)
+    assert asyncio.run(runner.run_once()).status == "completed"
+    assert api.heartbeats >= 1 and api.failures == []
+
+
+def test_a_renewal_that_returns_an_expiry_already_past_is_a_lost_lease(profile) -> None:
+    class SlowInferencer(FixtureAttributeInferencer):
+        def score(self, crop, attributes):
+            import time
+            time.sleep(0.3)
+            return super().score(crop, attributes)
+
+    async def stale(count):
+        return HeartbeatResponse.model_construct(schema_version=contracts.CONTROL_VERSION,
+                                                 lease_expires_at_utc=datetime.now(timezone.utc) - timedelta(seconds=1))
+
+    api = FakeApi(_person_lease(count=3, expires_in=0.5), heartbeat=stale)
+    runner = AttributeRunner(api, worker_id="attributes-01", profile=profile, inferencer=SlowInferencer("seed"),
+                             provenance={}, heartbeat_interval_seconds=0.05, request_timeout_seconds=0.05)
+    outcome = asyncio.run(runner.run_once())
+    assert outcome.status == "lease_lost"
+    assert api.failures == [] and api.completions == []
+
+
 def test_an_ambiguous_completion_replays_the_identical_body(profile) -> None:
     api = FakeApi(_person_lease(), complete=[AttributeApiError("reset"), AttributeApiError("503", status_code=503)])
     assert asyncio.run(_runner(api, profile).run_once()).status == "completed"

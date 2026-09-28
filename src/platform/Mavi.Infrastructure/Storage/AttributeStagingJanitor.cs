@@ -39,7 +39,9 @@ public sealed partial class AttributeStagingJanitor(
     ILogger<AttributeStagingJanitor> logger) : IVisualAttributeStagingJanitor
 {
     public static readonly TimeSpan UnknownAnalysisGrace = TimeSpan.FromHours(24);
+    /// <summary>The most directories one cycle removes; the scan itself is not capped.</summary>
     public const int MaximumDirectoriesPerCycle = 1000;
+    private const int RowLookupBatchSize = 1000;
 
     internal Func<string, StagingDirectory> OpenRoot { get; init; } = StagingDirectory.OpenRoot;
 
@@ -62,19 +64,26 @@ public sealed partial class AttributeStagingJanitor(
                     directories.Add((name, analysisId, entry.LastWriteTimeUtc));
                 else
                     LogUnrecognised(logger, entry.Name ?? "<non-utf8>");
-                if (directories.Count >= MaximumDirectoriesPerCycle) break;
             }
 
-            var ids = directories.Select(item => item.AnalysisId).ToList();
-            var rows = await db.VisualAttributeAnalyses.AsNoTracking()
-                .Where(unit => ids.Contains(unit.Id))
-                .Select(unit => new { unit.Id, unit.Status, unit.AttemptCount, unit.CompletedAtUtc })
-                .ToDictionaryAsync(unit => unit.Id, cancellationToken);
+            // Every directory is judged: capping the scan instead would let a thousand live units
+            // listed first hide every reclaimable one behind them, cycle after cycle.
+            var rows = new Dictionary<Guid, (VisualAttributeAnalysisStatus Status, int AttemptCount, DateTimeOffset? CompletedAtUtc)>();
+            foreach (var chunk in directories.Select(item => item.AnalysisId).Chunk(RowLookupBatchSize))
+            {
+                var found = await db.VisualAttributeAnalyses.AsNoTracking()
+                    .Where(unit => chunk.Contains(unit.Id))
+                    .Select(unit => new { unit.Id, unit.Status, unit.AttemptCount, unit.CompletedAtUtc })
+                    .ToListAsync(cancellationToken);
+                foreach (var unit in found) rows[unit.Id] = (unit.Status, unit.AttemptCount, unit.CompletedAtUtc);
+            }
 
             var removed = 0;
             foreach (var (name, analysisId, lastWriteUtc) in directories)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                // The cap bounds the work a cycle does, not what it considers; the rest wait for the next.
+                if (removed >= MaximumDirectoriesPerCycle) break;
                 try
                 {
                     if (!rows.TryGetValue(analysisId, out var row))

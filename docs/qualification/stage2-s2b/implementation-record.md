@@ -119,7 +119,7 @@ Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were
 - **M19** (claim ignores the deadline) — `CanClaim` re-checks the deadline in memory, so the SQL predicate's job is liveness; new `AUnitPastItsDeadlineNeverStarvesQueuedWork` proves an expired unit is passed over rather than selected and skipped on every poll.
 - **M20** (claim not fenced on identity) — the other-identity test never activated identity B, so the claim returned before reaching SQL; it now activates B first.
 
-**Final: 67 of 67 killed** (M36–M39 guard the cold-review fixes, §6.1; M40–M48 the lease-lifetime repairs, §6.2; M49–M60 the fence schedule, §6.3; M61–M64 evidence coverage and crop-level integrity health, §6.4; M65–M67 incidents across ambiguous commits and heartbeat presence, §6.5. M61 was first written so that it did not compile and was rerun as a valid mutant. M38 and M39 first survived and their tests were made deterministic; M40 was first written so that it did not compile and was rerun as a valid mutant).
+**Final: 72 killed of 73; one equivalent (M72)** (M36–M39 guard the cold-review fixes, §6.1; M40–M48 the lease-lifetime repairs, §6.2; M49–M60 the fence schedule, §6.3; M61–M64 evidence coverage and crop-level integrity health, §6.4; M65–M67 incidents across ambiguous commits and heartbeat presence, §6.5; M68–M73 the janitor scan, the release-removed host and the worker's renewal, §6.6. M61 was first written so that it did not compile and was rerun as a valid mutant. M38 and M39 first survived and their tests were made deterministic; M40 was first written so that it did not compile and was rerun as a valid mutant).
 
 | ID | Mutation | File | Result | First killing test |
 |---|---|---|---|---|
@@ -190,6 +190,12 @@ Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were
 | M65 | crop incidents recorded only after a clean commit | `VisualAttributeCompletionService.cs` | **killed** | `ACorruptCropIsAnIncidentEvenWhenTheCommitLandedAmbiguouslyAndTheRetryIsAReplay` |
 | M66 | a crop reported again counts again | `VisualAttributeIntegrityMonitor.cs` | **killed** | `ACorruptCropIsCountedOnceAcrossAFailedCommitAndItsRetry` |
 | M67 | an accepted heartbeat is not worker presence | `VisualAttributeEndpoints.cs` | **killed** | `AHeartbeatingWorkerIsPresentForReadinessThroughALongAnalysis` |
+| M68 | janitor scan capped before eligibility | `AttributeStagingJanitor.cs` | **killed** | `AReclaimableDirectoryListedAfterTheFirstThousandIsStillReclaimed` |
+| M69 | janitor removals uncapped | `AttributeStagingJanitor.cs` | **killed** | `TheCycleCapBoundsRemovalsAndTheNextCycleTakesTheRest` |
+| M70 | a cycle without a release skips the sweep | `VisualAttributeHostedService.cs` | **killed** | `WithTheReleaseRemovedTheSweepStillFailsAnAbandonedUnit` |
+| M71 | the enabled host idles without a release | `VisualAttributeHostedService.cs` | **killed** | `WithTheReleaseRemovedTheEnabledHostKeepsRunningItsLifecycleCycle` |
+| M72 | a renewal whose returned expiry has passed is accepted | `runner.py` | **equivalent** | the guard then reports the lease lost at once and the loop's own deadline check raises on its next pass: the outcome (`lease_lost`) is identical, so no test can observe it; the explicit check is kept as the stated rule, as in the vision worker |
+| M73 | a late renewal rejected against the old deadline | `runner.py` | **killed** | `test_a_renewal_whose_response_arrives_after_the_old_deadline_is_honoured` |
 
 Plan §17 mutations that have no code path in this design are recorded rather than invented: *delete a sealed object on rollback* (no deletion call exists; `AReclaimBetweenPhaseAAndPhaseCIsRefusedAndTheSealedOrphanIsSafe` asserts the orphan survives), *supersede on failed replacement* (supersession runs only inside a successful preferred Phase C; `APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot`), *publish rows before the publication transaction* (rows are written only inside it; `AnAmbiguousCommitPublishesNothingAndTheRetryPublishesOnce`), *duplicate (run, identity) units* (the unique index arbitrates; `ConcurrentReconcilersCreateOneUnit`) and *let the fixture bypass production transport* (the fixture has no transport of its own; the E2E runs the real process).
 
@@ -272,6 +278,18 @@ Two further findings, both verified and fixed.
 **A busy worker read as absent (P2).** Readiness treated only a lease poll as proof of a READY worker, but a worker running an analysis polls again only when it finishes. After `WorkerPresenceSeconds` (180 s) a healthy long analysis read `no_ready_attributes_worker`, a false operator alarm. *Invariant:* a worker is present for an identity while it has, within the window, polled for it or had a renewal of a lease of it accepted. A worker leases only while READY, so an accepted renewal is the same proof as a poll; a refused renewal proves nothing.
 
 Tests: `ACorruptCropIsAnIncidentEvenWhenTheCommitLandedAmbiguouslyAndTheRetryIsAReplay` and `AHeartbeatingWorkerIsPresentForReadinessThroughALongAnalysis` failed on `73ca2b2`; `ACorruptCropIsCountedOnceAcrossAFailedCommitAndItsRetry`, `ARefusedHeartbeatIsNotPresence` and `VisualAttributeIntegrityMonitorTests` (once per crop, bound) are the controls. A test seam after the commit (`AfterCommit`, beside the existing `BeforeCommit`) models a commit that lands but reports failure.
+
+### 6.6 Automated review of `2b17903`: janitor scan, release removal, late renewals
+
+Three further findings, all verified and fixed.
+
+**The attribute janitor capped its scan, not its work (P2).** It stopped listing after 1,000 analysis directories, before judging any. When the first 1,000 listed were live (Queued, Running, or unknown within their grace), every reclaimable directory behind them was skipped on every cycle. *Invariant:* every directory is judged each cycle; the cap bounds the removals a cycle performs, and the rest wait for the next — as the VisionJob janitor does. Rows are read in batches of 1,000.
+
+**Removing the release stopped the lifecycle (P2).** With the feature enabled and the release resolving `NotConfigured` (the role removed, or its binding disabled), the hosted service returned before its first cycle, so units already Running were never failed on exhaustion or deadline and their staging was never reclaimed. *Invariant:* without a release nothing new is activated or queued, but the sweep and the janitor run on schedule, so every existing unit still reaches an outcome. Only `VisualAttributes:Enabled=false` idles the host.
+
+**The worker discarded a renewal that arrived late (P2).** After an accepted heartbeat, the worker compared the clock with the *old* deadline and cancelled a valid attempt as lease-lost when the response arrived after it (latency, scheduling, clock skew). The platform renews only a live lease and never shortens one, so the returned expiry is authoritative. *Invariant:* an accepted renewal replaces the deadline; only a returned expiry that has itself passed is a lost lease — the vision worker's rule.
+
+Tests: `AReclaimableDirectoryListedAfterTheFirstThousandIsStillReclaimed` (the one removable directory is the one the listing yields last), `WithTheReleaseRemovedTheSweepStillFailsAnAbandonedUnit`, `WithTheReleaseRemovedTheEnabledHostKeepsRunningItsLifecycleCycle` and `test_a_renewal_whose_response_arrives_after_the_old_deadline_is_honoured` failed on `2b17903`; `TheCycleCapBoundsRemovalsAndTheNextCycleTakesTheRest` and `test_a_renewal_that_returns_an_expiry_already_past_is_a_lost_lease` are the controls.
 
 ## 7. Deferred and out of scope
 

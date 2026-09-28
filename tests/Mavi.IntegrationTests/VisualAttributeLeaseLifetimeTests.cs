@@ -227,6 +227,51 @@ public sealed class VisualAttributeLeaseLifetimeTests(PostgresFixture fixture)
         Assert.Equal(VisualAttributeAnalysisStatus.Failed, (await read.VisualAttributeAnalyses.AsNoTracking().SingleAsync(x => x.Id == abandoned.AnalysisId)).Status);
     }
 
+    // --- The release removed: existing units are still swept ------------------------------
+
+    [Fact]
+    public async Task WithTheReleaseRemovedTheSweepStillFailsAnAbandonedUnit()
+    {
+        await using var host = await HostAsync(FinalAttemptPolicy);
+        var unit = await host.LeaseAsync();
+
+        // The operator removes the attributes role; the worker goes with it.
+        await host.RestartNotConfiguredAsync();
+        host.World.Clock.Advance(TimeSpan.FromSeconds(61));
+        var cycle = await host.RunCycleAsync();
+
+        Assert.Equal(0, cycle.Queued);
+        Assert.Equal(1, cycle.ExhaustedFailed);
+        await using var db = host.World.Read();
+        var analysis = await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync(x => x.Id == unit.AnalysisId);
+        Assert.Equal(VisualAttributeAnalysisStatus.Failed, analysis.Status);
+    }
+
+    /// <summary>Signals each time the host runs a janitor cycle.</summary>
+    private sealed class SignallingJanitor(Gate gate) : IVisualAttributeStagingJanitor
+    {
+        public Task<int> RunCycleAsync(CancellationToken cancellationToken)
+        {
+            gate.Reached.TrySetResult();
+            return Task.FromResult(0);
+        }
+    }
+
+    [Fact]
+    public async Task WithTheReleaseRemovedTheEnabledHostKeepsRunningItsLifecycleCycle()
+    {
+        var gate = new Gate();
+        await using var host = await VisualAttributeApiHost.CreateAsync(fixture, Now, services: services =>
+        {
+            services.RemoveAll<IVisualAttributeStagingJanitor>();
+            services.AddScoped<IVisualAttributeStagingJanitor>(_ => new SignallingJanitor(gate));
+        });
+
+        await host.RestartNotConfiguredAsync(new Dictionary<string, string?> { ["VisualAttributes:Enabled"] = "true" });
+
+        await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
     // --- Evidence reads over the lifetime of the stream ------------------------------------
 
     private sealed class Gate

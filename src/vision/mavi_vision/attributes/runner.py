@@ -270,7 +270,10 @@ class AttributeRunner:
                 except (AttributeApiError, asyncio.TimeoutError):
                     # A missed renewal is not a lost lease until the deadline says so.
                     continue
-                if self._now() >= deadline:
+                # The platform renews only a live lease and never shortens it, so an accepted
+                # renewal is authoritative even when its response arrives after the old deadline;
+                # only an expiry that has itself passed means the lease is gone.
+                if response.lease_expires_at_utc <= self._now():
                     raise LeaseLostError()
                 deadline = response.lease_expires_at_utc
                 guard.update_deadline(deadline)
