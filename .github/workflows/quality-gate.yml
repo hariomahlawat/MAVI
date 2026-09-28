@@ -106,6 +106,10 @@ jobs:
       # themselves. Every project runs; the step fails if any failed.
       - name: Test .NET
         shell: bash
+        env:
+          # The S2b fixture end-to-end test runs the real attributes worker process
+          # (installed above); without this it reports skipped, never passed.
+          MAVI_S2B_WORKER_PYTHON: python
         run: |
           set -euo pipefail
           status=0
