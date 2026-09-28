@@ -48,7 +48,7 @@ Assessments 1 and 2 together form the **technical ranking**. Licence terms never
 
 **The one carve-out: evaluation permission.** Whether MAVI may lawfully *run* a candidate on its data is a human legal precondition to measurement, not a ranking input. It is recorded with decision-maker, date and primary source. A candidate that may not be evaluated becomes `REFERENCE_ONLY`: its reported evidence stays in the record at full strength and is marked "not reproduced by MAVI". It is never `NOT_SHORTLISTED`. Where the method is usable but the released checkpoint is not, the method trained on MAVI-permitted data represents it.
 
-Assessment 3 is applied afterwards to decide which ranked candidates are **cleared for a declared deployment profile**. A technically superior candidate stays in the record at its rank, marked with its constraint, even when it cannot be deployed.
+Assessment 3 is applied afterwards to decide which ranked candidates are **cleared for a declared deployment profile**. A technically superior candidate stays in the record at its rank, marked with its constraint, even when it is not cleared for any declared profile.
 
 ### 2.1 The declared MAVI deployment profile (owner constraint)
 
@@ -170,7 +170,7 @@ Every serious candidate records, where available, the fields below. Unknown mean
 
 Some capabilities are served by one Model Pack that composes components solving different sub-tasks. `person-attributes`, for example, covers clothing colour (T-PC) and carried objects/headwear (T-PO). Winners of separate sub-tasks do not automatically make a good pack: a shared backbone, memory, load time and failure domain all change. The event therefore runs a fixed sequence:
 
-1. **Sub-task evaluation.** Each sub-task's candidates are evaluated and ranked on their own (§8), producing per-sub-task **component finalists**. These are the candidates that pass every technical gate for at least one attribute of the sub-task, capped at the protocol's `K` best by the sub-task ranking plus the sub-task baseline. A small `K`, for example 3, keeps the search bounded.
+1. **Sub-task evaluation.** Each sub-task's candidates are evaluated and ranked on their own (§8), producing per-sub-task **component finalists**. These are the candidates that pass the per-component gates for at least one attribute of the sub-task, capped at the protocol's `K` best by the sub-task ranking. A packageable baseline may be one of them. Budget and scale gates are judged per composition (step 3). A small `K`, for example 3, keeps the search bounded.
 2. **Composition generation, by a rule frozen in the protocol.** The composition candidates are:
    - the tuple of the sub-task winners;
    - every tuple of finalists that **share a backbone** (one tower serving both sub-tasks with separate heads), which is evaluated as its own candidate because its heads are trained on the shared features;
@@ -187,7 +187,8 @@ Some capabilities are served by one Model Pack that composes components solving 
    - whether a backbone is shared;
    - the system-scale projection (§7.1);
    - the failure-domain implications (one process holding all components, and what one component's failure takes down).
-4. **Pareto frontier.** Compositions dominated on (quality, per-crop cost, memory) are recorded as dominated, not deleted. The frontier is typically two to four compositions, and the comparative score of §8 ranks within it.
+   **Every composition must pass the protocol's technical and engineering gates as a unit** (budget, memory, determinism, abstention, system scale): components that each fit can exceed the envelope together. Failing compositions are recorded with the reason. So are attributes that no component in the tuple passes the baseline gate for; those are disabled in that composition.
+4. **Pareto frontier.** Compositions are compared on scalar axes frozen in the protocol: a quality scalar (for example the equal-weight mean over enabled attributes of the primary-metric improvement over baseline), per-crop cost and memory. Dominated compositions are recorded as dominated, not deleted. Non-packageable baselines never enter a tuple. The frontier is typically two to four compositions, and the comparative score of §8 ranks within it.
 5. **Implementation composition.** The owner chooses a frontier composition under the same rules as a single implementation candidate (§4, §9). Its components all need licence status `CLEARED` for the target profile.
 
 A single-component capability skips steps 2–4. Its composition is the implementation candidate itself.
@@ -276,7 +277,7 @@ Evidence units are correlated: Tracks from one camera, cameras within one site, 
    - Precision needs predicted-positive support at the operating point.
    - Recall needs ground-truth-positive support.
    - Prevalence and coverage are measured.
-   - Each iid-based count is multiplied by the **design effect** `DEFF = 1 + (m̄ − 1)·ρ`, with `m̄` the mean units per cluster and `ρ` the intra-cluster correlation of the relevant indicator. `ρ` is estimated on the pilot (training partition) where feasible, otherwise taken as a declared conservative value.
+   - Each iid-based count is multiplied by the **design effect** `DEFF = 1 + (m̄ − 1)·ρ`, with `m̄` the size-weighted mean cluster size `Σm²/Σm`, which does not understate DEFF when clusters are unequal, and `ρ` the intra-cluster correlation of the relevant indicator. `ρ` is estimated on the pilot (training partition) where feasible, otherwise taken as a declared conservative value.
 2. **Independent cluster support**, for camera/site generalisation, for model-comparison intervals and for difficult-stratum claims. The sampling unit is the top-level cluster: the site, or the camera where a site has one camera.
 
 **Resampling method: hierarchical paired bootstrap.**
@@ -285,7 +286,10 @@ Evidence units are correlated: Tracks from one camera, cameras within one site, 
 - The interval is the percentile interval at the protocol's level (95 % in S2c).
 - Seeds and replicate count are recorded.
 
-**Sufficiency is determined, not assumed.** Before any candidate result, S2c.2 runs a calibration simulation on the pilot structure. It resamples the cluster layout with a known zero difference (label-preserving, candidate-swapped) and checks that the procedure's interval covers zero at close to its nominal rate. The protocol freezes the minimum number of top-level clusters at which coverage stays within its declared tolerance, and the same check is applied per stratum.
+**Sufficiency is determined, not assumed.** Before any candidate result, S2c.2 runs a calibration simulation on the **training-partition pilot**:
+- It takes the baseline's predictions and a synthetic perturbation of them with the same expected quality.
+- It swaps the two **at cluster level** at random, which creates a known zero difference.
+- It checks that the procedure's interval covers zero at close to its nominal rate across simulated cluster counts. The protocol freezes the minimum number of top-level clusters at which coverage stays within its declared tolerance, and the same check is applied per stratum.
 
 **When support falls short, the claim is downgraded, never reported as significant.**
 - **Comparison:** below the minimum cluster count, no "significant winner" is declared. The record reports per-cluster results, a cluster-level sign count, and "insufficient independent clusters for an inferential claim". The choice becomes an explicit owner decision (§8 layer 4).

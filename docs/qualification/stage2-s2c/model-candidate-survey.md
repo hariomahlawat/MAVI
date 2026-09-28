@@ -19,7 +19,7 @@
 
 ### 2.1 Academic state of the art (reported mA / F1; research code, PyTorch)
 
-| Model (venue) | Architecture | Input | PA-100K | PETA | RAPv1 | Weights | Code licence | Deployability note |
+| Model (venue) | Architecture | Input | PA-100K | PETA | RAPv1 | Weights | Code licence | Technical / packaging note |
 |---|---|---|---|---|---|---|---|---|
 | Strong baseline / Rethinking PAR ([repo](https://github.com/valencebond/Rethinking_of_PAR)) | ResNet-50; Swin-S | 256×192 | 80.21/87.40 (Swin-S 82.19/88.18) | 83.96/86.35 | 79.27/79.95 | weights link empty on the page (not publicly located) | no LICENSE file found in the repo | recipe only |
 | fast-reid FastAttr ([repo](https://github.com/JDAI-CV/fast-reid/tree/master/projects/FastAttr)) | ResNet | — | 80.50 mA | — | — | not publicly located | Apache-2.0 | recipe (Apache) |
@@ -69,7 +69,7 @@
 | MambaPAR | arXiv 2024, [2407.10374](https://arxiv.org/abs/2407.10374) | RGB; Vim/VMamba | figures only | no colour | not publicly located | MIT | `REFERENCE_ONLY`; CPU behaviour of Mamba kernels UNVERIFIED |
 | SNN-PAR | ICIG 2025, [2410.07857](https://arxiv.org/abs/2410.07857) | RGB; Spikingformer distilled from VTB | not extracted | no colour | located (PETA, PA-100K) | MIT | `NOT_SHORTLISTED`: released weights emit no colour; the energy benefit needs neuromorphic hardware |
 | KGPAR | arXiv 2025, [2509.22331](https://arxiv.org/abs/2509.22331) | RGB; CLIP + knowledge-graph hypergraph | not extracted | no colour (standard subsets) | not publicly located | MIT | `REFERENCE_ONLY` |
-| AttackPAR | IEEE TIFS 2026, [2505.23313](https://arxiv.org/abs/2505.23313) | adversarial attack/defence on a CLIP PAR model | n/a | n/a | not publicly located | MIT | `NOT_SHORTLISTED`: a robustness study, not a recognizer (cited for G6/robustness thinking) |
+| AttackPAR | IEEE TIFS 2026, [2505.23313](https://arxiv.org/abs/2505.23313) | adversarial attack/defence on a CLIP PAR model | n/a | n/a | not publicly located | MIT | `NOT_SHORTLISTED`: a robustness study, not a recognizer (cited for SG6/robustness thinking) |
 | UAPAR | arXiv 2026-04-29, [2604.26873](https://arxiv.org/abs/2604.26873) | RGB; CLIP + evidential uncertainty | "competitive" on PA-100K/RAP (no figures in abstract) | no colour | not publicly located | not found | `REFERENCE_ONLY`; its per-attribute uncertainty is relevant to abstention design |
 | YOLOv8 + ResNet18 PAR | arXiv 2026-06-19, [2606.21200](https://arxiv.org/abs/2606.21200) | RGB; ResNet-18 on PETA + PA-100K | 61 attributes, macro-F1 36.32, micro-F1 58.80 | attribute list UNVERIFIED | not publicly located | not found | `REFERENCE_ONLY`; low reported macro-F1 |
 | PromptPAR (update) | TCSVT 2024 | RGB 224; CLIP ViT-L/14 (435.9 M total) or ViT-B/16 (157.5 M) | PA-100K mA 87.47 | bag/hat; released checkpoints carry **no colour** | located (RAP, PETA, PA-100K) | MIT | unchanged (PC-3 method only for colour; PO-3 for presence) |

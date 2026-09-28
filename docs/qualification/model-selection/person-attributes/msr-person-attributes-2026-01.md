@@ -73,7 +73,7 @@ Not started. Reported evidence (class R) is in the survey. It is snapshotted int
 ## 8. Decision
 
 None. No model is selected in the planning change. When filled, §8 records the methodology §9 fields:
-- strongest reported/reference candidate (VLM-PAR is the strongest *reported* RGB method on the survey date: class R, not reproduced);
+- strongest reported/reference candidate (left blank until S2c.2; provisional survey-date note only: VLM-PAR has the highest *reported* mA on standard PA-100K/PETA subsets, which exclude colour, so it does not rank MAVI's task);
 - highest task-quality evaluated candidate;
 - strongest evaluated technical candidate;
 - strongest candidate cleared for each declared profile;
