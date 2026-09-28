@@ -29,7 +29,7 @@ python tools/qualification/attribute_corpus.py <command> --help
 |---|---|
 | this tooling and its tests (synthetic fixtures only) | evidence crops (JPEG), addressed by SHA-256 |
 | the candidate/frozen task file, annotation guide, F1 evidence record | frozen-test ground truth (`ground-truth --frozen-out`) |
-| the SHA-256 of every retained record, in the F1 evidence record | the **retained-record store**: every record as `<sha256>.json`, plus `annotation-ledger.jsonl`, `frozen-access-log.jsonl`, and one `frozen-access-log-<sealSha256>.jsonl` per superseded seal. The records are: corpus manifest, audits, partition, candidate and frozen task, every assignment and batch, adjudications, pilot and main agreement reports, sealed evaluation view, and every seal |
+| the SHA-256 of every retained record, in the F1 evidence record | the **retained-record store** (including the owner freeze decision and any earlier corpus revisions): every record as `<sha256>.json`, plus `annotation-ledger.jsonl`, `frozen-access-log.jsonl`, and one `frozen-access-log-<sealSha256>.jsonl` per superseded seal. The records are: corpus manifest, audits, partition, candidate and frozen task, every assignment and batch, adjudications, pilot and main agreement reports, sealed evaluation view, and every seal |
 | | labelling spreadsheets and any local configuration naming evidence paths |
 
 Reviewable, image-free copies of the non-frozen records may also be committed once an operational corpus exists. The F1 checker never relies on them: it re-verifies from the store (§10).
@@ -93,9 +93,12 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - every move is recorded (`clusterId`, `from`, `to`, `reasons`), and each cluster keeps its `initialPartition`. Nothing is deleted.
 5. **Checks:** Track and camera counts per partition, and cameras unseen outside the frozen test. Shortfalls (fewer than `minimumCamerasPerPartition`, no unseen frozen camera) are recorded as **limitations**, never waived.
 6. **Pinned training Tracks.** The optional `policy.pinnedTrainingTrackIds` names Tracks that must stay in training. Their clusters move to training (reason `pinned-training`) before link resolution. The policy is embedded in the manifest, so this is reproducible.
-   - An R1 re-partition after a compromised seal pins the pilot Tracks and **every compromised frozen Track**.
    - Pinning moves whole clusters, so it can cost the held-out camera: a pinned Track in a held-out site pulls that site's cluster into training. That shortfall is recorded as a limitation.
-   - In practice, a frozen set with an unseen camera after a compromise usually needs new footage (a new site or camera).
+   - The optional `policy.excludedFromFrozenTrackIds` names Tracks that may not enter the frozen test. A cluster holding one that would be frozen goes to training (reason `excluded-from-frozen`).
+   - **R1 recovery after a compromised seal:**
+     - every Track of the old seal's partition was exposed (frozen labels leaked; training, tuning and selection were open to candidates), so the replacement frozen test must come from **new footage**;
+     - revise the corpus to add it, label the new Tracks, and re-partition with the pilot pinned and every previously exposed Track in `excludedFromFrozenTrackIds`;
+     - `test_r1_recovery_needs_new_footage_and_then_reaches_pass` walks this path.
 7. **Audits are bound.** The manifest records the recurrence and duplicate audit hashes. An operational corpus cannot be partitioned without both audits (`partition_operational_requires_audits`).
 
 `verify_partition` takes the audits actually supplied, re-derives everything and refuses:
@@ -139,7 +142,8 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason`, `--superseded-access-log` and `--superseded-partition` (plus `--superseded-corpus` when the corpus was revised since that seal).
    - That old log must show the old seal compromised.
    - Both member sets are recomputed from their partitions, and the new frozen set may contain **no** Track of the compromised one.
-   - `seal-created` records each seal's frozen Track IDs, recomputed from the corpus and partition. A new seal may reuse no Track of **any** earlier seal in the chain, not only its predecessor.
+   - `seal-created` records each seal's frozen Track IDs and all of its partition's Track IDs (the exposed set), recomputed from the corpus and partition. A new seal's frozen set may contain no Track exposed by **any** earlier seal in the chain, not only by its predecessor.
+   - The seal's annotation-ledger head must equal the head both ground-truth views were built at. A batch or adjudication registered in between would otherwise be silently omitted.
 
 **The ledger** is append-only and hash-chained. It enforces independence:
 - no reveal packet while an independent assignment covering its units is unsubmitted;
@@ -215,7 +219,8 @@ This is the foundation for later camera/site generalisation analysis, and delibe
 
 The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, statistic, seal status or camera support. The checker trusts none of it. It loads everything from the store, re-derives identities, and **recomputes** every conclusion from the primary inputs: assignments, batches, adjudications and the ledger. The labelling state it uses is the ledger as it stood at the ground truth's head.
 - **Partition**, from the corpus and both audits (`verify_partition`).
-- **Pilot report**, recomputed from the candidate task and every ledger-registered pilot batch, on the partition the pilot ran on (retained). It must equal the retained report, and the frozen task must derive from it. Every pilot Track must be in **training in the final partition**; after a re-partition, pin them (§4).
+- **Pilot report**, recomputed from the candidate task and every ledger-registered pilot batch, on the partition and corpus the pilot ran on (both retained). It must equal the retained report.
+- **Frozen task**, re-derived with `freeze_task` from the candidate, the pilot report and the retained owner decision. It must equal the retained frozen task, so only pre-declared merges and removals can shape it. Every pilot Track must be in **training in the final partition**; after a re-partition, pin them (§4).
 - Main assignments' `partitionManifestSha256` is informational. Main labels do not depend on the partition, and the recomputed reports and views use the final partition.
 - **Main agreement report**, recomputed from every registered main batch and every ledger-recorded adjudication. It must equal the retained report, so compute it after adjudication. The adjudications listed in the record must equal the ledger's.
 - **Both ground-truth views**, recomputed. Their hashes must equal the seal's, so the frozen labels are verified without leaving the store.
@@ -224,7 +229,9 @@ The committed record names each artefact by SHA-256 and asserts nothing else: no
   - it must be the latest `seal-created` in the ledger;
   - every earlier seal must be compromised, as shown by its own retained log;
   - every seal's frozen set is recomputed from its own retained corpus and partition and must match the ledger's `frozenTrackIds`;
-  - no Track may appear in two frozen sets anywhere in the chain.
+  - no Track may appear in two frozen sets anywhere in the chain;
+  - no frozen Track may have been exposed by an earlier seal's partition.
+- **Ledger after the ground truth:** the seal's head must equal the ground truth's head. No assignment, batch, reveal or adjudication may be recorded after it, because the sealed truth would then be incomplete.
 - **Access log:** it must begin with this seal, extend the recorded head and show no improper access.
 - **Camera support**, from the partition's checks. The record must carry every partition limitation.
 

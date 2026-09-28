@@ -80,6 +80,9 @@ def build_seal(
     shared = ("schemaVersion", "corpusManifestSha256", "partitionManifestSha256", "taskSha256", "annotationLedgerHead")
     require(all(evaluation_ground_truth.get(k) == frozen_ground_truth.get(k) for k in shared), "seal_views_from_different_ground_truth")
     require(frozen_ground_truth.get("corpusManifestSha256") == corpus.sha256, "seal_corpus_mismatch")
+    # The seal commits the labelling state its ground truth was built from: a batch or
+    # adjudication registered after the ground truth would otherwise be silently omitted.
+    require(annotation_ledger_head == frozen_ground_truth.get("annotationLedgerHead"), "seal_ledger_head_differs_from_ground_truth")
     require(all(r["partition"] != FROZEN for r in evaluation_ground_truth["rows"]), "seal_evaluation_view_contains_frozen_rows")
     members = frozen_members(corpus, partition)
     require(members, "seal_frozen_partition_empty")
@@ -187,9 +190,10 @@ def verify_superseding_seal(new_seal: dict, old_seal: dict, old_log: Ledger, cor
     """A replacement seal must name the compromised one and a genuinely new frozen set.
 
     Both member sets are recomputed from their partitions and must match their seals. The
-    new set may not contain **any** Track of the compromised one: its labels were exposed
-    (R1). Re-partitioning can guarantee this by pinning the compromised Tracks to training
-    (``policy.pinnedTrainingTrackIds``).
+    new set may not contain **any** Track of the old partition: frozen labels were exposed,
+    and every other Track was open to candidate evaluation (R1). ``policy.
+    excludedFromFrozenTrackIds`` keeps them out; the new frozen set normally needs new
+    footage.
     """
     require(new_seal["supersedes"] is not None and new_seal["supersedes"]["sealSha256"] == document_sha256(old_seal), "seal_supersedes_mismatch")
     require(seal_status(old_log, old_seal)["status"] == "compromised", "seal_superseded_while_intact")
@@ -197,5 +201,8 @@ def verify_superseding_seal(new_seal: dict, old_seal: dict, old_log: Ledger, cor
     new_members = frozen_members(new_corpus or corpus, new_partition)
     require(document_sha256(old_members) == old_seal["frozenMembers"]["membersSha256"] and old_seal["partitionManifestSha256"] == document_sha256(old_partition), "seal_superseded_members_not_reproducible")
     require(document_sha256(new_members) == new_seal["frozenMembers"]["membersSha256"] and new_seal["partitionManifestSha256"] == document_sha256(new_partition), "seal_superseding_members_not_reproducible")
-    reused = {m["trackId"] for m in old_members} & {m["trackId"] for m in new_members}
-    require(not reused, f"seal_reuses_compromised_frozen_tracks:{len(reused)}")
+    # Not only the old frozen Tracks: every Track of the old partition was exposed to
+    # evaluation (training, tuning, selection) and may not be frozen again.
+    exposed = {a["trackId"] for a in old_partition["assignments"]}
+    reused = exposed & {m["trackId"] for m in new_members}
+    require(not reused, f"seal_frozen_tracks_previously_exposed:{len(reused)}")

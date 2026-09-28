@@ -70,15 +70,19 @@ def parse_policy(policy: dict) -> dict:
         policy,
         code,
         ("policyId", "version", "seed", "dateEpoch", "dateBlockDays", "heldOutSites", "frozenLatestBlockFraction", "targetFractions", "minimumCamerasPerPartition", "requireUnseenFrozenCamera"),
-        ("pinnedTrainingTrackIds",),
+        ("pinnedTrainingTrackIds", "excludedFromFrozenTrackIds"),
     )
     # Tracks already labelled in a training-only step (the pilot) must stay in training when
     # the corpus is re-partitioned, for example after a compromised seal (R1). Their whole
     # clusters move to training, recorded like any other move.
-    pinned = policy.get("pinnedTrainingTrackIds", [])
-    require(isinstance(pinned, list) and pinned == sorted(set(pinned)), f"{code}:pinned")
-    for track_id in pinned:
-        require_uuid(track_id, f"{code}:pinned")
+    # Tracks exposed to earlier evaluation (every Track of an earlier seal's partition) may
+    # never enter a replacement frozen test (R1): a cluster holding one that would be frozen
+    # goes to training instead. In practice a replacement frozen test needs new footage.
+    for key in ("pinnedTrainingTrackIds", "excludedFromFrozenTrackIds"):
+        listed = policy.get(key, [])
+        require(isinstance(listed, list) and listed == sorted(set(listed)), f"{code}:{key}")
+        for track_id in listed:
+            require_uuid(track_id, f"{code}:{key}")
     require_date(policy["dateEpoch"], f"{code}:epoch")
     require_pseudonym(policy["policyId"], f"{code}:id")
     require_token(f"v{policy['version']}", f"{code}:version")
@@ -165,7 +169,7 @@ def _components(groups: list[LinkGroup]) -> list[tuple[frozenset[str], tuple[str
     return [(frozenset(members_by_root[r]), tuple(sorted(reasons_by_root[r]))) for r in sorted(members_by_root)]
 
 
-def _resolve(clusters: dict[str, dict], initial: dict[str, str], links: list[LinkGroup], pinned: tuple[str, ...] = ()) -> tuple[dict[str, str], list[dict]]:
+def _resolve(clusters: dict[str, dict], initial: dict[str, str], links: list[LinkGroup], pinned: tuple[str, ...] = (), excluded: tuple[str, ...] = ()) -> tuple[dict[str, str], list[dict]]:
     """Move every cluster touched by a partition-spanning link component to training, to a fixpoint."""
     track_cluster = {t: c for c, cluster in clusters.items() for t in cluster["trackIds"]}
     final = dict(initial)
@@ -174,6 +178,11 @@ def _resolve(clusters: dict[str, dict], initial: dict[str, str], links: list[Lin
         cluster_id = track_cluster[track_id]
         if final[cluster_id] != TRAINING:
             reasons[cluster_id].add("pinned-training")
+            final[cluster_id] = TRAINING
+    for track_id in excluded:
+        cluster_id = track_cluster[track_id]
+        if final[cluster_id] == FROZEN:
+            reasons[cluster_id].add("excluded-from-frozen")
             final[cluster_id] = TRAINING
     components = _components(links)
     changed = True
@@ -210,8 +219,9 @@ def build_partition(corpus: CorpusManifest, policy: dict, links: list[LinkGroup]
     epoch, clusters = _clusters(corpus, policy["dateBlockDays"], date.fromisoformat(policy["dateEpoch"]))
     initial = _initial_assignment(clusters, policy)
     pinned = tuple(policy.get("pinnedTrainingTrackIds", []))
-    require(set(pinned) <= corpus.tracks.keys(), "partition_pinned_unknown_track")
-    final, moves = _resolve(clusters, initial, links, pinned)
+    excluded = tuple(policy.get("excludedFromFrozenTrackIds", []))
+    require(set(pinned) <= corpus.tracks.keys() and set(excluded) <= corpus.tracks.keys(), "partition_pinned_unknown_track")
+    final, moves = _resolve(clusters, initial, links, pinned, excluded)
     track_cluster = {t: c for c, cluster in clusters.items() for t in cluster["trackIds"]}
     document = {
         "schemaVersion": PARTITION_SCHEMA,

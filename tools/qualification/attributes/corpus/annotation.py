@@ -226,12 +226,14 @@ class AnnotationLedger(Ledger):
         it, because it needs the old access log.) The frozen Track IDs are recorded so that
         no later seal can reuse a Track of **any** earlier (compromised) frozen set."""
         track_ids = self.check_seal(seal, corpus, partition)
+        exposed = sorted(a["trackId"] for a in partition["assignments"])
         self.append(
             "seal-created",
             {
                 "sealSha256": document_sha256(seal),
                 "membersSha256": seal["frozenMembers"]["membersSha256"],
                 "frozenTrackIds": track_ids,
+                "exposedTrackIds": exposed,
                 "supersedes": None if seal["supersedes"] is None else seal["supersedes"]["sealSha256"],
             },
             at,
@@ -252,6 +254,11 @@ class AnnotationLedger(Ledger):
         earlier = {t for s in seals for t in s["frozenTrackIds"]}
         reused = earlier & set(track_ids)
         require(not reused, f"ledger_seal_reuses_earlier_frozen_tracks:{len(reused)}")
+        # Every Track of an earlier seal's partition was open to evaluation, so none may be
+        # frozen again (R1): a replacement frozen test needs unexposed (new) footage.
+        exposed = {t for s in seals for t in s["exposedTrackIds"]}
+        previously = exposed & set(track_ids)
+        require(not previously, f"ledger_seal_frozen_tracks_previously_exposed:{len(previously)}")
         return track_ids
 
     def seals(self) -> list[dict]:

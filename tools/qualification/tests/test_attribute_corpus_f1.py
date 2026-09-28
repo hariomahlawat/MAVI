@@ -8,6 +8,7 @@ PASS is reachable only through a fully consistent chain.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,7 @@ from attributes.corpus.f1 import ACCESS_LOG, ANNOTATION_LEDGER, REPO, f1_verdict
 from attributes.corpus.ledger import Ledger
 from attributes.corpus.frozen import frozen_members
 from attributes.corpus.frozen import build_seal, declare_improper_access, open_access_log, seal_evaluation_view, verify_superseding_seal
-from attributes.corpus.manifest import parse_corpus
+from attributes.corpus.manifest import parse_corpus, revise_corpus
 from attributes.corpus.partition import build_partition
 from attributes.corpus.pilot import pilot_report, sample_pilot_tracks
 from attributes.corpus.recurrence import parse_recurrence
@@ -98,6 +99,7 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
         "valueMerges": [], "attributeMerges": [], "valueRemovals": [], "attributeRemovals": [], "rationale": "fixture freeze",
     }
     frozen_doc = task_module.freeze_task(candidate, pilot, decision)
+    retained.append(decision)
     task = parse_task(frozen_doc)
 
     main_units = [("track", t, None) for t in sorted(corpus.tracks)]
@@ -387,90 +389,144 @@ def test_a_main_report_naming_an_unregistered_batch_is_refused(tmp_path) -> None
         f1_verdict(record, tmp_path, store)
 
 
-def test_r1_recovery_after_a_compromise_re_verifies_with_a_disjoint_frozen_set(tmp_path) -> None:
-    """Compromise, then re-partition with the pilot and the compromised frozen Tracks pinned
-    to training, then a superseding seal. The whole chain re-verifies. Without new footage,
-    no camera can stay unseen outside the new frozen set, so F1 stays OPEN on exactly that."""
+def test_r1_recovery_needs_new_footage_and_then_reaches_pass(tmp_path) -> None:
+    """Compromise → corpus revision adding a new site → labelling of the new Tracks →
+    re-partition that keeps every previously exposed Track out of the frozen test →
+    superseding seal. The whole chain re-verifies to PASS."""
     ctx: dict = {}
     record, store = build_chain(tmp_path, context=ctx)
-    corpus, ledger, task = ctx["corpus"], ctx["ledger"], ctx["task"]
-    old_seal, old_partition = ctx["seal"], ctx["partition"]
+    old_corpus, task, old_partition = ctx["corpus"], ctx["task"], ctx["partition"]
+    old_seal = ctx["seal"]
     old_sha = document_sha256(old_seal)
-    log = open_access_log(store / ACCESS_LOG, old_seal, T0)
-    declare_improper_access(log, old_seal, "engineer-1", "S2c.3", "opened while debugging", T0)
+    declare_improper_access(open_access_log(store / ACCESS_LOG, old_seal, T0), old_seal, "engineer-1", "S2c.3", "opened while debugging", T0)
     assert f1_verdict(record, tmp_path, store)["computed"] == "OPEN"
     (store / ACCESS_LOG).rename(store / f"frozen-access-log-{old_sha}.jsonl")
     old_log = Ledger(store / f"frozen-access-log-{old_sha}.jsonl")
+
+    # New footage: a fifth site, as a corpus revision (the old Tracks keep their identity).
+    raw = build_corpus(sites=5, cameras_per_site=3, days=12, tracks_per_source=4, kind="operational")
+    raw.update(revision=2, supersedes=old_corpus.sha256)
+    corpus = revise_corpus(old_corpus, raw)
+    recurrence = {"schemaVersion": "mavi-attribute-recurrence-audit-v1", "corpusManifestSha256": corpus.sha256, "groups": [],
+                  "recallSample": {"by": "reviewer-1", "date": "2026-10-22", "sampledPairs": 200, "missedRecurrences": 0, "note": "re-sampled after the corpus revision"}}
+    recurrence_sha, recurrence_links = parse_recurrence(recurrence, corpus)
+    duplicates = build_duplicate_audit(corpus, {o: sha("fp", o)[:16] for o in sorted(corpus.observations)}, 6)
+    duplicate_sha, duplicate_links = parse_duplicate_audit(duplicates, corpus)
+    links, hashes = recurrence_links + duplicate_links, {"recurrence": recurrence_sha, "duplicate": duplicate_sha}
     pilot = sorted(u[1] for u in ctx["pilot_units"])
-    compromised = sorted(m["trackId"] for m in frozen_members(corpus, old_partition))
+    exposed = sorted(a["trackId"] for a in old_partition["assignments"])
+
+    # Without excluding the exposed Tracks, old Tracks land in the frozen test: refused.
+    careless = build_partition(corpus, policy(seed="new-1", pinnedTrainingTrackIds=pilot), links, hashes)
+    assert set(exposed) & {m["trackId"] for m in frozen_members(corpus, careless)}
+
+    partition = build_partition(corpus, policy(seed="new-1", pinnedTrainingTrackIds=pilot, excludedFromFrozenTrackIds=exposed), links, hashes)
+    psha = document_sha256(partition)
+    assert not partition["checks"]["limitations"]
     ledger = AnnotationLedger(store / ANNOTATION_LEDGER)
+    retained: list[dict] = []
+    new_units = [("track", t, None) for t in sorted(set(corpus.tracks) - set(old_corpus.tracks))]
+    assignments, batches = dict(ctx["main_assignments"]), list(ctx["main_batches"])
+    for annotator in ("ann-a", "ann-b"):
+        a, b = _labelled(ledger, f"main2-{annotator}", annotator, "main", new_units, corpus, partition, psha, task, record["annotationGuide"]["frozenSha256"], retained)
+        assignments[a["assignmentId"]], batches = a, batches + [b]
+    main = agreement_report("main", corpus, partition, psha, task.sha256, batches, assignments, ledger.annotators(), set(), set(ledger.batch_hashes()))
+    evaluation, frozen = split_ground_truth(build_ground_truth(corpus, partition, psha, task, batches, [], ledger, assignments), None)
 
-    def reseal(pinned):
-        partition = build_partition(corpus, policy(seed="r1-9", pinnedTrainingTrackIds=sorted(set(pinned))), ctx["links"], ctx["hashes"])
-        psha = document_sha256(partition)
-        evaluation, frozen = split_ground_truth(build_ground_truth(corpus, partition, psha, task, ctx["main_batches"], [], ledger, ctx["main_assignments"]), None)
-        seal = build_seal(corpus, partition, psha, frozen, evaluation, ledger.head, "custodian-1", T0, "new frozen set", {"sealSha256": old_sha, "reason": "compromised in S2c.3"})
-        return partition, psha, evaluation, seal
+    def superseding(on_partition, frozen_view, evaluation_view):
+        return build_seal(corpus, on_partition, document_sha256(on_partition), frozen_view, evaluation_view, ledger.head, "custodian-1", T0, "new frozen set", {"sealSha256": old_sha, "reason": "compromised in S2c.3"})
 
-    # Pinning only the pilot leaves compromised Tracks in the new frozen set: refused.
-    partition, _psha, _evaluation, seal = reseal(pilot)
-    with pytest.raises(CorpusError, match="seal_reuses_compromised_frozen_tracks"):
-        verify_superseding_seal(seal, old_seal, old_log, corpus, old_partition, partition)
+    c_eval, c_frozen = split_ground_truth(build_ground_truth(corpus, careless, document_sha256(careless), task, batches, [], ledger, assignments), None)
+    careless_seal = superseding(careless, c_frozen, c_eval)
+    with pytest.raises(CorpusError, match="seal_frozen_tracks_previously_exposed"):
+        verify_superseding_seal(careless_seal, old_seal, old_log, old_corpus, old_partition, careless, corpus)
+    with pytest.raises(CorpusError, match="ledger_seal_(reuses_earlier|frozen_tracks_previously_exposed)"):
+        ledger.check_seal(careless_seal, corpus, careless)
 
-    partition, psha, evaluation, seal = reseal(pilot + compromised)
-    verify_superseding_seal(seal, old_seal, old_log, corpus, old_partition, partition)
-    main = agreement_report("main", corpus, partition, psha, task.sha256, ctx["main_batches"], ctx["main_assignments"], ledger.annotators(), set(), set(ledger.batch_hashes()))
+    # Excluding only the old frozen Tracks is not enough: Tracks that were in training,
+    # tuning or selection were exposed too. The ledger refuses; a hand-made entry fails F1.
+    old_frozen = sorted(m["trackId"] for m in frozen_members(old_corpus, old_partition))
+    half = build_partition(corpus, policy(seed="new-0", dateBlockDays=2, pinnedTrainingTrackIds=pilot, excludedFromFrozenTrackIds=old_frozen), links, hashes)
+    half_frozen = {m["trackId"] for m in frozen_members(corpus, half)}
+    assert half_frozen & set(exposed) and not half_frozen & set(old_frozen)
+    h_eval, h_frozen = split_ground_truth(build_ground_truth(corpus, half, document_sha256(half), task, batches, [], ledger, assignments), None)
+    half_seal = superseding(half, h_frozen, h_eval)
+    with pytest.raises(CorpusError, match="ledger_seal_frozen_tracks_previously_exposed"):
+        ledger.check_seal(half_seal, corpus, half)
+    store2 = tmp_path / "store2"
+    shutil.copytree(store, store2)
+    ledger2 = AnnotationLedger(store2 / ANNOTATION_LEDGER)
+    ledger2.append("seal-created", {"sealSha256": document_sha256(half_seal), "membersSha256": half_seal["frozenMembers"]["membersSha256"],
+                                    "frozenTrackIds": sorted(half_frozen), "exposedTrackIds": sorted(a["trackId"] for a in half["assignments"]), "supersedes": old_sha}, T0)
+    half_log = open_access_log(store2 / ACCESS_LOG, half_seal, T0, create=True)
+    half_view = seal_evaluation_view(h_eval, half_seal)
+    half_main = agreement_report("main", corpus, half, document_sha256(half), task.sha256, batches, assignments, ledger.annotators(), set(), set(ledger.batch_hashes()))
+    for name, document in ((corpus.sha256, raw), (recurrence_sha, recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (half, half_main, half_seal, half_view, *retained))):
+        write_canonical(store2 / f"{name}.json", document)
+    half_record = json.loads(json.dumps(record))
+    half_record["corpus"] = {"corpusKind": "operational", "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": document_sha256(half), "recurrenceAuditSha256": recurrence_sha, "duplicateAuditSha256": duplicate_sha}
+    half_record["labelling"].update(mainAgreementReportSha256=document_sha256(half_main), groundTruthSha256=document_sha256(half_view), annotationLedgerHead=ledger2.head)
+    half_record["seal"] = {"sealSha256": document_sha256(half_seal), "accessLogHead": half_log.head}
+    half_record["limitations"] = list(half["checks"]["limitations"])
+    with pytest.raises(CorpusError, match="f1_seal_frozen_tracks_previously_exposed"):
+        f1_verdict(half_record, tmp_path, store2)
+
+    seal = superseding(partition, frozen, evaluation)
+    verify_superseding_seal(seal, old_seal, old_log, old_corpus, old_partition, partition, corpus)
     new_log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
     ledger.record_seal(seal, corpus, partition, T0)
     view = seal_evaluation_view(evaluation, seal)
-    for document in (partition, main, seal, view):
-        write_canonical(store / f"{document_sha256(document)}.json", document)
-    record["corpus"]["partitionManifestSha256"] = psha
+    for name, document in ((corpus.sha256, raw), (recurrence_sha, recurrence), (duplicate_sha, duplicates), *((document_sha256(d), d) for d in (partition, main, seal, view, *retained))):
+        write_canonical(store / f"{name}.json", document)
+    record["corpus"] = {"corpusKind": "operational", "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": psha, "recurrenceAuditSha256": recurrence_sha, "duplicateAuditSha256": duplicate_sha}
     record["labelling"]["mainAgreementReportSha256"] = document_sha256(main)
     record["labelling"]["groundTruthSha256"] = document_sha256(view)
+    record["labelling"]["annotationLedgerHead"] = ledger.head
     record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": new_log.head}
     record["limitations"] = list(partition["checks"]["limitations"])
-    assert f1_verdict(record, tmp_path, store)["missing"] == ["a frozen-test camera unseen in every other partition"]
-    # F1 walks the seal chain: the superseded seal's retained log is required.
-    (store / f"frozen-access-log-{old_sha}.jsonl").rename(tmp_path / "moved.jsonl")
-    with pytest.raises(CorpusError, match=f"f1_ledger_missing:frozen-access-log-{old_sha}"):
-        f1_verdict(record, tmp_path, store)
-    (tmp_path / "moved.jsonl").rename(store / f"frozen-access-log-{old_sha}.jsonl")
-    # ...and it must show the superseded seal compromised.
+    assert f1_verdict(record, tmp_path, store) == {"computed": "PASS", "claimed": "OPEN", "missing": []}
+
+    # F1 walks the seal chain: the superseded seal's log must be retained and compromised.
     a_log = store / f"frozen-access-log-{old_sha}.jsonl"
     kept = a_log.read_text()
+    a_log.unlink()
+    with pytest.raises(CorpusError, match=f"f1_ledger_missing:frozen-access-log-{old_sha}"):
+        f1_verdict(record, tmp_path, store)
     a_log.write_text(kept.splitlines()[0] + "\n")  # only seal-created: an intact seal
     with pytest.raises(CorpusError, match="f1_superseded_seal_not_compromised"):
         f1_verdict(record, tmp_path, store)
     a_log.write_text(kept)
-    # A -> B -> C: compromising B and re-sealing with only the pilot and B's set pinned
-    # brings A's compromised Tracks back. The tool refuses it; a hand-made entry fails F1.
-    b_seal, b_sha = seal, document_sha256(seal)
-    declare_improper_access(new_log, b_seal, "engineer-1", "S2c.4", "opened again", T0)
-    (store / ACCESS_LOG).rename(store / f"frozen-access-log-{b_sha}.jsonl")
-    y = sorted(m["trackId"] for m in frozen_members(corpus, partition))
-    c_partition = build_partition(corpus, policy(pinnedTrainingTrackIds=sorted(set(pilot + y))), ctx["links"], ctx["hashes"])
-    c_psha = document_sha256(c_partition)
-    assert set(compromised) & {m["trackId"] for m in frozen_members(corpus, c_partition)}
-    c_eval, c_frozen = split_ground_truth(build_ground_truth(corpus, c_partition, c_psha, task, ctx["main_batches"], [], ledger, ctx["main_assignments"]), None)
-    c_seal = build_seal(corpus, c_partition, c_psha, c_frozen, c_eval, ledger.head, "custodian-1", T0, "third set", {"sealSha256": b_sha, "reason": "compromised in S2c.4"})
-    verify_superseding_seal(c_seal, b_seal, Ledger(store / f"frozen-access-log-{b_sha}.jsonl"), corpus, partition, c_partition)  # disjoint from B only
-    with pytest.raises(CorpusError, match="ledger_seal_reuses_earlier_frozen_tracks"):
-        ledger.record_seal(c_seal, corpus, c_partition, T0)
-    c_ids = [m["trackId"] for m in frozen_members(corpus, c_partition)]
-    ledger.append("seal-created", {"sealSha256": document_sha256(c_seal), "membersSha256": c_seal["frozenMembers"]["membersSha256"], "frozenTrackIds": c_ids, "supersedes": b_sha}, T0)
-    c_log = open_access_log(store / ACCESS_LOG, c_seal, T0, create=True)
-    c_view = seal_evaluation_view(c_eval, c_seal)
-    for document in (c_partition, c_seal, c_view, agreement_report("main", corpus, c_partition, c_psha, task.sha256, ctx["main_batches"], ctx["main_assignments"], ledger.annotators(), set(), set(ledger.batch_hashes()))):
-        write_canonical(store / f"{document_sha256(document)}.json", document)
-    c_record = json.loads(json.dumps(record))
-    c_record["corpus"]["partitionManifestSha256"] = c_psha
-    c_record["labelling"]["mainAgreementReportSha256"] = document_sha256(agreement_report("main", corpus, c_partition, c_psha, task.sha256, ctx["main_batches"], ctx["main_assignments"], ledger.annotators(), set(), set(ledger.batch_hashes())))
-    c_record["labelling"]["groundTruthSha256"] = document_sha256(c_view)
-    c_record["seal"] = {"sealSha256": document_sha256(c_seal), "accessLogHead": c_log.head}
-    c_record["limitations"] = list(c_partition["checks"]["limitations"])
-    with pytest.raises(CorpusError, match="f1_seal_chain_reuses_frozen_tracks"):
-        f1_verdict(c_record, tmp_path, store)
+    # Labels recorded after the sealed ground truth make the sealed truth incomplete.
+    ledger.register_annotator("ann-late", True, T0)
+    late = build_assignment("late-1", "ann-late", "main", "independent", new_units[:1], corpus, partition, psha, task, record["annotationGuide"]["frozenSha256"])
+    ledger.issue_assignment(late, T0)
+    with pytest.raises(CorpusError, match="f1_labels_recorded_after_sealed_ground_truth"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_the_seal_must_carry_its_ground_truth_ledger_head(tmp_path) -> None:
+    ctx: dict = {}
+    build_chain(tmp_path, seal=False, context=ctx)
+    custody = tmp_path / "custody"
+    corpus = ctx["corpus"]
+    partition = json.loads((custody / "partition.json").read_text())
+    ledger = ctx["ledger"]
+    ledger.register_annotator("ann-late", True, T0)  # the ledger moved on after the ground truth
+    with pytest.raises(CorpusError, match="seal_ledger_head_differs_from_ground_truth"):
+        build_seal(corpus, partition, document_sha256(partition), json.loads((custody / "frozen.json").read_text()), json.loads((custody / "evaluation.json").read_text()), ledger.head, "custodian-1", T0, "x")
+
+
+def test_f1_re_derives_the_frozen_task_from_the_owner_decision(tmp_path) -> None:
+    """A retained frozen task that names the real candidate, pilot and decision but adds
+    anything else is refused, even before labels are checked."""
+    record, store = build_chain(tmp_path)
+    task = json.loads((store / f"{record['attributeTask']['frozenSha256']}.json").read_text())
+    colour = next(a for a in task["attributes"] if a["kind"] == "categorical")
+    colour["values"] = sorted([*colour["values"], "teal"])
+    write_canonical(store / f"{document_sha256(task)}.json", task)
+    record["attributeTask"]["frozenSha256"] = document_sha256(task)
+    with pytest.raises(CorpusError, match="f1_frozen_task_not_reproducible"):
+        f1_verdict(record, tmp_path, store)
 
 
 def test_a_failed_seal_leaves_no_ledger_entry_and_can_be_retried(tmp_path, capsys) -> None:

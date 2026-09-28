@@ -54,7 +54,7 @@ from .manifest import parse_corpus
 from .partition import PARTITIONS, partition_of, verify_partition
 from .pilot import pilot_report
 from .recurrence import parse_recurrence
-from .task import parse_task
+from .task import freeze_task, parse_task
 
 RECORD_SCHEMA = "mavi-s2c-f1-evidence-record-v1"
 REPO = Path(__file__).resolve().parents[4]
@@ -130,6 +130,10 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     # Everything labelling produced is re-derived from the ledger as it stood when the
     # ground truth was built; the retained reports must equal the re-derivation.
     ledger = full_ledger.prefix(truth["annotationLedgerHead"])
+    require(seal["annotationLedgerHead"] == truth["annotationLedgerHead"], "f1_seal_ledger_head_differs_from_ground_truth")
+    # Nothing that changes labels may be recorded after the sealed ground truth.
+    later = full_ledger.entries[len(ledger.entries):]
+    require(not any(e["kind"] in ("assignment-issued", "batch-submitted", "adjudication-recorded", "reveal-issued") for e in later), "f1_labels_recorded_after_sealed_ground_truth")
 
     task = parse_task(store.load(record["attributeTask"]["frozenSha256"], "frozen attribute task"))
     require(task.status == "frozen", "f1_task_not_frozen")
@@ -142,11 +146,18 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     # every pilot Track is still in training in the final partition.
     pilot_psha = pilot["agreement"]["partitionManifestSha256"]
     pilot_partition = partition if pilot_psha == psha else store.load(pilot_psha, "pilot partition manifest")
+    pilot_csha = pilot["agreement"]["corpusManifestSha256"]
+    pilot_corpus = corpus if pilot_csha == corpus.sha256 else parse_corpus(store.raw(pilot_csha, "pilot corpus manifest"))
+    require(pilot_corpus.sha256 == pilot_csha, "f1_record_hash_mismatch:pilot corpus manifest")
     require(all(a["partitionManifestSha256"] == pilot_psha for a in pilot_assignments.values()), "f1_pilot_assignments_on_mixed_partitions")
-    require(pilot == pilot_report(candidate, corpus, pilot_partition, pilot_psha, pilot_batches, pilot_assignments, ledger.annotators(), registered), "f1_pilot_report_not_reproducible")
+    require(pilot == pilot_report(candidate, pilot_corpus, pilot_partition, pilot_psha, pilot_batches, pilot_assignments, ledger.annotators(), registered), "f1_pilot_report_not_reproducible")
     final_parts = partition_of(partition)
     require(all(final_parts[u["trackId"]] == "training" for a in pilot_assignments.values() for u in a["units"]), "f1_pilot_track_outside_final_training")
     require(task.document["derivedFrom"]["pilotReportSha256"] == pilot["reportSha256"], "f1_task_not_derived_from_pilot")
+    # The frozen task must be exactly what the owner decision produces from the candidate
+    # and the pilot (only pre-declared merges and removals).
+    decision = store.load(task.document["derivedFrom"]["ownerDecisionSha256"], "owner freeze decision")
+    require(task.document == freeze_task(candidate, pilot, decision), "f1_frozen_task_not_reproducible")
 
     main_assignments, main_batches = _labelling_inputs(ledger, store, "main", task)
     guide_sha = record["annotationGuide"]["frozenSha256"]
@@ -189,6 +200,7 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     # Every seal's recorded frozen Tracks are recomputed from its own retained partition
     # and corpus, and no Track may appear in two seals' frozen sets across the whole chain.
     seen: set[str] = set()
+    exposed: set[str] = set()
     for entry in seals:
         chained = seal if entry is seals[-1] else store.load(entry["sealSha256"], "superseded seal")
         own_corpus = corpus if chained["corpusManifestSha256"] == corpus.sha256 else parse_corpus(store.raw(chained["corpusManifestSha256"], "superseded corpus manifest"))
@@ -197,8 +209,11 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
         members = frozen_members(own_corpus, own_partition)
         require(document_sha256(members) == chained["frozenMembers"]["membersSha256"] == entry["membersSha256"], "f1_seal_members_not_reproducible")
         require([m["trackId"] for m in members] == entry["frozenTrackIds"], "f1_seal_ledger_members_mismatch")
+        require(sorted(a["trackId"] for a in own_partition["assignments"]) == entry["exposedTrackIds"], "f1_seal_ledger_members_mismatch")
         require(not (seen & set(entry["frozenTrackIds"])), "f1_seal_chain_reuses_frozen_tracks")
+        require(not (exposed & set(entry["frozenTrackIds"])), "f1_seal_frozen_tracks_previously_exposed")
         seen |= set(entry["frozenTrackIds"])
+        exposed |= set(entry["exposedTrackIds"])
     for older, newer in zip(seals, seals[1:]):
         old_seal = store.load(older["sealSha256"], "superseded seal")
         new_seal = store.load(newer["sealSha256"], "superseding seal")
