@@ -571,3 +571,124 @@ def test_upload_failures_are_classified(profile, error, code) -> None:
     outcome = asyncio.run(_runner(api, profile).run_once())
     assert (outcome.status, outcome.failure_code) == ("failed", code)
     assert api.completions == []
+
+
+# --------------------------------------------------------------------------- cold-review fixes
+
+
+def test_a_renewal_refused_while_completing_neither_cancels_nor_misreports_the_publication(profile) -> None:
+    """Once /complete is in flight, ownership is the platform's Phase C re-fence to decide."""
+    async def refuse(count):
+        raise AttributeLeaseLost("not running", status_code=409, code="visual_attribute_not_running")
+
+    class SlowComplete(FakeApi):
+        async def complete(self, leased, body):
+            await asyncio.sleep(0.5)  # Phase C behind the barrier; renewals would be due meanwhile
+            return await super().complete(leased, body)
+
+    api = SlowComplete(_person_lease(expires_in=0.4), heartbeat=refuse)
+    outcome = asyncio.run(_runner(api, profile, heartbeat_interval=0.05).run_once())
+    assert outcome.status == "completed"
+    assert api.failures == []
+
+
+def test_inference_is_serial_and_no_lease_is_taken_while_it_runs(profile) -> None:
+    import threading
+    import time
+
+    events: list[str] = []
+    active = 0
+    peak = 0
+    lock = threading.Lock()
+
+    class Tracking(FixtureAttributeInferencer):
+        def score(self, crop, attributes):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.4)
+            with lock:
+                active -= 1
+                events.append("score-end")
+            return super().score(crop, attributes)
+
+    class Recording(FakeApi):
+        async def lease(self):
+            events.append("lease")
+            return await super().lease()
+
+    async def refuse(count):
+        raise AttributeLeaseLost("gone", status_code=409, code="visual_attribute_lease_invalid")
+
+    async def scenario():
+        runner = _runner(Recording(_person_lease(count=1, expires_in=0.2), heartbeat=refuse), profile,
+                         inferencer=Tracking("seed"), heartbeat_interval=0.02)
+        first = await runner.run_once()
+        # The lost attempt's crop is still being scored; the next lease must wait for it.
+        runner._api = Recording(_person_lease(count=1))
+        second = await runner.run_once()
+        runner.close()
+        return first, second
+
+    first, second = asyncio.run(scenario())
+    assert (first.status, second.status) == ("lease_lost", "completed")
+    assert peak == 1
+    assert events[:3] == ["lease", "score-end", "lease"]
+
+
+def test_a_caller_cancellation_propagates_as_shutdown(profile) -> None:
+    class Blocking(FakeApi):
+        async def read_evidence(self, leased, observation):
+            await asyncio.sleep(10)
+
+    async def scenario():
+        task = asyncio.create_task(_runner(Blocking(_person_lease()), profile).run_once())
+        await asyncio.sleep(0.1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+
+def test_shutdown_during_a_lease_loss_is_not_swallowed(profile) -> None:
+    outer: list[asyncio.Task] = []
+
+    class Blocking(FakeApi):
+        async def read_evidence(self, leased, observation):
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                # The heartbeat cancelled the attempt for lease loss; shutdown arrives now too.
+                outer[0].cancel()
+                raise
+
+    async def refuse(count):
+        raise AttributeLeaseLost("gone", status_code=409, code="visual_attribute_lease_invalid")
+
+    async def scenario():
+        task = asyncio.create_task(_runner(Blocking(_person_lease(expires_in=0.1), heartbeat=refuse), profile,
+                                           heartbeat_interval=0.02).run_once())
+        outer.append(task)
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+
+
+def test_an_oversized_evidence_error_body_is_transport() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, content=b" " * (64 * 1024 + 1))
+
+    client = _client(handler, evidence_read_attempts=2)
+    with pytest.raises(EvidenceTransportError):
+        asyncio.run(client.read_evidence(LeasedAnalysis(_lease(), CAPABILITY), _observation()))
+
+
+def test_control_responses_are_read_to_their_bound() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"{" + b" " * (64 * 1024) + b"}")
+
+    with pytest.raises(AttributeApiError, match="exceeds its bound"):
+        asyncio.run(_client(handler).heartbeat(LeasedAnalysis(_lease(), CAPABILITY)))

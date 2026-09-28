@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -91,27 +92,48 @@ class AttributeRunner:
         self._completion_retry = completion_retry_seconds
         self._now = now_utc or (lambda: datetime.now(timezone.utc))
         self._sleep = sleep
+        # One serial lane for inference: a scoring call that outlives a lost attempt finishes
+        # before the next attempt may score, so a model is never entered concurrently.
+        self._inference = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mavi-attribute-inference")
+        self._inflight: Future | None = None
+
+    def close(self) -> None:
+        self._inference.shutdown(wait=True, cancel_futures=True)
 
     async def run_once(self) -> AttemptOutcome | None:
         """Lease and run one attempt; ``None`` when nothing was leasable."""
+        # Never lease while the previous attempt's scoring is still running.
+        if self._inflight is not None and not self._inflight.done():
+            await asyncio.wrap_future(self._inflight)
         leased = await self._api.lease()
         if leased is None:
             return None
         lease = leased.lease
         guard = LeaseGuard(lease.lease_expires_at_utc, now_utc=self._now)
+        heartbeat: asyncio.Task | None = None
+
+        def stop_heartbeat() -> None:
+            # Called before /complete: from then on ownership is the platform's Phase C
+            # re-fence to decide, and a renewal must neither cancel the publication nor turn
+            # its "not running" answer into a false lease loss.
+            if heartbeat is not None:
+                heartbeat.cancel()
+
         # The attempt is its own task, so a lost lease cancels exactly the attempt and nothing
         # of the caller's.
-        attempt = asyncio.create_task(self._attempt(leased, guard), name="mavi-attribute-attempt")
+        attempt = asyncio.create_task(self._attempt(leased, guard, stop_heartbeat), name="mavi-attribute-attempt")
         heartbeat = asyncio.create_task(self._heartbeat_loop(leased, guard, attempt), name="mavi-attribute-heartbeat")
         try:
             try:
                 return await asyncio.shield(attempt)
             except asyncio.CancelledError:
-                if attempt.cancelled() and guard.is_lost():
+                current = asyncio.current_task()
+                caller_cancelling = current is not None and current.cancelling() > 0
+                if attempt.cancelled() and guard.is_lost() and not caller_cancelling:
                     # Our own heartbeat cancelled the attempt: the lease is gone.
                     _LOGGER.warning("Attribute analysis %s attempt %s lost its lease", lease.analysis_id, lease.attempt_count)
                     return AttemptOutcome("lease_lost")
-                # The caller is being cancelled: stop the attempt too.
+                # The caller is being cancelled (shutdown): stop the attempt too, and propagate.
                 attempt.cancel()
                 raise
             except (LeaseLostError, AttributeLeaseLost):
@@ -129,7 +151,7 @@ class AttributeRunner:
 
     # --- the attempt -------------------------------------------------------------------
 
-    async def _attempt(self, leased: LeasedAnalysis, guard: LeaseGuard) -> AttemptOutcome:
+    async def _attempt(self, leased: LeasedAnalysis, guard: LeaseGuard, stop_heartbeat: Callable[[], None]) -> AttemptOutcome:
         lease = leased.lease
         schema = self._profile.schema
         tracks: list[TrackResult] = []
@@ -172,6 +194,7 @@ class AttributeRunner:
             prediction_sha256=hashlib.sha256(artefact).hexdigest(),
         )
         guard.check_owned()
+        stop_heartbeat()
         return await self._complete(leased, body)
 
     async def _observe(self, leased: LeasedAnalysis, observation: LeaseObservation, attributes) -> ObservationResult:
@@ -185,7 +208,8 @@ class AttributeRunner:
         crop = VerifiedCrop(str(observation.observation_id), observation.evidence_rank, observation.sha256, data)
         try:
             # Off the event loop: the heartbeat keeps its schedule while a crop is scored.
-            scores = await asyncio.to_thread(self._inferencer.score, crop, attributes)
+            self._inflight = self._inference.submit(self._inferencer.score, crop, attributes)
+            scores = await asyncio.wrap_future(self._inflight)
         except CropDecodeError:
             return ObservationResult(observation.observation_id, observation.evidence_rank, reason="evidence_decode_failed")
         except Exception as exc:

@@ -127,6 +127,30 @@ public sealed class VisualAttributeCompletionProtocolTests(PostgresFixture fixtu
     }
 
     [Fact]
+    public async Task AClientThatGoesAwayAfterTheSealDoesNotAbortThePublication()
+    {
+        var (host, _) = await HostWithQueuedRunAsync();
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var completion = await StagedAsync(host, unit);
+        using var request = new CancellationTokenSource();
+
+        var (service, scope) = host.CompletionService(beforePhaseC: _ =>
+        {
+            // The worker's HTTP timeout fires, or its connection drops, once the object is sealed.
+            request.Cancel();
+            return Task.CompletedTask;
+        });
+        VisualAttributeCompletionResult result;
+        using (scope)
+            result = await service.CompleteAsync(unit.AnalysisId, unit.Capability, completion.Request, request.Token);
+
+        Assert.Equal(VisualAttributeCompletionStatus.Completed, result.Status);
+        await using var db = host.World.Read();
+        Assert.Equal(VisualAttributeAnalysisStatus.Completed, (await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync()).Status);
+    }
+
+    [Fact]
     public async Task ACompletionStartedAfterExpiryIsRefusedAtPhaseA()
     {
         var (host, _) = await HostWithQueuedRunAsync();

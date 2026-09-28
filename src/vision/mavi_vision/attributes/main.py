@@ -75,6 +75,7 @@ async def run_worker(
                 await sleep(settings.poll_interval_seconds)
         return 0
     finally:
+        runner.close()
         await client.aclose()
 
 

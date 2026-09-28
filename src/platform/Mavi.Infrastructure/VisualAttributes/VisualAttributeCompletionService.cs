@@ -109,7 +109,18 @@ public sealed partial class VisualAttributeCompletionService(
         var phaseA = clock.Elapsed;
 
         // --- Artefact structure: streamed, bounded, lock-free ------------------------------
-        await using (var stream = await staging.OpenReadAsync(analysisId, attempt, cancellationToken))
+        Stream predictions;
+        try
+        {
+            predictions = await staging.OpenReadAsync(analysisId, attempt, cancellationToken);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Reclaimed and removed since Phase A: the attempt's staging is gone.
+            return VisualAttributeCompletionResult.Refused(409, "visual_attribute_prediction_not_staged");
+        }
+
+        await using (var stream = predictions)
         {
             var error = await AttributePredictionsValidator.ValidateAsync(
                 stream, new AttributePredictionsValidator.Expectation(analysisId, identity, schema, scope, completion), cancellationToken);
@@ -119,10 +130,15 @@ public sealed partial class VisualAttributeCompletionService(
         var artefact = clock.Elapsed;
 
         // --- Phase B: idempotent seal, outside any transaction -----------------------------
+        // From the first side effect on, the request's cancellation no longer applies: a client
+        // that disconnects or times out must not abort a seal or a publication the protocol
+        // says proceeds (lease expiry alone never stops Phase C; ownership does). The database
+        // command timeout still bounds every statement, and a retry is answered by replay.
+        var publication = CancellationToken.None;
         var acceptedKey = AttributeStagingLayout.AcceptedKey(analysisId, completion.PredictionSha256);
         var sealedResult = await acceptedEvidence.SealAsync(
             AttributeStagingLayout.StagingKey(analysisId, attempt), acceptedKey, completion.PredictionSizeBytes,
-            completion.PredictionSha256, cancellationToken);
+            completion.PredictionSha256, publication);
         switch (sealedResult.Status)
         {
             case AcceptedEvidenceSealStatus.Sealed:
@@ -134,33 +150,33 @@ public sealed partial class VisualAttributeCompletionService(
         }
 
         var phaseB = clock.Elapsed;
-        if (BeforePhaseC is not null) await BeforePhaseC(cancellationToken);
+        if (BeforePhaseC is not null) await BeforePhaseC(publication);
 
         // --- Phase C: re-fence and one publication transaction ------------------------------
         var phaseCStart = clock.Elapsed;
         TimeSpan rowsWritten, barrierAcquired;
         VisualAttributeAnalysis published;
-        await using (var transaction = await BeginFreshAsync(cancellationToken))
+        await using (var transaction = await BeginFreshAsync(publication))
         {
             // Every unit of the run, in id order: supersession needs the siblings, and one
             // deterministic order is what stops two completions of a run deadlocking.
             var runUnits = await db.VisualAttributeAnalyses.FromSqlInterpolated($"""
                 SELECT * FROM visual_attribute_analyses WHERE processing_run_id = {runId} ORDER BY id FOR UPDATE
-                """).ToListAsync(cancellationToken);
+                """).ToListAsync(publication);
             var unit = runUnits.Single(x => x.Id == analysisId);
             var tokenMatches = TokenMatches(leaseToken, unit.LeaseTokenHash);
             if (unit.IsFactBearing && unit.CanAuthenticateCompletionReplay(workerId, tokenMatches, attempt) &&
                 unit.CompletionDigest == completion.CompletionDigest)
             {
                 // A concurrent exact duplicate published first.
-                await transaction.RollbackAsync(cancellationToken);
+                await transaction.RollbackAsync(publication);
                 return Replay(unit);
             }
 
             // The re-fence: status, attempt and capability, never merely the clock.
             if (!unit.IsOwnedBy(workerId, tokenMatches, attempt))
             {
-                await transaction.RollbackAsync(cancellationToken);
+                await transaction.RollbackAsync(publication);
                 LogStalePublication(logger, analysisId, attempt, acceptedKey);
                 return VisualAttributeCompletionResult.Refused(409, VisualAttributeAnalysis.StaleAttemptCode);
             }
@@ -188,8 +204,8 @@ public sealed partial class VisualAttributeCompletionService(
             // every other publication for as long as it is held. The rows stay uncommitted.
             try
             {
-                await db.SaveChangesAsync(cancellationToken);
-                await VisualAttributeFactWriter.WriteAsync(db, outcomes, attributes, cancellationToken);
+                await db.SaveChangesAsync(publication);
+                await VisualAttributeFactWriter.WriteAsync(db, outcomes, attributes, publication);
             }
             catch (Exception exception) when (exception is DbUpdateException or Npgsql.PostgresException)
             {
@@ -202,9 +218,9 @@ public sealed partial class VisualAttributeCompletionService(
 
             rowsWritten = clock.Elapsed;
 
-            await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(db, cancellationToken);
+            await ProcessingVisibilityBarrier.AcquireCompletionExclusiveAsync(db, publication);
             barrierAcquired = clock.Elapsed;
-            var sequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, cancellationToken);
+            var sequence = await ProcessingVisibilityBarrier.AllocateSequenceAsync(db, publication);
             var preferred = release.Resolution.Definition?.Identity.Fingerprint;
             var isPreferred = string.Equals(preferred, unit.IdentityFingerprint, StringComparison.Ordinal);
             unit.Complete(workerId, tokenMatches, attempt, nowUtc, new VisualAttributeCompletion(
@@ -219,11 +235,11 @@ public sealed partial class VisualAttributeCompletionService(
                     sibling.Supersede();
             }
 
-            await db.SaveChangesAsync(cancellationToken);
+            await db.SaveChangesAsync(publication);
             try
             {
                 if (BeforeCommit is not null) await BeforeCommit();
-                await transaction.CommitAsync(cancellationToken);
+                await transaction.CommitAsync(publication);
             }
             catch (Exception exception) when (exception is DbUpdateException or InvalidOperationException or Npgsql.NpgsqlException or IOException)
             {

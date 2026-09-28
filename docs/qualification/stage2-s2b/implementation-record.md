@@ -120,7 +120,7 @@ Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were
 - **M19** (claim ignores the deadline) — `CanClaim` re-checks the deadline in memory, so the SQL predicate's job is liveness; new `AUnitPastItsDeadlineNeverStarvesQueuedWork` proves an expired unit is passed over rather than selected and skipped on every poll.
 - **M20** (claim not fenced on identity) — the other-identity test never activated identity B, so the claim returned before reaching SQL; it now activates B first.
 
-**Final: 35 of 35 killed.**
+**Final: 39 of 39 killed** (M36–M39 were added for the cold-review fixes, §6.1; M38 and M39 first survived and their tests were made deterministic).
 
 | ID | Mutation | File | Result | First killing test |
 |---|---|---|---|---|
@@ -159,6 +159,26 @@ Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were
 | M33 | expired lease accepted by lease-scoped operations | `VisualAttributeAnalysis.cs` | **killed** | `ARefusedHeartbeatChangesNothing` |
 | M34 | janitor removes the Running attempt's staging | `AttributeStagingJanitor.cs` | **killed** | `TheJanitorNeverRemovesTheRunningAttemptsStaging` |
 | M35 | COPY fact writes skipped (rows never persisted) | `VisualAttributeCompletionService.cs` | **killed** | `TheFixtureWorkerPublishesARunThroughTheRealLeasePlane` |
+| M36 | publication cancelled with the request (client timeout aborts Phase C) | `VisualAttributeCompletionService.cs` | **killed** | `AClientThatGoesAwayAfterTheSealDoesNotAbortThePublication` |
+| M37 | heartbeat left running during `/complete` | `runner.py` | **killed** | `test_a_renewal_refused_while_completing_neither_cancels_nor_misreports_the_publication` |
+| M38 | next lease does not wait for in-flight inference | `runner.py` | **killed** (after the test asserted lease ordering) | `test_inference_is_serial_and_no_lease_is_taken_while_it_runs` |
+| M39 | caller shutdown swallowed as lease loss | `runner.py` | **killed** (after the race was made deterministic) | `test_shutdown_during_a_lease_loss_is_not_swallowed` |
+
+### 6.1 Cold review
+
+An independent read-only review of `ad01c2b..5c0ff30` found no P1. Dispositions:
+
+| # | Sev. | Finding | Disposition |
+|---|---|---|---|
+| 1 | P2 | Phase B/C ran on the request's cancellation token: a worker HTTP timeout or disconnect rolled back a publication the protocol says proceeds; the worker's heartbeat could cancel an in-flight `/complete` | **Fixed.** From the first side effect (the seal) the service runs on `CancellationToken.None`, bounded by the database command timeout; the worker stops its heartbeat before `/complete` (M36, M37) |
+| 2 | P3 | A committed-but-ambiguous completion could be logged `lease_lost` when a later renewal met `not_running` | **Fixed** by the same heartbeat stop (M37) |
+| 3 | P3 | Scoring threads outlived a cancelled attempt and could overlap the next attempt's | **Fixed.** One serial inference lane; no lease is taken while scoring still runs (M38) |
+| 4 | P3 | Shutdown racing a lease loss could be swallowed | **Fixed** (`cancelling()` re-raise, M39) |
+| 5 | P3 | An oversized evidence error body escaped transport classification | **Fixed** (`test_an_oversized_evidence_error_body_is_transport`) |
+| 6 | P3 | Staging removed between Phase A and the artefact read gave 500 | **Fixed**: 409 `visual_attribute_prediction_not_staged` |
+| 7 | P3 | Worker control responses were read whole before truncation | **Fixed**: every response streamed to its bound (`test_control_responses_are_read_to_their_bound`) |
+| 8 | P3 | A claim commits the attempt before its Tracks are read; a database failure there costs one attempt with no grant | **Accepted.** The failure is a platform database fault; the attempt is bounded and reclaimed on lease expiry, exactly as a worker crash straight after a lease. Reading the grant inside the claim transaction would hold the row lock across a 10,000-Track read |
+| 9 | P3 | Hosts configured with different releases would alternate activations and stop queueing | **Accepted as a stated assumption:** every platform host of one deployment serves the same release overlay (MAVI runs one platform host per installation; a rolling redeploy of a different release is a release change, and rollback semantics apply). Recorded here and in §7 |
 
 Plan §17 mutations that have no code path in this design are recorded rather than invented: *delete a sealed object on rollback* (no deletion call exists; `AReclaimBetweenPhaseAAndPhaseCIsRefusedAndTheSealedOrphanIsSafe` asserts the orphan survives), *supersede on failed replacement* (supersession runs only inside a successful preferred Phase C; `APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot`), *publish rows before the publication transaction* (rows are written only inside it; `AnAmbiguousCommitPublishesNothingAndTheRetryPublishesOnce`), *duplicate (run, identity) units* (the unique index arbitrates; `ConcurrentReconcilersCreateOneUnit`) and *let the fixture bypass production transport* (the fixture has no transport of its own; the E2E runs the real process).
 
@@ -166,6 +186,7 @@ Plan §17 mutations that have no code path in this design are recorded rather th
 
 - **Explicit re-analysis request** (ADR-013 §9: "an explicit, bounded request per run or camera/time window") has no API in S2b; the plan does not scope one. Supersession and rollback are proven with a sibling unit inserted directly (`APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot`), standing in for that request.
 - Real Model Packs (S2c), search v4 and E5–E8 (S3), UI (S4), Production/CUDA promotion, a generic IntelligenceJob: not in S2b.
+- **One release per deployment:** all platform hosts must be configured with the same `VisualAttributes` release overlay (cold review #9).
 - The worker reports `cuda` unsupported (`attribute_device_unsupported:cuda`) — the fixture is CPU-only; device policy for real models is S2c's.
 
 ## 8. Final verification

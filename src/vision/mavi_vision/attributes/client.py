@@ -214,7 +214,10 @@ class AttributeApiClient:
                     if len(data) != observation.size_bytes:
                         raise EvidenceTransportError("evidence body is not the recorded size", status_code=200)
                     return data
-                payload = await _read_bounded(response, _MAXIMUM_CONTROL_RESPONSE_BYTES)
+                try:
+                    payload = await _read_bounded(response, _MAXIMUM_CONTROL_RESPONSE_BYTES)
+                except ResponseTooLarge as exc:
+                    raise EvidenceTransportError("evidence error body exceeds its bound", status_code=response.status_code) from exc
                 code = _problem_code(payload)
                 if response.status_code == httpx.codes.UNPROCESSABLE_ENTITY:
                     if code == "visual_attribute_evidence_missing":
@@ -237,15 +240,10 @@ class AttributeApiClient:
             CONTENT_SHA256_HEADER: hashlib.sha256(content).hexdigest(),
             "Content-Type": PREDICTIONS_MEDIA_TYPE,
         }
-        try:
-            response = await self._http.put(
-                f"{self._base}{ROUTE_PREFIX}/{lease.analysis_id}/predictions", content=content, headers=headers, timeout=self._timeout
-            )
-        except httpx.HTTPError as exc:
-            raise AttributeApiError("upload request failed") from exc
-        payload = response.content[:_MAXIMUM_CONTROL_RESPONSE_BYTES]
-        if response.status_code != httpx.codes.OK:
-            raise _error(response, payload, "upload refused")
+        status, payload = await self._send(
+            "PUT", f"{self._base}{ROUTE_PREFIX}/{lease.analysis_id}/predictions", content, headers, "upload")
+        if status != httpx.codes.OK:
+            raise _error_from(status, payload, "upload refused")
         return _parse(UploadResponse, payload, "upload")
 
     async def complete(self, leased: LeasedAnalysis, body: bytes) -> CompleteResponse:
@@ -269,14 +267,18 @@ class AttributeApiClient:
 
     async def _post_raw(self, leased: LeasedAnalysis, path: str, body: bytes, operation: str) -> bytes:
         headers = {CAPABILITY_HEADER: leased.capability, "Content-Type": "application/json"}
+        status, payload = await self._send("POST", f"{self._base}{ROUTE_PREFIX}/{path}", body, headers, operation)
+        if status != httpx.codes.OK:
+            raise _error_from(status, payload, f"{operation} refused")
+        return payload
+
+    async def _send(self, method: str, url: str, content: bytes, headers: dict[str, str], operation: str) -> tuple[int, bytes]:
+        """One control request whose response is read to its bound and never beyond."""
         try:
-            response = await self._http.post(f"{self._base}{ROUTE_PREFIX}/{path}", content=body, headers=headers, timeout=self._timeout)
+            async with self._http.stream(method, url, content=content, headers=headers, timeout=self._timeout) as response:
+                return response.status_code, await _read_bounded(response, _MAXIMUM_CONTROL_RESPONSE_BYTES)
         except httpx.HTTPError as exc:
             raise AttributeApiError(f"{operation} request failed") from exc
-        payload = response.content[:_MAXIMUM_CONTROL_RESPONSE_BYTES]
-        if response.status_code != httpx.codes.OK:
-            raise _error(response, payload, f"{operation} refused")
-        return payload
 
 
 class ResponseTooLarge(AttributeApiError):
@@ -312,10 +314,14 @@ def _problem_code(payload: bytes) -> str | None:
 
 
 def _error(response: httpx.Response, payload: bytes, message: str) -> AttributeApiError:
+    return _error_from(response.status_code, payload, message)
+
+
+def _error_from(status: int, payload: bytes, message: str) -> AttributeApiError:
     code = _problem_code(payload)
-    if response.status_code in (httpx.codes.NOT_FOUND, httpx.codes.CONFLICT) and code in _LEASE_CODES:
-        return AttributeLeaseLost(message, status_code=response.status_code, code=code)
-    return AttributeApiError(message, status_code=response.status_code, code=code)
+    if status in (httpx.codes.NOT_FOUND, httpx.codes.CONFLICT) and code in _LEASE_CODES:
+        return AttributeLeaseLost(message, status_code=status, code=code)
+    return AttributeApiError(message, status_code=status, code=code)
 
 
 def _parse(model, payload: bytes, operation: str):
