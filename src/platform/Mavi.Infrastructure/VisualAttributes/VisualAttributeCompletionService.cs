@@ -130,11 +130,13 @@ public sealed partial class VisualAttributeCompletionService(
             return VisualAttributeCompletionResult.Refused(409, "visual_attribute_prediction_not_staged");
         }
 
+        int integrityIncidents;
         await using (var stream = predictions)
         {
-            var error = await AttributePredictionsValidator.ValidateAsync(
+            var validation = await AttributePredictionsValidator.ValidateAsync(
                 stream, new AttributePredictionsValidator.Expectation(analysisId, identity, schema, scope, completion), cancellationToken);
-            if (error is not null) return VisualAttributeCompletionResult.Refused(422, error);
+            if (validation.Error is not null) return VisualAttributeCompletionResult.Refused(422, validation.Error);
+            integrityIncidents = validation.IntegrityIncidents;
         }
 
         var artefact = clock.Elapsed;
@@ -263,8 +265,9 @@ public sealed partial class VisualAttributeCompletionService(
         }
 
         var end = clock.Elapsed;
-        var incidents = completion.Tracks.Count(track => track.Reason is "evidence_integrity_failed" or "evidence_missing");
-        if (incidents > 0) integrity.RecordCompletionIncidents(analysisId, incidents, timeProvider.GetUtcNow());
+        // One incident per accepted crop the worker found missing or corrupt, whether or not its
+        // Track was still analysed from its other crops.
+        if (integrityIncidents > 0) integrity.RecordCompletionIncidents(analysisId, integrityIncidents, timeProvider.GetUtcNow());
         var timings = new VisualAttributeCompletionTimings(phaseA, artefact - phaseA, phaseB - artefact, end - phaseCStart,
             rowsWritten - phaseCStart, end - barrierAcquired);
         LogPublished(logger, analysisId, attempt, published.Status, completion.Tracks.Count,

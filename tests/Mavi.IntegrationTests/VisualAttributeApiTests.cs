@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json.Nodes;
 using Mavi.Application.Modules.VisualAttributes;
+using Mavi.Application.Modules.VisualAttributes.Completion;
 using Mavi.Contracts.Worker.Attributes;
 using Mavi.Domain.Media;
 using Mavi.Domain.VisualAttributes;
@@ -343,8 +345,9 @@ public sealed class VisualAttributeApiTests(PostgresFixture fixture)
         Assert.Equal(HttpStatusCode.OK, readiness.StatusCode);
         Assert.Contains("\"Ready\"", await readiness.Content.ReadAsStringAsync(), StringComparison.Ordinal);
 
+        // One incident per corrupt crop: the Unavailable Track reported both of its crops.
         var integrity = host.Factory.Services.GetRequiredService<VisualAttributeIntegrityMonitor>().Current;
-        Assert.Equal(1, integrity.CompletionIncidents);
+        Assert.Equal(2, integrity.CompletionIncidents);
 
         // The capability reached no log line on the whole path; the audit trail did record the work.
         var logs = host.AllLogText();
@@ -413,6 +416,107 @@ public sealed class VisualAttributeApiTests(PostgresFixture fixture)
         Assert.Equal(VisualAttributeAnalysisStatus.Running, (await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync()).Status);
         Assert.False(await db.VisualAttributeTrackOutcomes.AnyAsync());
         Assert.False(Directory.Exists(Path.Combine(host.World.EvidenceRoot, "attributes")));
+    }
+
+    private static JsonArray WithoutFirst(JsonArray observations) =>
+        new(observations.Skip(1).Select(item => item!.DeepClone()).ToArray());
+
+    /// <summary>Completes with an artefact the worker built wrongly; nothing may be published.</summary>
+    private static async Task AssertArtefactRefusedAsync(VisualAttributeApiHost host, LeasedUnit unit, BuiltCompletion completion)
+    {
+        using var response = await host.UploadAndCompleteAsync(unit, completion);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(AttributePredictionsValidator.InvalidCode, await VisualAttributeApiHost.ProblemCodeAsync(response));
+        await using var db = host.World.Read();
+        Assert.Equal(VisualAttributeAnalysisStatus.Running, (await db.VisualAttributeAnalyses.AsNoTracking().SingleAsync()).Status);
+        Assert.False(await db.VisualAttributeTrackOutcomes.AnyAsync());
+    }
+
+    [Fact]
+    public async Task AnArtefactThatOmitsALeasedCropFromAnAnalysedTrackPublishesNothing()
+    {
+        var (host, run) = await HostWithQueuedRunAsync(persons: 1, vehicles: 0, observations: 2);
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var track = run.Track(0);
+        var supporting = track.Observations[1].ObservationId;
+        // Scored from the second crop only; the first, usable crop is silently left out.
+        var completion = AttributeCompletionBuilder.Build(unit,
+            unavailableObservation: id => id == track.Observations[0].ObservationId ? "evidence_decode_failed" : null,
+            artefactObservations: (_, observations) => WithoutFirst(observations));
+        Assert.All(completion.Request.Payload!.Tracks!.Single().Attributes!, row => Assert.Equal(supporting, row.SupportingObservationId));
+
+        await AssertArtefactRefusedAsync(host, unit, completion);
+    }
+
+    [Fact]
+    public async Task AnArtefactThatOmitsEveryLeasedCropOfAnUnavailableTrackPublishesNothing()
+    {
+        var (host, _) = await HostWithQueuedRunAsync(persons: 1, vehicles: 0, observations: 2);
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        // "Evidence missing" with no observation to show for it: the usable crops were never reported.
+        var completion = AttributeCompletionBuilder.Build(unit,
+            unavailable: _ => "evidence_missing",
+            artefactObservations: (_, _) => []);
+
+        await AssertArtefactRefusedAsync(host, unit, completion);
+    }
+
+    [Fact]
+    public async Task AnUnavailableTrackMustGiveAReasonItsObservationsReport()
+    {
+        var (host, _) = await HostWithQueuedRunAsync(persons: 1, vehicles: 0, observations: 2);
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        // The Track claims an integrity failure no crop reported.
+        var completion = AttributeCompletionBuilder.Build(unit,
+            unavailable: _ => "evidence_integrity_failed",
+            artefactObservations: (_, observations) =>
+            {
+                foreach (var observation in observations) observation!["reason"] = "evidence_decode_failed";
+                return observations;
+            });
+
+        await AssertArtefactRefusedAsync(host, unit, completion);
+    }
+
+    [Fact]
+    public async Task ACropThatFailedItsIntegrityCheckOnAnAnalysedTrackIsAnOperatorIncident()
+    {
+        var (host, run) = await HostWithQueuedRunAsync(persons: 1, vehicles: 0, observations: 2);
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var track = run.Track(0);
+        // One crop's bytes disagree with their record; the Track is still analysed from the other.
+        var completion = AttributeCompletionBuilder.Build(unit,
+            unavailableObservation: id => id == track.Observations[0].ObservationId ? "evidence_integrity_failed" : null);
+
+        using var response = await host.UploadAndCompleteAsync(unit, completion);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await using (var db = host.World.Read())
+            Assert.Null((await db.VisualAttributeTrackOutcomes.AsNoTracking().SingleAsync()).Reason);
+        var integrity = host.Factory.Services.GetRequiredService<VisualAttributeIntegrityMonitor>().Current;
+        Assert.Equal(1, integrity.CompletionIncidents);
+        Assert.Equal(unit.AnalysisId, integrity.LastIncidentAnalysisId);
+    }
+
+    [Fact]
+    public async Task ACropThatCouldNotBeDecodedIsNotAnIntegrityIncident()
+    {
+        var (host, run) = await HostWithQueuedRunAsync(persons: 1, vehicles: 0, observations: 2);
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var track = run.Track(0);
+        var completion = AttributeCompletionBuilder.Build(unit,
+            unavailableObservation: id => id == track.Observations[0].ObservationId ? "evidence_decode_failed" : null);
+
+        using var response = await host.UploadAndCompleteAsync(unit, completion);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, host.Factory.Services.GetRequiredService<VisualAttributeIntegrityMonitor>().Current.CompletionIncidents);
     }
 
     // --- Startup ---------------------------------------------------------------------------

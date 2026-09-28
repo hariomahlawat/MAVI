@@ -26,6 +26,11 @@ internal static class AttributeCompletionBuilder
     /// <param name="unavailable">A Track to report Unavailable, and why.</param>
     /// <param name="unknown">Attribute types to report Unknown on every analysed Track.</param>
     /// <param name="value">The Observed value (a different value is a different completion).</param>
+    /// <param name="unavailableObservation">
+    /// On an analysed Track, an Observation to report unavailable, and why (the Track is still
+    /// scored from its other crops).
+    /// </param>
+    /// <param name="artefactObservations">Rewrites a Track's artefact observations (a malformed worker).</param>
     public static BuiltCompletion Build(
         LeasedUnit unit,
         Func<Guid, string?>? unavailable = null,
@@ -34,7 +39,9 @@ internal static class AttributeCompletionBuilder
         string actualDevice = "cpu",
         long? declaredSizeBytes = null,
         string? declaredSha256 = null,
-        IReadOnlyDictionary<string, string[]>? typesByClass = null)
+        IReadOnlyDictionary<string, string[]>? typesByClass = null,
+        Func<Guid, string?>? unavailableObservation = null,
+        Func<Guid, JsonArray, JsonArray>? artefactObservations = null)
     {
         typesByClass ??= TypesByClass;
         var lease = unit.Lease;
@@ -57,9 +64,18 @@ internal static class AttributeCompletionBuilder
             }
             else
             {
-                var supporting = track.Observations[0].ObservationId;
+                var supporting = track.Observations.First(observation => unavailableObservation?.Invoke(observation.ObservationId) is null).ObservationId;
                 foreach (var observation in track.Observations)
                 {
+                    if (unavailableObservation?.Invoke(observation.ObservationId) is { } observationReason)
+                    {
+                        observations.Add(new JsonObject
+                        {
+                            ["observationId"] = observation.ObservationId, ["reason"] = observationReason, ["scores"] = null, ["status"] = "unavailable",
+                        });
+                        continue;
+                    }
+
                     var scores = new JsonObject();
                     foreach (var type in types)
                         scores[type] = new JsonObject { ["dark"] = value == "dark" ? 0.7 : 0.1, ["light"] = value == "light" ? 0.7 : 0.1, ["mid"] = value == "mid" ? 0.7 : 0.2 };
@@ -92,7 +108,7 @@ internal static class AttributeCompletionBuilder
             predicted.Add(new JsonObject
             {
                 ["decisions"] = decisions,
-                ["observations"] = observations,
+                ["observations"] = artefactObservations?.Invoke(track.TrackId, observations) ?? observations,
                 ["outcome"] = reason is null ? VisualAttributeContractRules.OutcomeAnalysed : VisualAttributeContractRules.OutcomeUnavailable,
                 ["reason"] = reason,
                 ["trackId"] = track.TrackId,

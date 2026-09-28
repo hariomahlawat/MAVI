@@ -119,7 +119,7 @@ Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were
 - **M19** (claim ignores the deadline) — `CanClaim` re-checks the deadline in memory, so the SQL predicate's job is liveness; new `AUnitPastItsDeadlineNeverStarvesQueuedWork` proves an expired unit is passed over rather than selected and skipped on every poll.
 - **M20** (claim not fenced on identity) — the other-identity test never activated identity B, so the claim returned before reaching SQL; it now activates B first.
 
-**Final: 60 of 60 killed** (M36–M39 guard the cold-review fixes, §6.1; M40–M48 the lease-lifetime repairs, §6.2; M49–M60 the fence schedule, §6.3. M38 and M39 first survived and their tests were made deterministic; M40 was first written so that it did not compile and was rerun as a valid mutant).
+**Final: 64 of 64 killed** (M36–M39 guard the cold-review fixes, §6.1; M40–M48 the lease-lifetime repairs, §6.2; M49–M60 the fence schedule, §6.3; M61–M64 evidence coverage and crop-level integrity health, §6.4. M61 was first written so that it did not compile and was rerun as a valid mutant. M38 and M39 first survived and their tests were made deterministic; M40 was first written so that it did not compile and was rerun as a valid mutant).
 
 | ID | Mutation | File | Result | First killing test |
 |---|---|---|---|---|
@@ -183,6 +183,10 @@ Run 1 killed 32 of 35. The three survivors were test gaps, not defects, and were
 | M58 | post-read check removed | `LeaseFencedStream.cs` | **killed** | `AnEvidenceStreamStopsAtItsLeaseExpiryInsideARecheckInterval` |
 | M59 | row read ignores cancellation | `LeaseFencedStream.cs` | **killed** | `CancellationReachesTheInnerReadAndTheRowRead` |
 | M60 | evidence interval measured after authorisation | `VisualAttributeEndpoints.cs` | **killed** | `AnEvidenceStreamStopsWithinOneRecheckIntervalOfItsAuthorisationAfterAHandOver` |
+| M61 | artefact need not account for every leased crop | `AttributePredictionsValidator.cs` | **killed** | `AnArtefactThatOmitsALeasedCropFromAnAnalysedTrackPublishesNothing` |
+| M62 | an Unavailable Track's reason need not be one a crop reports | `AttributePredictionsValidator.cs` | **killed** | `AnUnavailableTrackMustGiveAReasonItsObservationsReport` |
+| M63 | crop-level integrity reasons not counted in health | `AttributePredictionsValidator.cs` | **killed** | `ACropThatFailedItsIntegrityCheckOnAnAnalysedTrackIsAnOperatorIncident` |
+| M64 | a decode failure counted as an integrity incident | `AttributePredictionsValidator.cs` | **killed** | `ACropThatCouldNotBeDecodedIsNotAnIntegrityIncident` |
 
 Plan §17 mutations that have no code path in this design are recorded rather than invented: *delete a sealed object on rollback* (no deletion call exists; `AReclaimBetweenPhaseAAndPhaseCIsRefusedAndTheSealedOrphanIsSafe` asserts the orphan survives), *supersede on failed replacement* (supersession runs only inside a successful preferred Phase C; `APreferredCompletionSupersedesTheOldDefaultAndAFailedReplacementDoesNot`), *publish rows before the publication transaction* (rows are written only inside it; `AnAmbiguousCommitPublishesNothingAndTheRetryPublishesOnce`), *duplicate (run, identity) units* (the unique index arbitrates; `ConcurrentReconcilersCreateOneUnit`) and *let the fixture bypass production transport* (the fixture has no transport of its own; the E2E runs the real process).
 
@@ -245,6 +249,16 @@ A cold review of `08d1f60` reported that `LeaseFencedStream` scheduled its first
 Tests added: the evidence case above; `AnUploadStopsWithinOneRecheckIntervalWhenTheOwnerGaveUpAndAnotherAttemptClaimed` (the *same* worker reclaims, so only attempt and capability distinguish it; released exactly one interval after the first fenced read, the first lease far from expiry); `AnEvidenceStreamStopsAtItsLeaseExpiryInsideARecheckInterval` and `AnUploadStopsAtItsLeaseExpiryInsideARecheckInterval` (expiry at the exact instant, inside an interval); and `LeaseFencedStreamTests` (schedule to the tick, same-owner revalidation, renewal, bytes read across a loss, end of stream, cancellation, a failing row read, disposal). The upload tests now signal once the first bytes have passed the fence rather than on entry to staging, so a hand-over provably follows an ownership observation. Against `08d1f60` only the evidence authorisation-origin test failed; the others pass there and are retained as boundary coverage, and each schedule mutant (M49–M60) is killed by at least one of them.
 
 *Residual, P3, not changed:* bytes read while owned may still be delivered after a loss while a response write waits on back-pressure — at most one 80 KiB copy buffer plus transport buffers, all read under ownership. Closing that would need a fence on the write side for no change in what a superseded attempt can learn.
+
+### 6.4 Automated review of `15967b3`: evidence coverage and crop-level integrity
+
+Two findings from an automated reviewer, both verified against the code and fixed.
+
+**Leased crops could be left out of the artefact (P2 by this record's scale; the reviewer labelled it P1).** The artefact validator refused foreign and duplicate Observation ids but never required a Track's observations to *equal* its leased set. A malformed worker could omit a usable crop and still publish — including an Unavailable `evidence_missing` Track with no observation to show for it — contrary to AGENTS.md's evidence-traceability rule. The lease hands the worker exactly the Track's accepted EvidenceCrops, the same set the validator's scope holds, and the worker reports every one (`runner.py`), so the stricter rule costs an honest worker nothing: the real-process end-to-end passes unchanged. *Invariant:* for every Track the artefact accounts for each leased crop exactly once, and an Unavailable Track's reason is one its crops report.
+
+**Crop-level integrity failures were invisible to operator health (P2).** Health counted completion incidents from the Track's reason only. When one crop failed its SHA-256 and another scored, the Track was Analysed with no reason, and the corrupt accepted object never reached `/api/health`; the evidence endpoint cannot detect it, because the worker hashes what it reads. The artefact validator now counts the crops reported `evidence_integrity_failed` or `evidence_missing`, and that count is what the completion service records — one incident per crop, so an Unavailable Track with two corrupt crops is two. `evidence_decode_failed` is not an integrity incident.
+
+Tests (all failed on `15967b3` before the fix, except the decode control): `AnArtefactThatOmitsALeasedCropFromAnAnalysedTrackPublishesNothing`, `AnArtefactThatOmitsEveryLeasedCropOfAnUnavailableTrackPublishesNothing`, `AnUnavailableTrackMustGiveAReasonItsObservationsReport`, `ACropThatFailedItsIntegrityCheckOnAnAnalysedTrackIsAnOperatorIncident`, and the control `ACropThatCouldNotBeDecodedIsNotAnIntegrityIncident`. `ACompletionPublishesFactsAndTheSealedArtefactAndTheRunBecomesReady` now expects two incidents (its Unavailable Track reports both crops corrupt).
 
 ## 7. Deferred and out of scope
 

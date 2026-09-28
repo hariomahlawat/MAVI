@@ -44,7 +44,14 @@ public static class AttributePredictionsValidator
         IReadOnlyList<CompletionTrackScope> Scope,
         ValidatedAttributeCompletion Completion);
 
-    public static async Task<string?> ValidateAsync(Stream stream, Expectation expectation, CancellationToken cancellationToken)
+    /// <summary>
+    /// The outcome of validating an artefact: an error code, or none and the number of accepted
+    /// crops the worker found missing or not matching their recorded digest — an integrity signal
+    /// the platform cannot see for itself, since the worker hashes what it reads.
+    /// </summary>
+    public sealed record Result(string? Error, int IntegrityIncidents);
+
+    public static async Task<Result> ValidateAsync(Stream stream, Expectation expectation, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(expectation);
@@ -64,11 +71,11 @@ public static class AttributePredictionsValidator
                 }
 
                 var consumed = machine.Process(buffer.AsSpan(0, filled), final);
-                if (machine.Error is not null) return machine.Error;
+                if (machine.Error is not null) return new Result(machine.Error, 0);
                 if (machine.IsDone)
                     return await OnlyWhitespaceRemainsAsync(stream, buffer.AsMemory(consumed, filled - consumed), cancellationToken)
-                        ? null
-                        : InvalidCode;
+                        ? new Result(null, machine.IntegrityIncidents)
+                        : Invalid;
                 if (consumed > 0)
                 {
                     Buffer.BlockCopy(buffer, consumed, buffer, 0, filled - consumed);
@@ -81,18 +88,20 @@ public static class AttributePredictionsValidator
                 else if (filled == buffer.Length)
                 {
                     // One element does not fit: grow up to the element bound, never beyond.
-                    if (buffer.Length >= MaximumElementBytes) return InvalidCode;
+                    if (buffer.Length >= MaximumElementBytes) return Invalid;
                     Array.Resize(ref buffer, Math.Min(buffer.Length * 2, MaximumElementBytes));
                 }
             }
         }
         catch (JsonException)
         {
-            return InvalidCode;
+            return Invalid;
         }
 
-        return InvalidCode;
+        return Invalid;
     }
+
+    private static readonly Result Invalid = new(InvalidCode, 0);
 
     private static async Task<bool> OnlyWhitespaceRemainsAsync(Stream stream, ReadOnlyMemory<byte> pending, CancellationToken cancellationToken)
     {
@@ -217,6 +226,8 @@ public static class AttributePredictionsValidator
 
         public bool IsDone => _phase == Phase.Done;
 
+        public int IntegrityIncidents { get; private set; }
+
         private void Header(string name, ref Utf8JsonReader reader)
         {
             if (!_headerSeen.Add(name)) { Error = InvalidCode; return; }
@@ -274,6 +285,7 @@ public static class AttributePredictionsValidator
             var applicable = expectation.Schema.ForObjectClass(scope.ObjectClass);
             var scored = new HashSet<Guid>();
             var observed = new HashSet<Guid>();
+            var reasons = new HashSet<string>(StringComparer.Ordinal);
             foreach (var observation in track.Observations)
             {
                 if (!scope.ObservationIds.Contains(observation.ObservationId) || !observed.Add(observation.ObservationId))
@@ -303,6 +315,8 @@ public static class AttributePredictionsValidator
                         Error = InvalidCode;
                         return;
                     }
+
+                    reasons.Add(reason);
                 }
                 else
                 {
@@ -311,12 +325,26 @@ public static class AttributePredictionsValidator
                 }
             }
 
-            // An Analysed Track was scored from at least one crop; an Unavailable one from none.
-            if ((completed.Outcome == VisualAttributeTrackOutcomeKind.Analysed) != (scored.Count > 0))
+            // Every leased crop is accounted for, so no usable evidence can be left out silently
+            // and every result stays traceable to the evidence it was (or was not) drawn from.
+            if (!observed.SetEquals(scope.ObservationIds))
             {
                 Error = InvalidCode;
                 return;
             }
+
+            // An Analysed Track was scored from at least one crop; an Unavailable one from none,
+            // and for a reason at least one of its crops reports.
+            if ((completed.Outcome == VisualAttributeTrackOutcomeKind.Analysed) != (scored.Count > 0) ||
+                (completed.Outcome == VisualAttributeTrackOutcomeKind.Unavailable && scope.ObservationIds.Count > 0 &&
+                 !reasons.Contains(completed.Reason!)))
+            {
+                Error = InvalidCode;
+                return;
+            }
+
+            IntegrityIncidents += track.Observations.Count(observation =>
+                observation.Status == "unavailable" && observation.Reason is "evidence_integrity_failed" or "evidence_missing");
 
             // The aggregation decisions are the final rows, value for value.
             if (track.Decisions.Count != completed.Rows.Count)
