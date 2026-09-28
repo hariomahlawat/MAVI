@@ -1,7 +1,7 @@
 # Stage 2 — S2a.4 Setup / offline integration plan
 
 - **Date:** 2026-09-28
-- **Status:** implementation-ready after post-S2a.3 cold review
+- **Status:** implemented on `feature/stage2-s2a-4-offline-kit`; implementation record and errata in the parent plan §20, mutation record `docs/qualification/stage2-s2a/mutations-s2a-4.md`
 - **Baseline:** `d99d259f5202815e7f312b3364c74574ead9f005` (`main`, PR #110 merge)
 - **Parent plan:** `docs/superpowers/plans/2026-09-27-stage2-s2a-component-binding-v2.md`, especially §§7, 10, 12 and 13
 - **Governing decisions:** ADR-014, ADR-007, ADR-009

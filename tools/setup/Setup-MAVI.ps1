@@ -345,39 +345,77 @@ try {
             Write-MaviSetupStatus -Name "Workspace validation" -Status "WARN" -Detail "developer dependency cache not present in this non-canonical setup source"
         }
 
+        $visionResult = [ordered]@{ status = "not-attempted" }
         if ($RepositoryRoot) {
-            $visionBundleRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_BUNDLE_ROOT", "Process")
-            if ([string]::IsNullOrWhiteSpace($visionBundleRoot)) {
-                $visionBundleRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_BUNDLE_ROOT", "Machine")
+            # Vision composition (Stage 2 S2a.4). Component binding v2 decides
+            # what is installed; Mavi.VisionSetup.psm1 finds the source,
+            # preflights the complete set before the first install, installs
+            # the Runtime Pack and every bound Model Pack with their own
+            # installers, and treats only the launcher's compatibility check as
+            # READY. A legacy bundle-manifest.json is never installable.
+            Import-Module (Join-Path $PSScriptRoot "Mavi.VisionSetup.psm1") -Force
+            $explicitVisionRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_BUNDLE_ROOT", "Process")
+            if ([string]::IsNullOrWhiteSpace($explicitVisionRoot)) {
+                $explicitVisionRoot = [Environment]::GetEnvironmentVariable("MAVI_VISION_BUNDLE_ROOT", "Machine")
             }
-            if ([string]::IsNullOrWhiteSpace($visionBundleRoot)) {
-                $visionBundleRoot = Join-Path (Split-Path $RepositoryRoot -Parent) "MAVI-Vision-Runtime-Bundle"
-            }
-
-            $visionManifest = Join-Path $visionBundleRoot "bundle-manifest.json"
-            $nestedCpuVisionManifest = Join-Path $visionBundleRoot "windows-x86_64-cpu\bundle-manifest.json"
-            $nestedCudaVisionManifest = Join-Path $visionBundleRoot "windows-x86_64-cuda\bundle-manifest.json"
-            if ((Test-Path -LiteralPath $visionManifest -PathType Leaf) -or
-                (Test-Path -LiteralPath $nestedCpuVisionManifest -PathType Leaf)) {
-                & (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -BundleRoot $visionBundleRoot -RepositoryRoot $RepositoryRoot -Variant "windows-x86_64-cpu"
-                Write-MaviSetupStatus -Name "Vision runtime CPU" -Status "OK" -Detail "qualified Windows CPU bundle installed"
-            }
-            else {
-                Write-MaviSetupStatus -Name "Vision runtime CPU" -Status "INFO" -Detail "bundle not present; UI/API remain usable but CPU vision jobs stay queued until runtime is installed"
-            }
-            if (Test-Path -LiteralPath $nestedCudaVisionManifest -PathType Leaf) {
-                & (Join-Path $PSScriptRoot "Install-MaviVisionRuntime.ps1") -BundleRoot $visionBundleRoot -RepositoryRoot $RepositoryRoot -Variant "windows-x86_64-cuda"
-                Write-MaviSetupStatus -Name "Vision runtime CUDA" -Status "OK" -Detail "qualified Windows CUDA bundle installed"
+            $visionSource = Resolve-MaviVisionSetupSource -BundleRoot $BundleRoot -RepositoryRoot $RepositoryRoot -ExplicitRoot $explicitVisionRoot
+            if ($visionSource.Kind -eq "none") {
+                $visionResult = [ordered]@{ status = "not-installed" }
+                Write-MaviSetupStatus -Name "Vision composition" -Status "WARN" -Detail "not installed: no Vision component store (vision\component-inventory.json) or Runtime Bundle was found; UI/API remain usable, vision jobs stay queued"
             }
             else {
-                Write-MaviSetupStatus -Name "Vision runtime CUDA" -Status "INFO" -Detail "qualified CUDA bundle not present; Development Auto will use CPU"
+                $visionPython = Join-Path $RepositoryRoot ".venv\Scripts\python.exe"
+                if (-not (Test-Path -LiteralPath $visionPython -PathType Leaf)) {
+                    throw "Vision component preflight needs the workspace Python environment '$visionPython', which Development setup creates from the offline developer cache. Attach the canonical Development bundle or binary kit and re-run Setup."
+                }
+                $visionStore = Get-MaviVisionSetupModelStoreRoot
+                $setupScriptRoot = $PSScriptRoot
+                $visionPlan = Invoke-MaviVisionComponentPreflight -Source $visionSource -RepositoryRoot $RepositoryRoot -Python $visionPython -ModelStoreRoot $visionStore
+                Write-MaviSetupStatus -Name "Vision preflight" -Status "OK" -Detail ("{0} source {1}; Runtime Pack + {2} Model Pack(s) bound by {3}" -f $visionPlan.SourceKind, $visionPlan.SourceRoot, @($visionPlan.ModelPacks).Count, $visionPlan.ComponentBindingSha256.Substring(0, 12))
+                if ($visionPlan.ApplicationRevision) {
+                    Write-MaviSetupStatus -Name "Vision kit provenance" -Status "INFO" -Detail "assembled at application revision $($visionPlan.ApplicationRevision)"
+                }
+                # Plain script blocks, not closures: a block made with
+                # GetNewClosure() runs in its own dynamic module, and the
+                # installers' `Import-Module -Force` there would unload this
+                # script's own copies of the Setup modules.
+                $installRuntime = {
+                    param($entry)
+                    & (Join-Path $setupScriptRoot "Install-MaviVisionRuntime.ps1") -BundleRoot $entry.SourceRoot -RepositoryRoot $RepositoryRoot -Variant $entry.Variant
+                }
+                $installModel = {
+                    param($entry)
+                    & (Join-Path $setupScriptRoot "Install-MaviVisionModelPack.ps1") -PackRoot $entry.SourceRoot -StoreRoot $visionStore
+                }
+                $assertComposition = {
+                    param($plan)
+                    & (Join-Path $setupScriptRoot "Start-MaviVisionWorker.ps1") -RepositoryRoot $RepositoryRoot -DevicePolicy cpu -VerifyOnly
+                }
+                $vision = Invoke-MaviVisionComponentInstallation -Plan $visionPlan -InstallRuntimePack $installRuntime -InstallModelPack $installModel -AssertComposition $assertComposition
+                $visionResult = [ordered]@{
+                    status = "ready"
+                    runtimePackId = $vision.RuntimePackId
+                    modelPackIds = @($vision.ModelPackIds)
+                    optionalRuntimePackIds = @($vision.OptionalRuntimePackIds)
+                    componentBindingSha256 = $vision.ComponentBindingSha256
+                    kitApplicationRevision = $vision.ApplicationRevision
+                }
+                Write-MaviSetupStatus -Name "Vision composition" -Status "OK" -Detail ("READY: Runtime Pack {0} and {1} Model Pack(s) pass the launcher compatibility check" -f $vision.RuntimePackId, @($vision.ModelPackIds).Count)
+                if (@($vision.OptionalRuntimePackIds).Count -eq 0) {
+                    Write-MaviSetupStatus -Name "Vision runtime CUDA" -Status "INFO" -Detail "no Windows CUDA Runtime Pack in the source; Development Auto will use CPU"
+                }
             }
         }
 
         Write-MaviSetupStatus -Name "Machine config" -Status "OK" -Detail $machineConfigPath
         Write-MaviSetupStatus -Name "Test connection" -Status "OK" -Detail "MAVI_TEST_DB_CONNECTION configured for this PC"
         Write-Host ""
-        Write-Host "Development environment ready. Restart Visual Studio once, then build/run MAVI."
+        if ($visionResult.status -eq "ready") {
+            Write-Host "Development environment ready. Restart Visual Studio once, then build/run MAVI."
+        }
+        else {
+            Write-Host "Development environment ready without the Vision composition ($($visionResult.status)). Restart Visual Studio once, then build/run MAVI; vision jobs stay queued until the Vision components are installed."
+        }
     }
     else {
         $appPoolName = [string]$profileDefaults.iisAppPoolName
@@ -435,6 +473,9 @@ try {
     }
     if ($Profile -eq "Production") {
         $result["baseUrl"] = "http://127.0.0.1:$HttpPort"
+    }
+    else {
+        $result["vision"] = $visionResult
     }
     Write-MaviJson -Value $result -Path $resultPath -Depth 8
 }
