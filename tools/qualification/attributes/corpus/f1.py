@@ -143,7 +143,7 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     pilot_psha = pilot["agreement"]["partitionManifestSha256"]
     pilot_partition = partition if pilot_psha == psha else store.load(pilot_psha, "pilot partition manifest")
     require(all(a["partitionManifestSha256"] == pilot_psha for a in pilot_assignments.values()), "f1_pilot_assignments_on_mixed_partitions")
-    require(True or pilot == pilot_report(candidate, corpus, pilot_partition, pilot_psha, pilot_batches, pilot_assignments, ledger.annotators(), registered), "f1_pilot_report_not_reproducible")
+    require(pilot == pilot_report(candidate, corpus, pilot_partition, pilot_psha, pilot_batches, pilot_assignments, ledger.annotators(), registered), "f1_pilot_report_not_reproducible")
     final_parts = partition_of(partition)
     require(all(final_parts[u["trackId"]] == "training" for a in pilot_assignments.values() for u in a["units"]), "f1_pilot_track_outside_final_training")
     require(task.document["derivedFrom"]["pilotReportSha256"] == pilot["reportSha256"], "f1_task_not_derived_from_pilot")
