@@ -1,6 +1,6 @@
 # Model Selection Records — Methodology (MSR method v1)
 
-**Status:** Proposed with the S2c planning change (`docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md` §9); takes effect when that change is accepted, under the proposed ADR-014 note "Model Selection Records".
+**Status:** Accepted — PR #115 merged the independently reviewed MSR method v1 at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge is the acceptance event. Future learned Model Pack selections must follow the accepted ADR-014 Model Selection Records note. S2c.0 records/reconciles the accepted method into the implementation baseline; it does not create a second acceptance event.
 **Scope:** every learned component MAVI binds through a Model Pack. That includes detectors, trackers with learned parts, person and vehicle attributes, embeddings, re-identification, segmentation, OCR, VLMs, and any later capability.
 **Purpose:** make every model choice reconstructible years later without the author's memory. A future reader must be able to answer:
 - which models were considered, and how they were found;
