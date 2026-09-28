@@ -367,3 +367,27 @@ Before any real attribute model is implemented:
 6. frozen qualification test set is sealed.
 
 Any later exception is documented as a protocol revision and invalidates prior final-test claims that it could bias.
+
+## 19. Protocol revision R1 (2026-09-28, S2c planning) — freeze order
+
+**Status: Proposed with the S2c plan; effective on acceptance of that planning change.** Read literally, §18 requires minimum support and operational gates (items 3–4) to be frozen "before any real attribute model is implemented", while §5 records the support table "during S5, before the frozen test set is scored" and §6.4 chooses thresholds "from validation/tuning data" — which needs a model to have been run. The literal order cannot be executed and contradicts §5, §6.4 and the parent plan's S5 row. R1 fixes the order without weakening any safeguard; §18 items 1, 2, 5 and 6 are executed before any model runs, exactly as written:
+
+1. **Before any candidate model is run on MAVI corpus data** (S2c): the annotation guide per attribute is frozen (§4); the partition method is frozen (§3.1, §3.2); the **aggregation policy family and the threshold-selection method** are frozen (§18 item 5 — both are executable without running a model); the partition is executed and the **frozen qualification test set is sealed** — its manifest (crop SHA-256s, camera/site ids, labels) is hash-committed, its content is held outside the evaluation environment, and no candidate, threshold or vocabulary decision may read it.
+2. **During the S2c bake-off, on the training, tuning and selection partitions only:** fitting heads and calibration (training), tuning parameter values of the frozen family and of admissibility (tuning), candidate comparison and model selection (selection); the annotation-agreement report; the support *measurements* from which §5's table is later set.
+3. **Before the frozen test set is scored** (S5): minimum-support values, operational metric gates and every parameter value are frozen and recorded (§18 items 3–4).
+4. **S5:** the frozen test set is scored once for the frozen identity.
+
+"Implemented" in §18 therefore means "qualified or used to influence a freeze decision", not "integrated as code". No prior final-test claim exists, so R1 invalidates nothing. Any access to the sealed partition before step 4 is recorded and voids it; a new frozen set must then be sealed.
+
+## 20. Protocol revision R2 (2026-09-28, S2c planning): model selection records
+
+**Status: Proposed with the S2c plan; effective on acceptance of that planning change.** R2 adds requirements, clarifies in item 8 how §14 is read, and in item 7 amends §3.1 by splitting its tuning/validation set into tuning and selection partitions. It removes no safeguard.
+
+1. **Retained evidence.** §17 additionally requires one **closed Model Selection Record** per learned capability (`docs/qualification/model-selection/`, MSR method v1). Each record comes with its frozen selection protocol, cited by SHA-256.
+2. **Selection protocol.** Each event's selection protocol instantiates this plan: its partitions, labelling, metrics and freeze order. It may not weaken them.
+3. **Frozen test excluded from selection.** Selection reads only training, tuning and selection partitions. The frozen qualification test is never used to choose between candidates.
+4. **Frozen-test access log.** Every event records how many times, and for which identities, the frozen test has been scored. Whether a reused frozen test must be refreshed for a later identity is decided under §16 and §18 of this plan, not by the record.
+5. **Evidence classes.** A reported (published) figure is never a qualification result. Only MAVI measurements under this plan can satisfy a gate.
+6. **Identity unchanged.** §2 is unchanged. A model replacement is already a trigger (§16), and it now also requires a new selection event.
+7. **Partitions (§3.1 amended).** Where candidates are compared, the tuning/validation set of §3.1 is split into a **tuning** partition (parameter values, thresholds, calibration checks) and a separate **selection** partition (candidate comparison only). The partitions are then training, tuning, selection and the frozen qualification test. No fit or tuning step reads the selection partition. This is how R1 step 2 is executed; the separation and freeze rules of §3.1 are otherwise unchanged.
+8. **Licence review against the declared profile (§14 clarified).** §14's "commercial/operational redistribution/use review" is carried out against the **declared MAVI deployment profile**, which is non-commercial: MAVI's "enterprise-grade" means engineering quality, not commercial use. The review records each right the profile exercises: evaluation, operational running, modification/fine-tuning, derivatives, redistribution of weights and of derived weights (as the delivery route requires), attribution, end-use restrictions and data/provenance. Commercial-use permission is not required on its own, and "free of cost" is never read as "redistributable". §14's requirement of no unresolved ambiguity at Stage-2 acceptance is unchanged.

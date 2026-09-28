@@ -87,6 +87,8 @@ A new Runtime Binary Pack is required when its **material identity** changes: ro
 
 Heavy-component reuse does not waive qualification. Every release/current application head must still pass the applicable Quality, runtime qualification, acceptance and component-boundary checks against explicitly identified Runtime and Model Pack IDs. Hardware/CUDA qualification is separate and must not be inferred from CPU CI success.
 
+Replacing or upgrading the model behind any capability starts a new Model Selection Event (`docs/qualification/model-selection/README.md` §12). The challenger is compared with the incumbent re-measured under the then-current frozen protocol, licence/deployment qualification is performed separately, and a new Model Pack is a new qualification identity (ADR-014 §7). Closed selection records are never edited.
+
 ## Functional qualification — PR #44
 
 The final exact implementation/documentation head before functional testing was `fea8820a95f00121ee04e735f3e4b53a08d074bc`. All six required GitHub qualification workflows completed successfully on that exact head before the local functional run was accepted:
