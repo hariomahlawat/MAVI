@@ -261,3 +261,25 @@ def test_windows_cpu_build_toolchain_drift_fails_closed(tmp_path, monkeypatch, r
     target.write_text(text.replace(old, new), encoding="utf-8")
     errors = _toolchain_errors(root, monkeypatch)
     assert any(expected in error for error in errors), errors
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        ("docs/qualification/stage2-s2c/corpus/crop.jpg", True),
+        ("tools/qualification/attributes/corpus/data/sample.PNG", True),
+        ("docs/qualification/model-selection/figure.webp", True),
+        ("docs/architecture/diagram.png", False),
+        ("docs/qualification/stage2-s2c/corpus/manifest.json", False),
+    ],
+)
+def test_s2c_corpus_areas_refuse_tracked_images(tmp_path, monkeypatch, relative: str, expected: bool) -> None:
+    verifier = _load_verify_repo()
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"x")
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+    monkeypatch.setattr(verifier, "tracked_files", lambda: [path])
+    errors: list[str] = []
+    verifier.check_tracked_binaries_and_secrets(errors)
+    assert any("S2c corpus area" in e for e in errors) is expected

@@ -1,6 +1,6 @@
 # Stage 2 S2c.0 — Baseline Reconciliation Record
 
-**Status:** Baseline reconciliation proposed on the S2c.0 branch. PR #115 is the architecture/planning acceptance event. This record becomes the implementation baseline only when this change passes exact-head CI and merges; it introduces no feature code, model, weight, corpus, dependency, runtime or qualification claim.  
+**Status:** Merged through PR #116 at `main@647d8f605d7c29bb6984408cb4d7e87eb5dcc163`, which is the S2c.0 implementation baseline (the text below records the pre-merge reconciliation as written). Baseline reconciliation proposed on the S2c.0 branch. PR #115 is the architecture/planning acceptance event. This record becomes the implementation baseline only when this change passes exact-head CI and merges; it introduces no feature code, model, weight, corpus, dependency, runtime or qualification claim.  
 **Date:** 2026-09-28  
 **Starting main:** `677afb6b73edf436e23f8d275bb95a7d5b3badac` (merge of PR #115)  
 **Scope:** S2c.0 only — S2b closure reconciliation, recording of already-accepted governing decisions, accountable-role assignment and establishment of the implementation baseline on merge.  

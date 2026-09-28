@@ -119,6 +119,15 @@ PROHIBITED_DISTRIBUTABLE_SUFFIXES = {
 
 MAX_UNAPPROVED_TRACKED_FILE_BYTES = 10 * 1024 * 1024
 
+# S2c.1 corpus areas hold manifests, hashes and reports only: an image there is almost
+# certainly a private evidence crop that must stay in the Corpus Custodian's store.
+PRIVATE_EVIDENCE_AREAS = (
+    "docs/qualification/stage2-s2c",
+    "docs/qualification/model-selection",
+    "tools/qualification/attributes",
+)
+PROHIBITED_EVIDENCE_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tif", ".tiff", ".heic"}
+
 PRODUCTION_SCAN_ROOTS = [
     ROOT / "src/platform",
     ROOT / "src/vision/mavi_vision",
@@ -1371,6 +1380,10 @@ def check_tracked_binaries_and_secrets(errors: list[str]) -> None:
             fail(f"Unable to inspect tracked file size for {relative}: {exc}", errors)
         if path.name in {".env", "secrets.json"}:
             fail(f"Prohibited secret file is tracked: {relative}", errors)
+        if suffix in PROHIBITED_EVIDENCE_IMAGE_SUFFIXES and any(
+            relative.as_posix().startswith(area + "/") for area in PRIVATE_EVIDENCE_AREAS
+        ):
+            fail(f"Image file tracked in an S2c corpus area (evidence crops stay outside Git): {relative}", errors)
 
 
 def check_vision_release_metadata(
