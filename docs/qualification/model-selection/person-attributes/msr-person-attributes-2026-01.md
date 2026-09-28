@@ -10,11 +10,12 @@
 | State / outcome | `PLANNED` / — |
 | Originating stage | Stage 2 S2c (`docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md` §9, §22) |
 | Owner / independent reviewer | MAVI owner (to be named at S2c.0) / to be named at S2c.2 |
-| Governing documents | ADR-013, ADR-014; qualification plan `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` (with R1); register `docs/reviews/2026-09-23-visual-attributes-acceptance.md` |
+| Governing documents | ADR-013, ADR-014; qualification plan `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` (with R1–R2); register `docs/reviews/2026-09-23-visual-attributes-acceptance.md` |
 | Protocol | `msr-person-attributes-2026-01-protocol.md`, not yet written (S2c.2) |
 | Incumbent | **none.** The S2b fixture inferencer is a Development-only test double, not a model and not an incumbent |
 | Baseline | PC-B0 (colour): MAVI-owned deterministic region band + dominant chroma cluster + CIE-Lab naming. No deterministic baseline exists for presence types; there, a constant-prior predictor is the floor for threshold-free metrics |
 | Discovery sources | `docs/qualification/stage2-s2c/model-candidate-survey.md` (2026-09-28); re-run at S2c.2 |
+| Target profiles (licence gate G1) | the Development deployment profiles where S2c runs the learned pack. Production profiles are determined later, by addendum; none in S2c |
 | Frozen-test access count | 0 (the frozen test is not yet sealed) |
 
 ## 1. Task definition
@@ -37,7 +38,7 @@ Checkpoint identities are pinned at S2c.2 (methodology §5). "Pin at S2c.2" mean
 | PC-3 | T-PC | challenger | PromptPAR / VTB (method; released checkpoints trained on restricted data) | method: pin code revision; checkpoint only if evaluation is permitted | `DISCOVERED` | shortlist (method); released checkpoint `REFERENCE_ONLY` unless evaluation is permitted | §2.1 |
 | PC-4 | T-PC | challenger | UPAR-trained ConvNeXt-B / C2T-Net (checkpoint) | pin at S2c.2 | `DISCOVERED` | shortlist if evaluation is permitted, else `REFERENCE_ONLY` | §2.1, §6 |
 | PC-5 | T-PC | challenger | Awiros ConvNeXt V2-Tiny (checkpoint, ONNX) | pin at S2c.2 (gated access) | `DISCOVERED` | shortlist if terms obtained, else `REFERENCE_ONLY` | §2.2 |
-| PC-6 | T-PC | challenger | CLIP / OpenCLIP / MobileCLIP 2 / MetaCLIP / EVA-CLIP towers + MAVI heads | pin per tower at S2c.2 | `DISCOVERED` | shortlist the towers whose evaluation is permitted | §4 |
+| PC-6 | T-PC | challenger | CLIP / OpenCLIP / MobileCLIP 2 / MetaCLIP / EVA-CLIP towers + MAVI heads | pin per tower at S2c.2 | `DISCOVERED` | shortlist each tower whose evaluation is permitted; the others `REFERENCE_ONLY` | §4 |
 | PC-7 | T-PC | challenger | Intel OMZ person-attributes-recognition-crossroad-0230 colour points + Lab naming | pin at S2c.2 | `DISCOVERED` | shortlist | §2.2 |
 | PC-8 | T-PC | challenger | small CNN fine-tuned on MAVI labels (method) | backbone pin at S2c.2 | `DISCOVERED` | shortlist | plan §9.2 |
 | PO-1 | T-PO | challenger | SigLIP 2 heads (shared tower with PC-1) | as PC-1 | `DISCOVERED` | shortlist | §4 |

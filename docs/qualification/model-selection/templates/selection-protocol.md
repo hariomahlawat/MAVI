@@ -25,7 +25,16 @@ Metrics per attribute kind; primary metric(s), which are threshold-free; strata;
 |---|---|---|---|
 
 ## 6. Comparative scoring (ordering aid only)
-Criteria and weights; the rule converting each measurement into a criterion score; tie rule (difference within the interval scores as a tie); sensitivity perturbation to report; MPID and the extension bar; the replacement bar against the incumbent (upgrade events).
+Required fields:
+- criteria and weights;
+- the rule converting each measurement into a criterion score;
+- how per-attribute scores are combined within a sub-task and across sub-tasks;
+- how a gate with several primary/co-primary metrics is decided (per attribute? all or any? multiplicity handling);
+- how a criterion that cannot be measured for every candidate is handled (dropped for all, weight redistributed, recorded);
+- tie rule (a difference within the interval scores as a tie);
+- the sensitivity perturbation to report;
+- MPID and the extension bar;
+- the replacement bar against the incumbent (upgrade events).
 
 ## 7. Statistics
 Resampling unit, interval, seeds.

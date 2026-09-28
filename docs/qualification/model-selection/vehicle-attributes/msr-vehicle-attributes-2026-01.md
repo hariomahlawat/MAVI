@@ -10,11 +10,12 @@
 | State / outcome | `PLANNED` / — |
 | Originating stage | Stage 2 S2c (`docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md` §9, §22) |
 | Owner / independent reviewer | MAVI owner (to be named at S2c.0) / to be named at S2c.2 |
-| Governing documents | ADR-013, ADR-014; qualification plan `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` (with R1); register `docs/reviews/2026-09-23-visual-attributes-acceptance.md` |
+| Governing documents | ADR-013, ADR-014; qualification plan `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` (with R1–R2); register `docs/reviews/2026-09-23-visual-attributes-acceptance.md` |
 | Protocol | `msr-vehicle-attributes-2026-01-protocol.md`, not yet written (S2c.2) |
 | Incumbent | **none.** The S2b fixture inferencer is a Development-only test double |
 | Baseline | VC-B0: MAVI-owned deterministic body-region chroma clustering + CIE-Lab naming |
 | Discovery sources | `docs/qualification/stage2-s2c/model-candidate-survey.md` (2026-09-28); re-run at S2c.2 |
+| Target profiles (licence gate G1) | the Development deployment profiles where S2c runs the learned pack. Production profiles are determined later, by addendum; none in S2c |
 | Frozen-test access count | 0 (the frozen test is not yet sealed) |
 
 ## 1. Task definition

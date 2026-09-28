@@ -46,13 +46,15 @@ Every event records three assessments separately. **No single score combines the
 
 Assessments 1 and 2 together form the **technical ranking**. Licence terms never enter it: no weight, no tie-break, no pre-filter.
 
+**The one carve-out: evaluation permission.** Whether MAVI may lawfully *run* a candidate on its data is a human legal precondition to measurement, not a ranking input. It is recorded with decision-maker, date and primary source. A candidate that may not be evaluated becomes `REFERENCE_ONLY`: its reported evidence stays in the record at full strength and is marked "not reproduced by MAVI". It is never `NOT_SHORTLISTED`. Where the method is usable but the released checkpoint is not, the method trained on MAVI-permitted data represents it.
+
 Assessment 3 is applied afterwards to decide which ranked candidates are deployable for a profile. A technically superior candidate stays in the record at its rank, marked with its constraint, even when it cannot be deployed.
 
 ## 3. Model Selection Events
 
 ### 3.1 Identity and location
 
-- **Event id:** `msr-<capabilityId>-<year>-<nn>`, for example `msr-person-attributes-2026-01`.
+- **Event id:** `msr-<capabilityId>-<year>-<nn>`, for example `msr-person-attributes-2026-01`. `<year>` is the year the event opens, and `<nn>` is a two-digit **sequence number** within that capability and year (not a month).
   - The capability id is the stable contract name (ADR-014 §2), so upgrade events line up with it over the years.
   - Lower-case kebab form matches every other MAVI identifier and can appear as a qualification-record evidence reference.
   - The originating stage (for example S2c) is a field of the record, not part of the id, because later events will not belong to a stage.
@@ -61,7 +63,7 @@ Assessment 3 is applied afterwards to decide which ranked candidates are deploya
 | File | Written | Mutability |
 |---|---|---|
 | `<event-id>-protocol.md` | at `PROTOCOL_FROZEN` | immutable once its SHA-256 is recorded in the record; any later change is a protocol revision recorded in the record, and it voids the results it could bias |
-| `<event-id>.md` (the record) | from `PLANNED` to `CLOSED` | editable while the event is open; **immutable once `CLOSED`**, and its SHA-256 is then cited by the qualification record |
+| `<event-id>.md` (the record) | from `PLANNED` to `CLOSED` | editable while the event is open; **immutable once `CLOSED`**. Its SHA-256 is never written inside itself (a file cannot contain its own hash). It is written in the index (§13), in the addenda header, and in the qualification record's evidence (§10) |
 | `<event-id>-addenda.md` | after `CLOSED` | append-only: errata, qualification outcomes, supersession pointers (§11) |
 
 - Templates are in `templates/`. The index of events is §13.
@@ -123,7 +125,7 @@ DISCOVERED ─→ SHORTLISTED ─→ EVALUATED ─→ TECHNICALLY_SELECTED
 
 Required combinations:
 - A candidate can be `TECHNICALLY_SELECTED` and `CONSTRAINED` at once. That is the case this methodology exists to preserve.
-- The **implementation candidate** is the owner's choice among candidates that are at least `TECHNICAL_ALTERNATIVE`, `CLEARED` (or explicitly pending) for the target profile, and past every mandatory gate. It may differ from the strongest technical candidate. The measured gap between them is always recorded.
+- The **implementation candidate** is the owner's choice among candidates that are at least `TECHNICAL_ALTERNATIVE`, past every technical gate, and `CLEARED` for **each named target profile** of the event (the licence gate is per profile). An event may not close as `SELECTED_FOR_PACKAGING` for a profile whose determination is still pending. Profiles determined later (for example a Production deployment) are recorded as licence/deployment-determination addenda (§11) and in the qualification record's `licence` gate evidence. It may differ from the strongest technical candidate. The measured gap between them is always recorded.
 
 ## 5. Candidate record: exact identity
 
@@ -228,7 +230,7 @@ Once they exist, the identities follow, recorded when created and by reference:
 
 These roles may name different models. The methodology never forces them to coincide.
 
-The standard wording for the implementation candidate is: *"selected as the strongest qualified candidate for MAVI's defined \<capability\> operating envelope based on retained bake-off evidence"*. It is never called "best", and "qualified" in that sentence refers to the gates of §8, not to Production.
+The standard wording for the implementation candidate is: *"selected as the strongest qualified candidate for MAVI's defined \<capability\> operating envelope based on retained bake-off evidence"*. It is never called "best". "Qualified" in that sentence means it passed the event's mandatory gates (§8), including the licence gate for its named target profiles. It does not mean that the Model Pack qualification record has passed, and it says nothing about Production.
 
 ## 10. Reproducibility and hash links
 
@@ -246,15 +248,17 @@ The record references, and does not duplicate, the authoritative identities:
 
 Imagery and private derived data stay in the access-controlled evidence store (AGENTS.md: no CCTV in Git). Git holds manifests, protocol, record and summary results.
 
-**The links that make the record auditable:**
-1. The record cites the protocol by SHA-256.
-2. When the event closes, the capability's qualification record for the resulting pack cites the closed record, as evidence `{kind: "model-selection-record", reference: "<path>", sha256: "<record sha>"}` under the capability gate set's `model-selection` gate. That gate uses the existing evidence shape, so no schema change is needed.
-3. `verify_repo` recomputes the hash of a cited record. A closed record edited later therefore fails verification.
+**The links that make the record auditable.** Every hash below is taken over **LF-normalised bytes**, so a Windows checkout that converts line endings does not produce a false mismatch.
+1. The record cites its protocol by SHA-256.
+2. A `CLOSED` event's record SHA-256 is written in the index (§13) and in the addenda header, whatever the outcome, so `INCUMBENT_RETAINED` and `NO_QUALIFIABLE_CANDIDATE` events are covered too.
+3. When a pack results, its qualification record cites the closed record as `{kind: "model-selection-record", reference: "<path>", sha256: "<record sha>"}`. This is evidence for the capability's own selection gate (`<capabilityId>-model-selection`), in the capability gate set, because gate names are unique across all gate sets. The existing evidence shape is used, and the qualification-record schema does not change.
+4. `verify_repo` re-derives all three kinds of hash: record, index and protocol. A closed record or frozen protocol edited later therefore fails verification.
 
 ## 11. Immutability, errata and addenda
 
-A closed record and a frozen protocol are never edited. Later information goes to `<event-id>-addenda.md` as dated, numbered entries of one of three kinds:
+A closed record and a frozen protocol are never edited. Later information goes to `<event-id>-addenda.md`. The file opens with the closed record's SHA-256, followed by dated, numbered entries of one of four kinds:
 - **Erratum:** a factual correction to the closed record, stating what was wrong, the corrected fact, whether the decision would change, and who recorded it. If the decision would change, a new event is opened.
+- **Licence/deployment determination:** a later human determination for a named profile (for example a Production deployment's end-use determination for an L-B pack), with its decision-maker, date and primary source. It does not re-rank anything.
 - **Qualification outcome:** the resulting pack's qualification record id and hash, and per-profile results.
 - **Supersession:** the later event id that replaced the selection.
 
@@ -294,7 +298,7 @@ A replacement follows these steps:
 
 ## 13. Event index
 
-| Event | Capability | Originating stage | State | Outcome |
-|---|---|---|---|---|
-| [`msr-person-attributes-2026-01`](person-attributes/msr-person-attributes-2026-01.md) | `person-attributes` | S2c | `PLANNED` | — |
-| [`msr-vehicle-attributes-2026-01`](vehicle-attributes/msr-vehicle-attributes-2026-01.md) | `vehicle-attributes` | S2c | `PLANNED` | — |
+| Event | Capability | Originating stage | State | Outcome | Protocol SHA-256 | Closed record SHA-256 |
+|---|---|---|---|---|---|---|
+| [`msr-person-attributes-2026-01`](person-attributes/msr-person-attributes-2026-01.md) | `person-attributes` | S2c | `PLANNED` | — | — | — |
+| [`msr-vehicle-attributes-2026-01`](vehicle-attributes/msr-vehicle-attributes-2026-01.md) | `vehicle-attributes` | S2c | `PLANNED` | — | — | — |

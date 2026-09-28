@@ -370,10 +370,11 @@ Non-claims unchanged by this amendment: RTMDet remains `pending` on every varian
 - The event retains every candidate, with the exact bytes evaluated.
 - The event separates reported from MAVI-measured evidence.
 - Once closed, the record is immutable.
-- The capability's gate set gains a `model-selection` gate. Its evidence is the closed record, cited by path and SHA-256 with the existing `{kind, reference, sha256}` evidence shape, and `verify_repo` re-derives the hash.
+- Each learned capability's gate set gains its own selection gate, `<capabilityId>-model-selection`. It is capability-prefixed because gate names are unique across all gate sets, and it is not in `common-v1`, so existing records are unaffected. Its evidence is the closed record, cited by path and LF-normalised SHA-256 with the existing `{kind, reference, sha256}` evidence shape. `verify_repo` re-derives that hash, the index hashes of every closed record, and the protocol hashes.
+- A per-profile licence/deployment determination is evidence of the existing common `licence` gate in `profileQualifications`, not a licence-class-dependent gate.
 - A replacement opens a new event and compares the challenger with the re-measured incumbent (§7 already makes a new pack a new qualification identity).
 - Packs bound before this note (the Phase-1 detector) have no record. Their first replacement event states "selection history unrecorded (pre-methodology)".
 
-No schema field changes. The MSR is decision history: the acceptance register remains the acceptance authority, and the qualification record the qualification authority.
+No qualification-record schema field changes; the gate-set configuration gains capability gate sets. The MSR is decision history: the acceptance register remains the acceptance authority, and the qualification record the qualification authority.
 
 *Trade-off:* each selection costs a written record and one hash check. In exchange, model choices stay auditable and reversible on evidence rather than memory.

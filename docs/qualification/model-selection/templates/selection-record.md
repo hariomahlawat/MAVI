@@ -59,4 +59,4 @@ Per candidate and target profile: primary sources (licence text hash, card hash)
 Model Pack id; Runtime Pack id per variant; binding; pipeline profile and identity; qualification record id.
 
 ## 10. Closure
-Closing commit; record SHA-256 (cited by the qualification record's `model-selection` gate).
+Closing commit and outcome. The record's own SHA-256 (LF-normalised) is **not** written here, because a file cannot contain its own hash. It goes into the index (`../README.md` §13), the addenda header, and the qualification record's `<capabilityId>-model-selection` evidence.

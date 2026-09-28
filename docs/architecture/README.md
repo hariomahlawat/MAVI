@@ -69,7 +69,7 @@ When two current documents conflict, this order decides, highest first:
 2. **Architecture policies and specifications** (`docs/architecture/`) — the dependency/offline policy, the UI/UX specification, topology.
 3. **Roadmaps** (`docs/superpowers/plans/capability-roadmap.md` for sequence, `capability-implementation-roadmap.md` for per-stage technical impact).
 4. **The current stage's parent plan and acceptance register** — the plan states how the ADRs are implemented for that stage; the acceptance register (`docs/reviews/<date>-<stage>-acceptance.md`) is the only authoritative exit gate for that stage and no other document may keep a second numbered acceptance list.
-5. **Runbooks** for operational procedure.
+5. **Runbooks** for operational procedure. Qualification plans (`docs/qualification/`) govern qualification protocol for their stage under the ADRs and register. The Model Selection Record methodology and its records (`docs/qualification/model-selection/`) are decision and evidence history. They rank below the register and the qualification plan, and never act as an acceptance or qualification authority.
 6. **Dated task plans, design specs and review records** — history. They are never rewritten to match later decisions; where they could mislead, they carry a supersession note pointing at the governing document.
 
 For Stage 2 (Visual Attributes) the governing set is ADR-013, ADR-014, `docs/superpowers/plans/2026-09-23-visual-attributes.md`, `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` and the register `docs/reviews/2026-09-23-visual-attributes-acceptance.md`. A document that is not in that set and describes Stage-2 behaviour differently is historical.

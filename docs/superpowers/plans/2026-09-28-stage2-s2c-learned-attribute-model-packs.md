@@ -100,7 +100,7 @@ Each task is its own model-selection problem. One multi-task model is not assume
 | Viewpoint | elevated CCTV, front/rear/side | orientation decisive (backpack visible from behind) | front/rear/side, oblique |
 | Modality | day colour; low light; IR/greyscale at night | colour-independent; IR usable in principle | colour; IR/greyscale → colour inapplicable |
 | Required Unknown | region not visible, too small, patterned/ambiguous, achromatic imagery | object not assessable (orientation/occlusion/size); **no negative claim in v1** | glare, heavy reflection, achromatic imagery, ambiguous two-tone |
-| Accuracy expectation | set by owner-declared precision targets on the validation frontier (§10.5) — not by benchmark figures | same | same |
+| Accuracy expectation | set by owner-declared precision targets on the tuning-partition precision–coverage frontier, confirmed on the selection partition (§10.5) — not by benchmark figures | same | same |
 | Latency/throughput | ≤ the per-crop budget derived in §14 on the Development CPU | same (shared per-crop budget with T-PC when composed) | same |
 | Targets | CPU on every deployable CPU variant (Development); CUDA optional Development evidence | same | same |
 
@@ -125,7 +125,7 @@ Deliberately excluded: age, gender, ethnicity, face attributes, hair length, sle
 
 ### 7.2 Confidence representation
 
-An Observed row's confidence is the aggregation policy's score for the asserted value in [0,1] (ADR-013 §12). S2c makes it meaningful: adapters output **calibrated** per-value probabilities (calibration fitted on the validation partition and shipped inside the Model Pack, ADR-013 item 8), and aggregation v2 reports the aggregated calibrated probability. The UI rules (integer percent in lists, one decimal in inspectors, never opacity) are S4's and unchanged. A confidence is never shown for Unknown.
+An Observed row's confidence is the aggregation policy's score for the asserted value in [0,1] (ADR-013 §12). S2c makes it meaningful: adapters output **calibrated** per-value probabilities (calibration fitted on the training partition by camera/site-grouped cross-fitting, never on the selection partition or the frozen test, and shipped inside the Model Pack, ADR-013 item 8), and aggregation v2 reports the aggregated calibrated probability. The UI rules (integer percent in lists, one decimal in inspectors, never opacity) are S4's and unchanged. A confidence is never shown for Unknown.
 
 ### 7.3 Versioning
 
@@ -167,7 +167,7 @@ The *family* (this rule shape) and the *threshold-selection method* (§10.5) are
 
 | Condition | Handling | Measured as |
 |---|---|---|
-| Low resolution | admissibility minimum per object class (and per region for T-PC), tuned on validation; below it → abstain `subject_too_small` | stratum: crop height bands |
+| Low resolution | admissibility minimum per object class (and per region for T-PC), tuned on the tuning partition; below it → abstain `subject_too_small` | stratum: crop height bands |
 | Partial body / truncation | lower-body region size check (admissibility); colour: evidence floor (§7.4 1a); presence: top-`kMin` pooling; adapter `model_not_applicable` where the model has a visibility output; explicit geometry only if U6 shows it is needed | stratum: truncated yes/no (annotated) |
 | Occlusion, second person in crop | evidence floor / top-`kMin` pooling / adapter applicability as above; the selector's occlusion proxy already governs supplemental roles | stratum: occlusion level, crowding (annotated) |
 | Blur | evidence floor / top-`kMin` pooling as above; sharpness not re-measured in S2c unless the bake-off shows material benefit | stratum: blur (annotated) |
@@ -180,15 +180,6 @@ The *family* (this rule shape) and the *threshold-selection method* (§10.5) are
 Abstention reason vocabulary (closed, versioned with the admissibility method): `subject_too_small`, `region_too_small`, `achromatic_evidence`, `modality_unsupported`, `representative_qualification_unknown`, `model_not_applicable` (the only adapter-emitted reason). Additions are versioned changes.
 
 ## 9. Model discovery and selection
-
-### 9.1 Survey (done for planning; reported, not reproduced)
-
-`docs/qualification/stage2-s2c/model-candidate-survey.md` records the 2026-09 survey: supervised pedestrian-attribute recognition (PAR) models and datasets, vehicle-colour methods and datasets, contrastive VLMs, self-supervised backbones, small generative VLMs, segmentation/colour-naming pipelines and industrial models (Intel Open Model Zoo, PaddleDetection, NVIDIA TAO/DeepStream). Its conclusions that shape S2c:
-
-- **Published accuracy does not transfer.** Vehicle colour reported at 92–98 % on a saturated frontal benchmark falls to ≈ 66 % top-1 for the same backbone on real CCTV with night imagery; night is < 10 % of that data and ≈ 32 % of its errors. PAR state of the art (≈ 85–93 % mA on PA-100K/PETA/RAP) is measured in-domain, and cross-domain splits cost ≈ 15–25 mA points.
-- **Published PAR scores mostly do not measure colour.** The standard PETA-35/RAPv1-51 evaluation subsets drop colour labels and PA-100K has none; colour is scored on Market-1501 attributes and UPAR. MAVI's colour quality cannot be inferred from leaderboard numbers.
-- **The strongest reported approaches are frozen foundation backbones with task heads** (VLM-PAR on SigLIP 2; the Orrú vehicle-colour ensemble on DINOv3) and **task-shaped CCTV models** (Awiros, Intel OMZ, PP-Human/PP-Vehicle); both routes need MAVI-domain labels to be measured, and the backbone-plus-head route needs them to be trained.
-- **Licences differ by kind, not by application domain.** The survey records permissive, use-scoped, non-commercial and unstated terms separately for code, weights, derived models and training data (§9.3). MAVI is a domain-neutral platform; no candidate is excluded because of an assumed application domain.
 
 ### 9.0 From survey to qualified Model Pack
 
@@ -204,6 +195,15 @@ S2c runs two Model Selection Events under the MSR methodology (`docs/qualificati
 | Model Pack qualification | `models/qualifications/*.json` (authoritative), citing the closed record by hash | S2c.10 (record); S5 (quality gates) | addendum records the outcome | `QUALIFIED_INCUMBENT` only through an addendum after the qualification record passes |
 
 The survey stays a discovery input and never becomes the decision record. The MSR never becomes a qualification record.
+
+### 9.1 Survey (done for planning; reported, not reproduced)
+
+`docs/qualification/stage2-s2c/model-candidate-survey.md` records the 2026-09 survey: supervised pedestrian-attribute recognition (PAR) models and datasets, vehicle-colour methods and datasets, contrastive VLMs, self-supervised backbones, small generative VLMs, segmentation/colour-naming pipelines and industrial models (Intel Open Model Zoo, PaddleDetection, NVIDIA TAO/DeepStream). Its conclusions that shape S2c:
+
+- **Published accuracy does not transfer.** Vehicle colour reported at 92–98 % on a saturated frontal benchmark falls to ≈ 66 % top-1 for the same backbone on real CCTV with night imagery; night is < 10 % of that data and ≈ 32 % of its errors. PAR state of the art (≈ 85–93 % mA on PA-100K/PETA/RAP) is measured in-domain, and cross-domain splits cost ≈ 15–25 mA points.
+- **Published PAR scores mostly do not measure colour.** The standard PETA-35/RAPv1-51 evaluation subsets drop colour labels and PA-100K has none; colour is scored on Market-1501 attributes and UPAR. MAVI's colour quality cannot be inferred from leaderboard numbers.
+- **The strongest reported approaches are frozen foundation backbones with task heads** (VLM-PAR on SigLIP 2; the Orrú vehicle-colour ensemble on DINOv3) and **task-shaped CCTV models** (Awiros, Intel OMZ, PP-Human/PP-Vehicle); both routes need MAVI-domain labels to be measured, and the backbone-plus-head route needs them to be trained.
+- **Licences differ by kind, not by application domain.** The survey records permissive, use-scoped, non-commercial and unstated terms separately for code, weights, derived models and training data (§9.3). MAVI is a domain-neutral platform; no candidate is excluded because of an assumed application domain.
 
 Technical ranking (§9.2) and licence qualification (§9.3) are **separate analyses**. Licence convenience never shapes the technical shortlist: a technically strong candidate with a problematic licence stays in the comparison with the issue marked, and the strongest legally usable alternative is evaluated beside it.
 
@@ -249,7 +249,7 @@ Ordered within each task by the strength and domain relevance of the *reported* 
 | VC-R | SigLIP 2 / CLIP zero-shot prompts | reference | no VCR result | uncalibrated; reference only |
 | VC-B0 | **Deterministic baseline**: body-region chroma clustering + Lab naming | MAVI-owned | floor | glare, white balance |
 
-**Not candidates for the classifier role, on technical grounds:** small generative VLMs (Florence-2, SmolVLM 2, Qwen-VL, Moondream, InternVL) — no native calibration, decoding non-determinism, per-crop cost at 40,000 crops; an offline one may assist labelling, never as ground truth (§10.3). Billion-parameter PAR (LLM-PAR) — not viable on the Development CPU at the §14 budget; cited as the reported ceiling. **Segmentation** (SAM 2.1, SAM 3, human parsing) is a *component* candidate for the region step of PC-1/PC-B0/VC-B0, evaluated only if unmasked bands lose materially in the bake-off.
+**Not candidates for the classifier role, on technical grounds:** small generative VLMs (Florence-2, SmolVLM 2, Qwen2.5-VL / Qwen3-VL, Moondream, InternVL) — no native calibration, decoding non-determinism, per-crop cost at 40,000 crops; an offline one may assist labelling, never as ground truth (§10.3). Billion-parameter PAR (LLM-PAR) — not viable on the Development CPU at the §14 budget; cited as the reported ceiling. **Segmentation** (SAM 2.1, SAM 3, human parsing) is a *component* candidate for the region step of PC-1/PC-B0/VC-B0, evaluated only if unmasked bands lose materially in the bake-off.
 
 The shortlist is a floor, not a ceiling: slice S2c.2 re-runs the survey at freeze time and may add a candidate published since. These tables are the planning proposal. The authoritative candidate set and every disposition live in each event's candidate ledger, which retains every candidate, losers included (MSR method §4–§5).
 
@@ -257,23 +257,25 @@ The shortlist is a floor, not a ceiling: slice S2c.2 re-runs the survey at freez
 
 Every shortlisted candidate has a row in the survey record's licence matrix (`model-candidate-survey.md` §6) giving: exact licence and its source; commercial-use, redistribution, surveillance/security/law-enforcement, military/defence and other use restrictions; and whether each applies to code, weights, derived models or training data. The classes:
 
-| Class | Meaning | Examples (per survey; human review decides) |
-|---|---|---|
-| **L-A permissive** | no use restriction beyond attribution/notice | SigLIP/SigLIP 2, DINOv2, SAM 2.1 (Apache-2.0); OMZ models (Apache-2.0 via `model.yml`, training data undisclosed); PA-100K (CC-BY 4.0 stated); PP-Human/PP-Vehicle *code* (Apache-2.0) |
-| **L-B use-scoped** | commercial use and redistribution permitted, but certain **end uses** are prohibited or declared out of scope — qualification depends on the deployment's actual use, determined per deployment profile, never inferred from MAVI's (domain-neutral) product definition | DINOv3 and SAM 3 (trade-controls/ITAR clause covering military, warfare, nuclear, espionage and illegal-weapons end uses; applies to weights, code and derivatives); OpenAI CLIP and LAION/DataComp OpenCLIP (MIT, but model cards state surveillance and deployed use out of scope — binding force for review); Awiros ("other", gated, stated intended use and "not for identity"); NVIDIA TAO (NVIDIA model licence + Trustworthy-AI terms) |
-| **L-C non-commercial / research-only** | the grant excludes commercial products or product development | Apple MobileCLIP/MobileCLIP 2/DFN (Apple ML Research Model Licence: weights and derivatives, research purposes only, excludes product development); MetaCLIP (CC-BY-NC); UPAR-trained checkpoints (CC-BY-NC-SA data); PETA/VeRi/UFPR/CompCars-trained checkpoints including PP-Vehicle and PromptPAR's released checkpoints (RAP- and Market-1501-trained checkpoints are **L-D** until their dataset terms are verified, survey §6); LUPerson-pretrained backbones (SOLIDER, HAP); ViTA-PAR (CC BY-NC-ND) |
-| **L-D unstated** | no licence found | Rethinking-PAR, PARFormer, HAP repo, Vehicle Color-24, VCoR images, the van de Weijer `w2c` table |
+| Class | Meaning |
+|---|---|
+| **L-A permissive** | no use restriction beyond attribution/notice stated by the source |
+| **L-B use-scoped** | commercial use and redistribution are stated as permitted, but certain **end uses** are stated as prohibited or out of scope. Qualification depends on the deployment's actual use, determined per deployment profile, never inferred from MAVI's domain-neutral product definition |
+| **L-C non-commercial / research-only** | the source's grant excludes commercial products or product development |
+| **L-D unstated / unresolved** | no licence found, commercial use or redistribution not stated, or the question depends on an unresolved legal reading (for example whether weights inherit their training data's terms). Resolved only by the human review (U1), never by the planner |
+
+The class of each candidate, with its primary source, is recorded once, in the survey's licence matrix (`model-candidate-survey.md` §6), and snapshotted into the event's candidate card at S2c.2. It is not restated here, so the two cannot drift.
 
 Rules:
-1. **Evaluation permission is its own question.** A candidate enters the MAVI bake-off only if MAVI's evaluation use is permitted by its terms (some L-C grants cover "testing" for research but exclude product development). Where a checkpoint cannot be evaluated but its *method* code is permissive, the method trained on MAVI-permitted data represents it (e.g. PC-3 re-trained on MAVI labels instead of the PETA/RAP checkpoint); where neither is possible, its reported figures remain in the comparison, marked "not reproduced by MAVI".
+1. **Evaluation permission is its own question.** It is a human legal precondition to *measuring* a candidate, not a ranking input, and it is recorded with decision-maker and date. A candidate whose evaluation is not permitted becomes `REFERENCE_ONLY` (reported evidence kept at its reported strength), never `NOT_SHORTLISTED`. A candidate enters the MAVI bake-off only if MAVI's evaluation use is permitted by its terms (some L-C grants cover "testing" for research but exclude product development). Where a checkpoint cannot be evaluated but its *method* code is permissive, the method trained on MAVI-permitted data represents it (e.g. PC-3 re-trained on MAVI labels instead of the PETA/RAP checkpoint); where neither is possible, its reported figures remain in the comparison, marked "not reproduced by MAVI".
 2. **Selection needs qualification for the target release profile** (gate G1, §9.5), applied *after* evaluation: L-A subject to review; L-B only with a recorded per-deployment use determination; L-C only with a separately negotiated licence; L-D not selectable.
 3. **The record reports both** the technically strongest evaluated candidate and the strongest deployable one per target profile (MSR method §9), with the measured gap. If they differ, the owner decides whether to seek a licence for the stronger one; the plan does not decide it.
-4. The per-deployment determination for an L-B pack is recorded as a gate (`licence-use-determination`) in the capability qualification record's per-profile qualification (existing `profileQualifications` shape; no schema change), so a release profile cannot bind the pack without it.
+4. The licence/deployment determination for a profile is recorded as **evidence of the existing common `licence` gate** in that profile's `profileQualifications` entry (`{kind: "licence-use-determination", reference, sha256}`; existing shape, no schema change). For an L-B pack it must be a per-deployment end-use determination. A profile cannot become qualified without it. No licence-class-dependent gate is introduced, so an L-A pack is never left with a gate it cannot satisfy.
 
 ### 9.4 The bake-off
 
 - **Separation from production.** Candidates run in a *separate evaluation environment* under `tools/qualification/attributes/` (an isolated, pinned venv that may contain `open_clip`, `transformers`, `onnxruntime`, `openvino` for conversion and parity), never in the Runtime Pack. No candidate is integrated into `mavi_vision.attributes` before it wins.
-- **Same conditions for all.** The same crops (the real MAVI Evidence Sets of the validation partition, exactly as leased), the same admissibility policy, the same aggregation method family, the same metric code, the same hardware class, recorded thread counts and precision.
+- **Same conditions for all.** The same crops (the real MAVI Evidence Sets, exactly as leased: training for fitting, tuning for parameter values, selection for comparison), the same admissibility policy, the same aggregation method family, the same metric code, the same hardware class, recorded thread counts and precision.
 - **Inputs.** Crops come from the corpus store by SHA; each candidate's preprocessing is recorded as data; checkpoints are loaded from a hash-pinned local cache populated once from pinned revisions (never a floating tag).
 - **Folds.** Heads and calibrations are fitted on the *training* partition with camera- and site-grouped cross-fitting; `kMin`/τ/δ and admissibility parameters are tuned on the *tuning* partition; candidates are **compared** on a separate *selection* partition untouched by any fit or tuning; the frozen test is sealed (§10.2). Leave-one-camera-out means retraining each head without the held-out camera. Every S2c number is labelled a development estimate, never a qualification result.
 - **Probe/fine-tune candidates** train on the training partition only, with fixed seeds and a recorded environment (§9.7).
@@ -289,12 +291,12 @@ The layers follow MSR method §8: mandatory gates, then measured metrics, then c
 
 | Gate | Rule |
 |---|---|
-| G1 Licence qualification | applied after evaluation (§9.3 rule 2): the candidate is qualifiable for the target release profile — L-A after review, L-B with a recorded per-deployment use determination, L-C only under a separate licence, L-D never. G1 passes exactly when the candidate's licence axis is `CLEARED` for that profile (MSR method §4). A candidate failing G1 stays in the record at its technical rank as the technical reference |
+| G1 Licence qualification | applied after evaluation (§9.3 rule 2): the candidate is qualifiable for the target release profile — L-A after review, L-B with a recorded per-deployment use determination, L-C only under a separate licence, L-D never. G1 is evaluated per named target profile and passes exactly when the candidate's licence axis is `CLEARED` for that profile (MSR method §4). In S2c the target profiles are the Development deployment profiles, where the learned packs run; Production profiles are determined later, as addenda (MSR method §11), and never in S2c. A candidate failing G1 stays in the record at its technical rank as the technical reference |
 | G2 Offline | loads from pack artefacts alone; no hub, index or network call; verified by a network-denied run |
 | G3 Determinism | repeated CPU runs with the pinned thread count give identical Track decisions and scores within 1e-6; where CUDA is measured, the CPU/CUDA Track-decision agreement tolerance is **declared in S2c.2** (qualification plan §10 requires one but declares none) and a variant outside it may not be bound |
 | G4 Runtime budget | p95 end-to-end per crop within the §14 budget on the pinned Development CPU host class (CPU-mandatory in S2c) |
-| G5 Baseline | beats the deterministic baseline (B0) on the **primary metric** with the bootstrap interval excluding zero; primary metrics are threshold-free and frozen in S2c.2: Track-level **AURC** (area under the risk–coverage curve) for every attribute, with Track-level macro-F1 at full coverage (colour) and average precision (presence) as co-primary; if no learned candidate beats B0, the baseline is selectable and the record says the learned capability did not beat it |
-| G6 Abstention sanity | on non-subject/error crops of the validation partition it produces Unknown/abstention at a higher rate than on valid crops (F6 direction), and no confident prediction on achromatic crops for colour types |
+| G5 Baseline | decided **per attribute**: beats the deterministic baseline (B0) on the **primary metric** with the bootstrap interval excluding zero, and is not significantly worse on the co-primary; a candidate is eligible only for the attributes it passes, and an attribute with no passing candidate keeps B0 or is disabled; primary metrics are threshold-free and frozen in S2c.2: Track-level **AURC** (area under the risk–coverage curve) for every attribute, with Track-level macro-F1 at full coverage (colour) and average precision (presence) as co-primary; if no learned candidate beats B0, the baseline is selectable and the record says the learned capability did not beat it |
+| G6 Abstention sanity | on non-subject/error crops of the selection partition it produces Unknown/abstention at a higher rate than on valid crops (F6 direction), and no confident prediction on achromatic crops for colour types |
 
 **Weighted technical decision** (weights proposed here, reviewed and frozen in S2c.2 before results exist). Licence is deliberately **not** a weighted criterion: the weighted score ranks candidates technically, and G1 then decides which of them can be qualified (§9.3); both rankings are reported:
 
@@ -316,7 +318,7 @@ The layers follow MSR method §8: mandatory gates, then measured metrics, then c
 | | training-data provenance disclosed | 5 |
 | | packaging reproducibility | 4 |
 
-The weighted score orders candidates that passed G2–G6; it never compensates for a failed gate. The rule converting each measurement into a criterion score is frozen with the weights in S2c.2: rank-based within each criterion, with intervals that overlap scored as ties. The record reports a sensitivity check (each group ±5 points, and each group removed). If the top candidate changes under it, the ranking is recorded as unstable and the choice among the tied candidates is an explicit owner decision. A quality difference inside the bootstrap interval is a tie. **A candidate that needs a Runtime Pack extension** (§12.7) must beat the best candidate on the existing graph by at least the MPID with the interval's lower bound above zero; otherwise the existing-graph candidate is selected. Conversely a candidate is never rejected for needing a reasonable extension when it clears that bar.
+The weighted score orders candidates that passed G2–G6; it never compensates for a failed gate. The rule converting each measurement into a criterion score is frozen with the weights in S2c.2: rank-based within each criterion, with intervals that overlap scored as ties. Per-attribute criterion scores are averaged with equal attribute weight within a sub-task. A criterion that cannot be measured for every candidate (for example CUDA viability when no GPU host is available, U4) is dropped for all candidates, its weight is redistributed pro rata, and the record says so. "Training-data provenance disclosed" is a technical criterion: undisclosed sources make the frozen-test disjointness check (qualification plan §3.1) unverifiable. It is not a licence criterion. The record reports a sensitivity check (each group ±5 points, and each group removed). If the top candidate changes under it, the ranking is recorded as unstable and the choice among the tied candidates is an explicit owner decision. A quality difference inside the bootstrap interval is a tie. **A candidate that needs a Runtime Pack extension** (§12.7) must beat the best candidate on the existing graph by at least the MPID with the interval's lower bound above zero; otherwise the existing-graph candidate is selected. Conversely a candidate is never rejected for needing a reasonable extension when it clears that bar.
 
 ### 9.6 Model Selection Records
 
@@ -329,9 +331,9 @@ Each capability's decision is recorded in its event under `docs/qualification/mo
   - the decision outputs: baseline, incumbent ("none" in S2c), strongest technical candidate, strongest deployable candidate per profile, implementation candidate, alternatives, rejected/deferred/reference-only candidates with reasons, owner decisions, risks, and resulting identities.
 - **Addenda.** `<event>-addenda.md` receives later qualification outcomes, errata and supersession.
 - **Raw results.** Per-Track predictions, reports and training manifests stay in the qualification evidence store, referenced by SHA-256.
-- **Closure.** A closed record is immutable. The capability's qualification record cites it under the `model-selection` gate (§12.6), and `verify_repo` re-derives that hash (§12.9).
+- **Closure.** A closed record is immutable. Its LF-normalised SHA-256 goes into the MSR index and addenda header. The capability's qualification record cites it under the `<capabilityId>-model-selection` gate (§12.6). `verify_repo` re-derives the record, index and protocol hashes (§12.9).
 
-The implementation candidate is described as *"selected as the strongest qualified candidate for MAVI's defined S2c operating envelope based on retained bake-off evidence"*, never "best". The planning change creates both records in state `PLANNED`, with every candidate `DISCOVERED` and no selection.
+The implementation candidate is described as *"selected as the strongest qualified candidate for MAVI's defined S2c operating envelope based on retained bake-off evidence"*, never "best". Here "qualified" means it passed the event's mandatory gates, including G1 for its named target profiles. It does not mean the Model Pack qualification record has passed. The planning change creates both records in state `PLANNED`, with every candidate `DISCOVERED` and no selection.
 
 ### 9.7 Minimal training path
 
@@ -362,7 +364,7 @@ The Stage-2 qualification plan governs, with protocol revisions R1 (freeze order
 
 ### 10.3 Labels
 
-Annotation guide per attribute (allowed values with reference swatches, Unknown/Unlabelable criteria, partial visibility, patterns, bag/headwear boundaries, vehicle dominant-colour rule, minimum visual evidence). **Pilot:** a small double-labelled pilot, drawn **only from the training partition** (its results drive vocabulary merges, so none of it may enter tuning, selection or the frozen test), measures agreement per value pair and fixes merges before the schema is frozen. **Main labelling:** crop-level and Track-level ground truth, blind to model output; a representative double-labelled subset with at least one annotator independent of model selection; agreement by Cohen's κ (two annotators) or Krippendorff's α (more, nominal); adjudication recorded. Model- or VLM-proposed labels, if used to speed labelling, are recorded as proposals with the proposer's model family, are never accepted without a human decision, are not used on the double-labelled subset, and are never produced by a model of the same family as a bake-off candidate (it would bias ground truth toward that candidate).
+Annotation guide per attribute (allowed values with reference swatches, Unknown/Unlabelable criteria, partial visibility, patterns, bag/headwear boundaries, vehicle dominant-colour rule, minimum visual evidence). **Pilot:** a small double-labelled pilot, drawn **only from the training partition** (its results drive vocabulary merges, so none of it may enter tuning, selection or the frozen test), measures agreement per value pair and fixes merges before the schema is frozen. **Main labelling:** crop-level and Track-level ground truth, blind to model output; a representative double-labelled subset with at least one annotator independent of model selection; agreement by Cohen's κ (two annotators) or Krippendorff's α (more, nominal); adjudication recorded. Model- or VLM-proposed labels, if used to speed labelling, are recorded as proposals with the proposer's model family, are never accepted without a human decision, are not used on the double-labelled subset, and are never produced by a model of the same family as a bake-off candidate (it would bias ground truth toward that candidate). "Family" means shared backbone checkpoint lineage: a generative VLM whose image encoder descends from a candidate's backbone (for example a SigLIP-derived encoder while SigLIP 2 is a candidate) counts as the same family.
 
 ### 10.4 Metrics
 
@@ -441,7 +443,15 @@ The .NET release parser accepts only `mean-score-argmax` with fixed keys, so agg
 
 ### 12.6 Qualification records and gate sets
 
-One record per capability (`models/qualifications/<pack>-<capability>.json`), every variant `pending`, `overallResult: pending`, policies pinning the pipeline profile id/SHA. New gate sets `person-attributes-v1` and `vehicle-attributes-v1` in `config/acceptance/capability-gate-sets-v1.json` naming the §10.5 gate families, `model-selection` (evidence: the closed MSR, `kind: model-selection-record`, path and SHA-256, using the existing evidence shape) and `licence-use-determination` for L-B packs (all `pending` in S2c; `model-selection` becomes `passed` at S2c.10 when the event closes).
+- **Records.** One record per capability (`models/qualifications/<pack>-<capability>.json`), every variant `pending`, `overallResult: pending`, policies pinning the pipeline profile id/SHA.
+- **Gate sets.** New capability gate sets `person-attributes-v1` and `vehicle-attributes-v1` in `config/acceptance/capability-gate-sets-v1.json` name the §10.5 gate families plus `person-attributes-model-selection` / `vehicle-attributes-model-selection`.
+  - Gate names are unique across *all* gate sets (`qualification_v2.py` refuses `gate_name_duplicate`), so every capability gate is prefixed with its capability id.
+  - The selection gate is capability-scoped rather than in `common-v1`, so the detector record is unaffected. A detector replacement adds its own gate in a new detector gate-set version.
+  - This is a gate-set configuration change; the qualification-record schema is unchanged.
+- **Selection gate.** Its evidence is the closed MSR (`{kind: "model-selection-record", reference: <path>, sha256: <LF-normalised SHA-256>}`).
+  - It may become `passed` at S2c.10 only on variants that have a Runtime Pack. The class-A variant `linux-x86_64-cuda` has `runtimePackId: null`, and the parser refuses any passed gate there, so its gate stays `pending`.
+  - Every other gate stays `pending` in S2c, so no variant or record reaches `passed`.
+- **Licence determination.** It is recorded as `licence`-gate evidence per profile (§9.3 rule 4), not as a separate gate.
 
 ### 12.7 Runtime Pack decision
 
@@ -474,7 +484,7 @@ One record per capability (`models/qualifications/<pack>-<capability>.json`), ev
 | Admissibility method + abstention vocabulary | `attributes/admissibility.py`, `contracts.py`, `VisualAttributeContractRules.cs` | ADR-013 item 9 |
 | Registered attribute manifest sections; resolver byte limits | `model_manifest_v2.py`, `resolver.py` | ADR-014 §3 (registry extension) |
 | Attribute gate sets (including `model-selection`) | `capability-gate-sets-v1.json` | ADR-014 §6 |
-| Re-derive the SHA-256 of a Model Selection Record cited as `model-selection-record` evidence; refuse a mismatch or a missing file | `verify_repo.py` | ADR-014 MSR note; MSR method §10 |
+| MSR integrity: re-derive the LF-normalised SHA-256 of every record cited as `model-selection-record` evidence, of every `CLOSED` record listed in the MSR index (including events that produced no pack), and of every protocol whose hash a record cites; refuse a mismatch or a missing file | `verify_repo.py` | ADR-014 MSR note; MSR method §10 |
 | Development overlay binding class; attribute profile loader | `verify_repo.py`, `binding.py` | ADR-014 note (§12.8) |
 | Attributes device policy (`cpu`/`cuda`/Development `auto`) | `supervisor.py`, `settings.py` | ADR-013 §8 (item 10) |
 | Setup/sync per deployment profile role set | `Mavi.VisionSetup.psm1`, sync tool | §15 |
@@ -610,7 +620,7 @@ S2b's boundary is unchanged: no filesystem access to accepted evidence, lease-sc
 | S26 | ship a learned pipeline profile with `developmentOnly: false`, or remove the Production refusal | `verify_repo` profile rule + Production-mode platform startup and resolver negative tests |
 | S28 | let a sub-floor colour crop vote, apply a floor to a presence type, or pool presence by the full mean | aggregation v2 vectors (low-evidence view; front/back backpack Track) |
 | S29 | adapter output with a type in both maps, a missing type, or an unregistered abstention reason | runner output-validation tests |
-| S27 | edit a closed Model Selection Record, or mark `model-selection` passed without citing one | `verify_repo` negative fixtures (hash mismatch; passed gate without `model-selection-record` evidence) |
+| S27 | edit a closed Model Selection Record or a frozen protocol, hash CRLF bytes instead of LF-normalised bytes, or mark a `*-model-selection` gate passed without citing a record | `verify_repo` negative fixtures (record, index and protocol hash mismatch; CRLF copy of an LF record hashes equal; passed gate without `model-selection-record` evidence) |
 
 Target: every S-mutant killed; equivalents recorded with the reason, as in S2b.
 
@@ -632,24 +642,26 @@ The historical acceptance criteria are not rewritten.
 
 ## 21. Documentation reconciliation
 
+Reconciliation items are numbered DR1… so they cannot be confused with the qualification plan's protocol revisions R1 and R2.
+
 | # | Statement | Classification | Action |
 |---|---|---|---|
-| R1 | Register D1–D8/E1–E4 "exact-head CI pending" | must amend before S2c implementation | separate S2b closure entry with PR #114 exact-head and post-merge evidence (this planning change only corrects the verdict text) |
-| R2 | Register header/verdict "S2b … draft PR / NEXT"; E-section "E1–E4 remain OPEN until …" | must amend before | **done here** (text only) |
-| R3 | Register §F had no owner | must amend before | **done here**: owner column, no status change |
-| R4 | Parent plan S2b status "(draft PR, not merged)" | must amend before | **done here**; S2c status line added |
-| R5 | S2a/S2b reconciliation bridge "S2b … next" | must amend before | **done here** (dated status notes) |
-| R6 | Both roadmaps' Stage-2 status (S1.4 active) | must amend before | **done here** (status text) |
-| R7 | Qualification plan §18 freeze order not executable | must amend before | **proposed here** as protocol revision R1 |
-| R8 | ADR-013 open points (adapter, abstention/identity, vision-lock rule) and ADR-014 binding cardinality | must amend before | **proposed here**: ADR-013 items 8–10; ADR-014 overlay note |
-| R8a | ADR-013 §9 still lists a generic claim helper and digest verifier that S2b deliberately did not extract (register D2 amendment) | must amend before | recorded in the S2b closure entry (R1), not as an S2c ADR item |
-| R9 | Setup/runbooks vision-role-only (`mavi-offline-setup.md`, `Mavi.VisionSetup.psm1`) | amend during S2c | S2c.8 |
-| R10 | Lifecycle runbook detector-centric wording; `local-development.md` "no attribute worker exists" | amend during S2c | S2c.8 |
-| R11 | `offline-dependency-policy-v1.json` `setupIntegration` predates S2a.4; `offline-binary-inventory.md` has no Model Pack rows; CUDA CPython row imprecise | amend during S2c | S2c.6 |
-| R12 | `implementation-record.md` attributes schema limits to "ADR-013 §12" | amend during S2c | S2c.5 (the limits are S2b choices) |
-| R13 | `capability-implementation-roadmap.md` "Worker boundary … one ADR when stage 2 begins" | amend during S2c | mark done (ADR-013 §8) |
-| R15 | No durable record of *why* a model was chosen: the survey is dated discovery, and qualification records say only whether a pack passed | must amend before | **proposed here**: MSR method v1 (`docs/qualification/model-selection/`), the ADR-014 MSR note, qualification-plan revision R2 (the closed MSR as required retained evidence), and pointers in the architecture index and the lifecycle runbook |
-| R14 | S2a closure "next slice is S2b"; S2b plan/record status lines; ADR-007 v1 binding names; `windows-cuda-host-session.md` retired file names; baseline tables | historical | leave |
+| DR1 | Register D1–D8/E1–E4 "exact-head CI pending" | must amend before S2c implementation | separate S2b closure entry with PR #114 exact-head and post-merge evidence (this planning change only corrects the verdict text) |
+| DR2 | Register header/verdict "S2b … draft PR / NEXT"; E-section "E1–E4 remain OPEN until …" | must amend before | **done here** (text only) |
+| DR3 | Register §F had no owner | must amend before | **done here**: owner column, no status change |
+| DR4 | Parent plan S2b status "(draft PR, not merged)" | must amend before | **done here**; S2c status line added |
+| DR5 | S2a/S2b reconciliation bridge "S2b … next" | must amend before | **done here** (dated status notes) |
+| DR6 | Both roadmaps' Stage-2 status (S1.4 active) | must amend before | **done here** (status text) |
+| DR7 | Qualification plan §18 freeze order not executable | must amend before | **proposed here** as protocol revision R1 |
+| DR8 | ADR-013 open points (adapter, abstention/identity, vision-lock rule) and ADR-014 binding cardinality | must amend before | **proposed here**: ADR-013 items 8–10; ADR-014 overlay note |
+| DR8a | ADR-013 §9 still lists a generic claim helper and digest verifier that S2b deliberately did not extract (register D2 amendment) | must amend before | recorded in the S2b closure entry (DR1), not as an S2c ADR item |
+| DR9 | Setup/runbooks vision-role-only (`mavi-offline-setup.md`, `Mavi.VisionSetup.psm1`) | amend during S2c | S2c.8 |
+| DR10 | Lifecycle runbook detector-centric wording; `local-development.md` "no attribute worker exists" | amend during S2c | S2c.8 |
+| DR11 | `offline-dependency-policy-v1.json` `setupIntegration` predates S2a.4; `offline-binary-inventory.md` has no Model Pack rows; CUDA CPython row imprecise | amend during S2c | S2c.6 |
+| DR12 | `implementation-record.md` attributes schema limits to "ADR-013 §12" | amend during S2c | S2c.5 (the limits are S2b choices) |
+| DR13 | `capability-implementation-roadmap.md` "Worker boundary … one ADR when stage 2 begins" | amend during S2c | mark done (ADR-013 §8) |
+| DR15 | No durable record of *why* a model was chosen: the survey is dated discovery, and qualification records say only whether a pack passed | must amend before | **proposed here**: MSR method v1 (`docs/qualification/model-selection/`), the ADR-014 MSR note, qualification-plan revision R2 (the closed MSR as required retained evidence), and pointers in the architecture index and the lifecycle runbook |
+| DR14 | S2a closure "next slice is S2b"; S2b plan/record status lines; ADR-007 v1 binding names; `windows-cuda-host-session.md` retired file names; baseline tables | historical | leave |
 
 ## 22. Implementation slices
 
@@ -657,7 +669,7 @@ Each slice is a reviewable PR on the S2c feature branch (or a sequence of PRs), 
 
 | Slice | Purpose | Likely files | Tests first | Evidence | Stop conditions | Deferred |
 |---|---|---|---|---|---|---|
-| **S2c.0 Baseline** | S2b closure entry (R1); acceptance of ADR-013 items 8–10, the ADR-014 overlay and MSR notes, protocol revisions R1–R2 and MSR method v1; name the licence-review and corpus owners | register evidence log; ADR status | — | closure entry | amendments not accepted → stop | — |
+| **S2c.0 Baseline** | S2b closure entry (DR1); acceptance of ADR-013 items 8–10, the ADR-014 overlay and MSR notes, protocol revisions R1–R2 and MSR method v1; name the licence-review and corpus owners | register evidence log; ADR status | — | closure entry | amendments not accepted → stop | — |
 | **S2c.1 Task + corpus + labels** | corpus/partition manifest schemas and tooling (hashing, site/date-block grouping, near-duplicate check, cross-partition recurrence audit, raw-evidence pin); annotation guide v1; pilot from the training partition; agreement tooling; vocabulary freeze (bound re-checked); main labelling; **seal the frozen test** | `tools/qualification/attributes/corpus/`, `docs/qualification/stage2-s2c/annotation-guide.md`, manifests | manifest schema, grouping/leakage, recurrence-audit bookkeeping (a confirmed pair moves wholly to one partition), agreement computation (known κ/α cases) | pilot + agreement report; sealed manifest hash (**F1**) | agreement too low for an attribute → removed or merged, recorded; a selector/profile change (open S1.4) → re-derive affected crops | frozen-test scoring (S5) |
 | **S2c.2 Protocol freeze** | re-run the technical survey; licence matrix and the human review of evaluation permission and qualification class for every shortlisted candidate; per event, move every candidate from `DISCOVERED` to `SHORTLISTED`/`NOT_SHORTLISTED`/`REFERENCE_ONLY`/`DEFERRED`, pin exact checkpoint identities, write the candidate cards and snapshot the reported evidence relied on; commit each event's selection protocol: candidates, folds, aggregation family, threshold method, primary metrics, gates (incl. G3 tolerance), weights, MPID, strata, Development CPU host class and thread count, batch caps, timeout margin, report format | `docs/qualification/model-selection/{person,vehicle}-attributes/<event>-protocol.md` and records, survey re-survey addendum | — | each protocol hash recorded in its MSR (state `PROTOCOL_FROZEN`) before any result | no candidate of a task may even be evaluated → re-scope with the owner; strong candidates that cannot be evaluated stay in the record with reported figures | — |
 | **S2c.3 Evaluation harness** | isolated, network-denied evaluation environment with its own lock and policy entry; candidate runners; metrics; bootstrap; stratified reports; latency/memory probes | `tools/qualification/attributes/`, `config/dependencies/` | metrics on synthetic predictions with known answers; bootstrap determinism; runner interface | harness self-test report | — | no production code |
@@ -667,7 +679,7 @@ Each slice is a reviewable PR on the S2c feature branch (or a sequence of PRs), 
 | **S2c.7 Adapters + device** | adapters for the winners; parity with the harness (same crops → same scores within tolerance); device policy; timeout; OOM/exit sequence; launcher restart policy | `attributes/adapters/`, `supervisor.py`, `runner.py`, `main.py`, `settings.py`, launcher | parity, device and failure-path tests | parity report; mutations S1–S5, S11–S14, S18, S19 | parity fails → fix the adapter, never retune on the frozen test | — |
 | **S2c.8 Learned lifecycle** | learned integration and E2E through the real lease plane (network denied); Stale of fixture analyses; in-flight fixture units complete under their own identity | integration tests, E2E harness | integration and E2E first | E2E record; mutations S15, S22 | — | S3 search |
 | **S2c.9 Performance + Development execution** | 10,000-Track run; CPU on both CPU variants; heartbeat latency under load; CUDA and co-residency where the GPU host is available; determinism and variant agreement | scale harness | — | performance report; ADR-009 Development evidence (contributes to F8, F9) | budget missed → next candidate (S2c.4) or recorded limitation; never relax D silently | CUDA qualification |
-| **S2c.10 Closure** | mutation programme, documentation reconciliation R9–R13, register evidence for F1 and F3, contributing reports; close both MSRs (outcome recorded, record hashed, cited by each qualification record's `model-selection` gate); independent cold review | docs, MSRs, `models/qualifications/` | — | mutation record; register entries | open P1/P2 → not done | S5 freeze and frozen-test scoring |
+| **S2c.10 Closure** | mutation programme, documentation reconciliation DR9–DR13, register evidence for F1 and F3, contributing reports; close both MSRs (outcome recorded; record hash in the index and addenda; cited by each qualification record's `<capabilityId>-model-selection` gate on variants with a Runtime Pack); independent cold review | docs, MSRs, `models/qualifications/` | — | mutation record; register entries | open P1/P2 → not done | S5 freeze and frozen-test scoring |
 
 ## 23. Risks, unresolved decisions and external dependencies
 
@@ -728,7 +740,7 @@ MAVI is a domain-neutral platform. The first draft excluded DINOv3, SAM 3, Mobil
 | I-17 | P2 | Regression-corpus bytes would ship in kits | **Fixed:** owner crops never enter a kit (§18) |
 | I-18 | P2 | Corpus depends on the still-open S1 | **Fixed:** raw-evidence pin and stop condition (§10.2, S2c.1) |
 | I-19 | P2 | Contract changes unacknowledged | **Fixed:** complete list §12.9; §5.6 and §25 corrected |
-| I-20 | P3 | ADR items 10–11 not minimal | **Fixed:** item 10 reduced to the new rule; item 11 moved to the S2b closure entry (R8a) |
+| I-20 | P3 | ADR items 10–11 not minimal | **Fixed:** item 10 reduced to the new rule; item 11 moved to the S2b closure entry (DR8a) |
 | I-21 | P3 | Fixture-as-adapter would change the fixture pack identity | **Fixed:** fixture path unchanged (§12.1) |
 | I-22 | P3 | Who decodes the JPEG was ambiguous | **Fixed:** worker decodes once (§12.1, ADR-013 item 8) |
 | I-23 | P3 | Code drift (device reason; validator range check; profile "moves") | **Fixed** (§17, §12.3, §12.8) |
@@ -749,6 +761,39 @@ MAVI is a domain-neutral platform. The first draft excluded DINOv3, SAM 3, Mobil
 | J-8 | P3 | Governing list duplicated ADR-014; U6 out of order; dangling "recorded below" | **Fixed** |
 
 After these dispositions the author's assessment is **no P1 or P2 open**. A further independent review is invited on the PR.
+
+**PR review-bot threads on `d4bc044`** (4 P2)
+
+| # | Finding | Disposition |
+|---|---|---|
+| B-1 | "Model abstention" for partial/occluded/blurred crops had no contract path | **Fixed:** evidence floor for colour types and top-`kMin` pooling for presence types (aggregation v2, §7.4 step 1a); adapter reason `model_not_applicable` for models with a declared applicability output (§12.1); mutations S28, S29 |
+| B-2 | Site/date grouping does not stop recurring people/vehicles crossing partitions | **Fixed:** contiguous date blocks plus a cross-partition recurrence audit before sealing, with residual recurrence recorded as a limitation (§10.2) |
+| B-3 | Precision sizing counted ground-truth positives, not predicted positives | **Fixed:** predicted positives for precision, ground-truth positives for recall, the larger decides (§10.2) |
+| B-4 | Parent plan said S2c closes F9 | **Fixed** (S5 closes; S2c contributes) |
+
+**Model Selection Record methodology (added 2026-09-28)** — MSR method v1 under `docs/qualification/model-selection/`, two S2c events in `PLANNED` state, ADR-014 MSR note, protocol revision R2.
+
+**Independent cold review of the whole PR at `928d4d4`** (0 P1, 8 P2, 9 P3). It confirmed: documentation-only; no row PASS; no model selected; no frozen-test leakage; Production fence intact; domain-neutral.
+
+| # | Sev. | Finding | Disposition |
+|---|---|---|---|
+| K-1 | P2 | A `model-selection` gate in two gate sets violates `gate_name_duplicate`; "no schema change" overstated | **Fixed:** capability-prefixed gates `<capabilityId>-model-selection` in capability gate sets; wording now "no qualification-record schema change; gate-set configuration change" (§12.6, ADR-014 note, MSR §10) |
+| K-2 | P2 | A licence-class-dependent gate could never pass on an L-A pack; "all pending" contradicted "passed at S2c.10"; the class-A CUDA variant cannot pass any gate | **Fixed:** the determination is evidence of the existing `licence` gate per profile (§9.3 rule 4); the selection gate passes only on variants with a Runtime Pack; everything else stays pending (§12.6) |
+| K-3 | P2 | A closed record cannot contain its own hash | **Fixed:** the hash lives in the index, the addenda header and the qualification record (MSR §3.1, template §10) |
+| K-4 | P2 | CRLF checkouts break byte hashes; `NO_QUALIFIABLE_CANDIDATE` records and protocols were unprotected | **Fixed:** LF-normalised hashing; `verify_repo` checks the record, index and protocol hashes (§12.9, S27) |
+| K-5 | P2 | The implementation candidate could be "pending" on G1 yet had to pass every mandatory gate; no addendum kind for later determinations | **Fixed:** G1 applies per named target profile (S2c: Development); a licence/deployment-determination addendum kind is added (MSR §4, §11; plan G1 row) |
+| K-6 | P2 | Evaluation permission acted as a licence pre-filter | **Fixed:** an explicit carve-out routes to `REFERENCE_ONLY` only, never `NOT_SHORTLISTED`, recorded with the decision-maker (MSR §2; §9.3 rule 1) |
+| K-7 | P2 | Survey classes read beyond the sources (Awiros L-B; weights presumed to inherit data terms) | **Fixed:** Awiros and derived weights are L-D pending U1; L-D now includes "depends on an unresolved legal reading"; the plan no longer restates classes (§9.3 points to survey §6) |
+| K-8 | P2 | "Validation partition" was ambiguous with four partitions | **Fixed:** every use is named (training cross-fit / tuning / selection) |
+| K-9 | P3 | Qualification plan §3.1 still defined three partitions | **Fixed:** R2 item 7 |
+| K-10 | P3 | G5 multiplicity, score aggregation, unmeasurable criteria and provenance-as-licence were undefined | **Fixed:** G5 per attribute with co-primary non-inferiority; equal attribute weight; drop-and-redistribute rule; provenance justified as a disjointness criterion (§9.5); required fields added to the protocol template |
+| K-11 | P3 | "Strongest qualified" collides with qualification-record meaning | **Kept** (it is the owner's mandated wording), with an explicit definition in plan §9.6 and MSR §9 |
+| K-12 | P3 | Candidate tables appear three times and drift | **Reduced:** licence classes are recorded only in survey §6; plan §9.2 is marked as a planning proposal superseded by the ledgers; Qwen naming aligned |
+| K-13 | P3 | "Same family" undefined for labelling assistants | **Fixed:** shared backbone checkpoint lineage (§10.3) |
+| K-14 | P3 | `-2026-01` reads as a month | **Fixed:** defined as a sequence number (MSR §3.1) |
+| K-15 | P3 | The MSR had no documentation-precedence rank | **Fixed** (architecture README precedence item 5) |
+| K-16 | P3 | §9.0 came after §9.1; reconciliation "R1" collided with protocol revision R1 | **Fixed:** §9.0 moved first; reconciliation items renamed DR1… (register reference updated) |
+| K-17 | P3 | "Implementation candidate … explicitly pending" wording | covered by K-5 |
 
 ## 25. Scope guard
 
