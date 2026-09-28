@@ -29,7 +29,7 @@ python tools/qualification/attribute_corpus.py <command> --help
 |---|---|
 | this tooling and its tests (synthetic fixtures only) | evidence crops (JPEG), addressed by SHA-256 |
 | the candidate/frozen task file, annotation guide, F1 evidence record | frozen-test ground truth (`ground-truth --frozen-out`) |
-| the SHA-256 of every retained record, in the F1 evidence record | the **retained-record store**: every record (corpus manifest, audits, partition, pilot and agreement reports, frozen task, adjudications, sealed evaluation view, seal) as `<sha256>.json`, plus `annotation-ledger.jsonl` and `frozen-access-log.jsonl` |
+| the SHA-256 of every retained record, in the F1 evidence record | the **retained-record store**: every record as `<sha256>.json`, plus `annotation-ledger.jsonl`, `frozen-access-log.jsonl`, and one `frozen-access-log-<sealSha256>.jsonl` per superseded seal. The records are: corpus manifest, audits, partition, candidate and frozen task, every assignment and batch, adjudications, pilot and main agreement reports, sealed evaluation view, and every seal |
 | | labelling spreadsheets and any local configuration naming evidence paths |
 
 Reviewable, image-free copies of the non-frozen records may also be committed once an operational corpus exists. The F1 checker never relies on them: it re-verifies from the store (§10).
@@ -128,7 +128,8 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
 6. `assign --phase main` (requires the frozen task), then `submit`.
 7. `reveal`, then `adjudicate` (records the JSON decision file in the ledger), then `ground-truth`, then `agreement --phase main`.
    - An adjudication counts only if the ledger issued its reveal packet to that adjudicator, covering every unit it decides.
-8. `seal` (commits both views; writes the sealed evaluation view and creates the access log), then `frozen-access` / `seal-status` for any later access.
+8. `seal` commits both views, records a `seal-created` event in the annotation ledger, writes the sealed evaluation view and creates the access log. Then use `frozen-access` / `seal-status` for any later access.
+   - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason` and `--superseded-access-log`. That old log must show the old seal compromised, and the new frozen member set must differ.
 
 **The ledger** is append-only and hash-chained. It enforces independence:
 - no reveal packet while an independent assignment covering its units is unsubmitted;
@@ -138,6 +139,8 @@ Agreement and pilot reports accept only ledger-registered batches.
 
 **Ground truth:**
 - It is built from main-phase batches under the frozen task only. Duplicate batches are refused.
+- **Every** main batch the ledger registered must be supplied. A subset is refused, since dropping one annotator's batch would hide its disagreements.
+- The final labels must agree with the final `subject-validity`: `non-subject` if and only if the subject is not valid. This holds after adjudication too. A batch that marks a valid subject `non-subject` is refused.
 - It keeps every original label beside the final one.
 - A conflict without an adjudication recorded in the ledger is an error.
 - `unscorable` stays `unscorable`.
@@ -159,6 +162,7 @@ Agreement and pilot reports accept only ledger-registered batches.
   - adjudicated units;
   - double-labelled units with an independent annotator;
   - support by partition, camera and site.
+- **Adjudications:** `agreement --adjudications` accepts only adjudications recorded in the ledger.
 - **Scope:** reports cover the evaluation partitions (training/tuning/selection) by default (`scope: evaluation-partitions`). Frozen-test label statistics appear only with `--include-frozen-custodian-only`, for the custodian's own qualification of the frozen set. Such a report is never committed and never shown to selection work.
 - **Rendering:** reports render as Markdown. A synthetic fixture is labelled as such in the rendering.
 
@@ -199,31 +203,32 @@ This is the foundation for later camera/site generalisation analysis, and delibe
 
 `check-f1 --record <record> --store <retained-record store>` computes the verdict.
 
-The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, seal status or camera support. The checker trusts none of it. It loads each artefact from the store, re-derives its identity and re-verifies the chain:
-- **corpus → audits → partition**, re-derived by `verify_partition` with the audits' own links;
-- **pilot report → frozen task** (`derivedFrom`), with the pilot batches registered in the ledger;
-- **main agreement report:**
-  - its hash;
-  - `evaluation-partitions` scope;
-  - the same corpus, partition and task;
-  - every batch registered in the ledger;
-  - annotators and independence as the ledger registered them;
-- **adjudications**, each recorded in the ledger;
-- **sealed evaluation view**, bound to the seal;
-- **seal** → partition, evaluation view and ledger head;
-- **access log**, which must begin with this seal, extend the recorded head and show no improper access;
-- **camera support**, from the partition's own checks; the record must carry every partition limitation.
+The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, statistic, seal status or camera support. The checker trusts none of it. It loads everything from the store, re-derives identities, and **recomputes** every conclusion from the primary inputs: assignments, batches, adjudications and the ledger. The labelling state it uses is the ledger as it stood at the ground truth's head.
+- **Partition**, from the corpus and both audits (`verify_partition`).
+- **Pilot report**, recomputed from the candidate task and every ledger-registered pilot batch. It must equal the retained report, the pilot must have used the final partition, and the frozen task must derive from it.
+- **Main agreement report**, recomputed from every registered main batch and every ledger-recorded adjudication. It must equal the retained report, so compute it after adjudication. The adjudications listed in the record must equal the ledger's.
+- **Both ground-truth views**, recomputed. Their hashes must equal the seal's, so the frozen labels are verified without leaving the store.
+- **Seal:**
+  - its frozen member set is recomputed;
+  - it must be the latest `seal-created` in the ledger;
+  - every earlier seal must be compromised (by its own retained log) and superseded by a different set.
+- **Access log:** it must begin with this seal, extend the recorded head and show no improper access.
+- **Camera support**, from the partition's checks. The record must carry every partition limitation.
 
 **PASS additionally needs:**
 - an operational corpus (synthetic fixtures never count);
-- the guide unchanged since its frozen SHA-256;
+- the guide unchanged since its frozen SHA-256, with every main assignment made under that guide;
 - at least two annotators, at least one independent;
-- an independent annotator on every double-labelled unit;
+- for **every** attribute of the frozen task and `subject-validity`: double-labelled units, each with an independent annotator;
 - at least three cameras in every partition, and a frozen camera unseen elsewhere;
-- a recurrence recall sample;
+- a recurrence recall sample that found no missed recurrence; otherwise, re-audit and re-sample;
 - a named custodian.
 
-Without the store the verdict is OPEN. A record may never claim more than the checker computes.
+A malformed retained record is refused. The guide path must resolve inside the repository. Without the store the verdict is OPEN. A record may never claim more than the checker computes.
+
+**Residual trust (recorded, not solved):**
+- The custodian holds the store. Someone who deletes and hand-recreates an access log outside the tool can hide an improper access unless an earlier recorded head exists. Commit the F1 record's `accessLogHead` whenever the log changes, so Git history anchors it.
+- Double-labelling agreement on the frozen test itself is computed only in custodian-only reports (`--include-frozen-custodian-only`). It is not part of F1, because F1's agreement evidence must stay free of frozen-test label statistics.
 
 ## 11. Mutation and adversarial record
 
@@ -265,7 +270,21 @@ These tests were written against the implemented rules. They kill each fault by 
 | hash check in the F1 store | killed |
 | seal-status check in F1 | killed |
 | access-log head check in F1 | killed |
-| ledger-registered batches in F1 | killed (after adding `test_a_main_report_naming_an_unregistered_batch_is_refused`; it first survived) |
+| ledger-registered batches in F1 | killed (after adding `test_a_main_report_naming_an_unregistered_batch_is_refused`; it first survived). Superseded in the third run by full recomputation |
 | sealed-view binding in `load_evaluation_view` | killed |
 | create-only access log | killed |
 | same-ground-truth check in `build_seal` | killed |
+
+**Third source-mutation run** (after the second cold review: F1 recomputation, seal chain, batch completeness):
+
+| Guard removed | Result |
+|---|---|
+| main-report recomputation in F1 | killed |
+| pilot-report recomputation in F1 | killed |
+| every task attribute required in F1 | killed |
+| frozen guide for main labelling in F1 | killed |
+| latest seal in the ledger, in F1 | killed (after adding `test_f1_refuses_a_seal_the_ledger_does_not_name_as_latest`; the first test was masked by the view binding) |
+| seal member recomputation in F1 | killed (after adding `test_f1_recomputes_the_sealed_member_set`; it first survived) |
+| re-seal requires `--supersedes` (ledger) | killed |
+| batch completeness in ground truth | killed |
+| valid subject never `non-subject` | killed |

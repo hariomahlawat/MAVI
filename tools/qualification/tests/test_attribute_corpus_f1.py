@@ -27,6 +27,7 @@ from attributes.corpus.cli import main
 from attributes.corpus.canonical import CorpusError, document_sha256, lf_normalised_sha256, write_canonical
 from attributes.corpus.duplicates import build_duplicate_audit, parse_duplicate_audit
 from attributes.corpus.f1 import ACCESS_LOG, ANNOTATION_LEDGER, REPO, f1_verdict
+from attributes.corpus.ledger import Ledger
 from attributes.corpus.frozen import build_seal, declare_improper_access, open_access_log, seal_evaluation_view
 from attributes.corpus.manifest import parse_corpus
 from attributes.corpus.partition import build_partition
@@ -48,26 +49,27 @@ def _choice(unit, attribute):
     return ("value", "absent", None)
 
 
-def _labelled(ledger, name, annotator, phase, units, corpus, partition, psha, task, guide_sha):
+def _labelled(ledger, name, annotator, phase, units, corpus, partition, psha, task, guide_sha, retained, choose=_choice):
     assignment = build_assignment(name, annotator, phase, "independent", units, corpus, partition, psha, task, guide_sha)
     ledger.issue_assignment(assignment, T0)
     rows = [
-        {"unitKind": u["unitKind"], "trackId": u["trackId"], "observationId": None, "attributeType": a, "outcome": _choice(u, a)[0], "value": _choice(u, a)[1], "unscorableReason": _choice(u, a)[2]}
+        {"unitKind": u["unitKind"], "trackId": u["trackId"], "observationId": None, "attributeType": a, "outcome": choose(u, a)[0], "value": choose(u, a)[1], "unscorableReason": choose(u, a)[2]}
         for u in assignment["units"] for a in u["attributeTypes"]
     ]
     batch = build_batch(f"batch-{name}", assignment, T0, rows, 600, task)
     ledger.submit_batch(batch, assignment, T0)
+    retained.extend([assignment, batch])
     return assignment, (batch, parse_batch(batch, assignment, task))
 
 
-def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, **policy_overrides: object) -> tuple[dict, Path]:
+def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, **policy_overrides: object) -> tuple[dict, Path]:
     """Run the whole S2c.1 workflow and retain every record in a hash-addressed store."""
     store = tmp / "store"
     store.mkdir()
     guide = tmp / "guide.md"
     guide.write_text("# guide\n")
     guide_sha = lf_normalised_sha256(guide)
-    raw_corpus = build_corpus(sites=4, cameras_per_site=3, days=12, tracks_per_source=1, kind=kind)
+    raw_corpus = build_corpus(sites=4, cameras_per_site=3, days=12, tracks_per_source=tracks_per_source, kind=kind)
     corpus = parse_corpus(raw_corpus)
     recurrence = {"schemaVersion": "mavi-attribute-recurrence-audit-v1", "corpusManifestSha256": corpus.sha256, "groups": []}
     if recall:
@@ -83,10 +85,11 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, **pol
     ledger.register_annotator("ann-a", False, T0)
     ledger.register_annotator("ann-b", True, T0)
     candidate = parse_task(task_module.confirm_rules(load_task().document, "owner-1", "2026-10-01T09:00:00Z"))
+    retained: list[dict] = [candidate.document]
     pilot_units = [("track", t, None) for t in sample_pilot_tracks(corpus, partition, 30, "pilot-seed")]
     assignments, batches = {}, []
     for annotator in ("ann-a", "ann-b"):
-        a, b = _labelled(ledger, f"pilot-{annotator}", annotator, "pilot", pilot_units, corpus, partition, psha, candidate, guide_sha)
+        a, b = _labelled(ledger, f"pilot-{annotator}", annotator, "pilot", pilot_units, corpus, partition, psha, candidate, guide_sha, retained)
         assignments[a["assignmentId"]], batches = a, batches + [b]
     pilot = pilot_report(candidate, corpus, partition, psha, batches, assignments, ledger.annotators(), set(ledger.batch_hashes()))
     decision = {
@@ -99,13 +102,16 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, **pol
     main_units = [("track", t, None) for t in sorted(corpus.tracks)]
     main_assignments, main_batches = {}, []
     for annotator in ("ann-a", "ann-b"):
-        a, b = _labelled(ledger, f"main-{annotator}", annotator, "main", main_units, corpus, partition, psha, task, guide_sha)
+        a, b = _labelled(ledger, f"main-{annotator}", annotator, "main", main_units, corpus, partition, psha, task, main_guide or guide_sha, retained)
         main_assignments[a["assignmentId"]], main_batches = a, main_batches + [b]
     main = agreement_report("main", corpus, partition, psha, task.sha256, main_batches, main_assignments, ledger.annotators(), set(), set(ledger.batch_hashes()))
     truth = build_ground_truth(corpus, partition, psha, task, main_batches, [], ledger, main_assignments)
     evaluation, frozen = split_ground_truth(truth, None)
+    sealing = seal
     seal = build_seal(corpus, partition, psha, frozen, evaluation, ledger.head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
-    log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
+    if sealing:
+        ledger.record_seal(seal, T0)
+        log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
     sealed_view = seal_evaluation_view(evaluation, seal)
     custody = tmp / "custody"
     custody.mkdir()
@@ -118,6 +124,7 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, **pol
         (corpus.sha256, raw_corpus), (recurrence_sha, recurrence), (duplicate_sha, duplicates), (psha, partition),
         (document_sha256(pilot), pilot), (task.sha256, frozen_doc), (document_sha256(main), main),
         (document_sha256(seal), seal), (document_sha256(sealed_view), sealed_view),
+        *((document_sha256(d), d) for d in retained),
     ):
         write_canonical(store / f"{name}.json", document)
     record = json.loads(COMMITTED.read_text())
@@ -125,7 +132,7 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, **pol
     record["attributeTask"]["frozenSha256"] = task.sha256
     record["corpus"] = {"corpusKind": kind, "corpusManifestSha256": corpus.sha256, "partitionManifestSha256": psha, "recurrenceAuditSha256": recurrence_sha, "duplicateAuditSha256": duplicate_sha}
     record["labelling"] = {"pilotReportSha256": document_sha256(pilot), "mainAgreementReportSha256": document_sha256(main), "adjudicationSha256s": [], "groundTruthSha256": document_sha256(sealed_view), "annotationLedgerHead": ledger.head}
-    record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": log.head}
+    record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": log.head} if sealing else {"sealSha256": None, "accessLogHead": None}
     record["limitations"] = list(partition["checks"]["limitations"])
     record["custodian"] = "custodian-1"
     return record, store
@@ -239,21 +246,33 @@ def test_access_log_cannot_be_silently_recreated(tmp_path) -> None:
         open_access_log(store / ACCESS_LOG, seal, T0, create=True)
 
 
-def test_cli_seals_once_logs_access_and_re_verifies_from_the_store(tmp_path, capsys) -> None:
-    record, store = build_chain(tmp_path)
+def _seal_args(tmp_path, store, log_name, out_name):
     custody = tmp_path / "custody"
-    seal_args = [
+    return [
         "seal", "--corpus", str(custody / "corpus.json"), "--partition", str(custody / "partition.json"),
         "--frozen", str(custody / "frozen.json"), "--evaluation", str(custody / "evaluation.json"),
-        "--sealed-evaluation-out", str(custody / "sealed-evaluation.json"), "--ledger", str(store / ANNOTATION_LEDGER),
-        "--by", "custodian-1", "--custody-note", "held by the custodian", "--access-log", str(custody / "access.jsonl"), "--out", str(custody / "seal.json"),
+        "--sealed-evaluation-out", str(custody / f"sealed-{out_name}"), "--ledger", str(store / ANNOTATION_LEDGER),
+        "--by", "custodian-1", "--custody-note", "held by the custodian", "--access-log", str(custody / log_name), "--out", str(custody / out_name),
     ]
-    assert main(seal_args) == 0
-    assert json.loads((custody / "sealed-evaluation.json").read_text())["sealSha256"] == document_sha256(json.loads((custody / "seal.json").read_text()))
-    assert main(seal_args) == 2, "a second seal cannot reset an existing access log"
+
+
+def test_cli_seals_once_logs_access_and_re_verifies_from_the_store(tmp_path, capsys) -> None:
+    record, store = build_chain(tmp_path, seal=False)
+    custody = tmp_path / "custody"
+    assert main(_seal_args(tmp_path, store, "access.jsonl", "seal.json")) == 0
+    seal = json.loads((custody / "seal.json").read_text())
+    view = json.loads((custody / "sealed-seal.json").read_text())
+    assert view["sealSha256"] == document_sha256(seal)
+    assert main(_seal_args(tmp_path, store, "access.jsonl", "again.json")) == 2, "a second seal cannot reset an existing access log"
+    assert main(_seal_args(tmp_path, store, "other.jsonl", "again.json")) == 2, "a second seal needs --supersedes"
     access = ["frozen-access", "--seal", str(custody / "seal.json"), "--frozen", str(custody / "frozen.json"), "--actor", "custodian-1", "--purpose", "integrity-verify", "--stage", "S2c.2"]
     assert main([*access, "--access-log", str(custody / "access.jsonl")]) == 0
     assert main([*access, "--access-log", str(custody / "missing.jsonl")]) == 2, "no silent new log"
+    write_canonical(store / f"{document_sha256(seal)}.json", seal)
+    write_canonical(store / f"{document_sha256(view)}.json", view)
+    (store / ACCESS_LOG).write_bytes((custody / "access.jsonl").read_bytes())
+    record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": Ledger(store / ACCESS_LOG).head}
+    record["labelling"]["groundTruthSha256"] = document_sha256(view)
     record_path = tmp_path / "record.json"
     record_path.write_text(json.dumps(record))
     capsys.readouterr()
@@ -262,6 +281,88 @@ def test_cli_seals_once_logs_access_and_re_verifies_from_the_store(tmp_path, cap
     # The tmp guide is not under the repository, so only the guide is missing; the whole
     # retained chain re-verified from the store.
     assert verdict["computed"] == "OPEN" and verdict["missing"] == ["annotation guide file"]
+    record["annotationGuide"]["path"] = "../../etc/passwd"
+    with pytest.raises(CorpusError, match="f1_guide_outside_repository"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_a_compromised_seal_cannot_be_replaced_by_resealing_the_same_set(tmp_path) -> None:
+    """Re-sealing is refused without --supersedes, and a superseding seal must name a new set."""
+    record, store = build_chain(tmp_path)
+    seal = json.loads((store / f"{record['seal']['sealSha256']}.json").read_text())
+    declare_improper_access(open_access_log(store / ACCESS_LOG, seal, T0), seal, "engineer-1", "S2c.3", "opened while debugging", T0)
+    assert main(_seal_args(tmp_path, store, "new.jsonl", "new-seal.json")) == 2
+    old = tmp_path / "old-seal.json"
+    write_canonical(old, seal)
+    superseding = [*_seal_args(tmp_path, store, "new.jsonl", "new-seal.json"), "--supersedes", str(old), "--supersedes-reason", "compromised in S2c.3", "--superseded-access-log", str(store / ACCESS_LOG)]
+    assert main(superseding) == 2, "the same frozen set cannot be re-sealed"
+    assert not (tmp_path / "custody" / "new.jsonl").exists()
+    assert AnnotationLedger(store / ANNOTATION_LEDGER).seals()[-1]["sealSha256"] == record["seal"]["sealSha256"]
+
+
+def test_f1_refuses_a_seal_the_ledger_does_not_name_as_latest(tmp_path) -> None:
+    record, store = build_chain(tmp_path)
+    seal = json.loads((store / f"{record['seal']['sealSha256']}.json").read_text())
+    newer = dict(seal, custodyNote="a later seal", supersedes={"sealSha256": document_sha256(seal), "reason": "later"})
+    AnnotationLedger(store / ANNOTATION_LEDGER).record_seal(newer, T0)
+    with pytest.raises(CorpusError, match="f1_seal_not_latest_in_ledger"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_f1_recomputes_the_sealed_member_set(tmp_path) -> None:
+    record, store = build_chain(tmp_path, seal=False)
+    custody = tmp_path / "custody"
+    corpus = parse_corpus(json.loads((custody / "corpus.json").read_text()))
+    partition = json.loads((custody / "partition.json").read_text())
+    evaluation = json.loads((custody / "evaluation.json").read_text())
+    ledger = AnnotationLedger(store / ANNOTATION_LEDGER)
+    seal = build_seal(corpus, partition, document_sha256(partition), json.loads((custody / "frozen.json").read_text()), evaluation, ledger.head, "custodian-1", T0, "x")
+    seal["frozenMembers"]["membersSha256"] = "7" * 64  # hand-edited before sealing
+    ledger.record_seal(seal, T0)
+    log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
+    view = seal_evaluation_view(evaluation, seal)
+    for document in (seal, view):
+        write_canonical(store / f"{document_sha256(document)}.json", document)
+    record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": log.head}
+    record["labelling"]["groundTruthSha256"] = document_sha256(view)
+    with pytest.raises(CorpusError, match="f1_seal_members_not_reproducible"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_f1_needs_double_labels_for_every_task_attribute(tmp_path) -> None:
+    """An all-person corpus leaves the vehicle attribute unlabelled: F1 stays OPEN."""
+    record, store = build_chain(tmp_path, tracks_per_source=1)
+    missing = f1_verdict(record, tmp_path, store)["missing"]
+    assert missing == ["double-labelled units for vehicle-colour"]
+
+
+def test_f1_needs_main_labelling_under_the_frozen_guide(tmp_path) -> None:
+    record, store = build_chain(tmp_path, main_guide="9" * 64)
+    assert f1_verdict(record, tmp_path, store)["missing"] == ["main labelling under the frozen annotation guide"]
+
+
+def test_a_forged_but_self_consistent_agreement_report_is_refused(tmp_path) -> None:
+    """Editing a statistic and re-hashing the report does not help: F1 recomputes it."""
+    record, store = build_chain(tmp_path)
+    document = json.loads((store / f"{record['labelling']['mainAgreementReportSha256']}.json").read_text())
+    document["attributes"][0]["doubleLabelledUnits"] += 1
+    del document["reportSha256"]
+    document["reportSha256"] = document_sha256(document)
+    write_canonical(store / f"{document_sha256(document)}.json", document)
+    record["labelling"]["mainAgreementReportSha256"] = document_sha256(document)
+    with pytest.raises(CorpusError, match="f1_main_agreement_report_not_reproducible"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_a_malformed_retained_record_is_refused_not_crashed(tmp_path) -> None:
+    record, store = build_chain(tmp_path)
+    path = store / f"{record['labelling']['pilotReportSha256']}.json"
+    document = json.loads(path.read_text())
+    del document["agreement"]
+    write_canonical(store / f"{document_sha256(document)}.json", document)
+    record["labelling"]["pilotReportSha256"] = document_sha256(document)
+    with pytest.raises(CorpusError):
+        f1_verdict(record, tmp_path, store)
 
 
 def test_a_main_report_naming_an_unregistered_batch_is_refused(tmp_path) -> None:
@@ -272,5 +373,5 @@ def test_a_main_report_naming_an_unregistered_batch_is_refused(tmp_path) -> None
     document["reportSha256"] = document_sha256(document)
     write_canonical(store / f"{document_sha256(document)}.json", document)
     record["labelling"]["mainAgreementReportSha256"] = document_sha256(document)
-    with pytest.raises(CorpusError, match="f1_main_batches_not_in_ledger"):
+    with pytest.raises(CorpusError, match="f1_main_agreement_report_not_reproducible"):
         f1_verdict(record, tmp_path, store)

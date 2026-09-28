@@ -30,10 +30,10 @@ from .annotation import (
     split_ground_truth,
     unit_key,
 )
-from .canonical import CorpusError, document_sha256, lf_normalised_sha256, read_json, write_canonical
+from .canonical import CorpusError, document_sha256, lf_normalised_sha256, read_json, require, write_canonical
 from .duplicates import build_duplicate_audit, directory_reader, fingerprint_corpus, parse_duplicate_audit
 from .f1 import check_file
-from .frozen import access_frozen, build_seal, declare_improper_access, open_access_log, seal_evaluation_view, seal_status
+from .frozen import access_frozen, build_seal, declare_improper_access, open_access_log, seal_evaluation_view, seal_status, verify_superseding_seal
 from .ledger import Ledger
 from .manifest import parse_corpus
 from .partition import build_partition, verify_partition
@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     add("adjudicate", ("--ledger", p(required=True)), ("--adjudication", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--task", p()))
     add("freeze-task", ("--task", p(required=True)), ("--pilot-report", p(required=True)), ("--decision", p(required=True)), ("--out", p(required=True)))
     add("ground-truth", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--task", p(required=True)), ("--ledger", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--adjudications", {"type": Path, "nargs": "*", "default": []}), ("--evaluation-out", p(required=True)), ("--frozen-out", p(required=True)))
-    add("seal", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--frozen", p(required=True)), ("--evaluation", p(required=True)), ("--sealed-evaluation-out", p(required=True)), ("--ledger", p(required=True)), ("--by", {"required": True}), ("--custody-note", {"required": True}), ("--access-log", p(required=True)), ("--out", p(required=True)))
+    add("seal", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--frozen", p(required=True)), ("--evaluation", p(required=True)), ("--sealed-evaluation-out", p(required=True)), ("--ledger", p(required=True)), ("--by", {"required": True}), ("--custody-note", {"required": True}), ("--access-log", p(required=True)), ("--supersedes", p()), ("--supersedes-reason", {}), ("--superseded-access-log", p()), ("--out", p(required=True)))
     add("frozen-access", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--frozen", p(required=True)), ("--actor", {"required": True}), ("--purpose", {"required": True}), ("--stage", {"required": True}))
     add("declare-improper-access", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--actor", {"required": True}), ("--stage", {"required": True}), ("--description", {"required": True}))
     add("seal-status", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--recorded-head", {}))
@@ -193,7 +193,12 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
             markdown = render_agreement(document["agreement"])
         else:
             object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for a in assignments.values() for u in a["units"]}
-            adjudicated = {key for path in args.adjudications for key in parse_adjudication(read_json(path), task, object_class)}
+            recorded = ledger.adjudication_hashes()
+            adjudicated = set()
+            for path in args.adjudications:
+                document = read_json(path)
+                require(document_sha256(document) in recorded, "agreement_adjudication_not_in_ledger")
+                adjudicated |= set(parse_adjudication(document, task, object_class))
             document = agreement_report(args.phase, corpus, partition, document_sha256(partition), task.sha256, batches, assignments, ledger.annotators(), adjudicated, registered, args.include_frozen_custodian_only)
             markdown = render_agreement(document)
         _emit(args.out, document)
@@ -224,7 +229,17 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         corpus = parse_corpus(read_json(args.corpus))
         partition = read_json(args.partition)
         evaluation = read_json(args.evaluation)
-        seal = build_seal(corpus, partition, document_sha256(partition), read_json(args.frozen), evaluation, AnnotationLedger(args.ledger).head, args.by, _now(), args.custody_note)
+        ledger = AnnotationLedger(args.ledger)
+        require(not Ledger(args.access_log).entries, "access_log_already_exists")
+        supersedes = None
+        if args.supersedes:
+            require(args.supersedes_reason and args.superseded_access_log, "seal_supersedes_needs_reason_and_old_log")
+            old_seal = read_json(args.supersedes)
+            supersedes = {"sealSha256": document_sha256(old_seal), "reason": args.supersedes_reason}
+        seal = build_seal(corpus, partition, document_sha256(partition), read_json(args.frozen), evaluation, ledger.head, args.by, _now(), args.custody_note, supersedes)
+        if supersedes is not None:
+            verify_superseding_seal(seal, old_seal, Ledger(args.superseded_access_log))
+        ledger.record_seal(seal, _now())
         open_access_log(args.access_log, seal, _now(), create=True)
         _emit(args.out, seal)
         _emit(args.sealed_evaluation_out, seal_evaluation_view(evaluation, seal))

@@ -46,6 +46,7 @@ class Ledger:
         return self.entries[-1]["entrySha256"] if self.entries else GENESIS
 
     def append(self, kind: str, payload: dict, at: str) -> dict:
+        require(self.path is not None, "ledger_view_is_read_only")
         require_datetime(at, "ledger_time")
         refuse_path_leaks(payload, "ledger_path_leak")
         entry = {"seq": len(self.entries) + 1, "at": at, "kind": kind, "payload": payload, "prevSha256": self.head}
@@ -62,3 +63,16 @@ class Ledger:
 
     def of_kind(self, kind: str) -> list[dict]:
         return [e for e in self.entries if e["kind"] == kind]
+
+    def of_kind_payloads(self, kind: str) -> list[dict]:
+        return [e["payload"] for e in self.of_kind(kind)]
+
+    def prefix(self, head: str) -> "Ledger":
+        """A read-only view of the ledger as it stood at ``head`` (for re-deriving a record
+        that was built then). Appending to the view is refused."""
+        self.require_extends(head)
+        view = self.__class__.__new__(self.__class__)
+        view.path = None
+        count = 0 if head == GENESIS else next(i for i, e in enumerate(self.entries, start=1) if e["entrySha256"] == head)
+        view.entries = self.entries[:count]
+        return view

@@ -209,6 +209,22 @@ class AnnotationLedger(Ledger):
         require(sha not in self.adjudication_hashes(), "ledger_adjudication_duplicate")
         self.append("adjudication-recorded", {"adjudicationId": adjudication["adjudicationId"], "adjudicatorId": adjudication["adjudicatorId"], "adjudicationSha256": sha}, at)
 
+    def record_seal(self, seal: dict, at: str) -> None:
+        """The first seal on a ledger is plain; any later one must supersede the latest seal.
+        (``frozen.verify_superseding_seal`` proves the old seal compromised and the frozen set
+        new; the caller runs it, because it needs the old access log.)"""
+        seals = self.seals()
+        sha = document_sha256(seal)
+        require(sha not in {s["sealSha256"] for s in seals}, "ledger_seal_duplicate")
+        if seals:
+            require(seal["supersedes"] is not None and seal["supersedes"]["sealSha256"] == seals[-1]["sealSha256"], "ledger_reseal_requires_supersedes")
+        else:
+            require(seal["supersedes"] is None, "ledger_first_seal_supersedes")
+        self.append("seal-created", {"sealSha256": sha, "membersSha256": seal["frozenMembers"]["membersSha256"], "supersedes": None if seal["supersedes"] is None else seal["supersedes"]["sealSha256"]}, at)
+
+    def seals(self) -> list[dict]:
+        return self.of_kind_payloads("seal-created")
+
     def adjudication_hashes(self) -> set[str]:
         return {e["payload"]["adjudicationSha256"] for e in self.of_kind("adjudication-recorded")}
 
@@ -287,7 +303,11 @@ def parse_batch(batch: dict, assignment: dict, task: Task) -> list[Label]:
         by_unit[label.unit][label.attribute_type] = label
     for unit, attributes in by_unit.items():
         validity = attributes[VALIDITY]
-        if validity.value != SUBJECT_VALID:
+        if validity.value == SUBJECT_VALID:
+            # "non-subject" is reserved for crops whose subject is not valid (guide §3).
+            for name, label in attributes.items():
+                require(label.reason != "non-subject", f"batch_valid_subject_marked_non_subject:{unit}")
+        else:
             # A non-subject / wrong-class crop cannot carry an attribute value.
             for name, label in attributes.items():
                 require(name == VALIDITY or (label.outcome == OUTCOME_UNSCORABLE and label.reason == "non-subject"), f"batch_invalid_subject_has_value:{unit}")
@@ -401,6 +421,22 @@ def build_ground_truth(
             }
         )
     require(not unresolved, f"ground_truth_unresolved_conflicts:{len(unresolved)}")
+    # Every main batch the ledger registered must be supplied: dropping one would hide its
+    # disagreements (guide §8: conflicts are never resolved silently).
+    phases = {a["assignmentId"]: a["phase"] for a in ledger.of_kind_payloads("assignment-issued")}
+    registered_main = {e["batchSha256"] for e in ledger.of_kind_payloads("batch-submitted") if phases[e["assignmentId"]] == "main"}
+    require(seen_batches == registered_main, f"ground_truth_batches_incomplete:{len(registered_main - seen_batches)}")
+    # Final labels must agree with the final subject validity, including after adjudication.
+    finals: dict[str, dict[str, dict]] = defaultdict(dict)
+    for row in rows:
+        finals[row["unit"]][row["attributeType"]] = row["final"]
+    for unit, attributes in sorted(finals.items()):
+        valid = attributes.get(VALIDITY, {}).get("value") == SUBJECT_VALID
+        for name, final in attributes.items():
+            if name == VALIDITY:
+                continue
+            non_subject = final["outcome"] == OUTCOME_UNSCORABLE and final["unscorableReason"] == "non-subject"
+            require(non_subject != valid, f"ground_truth_subject_validity_inconsistent:{unit}|{name}")
     return {
         "schemaVersion": GROUND_TRUTH_SCHEMA,
         "corpusManifestSha256": corpus.sha256,

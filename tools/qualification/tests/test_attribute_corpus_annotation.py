@@ -411,3 +411,18 @@ def test_cli_adjudicate_records_the_decision_in_the_ledger(world) -> None:
     ledger = AnnotationLedger(world["ledger"].path)
     truth = build_ground_truth(world["corpus"], world["partition"], world["psha"], world["frozen"], batches, [parse_adjudication(adjudication, world["frozen"], object_class)], ledger, _assignments(made))
     assert any(r["resolution"] == "adjudicated" for r in truth["rows"])
+
+
+def test_ground_truth_refuses_a_cherry_picked_subset_of_batches(world) -> None:
+    """Dropping one annotator's batch would hide every disagreement it carries."""
+    made, batches = _pilot(world, choose_b=_disagree_on_backpack, phase="main")
+    with pytest.raises(CorpusError, match="ground_truth_batches_incomplete"):
+        build_ground_truth(world["corpus"], world["partition"], world["psha"], world["frozen"], batches[:1], [], world["ledger"], _assignments(made))
+
+
+def test_non_subject_is_reserved_for_invalid_subjects(world) -> None:
+    def choose(unit, attribute):
+        return ("unscorable", None, "non-subject") if attribute == "person-backpack" else _default_choice(unit, attribute)
+
+    with pytest.raises(CorpusError, match="batch_valid_subject_marked_non_subject"):
+        _pilot(world, choose_a=choose)
