@@ -28,7 +28,7 @@ The current Stage-2 sequence is:
 - **S1 Track Evidence Set:** implemented/merged; acceptance evidence remains governed by the acceptance register.
 - **S2a Component Binding v2:** implemented and merged through PR #112; C1–C7 status and retained evidence are owned by the authoritative acceptance register. C3 is satisfied only at the schema/composition level: the schema supports multiple roles, but only `vision` is startable at the S2a baseline. Enabling an independently startable `attributes` role is S2b work.
 - **S2b Attribute lifecycle with fixture inferencer:** next implementation slice. No real attribute model is introduced. *(Status 2026-09-28: merged through PR #114 at `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`.)*
-- **S2c Real Model Packs:** follows S2b. *(Status 2026-09-28: accepted plan in `docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md`; S2c.0 baseline activated, S2c.1 next.)*
+- **S2c Real Model Packs:** follows S2b. *(Status 2026-09-28: PR #115 accepted the plan in `docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md`; S2c.0 baseline reconciliation is in progress and S2c.1 follows only after its exact-head CI and merge.)*
 - **S3 Search/query integration:** follows the S2b persistence foundation.
 
 The following capability-implementation-roadmap statements are stale and superseded for current Stage-2 status:
