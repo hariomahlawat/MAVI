@@ -1,0 +1,185 @@
+{
+  "description": "Cross-language pin of the AttributePredictions worst-case size bound (S2b plan \u00a715; implementation record \u00a74). Both the .NET release parser and the Python loader compute exactly worstCaseBytes for each attribute list, and accept the schema only when it is at most maximumBytes (the 64 MiB upload cap). The last two vectors differ by one character and straddle the cap.",
+  "maximumBytes": 67108864,
+  "vectors": [
+    {
+      "name": "fixture-schema",
+      "attributes": [
+        {
+          "attributeType": "fixture-person-lower",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "dark",
+            "light",
+            "mid"
+          ]
+        },
+        {
+          "attributeType": "fixture-person-upper",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "dark",
+            "light",
+            "mid"
+          ]
+        },
+        {
+          "attributeType": "fixture-vehicle-body",
+          "capabilityId": "vehicle-attributes",
+          "objectClass": "vehicle",
+          "values": [
+            "dark",
+            "light",
+            "mid"
+          ]
+        }
+      ],
+      "worstCaseBytes": 22424096,
+      "accepted": true
+    },
+    {
+      "name": "largest-accepted",
+      "attributes": [
+        {
+          "attributeType": "pt-0000",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "v000",
+            "v001",
+            "v002",
+            "v003",
+            "v004",
+            "v005",
+            "v006",
+            "v007",
+            "v008zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+          ]
+        },
+        {
+          "attributeType": "pt-0001",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "v000",
+            "v001",
+            "v002",
+            "v003",
+            "v004",
+            "v005",
+            "v006",
+            "v007",
+            "v008"
+          ]
+        },
+        {
+          "attributeType": "pt-0002",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "v000",
+            "v001",
+            "v002",
+            "v003",
+            "v004",
+            "v005",
+            "v006",
+            "v007",
+            "v008"
+          ]
+        },
+        {
+          "attributeType": "pt-0003",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "v000",
+            "v001",
+            "v002",
+            "v003",
+            "v004",
+            "v005",
+            "v006",
+            "v007",
+            "v008"
+          ]
+        }
+      ],
+      "worstCaseBytes": 67104096,
+      "accepted": true
+    },
+    {
+      "name": "smallest-refused",
+      "attributes": [
+        {
+          "attributeType": "pt-0000",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "v000",
+            "v001",
+            "v002",
+            "v003",
+            "v004",
+            "v005",
+            "v006",
+            "v007",
+            "v008zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+          ]
+        },
+        {
+          "attributeType": "pt-0001",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "v000",
+            "v001",
+            "v002",
+            "v003",
+            "v004",
+            "v005",
+            "v006",
+            "v007",
+            "v008"
+          ]
+        },
+        {
+          "attributeType": "pt-0002",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "v000",
+            "v001",
+            "v002",
+            "v003",
+            "v004",
+            "v005",
+            "v006",
+            "v007",
+            "v008"
+          ]
+        },
+        {
+          "attributeType": "pt-0003",
+          "capabilityId": "person-attributes",
+          "objectClass": "person",
+          "values": [
+            "v000",
+            "v001",
+            "v002",
+            "v003",
+            "v004",
+            "v005",
+            "v006",
+            "v007",
+            "v008"
+          ]
+        }
+      ],
+      "worstCaseBytes": 67154096,
+      "accepted": false
+    }
+  ]
+}

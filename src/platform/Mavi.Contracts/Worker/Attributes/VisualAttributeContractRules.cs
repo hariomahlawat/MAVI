@@ -46,6 +46,18 @@ public static class VisualAttributeContractRules
 
     /// <summary>The existing 64 MiB per-artefact bound (ADR-013 §13).</summary>
     public const long MaximumPredictionArtifactBytes = WorkerContractRules.MaximumCompletionArtifactBytes;
+    /// <summary>
+    /// The worst-case encoded size of one artefact element, for the schema bound below. The
+    /// encoding is compact canonical JSON of schema tokens (<c>[a-z0-9-]</c>, never escaped) and
+    /// shortest round-trip doubles (at most 24 characters).
+    /// </summary>
+    public const int ArtifactHeaderBytes = 4096;
+    public const int ArtifactTrackEnvelopeBytes = 192;
+    public const int ArtifactObservationEnvelopeBytes = 160;
+    public const int ArtifactDecisionEnvelopeBytes = 192;
+    public const int ArtifactScoreTypeEnvelopeBytes = 6;
+    public const int ArtifactScoreEntryEnvelopeBytes = 28;
+
     public const long MaximumLeaseRequestBodyBytes = 4 * 1024;
     public const long MaximumHeartbeatRequestBodyBytes = 4 * 1024;
     public const long MaximumFailRequestBodyBytes = 16 * 1024;

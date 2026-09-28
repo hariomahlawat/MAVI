@@ -33,6 +33,17 @@ MAXIMUM_SCHEMA_ATTRIBUTE_TYPES = 16
 MAXIMUM_ATTRIBUTE_TYPES_PER_OBJECT_CLASS = 8
 MAXIMUM_ATTRIBUTE_VALUES = 32
 MAXIMUM_TOKEN_LENGTH = 64
+# The artefact bound (S2b plan §15; implementation record §4). Mirrors
+# VisualAttributeContractRules and AttributeSchemaDefinition.WorstCasePredictionArtifactBytes.
+MAXIMUM_ANALYSIS_TRACKS = 10_000
+MAXIMUM_TRACK_OBSERVATIONS = 4
+MAXIMUM_PREDICTION_ARTIFACT_BYTES = 64 * 1024 * 1024
+ARTIFACT_HEADER_BYTES = 4096
+ARTIFACT_TRACK_ENVELOPE_BYTES = 192
+ARTIFACT_OBSERVATION_ENVELOPE_BYTES = 160
+ARTIFACT_DECISION_ENVELOPE_BYTES = 192
+ARTIFACT_SCORE_TYPE_ENVELOPE_BYTES = 6
+ARTIFACT_SCORE_ENTRY_ENVELOPE_BYTES = 28
 
 _TOKEN_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -148,6 +159,24 @@ def _pinned_sibling(profile_path: Path, reference: object, code: str) -> tuple[d
     return document, sha256
 
 
+def worst_case_prediction_artifact_bytes(attributes) -> int:
+    """The largest artefact an honest worker can produce under ``attributes`` at the supported
+    bound: 10,000 Tracks x 4 scored crops, compact canonical JSON of unescaped schema tokens and
+    shortest round-trip doubles (at most 24 characters). A schema over the upload cap is refused.
+    """
+    worst_track = 0
+    for object_class in sorted({item.object_class for item in attributes}):
+        observation = ARTIFACT_OBSERVATION_ENVELOPE_BYTES
+        decisions = 0
+        for attribute in (item for item in attributes if item.object_class == object_class):
+            observation += len(attribute.attribute_type) + ARTIFACT_SCORE_TYPE_ENVELOPE_BYTES + sum(
+                len(value) + ARTIFACT_SCORE_ENTRY_ENVELOPE_BYTES for value in attribute.values
+            )
+            decisions += len(attribute.attribute_type) + max(len(value) for value in attribute.values) + ARTIFACT_DECISION_ENVELOPE_BYTES
+        worst_track = max(worst_track, ARTIFACT_TRACK_ENVELOPE_BYTES + decisions + MAXIMUM_TRACK_OBSERVATIONS * observation)
+    return ARTIFACT_HEADER_BYTES + MAXIMUM_ANALYSIS_TRACKS * worst_track
+
+
 def _parse_schema(document: dict, sha256: str) -> AttributeSchema:
     code = "attribute_schema_invalid"
     _exact_keys(document, {"schemaVersion", "attributeSchemaId", "attributeSchemaVersion", "attributes"}, code)
@@ -181,6 +210,8 @@ def _parse_schema(document: dict, sha256: str) -> AttributeSchema:
     for object_class in set(ATTRIBUTE_CAPABILITIES.values()):
         if sum(1 for item in parsed if item.object_class == object_class) > MAXIMUM_ATTRIBUTE_TYPES_PER_OBJECT_CLASS:
             raise _fail(f"{code}:object_class_limit")
+    if worst_case_prediction_artifact_bytes(parsed) > MAXIMUM_PREDICTION_ARTIFACT_BYTES:
+        raise _fail(f"{code}:artifact_bound")
     return AttributeSchema(
         schema_id=_token(document["attributeSchemaId"], f"{code}:attributeSchemaId"),
         version=_version(document["attributeSchemaVersion"], f"{code}:attributeSchemaVersion"),

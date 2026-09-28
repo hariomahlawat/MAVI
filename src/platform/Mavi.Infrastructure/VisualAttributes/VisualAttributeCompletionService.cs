@@ -169,14 +169,16 @@ public sealed partial class VisualAttributeCompletionService(
             var artifact = Artifact.Create(ArtifactType.AttributePredictions, acceptedKey, VisualAttributeContractRules.PredictionsMediaType,
                 completion.PredictionSizeBytes, completion.PredictionSha256, createdAtUtc: nowUtc);
             db.Artifacts.Add(artifact);
+            var outcomes = new List<VisualAttributeTrackOutcome>(completion.Tracks.Count);
+            var attributes = new List<VisualAttribute>(completion.AttributesObserved + completion.AttributesUnknown);
             foreach (var track in completion.Tracks)
             {
-                db.VisualAttributeTrackOutcomes.Add(track.Outcome == VisualAttributeTrackOutcomeKind.Analysed
+                outcomes.Add(track.Outcome == VisualAttributeTrackOutcomeKind.Analysed
                     ? VisualAttributeTrackOutcome.Analysed(analysisId, track.TrackId)
                     : VisualAttributeTrackOutcome.Unavailable(analysisId, track.TrackId, track.Reason!));
                 foreach (var row in track.Rows)
                 {
-                    db.VisualAttributes.Add(row.Outcome == VisualAttributeOutcome.Observed
+                    attributes.Add(row.Outcome == VisualAttributeOutcome.Observed
                         ? VisualAttribute.Observed(analysisId, track.TrackId, row.AttributeType, row.Value!, row.Confidence!.Value, row.SupportingObservationId!.Value)
                         : VisualAttribute.Unknown(analysisId, track.TrackId, row.AttributeType));
                 }
@@ -187,8 +189,9 @@ public sealed partial class VisualAttributeCompletionService(
             try
             {
                 await db.SaveChangesAsync(cancellationToken);
+                await VisualAttributeFactWriter.WriteAsync(db, outcomes, attributes, cancellationToken);
             }
-            catch (DbUpdateException exception)
+            catch (Exception exception) when (exception is DbUpdateException or Npgsql.PostgresException)
             {
                 // The database refused the rows (for example, evidence removed underneath them).
                 // Nothing is published; the worker may retry, and Phase A re-validates.

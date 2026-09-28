@@ -31,15 +31,28 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
 {
     private readonly string _releaseDirectory = Path.Combine(Path.GetTempPath(), $"mavi-va-release-{Guid.NewGuid():N}");
 
-    private VisualAttributeApiHost(VisualAttributeWorld world) => World = world;
+    private readonly string _pipelineProfile;
+
+    private VisualAttributeApiHost(VisualAttributeWorld world, string pipelineProfile)
+    {
+        World = world;
+        _pipelineProfile = pipelineProfile;
+    }
 
     public VisualAttributeWorld World { get; }
+
+    /// <summary>Every log entry of every host generation, for timings and for capability-absence checks.</summary>
+    public VisionFinalizationSubmissionApiTests.CapturingLoggerProvider Logs { get; } = new();
+
+    public string AllLogText() => string.Join('\n', Logs.Entries.Select(entry => entry.Message));
     public ApiTestFactory Factory { get; private set; } = null!;
     public HttpClient Client { get; private set; } = null!;
 
-    public static async Task<VisualAttributeApiHost> CreateAsync(PostgresFixture fixture, DateTimeOffset nowUtc, bool identityB = false)
+    public static async Task<VisualAttributeApiHost> CreateAsync(
+        PostgresFixture fixture, DateTimeOffset nowUtc, bool identityB = false, string? pipelineProfile = null)
     {
-        var host = new VisualAttributeApiHost(await VisualAttributeWorld.CreateAsync(fixture, nowUtc));
+        var host = new VisualAttributeApiHost(await VisualAttributeWorld.CreateAsync(fixture, nowUtc),
+            pipelineProfile ?? VisualAttributeReleaseFixture.PipelineProfile);
         host.Start(identityB);
         return host;
     }
@@ -60,7 +73,8 @@ internal sealed class VisualAttributeApiHost : IAsyncDisposable
             MediaRootOverride = World.MediaRoot,
             EvidenceRootOverride = World.EvidenceRoot,
             VisualAttributeComponentBindingPath = VisualAttributeReleaseFixture.WriteBinding(_releaseDirectory, identityB),
-            VisualAttributePipelineProfilePath = VisualAttributeReleaseFixture.PipelineProfile,
+            VisualAttributePipelineProfilePath = _pipelineProfile,
+            OverrideServices = services => services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(Logs),
         };
         Client = Factory.CreateClient();
     }

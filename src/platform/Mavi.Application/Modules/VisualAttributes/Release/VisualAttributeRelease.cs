@@ -29,6 +29,37 @@ public sealed record AttributeSchemaDefinition(
 
     public AttributeDefinition? Find(string attributeType) =>
         Attributes.FirstOrDefault(item => string.Equals(item.AttributeType, attributeType, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The largest <c>AttributePredictions</c> artefact an honest worker can produce under this
+    /// schema at the supported bound (10,000 Tracks × 4 scored crops, every Observed decision
+    /// at its longest value): the schema is refused unless this fits the 64 MiB upload cap
+    /// (S2b plan §15; implementation record §4). The Python loader computes the same number.
+    /// </summary>
+    public long WorstCasePredictionArtifactBytes => WorstCasePredictionArtifactBytesOf(Attributes);
+
+    public static long WorstCasePredictionArtifactBytesOf(IReadOnlyList<AttributeDefinition> attributes)
+    {
+        ArgumentNullException.ThrowIfNull(attributes);
+        long worstTrack = 0;
+        foreach (var group in attributes.GroupBy(item => item.ObjectClass, StringComparer.Ordinal))
+        {
+            long observation = VisualAttributeContractRules.ArtifactObservationEnvelopeBytes;
+            long decisions = 0;
+            foreach (var attribute in group)
+            {
+                observation += attribute.AttributeType.Length + VisualAttributeContractRules.ArtifactScoreTypeEnvelopeBytes +
+                    attribute.Values.Sum(value => (long)value.Length + VisualAttributeContractRules.ArtifactScoreEntryEnvelopeBytes);
+                decisions += attribute.AttributeType.Length + attribute.Values.Max(value => value.Length) +
+                    VisualAttributeContractRules.ArtifactDecisionEnvelopeBytes;
+            }
+
+            worstTrack = Math.Max(worstTrack, VisualAttributeContractRules.ArtifactTrackEnvelopeBytes + decisions +
+                (long)VisualAttributeContractRules.MaximumTrackObservations * observation);
+        }
+
+        return VisualAttributeContractRules.ArtifactHeaderBytes + (long)VisualAttributeContractRules.MaximumAnalysisTracks * worstTrack;
+    }
 }
 
 public sealed record CapabilityIdentity(string CapabilityId, string ModelPackId);
@@ -307,6 +338,8 @@ public static class VisualAttributeReleaseParser
         if (parsed.GroupBy(item => item.ObjectClass, StringComparer.Ordinal)
             .Any(group => group.Count() > VisualAttributeContractRules.MaximumAttributeTypesPerObjectClass))
             throw new VisualAttributeReleaseException($"{code}:object_class_limit");
+        if (AttributeSchemaDefinition.WorstCasePredictionArtifactBytesOf(parsed) > VisualAttributeContractRules.MaximumPredictionArtifactBytes)
+            throw new VisualAttributeReleaseException($"{code}:artifact_bound");
 
         return new AttributeSchemaDefinition(
             Token(root, "attributeSchemaId", $"{code}:attributeSchemaId"),

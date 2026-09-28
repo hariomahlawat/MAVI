@@ -13,6 +13,9 @@ from pathlib import Path
 import pytest
 
 from mavi_vision.attributes.pipeline import (
+    MAXIMUM_PREDICTION_ARTIFACT_BYTES,
+    AttributeDefinition,
+    worst_case_prediction_artifact_bytes,
     attribute_identity,
     canonical_identity_bytes,
     load_attribute_pipeline,
@@ -141,3 +144,42 @@ def test_the_per_class_attribute_bound_is_enforced(profile_dir: Path) -> None:
     path = _rewrite_schema(profile_dir, nine_person_attributes)
     with pytest.raises(ReleaseMetadataError, match="^attribute_schema_invalid:object_class_limit$"):
         load_attribute_pipeline(path)
+
+
+# --- The artefact bound (plan §15; implementation record §4) ---------------------------------
+
+BOUND_VECTORS = json.loads(
+    (REPOSITORY / "contracts/test-vectors/visual-attribute-artifact-bound-v1.json").read_text(encoding="utf-8")
+)
+
+
+def _attributes(vector: dict) -> tuple[AttributeDefinition, ...]:
+    return tuple(
+        AttributeDefinition(item["attributeType"], item["capabilityId"], item["objectClass"], tuple(item["values"]))
+        for item in vector["attributes"]
+    )
+
+
+def test_the_worst_case_artefact_size_matches_the_cross_language_vectors() -> None:
+    assert BOUND_VECTORS["maximumBytes"] == MAXIMUM_PREDICTION_ARTIFACT_BYTES
+    for vector in BOUND_VECTORS["vectors"]:
+        size = worst_case_prediction_artifact_bytes(_attributes(vector))
+        assert size == vector["worstCaseBytes"], vector["name"]
+        assert (size <= MAXIMUM_PREDICTION_ARTIFACT_BYTES) is vector["accepted"], vector["name"]
+
+
+@pytest.mark.parametrize(("name", "code"), [("largest-accepted", None), ("smallest-refused", "attribute_schema_invalid:artifact_bound")])
+def test_a_schema_whose_worst_case_artefact_exceeds_the_upload_cap_is_refused(profile_dir: Path, name: str, code: str | None) -> None:
+    vector = next(item for item in BOUND_VECTORS["vectors"] if item["name"] == name)
+
+    def replace(schema: dict) -> None:
+        # The fixture's vehicle attribute keeps both bound capabilities; it sorts first.
+        schema["attributes"] = [schema["attributes"][-1], *vector["attributes"]]
+
+    path = _rewrite_schema(profile_dir, replace)
+    if code is None:
+        assert load_attribute_pipeline(path).schema.attributes
+        return
+    with pytest.raises(ReleaseMetadataError, match=f"^{code}$"):
+        load_attribute_pipeline(path)
+

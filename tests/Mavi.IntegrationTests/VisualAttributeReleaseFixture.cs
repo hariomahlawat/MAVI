@@ -54,6 +54,49 @@ internal static class VisualAttributeReleaseFixture
         return path;
     }
 
+    /// <summary>
+    /// A Development pipeline profile over another attribute schema (the fixture's aggregation
+    /// policy and parameters), for worst-shape measurements: the Python and .NET loaders read it
+    /// exactly as they read the committed fixture.
+    /// </summary>
+    public static string WriteProfile(string directory, IReadOnlyDictionary<string, string[]> typesByClass)
+    {
+        Directory.CreateDirectory(directory);
+        foreach (var name in new[] { "fixture-aggregation-policy-v1.json", "fixture-parameters-v1.json" })
+            File.Copy(Path.Combine(FixtureDirectory, name), Path.Combine(directory, name), overwrite: true);
+        var attributes = new JsonArray();
+        foreach (var (objectClass, types) in typesByClass.SelectMany(pair => pair.Value.Select(type => (pair.Key, type)))
+                     .OrderBy(item => item.type, StringComparer.Ordinal))
+        {
+            attributes.Add(new JsonObject
+            {
+                ["attributeType"] = types,
+                ["capabilityId"] = objectClass + "-attributes",
+                ["objectClass"] = objectClass,
+                ["values"] = new JsonArray("dark", "light", "mid"),
+            });
+        }
+
+        var schema = new JsonObject
+        {
+            ["schemaVersion"] = "mavi-visual-attribute-schema-v1",
+            ["attributeSchemaId"] = "visual-attributes-worst-shape",
+            ["attributeSchemaVersion"] = "1.0.0",
+            ["attributes"] = attributes,
+        };
+        var schemaBytes = Encoding.UTF8.GetBytes(schema.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        File.WriteAllBytes(Path.Combine(directory, "worst-shape-schema-v1.json"), schemaBytes);
+        var profile = JsonNode.Parse(File.ReadAllText(PipelineProfile))!.AsObject();
+        profile["attributeSchema"] = new JsonObject
+        {
+            ["file"] = "worst-shape-schema-v1.json",
+            ["sha256"] = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(schemaBytes)),
+        };
+        var path = Path.Combine(directory, "worst-shape-pipeline-v1.json");
+        File.WriteAllText(path, profile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        return path;
+    }
+
     private static JsonObject Bound(string capabilityId, string modelPackId) => new()
     {
         ["capabilityId"] = capabilityId,

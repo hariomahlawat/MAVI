@@ -207,4 +207,56 @@ public sealed class VisualAttributeReleaseParserTests
             ParseFixture(BindingWithAttributesRole(), profile: Encoding.UTF8.GetBytes(profile)));
         Assert.Equal("attribute_schema_invalid", exception.Code);
     }
+
+    // --- The artefact bound (plan §15; implementation record §4) -------------------------------
+
+    private static readonly JsonElement BoundVectors = JsonDocument.Parse(
+        File.ReadAllText(Path.Combine(Root, "contracts", "test-vectors", "visual-attribute-artifact-bound-v1.json"))).RootElement;
+
+    private static List<AttributeDefinition> Attributes(JsonElement vector) => vector.GetProperty("attributes").EnumerateArray()
+        .Select(item => new AttributeDefinition(
+            item.GetProperty("attributeType").GetString()!, item.GetProperty("capabilityId").GetString()!,
+            item.GetProperty("objectClass").GetString()!,
+            item.GetProperty("values").EnumerateArray().Select(value => value.GetString()!).ToList()))
+        .ToList();
+
+    [Fact]
+    public void TheWorstCaseArtefactSizeMatchesTheCrossLanguageVectors()
+    {
+        var maximum = BoundVectors.GetProperty("maximumBytes").GetInt64();
+        Assert.Equal(Mavi.Contracts.Worker.Attributes.VisualAttributeContractRules.MaximumPredictionArtifactBytes, maximum);
+        foreach (var vector in BoundVectors.GetProperty("vectors").EnumerateArray())
+        {
+            var bytes = AttributeSchemaDefinition.WorstCasePredictionArtifactBytesOf(Attributes(vector));
+            Assert.Equal(vector.GetProperty("worstCaseBytes").GetInt64(), bytes);
+            Assert.Equal(vector.GetProperty("accepted").GetBoolean(), bytes <= maximum);
+        }
+    }
+
+    [Theory]
+    [InlineData("largest-accepted", null)]
+    [InlineData("smallest-refused", "attribute_schema_invalid:artifact_bound")]
+    public void ASchemaWhoseWorstCaseArtefactExceedsTheUploadCapIsRefused(string name, string? code)
+    {
+        var vector = BoundVectors.GetProperty("vectors").EnumerateArray().Single(item => item.GetProperty("name").GetString() == name);
+        var schema = JsonNode.Parse(File.ReadAllText(Path.Combine(FixtureDirectory, "fixture-attribute-schema-v1.json")))!.AsObject();
+        var attributes = JsonNode.Parse(vector.GetProperty("attributes").GetRawText())!.AsArray();
+        // The fixture's vehicle attribute keeps both bound capabilities; it sorts first.
+        attributes.Insert(0, schema["attributes"]!.AsArray().Last()!.DeepClone());
+        schema["attributes"] = attributes;
+        var schemaBytes = Encoding.UTF8.GetBytes(schema.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        var profile = JsonNode.Parse(File.ReadAllText(Path.Combine(FixtureDirectory, "fixture-pipeline-v1.json")))!.AsObject();
+        profile["attributeSchema"]!["sha256"] = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(schemaBytes));
+        var profileBytes = Encoding.UTF8.GetBytes(profile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        byte[] Sibling(string file) => file == "fixture-attribute-schema-v1.json" ? schemaBytes : File.ReadAllBytes(Path.Combine(FixtureDirectory, file));
+
+        if (code is null)
+        {
+            Assert.NotNull(ParseFixture(BindingWithAttributesRole(), Sibling, profileBytes).Definition);
+            return;
+        }
+
+        var exception = Assert.Throws<VisualAttributeReleaseException>(() => ParseFixture(BindingWithAttributesRole(), Sibling, profileBytes));
+        Assert.Equal(code, exception.Code);
+    }
 }

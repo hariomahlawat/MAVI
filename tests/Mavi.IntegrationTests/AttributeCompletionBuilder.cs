@@ -33,14 +33,16 @@ internal static class AttributeCompletionBuilder
         string value = "dark",
         string actualDevice = "cpu",
         long? declaredSizeBytes = null,
-        string? declaredSha256 = null)
+        string? declaredSha256 = null,
+        IReadOnlyDictionary<string, string[]>? typesByClass = null)
     {
+        typesByClass ??= TypesByClass;
         var lease = unit.Lease;
         var tracks = new List<VisualAttributeTrackResultContract>();
         var predicted = new JsonArray();
         foreach (var track in lease.Tracks)
         {
-            var types = TypesByClass[track.ObjectClass];
+            var types = typesByClass[track.ObjectClass];
             var reason = track.Observations.Count == 0 ? "no_accepted_evidence" : unavailable?.Invoke(track.TrackId);
             var observations = new JsonArray();
             var decisions = new JsonArray();

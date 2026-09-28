@@ -199,6 +199,11 @@ public sealed class VisualAttributeApiTests(PostgresFixture fixture)
         host.World.Clock.Advance(TimeSpan.FromMinutes(3));
         using (var expired = await host.EvidenceAsync(unit, observation.ObservationId))
             Assert.Equal(HttpStatusCode.Conflict, expired.StatusCode);
+
+        // Every read, served or refused, is audited; no audit line carries the capability.
+        Assert.Single(host.Logs.Entries, entry => entry.EventId.Id == 2000);
+        Assert.True(host.Logs.Entries.Count(entry => entry.EventId.Id == 2001) >= 3);
+        Assert.DoesNotContain(unit.Capability, host.AllLogText(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -230,6 +235,9 @@ public sealed class VisualAttributeApiTests(PostgresFixture fixture)
 
         var integrity = host.Factory.Services.GetRequiredService<VisualAttributeIntegrityMonitor>().Current;
         Assert.Equal(2, integrity.EvidenceReadIncidents);
+        // Audited as integrity incidents (Error), never with the capability.
+        Assert.Equal(2, host.Logs.Entries.Count(entry => entry.EventId.Id == 2002 && entry.Level == Microsoft.Extensions.Logging.LogLevel.Error));
+        Assert.DoesNotContain(unit.Capability, host.AllLogText(), StringComparison.Ordinal);
     }
 
     // --- Upload -------------------------------------------------------------------------------
@@ -334,6 +342,12 @@ public sealed class VisualAttributeApiTests(PostgresFixture fixture)
 
         var integrity = host.Factory.Services.GetRequiredService<VisualAttributeIntegrityMonitor>().Current;
         Assert.Equal(1, integrity.CompletionIncidents);
+
+        // The capability reached no log line on the whole path; the audit trail did record the work.
+        var logs = host.AllLogText();
+        Assert.DoesNotContain(unit.Capability, logs, StringComparison.Ordinal);
+        Assert.Contains(host.Logs.Entries, entry => entry.EventId.Id == 2003);
+        Assert.Contains(host.Logs.Entries, entry => entry.EventId.Id == 1990);
     }
 
     [Fact]
