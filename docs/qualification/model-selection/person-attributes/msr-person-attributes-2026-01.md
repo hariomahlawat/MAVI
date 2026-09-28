@@ -13,7 +13,7 @@
 | Governing documents | ADR-013, ADR-014; qualification plan `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` (with R1–R2); register `docs/reviews/2026-09-23-visual-attributes-acceptance.md` |
 | Protocol | `msr-person-attributes-2026-01-protocol.md`, not yet written (S2c.2) |
 | Incumbent | **none.** The S2b fixture inferencer is a Development-only test double, not a model and not an incumbent |
-| Baselines | **PC-B0** (colour): MAVI-owned deterministic region band + dominant chroma cluster + CIE-Lab naming; packageable. **PO-B0** (backpack, bag, headwear): the no-image per-camera prevalence reference of plan §9.5 (smoothed training prevalence per camera, global prior for unseen cameras, threshold-grouped ties (plan §9.5)); a statistical floor only, **not packageable** |
+| Baselines | **PC-B0** (colour): MAVI-owned deterministic region band + dominant chroma cluster + CIE-Lab naming; packageable. **PO-B0** (backpack, bag, headwear): the no-image per-camera prevalence reference of plan §9.5 (smoothed training prevalence per camera, global prior for unseen cameras, threshold-grouped ties per plan §9.5); a statistical floor only, **not packageable** |
 | Discovery sources | `docs/qualification/stage2-s2c/model-candidate-survey.md` (2026-09-28); re-run at S2c.2 |
 | Target profiles (licence gate SG1) | the declared MAVI **non-commercial** Development deployment profiles where S2c runs the learned pack (MSR method §2.1); their profile ids are named in the protocol at S2c.2. Production profiles are determined later, by addendum; none in S2c |
 | Frozen-test access count | 0 (the frozen test is not yet sealed) |
