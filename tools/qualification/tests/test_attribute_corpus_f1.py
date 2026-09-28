@@ -811,3 +811,29 @@ def test_f1_replays_the_ledger_and_refuses_a_hand_written_cancellation(tmp_path)
     record, store = build_chain(tmp_path, abandoned_pilot="forged-cancellation")
     with pytest.raises(CorpusError, match="ledger_cancel_replacement_(mismatch|not_fresh)"):
         f1_verdict(record, tmp_path, store)
+
+
+def test_a_failed_ledger_append_leaves_no_partial_entry_and_the_seal_retries(tmp_path, monkeypatch) -> None:
+    """The final seal-created append fails (disk full at fsync): the annotation ledger is
+    truncated back, every seal output is removed, and a retry succeeds."""
+    from attributes.corpus import ledger as ledger_module
+
+    record, store = build_chain(tmp_path, seal=False)
+    before = (store / ANNOTATION_LEDGER).read_bytes()
+    real, calls = ledger_module.os.fsync, []
+
+    def failing(fd):
+        calls.append(fd)
+        if len(calls) == 2:  # 1: the new access log's first entry; 2: seal-created
+            raise OSError(28, "No space left on device")
+        return real(fd)
+
+    monkeypatch.setattr(ledger_module.os, "fsync", failing)
+    args = _seal_args(tmp_path, store, "access.jsonl", "seal.json")
+    assert main(args) == 2
+    assert (store / ANNOTATION_LEDGER).read_bytes() == before
+    Ledger(store / ANNOTATION_LEDGER)  # still a verifiable chain
+    assert not (tmp_path / "custody" / "access.jsonl").exists() and not (tmp_path / "custody" / "seal.json").exists()
+    monkeypatch.setattr(ledger_module.os, "fsync", real)
+    assert main(args) == 0
+    assert len(AnnotationLedger(store / ANNOTATION_LEDGER).seals()) == 1

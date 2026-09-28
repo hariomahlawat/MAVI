@@ -372,3 +372,15 @@ def test_replay_refuses_a_reveal_entry_with_invented_conflict_keys(world) -> Non
     world["ledger"].append("reveal-issued", payload, T0)
     with pytest.raises(CorpusError, match="ledger_replay_payload_mismatch"):
         AnnotationLedger.replay(world["ledger"].entries, _loader(*made.values(), *documents, packet))
+
+
+def test_one_replacement_cannot_cover_several_cancellations(world) -> None:
+    world["ledger"].register_annotator("ann-c", True, T0)
+    world["ledger"].register_annotator("ann-d", True, T0)
+    units = [("track", t, None) for t in sorted(world["corpus"].tracks)[:3]]
+    _issue(world, "main-a", "ann-a", "main", units)
+    _issue(world, "main-b", "ann-b", "main", units)
+    _issue(world, "main-c", "ann-c", "main", units)
+    world["ledger"].cancel_assignment("main-a", "custodian-1", "annotator left", "main-c", T0)
+    with pytest.raises(CorpusError, match="ledger_cancel_replacement_already_used"):
+        world["ledger"].cancel_assignment("main-b", "custodian-1", "annotator left", "main-c", T0)

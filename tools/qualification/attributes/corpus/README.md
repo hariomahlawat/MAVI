@@ -174,7 +174,7 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - `seal-created` records each seal's frozen Track IDs and all of its partition's Track IDs (the exposed set), recomputed from the corpus and partition. A new seal's frozen set may contain no Track exposed by **any** earlier seal in the chain, not only by its predecessor.
    - The seal's annotation-ledger head must equal the head both ground-truth views were built at. A batch or adjudication registered in between would otherwise be silently omitted.
 
-**The ledger** is append-only and hash-chained. It enforces independence:
+**The ledger** is append-only and hash-chained. An append is all or nothing: the line is flushed and fsynced, and on any failure (for example a full disk) the file is truncated back, so no partial entry survives and a retry starts from a verifiable chain. It enforces independence:
 - no reveal packet while an independent assignment covering its units is unsubmitted;
 - no independent batch from an annotator already shown others' labels for those units.
 
@@ -405,3 +405,5 @@ Tests added after the third review:
 | candidate vocabulary unchanged | killed |
 | seal never overwrites outputs | killed |
 | seal moves by hard link, not `os.replace` | **survived, equivalent**: the up-front existence check already refuses existing outputs, and the link only closes a race between that check and the move |
+| ledger append rollback on failure (Codex review of `4b7cb06`) | killed (`test_a_failed_ledger_append_leaves_no_partial_entry_and_the_seal_retries`) |
+| one replacement per cancellation | killed (`test_one_replacement_cannot_cover_several_cancellations`) |

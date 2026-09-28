@@ -10,6 +10,7 @@ independently of the tool that wrote it.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from .canonical import CorpusError, canonical_json, document_sha256, refuse_path_leaks, require, require_datetime
@@ -51,8 +52,19 @@ class Ledger:
         refuse_path_leaks(payload, "ledger_path_leak")
         entry = {"seq": len(self.entries) + 1, "at": at, "kind": kind, "payload": payload, "prevSha256": self.head}
         entry["entrySha256"] = entry_sha256(entry)
-        with self.path.open("ab") as handle:
-            handle.write(canonical_json(entry))
+        # All or nothing: a failed write (for example a full disk mid-line) is truncated
+        # back to the previous size, so the ledger never keeps a partial entry and a retry
+        # starts from a verifiable chain.
+        size = self.path.stat().st_size if self.path.exists() else 0
+        try:
+            with self.path.open("ab") as handle:
+                handle.write(canonical_json(entry))
+                handle.flush()
+                os.fsync(handle.fileno())
+        except BaseException:
+            with self.path.open("r+b") as handle:
+                handle.truncate(size)
+            raise
         self.entries.append(entry)
         return entry
 
