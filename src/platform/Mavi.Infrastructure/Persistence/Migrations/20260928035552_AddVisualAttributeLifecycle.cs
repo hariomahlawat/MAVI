@@ -107,6 +107,7 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                     id = table.Column<Guid>(type: "uuid", nullable: false),
                     fingerprint = table.Column<string>(type: "character(64)", fixedLength: true, maxLength: 64, nullable: false),
                     canonical_identity = table.Column<string>(type: "character varying(4096)", maxLength: 4096, nullable: false),
+                    attribute_schema_json = table.Column<string>(type: "character varying(65536)", maxLength: 65536, nullable: false),
                     activated_at_utc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>

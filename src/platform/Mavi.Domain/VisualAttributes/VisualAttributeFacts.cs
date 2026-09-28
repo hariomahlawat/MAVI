@@ -150,19 +150,30 @@ public sealed class VisualAttribute
 /// run is queued automatically only if it completed after the current activation began, so
 /// a binding change — rollback included — never re-analyses history on its own.
 /// </summary>
+/// <remarks>
+/// The activation also keeps the attribute schema bytes the identity was defined with (their
+/// SHA-256 is part of the identity), so a unit of an identity that is no longer preferred can
+/// still be leased and validated after the release moved on (S2b plan §4: a late completion
+/// of an obsolete identity lands as history).
+/// </remarks>
 public sealed class VisualAttributeIdentityActivation
 {
     private VisualAttributeIdentityActivation() { }
 
-    public static VisualAttributeIdentityActivation Create(string fingerprint, string canonicalIdentity, DateTimeOffset activatedAtUtc)
+    public const int MaximumAttributeSchemaLength = 64 * 1024;
+
+    public static VisualAttributeIdentityActivation Create(
+        string fingerprint, string canonicalIdentity, string attributeSchemaJson, DateTimeOffset activatedAtUtc)
     {
-        if (!CanonicalSha256.IsCanonical(fingerprint) || string.IsNullOrWhiteSpace(canonicalIdentity) || canonicalIdentity.Length > 4096)
+        if (!CanonicalSha256.IsCanonical(fingerprint) || string.IsNullOrWhiteSpace(canonicalIdentity) || canonicalIdentity.Length > 4096 ||
+            string.IsNullOrWhiteSpace(attributeSchemaJson) || attributeSchemaJson.Length > MaximumAttributeSchemaLength)
             throw new DomainValidationException("visual_attribute_activation_invalid", "The identity activation is invalid.");
         return new VisualAttributeIdentityActivation
         {
             Id = Guid.CreateVersion7(),
             Fingerprint = fingerprint,
             CanonicalIdentity = canonicalIdentity,
+            AttributeSchemaJson = attributeSchemaJson,
             ActivatedAtUtc = activatedAtUtc.ToUniversalTime(),
         };
     }
@@ -170,5 +181,7 @@ public sealed class VisualAttributeIdentityActivation
     public Guid Id { get; private set; }
     public string Fingerprint { get; private set; } = string.Empty;
     public string CanonicalIdentity { get; private set; } = string.Empty;
+    /// <summary>The exact attribute schema file text the identity pins by SHA-256.</summary>
+    public string AttributeSchemaJson { get; private set; } = string.Empty;
     public DateTimeOffset ActivatedAtUtc { get; private set; }
 }

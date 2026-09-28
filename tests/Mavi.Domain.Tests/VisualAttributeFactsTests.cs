@@ -87,8 +87,8 @@ public sealed class VisualAttributeFactsTests
     [Fact]
     public void AnActivationPinsAFingerprint()
     {
-        Assert.Throws<DomainValidationException>(() => VisualAttributeIdentityActivation.Create("x", "{}", DateTimeOffset.UnixEpoch));
-        var activation = VisualAttributeIdentityActivation.Create(new string('a', 64), "{}", DateTimeOffset.UnixEpoch);
+        Assert.Throws<DomainValidationException>(() => VisualAttributeIdentityActivation.Create("x", "{}", "{}", DateTimeOffset.UnixEpoch));
+        var activation = VisualAttributeIdentityActivation.Create(new string('a', 64), "{}", "{}", DateTimeOffset.UnixEpoch);
         Assert.Equal(new string('a', 64), activation.Fingerprint);
     }
 }

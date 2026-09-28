@@ -1867,6 +1867,12 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("activated_at_utc");
 
+                    b.Property<string>("AttributeSchemaJson")
+                        .IsRequired()
+                        .HasMaxLength(65536)
+                        .HasColumnType("character varying(65536)")
+                        .HasColumnName("attribute_schema_json");
+
                     b.Property<string>("CanonicalIdentity")
                         .IsRequired()
                         .HasMaxLength(4096)

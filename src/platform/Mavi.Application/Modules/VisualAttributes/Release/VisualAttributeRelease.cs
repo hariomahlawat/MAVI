@@ -58,7 +58,8 @@ public sealed record VisualAttributeReleaseDefinition(
     bool DevelopmentOnly,
     string RoleId,
     string ComponentBindingSha256,
-    string PipelineProfileSha256);
+    string PipelineProfileSha256,
+    string AttributeSchemaJson);
 
 /// <summary>Either no attribute analysis is configured (and why), or exactly one definition.</summary>
 public sealed record VisualAttributeReleaseResolution(
@@ -178,12 +179,14 @@ public static class VisualAttributeReleaseParser
             profile.DevelopmentOnly,
             found.RoleId,
             Sha256Hex(componentBindingBytes),
-            Sha256Hex(profileBytes)));
+            Sha256Hex(profileBytes),
+            profile.AttributeSchemaJson));
     }
 
     // --- Pipeline profile ----------------------------------------------------------------
 
     private sealed record ParsedProfile(
+        string AttributeSchemaJson,
         string PipelineId,
         string PipelineVersion,
         bool DevelopmentOnly,
@@ -237,6 +240,7 @@ public static class VisualAttributeReleaseParser
         }
 
         return new ParsedProfile(
+            Encoding.UTF8.GetString(schemaBytes),
             Token(root, "pipelineId", $"{code}:pipelineId"),
             Version(root, "pipelineVersion", $"{code}:pipelineVersion"),
             developmentOnly.ValueKind == JsonValueKind.True,
@@ -245,6 +249,19 @@ public static class VisualAttributeReleaseParser
             aggregationVersion,
             aggregationSha256,
             parametersSha256);
+    }
+
+    /// <summary>
+    /// Re-reads a schema the platform stored at activation, verifying it is still exactly the
+    /// bytes the identity pins (ADR-013 §11: the schema SHA is part of the identity).
+    /// </summary>
+    public static AttributeSchemaDefinition ParseStoredSchema(string attributeSchemaJson, string expectedSha256)
+    {
+        ArgumentNullException.ThrowIfNull(attributeSchemaJson);
+        var bytes = Encoding.UTF8.GetBytes(attributeSchemaJson);
+        if (!string.Equals(Sha256Hex(bytes), expectedSha256, StringComparison.Ordinal))
+            throw new VisualAttributeReleaseException("attribute_schema_invalid:sha256_mismatch");
+        return ParseSchema(bytes, expectedSha256);
     }
 
     private static AttributeSchemaDefinition ParseSchema(byte[] bytes, string sha256)

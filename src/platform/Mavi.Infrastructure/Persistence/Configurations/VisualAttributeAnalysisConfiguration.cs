@@ -151,6 +151,8 @@ public sealed class VisualAttributeIdentityActivationConfiguration : IEntityType
         builder.Property(x => x.Id).HasColumnName("id");
         builder.Property(x => x.Fingerprint).HasColumnName("fingerprint").HasMaxLength(64).IsFixedLength().IsRequired();
         builder.Property(x => x.CanonicalIdentity).HasColumnName("canonical_identity").HasMaxLength(4096).IsRequired();
+        builder.Property(x => x.AttributeSchemaJson).HasColumnName("attribute_schema_json")
+            .HasMaxLength(VisualAttributeIdentityActivation.MaximumAttributeSchemaLength).IsRequired();
         builder.Property(x => x.ActivatedAtUtc).HasColumnName("activated_at_utc");
         builder.HasIndex(x => x.ActivatedAtUtc).HasDatabaseName("ix_visual_attribute_identity_activations_activated");
     }
