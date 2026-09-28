@@ -13,11 +13,11 @@
 
 | Check | Result |
 |---|---|
-| `main` | `f7b03a24aba8b8bd303ed3a93b26622395e94c5f` = "Merge pull request #114 from hariomahlawat/feature/stage2-s2b-attribute-lifecycle" (verified with `git fetch origin main`) |
+| Planning baseline `main` | `f7b03a24aba8b8bd303ed3a93b26622395e94c5f` = merge of PR #114 (S2b). S2c.0 authority baseline is PR #115 merge `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`. |
 | PR #114 present | yes — `main` contains `37376fb` (the final PR head) and every earlier S2b commit; exact-head CI on `37376fb` (MAVI Quality Gate with the real-process attribute E2E, deterministic-validation, windows-script-validation, CPU ubuntu, CPU windows) passed before merge |
-| Commits after the merge | none |
-| Working tree | clean at branch point |
-| Docs vs merged implementation | **not consistent** — the acceptance register, parent plan, both roadmaps and the S2a/S2b reconciliation bridge still describe S2b as a draft/next slice; D1–D8 and E1–E4 still read "exact-head CI pending". Status text is corrected by this change (§21); row status is not. |
+| Commits after the PR #114 merge at planning time | none before S2c planning began; PR #115 later merged the accepted plan |
+| Planning branch point | clean |
+| Docs vs merged implementation | **Inconsistent at the planning baseline**, which is why §21 defined DR1–DR15. PR #115 corrected the planning/status layer; S2c.0 closes DR1/DR7/DR8/DR8a/DR15 and activates the governing decisions without changing F/G acceptance status. |
 
 ## 2. Material read
 
