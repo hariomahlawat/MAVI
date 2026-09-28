@@ -246,12 +246,12 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
             verify_superseding_seal(seal, old_seal, Ledger(args.superseded_access_log), corpus, read_json(args.superseded_partition), partition)
         # Validate everything, write the seal's files, and only then record it in the ledger:
         # a failed run leaves no ledger entry, so a retry is not mistaken for a re-seal.
-        ledger.check_seal(seal)
+        ledger.check_seal(seal, corpus, partition)
         sealed_view = seal_evaluation_view(evaluation, seal)
         open_access_log(args.access_log, seal, _now(), create=True)
         _emit(args.out, seal)
         _emit(args.sealed_evaluation_out, sealed_view)
-        ledger.record_seal(seal, _now())
+        ledger.record_seal(seal, corpus, partition, _now())
     elif command == "frozen-access":
         seal = read_json(args.seal)
         result = access_frozen(open_access_log(args.access_log, seal, _now()), seal, args.frozen, args.actor, args.purpose, args.stage, _now())

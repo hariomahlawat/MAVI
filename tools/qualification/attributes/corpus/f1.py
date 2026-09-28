@@ -48,7 +48,7 @@ from .annotation import (
 )
 from .canonical import SHA256_RE, CorpusError, document_sha256, lf_normalised_sha256, read_json, require
 from .duplicates import parse_duplicate_audit
-from .frozen import frozen_members, seal_status, verify_superseding_seal
+from .frozen import frozen_members, seal_status
 from .ledger import Ledger
 from .manifest import parse_corpus
 from .partition import PARTITIONS, partition_of, verify_partition
@@ -186,14 +186,25 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     # compromised (by its own retained log) and superseded by a different frozen set.
     seals = full_ledger.seals()
     require(bool(seals) and seals[-1]["sealSha256"] == seal_ref["sealSha256"], "f1_seal_not_latest_in_ledger")
+    # Every seal's recorded frozen Tracks are recomputed from its own retained partition
+    # and corpus, and no Track may appear in two seals' frozen sets across the whole chain.
+    seen: set[str] = set()
+    for entry in seals:
+        chained = seal if entry is seals[-1] else store.load(entry["sealSha256"], "superseded seal")
+        own_corpus = corpus if chained["corpusManifestSha256"] == corpus.sha256 else parse_corpus(store.raw(chained["corpusManifestSha256"], "superseded corpus manifest"))
+        require(own_corpus.sha256 == chained["corpusManifestSha256"], "f1_record_hash_mismatch:superseded corpus manifest")
+        own_partition = partition if chained["partitionManifestSha256"] == psha else store.load(chained["partitionManifestSha256"], "superseded partition manifest")
+        members = frozen_members(own_corpus, own_partition)
+        require(document_sha256(members) == chained["frozenMembers"]["membersSha256"] == entry["membersSha256"], "f1_seal_members_not_reproducible")
+        require([m["trackId"] for m in members] == entry["frozenTrackIds"], "f1_seal_ledger_members_mismatch")
+        require(not (seen & set(entry["frozenTrackIds"])), "f1_seal_chain_reuses_frozen_tracks")
+        seen |= set(entry["frozenTrackIds"])
     for older, newer in zip(seals, seals[1:]):
         old_seal = store.load(older["sealSha256"], "superseded seal")
         new_seal = store.load(newer["sealSha256"], "superseding seal")
-        verify_superseding_seal(
-            new_seal, old_seal, store.ledger(f"frozen-access-log-{older['sealSha256']}.jsonl"), corpus,
-            store.load(old_seal["partitionManifestSha256"], "superseded partition manifest"),
-            partition if newer is seals[-1] else store.load(new_seal["partitionManifestSha256"], "superseding partition manifest"),
-        )
+        # Compromise of each superseded seal, by its own retained log (members checked above).
+        require(new_seal["supersedes"] is not None and new_seal["supersedes"]["sealSha256"] == older["sealSha256"], "f1_seal_supersedes_mismatch")
+        require(seal_status(store.ledger(f"frozen-access-log-{older['sealSha256']}.jsonl"), old_seal)["status"] == "compromised", "f1_superseded_seal_not_compromised")
     log = store.ledger(ACCESS_LOG)
     require(bool(log.entries) and log.entries[0]["kind"] == "seal-created" and log.entries[0]["payload"]["sealSha256"] == seal_ref["sealSha256"], "f1_access_log_not_bound_to_seal")
     log.require_extends(seal_ref["accessLogHead"])

@@ -139,6 +139,7 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason`, `--superseded-access-log` and `--superseded-partition`.
    - That old log must show the old seal compromised.
    - Both member sets are recomputed from their partitions, and the new frozen set may contain **no** Track of the compromised one.
+   - `seal-created` records each seal's frozen Track IDs, recomputed from the corpus and partition. A new seal may reuse no Track of **any** earlier seal in the chain, not only its predecessor.
 
 **The ledger** is append-only and hash-chained. It enforces independence:
 - no reveal packet while an independent assignment covering its units is unsubmitted;
@@ -221,7 +222,9 @@ The committed record names each artefact by SHA-256 and asserts nothing else: no
 - **Seal:**
   - its frozen member set is recomputed;
   - it must be the latest `seal-created` in the ledger;
-  - every earlier seal must be compromised (by its own retained log) and superseded by a frozen set disjoint from it.
+  - every earlier seal must be compromised, as shown by its own retained log;
+  - every seal's frozen set is recomputed from its own retained corpus and partition and must match the ledger's `frozenTrackIds`;
+  - no Track may appear in two frozen sets anywhere in the chain.
 - **Access log:** it must begin with this seal, extend the recorded head and show no improper access.
 - **Camera support**, from the partition's checks. The record must carry every partition limitation.
 
@@ -308,3 +311,4 @@ Tests added after the third review:
 - `test_r1_recovery_after_a_compromise_re_verifies_with_a_disjoint_frozen_set` covers compromise, a re-partition pinning the pilot and the compromised Tracks, and a superseding seal. The whole chain re-verifies, and F1 stays OPEN only for the unseen camera, which needs new footage. It also shows two refusals: a set that pins only the pilot is refused, and F1 refuses without the superseded seal's log;
 - `test_an_adjudication_is_corrected_only_by_superseding_it`;
 - `test_a_failed_seal_leaves_no_ledger_entry_and_can_be_retried`.
+- A→B→C chain reuse (fifth review): `ledger_seal_reuses_earlier_frozen_tracks` and `f1_seal_chain_reuses_frozen_tracks`, in the recovery test; `test_f1_refuses_a_ledger_seal_entry_that_misstates_the_frozen_tracks`. In the targeted mutation run, all four chain guards were killed (two only after these tests were added).

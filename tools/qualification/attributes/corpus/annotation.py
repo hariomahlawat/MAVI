@@ -220,21 +220,39 @@ class AnnotationLedger(Ledger):
             require(key not in decided or decided[key] == supersedes, f"ledger_adjudication_key_already_decided:{key}")
         self.append("adjudication-recorded", {"adjudicationId": adjudication["adjudicationId"], "adjudicatorId": adjudication["adjudicatorId"], "adjudicationSha256": sha, "keys": keys, "supersedes": supersedes}, at)
 
-    def record_seal(self, seal: dict, at: str) -> None:
+    def record_seal(self, seal: dict, corpus: CorpusManifest, partition: dict, at: str) -> None:
         """The first seal on a ledger is plain; any later one must supersede the latest seal.
-        (``frozen.verify_superseding_seal`` proves the old seal compromised and the frozen set
-        new; the caller runs it, because it needs the old access log.)"""
-        self.check_seal(seal)
-        sha = document_sha256(seal)
-        self.append("seal-created", {"sealSha256": sha, "membersSha256": seal["frozenMembers"]["membersSha256"], "supersedes": None if seal["supersedes"] is None else seal["supersedes"]["sealSha256"]}, at)
+        (``frozen.verify_superseding_seal`` proves the old seal compromised; the caller runs
+        it, because it needs the old access log.) The frozen Track IDs are recorded so that
+        no later seal can reuse a Track of **any** earlier (compromised) frozen set."""
+        track_ids = self.check_seal(seal, corpus, partition)
+        self.append(
+            "seal-created",
+            {
+                "sealSha256": document_sha256(seal),
+                "membersSha256": seal["frozenMembers"]["membersSha256"],
+                "frozenTrackIds": track_ids,
+                "supersedes": None if seal["supersedes"] is None else seal["supersedes"]["sealSha256"],
+            },
+            at,
+        )
 
-    def check_seal(self, seal: dict) -> None:
+    def check_seal(self, seal: dict, corpus: CorpusManifest, partition: dict) -> list[str]:
+        from .frozen import frozen_members  # deferred: frozen imports the ledger module
+
+        members = frozen_members(corpus, partition)
+        require(document_sha256(members) == seal["frozenMembers"]["membersSha256"] and document_sha256(partition) == seal["partitionManifestSha256"], "ledger_seal_members_not_reproducible")
+        track_ids = [m["trackId"] for m in members]
         seals = self.seals()
         require(document_sha256(seal) not in {s["sealSha256"] for s in seals}, "ledger_seal_duplicate")
         if seals:
             require(seal["supersedes"] is not None and seal["supersedes"]["sealSha256"] == seals[-1]["sealSha256"], "ledger_reseal_requires_supersedes")
         else:
             require(seal["supersedes"] is None, "ledger_first_seal_supersedes")
+        earlier = {t for s in seals for t in s["frozenTrackIds"]}
+        reused = earlier & set(track_ids)
+        require(not reused, f"ledger_seal_reuses_earlier_frozen_tracks:{len(reused)}")
+        return track_ids
 
     def seals(self) -> list[dict]:
         return self.of_kind_payloads("seal-created")

@@ -111,7 +111,7 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
     sealing = seal
     seal = build_seal(corpus, partition, psha, frozen, evaluation, ledger.head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
     if sealing:
-        ledger.record_seal(seal, T0)
+        ledger.record_seal(seal, corpus, partition, T0)
         log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
     sealed_view = seal_evaluation_view(evaluation, seal)
     custody = tmp / "custody"
@@ -310,7 +310,8 @@ def test_f1_refuses_a_seal_the_ledger_does_not_name_as_latest(tmp_path) -> None:
     record, store = build_chain(tmp_path)
     seal = json.loads((store / f"{record['seal']['sealSha256']}.json").read_text())
     newer = dict(seal, custodyNote="a later seal", supersedes={"sealSha256": document_sha256(seal), "reason": "later"})
-    AnnotationLedger(store / ANNOTATION_LEDGER).record_seal(newer, T0)
+    # A hand-made ledger entry for a later seal (the tool itself would refuse the reuse).
+    AnnotationLedger(store / ANNOTATION_LEDGER).append("seal-created", {"sealSha256": document_sha256(newer), "membersSha256": newer["frozenMembers"]["membersSha256"], "frozenTrackIds": [], "supersedes": document_sha256(seal)}, T0)
     with pytest.raises(CorpusError, match="f1_seal_not_latest_in_ledger"):
         f1_verdict(record, tmp_path, store)
 
@@ -324,7 +325,10 @@ def test_f1_recomputes_the_sealed_member_set(tmp_path) -> None:
     ledger = AnnotationLedger(store / ANNOTATION_LEDGER)
     seal = build_seal(corpus, partition, document_sha256(partition), json.loads((custody / "frozen.json").read_text()), evaluation, ledger.head, "custodian-1", T0, "x")
     seal["frozenMembers"]["membersSha256"] = "7" * 64  # hand-edited before sealing
-    ledger.record_seal(seal, T0)
+    with pytest.raises(CorpusError, match="ledger_seal_members_not_reproducible"):
+        ledger.record_seal(seal, corpus, partition, T0)
+    # Bypassing the tool with a hand-made ledger entry does not help: F1 recomputes.
+    ledger.append("seal-created", {"sealSha256": document_sha256(seal), "membersSha256": seal["frozenMembers"]["membersSha256"], "frozenTrackIds": [], "supersedes": None}, T0)
     log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
     view = seal_evaluation_view(evaluation, seal)
     for document in (seal, view):
@@ -417,7 +421,7 @@ def test_r1_recovery_after_a_compromise_re_verifies_with_a_disjoint_frozen_set(t
     verify_superseding_seal(seal, old_seal, old_log, corpus, old_partition, partition)
     main = agreement_report("main", corpus, partition, psha, task.sha256, ctx["main_batches"], ctx["main_assignments"], ledger.annotators(), set(), set(ledger.batch_hashes()))
     new_log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
-    ledger.record_seal(seal, T0)
+    ledger.record_seal(seal, corpus, partition, T0)
     view = seal_evaluation_view(evaluation, seal)
     for document in (partition, main, seal, view):
         write_canonical(store / f"{document_sha256(document)}.json", document)
@@ -431,6 +435,42 @@ def test_r1_recovery_after_a_compromise_re_verifies_with_a_disjoint_frozen_set(t
     (store / f"frozen-access-log-{old_sha}.jsonl").rename(tmp_path / "moved.jsonl")
     with pytest.raises(CorpusError, match=f"f1_ledger_missing:frozen-access-log-{old_sha}"):
         f1_verdict(record, tmp_path, store)
+    (tmp_path / "moved.jsonl").rename(store / f"frozen-access-log-{old_sha}.jsonl")
+    # ...and it must show the superseded seal compromised.
+    a_log = store / f"frozen-access-log-{old_sha}.jsonl"
+    kept = a_log.read_text()
+    a_log.write_text(kept.splitlines()[0] + "\n")  # only seal-created: an intact seal
+    with pytest.raises(CorpusError, match="f1_superseded_seal_not_compromised"):
+        f1_verdict(record, tmp_path, store)
+    a_log.write_text(kept)
+    # A -> B -> C: compromising B and re-sealing with only the pilot and B's set pinned
+    # brings A's compromised Tracks back. The tool refuses it; a hand-made entry fails F1.
+    b_seal, b_sha = seal, document_sha256(seal)
+    declare_improper_access(new_log, b_seal, "engineer-1", "S2c.4", "opened again", T0)
+    (store / ACCESS_LOG).rename(store / f"frozen-access-log-{b_sha}.jsonl")
+    y = sorted(m["trackId"] for m in frozen_members(corpus, partition))
+    c_partition = build_partition(corpus, policy(pinnedTrainingTrackIds=sorted(set(pilot + y))), ctx["links"], ctx["hashes"])
+    c_psha = document_sha256(c_partition)
+    assert set(compromised) & {m["trackId"] for m in frozen_members(corpus, c_partition)}
+    c_eval, c_frozen = split_ground_truth(build_ground_truth(corpus, c_partition, c_psha, task, ctx["main_batches"], [], ledger, ctx["main_assignments"]), None)
+    c_seal = build_seal(corpus, c_partition, c_psha, c_frozen, c_eval, ledger.head, "custodian-1", T0, "third set", {"sealSha256": b_sha, "reason": "compromised in S2c.4"})
+    verify_superseding_seal(c_seal, b_seal, Ledger(store / f"frozen-access-log-{b_sha}.jsonl"), corpus, partition, c_partition)  # disjoint from B only
+    with pytest.raises(CorpusError, match="ledger_seal_reuses_earlier_frozen_tracks"):
+        ledger.record_seal(c_seal, corpus, c_partition, T0)
+    c_ids = [m["trackId"] for m in frozen_members(corpus, c_partition)]
+    ledger.append("seal-created", {"sealSha256": document_sha256(c_seal), "membersSha256": c_seal["frozenMembers"]["membersSha256"], "frozenTrackIds": c_ids, "supersedes": b_sha}, T0)
+    c_log = open_access_log(store / ACCESS_LOG, c_seal, T0, create=True)
+    c_view = seal_evaluation_view(c_eval, c_seal)
+    for document in (c_partition, c_seal, c_view, agreement_report("main", corpus, c_partition, c_psha, task.sha256, ctx["main_batches"], ctx["main_assignments"], ledger.annotators(), set(), set(ledger.batch_hashes()))):
+        write_canonical(store / f"{document_sha256(document)}.json", document)
+    c_record = json.loads(json.dumps(record))
+    c_record["corpus"]["partitionManifestSha256"] = c_psha
+    c_record["labelling"]["mainAgreementReportSha256"] = document_sha256(agreement_report("main", corpus, c_partition, c_psha, task.sha256, ctx["main_batches"], ctx["main_assignments"], ledger.annotators(), set(), set(ledger.batch_hashes())))
+    c_record["labelling"]["groundTruthSha256"] = document_sha256(c_view)
+    c_record["seal"] = {"sealSha256": document_sha256(c_seal), "accessLogHead": c_log.head}
+    c_record["limitations"] = list(c_partition["checks"]["limitations"])
+    with pytest.raises(CorpusError, match="f1_seal_chain_reuses_frozen_tracks"):
+        f1_verdict(c_record, tmp_path, store)
 
 
 def test_a_failed_seal_leaves_no_ledger_entry_and_can_be_retried(tmp_path, capsys) -> None:
@@ -452,4 +492,19 @@ def test_a_forged_but_self_consistent_pilot_report_is_refused(tmp_path) -> None:
     write_canonical(store / f"{document_sha256(document)}.json", document)
     record["labelling"]["pilotReportSha256"] = document_sha256(document)
     with pytest.raises(CorpusError, match="f1_pilot_report_not_reproducible"):
+        f1_verdict(record, tmp_path, store)
+
+
+def test_f1_refuses_a_ledger_seal_entry_that_misstates_the_frozen_tracks(tmp_path) -> None:
+    """The ledger's frozenTrackIds drive the no-reuse rule, so F1 recomputes them."""
+    ctx: dict = {}
+    record, store = build_chain(tmp_path, seal=False, context=ctx)
+    seal, corpus, partition, ledger = ctx["seal"], ctx["corpus"], ctx["partition"], ctx["ledger"]
+    ledger.append("seal-created", {"sealSha256": document_sha256(seal), "membersSha256": seal["frozenMembers"]["membersSha256"], "frozenTrackIds": [], "supersedes": None}, T0)
+    log = open_access_log(store / ACCESS_LOG, seal, T0, create=True)
+    view = seal_evaluation_view(json.loads((tmp_path / "custody" / "evaluation.json").read_text()), seal)
+    write_canonical(store / f"{document_sha256(view)}.json", view)
+    record["seal"] = {"sealSha256": document_sha256(seal), "accessLogHead": log.head}
+    record["labelling"]["groundTruthSha256"] = document_sha256(view)
+    with pytest.raises(CorpusError, match="f1_seal_ledger_members_mismatch"):
         f1_verdict(record, tmp_path, store)
