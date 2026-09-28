@@ -381,7 +381,7 @@ Any later exception is documented as a protocol revision and invalidates prior f
 
 ## 20. Protocol revision R2 (2026-09-28, S2c planning): model selection records
 
-**Status: Proposed with the S2c plan; effective on acceptance of that planning change.** R2 adds requirements and, in item 7, amends §3.1 by splitting its tuning/validation set into tuning and selection partitions. It removes no safeguard.
+**Status: Proposed with the S2c plan; effective on acceptance of that planning change.** R2 adds requirements, clarifies in item 8 how §14 is read, and in item 7 amends §3.1 by splitting its tuning/validation set into tuning and selection partitions. It removes no safeguard.
 
 1. **Retained evidence.** §17 additionally requires one **closed Model Selection Record** per learned capability (`docs/qualification/model-selection/`, MSR method v1). Each record comes with its frozen selection protocol, cited by SHA-256.
 2. **Selection protocol.** Each event's selection protocol instantiates this plan: its partitions, labelling, metrics and freeze order. It may not weaken them.
@@ -390,3 +390,4 @@ Any later exception is documented as a protocol revision and invalidates prior f
 5. **Evidence classes.** A reported (published) figure is never a qualification result. Only MAVI measurements under this plan can satisfy a gate.
 6. **Identity unchanged.** §2 is unchanged. A model replacement is already a trigger (§16), and it now also requires a new selection event.
 7. **Partitions (§3.1 amended).** Where candidates are compared, the tuning/validation set of §3.1 is split into a **tuning** partition (parameter values, thresholds, calibration checks) and a separate **selection** partition (candidate comparison only). The partitions are then training, tuning, selection and the frozen qualification test. No fit or tuning step reads the selection partition. This is how R1 step 2 is executed; the separation and freeze rules of §3.1 are otherwise unchanged.
+8. **Licence review against the declared profile (§14 clarified).** §14's "commercial/operational redistribution/use review" is carried out against the **declared MAVI deployment profile**, which is non-commercial: MAVI's "enterprise-grade" means engineering quality, not commercial use. The review records each right the profile exercises: evaluation, operational running, modification/fine-tuning, derivatives, redistribution of weights and of derived weights (as the delivery route requires), attribution, end-use restrictions and data/provenance. Commercial-use permission is not required on its own, and "free of cost" is never read as "redistributable". §14's requirement of no unresolved ambiguity at Stage-2 acceptance is unchanged.

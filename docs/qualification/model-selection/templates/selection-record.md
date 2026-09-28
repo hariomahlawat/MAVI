@@ -30,30 +30,53 @@ One **candidate card** per serious candidate, holding every field of methodology
 |---|---|---|---|---|---|
 
 ## 4. MAVI measurements (classes M-D, M-E)
-Quality per attribute, level and stratum, with intervals. Engineering measurements per host class. Every row: harness commit, configuration hash, partition hash, result artefact SHA-256.
+Quality per attribute, level and stratum, with hierarchical-bootstrap intervals (methodology §8.1) and the cluster count behind each. Engineering measurements per host class. Every row: harness commit, configuration hash, partition hash, result artefact SHA-256.
+
+### 4.1 System-scale projection (methodology §7.1; class M-E projected)
+Per finalist or composition:
+- measured quantities: service time, crops/Track, per-worker throughput, memory, workers per host, load/startup, recovery, footprint;
+- workload model version;
+- projected workers/hosts, queue depth and backlog drain at the scale target;
+- load actually executed to validate the projection;
+- limitations.
 
 ## 5. Gates
 | Candidate | Gate | Result | Measurement ref |
 |---|---|---|---|
 
 ## 6. Technical ranking
-Comparative scores under the frozen rule; ties; sensitivity check; strongest technical candidate.
+Comparative scores under the frozen rule; ties; sensitivity check; cluster-sufficiency status of each comparison (methodology §8.1).
+
+### 6.1 Compositions (multi-component capabilities; methodology §5.1)
+| Composition | Exact tuple (components, shared backbone/region) | Combined quality | CPU latency / throughput | RAM / VRAM | Load time | Pack size | Runtime Pack impact | Scale projection | Failure domain | Frontier / dominated |
+|---|---|---|---|---|---|---|---|---|---|---|
 
 ## 7. Licence / deployment qualification (separate)
-Per candidate and target profile: primary sources (licence text hash, card hash), status (methodology §4), human determination (who, date), obligations. **Not used in §6.**
+Per candidate, or per component of a composition, and per declared target profile:
+- primary sources (licence text hash, card hash);
+- the rights inventory (methodology §5): evaluate / run operationally / modify / derivatives / redistribute weights / redistribute derived weights / attribution / end-use / data;
+- the profile's delivery route (local acquisition, or inclusion in a kit);
+- status (methodology §4);
+- human determination (who, date);
+- obligations.
 
-## 8. Decision
+**Not used in §6.**
+
+## 8. Decision (methodology §9)
 | Output | Value |
 |---|---|
-| Strongest technical candidate | |
-| Strongest deployable candidate (per profile) | |
-| Implementation candidate (owner decision, rationale) | |
-| Gap between strongest technical and implementation | |
-| Alternatives (ranked) | |
-| Rejected / deferred / reference-only (reasons, revisit triggers) | |
-| Owner decisions (MPID, targets, licence pursuit, ties) | |
+| Strongest reported / reference candidate (class R; not reproduced by MAVI) | |
+| Highest task-quality evaluated candidate | |
+| Strongest evaluated technical candidate | |
+| Strongest candidate cleared for `<profile id>` (per profile) | |
+| Implementation candidate or composition (owner decision, rationale, date) | |
+| Standard sentence used? If not, why the implementation choice differs from the strongest cleared candidate | |
+| Deltas: task-quality vs technical; technical vs cleared; cleared vs implementation (quality and resources) | |
+| Alternatives (ranked; composition frontier) | |
+| Rejected / deferred / reference-only / not shortlisted (reasons, revisit triggers) | |
+| Owner decisions (MPID, targets, licence pursuit, ties, insufficient-cluster choices) | |
 | Assumptions and unresolved risks | |
-| Upgrade deltas vs incumbent (upgrade events) | improved / regressed / resources / dependencies / qualification / migration |
+| Upgrade deltas vs incumbent (upgrade events) | improved / regressed / resources / scale projection / dependencies / qualification / migration |
 
 ## 9. Resulting identities (by reference, when created)
 Model Pack id; Runtime Pack id per variant; binding; pipeline profile and identity; qualification record id.

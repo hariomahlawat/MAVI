@@ -15,7 +15,7 @@
 | Incumbent | **none.** The S2b fixture inferencer is a Development-only test double |
 | Baseline | VC-B0: MAVI-owned deterministic body-region chroma clustering + CIE-Lab naming |
 | Discovery sources | `docs/qualification/stage2-s2c/model-candidate-survey.md` (2026-09-28); re-run at S2c.2 |
-| Target profiles (licence gate G1) | the Development deployment profiles where S2c runs the learned pack; their profile ids are named in the protocol at S2c.2. Production profiles are determined later, by addendum; none in S2c |
+| Target profiles (licence gate SG1) | the declared MAVI **non-commercial** Development deployment profiles where S2c runs the learned pack (MSR method §2.1); their profile ids are named in the protocol at S2c.2. Production profiles are determined later, by addendum; none in S2c |
 | Frozen-test access count | 0 (the frozen test is not yet sealed) |
 
 ## 1. Task definition
@@ -46,7 +46,7 @@ Not started. Reported evidence is in the survey; §3 snapshots it at S2c.2. No M
 
 ## 8. Decision
 
-None. No model is selected in the planning change.
+None. No model is selected in the planning change. When filled, §8 records the methodology §9 fields, including the strongest reported/reference candidate, the highest task-quality and strongest evaluated technical candidates, the strongest candidate cleared per profile, the implementation candidate, their deltas, and the projected 500-camera footprint. Being single-component, this event has no composition step.
 
 ## 9. Resulting identities
 

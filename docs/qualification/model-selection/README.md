@@ -39,7 +39,7 @@ Every event records three assessments separately. **No single score combines the
    - runtime budget, memory and co-residency;
    - determinism, offline operation and packaging;
    - Runtime Pack impact, dependency burden, maintainability and failure behaviour.
-3. **Licence / deployment qualification.** Under what terms the exact code, weights, training provenance and dependencies may be used, for which deployment profile.
+3. **Licence / deployment qualification.** Under what terms the exact code, weights, training provenance and dependencies may be used, for which **declared MAVI deployment profile** (§2.1).
    - It is recorded from primary sources only: the licence text with its retrieved-bytes hash, and the model card.
    - Legal readings and end-use applicability are **human qualification decisions**, recorded with the decision-maker and date.
    - The MSR never reinterprets a licence and never infers an application domain. MAVI is domain-neutral unless a deployment's own qualification record states its use.
@@ -48,7 +48,18 @@ Assessments 1 and 2 together form the **technical ranking**. Licence terms never
 
 **The one carve-out: evaluation permission.** Whether MAVI may lawfully *run* a candidate on its data is a human legal precondition to measurement, not a ranking input. It is recorded with decision-maker, date and primary source. A candidate that may not be evaluated becomes `REFERENCE_ONLY`: its reported evidence stays in the record at full strength and is marked "not reproduced by MAVI". It is never `NOT_SHORTLISTED`. Where the method is usable but the released checkpoint is not, the method trained on MAVI-permitted data represents it.
 
-Assessment 3 is applied afterwards to decide which ranked candidates are deployable for a profile. A technically superior candidate stays in the record at its rank, marked with its constraint, even when it cannot be deployed.
+Assessment 3 is applied afterwards to decide which ranked candidates are **cleared for a declared deployment profile**. A technically superior candidate stays in the record at its rank, marked with its constraint, even when it cannot be deployed.
+
+### 2.1 The declared MAVI deployment profile (owner constraint)
+
+**MAVI is a non-commercial solution.** "Enterprise-grade" in MAVI documents means engineering quality: reliability, robustness, maintainability, modularity, security, offline deployability, operational scale and production-quality software engineering. It **does not** mean commercial use.
+
+The licence axis therefore assesses the **declared MAVI deployment profile**, which is non-commercial unless a profile's own record says otherwise. It never assesses a hypothetical commercial product.
+- Commercial-use permission is **not** required merely because MAVI is engineered to enterprise standards.
+- Non-commercial or research-only terms are **not automatically disqualifying**. They are read against the profile's actual uses. Some research licences exclude "product development" or operational use even when no money changes hands, and whether MAVI's use falls inside such a grant is a human determination.
+- "Free of cost" is not "redistributable". Every right is recorded separately (§5 licence rights).
+- If local non-commercial use is permitted but redistribution is not, the record says so explicitly. It then states how the weights reach a host without MAVI redistributing them. Bundling weights in a repository, a public kit or an offline media image is **never assumed** to be permitted. Weights are never in Git in any case (AGENTS.md).
+- The standard term is **"cleared for the declared MAVI non-commercial deployment profile `<profile id>`"**. The words "deployable" and "commercially usable" are not used as licence verdicts.
 
 ## 3. Model Selection Events
 
@@ -80,8 +91,8 @@ PLANNED → PROTOCOL_FROZEN → EVALUATING → TECHNICAL_DECISION_RECORDED → Q
 | `PLANNED` | task definition, capability id, baseline, incumbent (or "none") and discovery sources recorded; candidates `DISCOVERED` |
 | `PROTOCOL_FROZEN` | protocol file committed and hashed **before any candidate sees MAVI evaluation data**. The protocol holds: shortlist with exact checkpoint identities, partitions, metrics, gates, comparative weights and scoring rule, the minimum practically important difference (MPID), strata, host class, and report format |
 | `EVALUATING` | harness runs under the frozen protocol; results retained by hash |
-| `TECHNICAL_DECISION_RECORDED` | gates evaluated, measurements tabulated, technical ranking computed by the frozen rule; strongest technical candidate named |
-| `QUALIFICATION_PENDING` | licence/deployment qualification per target profile recorded or awaited; strongest deployable candidate named; implementation candidate chosen by the owner |
+| `TECHNICAL_DECISION_RECORDED` | gates evaluated, measurements tabulated, technical ranking computed by the frozen rule; strongest reported, highest task-quality and strongest evaluated technical candidates named (§9) |
+| `QUALIFICATION_PENDING` | licence/deployment qualification per target profile recorded or awaited; strongest candidate cleared for each target profile named; implementation candidate chosen by the owner |
 | `CLOSED` | one of the outcomes below is recorded; record hashed |
 
 A `CLOSED` event has exactly one **outcome**:
@@ -115,8 +126,8 @@ DISCOVERED ─→ SHORTLISTED ─→ EVALUATED ─→ TECHNICALLY_SELECTED
 |---|---|
 | `NOT_ASSESSED` | no review yet |
 | `REVIEW_PENDING` | primary sources captured, human determination awaited |
-| `CLEARED` | human reviewer recorded that the exact code, weights, training provenance and dependencies may be used for the named profile(s); decision-maker and date recorded |
-| `CONSTRAINED` | use is restricted for the named profile(s) by recorded terms: non-commercial, research-only, end-use clause needing a per-deployment determination, redistribution limits, or unstated terms. The candidate stays at its technical rank |
+| `CLEARED` | a human reviewer recorded that every right the declared profile actually exercises is granted for the exact code, weights, training provenance and dependencies (§5 licence rights). This covers evaluation, operational running, any fine-tuning and derivatives MAVI makes, and whatever distribution the profile's delivery route requires. Decision-maker, date and profile id are recorded. A candidate restricted from commercial use can be `CLEARED` for a non-commercial profile |
+| `CONSTRAINED` | a recorded term restricts a use the declared profile **actually needs**, for example redistribution when the profile ships weights in an offline kit, derivative rights when MAVI fine-tunes, operational use under a research-only grant, or an end-use clause awaiting a per-deployment determination. Terms that restrict only uses the profile does not make (such as commercial sale) do not by themselves make a candidate `CONSTRAINED`. The candidate stays at its technical rank |
 | `NOT_CLEARED` | reviewer recorded that it may not be used for the named profile(s) |
 
 **Lifecycle after the event** (recorded in later addenda or later events, never by rewriting a closed record):
@@ -125,7 +136,8 @@ DISCOVERED ─→ SHORTLISTED ─→ EVALUATED ─→ TECHNICALLY_SELECTED
 
 Required combinations:
 - A candidate can be `TECHNICALLY_SELECTED` and `CONSTRAINED` at once. That is the case this methodology exists to preserve.
-- The **implementation candidate** is the owner's choice among candidates that are at least `TECHNICAL_ALTERNATIVE`, past every technical gate, and `CLEARED` for **each named target profile** of the event (the licence gate is per profile). An event may not close as `SELECTED_FOR_PACKAGING` for a profile whose determination is still pending. Profiles determined later (for example a Production deployment) are recorded as licence/deployment-determination addenda (§11) and in the qualification record's `licence` gate evidence. It may differ from the strongest technical candidate. The measured gap between them is always recorded.
+- A candidate whose licence forbids commercial use but grants every use the declared non-commercial profile makes is a fully valid implementation candidate.
+- The **implementation candidate** is the owner's choice among candidates that are at least `TECHNICAL_ALTERNATIVE`, past every technical gate, and `CLEARED` for **each named target profile** of the event (the licence gate is per profile). An event may not close as `SELECTED_FOR_PACKAGING` for a profile whose determination is still pending. Profiles determined later (for example a Production deployment) are recorded as licence/deployment-determination addenda (§11) and in the qualification record's `licence` gate evidence. It may differ from the strongest evaluated technical candidate. The measured gap between them is always recorded (§9).
 
 ## 5. Candidate record: exact identity
 
@@ -150,9 +162,35 @@ Every serious candidate records, where available, the fields below. Unknown mean
 | Architecture | architecture; parameter count (the part executed at inference); input resolution; preprocessing (as data: resize, normalisation, colour order, crop policy), with its hash |
 | Data | pretraining datasets; training datasets; fine-tuning datasets (MAVI's by manifest hash); known overlap with MAVI data |
 | Reported evidence | each reported figure with its source, table or section, dataset and split, and date, marked **reported** (§6) |
-| Licence (primary sources) | code licence; weights licence; dataset terms; derivative/fine-tune terms; stated use restrictions (commercial, redistribution, surveillance/security/law-enforcement, military/defence, other); what each term applies to (code, weights, derived models, data); SHA-256 of each retrieved licence and card text; licence class per the capability's analysis; review status per profile (§4) |
+| Licence (primary sources) | code licence; weights licence; dataset terms; SHA-256 of each retrieved licence and card text; licence class per the capability's analysis; review status per profile (§4). Plus a **rights inventory**, each entry granted / not granted / not stated / UNVERIFIED, with source clause, and what it applies to (code, weights, derived models, data): right to **evaluate**; right to **run operationally**; right to **modify / fine-tune**; right to **create derivatives**; right to **redistribute the weights**; right to **redistribute derived weights**; **attribution/notice** obligations; **end-use** restrictions (commercial, surveillance/security/law-enforcement, military/defence, other); **data/provenance** restrictions. The profile's delivery route (local acquisition on the host, or inclusion in an offline kit) is recorded beside it, because it decides whether redistribution is exercised |
 | Runtime | framework/runtime requirements; export route; CPU/CUDA requirements; offline viability (loads from pack artefacts alone?); Runtime Pack impact (existing family or extension) |
 | Judgement | reason for inclusion; known uncertainties; disposition with reason and evidence reference |
+
+### 5.1 Multi-component capabilities: composition candidates
+
+Some capabilities are served by one Model Pack that composes components solving different sub-tasks. `person-attributes`, for example, covers clothing colour (T-PC) and carried objects/headwear (T-PO). Winners of separate sub-tasks do not automatically make a good pack: a shared backbone, memory, load time and failure domain all change. The event therefore runs a fixed sequence:
+
+1. **Sub-task evaluation.** Each sub-task's candidates are evaluated and ranked on their own (§8), producing per-sub-task **component finalists**. These are the candidates that pass every technical gate for at least one attribute of the sub-task, capped at the protocol's `K` best by the sub-task ranking plus the sub-task baseline. A small `K`, for example 3, keeps the search bounded.
+2. **Composition generation, by a rule frozen in the protocol.** The composition candidates are:
+   - the tuple of the sub-task winners;
+   - every tuple of finalists that **share a backbone** (one tower serving both sub-tasks with separate heads), which is evaluated as its own candidate because its heads are trained on the shared features;
+   - the protocol's cap on further tuples from the finalist product, ordered by the sum of sub-task ranks.
+
+   Each composition is written as an exact tuple (`<T-PC component>`, `<T-PO component>`, optional shared backbone or region component), each element with its exact identity (§5). No composition may be proposed after results are seen.
+3. **Composition evaluation**, on the same partitions and hosts. Each composition records:
+   - combined per-attribute quality, with each sub-task's primary metrics taken from its components;
+   - end-to-end CPU latency per crop and per Track, and aggregate throughput;
+   - peak RAM/VRAM with the detector co-resident;
+   - model-load/READY time;
+   - Model Pack size;
+   - dependency and Runtime Pack impact;
+   - whether a backbone is shared;
+   - the system-scale projection (§7.1);
+   - the failure-domain implications (one process holding all components, and what one component's failure takes down).
+4. **Pareto frontier.** Compositions dominated on (quality, per-crop cost, memory) are recorded as dominated, not deleted. The frontier is typically two to four compositions, and the comparative score of §8 ranks within it.
+5. **Implementation composition.** The owner chooses a frontier composition under the same rules as a single implementation candidate (§4, §9). Its components all need licence status `CLEARED` for the target profile.
+
+A single-component capability skips steps 2–4. Its composition is the implementation candidate itself.
 
 ## 6. Evidence classes
 
@@ -183,6 +221,32 @@ The protocol chooses the applicable dimensions **before results exist**, and rec
 - **Runtime:** inference latency; throughput; memory; CPU viability; CUDA performance; determinism; reproducibility.
 - **Deployment:** offline operability; Runtime Pack impact; Model Pack size; dependency burden.
 - **Engineering:** engineering complexity; maintainability (upstream maintenance status, replaceability); failure behaviour; security/offline implications.
+- **System scale** (§7.1): aggregate throughput; worker/process topology; CPU/GPU fleet sizing; concurrency; queue depth and backlog; latency under sustained load; storage and evidence growth; memory pressure; model-load footprint; startup/recovery; offline deployment footprint; scheduling across hosts; horizontal scaling; failure isolation; per-camera and aggregate resource cost.
+
+### 7.1 System-scale principle
+
+**A model or composition is never selected on single-worker accuracy alone when its resource profile would make MAVI architecturally unsuitable at the platform's declared scale.** The owner's standing requirement is deployments of up to **500 cameras**. Each event records the scale target in force when it opens.
+
+The protocol freezes a **scaling evaluation method**. The record retains, per finalist or composition:
+- **Measured quantities (M-E):**
+  - per-crop service time distribution;
+  - crops-per-Track distribution;
+  - per-worker throughput;
+  - peak CPU/GPU memory;
+  - how many workers fit on one host of the declared class;
+  - model-load/startup cost;
+  - recovery time after a worker loss;
+  - Model Pack and storage footprint.
+- **Workload model:** Tracks per camera per minute under the declared representative camera loads, and its distribution. It is owner-declared and versioned.
+- **Projection to the scale target:**
+  - required worker count and hosts;
+  - steady-state queue depth, and backlog drain time after a peak or a worker/host loss;
+  - aggregate memory and storage growth (evidence and artefacts).
+
+  The projection is reproducible from the measured quantities and the workload model by a script retained by hash.
+- **Validation of the extrapolation:** accelerated or synthetic load at a meaningful fraction of the target, with several workers on more than one host where available. The record states the load actually executed.
+
+A projection is class **M-E (projected)** and never a scale qualification. No record claims a 500-camera qualification unless one was physically executed. Horizontal scaling relies on the existing lease model: several attribute workers, on one or many hosts, claim units concurrently (S2b `FOR UPDATE SKIP LOCKED` claims per worker id). A candidate whose projection needs an architectural change to reach the target is recorded with that need (§1) and does not pass the protocol's scale gate until the change exists.
 
 ## 8. Decision methodology
 
@@ -204,23 +268,51 @@ A decision is reconstructed from five separate layers, recorded in this order. N
    - Licence/deployment determinations per profile (human, §2).
    - Then the Model Pack qualification record (authoritative, §1).
 
-**Statistical rule.** "Better" means the paired interval of the difference excludes zero. The resampling unit and interval are fixed in the protocol; for S2c this is a paired bootstrap over Tracks resampled by camera, 95 %.
+### 8.1 Statistical rule (cluster-aware)
+
+Evidence units are correlated: Tracks from one camera, cameras within one site, repeated scene/date conditions, and recurring subjects. Two adequacy requirements are therefore kept separate, and both are frozen in the protocol.
+
+1. **Attribute/value support.**
+   - Precision needs predicted-positive support at the operating point.
+   - Recall needs ground-truth-positive support.
+   - Prevalence and coverage are measured.
+   - Each iid-based count is multiplied by the **design effect** `DEFF = 1 + (m̄ − 1)·ρ`, with `m̄` the mean units per cluster and `ρ` the intra-cluster correlation of the relevant indicator. `ρ` is estimated on the pilot (training partition) where feasible, otherwise taken as a declared conservative value.
+2. **Independent cluster support**, for camera/site generalisation, for model-comparison intervals and for difficult-stratum claims. The sampling unit is the top-level cluster: the site, or the camera where a site has one camera.
+
+**Resampling method: hierarchical paired bootstrap.**
+- Resample top-level clusters (site, or camera block) with replacement, then Tracks with replacement within each drawn cluster.
+- Each replicate computes the metric difference for both candidates on the **same** resampled units.
+- The interval is the percentile interval at the protocol's level (95 % in S2c).
+- Seeds and replicate count are recorded.
+
+**Sufficiency is determined, not assumed.** Before any candidate result, S2c.2 runs a calibration simulation on the pilot structure. It resamples the cluster layout with a known zero difference (label-preserving, candidate-swapped) and checks that the procedure's interval covers zero at close to its nominal rate. The protocol freezes the minimum number of top-level clusters at which coverage stays within its declared tolerance, and the same check is applied per stratum.
+
+**When support falls short, the claim is downgraded, never reported as significant.**
+- **Comparison:** below the minimum cluster count, no "significant winner" is declared. The record reports per-cluster results, a cluster-level sign count, and "insufficient independent clusters for an inferential claim". The choice becomes an explicit owner decision (§8 layer 4).
+- **Generalisation and strata:** these claims become "limited evidence".
+- **Value support:** a value below its DEFF-inflated support is "insufficient evidence" (qualification plan §5).
+
+"Better" means the hierarchical paired interval of the difference excludes zero, **and** the cluster count meets the frozen minimum.
 
 A candidate needing an architectural extension (for example a new Runtime Pack family) must clear the protocol's MPID over the best candidate that needs none, and must pass the ADR route. It is **never rejected merely for needing a reasonable extension** once it clears that bar.
 
 ## 9. Required selection output
 
-A record at `TECHNICAL_DECISION_RECORDED` or later states explicitly:
-- baseline and incumbent;
-- **strongest technical candidate**;
-- **strongest deployable candidate** per target profile: the highest-ranked candidate whose status is `CLEARED` for that profile;
-- **implementation candidate**;
-- alternatives in rank order;
-- rejected, deferred and reference-only candidates, each with its reason;
-- the measured gap between the strongest technical and the implementation candidate;
-- the evidence supporting the decision, by hash;
-- unresolved risks and assumptions;
-- qualification status.
+A record at `TECHNICAL_DECISION_RECORDED` or later states each of the following explicitly. They are separate fields because they may name different candidates, and the methodology never forces them to coincide.
+
+| Field | Meaning |
+|---|---|
+| Baseline / incumbent | as defined in the protocol |
+| **Strongest reported / reference candidate** | the strongest candidate on **reported** (class R) evidence, including `REFERENCE_ONLY` candidates MAVI could not run. It is marked "reported, not reproduced by MAVI", and it never implies a MAVI result |
+| **Highest task-quality evaluated candidate** | best on the frozen primary task-quality metrics alone (M-D), ignoring runtime and engineering |
+| **Strongest evaluated technical candidate** | first in the full technical ranking (quality, runtime, engineering, system scale; §8), among candidates MAVI actually evaluated |
+| **Strongest candidate cleared for `<profile id>`** | per target profile: the highest-ranked evaluated candidate whose licence status is `CLEARED` for that declared profile |
+| **Implementation candidate** | the owner's choice (§4); for a multi-component capability, the implementation **composition** (§5.1) |
+| Alternatives | in rank order; for compositions, the Pareto frontier with dominated compositions listed |
+| Rejected / deferred / reference-only / not shortlisted | each with its reason and revisit trigger |
+| Deltas | quality and resource deltas between each pair of the fields above that differ: highest task-quality vs strongest evaluated technical, which shows when accuracy lost on cost or scale; strongest evaluated technical vs strongest cleared; strongest cleared vs implementation |
+| Projected system-scale footprint | per finalist or composition (§7.1) |
+| Evidence, risks, qualification status | evidence by hash; unresolved risks and assumptions; qualification status |
 
 Once they exist, the identities follow, recorded when created and by reference:
 - Model Pack id;
@@ -228,9 +320,17 @@ Once they exist, the identities follow, recorded when created and by reference:
 - capability binding and pipeline profile/identity;
 - qualification record id.
 
-These roles may name different models. The methodology never forces them to coincide.
+**Standard wording, which is conditional and never stretched to fit the choice:**
+- If the implementation candidate **is** the strongest candidate cleared for the target profile, the record says: *"selected as the strongest candidate cleared for the declared MAVI deployment profile `<profile id>` within MAVI's defined \<capability\> operating envelope, based on retained bake-off evidence"*.
+- If it **is not**, that sentence is not used. The record states instead:
+  - the strongest evaluated technical candidate;
+  - the strongest candidate cleared for the profile;
+  - the implementation candidate;
+  - why the implementation candidate differs;
+  - the measured quality and resource delta;
+  - the owner decision, with decision-maker and date.
 
-The standard wording for the implementation candidate is: *"selected as the strongest qualified candidate for MAVI's defined \<capability\> operating envelope based on retained bake-off evidence"*. It is never called "best". "Qualified" in that sentence means it passed the event's mandatory gates (§8), including the licence gate for its named target profiles. It does not mean that the Model Pack qualification record has passed, and it says nothing about Production.
+"Strongest" is never redefined to match the final choice, and no candidate is called "best". None of this wording means the Model Pack qualification record has passed, and none of it says anything about Production.
 
 ## 10. Reproducibility and hash links
 
@@ -285,7 +385,7 @@ A replacement follows these steps:
 5. **Evaluate the incumbent, the baseline and the challengers under identical conditions.**
 6. **Record the deltas:**
    - what improved and what regressed, per metric and stratum;
-   - resource delta (latency, memory, pack size);
+   - resource delta (latency, memory, pack size) and system-scale projection delta (§7.1);
    - dependency and Runtime Pack delta;
    - qualification delta (which gates must be re-run);
    - migration impact (new pipeline identity, Stale analyses, re-analysis cost).

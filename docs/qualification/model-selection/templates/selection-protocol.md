@@ -20,6 +20,18 @@ Corpus manifest hash; partition manifest hash; partitions each step may read (tr
 ## 4. Measurements
 Metrics per attribute kind; primary metric(s), which are threshold-free; strata; levels (crop / Representative-only / Track); engineering probes (latency p50/p95, memory, load time, determinism, offline run, pack size); host class; thread count; precision; batch caps.
 
+**Baselines.** For each attribute, the exact baseline and how it is scored under every primary metric, including its tie rule and whether it can be packaged or serves only as a statistical floor.
+
+**Predeclared aggregation references.** The pooling or aggregation rules evaluated beside the frozen family's default, and the tuning-partition rule that picks among them. Nothing may be added after results.
+
+**System-scale method (methodology §7.1).**
+- the scale target;
+- the workload model (Tracks per camera per minute distribution, crops/Track) and its version;
+- the measured quantities and how each is measured;
+- the projection script;
+- the validation load to execute;
+- the scale gate's pass rule against the declared host envelope.
+
 ## 5. Gates (pass/fail; each names its measurement and evidence class)
 | Gate | Kind (technical / engineering / qualification) | Rule | Measurement |
 |---|---|---|---|
@@ -36,8 +48,23 @@ Required fields:
 - MPID and the extension bar;
 - the replacement bar against the incumbent (upgrade events).
 
-## 7. Statistics
-Resampling unit, interval, seeds.
+## 7. Statistics (methodology §8.1)
+- cluster hierarchy (site → camera → Track);
+- hierarchical paired bootstrap: replicates, interval level, seeds;
+- design-effect inputs (`ρ` from the pilot, or the declared conservative value);
+- DEFF-inflated support rules for precision (predicted positives) and recall (ground-truth positives);
+- the calibration simulation and the frozen minimum number of top-level clusters, overall and per stratum;
+- the downgrade wording used when a comparison is under-supported.
+
+## 7a. Composition rule (multi-component capabilities; methodology §5.1)
+- per-sub-task finalist cap `K`;
+- composition generation rule (winner tuple, shared-backbone tuples, capped additional tuples by rank sum);
+- the Pareto axes;
+- the measurements taken per composition.
+
+## 7b. Licence review scope
+- the declared deployment profile(s) and their delivery route;
+- the rights the profile exercises (methodology §2.1, §5).
 
 ## 8. Report format
 The tables the record must contain (methodology §9) and the result artefacts to retain, by hash.
