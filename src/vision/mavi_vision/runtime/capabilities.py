@@ -22,12 +22,20 @@ KNOWN_CAPABILITIES = frozenset(
     }
 )
 
-IMPLEMENTED_CAPABILITIES = frozenset({"detector"})
+IMPLEMENTED_CAPABILITIES = frozenset({"detector", "person-attributes", "vehicle-attributes"})
 
 # The input each implemented capability's runtime consumes: (kind, colourSpace).
 # MMDetectionRuntime is fed RGB frame arrays and provenance attests
 # ``inputColourSpace = RGB``, so a Model Pack declaring anything else is refused.
-IMPLEMENTED_INPUT_CONTRACTS = MappingProxyType({"detector": ("video-frame-rgb", "RGB")})
+# The attribute capabilities (S2b) consume one accepted EvidenceCrop JPEG, read
+# through the lease-scoped evidence endpoint and decoded to RGB.
+IMPLEMENTED_INPUT_CONTRACTS = MappingProxyType(
+    {
+        "detector": ("video-frame-rgb", "RGB"),
+        "person-attributes": ("evidence-crop-jpeg", "RGB"),
+        "vehicle-attributes": ("evidence-crop-jpeg", "RGB"),
+    }
+)
 
 
 def require_known_capability(value: str) -> str:

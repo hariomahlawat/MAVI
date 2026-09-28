@@ -18,7 +18,7 @@ def test_registry_contains_the_adr_014_ids_and_only_detector_is_implemented() ->
     assert KNOWN_CAPABILITIES == {
         "detector", "person-attributes", "vehicle-attributes", "plate-detector", "ocr", "embedding",
     }
-    assert IMPLEMENTED_CAPABILITIES == {"detector"}
+    assert IMPLEMENTED_CAPABILITIES == {"detector", "person-attributes", "vehicle-attributes"}
 
 
 @pytest.mark.parametrize(("value", "code"), [

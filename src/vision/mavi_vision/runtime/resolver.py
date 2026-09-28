@@ -26,7 +26,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Collection, Literal, Mapping
+from typing import TYPE_CHECKING, Collection, Literal, Mapping
 
 from mavi_vision.runtime.binding import (
     CapabilityBindingV2,
@@ -81,6 +81,9 @@ from mavi_vision.runtime.runtime_profile_v2 import (
 )
 from mavi_vision.runtime.variants import RUNTIME_VARIANTS, VariantClass
 
+if TYPE_CHECKING:
+    from mavi_vision.attributes.pipeline import AttributeIdentity, AttributePipelineProfile
+
 _LOGGER = logging.getLogger(__name__)
 
 DETECTOR_CAPABILITY = "detector"
@@ -95,7 +98,17 @@ QUALIFICATIONS_RELATIVE = Path("models/qualifications")
 RUNTIME_PROFILES_RELATIVE = Path("src/vision/runtime")
 
 # A role's declared provenance contract and the completion schema it emits (P-16).
-PROVENANCE_CONTRACT_VERSIONS: Mapping[str, str] = MappingProxyType({"vision-job-complete-v3.2": "3.2"})
+VISION_PROVENANCE_CONTRACT = "vision-job-complete-v3.2"
+ATTRIBUTE_PROVENANCE_CONTRACT = "visual-attribute-complete-v1"
+ATTRIBUTE_CONTROL_VERSION = "mavi-visual-attribute-control-v1"
+PROVENANCE_CONTRACT_VERSIONS: Mapping[str, str] = MappingProxyType(
+    {VISION_PROVENANCE_CONTRACT: "3.2", ATTRIBUTE_PROVENANCE_CONTRACT: ATTRIBUTE_CONTROL_VERSION}
+)
+# The capabilities each provenance contract's runtime serves. A role declaring one its
+# contract does not serve is refused: the vision worker never runs attributes, nor the reverse.
+CONTRACT_CAPABILITIES: Mapping[str, frozenset[str]] = MappingProxyType(
+    {VISION_PROVENANCE_CONTRACT: frozenset({"detector"}), ATTRIBUTE_PROVENANCE_CONTRACT: frozenset({"person-attributes", "vehicle-attributes"})}
+)
 # The explicit, Development-only, non-qualifying override (P-16; ADR-014 amendment).
 COMPLETION_OVERRIDE_VERSIONS = frozenset({"3.0", "3.1"})
 
@@ -103,7 +116,9 @@ _QUALIFIED_VARIANT_STATUS = {"cpu": "qualified-hosted-cpu", "cuda": "qualified-h
 # The module this package runs for a role. A binding that declares another entry
 # point describes an executable this worker is not, so it is refused rather than
 # attested under the binding's SHA.
-IMPLEMENTED_ROLE_ENTRY_POINTS: Mapping[str, str] = MappingProxyType({"vision": "mavi_vision.worker.main"})
+IMPLEMENTED_ROLE_ENTRY_POINTS: Mapping[str, str] = MappingProxyType(
+    {"vision": "mavi_vision.worker.main", "attributes": "mavi_vision.attributes.main"}
+)
 
 
 def _fail(code: str) -> ReleaseMetadataError:
@@ -213,7 +228,9 @@ class ResolvedRole:
     family: RoleFamily
     runtime_pack: ResolvedRuntimePack
     capabilities: Mapping[str, ResolvedCapability]
-    pipeline_profile: PipelineProfile
+    # The role's pipeline policy: the vision profile, or the attribute pipeline profile
+    # for a ``visual-attribute-complete-v1`` role (S2b).
+    pipeline_profile: PipelineProfile | AttributePipelineProfile
     pipeline_profile_sha256: str
     completion: CompletionContract
     production_mode: bool
@@ -226,7 +243,20 @@ class ResolvedRole:
     def runtime_variant(self) -> str:
         return self.runtime_pack.runtime_variant
 
+    def attribute_selection(self) -> "AttributeSelection":
+        from mavi_vision.attributes.pipeline import AttributePipelineProfile, attribute_identity
+
+        profile = self.pipeline_profile
+        if not isinstance(profile, AttributePipelineProfile):
+            raise _fail(f"role_not_attribute_role:{self.role.role_id}")
+        identity = attribute_identity(
+            profile, {capability_id: item.model_pack_id for capability_id, item in self.capabilities.items()}
+        )
+        return AttributeSelection(resolved_role=self, profile=profile, identity=identity)
+
     def detector_selection(self) -> DetectorSelection:
+        if not isinstance(self.pipeline_profile, PipelineProfile):
+            raise _fail(f"role_not_vision_role:{self.role.role_id}")
         capability = self.capabilities.get(DETECTOR_CAPABILITY)
         if capability is None:
             raise _fail(f"capability_binding_missing:{self.role.role_id}:{DETECTOR_CAPABILITY}")
@@ -260,6 +290,15 @@ class ResolvedRole:
             runtime_platform_variants=family.runtime_platform_variants,
             runtime_release_locks=family.runtime_release_locks,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class AttributeSelection:
+    """What the attribute runtime and its provenance need, from one resolution (S2b)."""
+
+    resolved_role: ResolvedRole
+    profile: AttributePipelineProfile
+    identity: AttributeIdentity
 
 
 # --------------------------------------------------------------------------- contract (P-16)
@@ -620,7 +659,7 @@ def _resolve_capability(
     manifests: Mapping[str, tuple[ModelManifestV2, Path]],
     records: Mapping[str, tuple[QualificationRecordV2, Path]],
     model_root: Path,
-    pipeline_profile: PipelineProfile,
+    pipeline_profile: PipelineProfile | AttributePipelineProfile,
     pipeline_profile_sha256: str,
 ) -> ResolvedCapability:
     capability_id = binding.capability_id
@@ -630,6 +669,9 @@ def _resolve_capability(
         require_implemented_capability(capability_id)
     except ValueError as exc:
         raise _fail(str(exc)) from exc
+    # Implemented is not enough: the role's contract must be the runtime that serves it.
+    if capability_id not in CONTRACT_CAPABILITIES.get(family.role.provenance_contract, frozenset()):
+        raise _fail(f"role_capabilities_contract_mismatch:{capability_id}")
 
     found = manifests.get(binding.model_pack_id)
     if found is None:
@@ -668,6 +710,9 @@ def _resolve_capability(
         runtime_profile_sha256=family.runtime_profile_sha256,
     )
     if capability_id == DETECTOR_CAPABILITY:
+        if not isinstance(pipeline_profile, PipelineProfile):
+            # Unreachable past the contract check above; kept so the invariant is explicit.
+            raise _fail(f"role_capabilities_contract_mismatch:{capability_id}")
         section = manifest.detector_section()
         validate_profile_against_manifest(
             pipeline_profile,
@@ -677,7 +722,11 @@ def _resolve_capability(
     check_record_policies(
         record=record,
         capability_id=capability_id,
-        pipeline_profile_id=pipeline_profile.profile_id,
+        pipeline_profile_id=(
+            pipeline_profile.profile_id
+            if isinstance(pipeline_profile, PipelineProfile)
+            else pipeline_profile.pipeline_id
+        ),
         pipeline_profile_sha256=pipeline_profile_sha256,
     )
 
@@ -861,7 +910,18 @@ def resolve_role(
         interpreter_prefix=Path(sys.prefix) if interpreter_prefix is None else interpreter_prefix,
     )
 
-    pipeline_profile = load_pipeline_profile(pipeline_profile_path)
+    pipeline_profile: PipelineProfile | AttributePipelineProfile
+    if role.provenance_contract == ATTRIBUTE_PROVENANCE_CONTRACT:
+        # Imported here: the attribute package imports the runtime package.
+        from mavi_vision.attributes.pipeline import load_attribute_pipeline
+
+        pipeline_profile = load_attribute_pipeline(pipeline_profile_path)
+        # A Development-only profile (the S2b fixture) never starts in Production,
+        # whatever the Model Pack or Runtime Pack says.
+        if production_mode and pipeline_profile.development_only:
+            raise _fail("attribute_development_profile_forbidden")
+    else:
+        pipeline_profile = load_pipeline_profile(pipeline_profile_path)
     pipeline_profile_sha256 = sha256_release_file(pipeline_profile_path)
     manifests = index_model_manifests(overlay_root / MANIFESTS_RELATIVE)
     records = index_qualification_records(
@@ -924,7 +984,12 @@ def resolve_role(
 
 
 __all__ = [
+    "ATTRIBUTE_CONTROL_VERSION",
+    "ATTRIBUTE_PROVENANCE_CONTRACT",
+    "AttributeSelection",
     "COMPLETION_OVERRIDE_VERSIONS",
+    "CONTRACT_CAPABILITIES",
+    "VISION_PROVENANCE_CONTRACT",
     "DETECTOR_CAPABILITY",
     "IMPLEMENTED_ROLE_ENTRY_POINTS",
     "INSTALLED_PACK",
