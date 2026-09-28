@@ -90,7 +90,9 @@ function Write-Utf8File {
 
 function Write-JsonFile {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][object]$Value)
-    Write-Utf8File -Path $Path -Text (($Value | ConvertTo-Json -Depth 12) + "`n")
+    # Windows PowerShell's ConvertTo-Json writes CRLF; release metadata (the
+    # binding included) is LF-only and the loaders refuse CR.
+    Write-Utf8File -Path $Path -Text ((($Value | ConvertTo-Json -Depth 12) -replace "`r`n", "`n") + "`n")
 }
 
 function Read-JsonFile {
