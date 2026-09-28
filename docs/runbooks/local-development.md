@@ -204,6 +204,43 @@ Two things automatic reconciliation deliberately does **not** do:
 
 Set `"Enabled": false` to stop the host entirely; the API serves normally without it, and runs simply report as not yet analysed. The integration-test host disables it by default, because a loop that queues and analyses on its own schedule would mutate the shared test database underneath other tests.
 
+## Visual attribute lifecycle (Stage 2 S2b, Development fixture only)
+
+S2b ships the Visual Attribute lifecycle with a **deterministic, model-free fixture inferencer** and no real model. Nothing is configured in the shipped release: readiness for every run is `NotConfigured`, no unit is queued and no attribute worker exists. The fixture is Development-only on both sides — the platform refuses to start with it outside `Development`/`Testing` (`visual_attribute_development_definition_forbidden`) and the worker's resolver refuses it in Production (`attribute_development_profile_forbidden`).
+
+To exercise it in Development:
+
+1. Compose the Development overlay (fixture Model Pack, qualification records, gate set and a Component Binding with the `attributes` role); it prints the paths it wrote:
+
+   ```bash
+   cd src/vision
+   python -m tests.attribute_overlay <a directory outside the repository>
+   ```
+
+2. Point the platform at that binding and at the fixture pipeline profile, and enable its loop:
+
+   ```json
+   "VisualAttributes": {
+     "Enabled": true,
+     "ComponentBindingPath": "<componentBindingPath>",
+     "PipelineProfilePath": "<pipelineProfilePath>"
+   }
+   ```
+
+   The loop records the identity's activation, queues runs that complete **after** it (no backfill), fails units past their deadline or out of attempts, and reclaims `staging-attributes/`. Defaults: lease 120 s, 3 attempts, 6 h maximum duration from the first claim.
+
+3. Start the attributes worker as its own process (it reads no platform filesystem):
+
+   ```bash
+   cd src/vision
+   MAVI_API_BASE_URL=http://localhost:5000 MAVI_WORKER_ID=attributes-01 \
+   MAVI_COMPONENT_BINDING_PATH=<componentBindingPath> MAVI_PIPELINE_PROFILE_PATH=<pipelineProfilePath> \
+   MAVI_OVERLAY_ROOT=<overlayRoot> MAVI_MODEL_ROOT=<modelRoot> \
+   python -m mavi_vision.attributes.main
+   ```
+
+   It exits `2` if the binding has no `attributes` role and `3` if the role cannot become READY (for example a missing Model Pack); it never leases while not READY. `GET /api/processing/runs/{id}/visual-attributes` reports readiness, including `no_ready_attributes_worker` while no READY worker has polled for the preferred identity.
+
 ## Analytic search cursor signing key
 
 Analytic Track searches (any `GET /api/tracks` request with a scene-analytics key) page through a signed v3 cursor that pins the resolved scene revision, algorithm version and coverage snapshot. The key that signs it is `TrackSearch:CursorSigningKey`: base64 of exactly 32 bytes, written to the machine configuration by `Setup-MAVI` and kept across re-runs.

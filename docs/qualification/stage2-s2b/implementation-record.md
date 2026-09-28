@@ -50,12 +50,62 @@ The platform derives the identity tuple and its fingerprint from exactly those b
 
 ## 4. Numeric bounds
 
-Derived and pinned in `VisualAttributeContractRules`; the derivations and the cap / cap+1 tests are recorded in §6 as they are produced.
+Every bound is a named constant in `VisualAttributeContractRules` (platform) mirrored in `mavi_vision.attributes.contracts` / `pipeline` (worker; `test_contract_constants_match_the_platform` holds the copies equal). None inherits the ~3 GiB Kestrel import limit: `VisualAttributeRequestLimitMiddleware` sets the per-route `MaxRequestBodySize` and refuses a declared length over it with 413 before the endpoint runs; every other attribute route admits no body.
+
+| Bound | Value | Derivation | Tests (cap / cap+1) |
+|---|---|---|---|
+| Tracks per analysis | 10,000 | the existing `WorkerContractRules.MaximumCompletionTracks`; bounded converter refuses the 10,001st while reading | `OneTrackOverTheBoundIsRefusedWhileReading` |
+| Crops per Track | 4 | the Evidence Set bound (four roles) | lease model `max_length`; 10k × 4 measured below |
+| Lease response | 16 MiB (worker read cap) | measured 8,391,173 B at 10,000 Tracks × 4 crops (~210 B per descriptor + ~40 B per Track) — ~2× headroom; the worker refuses a larger body unread, so no lease paging was needed | `test_a_lease_response_over_its_bound_is_refused_unread`; timing test asserts ≤ cap at 10k |
+| Lease / heartbeat request | 4 KiB each | three short fields | `EveryControlRouteRefusesItsCapPlusOne(lease, heartbeat)` |
+| Fail request | 16 KiB | 4,000-character message + envelope | `EveryControlRouteRefusesItsCapPlusOne(fail)` |
+| Completion request | 32 MiB | 4 KiB provenance + 10,000 × (192 B Track envelope + 8 rows × (192 B row envelope + 64 + 64 B tokens)) ≈ 27.5 MB; literal worst shape serialises inside the cap | `TheWorstShapeCompletionFitsTheCompletionRouteCap`, `EveryControlRouteRefusesItsCapPlusOne(complete)` |
+| Rows per Track | 8 | per-object-class attribute-type limit; refused while reading | `OneRowOverThePerClassBoundIsRefused` |
+| Prediction upload | 64 MiB | the existing per-artefact bound (plan §15); streamed to disk, hashed while streaming, never buffered | `EveryControlRouteRefusesItsCapPlusOne(predictions)`, `AShortOrLongBodyIsNeverStaged` |
+| Schema → artefact | worst case ≤ 64 MiB | header 4 KiB + 10,000 × max per class of (192 + Σ decisions (len(type) + max len(value) + 192) + 4 × (160 + Σ types (len(type) + 6 + Σ values (len(value) + 28)))); tokens are unescaped `[a-z0-9-]`, numbers are shortest round-trip doubles (≤ 24 characters). A schema over it is refused by **both** loaders (`attribute_schema_invalid:artifact_bound`) | vector `visual-attribute-artifact-bound-v1.json` (fixture 22,424,096 B; largest accepted 67,104,096 B; smallest refused 67,154,096 B, one character apart); `test_the_worst_case_bound_is_an_upper_bound_of_the_real_encoder` encodes the largest accepted schema's worst artefact with the production encoder and finds it within the bound |
+| Evidence response | exactly the recorded size | the at-rest length is checked before any header; a mismatch is 422, never a truncated or padded 200 | `AnAcceptedObjectThatDisagreesWithItsRecordIsAnAuthoritativeIntegrityFailure` |
+| Schema tokens | ≤ 64 characters; ≤ 16 types, ≤ 8 per class, ≤ 32 values | ADR-013 §12 vocabulary limits (the artefact bound above is the binding constraint in practice) | parser suites in both languages |
+| Heartbeat margin | interval + request timeout < 0.75 × 60 s | the platform's minimum lease is 60 s; a renewal must start and finish inside the shortest lease | `test_the_heartbeat_margin_is_bounded_by_the_shortest_lease` |
 
 ## 5. Evidence produced
 
-Filled in as each sub-slice lands (commands, SHAs, results).
+All commands were run on this branch against PostgreSQL 18 (`MAVI_TEST_DB_CONNECTION` port 5433), .NET 10 Release and the `mavi_vision` Python environment; one suite at a time, always after a build.
 
-## 6. Mutation matrix
+### 5.1 Commits
 
-Filled in at S2b.8.
+| Commit | Content |
+|---|---|
+| `cd8cc27` | control plane over HTTP; three-phase completion; staging store and janitor; 33 integration tests |
+| `b44bab3` | derived artefact and completion bounds (cross-language vector); COPY fact writes; 10k measurement |
+| `42dda39` | the `attributes` role process on the Component Binding v2 path |
+| `58d7c3b` | fixture end-to-end through the real lease plane; quality gate runs it |
+| `89c0498` | validator unit suite; barrier, startup-refusal and no-echo tests |
+
+### 5.2 Synchronous completion at the 10,000-Track bound (plan §13)
+
+`MAVI_S2B_TIMING_TRACKS=10000 dotnet test tests/Mavi.IntegrationTests --filter FullyQualifiedName~VisualAttributeCompletionTiming` — the real lease, upload and completion routes, 10,000 person Tracks × 4 accepted crops (40,000 crops), timings from the publication log (event 1990). The budget is the one ADR-006 §7 applies to a completion request: 15 s bounded by the lease; the barrier reference is the vision publication's 1.67–2.29 s hold (`f4-configuration-freeze.md`).
+
+| Shape | Rows | Completion wall (3 runs) | Phase A | Seal | Phase C | Barrier hold |
+|---|---|---|---|---|---|---|
+| fixture (2 types per person) | 20,000 | 1,590.7 / 1,704.1 / 1,900.2 ms | 316–355 ms | 38–54 ms | 623–713 ms | 19.3–20.3 ms |
+| worst admitted (8 types per person) | 80,000 | 3,290.7 / 3,299.1 / 3,676.3 ms | 266–318 ms | 65–177 ms | 1,697–1,827 ms | 8.5–14.3 ms |
+
+The first measurement used change-tracked EF inserts and was **not** safe at the worst admitted shape: 11,195 ms of which 9,215 ms Phase C (fixture shape 4.2–4.7 s, barrier 168–254 ms). The cost was the per-entity insert path, not the protocol, so Phase C now writes Track outcomes and attribute rows with binary `COPY` on the publication transaction's own connection (`VisualAttributeFactWriter`; domain factories build every row, every constraint still applies, nothing is visible before commit). Lease response 8,391,173 B; artefact 32,450,494 B and completion body 12,931,716 B at the worst shape.
+
+**Decision: synchronous completion stands.** The worst admitted shape completes in ≤ 3.7 s (≥ 4× inside the 15 s budget) and holds the barrier ≤ 14.3 ms, two orders of magnitude below the vision publication's reference. No `Finalizing` hand-off is required, so none was implemented. The test asserts the 15 s budget; the default quality-gate shape is 200 Tracks.
+
+### 5.3 Suites
+
+| Suite | Result |
+|---|---|
+| Domain `VisualAttribute*` | see §5.4 full runs |
+| Application `VisualAttribute*` (parser, readiness, contract bounds, completion validator) | 68 passed |
+| Integration `VisualAttribute*` (persistence, lifecycle, API, protocol races, staging/janitor, timing, E2E) | 59 passed, 1 skipped without `MAVI_S2B_WORKER_PYTHON`; E2E 1 passed with it |
+| Python `test_attribute_role.py` + `test_attribute_pipeline.py` | 37 + 20 passed |
+| Python full suite | 2,884 passed, 30 skipped |
+| `tools/verify_repo.py` | PASSED |
+
+### 5.4 Final verification
+
+Recorded at the final head in §7.
+
