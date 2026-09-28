@@ -98,7 +98,7 @@ Evidence, not authority: the Model Selection Records under `docs/qualification/m
 
 ## E. Persistence/search semantics acceptance
 
-Ownership is split deliberately: **S2b establishes and proves E1–E4 persistence/integrity semantics as part of the lifecycle publication boundary; S3 adds and proves E5–E8 search/cursor/query-plan semantics.** *(2026-09-28: S2b implementation evidence now exists — see the row text and the pending S2b closure entry noted under Current verdict.)*
+Ownership is split deliberately: **S2b establishes and proves E1–E4 persistence/integrity semantics as part of the lifecycle publication boundary; S3 adds and proves E5–E8 search/cursor/query-plan semantics.** *(2026-09-28: S2b closure evidence is recorded under Current verdict and in the S2c.0 reconciliation record; there is no remaining pending S2b closure entry.)*
 
 | ID | Requirement | Status / owner |
 |---|---|---|
