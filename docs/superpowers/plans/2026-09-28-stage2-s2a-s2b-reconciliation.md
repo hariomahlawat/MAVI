@@ -26,12 +26,17 @@ This amendment supersedes only the stale status/slice-summary statements identif
 The current Stage-2 sequence is:
 
 - **S1 Track Evidence Set:** implemented/merged; acceptance evidence remains governed by the acceptance register.
-- **S2a Component Binding v2:** implemented and merged through PR #112; C1, C2, C4, C5, C6 and C7 are supported by the recorded merged evidence. C3 is satisfied only at the schema/composition level: the schema supports multiple roles, but only `vision` is startable at the S2a baseline. Enabling an independently startable `attributes` role is S2b work.
+- **S2a Component Binding v2:** implemented and merged through PR #112; C1–C7 status and retained evidence are owned by the authoritative acceptance register. C3 is satisfied only at the schema/composition level: the schema supports multiple roles, but only `vision` is startable at the S2a baseline. Enabling an independently startable `attributes` role is S2b work.
 - **S2b Attribute lifecycle with fixture inferencer:** next implementation slice. No real attribute model is introduced.
 - **S2c Real Model Packs:** follows S2b.
 - **S3 Search/query integration:** follows the S2b persistence foundation.
 
-The phrase **“S1.4 hardening/qualification in progress”** in the capability implementation roadmap is stale and must not be used as current Stage-2 status.
+The following capability-implementation-roadmap statements are stale and superseded for current Stage-2 status:
+
+- the summary phrase **“S1.4 hardening/qualification in progress”**;
+- the later statement **“S1.4 hardening/qualification is active … No acceptance-register row changes until S1.4 evidence.”**
+
+Neither statement may be used to override the current acceptance register or prevent evidence-backed C-row reconciliation after merged S2a work.
 
 ## 3. Slice ownership reconciliation
 
