@@ -407,8 +407,7 @@ public sealed class VisionJob
         CompletionDigest = null;
     }
 
-    internal static bool IsCanonicalSha256(string value) =>
-        value is { Length: 64 } && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f');
+    internal static bool IsCanonicalSha256(string value) => CanonicalSha256.IsCanonical(value);
 
     private static DomainValidationException Invalid() =>
         new("vision_job_transition_invalid", "The vision job operation is invalid.");

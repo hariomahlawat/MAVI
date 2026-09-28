@@ -1,9 +1,8 @@
-using System.Text.RegularExpressions;
 using Mavi.Domain.Common;
 
 namespace Mavi.Domain.Media;
 
-public sealed partial class Artifact
+public sealed class Artifact
 {
     // Construction
     private Artifact() { }
@@ -28,7 +27,7 @@ public sealed partial class Artifact
             throw new DomainValidationException("artifact_size_invalid", "Artifact size cannot be negative.");
         }
 
-        if (sha256 is null || !Sha256Pattern().IsMatch(sha256))
+        if (!CanonicalSha256.IsCanonical(sha256))
         {
             throw new DomainValidationException("artifact_sha256_invalid", "SHA-256 must be 64 lowercase hexadecimal characters.");
         }
@@ -66,7 +65,4 @@ public sealed partial class Artifact
             throw new DomainValidationException("artifact_storage_key_invalid", "Storage key must be a safe relative slash-separated path.");
         }
     }
-
-    [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
-    private static partial Regex Sha256Pattern();
 }

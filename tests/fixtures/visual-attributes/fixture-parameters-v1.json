@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "mavi-visual-attribute-parameters-v1",
+  "parameters": {
+    "fixtureSeed": "mavi-s2b-fixture-v1"
+  }
+}

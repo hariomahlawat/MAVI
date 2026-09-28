@@ -1,0 +1,15 @@
+{
+  "description": "Cross-language pin of the Visual Attribute analysis identity (ADR-013 §11, §16; S2b). The .NET platform and the Python worker must derive exactly these canonical bytes and this fingerprint from the fixture pipeline profile and these capability bindings.",
+  "vectors": [
+    {
+      "name": "fixture-profile-two-capabilities",
+      "pipelineProfile": "tests/fixtures/visual-attributes/fixture-pipeline-v1.json",
+      "capabilities": {
+        "person-attributes": "mavi-model-v2-1111111111111111111111111111111111111111111111111111111111111111",
+        "vehicle-attributes": "mavi-model-v2-2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "canonicalIdentity": "{\"aggregationPolicy\":{\"id\":\"mean-score-argmax\",\"sha256\":\"dbe2244c8dd1252f0ed28b3f9e49eb6df47169c146d43a3f8a1050fb6c0030a3\",\"version\":\"1.0.0\"},\"attributeSchema\":{\"id\":\"visual-attributes-fixture\",\"sha256\":\"174b0aa0562abaea769f08661132291f018fcadb02d3de9837887685643d85b0\",\"version\":\"1.0.0\"},\"capabilities\":[{\"capabilityId\":\"person-attributes\",\"modelPackId\":\"mavi-model-v2-1111111111111111111111111111111111111111111111111111111111111111\"},{\"capabilityId\":\"vehicle-attributes\",\"modelPackId\":\"mavi-model-v2-2222222222222222222222222222222222222222222222222222222222222222\"}],\"parametersSha256\":\"80a1df3f73ced9e3df680553d5ecbb19b901f9ea3b2ea33b414675ebccd70513\",\"pipeline\":{\"id\":\"visual-attributes-fixture\",\"version\":\"1.0.0\"},\"schemaVersion\":\"mavi-visual-attribute-identity-v1\"}\n",
+      "fingerprint": "b5c6b2627ffacd6eb619d4f7349aadc24754e52257731b4430b9e6c97f135878"
+    }
+  ]
+}

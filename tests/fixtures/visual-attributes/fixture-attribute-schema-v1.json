@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "mavi-visual-attribute-schema-v1",
+  "attributeSchemaId": "visual-attributes-fixture",
+  "attributeSchemaVersion": "1.0.0",
+  "attributes": [
+    {
+      "attributeType": "fixture-person-lower",
+      "capabilityId": "person-attributes",
+      "objectClass": "person",
+      "values": [
+        "dark",
+        "light",
+        "mid"
+      ]
+    },
+    {
+      "attributeType": "fixture-person-upper",
+      "capabilityId": "person-attributes",
+      "objectClass": "person",
+      "values": [
+        "dark",
+        "light",
+        "mid"
+      ]
+    },
+    {
+      "attributeType": "fixture-vehicle-body",
+      "capabilityId": "vehicle-attributes",
+      "objectClass": "vehicle",
+      "values": [
+        "dark",
+        "light",
+        "mid"
+      ]
+    }
+  ]
+}
