@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from statistics import median
 
-from .canonical import document_sha256
+from .canonical import document_sha256, require
 from .manifest import CorpusManifest
 from .partition import PARTITIONS, partition_of
 
@@ -54,8 +54,13 @@ def corpus_report(corpus: CorpusManifest, partition: dict, partition_sha256: str
         }
     difficulty: dict[str, dict] = {}
     if ground_truth is not None:
+        # Annotated difficulty comes from the evaluation view only: frozen-test label
+        # distributions never enter a Git-tracked or evaluation-side report.
+        require(ground_truth.get("view") == "evaluation", "corpus_report_requires_evaluation_view")
         counts: dict[str, Counter] = defaultdict(Counter)
         for row in ground_truth["rows"]:
+            if row["partition"] == "frozen-test":
+                continue
             final = row["final"]
             key = final["unscorableReason"] if final["outcome"] == "unscorable" else "scorable"
             counts[row["partition"]][f"{row['attributeType']}:{key}"] += 1

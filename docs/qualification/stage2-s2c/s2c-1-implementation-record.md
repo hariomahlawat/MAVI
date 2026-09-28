@@ -33,9 +33,12 @@ Candidate evaluation, threshold tuning and frozen-test scoring (S5); the harness
 | C4 | Plan §7.1 defines `person-backpack` as carried "on the back or one shoulder" and lists handbag, shoulder bag and briefcase for `person-bag`. | The guide keeps the plan's definition: a backpack held in the hand is `absent` for both attributes, a known gap that the pilot measures. Totes and shopping/carrier bags count as carried bags, because they are carried bags other than backpacks and are not excluded. |
 | C5 | Plan §7.1 says the vocabulary is frozen only by the annotation guide after the pilot, but the pilot thresholds were not numerically declared anywhere. | The candidate task file carries *proposed* thresholds: Krippendorff α ≥ 0.667 (Krippendorff 2004), at least 30 double-labelled units, merge-confusion share 0.25. The tooling refuses pilot assignments until the owner confirms them, and confirmation may raise but never lower a value. |
 | C6 | Plan §10.2 frames the frozen test as "whole held-out sites or cameras plus held-out date blocks of seen ones". | Implemented as `heldOutSites` whole sites plus the latest `frozenLatestBlockFraction` of every other site's contiguous date blocks. The frozen test therefore includes cameras unseen elsewhere and a temporal hold-out. |
-| C7 | Plan §10.2 asks that a recurring subject be "moved wholly into one partition, preferring training". | Every connected set of linked Tracks (confirmed recurrence or applied duplicate) that spans partitions moves wholly to training. Moves are one-way into training, so evaluation partitions never gain a leaking Track. Everything is recorded, and nothing is deleted. |
+| C7 | Plan §10.2 asks that a recurring subject be "moved wholly into one partition, preferring training". A Track-level move would fragment the subject's site-date cluster, which is what §10.2 forbids. | When a link (confirmed recurrence or applied duplicate) spans partitions, every **cluster** it touches moves wholly to training, repeated to a fixpoint. Moves are one-way into training, so evaluation partitions never gain a leaking cluster. Everything is recorded, and nothing is deleted. The price: a heavily linked corpus shrinks its evaluation partitions, and the partition checks record that as a limitation. |
 | C8 | S1.4 (register B1–B6) is still open, so the Evidence Set selector or profile could still change. | The corpus manifest carries one raw-evidence pin, and mixing pins is refused. A change re-derives affected crops, which is the plan's stop condition. |
 | C9 | Status text in the roadmaps, parent plan, register and S2c.0 record still said "S2c.0 in progress; S2c.1 not authorized" after PR #116 merged. | Updated to the merged state (S2c.0 closed at `647d8f6`; S2c.1 in progress; F1 OPEN). No row status changed. |
+| C10 | Plan §10.2 describes recurrence by crop-SHA pairs. | The audit records Track UUIDs; each Track owns its crops through the manifest. The link is the same and survives crop re-derivation under a new pin. Reviewer recall is bounded, so F1 also needs a recorded `recallSample` (a second review of random cross-partition pairs). With no biometric matcher, by design, recall remains an estimate. |
+| C11 | The initial F1 checker computed PASS from hashes and counts asserted in the record. | The record now names artefacts by SHA-256 only. `check-f1 --store` loads every artefact from the custodian's retained-record store and re-verifies the whole chain: partition from audits, frozen task from the pilot, agreement batches and independence from the ledger, adjudications in the ledger, the sealed evaluation view, the seal, and the access log against its recorded head. Without the store the verdict is OPEN. |
+| C12 | The frozen-access `stage` cannot be detected by the tool. | It is recorded as the actor's declaration (honour system). Custody, logging before release and log review make a false declaration visible. Only `seal` may create the access log, so it cannot be silently reset. |
 
 ## 3. What is delivered
 
@@ -48,9 +51,9 @@ Candidate evaluation, threshold tuning and frozen-test scoring (S5); the harness
 - adjudication and ground truth;
 - agreement: raw, Cohen's κ and Krippendorff's α, reported for full category, scorability and value;
 - the pilot sampler, pilot report and owner-decision freeze;
-- the frozen-test seal, access log and evaluation view;
+- the frozen-test seal, the access log (created only by sealing), and the evaluation view bound to the seal;
 - the diversity report;
-- the F1 checker.
+- the F1 checker, which re-verifies the retained records (`check-f1 --store`).
 
 **Documents:**
 - the annotation guide v1, `docs/qualification/stage2-s2c/annotation-guide.md`;
@@ -95,6 +98,8 @@ The vocabulary is **not yet frozen**: freezing requires the pilot. The candidate
 | Frozen-test seal and access log | tooling delivered; **not executed** |
 | Camera/site support (≥ 3 cameras per partition; an unseen frozen camera) | checked by the partitioner and F1 checker; **no data** |
 | Corpus Custodian and annotators named (S2c.0 record §4) | **not yet designated** |
+| Retained-record store for `check-f1 --store` | **does not exist** (nothing to retain yet) |
+| Recurrence recall sample | tooling delivered; **not executed** |
 
 Synthetic fixtures prove the mechanisms only. They are never F1 evidence: the checker refuses any `corpusKind` other than `operational`.
 

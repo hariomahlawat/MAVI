@@ -6,6 +6,12 @@ decide recurrence. The record holds only Track UUIDs and reviewer decisions: no 
 no identity, no embedding. A proposal from an evaluation-only similarity pass (S2c.3,
 never shipped, never of a bake-off candidate's family) is imported as ``proposed`` and
 applies only once a reviewer confirms it. Rejected groups are kept, never deleted.
+
+Reviewers can only confirm recurrences they notice. ``recallSample`` records a reviewer's
+second look at a random sample of cross-partition Track pairs: the number of pairs
+examined and the recurrences found that the audit had missed. F1 needs one. Without a
+biometric matcher (excluded by design), recall stays an estimate. That limitation is
+accepted and recorded.
 """
 
 from __future__ import annotations
@@ -31,10 +37,20 @@ PROPOSERS = ("reviewer", "similarity-pass")
 
 def parse_recurrence(document: dict, corpus: CorpusManifest) -> tuple[str, list[LinkGroup]]:
     code = "recurrence_invalid"
-    require_keys(document, code, ("schemaVersion", "corpusManifestSha256", "groups"))
+    require_keys(document, code, ("schemaVersion", "corpusManifestSha256", "groups"), ("recallSample",))
     require(document["schemaVersion"] == RECURRENCE_SCHEMA, f"{code}:schema")
     require(require_sha256(document["corpusManifestSha256"], code) == corpus.sha256, "recurrence_corpus_mismatch")
     refuse_path_leaks(document, "recurrence_path_leak")
+    sample = document.get("recallSample")
+    if sample is not None:
+        scode = f"{code}:recallSample"
+        require_keys(sample, scode, ("by", "date", "sampledPairs", "missedRecurrences", "note"))
+        require_pseudonym(sample["by"], scode)
+        require_date(sample["date"], scode)
+        for key in ("sampledPairs", "missedRecurrences"):
+            require(isinstance(sample[key], int) and not isinstance(sample[key], bool) and sample[key] >= 0, scode)
+        require(sample["sampledPairs"] > 0 and sample["missedRecurrences"] <= sample["sampledPairs"], scode)
+        require_free_text(sample["note"], scode)
     applied: list[LinkGroup] = []
     seen: set[str] = set()
     for group in document["groups"]:

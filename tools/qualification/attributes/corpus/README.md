@@ -29,8 +29,10 @@ python tools/qualification/attribute_corpus.py <command> --help
 |---|---|
 | this tooling and its tests (synthetic fixtures only) | evidence crops (JPEG), addressed by SHA-256 |
 | the candidate/frozen task file, annotation guide, F1 evidence record | frozen-test ground truth (`ground-truth --frozen-out`) |
-| operational corpus / partition manifests, audits, agreement and pilot reports, seal record — **when an operational corpus exists** | annotation ledger and frozen-test access log (their heads are recorded in Git) |
+| the SHA-256 of every retained record, in the F1 evidence record | the **retained-record store**: every record (corpus manifest, audits, partition, pilot and agreement reports, frozen task, adjudications, sealed evaluation view, seal) as `<sha256>.json`, plus `annotation-ledger.jsonl` and `frozen-access-log.jsonl` |
 | | labelling spreadsheets and any local configuration naming evidence paths |
+
+Reviewable, image-free copies of the non-frozen records may also be committed once an operational corpus exists. The F1 checker never relies on them: it re-verifies from the store (§10).
 
 Records never contain local paths or locators; parsers refuse them (`canonical.refuse_path_leaks`). `tools/verify_repo.py` refuses any tracked image under the S2c corpus areas.
 
@@ -79,21 +81,24 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
 
 ## 4. Partitioning (`partition.py`)
 
-1. **Cluster** = `(siteId, dateBlock)`, where `dateBlock = floor((recordingDate − corpus epoch) / dateBlockDays)`. All cameras of a site within one contiguous block share a partition. Tracks are never split individually.
+1. **Cluster** = `(siteId, dateBlock)`, where `dateBlock = floor((recordingDate − policy.dateEpoch) / dateBlockDays)`. The epoch is pinned in the policy, so adding an earlier source in a revision cannot shift every block boundary. A source dated before the epoch is refused. All cameras of a site within one contiguous block share a partition. Tracks are never split individually.
 2. **Frozen test:**
    - `heldOutSites` whole sites, ordered by seeded SHA-256, give cameras unseen elsewhere;
    - plus the latest `frozenLatestBlockFraction` of every other site's blocks, a temporal hold-out of contiguous blocks.
 3. **Training / tuning / selection:** the remaining clusters, in seeded hash order, go greedily to the partition with the largest Track deficit against `targetFractions`. Tuning and selection are separate partitions (R2 item 7). Every partition must be non-empty.
 4. **Link resolution:**
-   - every connected set of Tracks linked by a *confirmed* recurrence group or an applied duplicate group, and spanning partitions, moves wholly to **training**;
-   - moves only ever go into training, so an evaluation partition can lose Tracks but never gain a leaking one;
-   - every move is recorded with its reason, and nothing is deleted.
+   - when a *confirmed* recurrence group or an applied duplicate group spans partitions, every **cluster** it touches moves wholly to **training**, and this repeats to a fixpoint;
+   - whole clusters move, never single Tracks, so a site-date block is never fragmented;
+   - moves only ever go into training, so an evaluation partition can lose clusters but never gain a leaking one;
+   - every move is recorded (`clusterId`, `from`, `to`, `reasons`), and each cluster keeps its `initialPartition`. Nothing is deleted.
 5. **Checks:** Track and camera counts per partition, and cameras unseen outside the frozen test. Shortfalls (fewer than `minimumCamerasPerPartition`, no unseen frozen camera) are recorded as **limitations**, never waived.
+6. **Audits are bound.** The manifest records the recurrence and duplicate audit hashes. An operational corpus cannot be partitioned without both audits (`partition_operational_requires_audits`).
 
-`verify_partition` re-derives everything and refuses:
+`verify_partition` takes the audits actually supplied, re-derives everything and refuses:
+- audit hashes that differ from the manifest's;
 - a Track assigned twice or missing;
 - an empty partition;
-- a cluster fragmented without a recorded move;
+- a Track whose partition differs from its cluster's;
 - a move that is not into training;
 - a link group spanning partitions;
 - any non-reproducible difference.
@@ -104,6 +109,8 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
   - A proposal from an evaluation-only similarity pass (S2c.3, never shipped, never a bake-off candidate's family) must declare its proposer family, and applies only once a reviewer confirms it.
   - Rejected groups are retained.
   - This is bookkeeping, not re-identification.
+  - **Recall is bounded by the reviewers.** The optional `recallSample` records a second review of a random sample of cross-partition Track pairs (`sampledPairs`, `missedRecurrences`). F1 requires it. With no biometric matcher (excluded by design), recall remains an estimate, and that is a recorded limitation.
+  - **Deviation from the plan's wording:** the plan describes recurrence pairs by crop SHA-256. The audit records Track UUIDs, since a Track owns its crops through the manifest. The link is the same, and it is also robust to crop re-derivation under a new raw-evidence pin.
 - **Duplicates** (`duplicates.py`): two methods.
   - Exact duplicates: same SHA-256 under two Observation UUIDs. These always apply and cannot be rejected.
   - Near duplicates: dHash-64. Greyscale, 9×8 `BOX` resize, horizontal gradient bits, Hamming distance ≤ `hammingThreshold` (0–7). These apply unless a reviewer rejects them: for leakage, the conservative error is to link too much.
@@ -119,8 +126,9 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
 4. `submit --labels-csv`: the batch must cover every assigned unit × attribute exactly once, and each label must be valid under the task. If `subject-validity` is not `valid`, every attribute must be `unscorable/non-subject`.
 5. `pilot-report`, then `freeze-task`: the owner decision may apply only the pre-declared merges and removals, never an addition. The artefact bound therefore can only fall from the candidate vocabulary's measured value (S2c plan §12.3).
 6. `assign --phase main` (requires the frozen task), then `submit`.
-7. `reveal`, then adjudication (a JSON decision file), then `ground-truth`, then `agreement --phase main`.
-8. `seal`, then `frozen-access` / `seal-status` for any later access.
+7. `reveal`, then `adjudicate` (records the JSON decision file in the ledger), then `ground-truth`, then `agreement --phase main`.
+   - An adjudication counts only if the ledger issued its reveal packet to that adjudicator, covering every unit it decides.
+8. `seal` (commits both views; writes the sealed evaluation view and creates the access log), then `frozen-access` / `seal-status` for any later access.
 
 **The ledger** is append-only and hash-chained. It enforces independence:
 - no reveal packet while an independent assignment covering its units is unsubmitted;
@@ -129,9 +137,11 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
 Agreement and pilot reports accept only ledger-registered batches.
 
 **Ground truth:**
+- It is built from main-phase batches under the frozen task only. Duplicate batches are refused.
 - It keeps every original label beside the final one.
-- A conflict without adjudication is an error.
+- A conflict without an adjudication recorded in the ledger is an error.
 - `unscorable` stays `unscorable`.
+- Consensus is on the outcome and value. When raters agree a unit is unscorable but give different reasons, the final reason follows `REASON_PRECEDENCE` (guide §3.1), and the row carries `reasonDisagreement: true`.
 
 ## 7. Agreement (`agreement.py`)
 
@@ -149,19 +159,29 @@ Agreement and pilot reports accept only ledger-registered batches.
   - adjudicated units;
   - double-labelled units with an independent annotator;
   - support by partition, camera and site.
+- **Scope:** reports cover the evaluation partitions (training/tuning/selection) by default (`scope: evaluation-partitions`). Frozen-test label statistics appear only with `--include-frozen-custodian-only`, for the custodian's own qualification of the frozen set. Such a report is never committed and never shown to selection work.
 - **Rendering:** reports render as Markdown. A synthetic fixture is labelled as such in the rendering.
 
 ## 8. Frozen test (`frozen.py`)
 
-- **Seal:** it commits the frozen member set (Track UUIDs with crop SHA-256s), the frozen ground-truth SHA-256 and the annotation-ledger head. Every frozen Track must be labelled first.
+- **Seal:** it commits:
+  - the frozen member set (Track UUIDs with crop SHA-256s);
+  - the frozen ground-truth SHA-256 and the evaluation-view SHA-256, both views of one ground truth;
+  - the annotation-ledger head.
+
+  Every frozen Track must be labelled first.
 - **Access log:**
-  - The access log opens with the seal.
+  - The access log opens with the seal. Only `seal` creates it; every other command refuses a missing or empty log, so deleting it cannot reset it.
   - Every access is logged **before** anything is returned.
   - Before S5, only `integrity-verify` (returns a hash only) and `custody-transfer` are proper; `s5-scoring` is proper only at stage `S5`.
   - Any other access, or one declared after the fact (`declare-improper-access`), marks the seal **compromised**.
 - **After a compromise:** qualification plan R1 requires a new frozen set. A superseding seal must name the compromised one and have a different member set.
 - **Truncation:** a hash chain cannot reveal a cut-off log on its own, so recorded heads (F1 record, MSR) are checked with `seal-status --recorded-head`.
-- **Evaluation view:** model-selection tooling reads only the evaluation view (`load_evaluation_view`), which refuses frozen rows by construction.
+- **Evaluation view:** model-selection tooling reads only the evaluation view, via `load_evaluation_view(view, seal)`. It refuses:
+  - frozen rows;
+  - a view not stamped with the seal;
+  - a view whose content differs from the one the seal committed.
+- **Stage is declared, not detected.** The `stage` of an access is the actor's own declaration; the tool cannot know which stage really asked. The controls that make a false declaration visible are custody (the frozen file lives outside the evaluation environment), logging before release, and review of the log.
 
 ## 9. Diversity report (`report.py`)
 
@@ -177,22 +197,33 @@ This is the foundation for later camera/site generalisation analysis, and delibe
 
 ## 10. F1 (`f1.py`)
 
-`check-f1` computes the verdict from the evidence record.
+`check-f1 --record <record> --store <retained-record store>` computes the verdict.
 
-**PASS requires all of:**
+The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, seal status or camera support. The checker trusts none of it. It loads each artefact from the store, re-derives its identity and re-verifies the chain:
+- **corpus → audits → partition**, re-derived by `verify_partition` with the audits' own links;
+- **pilot report → frozen task** (`derivedFrom`), with the pilot batches registered in the ledger;
+- **main agreement report:**
+  - its hash;
+  - `evaluation-partitions` scope;
+  - the same corpus, partition and task;
+  - every batch registered in the ledger;
+  - annotators and independence as the ledger registered them;
+- **adjudications**, each recorded in the ledger;
+- **sealed evaluation view**, bound to the seal;
+- **seal** → partition, evaluation view and ledger head;
+- **access log**, which must begin with this seal, extend the recorded head and show no improper access;
+- **camera support**, from the partition's own checks; the record must carry every partition limitation.
+
+**PASS additionally needs:**
 - an operational corpus (synthetic fixtures never count);
-- the frozen guide SHA-256, still matching the file;
-- the frozen task;
-- the corpus, partition, recurrence and duplicate audit hashes;
-- the pilot and main agreement reports;
-- adjudications, ground truth and the ledger head;
-- at least two annotators, at least one of them independent;
-- an intact seal with its access-log head;
+- the guide unchanged since its frozen SHA-256;
+- at least two annotators, at least one independent;
+- an independent annotator on every double-labelled unit;
 - at least three cameras in every partition, and a frozen camera unseen elsewhere;
-- the limitations list;
+- a recurrence recall sample;
 - a named custodian.
 
-A record may never claim more than the checker computes.
+Without the store the verdict is OPEN. A record may never claim more than the checker computes.
 
 ## 11. Mutation and adversarial record
 
@@ -203,11 +234,12 @@ A record may never claim more than the checker computes.
 | 3 | recurring subject left across partitions | `test_mutation_recurring_subject_left_across_partitions_is_detected` |
 | 4 | duplicate crop crosses partitions | `test_mutation_duplicate_crossing_partitions_fails_verification` |
 | 5 | tuning and selection collapsed | `test_mutation_tuning_and_selection_collapsed_is_detected` |
-| 6 | frozen test exposed to selection | `test_selection_view_refuses_frozen_labels`, `test_selection_stage_access_is_refused_logged_and_compromises_the_seal` |
+| 6 | frozen test exposed to selection | `test_selection_view_refuses_frozen_labels`, `test_the_selection_view_must_be_the_one_the_seal_committed`, `test_selection_stage_access_is_refused_logged_and_compromises_the_seal` |
 | 7 | manifest hash ignores labels/partition | `test_manifest_hash_covers_content`, `test_mutation_partition_hash_covers_assignments`, `test_seal_is_stable_and_any_mutation_changes_it` |
 | 8 | annotator B sees A's label before independent submission | `test_mutation_annotator_b_cannot_submit_after_seeing_a` |
 | 9 | adjudication overwrites original labels | `test_conflicts_require_adjudication_and_originals_are_kept` |
 | 10 | unscorable silently converted to negative | `test_unscorable_is_an_outcome_not_a_negative`, `test_conflicts_require_adjudication_and_originals_are_kept` |
+| + | F1 PASS from self-asserted hashes | `test_without_the_store_the_named_hashes_prove_nothing`, `test_an_edited_retained_record_fails_its_hash`, `test_a_record_that_names_a_hash_it_does_not_retain_fails` |
 
 These tests were written against the implemented rules. They kill each fault by asserting the refusal, or the invariant, that the fault breaks.
 
@@ -224,3 +256,16 @@ These tests were written against the implemented rules. They kill each fault by 
 | operational-corpus requirement in `f1_verdict` | killed |
 | training-only check for pilot assignments | killed |
 | link-span check in `verify_partition` | **survived, equivalent**: `verify_partition` re-derives the partition from the audits and refuses any non-reproducible manifest first, so a manifest that leaves a confirmed group across partitions is still refused (`partition_not_reproducible`). The explicit check is retained as defence in depth and as the clearer error |
+
+**Second source-mutation run** (after the cold-review fixes, same method; `mut2`):
+
+| Guard removed | Result |
+|---|---|
+| store requirement in `f1_verdict` | killed |
+| hash check in the F1 store | killed |
+| seal-status check in F1 | killed |
+| access-log head check in F1 | killed |
+| ledger-registered batches in F1 | killed (after adding `test_a_main_report_naming_an_unregistered_batch_is_refused`; it first survived) |
+| sealed-view binding in `load_evaluation_view` | killed |
+| create-only access log | killed |
+| same-ground-truth check in `build_seal` | killed |

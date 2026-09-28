@@ -45,7 +45,7 @@ def test_every_track_is_assigned_exactly_once_and_all_four_partitions_exist(corp
     ids = [a["trackId"] for a in document["assignments"]]
     assert len(ids) == len(set(ids)) == len(corpus.tracks)
     assert {a["partition"] for a in document["assignments"]} == set(PARTITIONS)
-    verify_partition(corpus, document, [])
+    verify_partition(corpus, document, [], {"recurrence": None, "duplicate": None})
 
 
 def test_no_site_date_cluster_crosses_partitions(corpus) -> None:
@@ -82,7 +82,7 @@ def test_mutation_random_track_split_is_detected(corpus) -> None:
     for entry in document["assignments"]:
         entry["partition"] = rng.choice(PARTITIONS)
     with pytest.raises(CorpusError, match="partition_cluster_fragmented|partition_move_invalid|partition_not_reproducible"):
-        verify_partition(corpus, document, [])
+        verify_partition(corpus, document, [], {"recurrence": None, "duplicate": None})
 
 
 def test_mutation_camera_date_block_in_two_partitions_is_detected(corpus) -> None:
@@ -91,7 +91,7 @@ def test_mutation_camera_date_block_in_two_partitions_is_detected(corpus) -> Non
     victim = next(a for a in document["assignments"] if a["partition"] == "selection")
     victim["partition"] = "tuning"
     with pytest.raises(CorpusError, match="partition_cluster_fragmented"):
-        verify_partition(corpus, document, [])
+        verify_partition(corpus, document, [], {"recurrence": None, "duplicate": None})
 
 
 def test_mutation_tuning_and_selection_collapsed_is_detected(corpus) -> None:
@@ -101,7 +101,7 @@ def test_mutation_tuning_and_selection_collapsed_is_detected(corpus) -> None:
         if entry["partition"] == "selection":
             entry["partition"] = "tuning"
     with pytest.raises(CorpusError, match="partition_empty:selection"):
-        verify_partition(corpus, document, [])
+        verify_partition(corpus, document, [], {"recurrence": None, "duplicate": None})
 
 
 def test_shortfalls_are_recorded_as_limitations_not_waived() -> None:
@@ -144,25 +144,63 @@ def test_confirmed_recurrence_moves_the_whole_group_to_training_with_an_audit_tr
     document = build_partition(corpus, policy(), links, {"recurrence": sha, "duplicate": None})
     parts = partition_of(document)
     assert parts[pair[0]] == parts[pair[1]] == TRAINING
-    move = next(m for m in document["moves"] if m["trackId"] == pair[1])
-    assert move == {"trackId": pair[1], "from": FROZEN, "to": TRAINING, "reasons": ["recurrence:rec-1"]}
+    frozen_cluster = next(a["clusterId"] for a in document["assignments"] if a["trackId"] == pair[1])
+    move = next(m for m in document["moves"] if m["clusterId"] == frozen_cluster)
+    assert move == {"clusterId": frozen_cluster, "from": FROZEN, "to": TRAINING, "reasons": ["recurrence:rec-1"]}
+    # The whole cluster moved: every Track of that site/date block is now in training.
+    assert {a["partition"] for a in document["assignments"] if a["clusterId"] == frozen_cluster} == {TRAINING}
     assert len(document["assignments"]) == len(corpus.tracks), "nothing is deleted"
-    verify_partition(corpus, document, links)
+    verify_partition(corpus, document, links, {"recurrence": sha, "duplicate": None})
     assert build_partition(corpus, policy(), links, {"recurrence": sha, "duplicate": None}) == document
 
 
 def test_mutation_recurring_subject_left_across_partitions_is_detected(corpus) -> None:
-    """Mutation 3: undoing the move leaves a confirmed group spanning partitions."""
+    """Mutation 3: a partition built without the confirmed audit cannot pass as resolved."""
     base = _partition(corpus)
     pair = _cross_partition_pair(corpus, base)
-    _, links = parse_recurrence(_recurrence(corpus, pair), corpus)
-    document = build_partition(corpus, policy(), links, {"recurrence": "0" * 64, "duplicate": None})
-    document["moves"] = []
-    for entry in document["assignments"]:
-        if entry["trackId"] == pair[1]:
-            entry["partition"] = FROZEN
-    with pytest.raises(CorpusError, match="partition_link_spans_partitions|partition_not_reproducible"):
-        verify_partition(corpus, document, links)
+    sha, links = parse_recurrence(_recurrence(corpus, pair), corpus)
+    unresolved = copy.deepcopy(base)
+    unresolved["audits"]["recurrenceAuditSha256"] = sha  # claims the audit but left the group split
+    with pytest.raises(CorpusError, match="partition_link_spans_partitions"):
+        verify_partition(corpus, unresolved, links, {"recurrence": sha, "duplicate": None})
+
+
+def test_linked_track_moves_its_whole_site_date_cluster(corpus) -> None:
+    """Review P2: only one Track of a subject seen on two cameras at once is linked; the
+    co-occurring Track on the other camera must not stay behind in an evaluation partition."""
+    base = _partition(corpus)
+    parts = partition_of(base)
+    train, frozen = _cross_partition_pair(corpus, base)
+    frozen_cluster = next(a["clusterId"] for a in base["assignments"] if a["trackId"] == frozen)
+    siblings = [a["trackId"] for a in base["assignments"] if a["clusterId"] == frozen_cluster and a["trackId"] != frozen]
+    cameras = {corpus.source_of(t).camera_id for t in siblings}
+    assert len(cameras) >= 2 and parts[siblings[0]] == FROZEN
+    sha, links = parse_recurrence(_recurrence(corpus, (train, frozen)), corpus)
+    document = build_partition(corpus, policy(), links, {"recurrence": sha, "duplicate": None})
+    after = partition_of(document)
+    assert all(after[t] == TRAINING for t in siblings)
+
+
+def test_verification_refuses_a_different_or_missing_audit(corpus) -> None:
+    base = _partition(corpus)
+    pair = _cross_partition_pair(corpus, base)
+    sha, links = parse_recurrence(_recurrence(corpus, pair), corpus)
+    document = build_partition(corpus, policy(), links, {"recurrence": sha, "duplicate": None})
+    with pytest.raises(CorpusError, match="partition_audits_mismatch"):
+        verify_partition(corpus, document, [], {"recurrence": None, "duplicate": None})
+    with pytest.raises(CorpusError, match="partition_audits_mismatch"):
+        verify_partition(corpus, document, links, {"recurrence": "0" * 64, "duplicate": None})
+
+
+def test_operational_partitions_require_both_audits() -> None:
+    operational = parse_corpus(build_corpus(sites=4, cameras_per_site=3, days=12, kind="operational"))
+    with pytest.raises(CorpusError, match="partition_operational_requires_audits"):
+        build_partition(operational, policy(), [], {"recurrence": None, "duplicate": None})
+
+
+def test_the_date_epoch_is_pinned_by_policy(corpus) -> None:
+    with pytest.raises(CorpusError, match="partition_source_before_epoch"):
+        _partition(corpus, dateEpoch="2026-03-05")
 
 
 def test_unconfirmed_or_rejected_recurrence_moves_nothing(corpus) -> None:
@@ -251,7 +289,7 @@ def test_duplicate_audit_finds_exact_and_near_duplicates_across_tracks_and_resol
     resolved = build_partition(corpus, policy(), links, {"recurrence": None, "duplicate": sha})
     after = partition_of(resolved)
     assert after[train] == after[frozen] == after[selection] == TRAINING
-    verify_partition(corpus, resolved, links)
+    verify_partition(corpus, resolved, links, {"recurrence": None, "duplicate": sha})
 
 
 def test_mutation_duplicate_crossing_partitions_fails_verification() -> None:
@@ -268,7 +306,7 @@ def test_mutation_duplicate_crossing_partitions_fails_verification() -> None:
     _, links = parse_duplicate_audit(audit, corpus)
     unresolved = build_partition(corpus, policy(), [], {"recurrence": None, "duplicate": None})
     with pytest.raises(CorpusError, match="partition_link_spans_partitions|partition_not_reproducible"):
-        verify_partition(corpus, unresolved, links)
+        verify_partition(corpus, unresolved, links, {"recurrence": None, "duplicate": None})
 
 
 def test_duplicate_audit_cannot_be_trimmed_by_hand_and_exact_groups_cannot_be_rejected() -> None:

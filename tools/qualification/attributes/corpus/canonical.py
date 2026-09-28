@@ -31,8 +31,18 @@ TOKEN_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 # Free text may use "/" ordinarily ("upper/lower"); these shapes are paths or locators.
+# A locator is refused wherever it appears:
+# * an absolute or home path after any non-word character (``crops:/mnt/x``, ``[/srv]``,
+#   ``a,/srv``) — prose such as ``upper/lower`` is kept because the slash follows a letter;
+# * a drive, UNC or parent-relative path;
+# * a URL or ``file:`` locator;
+# * a percent-encoded separator;
+# * any image or video file name, relative or bare (``private/crops/cam3/a.jpg``).
+_MEDIA_SUFFIXES = "jpe?g|png|bmp|gif|webp|tiff?|heic|mp4|m4v|mkv|avi|mov|webm|h26[45]|hevc|ts|mts|m2ts|dav|asf|wmv|flv|3gp"
 _PATH_LIKE_RE = re.compile(
-    r"(?:^|[\s\"'(=])(?:/[A-Za-z0-9._~-]|~[/\\]|[A-Za-z]:[\\/]|\\\\|\.\.[/\\])|file:|[a-z][a-z0-9+.-]*://",
+    r"(?:^|[^\w])(?:/[A-Za-z0-9._~-]|~[/\\]|[A-Za-z]:[\\/]|\\\\|\.\.[/\\])"
+    r"|file:|[a-z][a-z0-9+.-]*://|%2f|%5c"
+    rf"|[\w.-]\.(?:{_MEDIA_SUFFIXES})\b",
     re.IGNORECASE,
 )
 

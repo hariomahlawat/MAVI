@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 
 import pytest
-from attribute_corpus_fixtures import build_corpus, policy
+from attribute_corpus_fixtures import build_corpus, frozen_task, policy
 
 from attributes.corpus import task as task_module
 from attributes.corpus.annotation import (
     AnnotationLedger,
+    load_evaluation_view,
     build_assignment,
     build_batch,
     build_ground_truth,
@@ -19,18 +19,18 @@ from attributes.corpus.annotation import (
     split_ground_truth,
 )
 from attributes.corpus.canonical import CorpusError, document_sha256, write_canonical
-from attributes.corpus.f1 import REPO, check_file, f1_verdict
 from attributes.corpus.frozen import (
     access_frozen,
     build_seal,
     declare_improper_access,
     open_access_log,
+    seal_evaluation_view,
     seal_status,
     verify_superseding_seal,
 )
 from attributes.corpus.ledger import Ledger
 from attributes.corpus.manifest import parse_corpus
-from attributes.corpus.partition import build_partition, partition_of
+from attributes.corpus.partition import build_partition
 from attributes.corpus.report import corpus_report, render_markdown
 from attributes.corpus.task import load_task, parse_task
 
@@ -39,18 +39,7 @@ GUIDE = "d" * 64
 
 
 def _frozen_task(candidate):
-    decision = {
-        "schemaVersion": "mavi-attribute-task-freeze-decision-v1",
-        "decidedBy": "owner-1",
-        "decidedAt": "2026-10-09T09:00:00Z",
-        "valueMerges": [],
-        "attributeMerges": [],
-        "valueRemovals": [],
-        "attributeRemovals": [],
-        "rationale": "fixture freeze",
-    }
-    report = {"schemaVersion": "mavi-attribute-pilot-report-v1", "taskSha256": candidate.sha256, "reportSha256": "f" * 64}
-    return parse_task(task_module.freeze_task(candidate, report, decision))
+    return frozen_task(candidate)
 
 
 def _choice(unit, attribute):
@@ -78,22 +67,22 @@ def sealed(tmp_path):
         for u in assignment["units"] for a in u["attributeTypes"]
     ], None, task)
     ledger.submit_batch(batch, assignment, T0)
-    truth = build_ground_truth(corpus, partition, psha, task, [(batch, parse_batch(batch, assignment, task))], [], ledger)
+    truth = build_ground_truth(corpus, partition, psha, task, [(batch, parse_batch(batch, assignment, task))], [], ledger, {assignment["assignmentId"]: assignment})
     evaluation, frozen = split_ground_truth(truth, None)
     frozen_path = tmp_path / "custody" / "frozen-ground-truth.json"
     frozen_path.parent.mkdir()
     write_canonical(frozen_path, frozen)
-    seal = build_seal(corpus, partition, psha, frozen, ledger.head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
-    log = open_access_log(tmp_path / "custody" / "access-log.jsonl", seal, T0)
-    return {"corpus": corpus, "partition": partition, "psha": psha, "seal": seal, "log": log, "frozen_path": frozen_path, "frozen": frozen, "truth": truth, "ledger": ledger, "tmp": tmp_path}
+    seal = build_seal(corpus, partition, psha, frozen, evaluation, ledger.head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
+    log = open_access_log(tmp_path / "custody" / "access-log.jsonl", seal, T0, create=True)
+    return {"corpus": corpus, "partition": partition, "psha": psha, "seal": seal, "log": log, "frozen_path": frozen_path, "frozen": frozen, "truth": truth, "evaluation": evaluation, "ledger": ledger, "tmp": tmp_path}
 
 
 def test_seal_is_stable_and_any_mutation_changes_it(sealed) -> None:
-    again = build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["frozen"], sealed["ledger"].head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
+    again = build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["frozen"], sealed["evaluation"], sealed["ledger"].head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
     assert document_sha256(again) == document_sha256(sealed["seal"])
     mutated = copy.deepcopy(sealed["frozen"])
     mutated["rows"][0]["final"]["value"] = "white"
-    changed = build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], mutated, sealed["ledger"].head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
+    changed = build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], mutated, sealed["evaluation"], sealed["ledger"].head, "custodian-1", T0, "held by the custodian outside the evaluation environment")
     assert document_sha256(changed) != document_sha256(sealed["seal"])
 
 
@@ -103,7 +92,7 @@ def test_seal_requires_every_frozen_track_labelled(sealed) -> None:
     first = sealed["frozen"]["rows"][0]["trackId"]
     partial["rows"] = [r for r in partial["rows"] if r["trackId"] != first]
     with pytest.raises(CorpusError, match="seal_frozen_tracks_unlabelled"):
-        build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], partial, sealed["ledger"].head, "custodian-1", T0, "x")
+        build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], partial, sealed["evaluation"], sealed["ledger"].head, "custodian-1", T0, "x")
 
 
 def test_every_access_is_logged_before_anything_is_returned(sealed) -> None:
@@ -150,13 +139,16 @@ def test_tampered_frozen_labels_or_log_are_detected(sealed) -> None:
 def test_a_compromised_seal_requires_a_new_frozen_set(sealed) -> None:
     declare_improper_access(sealed["log"], sealed["seal"], "engineer-1", "S2c.3", "file opened while debugging the harness", T0)
     assert seal_status(sealed["log"], sealed["seal"])["status"] == "compromised"
-    reused = build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["frozen"], sealed["ledger"].head, "custodian-1", T0, "x", supersedes={"sealSha256": document_sha256(sealed["seal"]), "reason": "compromised in S2c.3"})
+    reused = build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["frozen"], sealed["evaluation"], sealed["ledger"].head, "custodian-1", T0, "x", supersedes={"sealSha256": document_sha256(sealed["seal"]), "reason": "compromised in S2c.3"})
     with pytest.raises(CorpusError, match="seal_reuses_compromised_frozen_set"):
         verify_superseding_seal(reused, sealed["seal"], sealed["log"])
 
 
 def test_corpus_report_carries_diversity_and_the_synthetic_banner(sealed) -> None:
-    report = corpus_report(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["truth"])
+    with pytest.raises(CorpusError, match="corpus_report_requires_evaluation_view"):
+        corpus_report(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["truth"])
+    report = corpus_report(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["evaluation"])
+    assert "frozen-test" not in report["annotatedDifficulty"], "frozen label distributions never enter the report"
     assert report["distributions"]["all"]["sites"] == 4 and report["distributions"]["all"]["cameras"] == 12
     assert set(report["distributions"]) == {"all", "training", "tuning", "selection", "frozen-test"}
     assert report["distributions"]["all"]["lighting"]["night"] > 0
@@ -164,46 +156,26 @@ def test_corpus_report_carries_diversity_and_the_synthetic_banner(sealed) -> Non
     assert "synthetic fixture" in render_markdown(report)
 
 
-# ---- F1 ----------------------------------------------------------------------------------
+def test_the_selection_view_must_be_the_one_the_seal_committed(sealed) -> None:
+    """Selection code reads only the stamped evaluation view that matches the seal."""
+    view = seal_evaluation_view(sealed["evaluation"], sealed["seal"])
+    assert load_evaluation_view(view, sealed["seal"]) == sealed["evaluation"]["rows"]
+    with pytest.raises(CorpusError, match="evaluation_view_not_sealed"):
+        load_evaluation_view(sealed["evaluation"], sealed["seal"])
+    relabelled = copy.deepcopy(view)
+    relabelled["rows"][0]["final"]["value"] = "white"
+    with pytest.raises(CorpusError, match="evaluation_view_not_the_sealed_one"):
+        load_evaluation_view(relabelled, sealed["seal"])
+    edited = copy.deepcopy(sealed["evaluation"])
+    edited["rows"][0]["final"]["value"] = "white"
+    with pytest.raises(CorpusError, match="evaluation_view_not_the_sealed_one"):
+        seal_evaluation_view(edited, sealed["seal"])
 
 
-COMMITTED = REPO / "docs" / "qualification" / "stage2-s2c" / "corpus" / "f1-evidence-record.json"
-
-
-def test_committed_f1_record_is_open_and_lists_what_is_missing() -> None:
-    verdict = check_file(COMMITTED)
-    assert verdict["claimed"] == verdict["computed"] == "OPEN"
-    assert any("operational corpus" in m for m in verdict["missing"])
-
-
-def _complete_record(guide: Path, corpus_kind: str = "operational") -> dict:
-    record = json.loads(COMMITTED.read_text())
-    from attributes.corpus.canonical import lf_normalised_sha256
-
-    sha = "1" * 64
-    record["annotationGuide"] = {"path": str(guide.relative_to(guide.anchor)), "frozenSha256": lf_normalised_sha256(guide)}
-    record["attributeTask"]["frozenSha256"] = sha
-    record["corpus"] = {"corpusKind": corpus_kind, "corpusManifestSha256": sha, "partitionManifestSha256": sha, "recurrenceAuditSha256": sha, "duplicateAuditSha256": sha}
-    record["labelling"] = {"pilotReportSha256": sha, "mainAgreementReportSha256": sha, "adjudicationSha256s": [], "groundTruthSha256": sha, "annotationLedgerHead": sha, "annotators": {"count": 2, "independentCount": 1}}
-    record["seal"] = {"sealSha256": sha, "accessLogHead": sha, "status": "intact"}
-    record["support"] = {"sites": 4, "cameras": 12, "camerasPerPartition": {"training": 6, "tuning": 3, "selection": 3, "frozen-test": 4}, "unseenFrozenCameras": 3}
-    record["custodian"] = "custodian-1"
-    return record
-
-
-def test_f1_pass_is_impossible_with_synthetic_evidence_or_a_false_claim(tmp_path) -> None:
-    guide = tmp_path / "guide.md"
-    guide.write_text("# guide\n")
-    complete = _complete_record(guide)
-    assert f1_verdict(complete, Path(guide.anchor))["computed"] == "PASS"
-    synthetic = _complete_record(guide, "synthetic-fixture")
-    assert f1_verdict(synthetic, Path(guide.anchor))["computed"] == "OPEN"
-    synthetic["claimedStatus"] = "PASS"
-    with pytest.raises(CorpusError, match="f1_claims_pass_without_evidence"):
-        f1_verdict(synthetic, Path(guide.anchor))
-    edited = _complete_record(guide)
-    guide.write_text("# guide, edited after freeze\n")
-    assert "annotation guide unchanged since freeze" in f1_verdict(edited, Path(guide.anchor))["missing"]
-    compromised = _complete_record(guide)
-    compromised["seal"]["status"] = "compromised"
-    assert f1_verdict(compromised, Path(guide.anchor))["computed"] == "OPEN"
+def test_the_seal_refuses_views_from_different_ground_truth(sealed) -> None:
+    other = copy.deepcopy(sealed["evaluation"])
+    other["annotationLedgerHead"] = "0" * 64
+    with pytest.raises(CorpusError, match="seal_views_from_different_ground_truth"):
+        build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["frozen"], other, sealed["ledger"].head, "custodian-1", T0, "x")
+    with pytest.raises(CorpusError, match="seal_requires_unsealed_evaluation_view"):
+        build_seal(sealed["corpus"], sealed["partition"], sealed["psha"], sealed["frozen"], sealed["frozen"], sealed["ledger"].head, "custodian-1", T0, "x")

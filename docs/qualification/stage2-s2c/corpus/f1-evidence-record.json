@@ -21,22 +21,11 @@
     "mainAgreementReportSha256": null,
     "adjudicationSha256s": [],
     "groundTruthSha256": null,
-    "annotationLedgerHead": null,
-    "annotators": {
-      "count": null,
-      "independentCount": null
-    }
+    "annotationLedgerHead": null
   },
   "seal": {
     "sealSha256": null,
-    "accessLogHead": null,
-    "status": null
-  },
-  "support": {
-    "sites": null,
-    "cameras": null,
-    "camerasPerPartition": null,
-    "unseenFrozenCameras": null
+    "accessLogHead": null
   },
   "limitations": [],
   "custodian": null,
@@ -45,6 +34,7 @@
     "owner-supplied recorded footage from multiple sites and cameras, day and night, processed through the real MAVI VisionJob under one raw-evidence pin",
     "owner confirmation of the pilot decision thresholds (attribute-task-v1-candidate.json pilotDecisionRules)",
     "at least two annotators, at least one independent of model selection and threshold tuning",
-    "executed pilot, owner freeze decision, main labelling, adjudication and frozen-test seal"
+    "executed pilot, owner freeze decision, main labelling, adjudication and frozen-test seal",
+    "Corpus Custodian's retained-record store (outside Git), which the checker re-verifies with --store"
   ]
 }

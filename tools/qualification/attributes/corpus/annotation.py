@@ -197,6 +197,21 @@ class AnnotationLedger(Ledger):
         require(packet["recipientId"] in self.annotators(), "ledger_reveal_unregistered_recipient")
         self.append("reveal-issued", {"packetId": packet["packetId"], "recipientId": packet["recipientId"], "units": sorted(units), "packetSha256": document_sha256(packet)}, at)
 
+    def record_adjudication(self, adjudication: dict, at: str) -> None:
+        """An adjudication counts only if its reveal packet was issued, through this ledger, to
+        this adjudicator, and covers every unit it decides."""
+        require(adjudication["adjudicatorId"] in self.annotators(), "ledger_adjudicator_unregistered")
+        packet = next((e["payload"] for e in self.of_kind("reveal-issued") if e["payload"]["packetSha256"] == adjudication["revealPacketSha256"]), None)
+        require(packet is not None, "ledger_adjudication_packet_not_issued")
+        require(packet["recipientId"] == adjudication["adjudicatorId"], "ledger_adjudication_packet_other_recipient")
+        require({d["unit"] for d in adjudication["decisions"]} <= set(packet["units"]), "ledger_adjudication_outside_packet")
+        sha = document_sha256(adjudication)
+        require(sha not in self.adjudication_hashes(), "ledger_adjudication_duplicate")
+        self.append("adjudication-recorded", {"adjudicationId": adjudication["adjudicationId"], "adjudicatorId": adjudication["adjudicatorId"], "adjudicationSha256": sha}, at)
+
+    def adjudication_hashes(self) -> set[str]:
+        return {e["payload"]["adjudicationSha256"] for e in self.of_kind("adjudication-recorded")}
+
     def batch_hashes(self) -> dict[str, str]:
         return {e["payload"]["batchSha256"]: e["payload"]["annotatorId"] for e in self.of_kind("batch-submitted")}
 
@@ -314,6 +329,11 @@ def parse_adjudication(document: dict, task: Task, object_class_of: dict[str, st
     return decisions
 
 
+# When raters agree a unit is unscorable but name different reasons, the final reason is the
+# first in this order (annotation guide §3): the most fundamental obstacle wins.
+REASON_PRECEDENCE = ("non-subject", "not-visible", "truncated", "occluded", "insufficient-area", "achromatic-imagery", "ambiguous")
+
+
 def build_ground_truth(
     corpus: CorpusManifest,
     partition: dict,
@@ -322,13 +342,21 @@ def build_ground_truth(
     batches: list[tuple[dict, list[Label]]],
     adjudications: list[dict[tuple[str, str], dict]],
     ledger: AnnotationLedger,
+    assignments: dict[str, dict],
 ) -> dict:
-    """Derive final labels; any unresolved conflict is an error, never a silent choice."""
+    """Derive final labels from main-phase batches; any unresolved conflict is an error."""
     registered = ledger.batch_hashes()
+    recorded_adjudications = ledger.adjudication_hashes()
     labels: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    seen_batches: set[str] = set()
     for batch, parsed in batches:
         batch_sha = document_sha256(batch)
+        require(batch_sha not in seen_batches, f"ground_truth_batch_repeated:{batch['batchId']}")
+        seen_batches.add(batch_sha)
         require(batch_sha in registered, f"ground_truth_batch_not_in_ledger:{batch['batchId']}")
+        assignment = assignments[batch["assignmentId"]]
+        require(assignment["phase"] == "main", f"ground_truth_non_main_batch:{batch['batchId']}")
+        require(assignment["taskSha256"] == task.sha256, f"ground_truth_task_mismatch:{batch['batchId']}")
         for label in parsed:
             labels[(label.unit, label.attribute_type)].append(
                 {"annotatorId": batch["annotatorId"], "batchSha256": batch_sha, "outcome": label.outcome, "value": label.value, "unscorableReason": label.reason}
@@ -336,19 +364,25 @@ def build_ground_truth(
     decided: dict[tuple[str, str], dict] = {}
     for adjudication in adjudications:
         for key, decision in adjudication.items():
+            require(decision["adjudicationSha256"] in recorded_adjudications, "ground_truth_adjudication_not_in_ledger")
             require(key not in decided, f"ground_truth_adjudicated_twice:{key}")
             decided[key] = decision
     parts = partition_of(partition)
     rows, unresolved = [], []
     for (unit, attribute), submitted in sorted(labels.items()):
-        distinct = {(l["outcome"], l["value"], l["unscorableReason"]) for l in submitted}
+        distinct = {(l["outcome"], l["value"]) for l in submitted}
+        reasons = sorted({l["unscorableReason"] for l in submitted if l["unscorableReason"]}, key=REASON_PRECEDENCE.index)
+        reason_disagreement = len(reasons) > 1
         if (unit, attribute) in decided:
             final = decided[(unit, attribute)]
             resolution, source = "adjudicated", final["adjudicationSha256"]
             final_value = (final["outcome"], final["value"], final["unscorableReason"])
         elif len(distinct) == 1:
+            # Agreement on outcome and value is consensus; differing unscorable reasons are
+            # resolved by the declared precedence and flagged, not sent to adjudication.
             resolution = "single" if len(submitted) == 1 else "consensus"
-            source, final_value = None, next(iter(distinct))
+            outcome, value = next(iter(distinct))
+            source, final_value = None, (outcome, value, reasons[0] if reasons else None)
         else:
             unresolved.append(f"{unit}|{attribute}")
             continue
@@ -361,6 +395,7 @@ def build_ground_truth(
                 "attributeType": attribute,
                 "labels": sorted(submitted, key=lambda l: l["annotatorId"]),
                 "resolution": resolution,
+                "reasonDisagreement": reason_disagreement,
                 "adjudicationSha256": source,
                 "final": {"outcome": final_value[0], "value": final_value[1], "unscorableReason": final_value[2]},
             }
@@ -383,15 +418,18 @@ def split_ground_truth(ground_truth: dict, seal_sha256: str | None) -> tuple[dic
     return evaluation, frozen
 
 
-def load_evaluation_view(document: dict) -> list[dict]:
+def load_evaluation_view(document: dict, seal: dict) -> list[dict]:
     """The only ground-truth reader model-selection tooling (S2c.3+) may use.
 
     It refuses a document that carries frozen-test rows, so selection code cannot read
-    frozen labels even if handed the wrong file.
+    frozen labels even if handed the wrong file. It also refuses a view that is not the
+    one the frozen-test seal committed (``frozen.seal_evaluation_view``).
     """
     require(document.get("schemaVersion") == GROUND_TRUTH_SCHEMA, "evaluation_view_schema")
     require(document.get("view") == "evaluation" and document.get("frozenExcluded") is True, "evaluation_view_not_frozen_excluded")
     for row in document["rows"]:
         if row["partition"] not in ("training", "tuning", "selection"):
             raise CorpusError("frozen_test_labels_refused_in_selection_view")
+    require(document.get("sealSha256") == document_sha256(seal), "evaluation_view_not_sealed")
+    require(document_sha256({**document, "sealSha256": None}) == seal["evaluationGroundTruthSha256"], "evaluation_view_not_the_sealed_one")
     return document["rows"]

@@ -94,6 +94,8 @@ class Task:
             require(value in spec.allowed_values and reason is None, code)
         elif outcome == OUTCOME_UNSCORABLE:
             require(value is None and reason in self.unscorable_reasons, code)
+            # Colour cannot be judged in achromatic imagery; presence can (guide §3).
+            require(reason != "achromatic-imagery" or spec.kind == "categorical", f"{code}:reason_not_applicable")
         else:
             raise CorpusError(f"label_outcome_invalid:{outcome}")
 
@@ -206,6 +208,10 @@ def freeze_task(candidate: Task, pilot_report: dict, decision: dict) -> dict:
     require_confirmed_rules(candidate)
     require(pilot_report.get("schemaVersion") == "mavi-attribute-pilot-report-v1", "freeze_pilot_report_invalid")
     require(pilot_report.get("taskSha256") == candidate.sha256, "freeze_pilot_report_task_mismatch")
+    require(
+        pilot_report.get("reportSha256") == document_sha256({k: v for k, v in pilot_report.items() if k != "reportSha256"}),
+        "freeze_pilot_report_hash_mismatch",
+    )
     require_keys(decision, "freeze_decision_invalid", ("schemaVersion", "decidedBy", "decidedAt", "valueMerges", "attributeMerges", "valueRemovals", "attributeRemovals", "rationale"))
     require(decision["schemaVersion"] == DECISION_SCHEMA, "freeze_decision_schema")
     require_pseudonym(decision["decidedBy"], "freeze_decision_owner")
@@ -232,10 +238,15 @@ def freeze_task(candidate: Task, pilot_report: dict, decision: dict) -> dict:
     for merge in decision["attributeMerges"]:
         key = tuple(sorted(merge["attributeTypes"]))
         require(key in allowed_attribute_merges, f"freeze_attribute_merge_not_predeclared:{'+'.join(key)}")
+        require(all(name in by_type for name in key), f"freeze_attribute_merge_member_missing:{'+'.join(key)}")
+        members = [by_type[name] for name in key]
+        require(len({(m["objectClass"], m["kind"]) for m in members}) == 1, f"freeze_attribute_merge_incompatible:{'+'.join(key)}")
+        merged_name = allowed_attribute_merges[key]
+        require(merged_name not in by_type or merged_name in key, f"freeze_attribute_merge_collision:{merged_name}")
         first = by_type.pop(key[0])
         for other in key[1:]:
             by_type.pop(other)
-        first["attributeType"] = allowed_attribute_merges[key]
+        first["attributeType"] = merged_name
         by_type[first["attributeType"]] = first
     for removal in decision["attributeRemovals"]:
         require(removal in by_type, f"freeze_attribute_removal_unknown:{removal}")

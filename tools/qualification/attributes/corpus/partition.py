@@ -14,10 +14,16 @@ Algorithm (deterministic; the only inputs are the corpus, the policy and the aud
    assigned greedily to the partition with the largest Track deficit against
    ``targetFractions``. Tuning and selection are distinct partitions (R2 item 7).
 4. **Link resolution.** Confirmed recurrence groups and applied duplicate groups link
-   Tracks. Every connected set of linked Tracks that spans more than one partition is
-   moved wholly to **training**. Resolution only ever moves Tracks *into* training, so an
-   evaluation partition can lose Tracks but never gain one it should not have. Every
-   move is recorded with its reason; nothing is deleted.
+   Tracks. When a connected set of linked Tracks spans more than one partition, every
+   **cluster** it touches moves wholly to **training** (repeated until no link spans
+   partitions). Moving whole clusters keeps "all cameras of one site on one date block
+   share a partition" true after resolution, so the same subject seen at the same time
+   on another camera cannot stay behind. Resolution only ever moves clusters *into*
+   training, so an evaluation partition can lose Tracks but never gain one it should not
+   have. Every cluster move is recorded with its reasons; nothing is deleted.
+
+The date-block epoch is pinned in the policy (``dateEpoch``), so adding an earlier
+source in a corpus revision cannot silently shift every block boundary.
 """
 
 from __future__ import annotations
@@ -35,6 +41,7 @@ from .canonical import (
     require_keys,
     require_pseudonym,
     require_sha256,
+    require_date,
     require_token,
 )
 from .manifest import CorpusManifest
@@ -61,8 +68,9 @@ def parse_policy(policy: dict) -> dict:
     require_keys(
         policy,
         code,
-        ("policyId", "version", "seed", "dateBlockDays", "heldOutSites", "frozenLatestBlockFraction", "targetFractions", "minimumCamerasPerPartition", "requireUnseenFrozenCamera"),
+        ("policyId", "version", "seed", "dateEpoch", "dateBlockDays", "heldOutSites", "frozenLatestBlockFraction", "targetFractions", "minimumCamerasPerPartition", "requireUnseenFrozenCamera"),
     )
+    require_date(policy["dateEpoch"], f"{code}:epoch")
     require_pseudonym(policy["policyId"], f"{code}:id")
     require_token(f"v{policy['version']}", f"{code}:version")
     require(isinstance(policy["seed"], str) and 1 <= len(policy["seed"]) <= 128, f"{code}:seed")
@@ -79,8 +87,8 @@ def parse_policy(policy: dict) -> dict:
     return policy
 
 
-def _clusters(corpus: CorpusManifest, block_days: int) -> tuple[date, dict[str, dict]]:
-    epoch = min(date.fromisoformat(s.recording_date) for s in corpus.sources.values())
+def _clusters(corpus: CorpusManifest, block_days: int, epoch: date) -> tuple[date, dict[str, dict]]:
+    require(all(date.fromisoformat(s.recording_date) >= epoch for s in corpus.sources.values()), "partition_source_before_epoch")
     clusters: dict[str, dict] = {}
     for track in corpus.tracks.values():
         source = corpus.sources[track.source_id]
@@ -148,30 +156,55 @@ def _components(groups: list[LinkGroup]) -> list[tuple[frozenset[str], tuple[str
     return [(frozenset(members_by_root[r]), tuple(sorted(reasons_by_root[r]))) for r in sorted(members_by_root)]
 
 
+def _resolve(clusters: dict[str, dict], initial: dict[str, str], links: list[LinkGroup]) -> tuple[dict[str, str], list[dict]]:
+    """Move every cluster touched by a partition-spanning link component to training, to a fixpoint."""
+    track_cluster = {t: c for c, cluster in clusters.items() for t in cluster["trackIds"]}
+    final = dict(initial)
+    reasons: dict[str, set[str]] = defaultdict(set)
+    components = _components(links)
+    changed = True
+    while changed:
+        changed = False
+        for members, why in components:
+            touched = {track_cluster[t] for t in members}
+            if len({final[c] for c in touched}) > 1:
+                for cluster_id in touched:
+                    reasons[cluster_id].update(why)
+                    if final[cluster_id] != TRAINING:
+                        final[cluster_id] = TRAINING
+                        changed = True
+    moves = [
+        {"clusterId": c, "from": initial[c], "to": TRAINING, "reasons": sorted(reasons[c])}
+        for c in sorted(final)
+        if final[c] != initial[c]
+    ]
+    return final, moves
+
+
 def build_partition(corpus: CorpusManifest, policy: dict, links: list[LinkGroup], audit_hashes: dict[str, str | None]) -> dict:
     parse_policy(policy)
+    require(set(audit_hashes) == {"recurrence", "duplicate"}, "partition_audit_hashes_invalid")
+    for value in audit_hashes.values():
+        if value is not None:
+            require_sha256(value, "partition_audit_hashes_invalid")
+    if corpus.corpus_kind == "operational":
+        # An operational partition is never built without both leakage audits.
+        require(all(v is not None for v in audit_hashes.values()), "partition_operational_requires_audits")
     for group in links:
         require(group.track_ids <= corpus.tracks.keys(), f"partition_link_unknown_track:{group.group_id}")
         require(len(group.track_ids) >= 2, f"partition_link_too_small:{group.group_id}")
-    epoch, clusters = _clusters(corpus, policy["dateBlockDays"])
-    cluster_assignment = _initial_assignment(clusters, policy)
-    track_partition = {t: cluster_assignment[c] for c, cluster in clusters.items() for t in cluster["trackIds"]}
+    epoch, clusters = _clusters(corpus, policy["dateBlockDays"], date.fromisoformat(policy["dateEpoch"]))
+    initial = _initial_assignment(clusters, policy)
+    final, moves = _resolve(clusters, initial, links)
     track_cluster = {t: c for c, cluster in clusters.items() for t in cluster["trackIds"]}
-    moves = []
-    for members, reasons in _components(links):
-        if len({track_partition[t] for t in members}) > 1:
-            for track_id in sorted(members):
-                if track_partition[track_id] != TRAINING:
-                    moves.append({"trackId": track_id, "from": track_partition[track_id], "to": TRAINING, "reasons": list(reasons)})
-                    track_partition[track_id] = TRAINING
     document = {
         "schemaVersion": PARTITION_SCHEMA,
         "corpusManifestSha256": corpus.sha256,
         "policy": policy,
         "corpusEpoch": epoch.isoformat(),
         "audits": {
-            "recurrenceAuditSha256": audit_hashes.get("recurrence"),
-            "duplicateAuditSha256": audit_hashes.get("duplicate"),
+            "recurrenceAuditSha256": audit_hashes["recurrence"],
+            "duplicateAuditSha256": audit_hashes["duplicate"],
         },
         "clusters": [
             {
@@ -182,12 +215,13 @@ def build_partition(corpus: CorpusManifest, policy: dict, links: list[LinkGroup]
                 "lastDate": c["lastDate"],
                 "cameraIds": sorted(c["cameraIds"]),
                 "trackCount": len(c["trackIds"]),
-                "partition": cluster_assignment[cid],
+                "initialPartition": initial[cid],
+                "partition": final[cid],
             }
             for cid, c in sorted(clusters.items())
         ],
-        "moves": sorted(moves, key=lambda m: m["trackId"]),
-        "assignments": [{"trackId": t, "clusterId": track_cluster[t], "partition": track_partition[t]} for t in sorted(track_partition)],
+        "moves": moves,
+        "assignments": [{"trackId": t, "clusterId": track_cluster[t], "partition": final[track_cluster[t]]} for t in sorted(track_cluster)],
     }
     document["checks"] = partition_checks(corpus, document)
     return document
@@ -221,11 +255,19 @@ def partition_sha256(document: dict) -> str:
     return document_sha256(document)
 
 
-def verify_partition(corpus: CorpusManifest, document: dict, links: list[LinkGroup]) -> None:
-    """Independent re-check of every invariant a partition manifest must satisfy."""
+def verify_partition(corpus: CorpusManifest, document: dict, links: list[LinkGroup], audit_hashes: dict[str, str | None]) -> None:
+    """Independent re-check of every invariant a partition manifest must satisfy.
+
+    ``links`` and ``audit_hashes`` come from the audits actually supplied; they must be
+    the audits the manifest names, so a partition cannot be verified against a
+    different (or no) audit.
+    """
     require(document.get("schemaVersion") == PARTITION_SCHEMA, "partition_schema")
     require(document.get("corpusManifestSha256") == corpus.sha256, "partition_corpus_mismatch")
-    require_sha256(document["corpusManifestSha256"], "partition_corpus_hash")
+    require(
+        document.get("audits") == {"recurrenceAuditSha256": audit_hashes.get("recurrence"), "duplicateAuditSha256": audit_hashes.get("duplicate")},
+        "partition_audits_mismatch",
+    )
     assignments = document["assignments"]
     ids = [a["trackId"] for a in assignments]
     require(len(ids) == len(set(ids)), "partition_track_assigned_twice")
@@ -235,21 +277,17 @@ def verify_partition(corpus: CorpusManifest, document: dict, links: list[LinkGro
     counts = {p: sum(a["partition"] == p for a in assignments) for p in PARTITIONS}
     for partition in PARTITIONS:
         require(counts[partition] > 0, f"partition_empty:{partition}")  # tuning and selection may not collapse
-    # Recompute clusters and the initial assignment; every deviation must be a recorded move to training.
-    expected = build_partition(corpus, document["policy"], links, document["audits"])
-    require(expected["clusters"] == document["clusters"], "partition_clusters_not_reproducible")
     cluster_partition = {c["clusterId"]: c["partition"] for c in document["clusters"]}
-    moved = {m["trackId"]: m for m in document["moves"]}
     for entry in assignments:
-        initial = cluster_partition[entry["clusterId"]]
-        if entry["trackId"] in moved:
-            move = moved[entry["trackId"]]
-            require(move["from"] == initial and move["to"] == TRAINING == entry["partition"], f"partition_move_invalid:{entry['trackId']}")
-        else:
-            require(entry["partition"] == initial, f"partition_cluster_fragmented:{entry['clusterId']}")
+        # No Track ever leaves its site/date-block cluster's partition.
+        require(entry["partition"] == cluster_partition.get(entry["clusterId"]), f"partition_cluster_fragmented:{entry['clusterId']}")
+    for move in document["moves"]:
+        require(move["to"] == TRAINING, f"partition_move_invalid:{move['clusterId']}")
     by_track = {a["trackId"]: a["partition"] for a in assignments}
     for group in links:
         require(len({by_track[t] for t in group.track_ids}) == 1, f"partition_link_spans_partitions:{group.kind}:{group.group_id}")
+    expected = build_partition(corpus, document["policy"], links, audit_hashes)
+    require(expected["clusters"] == document["clusters"], "partition_clusters_not_reproducible")
     require(expected["assignments"] == assignments and expected["moves"] == document["moves"], "partition_not_reproducible")
     require(expected["checks"] == document["checks"], "partition_checks_mismatch")
 

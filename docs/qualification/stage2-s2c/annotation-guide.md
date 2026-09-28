@@ -63,6 +63,20 @@ Each attribute label is exactly one of:
 
 `unscorable` is not a negative. For presence attributes, `absent` asserts that you can see the relevant area and the object is not there. `unscorable` asserts that you cannot tell. The tooling keeps the two separate end to end.
 
+### 3.1 When more than one reason applies
+
+Give the **first** reason that applies, in this order. The most fundamental obstacle wins:
+
+1. `non-subject`
+2. `not-visible`
+3. `truncated`
+4. `occluded`
+5. `insufficient-area`
+6. `achromatic-imagery`
+7. `ambiguous`
+
+For example, a small, half-occluded torso is `occluded`, not `insufficient-area`. When two annotators agree that a unit is `unscorable` but give different reasons, the unit is not treated as a disagreement. The final reason follows this order, and the row is flagged `reasonDisagreement` so that the guide can be improved.
+
 ## 4. Colour attributes
 
 ### 4.1 Values

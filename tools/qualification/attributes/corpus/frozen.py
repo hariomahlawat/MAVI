@@ -13,6 +13,21 @@ before S5: ``integrity-verify`` (hash the file; nothing is returned) and
 including an access declared after the fact with ``declare_improper_access`` — marks the
 seal **compromised**, and R1 then requires a new frozen set with a new seal
 (``build_seal(..., supersedes=...)``).
+
+The seal also commits the unsealed evaluation view's SHA-256. ``seal_evaluation_view``
+stamps that view with the seal's hash. ``annotation.load_evaluation_view`` reads only a
+stamped view that matches its seal, so selection code cannot run on a relabelled or
+pre-seal view.
+
+Only the ``seal`` command creates an access log (``open_access_log(..., create=True)``).
+Every other command refuses a missing or empty log, so deleting the log cannot silently
+reset it. A recorded head (F1 record, MSR) still detects truncation
+(``Ledger.require_extends``).
+
+The ``stage`` of an access is declared by the actor. The tool cannot tell which stage
+really asked, so the stage is an honour-system declaration. What makes a false
+declaration visible is logging before release, and the custodian holding the file
+outside the evaluation environment.
 """
 
 from __future__ import annotations
@@ -52,6 +67,7 @@ def build_seal(
     partition: dict,
     partition_sha256: str,
     frozen_ground_truth: dict,
+    evaluation_ground_truth: dict,
     annotation_ledger_head: str,
     sealed_by: str,
     sealed_at: str,
@@ -60,6 +76,11 @@ def build_seal(
 ) -> dict:
     require(frozen_ground_truth.get("view") == "frozen-test", "seal_requires_frozen_view")
     require(frozen_ground_truth.get("partitionManifestSha256") == partition_sha256, "seal_partition_mismatch")
+    require(evaluation_ground_truth.get("view") == "evaluation" and evaluation_ground_truth.get("sealSha256") is None, "seal_requires_unsealed_evaluation_view")
+    shared = ("schemaVersion", "corpusManifestSha256", "partitionManifestSha256", "taskSha256", "annotationLedgerHead")
+    require(all(evaluation_ground_truth.get(k) == frozen_ground_truth.get(k) for k in shared), "seal_views_from_different_ground_truth")
+    require(frozen_ground_truth.get("corpusManifestSha256") == corpus.sha256, "seal_corpus_mismatch")
+    require(all(r["partition"] != FROZEN for r in evaluation_ground_truth["rows"]), "seal_evaluation_view_contains_frozen_rows")
     members = frozen_members(corpus, partition)
     require(members, "seal_frozen_partition_empty")
     labelled = {r["trackId"] for r in frozen_ground_truth["rows"]}
@@ -86,6 +107,7 @@ def build_seal(
             "membersSha256": document_sha256(members),
         },
         "frozenGroundTruthSha256": document_sha256(frozen_ground_truth),
+        "evaluationGroundTruthSha256": document_sha256(evaluation_ground_truth),
         "annotationLedgerHead": require_sha256(annotation_ledger_head, "seal_ledger_head"),
         "sealedBy": require_pseudonym(sealed_by, "seal_owner"),
         "sealedAt": require_datetime(sealed_at, "seal_time"),
@@ -94,12 +116,23 @@ def build_seal(
     }
 
 
-def open_access_log(path: Path, seal: dict, at: str) -> Ledger:
-    """The access log starts with the seal itself, so the log and seal are bound together."""
+def seal_evaluation_view(evaluation: dict, seal: dict) -> dict:
+    """Stamp the evaluation view with the seal that committed it."""
+    require(evaluation.get("view") == "evaluation" and evaluation.get("sealSha256") is None, "seal_requires_unsealed_evaluation_view")
+    require(document_sha256(evaluation) == seal["evaluationGroundTruthSha256"], "evaluation_view_not_the_sealed_one")
+    return {**evaluation, "sealSha256": document_sha256(seal)}
+
+
+def open_access_log(path: Path, seal: dict, at: str, create: bool = False) -> Ledger:
+    """The access log starts with the seal itself, so the log and seal are bound together.
+    Only sealing creates it; any other caller refuses a missing or empty log."""
     log = Ledger(path)
     seal_sha = document_sha256(seal)
     if not log.entries:
+        require(create, "access_log_missing_or_empty")
         log.append("seal-created", {"sealSha256": seal_sha}, at)
+    else:
+        require(not create, "access_log_already_exists")
     require(log.entries[0]["kind"] == "seal-created" and log.entries[0]["payload"]["sealSha256"] == seal_sha, "access_log_seal_mismatch")
     return log
 

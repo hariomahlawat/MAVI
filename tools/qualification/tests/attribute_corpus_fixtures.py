@@ -100,6 +100,7 @@ def policy(**overrides: object) -> dict:
         "policyId": "s2c1-partition-policy",
         "version": "1",
         "seed": "fixture-seed",
+        "dateEpoch": "2026-03-02",
         "dateBlockDays": 3,
         "heldOutSites": 1,
         "frozenLatestBlockFraction": 0.25,
@@ -109,3 +110,23 @@ def policy(**overrides: object) -> dict:
     }
     base.update(overrides)
     return base
+
+
+def frozen_task(candidate):
+    """Freeze a confirmed candidate with no changes (fixture pilot report, correctly hashed)."""
+    from attributes.corpus import task as task_module
+    from attributes.corpus.canonical import document_sha256
+
+    report = {"schemaVersion": "mavi-attribute-pilot-report-v1", "corpusKind": "synthetic-fixture", "taskSha256": candidate.sha256}
+    report["reportSha256"] = document_sha256(report)
+    decision = {
+        "schemaVersion": "mavi-attribute-task-freeze-decision-v1",
+        "decidedBy": "owner-1",
+        "decidedAt": "2026-10-09T09:00:00Z",
+        "valueMerges": [],
+        "attributeMerges": [],
+        "valueRemovals": [],
+        "attributeRemovals": [],
+        "rationale": "fixture freeze",
+    }
+    return task_module.parse_task(task_module.freeze_task(candidate, report, decision))

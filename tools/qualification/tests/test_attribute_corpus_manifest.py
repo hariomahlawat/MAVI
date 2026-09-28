@@ -130,8 +130,11 @@ def test_manifest_refusals(mutate, code: str) -> None:
 
 
 def test_path_leak_guard_allows_ordinary_prose_but_not_paths() -> None:
-    refuse_path_leaks({"note": "upper/lower garments; see guide §3"})
-    for leak in ("/home/user/crops/", "/mnt", "see /evidence", "~/evidence", "D:\\evidence", "file:x", "\\\\server\\share", "https://example.invalid/x"):
+    refuse_path_leaks({"note": "upper/lower garments; day/night; S2c.2/S2c.3; see guide §3", "sourceClass": "h264-recorded"})
+    for leak in (
+        "/home/user/crops/", "/mnt", "see /evidence", "~/evidence", "D:\\evidence", "file:x", "\\\\server\\share", "https://example.invalid/x",
+        "crops:/mnt/x", "[/mnt/x]", "a,/srv/c", "private/crops/cam3/a.jpg", "frame-0001.PNG", "clip.mp4", "%2Fmnt%2Fx", "..%5cx",
+    ):
         with pytest.raises(CorpusError):
             refuse_path_leaks({"note": leak})
 

@@ -33,7 +33,7 @@ from .annotation import (
 from .canonical import CorpusError, document_sha256, lf_normalised_sha256, read_json, write_canonical
 from .duplicates import build_duplicate_audit, directory_reader, fingerprint_corpus, parse_duplicate_audit
 from .f1 import check_file
-from .frozen import access_frozen, build_seal, declare_improper_access, open_access_log, seal_status
+from .frozen import access_frozen, build_seal, declare_improper_access, open_access_log, seal_evaluation_view, seal_status
 from .ledger import Ledger
 from .manifest import parse_corpus
 from .partition import build_partition, verify_partition
@@ -103,15 +103,16 @@ def main(argv: list[str] | None = None) -> int:
     add("submit", ("--ledger", p(required=True)), ("--assignment", p(required=True)), ("--task", p()), ("--labels-csv", p(required=True)), ("--batch-id", {"required": True}), ("--active-seconds", {"type": int}), ("--out", p(required=True)))
     add("reveal", ("--ledger", p(required=True)), ("--id", {"required": True}), ("--recipient", {"required": True}), ("--units", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--task", p()), ("--out", p(required=True)))
     for name in ("agreement", "pilot-report"):
-        add(name, ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--task", p()), ("--ledger", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--adjudications", {"type": Path, "nargs": "*", "default": []}), ("--phase", {"choices": ("pilot", "main"), "default": "main"}), ("--out", p(required=True)), ("--markdown", p()))
+        add(name, ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--task", p()), ("--ledger", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--adjudications", {"type": Path, "nargs": "*", "default": []}), ("--phase", {"choices": ("pilot", "main"), "default": "main"}), ("--include-frozen-custodian-only", {"action": "store_true"}), ("--out", p(required=True)), ("--markdown", p()))
+    add("adjudicate", ("--ledger", p(required=True)), ("--adjudication", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--task", p()))
     add("freeze-task", ("--task", p(required=True)), ("--pilot-report", p(required=True)), ("--decision", p(required=True)), ("--out", p(required=True)))
     add("ground-truth", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--task", p(required=True)), ("--ledger", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--adjudications", {"type": Path, "nargs": "*", "default": []}), ("--evaluation-out", p(required=True)), ("--frozen-out", p(required=True)))
-    add("seal", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--frozen", p(required=True)), ("--ledger", p(required=True)), ("--by", {"required": True}), ("--custody-note", {"required": True}), ("--access-log", p(required=True)), ("--out", p(required=True)))
+    add("seal", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--frozen", p(required=True)), ("--evaluation", p(required=True)), ("--sealed-evaluation-out", p(required=True)), ("--ledger", p(required=True)), ("--by", {"required": True}), ("--custody-note", {"required": True}), ("--access-log", p(required=True)), ("--out", p(required=True)))
     add("frozen-access", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--frozen", p(required=True)), ("--actor", {"required": True}), ("--purpose", {"required": True}), ("--stage", {"required": True}))
     add("declare-improper-access", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--actor", {"required": True}), ("--stage", {"required": True}), ("--description", {"required": True}))
     add("seal-status", ("--seal", p(required=True)), ("--access-log", p(required=True)), ("--recorded-head", {}))
     add("report", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--ground-truth", p()), ("--out", p(required=True)), ("--markdown", p()))
-    add("check-f1", ("--record", p(required=True)))
+    add("check-f1", ("--record", p(required=True)), ("--store", p()))
     add("guide-sha256", ("--guide", p(required=True)))
 
     args = parser.parse_args(argv)
@@ -131,14 +132,14 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         corpus = parse_corpus(read_json(args.corpus))
         links, hashes = _links(corpus, args.recurrence, args.duplicates)
         document = build_partition(corpus, read_json(args.policy), links, hashes)
-        verify_partition(corpus, document, links)
+        verify_partition(corpus, document, links, hashes)
         _emit(args.out, document)
         for limitation in document["checks"]["limitations"]:
             print(f"limitation: {limitation}")
     elif command == "verify-partition":
         corpus = parse_corpus(read_json(args.corpus))
-        links, _ = _links(corpus, args.recurrence, args.duplicates)
-        verify_partition(corpus, read_json(args.partition), links)
+        links, hashes = _links(corpus, args.recurrence, args.duplicates)
+        verify_partition(corpus, read_json(args.partition), links, hashes)
         print("partition verified")
     elif command == "duplicates":
         corpus = parse_corpus(read_json(args.corpus))
@@ -193,11 +194,18 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         else:
             object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for a in assignments.values() for u in a["units"]}
             adjudicated = {key for path in args.adjudications for key in parse_adjudication(read_json(path), task, object_class)}
-            document = agreement_report(args.phase, corpus, partition, document_sha256(partition), task.sha256, batches, assignments, ledger.annotators(), adjudicated, registered)
+            document = agreement_report(args.phase, corpus, partition, document_sha256(partition), task.sha256, batches, assignments, ledger.annotators(), adjudicated, registered, args.include_frozen_custodian_only)
             markdown = render_agreement(document)
         _emit(args.out, document)
         if args.markdown:
             args.markdown.write_text(markdown, encoding="utf-8")
+    elif command == "adjudicate":
+        task = _task(args.task)
+        assignments = [read_json(path) for path in args.assignments]
+        object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for a in assignments for u in a["units"]}
+        document = read_json(args.adjudication)
+        parse_adjudication(document, task, object_class)
+        AnnotationLedger(args.ledger).record_adjudication(document, _now())
     elif command == "freeze-task":
         _emit(args.out, freeze_task(parse_task(read_json(args.task)), read_json(args.pilot_report), read_json(args.decision)))
     elif command == "ground-truth":
@@ -208,16 +216,18 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         assignments = {a["assignmentId"]: a for a in map(read_json, args.assignments)}
         object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for a in assignments.values() for u in a["units"]}
         adjudications = [parse_adjudication(read_json(path), task, object_class) for path in args.adjudications]
-        truth = build_ground_truth(corpus, partition, document_sha256(partition), task, _load_batches(args.batches, assignments, task), adjudications, ledger)
+        truth = build_ground_truth(corpus, partition, document_sha256(partition), task, _load_batches(args.batches, assignments, task), adjudications, ledger, assignments)
         evaluation, frozen = split_ground_truth(truth, None)
         _emit(args.evaluation_out, evaluation)
         _emit(args.frozen_out, frozen)
     elif command == "seal":
         corpus = parse_corpus(read_json(args.corpus))
         partition = read_json(args.partition)
-        seal = build_seal(corpus, partition, document_sha256(partition), read_json(args.frozen), AnnotationLedger(args.ledger).head, args.by, _now(), args.custody_note)
+        evaluation = read_json(args.evaluation)
+        seal = build_seal(corpus, partition, document_sha256(partition), read_json(args.frozen), evaluation, AnnotationLedger(args.ledger).head, args.by, _now(), args.custody_note)
+        open_access_log(args.access_log, seal, _now(), create=True)
         _emit(args.out, seal)
-        open_access_log(args.access_log, seal, _now())
+        _emit(args.sealed_evaluation_out, seal_evaluation_view(evaluation, seal))
     elif command == "frozen-access":
         seal = read_json(args.seal)
         result = access_frozen(open_access_log(args.access_log, seal, _now()), seal, args.frozen, args.actor, args.purpose, args.stage, _now())
@@ -239,7 +249,7 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         if args.markdown:
             args.markdown.write_text(render_report(document), encoding="utf-8")
     elif command == "check-f1":
-        verdict = check_file(args.record)
+        verdict = check_file(args.record, store=args.store)
         print(json.dumps(verdict, indent=2, sort_keys=True))
     elif command == "guide-sha256":
         print(lf_normalised_sha256(args.guide))

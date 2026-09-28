@@ -113,14 +113,25 @@ def agreement_report(
     annotators: dict[str, bool],
     adjudicated: set[tuple[str, str]],
     registered_batches: set[str],
+    include_frozen: bool = False,
 ) -> dict:
+    """Agreement over the evaluation partitions only, unless ``include_frozen``.
+
+    Frozen-test label distributions (counts, confusion, unscorable rate) must not reach
+    Git or the evaluation environment (R1 step 2). A report with ``include_frozen`` is a
+    custodian-only record, marked as such, kept with the frozen labels.
+    """
     for batch, _ in batches:
         # Only ledger-registered batches count: a label that bypassed the independence rules cannot enter a statistic.
         require(document_sha256(batch) in registered_batches, f"agreement_batch_not_in_ledger:{batch['batchId']}")
         require(assignments[batch["assignmentId"]]["phase"] == phase, "agreement_phase_mismatch")
         require(assignments[batch["assignmentId"]]["taskSha256"] == task_sha256, "agreement_task_mismatch")
-    grouped = independent_labels(batches, assignments)
     parts = partition_of(partition)
+    grouped = {
+        key: entries
+        for key, entries in independent_labels(batches, assignments).items()
+        if include_frozen or parts[key[0].split(":")[1]] != "frozen-test"
+    }
     attributes: dict[str, dict] = defaultdict(lambda: {"all": [], "double": []})
     for (unit, attribute), entries in sorted(grouped.items()):
         attributes[attribute]["all"].append((unit, entries))
@@ -172,6 +183,7 @@ def agreement_report(
     document = {
         "schemaVersion": REPORT_SCHEMA,
         "phase": phase,
+        "scope": "custodian-only-including-frozen-test" if include_frozen else "evaluation-partitions",
         "corpusKind": corpus.corpus_kind,
         "corpusManifestSha256": corpus.sha256,
         "partitionManifestSha256": partition_sha256,
@@ -179,7 +191,7 @@ def agreement_report(
         "batchSha256s": sorted(document_sha256(b) for b, _ in batches),
         "annotators": {"count": len({b["annotatorId"] for b, _ in batches}), "independent": sorted(a for a in {b["annotatorId"] for b, _ in batches} if annotators.get(a))},
         "totals": {
-            "labels": sum(len(labels) for _, labels in batches),
+            "labels": sum(len(entries) for entries in grouped.values()),
             "units": len({unit for (unit, _a) in grouped}),
             "doubleLabelledUnits": len({unit for (unit, _a), e in grouped.items() if len(e) >= 2}),
         },
