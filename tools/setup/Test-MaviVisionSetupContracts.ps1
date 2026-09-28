@@ -441,7 +441,7 @@ try {
     $bundleOnly = Join-Path $tempRoot "runtime-only"
     New-RuntimePack -Root (Join-Path $bundleOnly "windows-x86_64-cpu") -Variant "windows-x86_64-cpu"
     $runtimeOnlyBinding = New-TwoPackBinding -Directory (Join-Path $bundleOnly "binding")
-    Assert-RefusedBeforeInstall -Name "runtime-only" -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $bundleOnly; Origin = "explicit" }) -Binding $runtimeOnlyBinding -Fragment "kit_incomplete:$modelA"
+    Assert-RefusedBeforeInstall -Name "runtime-only" -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $bundleOnly; Origin = "explicit" }) -Binding $runtimeOnlyBinding -Fragment "kit_incomplete:${modelA}: the Runtime Bundle"
     # ...and with the bound packs already installed the Runtime Bundle path installs only the runtime.
     Reset-Calls
     $manual = Invoke-VisionSetup -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $bundleOnly; Origin = "explicit" }) -Binding $happyBinding -StoreRoot $happyStore -Compose

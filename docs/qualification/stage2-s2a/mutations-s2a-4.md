@@ -6,9 +6,9 @@
 
 ## Procedure
 
-Each mutation replaced one exact anchor in one file. The guarding suites were then run and the file was restored byte for byte, with its SHA-256 checked after restoration. A mutation counts as **caught** only if at least one guarding suite fails. The four mutations the plan requires are M01 (binding-SHA check), M03 and M04 (the full required-model loop, on the Python and PowerShell sides), M05 (the final compatibility assertion) and M07 (revision made a hard gate).
+Each mutation replaced one exact anchor in one file. The guarding suites were then run and the file was restored byte for byte, with its SHA-256 checked after restoration. A mutation counts as **caught** only if at least one guarding suite fails. A committed, green baseline and a clean working tree are checked before the first mutation and between mutations (a run interrupted by a container restart once left a mutation in place; the guard makes that impossible to miss). The four mutations the plan requires are M01 (binding-SHA check), M03 and M04 (the full required-model loop, on the Python and PowerShell sides), M05 (the final compatibility assertion) and M07 (revision made a hard gate).
 
-## Results: 26 of 26 caught
+## Results: 28 of 28 caught
 
 | Id | Mutation | File | Caught by |
 |---|---|---|---|
@@ -25,8 +25,8 @@ Each mutation replaced one exact anchor in one file. The guarding suites were th
 | M11 | CPU runtime chosen by inventory order, not by id | `tools/vision/sync_offline_vision_components.py` | `test_a_kit_without_the_bound_windows_runtime_pack_is_incomplete`; Setup contracts (`runtime_requirement_mismatch:platformVariant` on the reordered kit) |
 | M12 | D-1: a legacy `bundle-manifest.json` not diagnosed as not installable | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: "not an installable Runtime Pack" expected |
 | M13 | D-1: the sibling bundle is seen only when it has a `runtime-pack-manifest.json` (a legacy bundle becomes "absent") | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: a legacy sibling bundle is a source to report, not an absent one |
-| M14 | Runtime Bundle id check removed | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: foreign CPU pack refused with `kit_unbound_component` |
-| M15 | Runtime Bundle: Model Pack presence check removed | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: runtime-only bundle refused with `kit_incomplete:<modelPackId>` before install |
+| M14 | Runtime Bundle pack id check removed (any CPU pack accepted) | `tools/vision/sync_offline_vision_components.py` | `test_a_runtime_bundle_pack_that_is_not_the_bound_one_is_refused`; Setup contracts: foreign CPU pack refused with `kit_unbound_component` (moved from the PowerShell locator, which no longer duplicates the check) |
+| M15 | Runtime Bundle: Model Pack presence check removed | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: the runtime-only bundle is refused with the "not installed" diagnosis (first survived because the integrity check below still refused the missing pack with the same code; the case now pins the message) |
 | M16 | Runtime Bundle: first manifest taken regardless of variant | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: flat CPU bundle offers no CUDA pack (added after this mutation first survived) |
 | M17 | explicit `MAVI_VISION_BUNDLE_ROOT` ignored when a bundle kit exists | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: the explicit root wins over the bundle kit |
 | M18 | a missing explicit root falls back instead of failing | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: "is not a directory" expected |
@@ -37,7 +37,9 @@ Each mutation replaced one exact anchor in one file. The guarding suites were th
 | M23 | launcher `-VerifyOnly` returns nowhere (check removed) | `tools/setup/Start-MaviVisionWorker.ps1` | Setup contracts: `-VerifyOnly` must stop after the compatibility assertion and before the worker starts |
 | M24 | Setup restores a `bundle-manifest.json` probe | `tools/setup/Setup-MAVI.ps1` | Setup contracts: D-1 source pin |
 | M25 | combined setup bundle omits the Vision component store (PR review, added after it) | `tools/setup/New-MaviOfflineSetupBundle.ps1` | Setup contracts: bundle-builder source pin |
-| M26 | Runtime Bundle preflight trusts an installed Model Pack's status without the launcher's state/integrity checks (owner review, added after it) | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: a corrupt artefact or stale `model-install.json` is refused before the Runtime Pack is installed (without the check it surfaces only at readiness, after the runtime install) |
+| M26 | Runtime Bundle preflight trusts an installed Model Pack's status (integrity check bypassed) | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: wrong-size, same-size hash, missing and undeclared artefacts and an unbound `model-install.json` are each refused before any installer runs (without the check they surface only at readiness, after the Runtime Pack install) |
+| M27 | Runtime Bundle packs used as located, not proven by the component validator | `tools/setup/Mavi.VisionSetup.psm1` | Setup contracts: foreign CPU pack, damaged CPU and damaged CUDA pack refused before any installer runs |
+| M28 | `plan --runtime-pack` skips the component validator | `tools/vision/sync_offline_vision_components.py` | `test_a_damaged_runtime_bundle_pack_fails_the_plan[…]`; Setup contracts |
 
 M16 first survived: no case put a Runtime Pack at the bundle root. The flat-bundle case was added, and M16 is now caught.
 
