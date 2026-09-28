@@ -197,6 +197,27 @@ def confirm_rules(task_document: dict, confirmed_by: str, confirmed_at: str, ove
     return document
 
 
+RAISABLE_RULES = ("minimumValueAlpha", "minimumScorabilityAlpha", "minimumDoubleLabelledUnitsPerAttribute")
+
+
+def verify_confirmed_candidate(committed: dict, confirmed: dict) -> None:
+    """``confirmed`` must be the committed candidate task with only an owner confirmation of
+    its pilot rules: every other field identical; the raisable thresholds equal or higher;
+    every other rule (for example ``mergeConfusionShare``) unchanged. A candidate with
+    lowered thresholds, or a different vocabulary, cannot stand behind the pilot."""
+    require({k: v for k, v in committed.items() if k != "pilotDecisionRules"} == {k: v for k, v in confirmed.items() if k != "pilotDecisionRules"}, "candidate_differs_from_committed")
+    proposed, rules = committed["pilotDecisionRules"], confirmed["pilotDecisionRules"]
+    require(proposed["status"] == "proposed" and rules["status"] == "owner-confirmed" and rules.get("ownerConfirmation"), "candidate_rules_not_owner_confirmed")
+    require(set(rules) == set(proposed), "candidate_rules_keys_changed")
+    for key, value in proposed.items():
+        if key in ("status", "ownerConfirmation"):
+            continue
+        if key in RAISABLE_RULES:
+            require(isinstance(rules[key], (int, float)) and rules[key] >= value, f"candidate_rules_lowered:{key}")
+        else:
+            require(rules[key] == value, f"candidate_rules_changed:{key}")
+
+
 def attribute_verdicts(task: Task, agreement: dict, rules: dict) -> dict[str, dict]:
     """The pilot's per-attribute verdict under the owner-confirmed rules (deterministic).
 

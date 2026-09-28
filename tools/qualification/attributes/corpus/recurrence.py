@@ -42,6 +42,16 @@ from .partition import LinkGroup
 RECURRENCE_SCHEMA = "mavi-attribute-recurrence-audit-v1"
 RECALL_METHOD = "recall-sample-v1"
 RECALL_DECISIONS = ("recurrence", "not-recurrence", "uncertain")
+# Provisional floor on the reviewed pairs; the owner may require more (never fewer). With
+# zero recurrences found in n random pairs, the one-sided 95% upper bound on the missed
+# rate is about 3/n: 100 pairs bound it near 3%.
+RECALL_MINIMUM_PAIRS = 100
+
+
+def recall_seed(partition_sha256: str, groups_sha256: str) -> str:
+    """The seed is derived from the inputs, never chosen: a sample that found a recurrence
+    cannot be quietly replaced by a redraw with another seed."""
+    return f"{RECALL_METHOD}:{partition_sha256}:{groups_sha256}"
 STATUSES = ("proposed", "confirmed", "rejected")
 PROPOSERS = ("reviewer", "similarity-pass")
 
@@ -57,7 +67,7 @@ def parse_recurrence(document: dict, corpus: CorpusManifest) -> tuple[str, list[
         scode = f"{code}:recallSample"
         require_keys(sample, scode, ("method", "seed", "sampleSize", "populationSha256", "pairs", "by", "date", "note"))
         require(sample["method"] == RECALL_METHOD, f"{scode}:method")
-        require(isinstance(sample["seed"], str) and 1 <= len(sample["seed"]) <= 128, f"{scode}:seed")
+        require(isinstance(sample["seed"], str) and sample["seed"].startswith(f"{RECALL_METHOD}:"), f"{scode}:seed")
         require(isinstance(sample["sampleSize"], int) and not isinstance(sample["sampleSize"], bool) and sample["sampleSize"] >= 1, f"{scode}:size")
         require_sha256(sample["populationSha256"], scode)
         require(isinstance(sample["pairs"], list) and len(sample["pairs"]) == sample["sampleSize"], f"{scode}:pairs")
@@ -130,14 +140,16 @@ def recall_population_sha256(corpus_sha256: str, partition_sha256: str, groups_s
     )
 
 
-def draw_recall_sample(corpus: CorpusManifest, partition: dict, partition_sha256: str, groups_sha256: str, seed: str, size: int) -> dict:
+def draw_recall_sample(corpus: CorpusManifest, partition: dict, partition_sha256: str, groups_sha256: str, size: int) -> dict:
     """Deterministic sample of ``size`` distinct cross-partition, same-class Track pairs.
 
     Two seeded permutations P1, P2 of the Tracks; step i pairs P1[i mod n] with
     P2[(i div n + i) mod n], which visits every ordered pair once, in a seed-determined
-    order. Invalid pairs (same Track, different class, same partition) and repeats are
+    order (the seed is ``recall_seed``). A larger sample extends a smaller one, so a sample
+    cannot be regrown to push a found recurrence out. Invalid pairs (same Track, different class, same partition) and repeats are
     skipped. The decisions start empty for the reviewer to fill."""
     require(isinstance(size, int) and size >= 1, "recall_sample_size")
+    seed = recall_seed(partition_sha256, groups_sha256)
     parts = {a["trackId"]: a["partition"] for a in partition["assignments"]}
     require(set(parts) == set(corpus.tracks), "recall_sample_partition_mismatch")
     first = sorted(corpus.tracks, key=lambda t: hash_rank(seed, "recall-a", t))

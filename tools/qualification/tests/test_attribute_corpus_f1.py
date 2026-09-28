@@ -37,7 +37,7 @@ from attributes.corpus.frozen import build_seal, declare_improper_access, open_a
 from attributes.corpus.manifest import parse_corpus, revise_corpus
 from attributes.corpus.partition import build_partition
 from attributes.corpus.pilot import pilot_report, sample_pilot_tracks
-from attributes.corpus.recurrence import draw_recall_sample, parse_recurrence, recurrence_document_sha256
+from attributes.corpus.recurrence import RECALL_MINIMUM_PAIRS, draw_recall_sample, parse_recurrence, recurrence_document_sha256
 from attributes.corpus.task import attribute_verdicts
 from attributes.corpus.task import load_task, parse_task
 
@@ -78,19 +78,22 @@ def _conflicting_choice(unit, attribute):
     return base
 
 
-def reviewed_recall_sample(corpus, partition, groups_sha, decision="not-recurrence", size=50):
-    sample = draw_recall_sample(corpus, partition, document_sha256(partition), groups_sha, "recall-seed", size)
+def reviewed_recall_sample(corpus, partition, groups_sha, decision="not-recurrence", size=RECALL_MINIMUM_PAIRS):
+    sample = draw_recall_sample(corpus, partition, document_sha256(partition), groups_sha, size)
     for pair in sample["pairs"]:
         pair["decision"] = decision
     return {**sample, "by": "reviewer-1", "date": "2026-10-02", "note": "second reviewer, reproducible sample"}
 
 
-def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, context: dict | None = None, single_labelled_class: str | None = None, abandoned_pilot: bool = False, pilot_choose_b=None, forge_freeze: bool = False, conflicts: str | None = None, **policy_overrides: object) -> tuple[dict, Path]:
+def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, tracks_per_source: int = 4, main_guide: str | None = None, seal: bool = True, context: dict | None = None, single_labelled_class: str | None = None, abandoned_pilot: bool = False, pilot_choose_b=None, forge_freeze: bool = False, conflicts: str | None = None, candidate_edit=None, recall_size: int = RECALL_MINIMUM_PAIRS, **policy_overrides: object) -> tuple[dict, Path]:
     """Run the whole S2c.1 workflow and retain every record in a hash-addressed store."""
     store = tmp / "store"
     store.mkdir()
     guide = tmp / "guide.md"
     guide.write_text("# guide\n")
+    committed_candidate = json.loads(COMMITTED.read_text())["attributeTask"]["candidatePath"]
+    (tmp / committed_candidate).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(REPO / committed_candidate, tmp / committed_candidate)
     guide_sha = lf_normalised_sha256(guide)
     raw_corpus = build_corpus(sites=4, cameras_per_site=3, days=12, tracks_per_source=tracks_per_source, kind=kind)
     corpus = parse_corpus(raw_corpus)
@@ -103,13 +106,16 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
     partition = build_partition(corpus, policy(**policy_overrides), recurrence_links + duplicate_links, {"recurrence": recurrence_sha, "duplicate": duplicate_sha})
     psha = document_sha256(partition)
     if recall:
-        recurrence["recallSample"] = reviewed_recall_sample(corpus, partition, recurrence_sha)
+        recurrence["recallSample"] = reviewed_recall_sample(corpus, partition, recurrence_sha, size=recall_size)
     recurrence_doc_sha = recurrence_document_sha256(recurrence)
 
     ledger = AnnotationLedger(store / ANNOTATION_LEDGER)
     ledger.register_annotator("ann-a", False, T0)
     ledger.register_annotator("ann-b", True, T0)
-    candidate = parse_task(task_module.confirm_rules(load_task().document, "owner-1", "2026-10-01T09:00:00Z"))
+    confirmed = task_module.confirm_rules(load_task().document, "owner-1", "2026-10-01T09:00:00Z")
+    if candidate_edit:
+        candidate_edit(confirmed)
+    candidate = parse_task(confirmed)
     retained: list[dict] = [candidate.document]
     pilot_units = [("track", t, None) for t in sample_pilot_tracks(corpus, partition, 160, "pilot-seed")]
     assignments, batches = {}, []
@@ -119,7 +125,11 @@ def build_chain(tmp: Path, kind: str = "operational", recall: bool = True, track
         assignments[a["assignmentId"]], batches = a, batches + [b]
     if abandoned_pilot:  # issued, never submitted: the report below silently omits it
         spare = next(t for t in sample_pilot_tracks(corpus, partition, 400, "spare") if ("track", t, None) not in pilot_units)
-        ledger.issue_assignment(build_assignment("pilot-abandoned", "ann-a", "pilot", "independent", [("track", spare, None)], corpus, partition, psha, candidate, guide_sha), T0)
+        abandoned = build_assignment("pilot-abandoned", "ann-a", "pilot", "independent", [("track", spare, None)], corpus, partition, psha, candidate, guide_sha)
+        ledger.issue_assignment(abandoned, T0)
+        retained.append(abandoned)
+        if abandoned_pilot == "forged-cancellation":  # hidden by a hand-written cancellation
+            ledger.append("assignment-cancelled", {"assignmentId": "pilot-abandoned", "actor": "custodian-1", "reason": "hand-written", "replacementAssignmentId": "pilot-ann-b"}, T0)
     pilot = pilot_report(candidate, corpus, partition, psha, batches, assignments, ledger.annotators(), set(ledger.batch_hashes()))
     # The owner follows the pilot: anything it did not keep is removed.
     removals = sorted(name for name, v in attribute_verdicts(candidate, pilot["agreement"], candidate.document["pilotDecisionRules"]).items() if v["recommendation"] != "keep")
@@ -563,6 +573,7 @@ def test_r1_recovery_needs_new_footage_and_then_reaches_pass(tmp_path) -> None:
     ledger.register_annotator("ann-late", True, T0)
     late = build_assignment("late-1", "ann-late", "main", "independent", new_units[:1], corpus, partition, psha, task, record["annotationGuide"]["frozenSha256"])
     ledger.issue_assignment(late, T0)
+    write_canonical(store / f"{document_sha256(late)}.json", late)
     with pytest.raises(CorpusError, match="f1_labels_recorded_after_sealed_ground_truth"):
         f1_verdict(record, tmp_path, store)
 
@@ -648,7 +659,7 @@ def test_f1_accepts_a_genuine_reveal_and_adjudication(tmp_path) -> None:
 def test_f1_refuses_an_adjudication_built_on_an_incomplete_reveal(tmp_path) -> None:
     """A packet showing only the favourable annotator, forged straight into the ledger."""
     record, store = build_chain(tmp_path, conflicts="forged")
-    with pytest.raises(CorpusError, match="f1_reveal_packet_not_reproducible"):
+    with pytest.raises(CorpusError, match="ledger_reveal_packet_not_canonical|f1_reveal_packet_not_reproducible"):
         f1_verdict(record, tmp_path, store)
 
 
@@ -669,9 +680,12 @@ def test_the_recall_sample_is_reproducible_from_seed_and_inputs(tmp_path) -> Non
     build_chain(tmp_path, context=ctx)
     corpus, partition = ctx["corpus"], ctx["partition"]
     groups = ctx["hashes"]["recurrence"]
-    first = draw_recall_sample(corpus, partition, document_sha256(partition), groups, "seed-1", 25)
-    assert first == draw_recall_sample(corpus, partition, document_sha256(partition), groups, "seed-1", 25)
-    assert first["pairs"] != draw_recall_sample(corpus, partition, document_sha256(partition), groups, "seed-2", 25)["pairs"]
+    first = draw_recall_sample(corpus, partition, document_sha256(partition), groups, 25)
+    assert first == draw_recall_sample(corpus, partition, document_sha256(partition), groups, 25)
+    # The seed is derived from the inputs: other groups (or another partition) give another sample.
+    assert first["pairs"] != draw_recall_sample(corpus, partition, document_sha256(partition), "0" * 64, 25)["pairs"]
+    # A larger sample extends the smaller one, so regrowing cannot push a found pair out.
+    assert draw_recall_sample(corpus, partition, document_sha256(partition), groups, 40)["pairs"][:25] == first["pairs"]
     parts = {a["trackId"]: a["partition"] for a in partition["assignments"]}
     for pair in first["pairs"]:
         a, b = pair["trackIds"]
@@ -745,3 +759,55 @@ def test_a_failed_seal_write_leaves_nothing_behind_and_retries_cleanly(tmp_path,
     monkeypatch.setattr(cli, "write_canonical", real)
     assert main(args) == 0
     assert (custody / "access.jsonl").exists() and len(AnnotationLedger(store / ANNOTATION_LEDGER).seals()) == 1
+
+
+
+# ---- second focused review ---------------------------------------------------------------------
+
+
+def test_a_tiny_or_reseeded_recall_sample_does_not_pass(tmp_path) -> None:
+    record, store = build_chain(tmp_path, recall_size=1)
+    assert f1_verdict(record, tmp_path, store)["missing"] == [f"recall sample of at least {RECALL_MINIMUM_PAIRS} reviewed pairs (has 1)"]
+    (tmp_path / "again").mkdir()
+    record, store2 = build_chain(tmp_path / "again")
+    with pytest.raises(CorpusError, match="f1_recall_sample_seed_not_derived"):
+        f1_verdict(_with_sample(record, store2, lambda s: s.update(seed="recall-sample-v1:chosen")), tmp_path / "again", store2)
+
+
+def test_the_candidate_behind_the_pilot_must_be_the_committed_one(tmp_path) -> None:
+    def lowered(document):
+        document["pilotDecisionRules"]["minimumValueAlpha"] = -1.0
+
+    record, store = build_chain(tmp_path, candidate_edit=lowered)
+    with pytest.raises(CorpusError, match="candidate_rules_lowered:minimumValueAlpha"):
+        f1_verdict(record, tmp_path, store)
+    (tmp_path / "share").mkdir()
+    record, store2 = build_chain(tmp_path / "share", candidate_edit=lambda d: d["pilotDecisionRules"].update(mergeConfusionShare=0.0))
+    with pytest.raises(CorpusError, match="candidate_rules_changed:mergeConfusionShare"):
+        f1_verdict(record, tmp_path / "share", store2)
+    (tmp_path / "vocab").mkdir()
+
+    def more_colours(document):
+        entry = next(a for a in document["attributes"] if a["attributeType"] == "vehicle-colour")
+        entry["values"] = sorted([*entry["values"], "teal"])
+
+    record, store3 = build_chain(tmp_path / "vocab", candidate_edit=more_colours)
+    with pytest.raises(CorpusError, match="candidate_differs_from_committed"):
+        f1_verdict(record, tmp_path / "vocab", store3)
+
+
+def test_seal_never_overwrites_an_existing_output(tmp_path, capsys) -> None:
+    record, store = build_chain(tmp_path, seal=False)
+    custody = tmp_path / "custody"
+    (custody / "seal.json").write_text("{\"kept\": true}\n")
+    assert main(_seal_args(tmp_path, store, "access.jsonl", "seal.json")) == 2
+    assert "seal_output_exists:seal.json" in capsys.readouterr().err
+    assert (custody / "seal.json").read_text() == "{\"kept\": true}\n" and not (custody / "access.jsonl").exists()
+
+
+def test_f1_replays_the_ledger_and_refuses_a_hand_written_cancellation(tmp_path) -> None:
+    """The ledger's own completeness check is fooled by the forged entry; only the replay of
+    the cancellation rule refuses it."""
+    record, store = build_chain(tmp_path, abandoned_pilot="forged-cancellation")
+    with pytest.raises(CorpusError, match="ledger_cancel_replacement_(mismatch|not_fresh)"):
+        f1_verdict(record, tmp_path, store)

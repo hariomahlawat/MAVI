@@ -23,6 +23,7 @@ from test_attribute_corpus_annotation import (  # noqa: F401 - the ``world`` fix
 
 from attributes.corpus import task as task_module
 from attributes.corpus.annotation import (
+    AnnotationLedger,
     build_assignment,
     build_batch,
     build_ground_truth,
@@ -92,12 +93,13 @@ def test_every_issued_assignment_submitted_once_passes_and_duplicates_are_refuse
 
 def test_cancellation_only_for_an_identical_replacement_before_any_label_is_visible(world) -> None:
     world["ledger"].register_annotator("ann-c", True, T0)
+    world["ledger"].register_annotator("ann-d", True, T0)
     units = [("track", t, None) for t in sorted(world["corpus"].tracks)[:3]]
     leaving = _issue(world, "main-leaving", "ann-a", "main", units)
     other = _issue(world, "main-b", "ann-b", "main", units)
     with pytest.raises(CorpusError, match="ledger_cancel_requires_replacement"):
         world["ledger"].cancel_assignment("main-leaving", "custodian-1", "annotator left", "no-such", T0)
-    narrower = _issue(world, "main-narrow", "ann-c", "main", units[:2])
+    narrower = _issue(world, "main-narrow", "ann-d", "main", units[:2])
     with pytest.raises(CorpusError, match="ledger_cancel_replacement_mismatch"):
         world["ledger"].cancel_assignment("main-leaving", "custodian-1", "annotator left", narrower["assignmentId"], T0)
     _submit(world, narrower)
@@ -128,8 +130,10 @@ def test_late_cancellation_after_labels_or_a_reveal_is_refused(world) -> None:
     keys = [unit_key(*u) for u in units]
     shown = [batch_a, batch_b, batch_c]
     world["ledger"].issue_reveal(build_reveal_packet("reveal-1", "ann-c", keys, "main", shown), shown, T0)
-    late = _issue(world, "main-late", "ann-a", "main", units)
-    replacement_late = _issue(world, "main-late-c", "ann-b", "main", units)
+    world["ledger"].register_annotator("ann-e", True, T0)
+    world["ledger"].register_annotator("ann-f", True, T0)
+    late = _issue(world, "main-late", "ann-e", "main", units)
+    replacement_late = _issue(world, "main-late-f", "ann-f", "main", units)
     with pytest.raises(CorpusError, match="ledger_cancel_after_reveal"):
         world["ledger"].cancel_assignment(late["assignmentId"], "custodian-1", "after the reveal", replacement_late["assignmentId"], T0)
 
@@ -273,3 +277,98 @@ def test_pilot_thresholds_cannot_be_lowered_after_the_pilot() -> None:
         task_module.freeze_task(candidate, lowered, _decision())
     with pytest.raises(CorpusError, match="rules_override_lowers"):
         task_module.confirm_rules(load_task().document, "owner-1", "2026-10-01T09:00:00Z", {"minimumValueAlpha": 0.4})
+
+
+# ---- the ledger is re-checked, not trusted (second focused review) ---------------------------
+
+
+def _loader(*documents):
+    by_sha = {document_sha256(d): d for d in documents}
+
+    def load(sha, what):
+        if sha not in by_sha:
+            raise CorpusError(f"f1_record_missing:{what}")
+        return by_sha[sha]
+
+    return load
+
+
+def test_replay_accepts_the_tool_written_ledger(world) -> None:
+    made, batches = _pilot(world, choose_b=_disagree_on_backpack, phase="main")
+    AnnotationLedger.replay(world["ledger"].entries, _loader(*made.values(), *(b for b, _ in batches)))
+
+
+def test_replay_refuses_a_hand_written_cancellation(world) -> None:
+    """A cancellation the tool would refuse (no fresh replacement) cannot shrink the sample."""
+    units = [("track", t, None) for t in sorted(world["corpus"].tracks)[:3]]
+    a = _issue(world, "main-a", "ann-a", "main", units)
+    b = _issue(world, "main-b", "ann-b", "main", units)
+    batch_a = _submit(world, a)[0]
+    world["ledger"].append("assignment-cancelled", {"assignmentId": "main-b", "actor": "custodian-1", "reason": "hand-written", "replacementAssignmentId": "no-such"}, T0)
+    world["ledger"].require_phase_complete("main")  # the ledger alone is fooled...
+    with pytest.raises(CorpusError, match="ledger_cancel_requires_replacement"):
+        AnnotationLedger.replay(world["ledger"].entries, _loader(a, b, batch_a))  # ...the replay is not
+
+
+def test_replay_refuses_adjudications_the_tool_would_refuse(world) -> None:
+    made, batches, object_class, units = _conflict(world)
+    documents = [b for b, _ in batches]
+    # On a packet never issued, by someone who is not its recipient:
+    packet = build_reveal_packet("reveal-x", "ann-b", units[:1], "main", documents)
+    forged = _adjudication(packet, "ann-a", units, object_class)
+    world["ledger"].append("adjudication-recorded", {"adjudicationId": forged["adjudicationId"], "adjudicatorId": "ann-a", "adjudicationSha256": document_sha256(forged), "keys": sorted(f"{u}|person-backpack" for u in units), "supersedes": None}, T0)
+    with pytest.raises(CorpusError, match="ledger_adjudication_packet_not_issued"):
+        AnnotationLedger.replay(world["ledger"].entries, _loader(*made.values(), *documents, packet, forged))
+
+
+def test_ground_truth_refuses_a_reason_only_override(world) -> None:
+    def other_reason(unit, attribute):
+        return ("unscorable", None, "occluded") if attribute == "person-headwear" else _default_choice(unit, attribute)
+
+    made, batches = _pilot(world, choose_b=other_reason, phase="main")
+    object_class = {unit_key(u["unitKind"], u["trackId"], u["observationId"]): u["objectClass"] for u in made["ann-a"]["units"]}
+    unit = next(u for u, c in sorted(object_class.items()) if c == "person")
+    override = _adjudication({"packetId": "x"}, "ann-a", [unit], object_class)
+    override["decisions"] = [{"unit": unit, "attributeType": "person-headwear", "outcome": "value", "value": "present", "unscorableReason": None, "rationale": "override"}]
+    override["revealPacketSha256"] = "f" * 64
+    world["ledger"].append("adjudication-recorded", {"adjudicationId": "adj-1", "adjudicatorId": "ann-a", "adjudicationSha256": document_sha256(override), "keys": [f"{unit}|person-headwear"], "supersedes": None}, T0)
+    with pytest.raises(CorpusError, match="ground_truth_adjudication_overrides_consensus"):
+        build_ground_truth(world["corpus"], world["partition"], world["psha"], world["frozen"], batches, [parse_adjudication(override, world["frozen"], object_class)], world["ledger"], _assignments(made))
+
+
+def test_cancellation_cannot_use_another_raters_assignment_as_the_replacement(world) -> None:
+    """Otherwise rater 2's pending double label could be dropped after seeing rater 1's."""
+    units = [("track", t, None) for t in sorted(world["corpus"].tracks)[:3]]
+    a = _issue(world, "main-a", "ann-a", "main", units)
+    _issue(world, "main-b", "ann-b", "main", units)
+    _submit(world, a)
+    with pytest.raises(CorpusError, match="ledger_cancel_replacement_not_fresh"):
+        world["ledger"].cancel_assignment("main-b", "custodian-1", "prefer rater 1", "main-a", T0)
+    again = _issue(world, "main-a2", "ann-a", "main", units)  # fresh, but ann-a already labels them
+    with pytest.raises(CorpusError, match="ledger_cancel_replacement_annotator_already_labels_these_units"):
+        world["ledger"].cancel_assignment("main-b", "custodian-1", "prefer rater 1", again["assignmentId"], T0)
+
+
+def test_units_can_be_revealed_after_a_legitimate_cancellation(world) -> None:
+    world["ledger"].register_annotator("ann-c", True, T0)
+    units = [("track", t, None) for t in sorted(world["corpus"].tracks)[:3]]
+    a = _issue(world, "main-a", "ann-a", "main", units)
+    _issue(world, "main-b", "ann-b", "main", units)
+    c = _issue(world, "main-c", "ann-c", "main", units)
+    world["ledger"].cancel_assignment("main-b", "custodian-1", "annotator left", "main-c", T0)
+    shown = [_submit(world, a)[0], _submit(world, c, choose=_disagree_on_backpack)[0]]
+    packet = build_reveal_packet("reveal-1", "ann-a", [unit_key(*u) for u in units], "main", shown)
+    world["ledger"].issue_reveal(packet, shown, T0)
+
+
+def test_replay_refuses_a_reveal_entry_with_invented_conflict_keys(world) -> None:
+    """The packet is canonical, but the recorded conflict keys were widened by hand so that a
+    consensus key could later be "adjudicated": the payload is not what the rule computes."""
+    made, batches, object_class, units = _conflict(world)
+    documents = [b for b, _ in batches]
+    packet = build_reveal_packet("reveal-1", "ann-a", units, "main", documents)
+    payload = world["ledger"]._p_reveal(packet, documents)
+    payload["conflictKeys"] = sorted([*payload["conflictKeys"], f"{units[0]}|person-bag"])
+    world["ledger"].append("reveal-issued", payload, T0)
+    with pytest.raises(CorpusError, match="ledger_replay_payload_mismatch"):
+        AnnotationLedger.replay(world["ledger"].entries, _loader(*made.values(), *documents, packet))

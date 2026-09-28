@@ -137,30 +137,37 @@ def build_assignment(
 
 
 class AnnotationLedger(Ledger):
+    # Every write is a pure check that returns the payload, then an append. ``replay`` runs
+    # the same checks over a retained ledger, so a hand-written entry that the tool would
+    # have refused is refused again when the evidence is re-verified (F1).
+
     def register_annotator(self, annotator_id: str, independent_of_model_selection: bool, at: str) -> None:
+        self.append("annotator-registered", self._p_register(annotator_id, independent_of_model_selection), at)
+
+    def _p_register(self, annotator_id: str, independent: bool) -> dict:
         require_pseudonym(annotator_id, "ledger_annotator")
         require(annotator_id not in self.annotators(), f"ledger_annotator_duplicate:{annotator_id}")
-        self.append("annotator-registered", {"annotatorId": annotator_id, "independentOfModelSelection": bool(independent_of_model_selection)}, at)
+        require(isinstance(independent, bool), "ledger_annotator_independence")
+        return {"annotatorId": annotator_id, "independentOfModelSelection": independent}
 
     def annotators(self) -> dict[str, bool]:
         return {e["payload"]["annotatorId"]: e["payload"]["independentOfModelSelection"] for e in self.of_kind("annotator-registered")}
 
     def issue_assignment(self, assignment: dict, at: str) -> None:
+        self.append("assignment-issued", self._p_assignment(assignment), at)
+
+    def _p_assignment(self, assignment: dict) -> dict:
         require(assignment["annotatorId"] in self.annotators(), "ledger_assignment_unregistered_annotator")
         require(assignment["assignmentId"] not in self._assignments(), "ledger_assignment_duplicate")
         units = [unit_key(u["unitKind"], u["trackId"], u["observationId"]) for u in assignment["units"]]
-        self.append(
-            "assignment-issued",
-            {
-                "assignmentId": assignment["assignmentId"],
-                "assignmentSha256": document_sha256(assignment),
-                "annotatorId": assignment["annotatorId"],
-                "phase": assignment["phase"],
-                "round": assignment["round"],
-                "units": sorted(units),
-            },
-            at,
-        )
+        return {
+            "assignmentId": assignment["assignmentId"],
+            "assignmentSha256": document_sha256(assignment),
+            "annotatorId": assignment["annotatorId"],
+            "phase": assignment["phase"],
+            "round": assignment["round"],
+            "units": sorted(units),
+        }
 
     def _assignments(self) -> dict[str, dict]:
         return {e["payload"]["assignmentId"]: e["payload"] for e in self.of_kind("assignment-issued")}
@@ -172,8 +179,10 @@ class AnnotationLedger(Ledger):
         return {u for e in self.of_kind("reveal-issued") if e["payload"]["recipientId"] == annotator_id for u in e["payload"]["units"]}
 
     def submit_batch(self, batch: dict, assignment: dict, at: str) -> None:
-        assignments = self._assignments()
-        issued = assignments.get(batch["assignmentId"])
+        self.append("batch-submitted", self._p_submit(batch, assignment), at)
+
+    def _p_submit(self, batch: dict, assignment: dict) -> dict:
+        issued = self._assignments().get(batch["assignmentId"])
         require(issued is not None, "ledger_batch_unknown_assignment")
         require(issued["assignmentSha256"] == document_sha256(assignment) == batch["assignmentSha256"], "ledger_batch_assignment_mismatch")
         require(issued["annotatorId"] == batch["annotatorId"], "ledger_batch_wrong_annotator")
@@ -182,35 +191,44 @@ class AnnotationLedger(Ledger):
         if issued["round"] == "independent":
             seen = self._revealed_units(batch["annotatorId"]) & set(issued["units"])
             require(not seen, "ledger_independence_violated:annotator_saw_other_labels")
-        self.append(
-            "batch-submitted",
-            {"assignmentId": batch["assignmentId"], "annotatorId": batch["annotatorId"], "batchSha256": document_sha256(batch)},
-            at,
-        )
+        return {"assignmentId": batch["assignmentId"], "annotatorId": batch["annotatorId"], "batchSha256": document_sha256(batch)}
 
     def _cancelled(self) -> dict[str, dict]:
         return {e["payload"]["assignmentId"]: e["payload"] for e in self.of_kind("assignment-cancelled")}
 
     def cancel_assignment(self, assignment_id: str, actor: str, reason: str, replacement_id: str, at: str) -> None:
-        """Cancel an issued, unsubmitted assignment, **only** in favour of an already issued
-        replacement with exactly the same phase, round and units (for example an annotator
-        who left). The sample cannot shrink or change, so cancellation cannot select units.
-        It is refused once the assignment's own labels exist (submitted) or once any reveal
-        has shown labels for its units."""
+        self.append("assignment-cancelled", self._p_cancel(assignment_id, actor, reason, replacement_id), at)
+
+    def _p_cancel(self, assignment_id: str, actor: str, reason: str, replacement_id: str) -> dict:
+        """Cancel an issued, unsubmitted assignment, **only** in favour of a *fresh* replacement:
+        issued after it, still unsubmitted, with exactly the same phase, round and units, held
+        by an annotator with no other assignment of that phase on those units, and not already
+        replacing anything. Neither the sample nor its double-labelling can shrink or be chosen
+        after the fact. Refused once the assignment's own labels exist or once any reveal has
+        shown labels for its units."""
         assignments = self._assignments()
         issued = assignments.get(assignment_id)
         require(issued is not None, "ledger_cancel_unknown_assignment")
-        require(assignment_id not in self._submitted(), "ledger_cancel_after_submission")
-        cancelled = self._cancelled()
+        submitted, cancelled = self._submitted(), self._cancelled()
+        require(assignment_id not in submitted, "ledger_cancel_after_submission")
         require(assignment_id not in cancelled, "ledger_cancel_duplicate")
         require_pseudonym(actor, "ledger_cancel_actor")
         require_free_text(reason, "ledger_cancel_reason")
         replacement = assignments.get(replacement_id)
         require(replacement is not None and replacement_id != assignment_id and replacement_id not in cancelled, "ledger_cancel_requires_replacement")
         require((replacement["phase"], replacement["round"], replacement["units"]) == (issued["phase"], issued["round"], issued["units"]), "ledger_cancel_replacement_mismatch")
+        order = [aid for aid in assignments]
+        require(order.index(replacement_id) > order.index(assignment_id), "ledger_cancel_replacement_not_fresh")
+        require(replacement_id not in submitted, "ledger_cancel_replacement_already_submitted")
+        require(replacement_id not in {c["replacementAssignmentId"] for c in cancelled.values()}, "ledger_cancel_replacement_already_used")
         units = set(issued["units"])
+        others = [
+            aid for aid, a in assignments.items()
+            if aid not in (replacement_id, assignment_id) and aid not in cancelled and a["annotatorId"] == replacement["annotatorId"] and a["phase"] == issued["phase"] and units & set(a["units"])
+        ]
+        require(not others, "ledger_cancel_replacement_annotator_already_labels_these_units")
         require(not any(units & set(e["payload"]["units"]) for e in self.of_kind("reveal-issued")), "ledger_cancel_after_reveal")
-        self.append("assignment-cancelled", {"assignmentId": assignment_id, "actor": actor, "reason": reason, "replacementAssignmentId": replacement_id}, at)
+        return {"assignmentId": assignment_id, "actor": actor, "reason": reason, "replacementAssignmentId": replacement_id}
 
     def require_phase_complete(self, phase: str) -> None:
         """Every issued assignment of ``phase`` has exactly one submitted batch, unless it was
@@ -220,41 +238,47 @@ class AnnotationLedger(Ledger):
         open_ = sorted(aid for aid, a in self._assignments().items() if a["phase"] == phase and aid not in submitted and aid not in cancelled)
         require(not open_, f"ledger_assignments_unsubmitted:{phase}:{len(open_)}")
 
+    def reveal_batch_hashes(self, phase: str, units: set[str]) -> set[str]:
+        """The submitted batches of ``phase`` that cover any of ``units``: what a reveal must show."""
+        assignments = self._assignments()
+        return {
+            e["batchSha256"]
+            for e in self._submitted().values()
+            if assignments[e["assignmentId"]]["phase"] == phase and units & set(assignments[e["assignmentId"]]["units"])
+        }
+
     def issue_reveal(self, packet: dict, batches: list[dict], at: str) -> None:
+        self.append("reveal-issued", self._p_reveal(packet, batches), at)
+
+    def _p_reveal(self, packet: dict, batches: list[dict]) -> dict:
         """Other annotators' labels may be shown only once every independent label is in, and
         the packet must be the canonical one: built from **every** submitted batch of its phase
         that covers its units (``build_reveal_packet``), so no label can be withheld."""
-        submitted = self._submitted()
+        submitted, cancelled = self._submitted(), self._cancelled()
         units = set(packet["units"])
         for assignment in self._assignments().values():
-            if assignment["round"] == "independent" and units & set(assignment["units"]):
+            if assignment["round"] == "independent" and units & set(assignment["units"]) and assignment["assignmentId"] not in cancelled:
                 require(assignment["assignmentId"] in submitted, f"ledger_reveal_before_independent_submission:{assignment['assignmentId']}")
         require(packet["recipientId"] in self.annotators(), "ledger_reveal_unregistered_recipient")
-        assignments = self._assignments()
-        expected = {
-            e["batchSha256"]
-            for e in submitted.values()
-            if assignments[e["assignmentId"]]["phase"] == packet["phase"] and units & set(assignments[e["assignmentId"]]["units"])
-        }
+        expected = self.reveal_batch_hashes(packet["phase"], units)
         supplied = {document_sha256(b) for b in batches}
         require(supplied == expected, f"ledger_reveal_batches_incomplete:{len(expected - supplied)}")
         canonical = build_reveal_packet(packet["packetId"], packet["recipientId"], sorted(units), packet["phase"], batches)
         require(canonical == packet, "ledger_reveal_packet_not_canonical")
-        self.append(
-            "reveal-issued",
-            {
-                "packetId": packet["packetId"],
-                "recipientId": packet["recipientId"],
-                "phase": packet["phase"],
-                "units": sorted(units),
-                "packetSha256": document_sha256(packet),
-                "conflictKeys": packet["conflictKeys"],
-                "reasonConflictKeys": packet["reasonConflictKeys"],
-            },
-            at,
-        )
+        return {
+            "packetId": packet["packetId"],
+            "recipientId": packet["recipientId"],
+            "phase": packet["phase"],
+            "units": sorted(units),
+            "packetSha256": document_sha256(packet),
+            "conflictKeys": packet["conflictKeys"],
+            "reasonConflictKeys": packet["reasonConflictKeys"],
+        }
 
     def record_adjudication(self, adjudication: dict, at: str) -> None:
+        self.append("adjudication-recorded", self._p_adjudication(adjudication), at)
+
+    def _p_adjudication(self, adjudication: dict) -> dict:
         """An adjudication counts only if its reveal packet was issued, through this ledger, to
         this adjudicator, and covers every unit it decides."""
         require(adjudication["adjudicatorId"] in self.annotators(), "ledger_adjudicator_unregistered")
@@ -284,7 +308,41 @@ class AnnotationLedger(Ledger):
         decided = {k: a["adjudicationSha256"] for a in effective.values() for k in a["keys"]}
         for key in keys:
             require(key not in decided or decided[key] == supersedes, f"ledger_adjudication_key_already_decided:{key}")
-        self.append("adjudication-recorded", {"adjudicationId": adjudication["adjudicationId"], "adjudicatorId": adjudication["adjudicatorId"], "adjudicationSha256": sha, "keys": keys, "supersedes": supersedes}, at)
+        return {"adjudicationId": adjudication["adjudicationId"], "adjudicatorId": adjudication["adjudicatorId"], "adjudicationSha256": sha, "keys": keys, "supersedes": supersedes}
+
+    @classmethod
+    def replay(cls, entries: list[dict], load) -> "AnnotationLedger":
+        """Re-apply every write rule to retained ``entries`` (already chain-verified), loading
+        each referenced document with ``load(sha256, what)``. Each entry's payload must equal
+        what the rule computes at that point. Seal entries are checked by the caller."""
+        view = cls.__new__(cls)
+        view.path = None
+        view.entries = []
+        for entry in entries:
+            kind, payload = entry["kind"], entry["payload"]
+            if kind == "annotator-registered":
+                expected = view._p_register(payload["annotatorId"], payload["independentOfModelSelection"])
+            elif kind == "assignment-issued":
+                expected = view._p_assignment(load(payload["assignmentSha256"], "assignment"))
+            elif kind == "batch-submitted":
+                issued = view._assignments().get(payload["assignmentId"])
+                require(issued is not None, "ledger_batch_unknown_assignment")
+                expected = view._p_submit(load(payload["batchSha256"], "batch"), load(issued["assignmentSha256"], "assignment"))
+            elif kind == "assignment-cancelled":
+                expected = view._p_cancel(payload["assignmentId"], payload["actor"], payload["reason"], payload["replacementAssignmentId"])
+            elif kind == "reveal-issued":
+                packet = load(payload["packetSha256"], "reveal packet")
+                shown = [load(sha, "batch") for sha in sorted(view.reveal_batch_hashes(packet["phase"], set(packet["units"])))]
+                expected = view._p_reveal(packet, shown)
+            elif kind == "adjudication-recorded":
+                expected = view._p_adjudication(load(payload["adjudicationSha256"], "adjudication"))
+            elif kind == "seal-created":
+                expected = payload
+            else:
+                raise CorpusError(f"ledger_replay_unknown_kind:{kind}")
+            require(expected == payload, f"ledger_replay_payload_mismatch:{entry['seq']}:{kind}")
+            view.entries.append(entry)
+        return view
 
     def record_seal(self, seal: dict, corpus: CorpusManifest, partition: dict, at: str) -> None:
         """The first seal on a ledger is plain; any later one must supersede the latest seal.
@@ -537,6 +595,8 @@ def build_ground_truth(
         if (unit, attribute) in decided:
             require(len(distinct) > 1 or reason_disagreement, f"ground_truth_adjudication_without_conflict:{unit}|{attribute}")
             final = decided[(unit, attribute)]
+            if len(distinct) == 1:  # a reason-only conflict: the agreed outcome stays
+                require((final["outcome"], final["value"]) == next(iter(distinct)), f"ground_truth_adjudication_overrides_consensus:{unit}|{attribute}")
             resolution, source = "adjudicated", final["adjudicationSha256"]
             final_value = (final["outcome"], final["value"], final["unscorableReason"])
         elif len(distinct) == 1:

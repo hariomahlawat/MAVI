@@ -117,7 +117,9 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
   - Rejected groups are retained.
   - This is bookkeeping, not re-identification.
   - **Recall is bounded by the reviewers.** The `recallSample` is a reproducible human second look, with no ReID, embeddings or face matching:
-    - `recall-sample --seed --size` draws it deterministically (method `recall-sample-v1`) from the population of same-class Track pairs in different partitions;
+    - `recall-sample --size` draws it deterministically (method `recall-sample-v1`) from the population of same-class Track pairs in different partitions;
+    - the seed is **derived** from the partition and recurrence groups (`recall_seed`), never chosen, so a sample that found a recurrence cannot be replaced by a redraw. A larger sample extends a smaller one;
+    - F1 needs at least `RECALL_MINIMUM_PAIRS` (100) reviewed pairs, a provisional floor: with no recurrence found in n random pairs, the one-sided 95% upper bound on the miss rate is about 3/n;
     - the population is identified by the corpus, the final partition and the recurrence groups (`populationSha256`);
     - the sample holds the exact sampled pairs, and the reviewer records one decision per pair: `recurrence`, `not-recurrence` or `uncertain`;
     - F1 regenerates the sample and requires the same population and the same pairs, in order. An altered, added or foreign pair is refused;
@@ -147,7 +149,13 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
      - `merge-or-remove`: the attribute must be removed, or merged by a pre-declared attribute merge the pilot recommended. If only value agreement failed, a pre-declared value merge the pilot recommended also resolves it; a value merge cannot repair a scorability failure.
 6. `assign --phase main` (requires the frozen task), then `submit`.
    - **No assignment may be abandoned.** `require_phase_complete` (used by `pilot-report`, `agreement`, `ground-truth` and F1) refuses while any issued assignment of the phase lacks its one submitted batch. Leaving hard units unsubmitted cannot shrink the sample.
-   - `cancel-assignment` is the only exception, and it is narrow. It needs an actor, a reason and an **already issued replacement with exactly the same phase, round and units**, so the sample cannot change. It is refused once the assignment's labels exist (submitted), or once any reveal has shown labels for its units. A cancelled assignment cannot be submitted; its replacement must be.
+   - `cancel-assignment` is the only exception, and it is narrow. It needs an actor, a reason and a **fresh replacement**:
+     - issued after the cancelled assignment, and still unsubmitted;
+     - exactly the same phase, round and units;
+     - held by an annotator with no other assignment of that phase on those units;
+     - not already replacing another assignment.
+
+     Neither the sample nor its double labelling can shrink, and another rater's existing assignment cannot stand in. Cancellation is refused once the assignment's labels exist, or once any reveal has shown labels for its units. A cancelled assignment cannot be submitted; its replacement must be. Reveals ignore cancelled assignments.
 7. `reveal`, then `adjudicate` (records the JSON decision file in the ledger), then `ground-truth`, then `agreement --phase main`.
    - **A reveal packet is canonical.**
      - `build_reveal_packet` builds it from the raw batch documents: every label, with its source batch, plus `conflictKeys` (outcome or value differ) and `reasonConflictKeys` (all say `unscorable`, with different reasons).
@@ -159,7 +167,7 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - A unit × attribute already decided can be decided again only by a correction that names the earlier adjudication in `supersedes`. The superseded adjudication stays in the ledger but stops counting.
    - An adjudication with no decisions is refused, so an adjudication cannot be withdrawn without replacing it.
 8. `seal` commits both views, records a `seal-created` event in the annotation ledger, writes the sealed evaluation view and creates the access log. Then use `frozen-access` / `seal-status` for any later access.
-   - The command validates every input and output path, then writes the seal, the sealed view and the access log to `.partial` files, and moves them into place. Only then does it append `seal-created`, the one irreversible step. Any failure removes every file the run created, so a retry needs no manual cleanup and is never mistaken for a re-seal.
+   - The command refuses output paths that already exist, so it never overwrites and a cleanup never destroys another file. It validates every input and output path, then writes the seal, the sealed view and the access log to `.partial` files, and moves them into place with a hard link, which fails rather than overwrite. Only then does it append `seal-created`, the one irreversible step. Any failure removes every file the run created, so a retry needs no manual cleanup and is never mistaken for a re-seal.
    - A second seal on the same ledger is refused unless it names the latest seal with `--supersedes`, `--supersedes-reason`, `--superseded-access-log` and `--superseded-partition` (plus `--superseded-corpus` when the corpus was revised since that seal).
    - That old log must show the old seal compromised.
    - Both member sets are recomputed from their partitions, and the new frozen set may contain **no** Track of the compromised one.
@@ -238,7 +246,9 @@ This is the foundation for later camera/site generalisation analysis, and delibe
 
 `check-f1 --record <record> --store <retained-record store>` computes the verdict.
 
-The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, statistic, seal status or camera support. The checker independently re-verifies all machine-verifiable retained evidence, and fails closed when required retained evidence or human attestations are missing or inconsistent. It loads everything from the store, re-derives identities, and **recomputes** every conclusion from the primary inputs: assignments, batches, adjudications and the ledger. The labelling state it uses is the ledger as it stood at the ground truth's head.
+The committed record names each artefact by SHA-256 and asserts nothing else: no annotator count, statistic, seal status or camera support. The checker independently re-verifies all machine-verifiable retained evidence, and fails closed when required retained evidence or human attestations are missing or inconsistent.
+- **Ledger replay:** a hash chain proves order, not validity. `AnnotationLedger.replay` re-applies every write rule (registration, assignment, submission, cancellation, reveal, adjudication) to every retained entry, loading the documents it names. Each payload must equal what the rule computes. A hand-written entry the tool would have refused is refused again: a cancellation without a fresh replacement, an adjudication on a packet never issued, widened conflict keys.
+- **Candidate binding:** the candidate behind the pilot must equal the committed candidate at `attributeTask.candidatePath`, apart from an owner confirmation of its pilot rules. The raisable thresholds may only be equal or higher, and every other rule (for example `mergeConfusionShare`) is unchanged. It loads everything from the store, re-derives identities, and **recomputes** every conclusion from the primary inputs: assignments, batches, adjudications and the ledger. The labelling state it uses is the ledger as it stood at the ground truth's head.
 - **Partition**, from the corpus and both audits (`verify_partition`).
 - **Pilot report**, recomputed from the candidate task and every ledger-registered pilot batch, on the partition and corpus the pilot ran on (both retained). It must equal the retained report.
 - **Frozen task**, re-derived with `freeze_task` from the candidate, the pilot report and the retained owner decision. It must equal the retained frozen task, so only pre-declared merges and removals can shape it. Every pilot Track must be in **training in the final partition**; after a re-partition, pin them (§4).
@@ -376,3 +386,22 @@ Tests added after the third review:
 | a found recurrence keeps F1 open | killed |
 | an unreviewed pair keeps F1 open | killed |
 | cleanup after a failed seal write | killed |
+
+**Second focused review of the repairs** (`4b7cb06`), guards added and removed in turn (`mut6`, plus two follow-ups):
+
+| Guard removed | Result |
+|---|---|
+| ledger replay in F1 | killed (after adding `test_f1_replays_the_ledger_and_refuses_a_hand_written_cancellation`; it first survived because the only F1 forgery test was also caught by the reveal rebuild) |
+| replay: payload must equal the rule's | killed (after adding `test_replay_refuses_a_reveal_entry_with_invented_conflict_keys`) |
+| cancellation: fresh replacement | killed |
+| cancellation: replacement annotator not already labelling | killed |
+| reveals ignore cancelled assignments (liveness) | killed |
+| ground truth: reason-only override | killed |
+| recall minimum size | killed |
+| recall seed derived | killed |
+| committed-candidate binding in F1 | killed |
+| candidate thresholds never lowered | killed |
+| other candidate rules unchanged | killed |
+| candidate vocabulary unchanged | killed |
+| seal never overwrites outputs | killed |
+| seal moves by hard link, not `os.replace` | **survived, equivalent**: the up-front existence check already refuses existing outputs, and the link only closes a race between that check and the move |

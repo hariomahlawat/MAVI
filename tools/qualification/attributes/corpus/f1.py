@@ -5,8 +5,9 @@ are frozen before final evaluation."
 
 The committed evidence record names each retained artefact by SHA-256 and says nothing
 else about it. The checker independently re-verifies all machine-verifiable retained
-evidence and fails closed when required retained evidence or human attestations are
-missing or inconsistent. Human attestations remain an external trust input: the
+evidence (including every ledger entry, re-checked against the rules that wrote it) and
+fails closed when required retained evidence or human attestations are missing or
+inconsistent. Human attestations remain an external trust input: the
 recurrence review and recall-sample decisions, the declared stage of a frozen-test access,
 and the custodian's handling of the store outside the evaluation environment. It loads every artefact from the
 Corpus Custodian's retained-record store (``--store``), a directory outside Git that holds
@@ -58,8 +59,8 @@ from .ledger import Ledger
 from .manifest import parse_corpus
 from .partition import PARTITIONS, partition_of, verify_partition
 from .pilot import pilot_report
-from .recurrence import draw_recall_sample, parse_recurrence, recurrence_document_sha256
-from .task import freeze_task, parse_task, verify_freeze_consistent_with_pilot
+from .recurrence import RECALL_MINIMUM_PAIRS, draw_recall_sample, parse_recurrence, recurrence_document_sha256
+from .task import freeze_task, parse_task, verify_confirmed_candidate, verify_freeze_consistent_with_pilot
 
 RECORD_SCHEMA = "mavi-s2c-f1-evidence-record-v1"
 REPO = Path(__file__).resolve().parents[4]
@@ -107,7 +108,7 @@ def _labelling_inputs(ledger: AnnotationLedger, store: _Store, phase: str, task)
     return assignments, batches
 
 
-def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
+def _verify_chain(record: dict, store: _Store, missing: list[str], repo: Path) -> None:
     refs, labelling, seal_ref = record["corpus"], record["labelling"], record["seal"]
     # Corpus and audits are identified by their normalised hashes (producer order is free).
     corpus = parse_corpus(store.raw(refs["corpusManifestSha256"], "corpus manifest"))
@@ -127,7 +128,10 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     if sample is None:
         missing.append("recurrence audit recall sample")
     else:
-        regenerated = draw_recall_sample(corpus, partition, psha, recurrence_sha, sample["seed"], sample["sampleSize"])
+        regenerated = draw_recall_sample(corpus, partition, psha, recurrence_sha, sample["sampleSize"])
+        require(sample["seed"] == regenerated["seed"], "f1_recall_sample_seed_not_derived")
+        if sample["sampleSize"] < RECALL_MINIMUM_PAIRS:
+            missing.append(f"recall sample of at least {RECALL_MINIMUM_PAIRS} reviewed pairs (has {sample['sampleSize']})")
         require(regenerated["populationSha256"] == sample["populationSha256"], "f1_recall_sample_population_mismatch")
         require([p["trackIds"] for p in regenerated["pairs"]] == [p["trackIds"] for p in sample["pairs"]], "f1_recall_sample_not_reproducible")
         decisions = [p["decision"] for p in sample["pairs"]]
@@ -140,6 +144,10 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
 
     full_ledger = store.ledger(ANNOTATION_LEDGER, AnnotationLedger)
     full_ledger.require_extends(labelling["annotationLedgerHead"])
+    # The hash chain proves order, not validity: re-apply every write rule to every entry, so
+    # an entry written by hand (a cancellation without a fresh replacement, an adjudication on
+    # a packet never issued, a consensus override) is refused as the tool would have.
+    AnnotationLedger.replay(full_ledger.entries, store.load)
     seal = store.load(seal_ref["sealSha256"], "frozen-test seal")
     truth = store.load(labelling["groundTruthSha256"], "sealed evaluation view")
     load_evaluation_view(truth, seal)
@@ -149,7 +157,7 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     require(seal["annotationLedgerHead"] == truth["annotationLedgerHead"], "f1_seal_ledger_head_differs_from_ground_truth")
     # Nothing that changes labels may be recorded after the sealed ground truth.
     later = full_ledger.entries[len(ledger.entries):]
-    require(not any(e["kind"] in ("assignment-issued", "batch-submitted", "adjudication-recorded", "reveal-issued") for e in later), "f1_labels_recorded_after_sealed_ground_truth")
+    require(not any(e["kind"] in ("assignment-issued", "assignment-cancelled", "batch-submitted", "adjudication-recorded", "reveal-issued") for e in later), "f1_labels_recorded_after_sealed_ground_truth")
 
     # No issued assignment may be silently abandoned (a convenient subset would stand for
     # the sample): each is submitted, or cancelled in favour of an identical replacement.
@@ -159,6 +167,11 @@ def _verify_chain(record: dict, store: _Store, missing: list[str]) -> None:
     task = parse_task(store.load(record["attributeTask"]["frozenSha256"], "frozen attribute task"))
     require(task.status == "frozen", "f1_task_not_frozen")
     candidate = parse_task(store.load(task.document["derivedFrom"]["candidateTaskSha256"], "candidate attribute task"))
+    # The candidate behind the pilot must be the committed candidate, owner-confirmed with
+    # thresholds equal or higher: never lowered, never another vocabulary.
+    committed_path = (repo / record["attributeTask"]["candidatePath"]).resolve()
+    require(committed_path.is_relative_to(repo.resolve()) and committed_path.is_file(), "f1_committed_candidate_missing")
+    verify_confirmed_candidate(read_json(committed_path), candidate.document)
     pilot_assignments, pilot_batches = _labelling_inputs(ledger, store, "pilot", candidate)
     registered = set(ledger.batch_hashes())
     pilot = store.load(labelling["pilotReportSha256"], "pilot report")
@@ -298,7 +311,7 @@ def f1_verdict(record: dict, repo: Path = REPO, store: Path | None = None) -> di
         missing.append("retained-record store supplied for re-verification (--store)")
     elif isinstance(record["limitations"], list):
         try:
-            _verify_chain(record, _Store(store), missing)
+            _verify_chain(record, _Store(store), missing, repo)
         except CorpusError:
             raise
         except (KeyError, TypeError, ValueError, AttributeError, StopIteration) as error:

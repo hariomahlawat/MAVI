@@ -69,8 +69,9 @@ def _seal_outputs_atomically(args: argparse.Namespace, seal: dict, sealed_view: 
             else:
                 write_canonical(partial, document)
         for (final, _), partial in zip(finals, partials):
-            os.replace(partial, final)
+            os.link(partial, final)  # fails if the target appeared meanwhile: nothing is overwritten
             created.append(final)
+            partial.unlink()
         record()
     except BaseException:
         for path in [*partials, *created]:
@@ -132,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     add("submit", ("--ledger", p(required=True)), ("--assignment", p(required=True)), ("--task", p()), ("--labels-csv", p(required=True)), ("--batch-id", {"required": True}), ("--active-seconds", {"type": int}), ("--out", p(required=True)))
     add("reveal", ("--ledger", p(required=True)), ("--id", {"required": True}), ("--recipient", {"required": True}), ("--units", p(required=True)), ("--phase", {"choices": ("pilot", "main"), "default": "main"}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--out", p(required=True)))
     add("cancel-assignment", ("--ledger", p(required=True)), ("--assignment-id", {"required": True}), ("--replacement-id", {"required": True}), ("--actor", {"required": True}), ("--reason", {"required": True}))
-    add("recall-sample", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--recurrence", p(required=True)), ("--seed", {"required": True}), ("--size", {"type": int, "required": True}), ("--by", {"required": True}), ("--out", p(required=True)))
+    add("recall-sample", ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--recurrence", p(required=True)), ("--size", {"type": int, "required": True}), ("--by", {"required": True}), ("--out", p(required=True)))
     for name in ("agreement", "pilot-report"):
         add(name, ("--corpus", p(required=True)), ("--partition", p(required=True)), ("--task", p()), ("--ledger", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--batches", {"type": Path, "nargs": "+", "required": True}), ("--adjudications", {"type": Path, "nargs": "*", "default": []}), ("--phase", {"choices": ("pilot", "main"), "default": "main"}), ("--include-frozen-custodian-only", {"action": "store_true"}), ("--out", p(required=True)), ("--markdown", p()))
     add("adjudicate", ("--ledger", p(required=True)), ("--adjudication", p(required=True)), ("--assignments", {"type": Path, "nargs": "+", "required": True}), ("--task", p()))
@@ -219,7 +220,7 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         corpus = parse_corpus(read_json(args.corpus))
         partition = read_json(args.partition)
         groups_sha, _ = parse_recurrence(read_json(args.recurrence), corpus)
-        sample = draw_recall_sample(corpus, partition, document_sha256(partition), groups_sha, args.seed, args.size)
+        sample = draw_recall_sample(corpus, partition, document_sha256(partition), groups_sha, args.size)
         # A review sheet: the reviewer fills each pair's decision, then it becomes the audit's
         # ``recallSample``. Only the decisions may change; F1 regenerates the pairs.
         _emit(args.out, {**sample, "by": args.by, "date": _now()[:10], "note": "decisions pending review"})
@@ -275,6 +276,8 @@ def _run(args: argparse.Namespace) -> int:  # noqa: C901 - one branch per comman
         evaluation = read_json(args.evaluation)
         ledger = AnnotationLedger(args.ledger)
         require(not args.access_log.exists(), "access_log_already_exists")
+        for target in (args.out, args.sealed_evaluation_out):
+            require(not target.exists(), f"seal_output_exists:{target.name}")  # never overwrite, so a cleanup never destroys
         for target in (args.access_log, args.out, args.sealed_evaluation_out):
             require(target.parent.is_dir(), f"seal_output_directory_missing:{target.name}")
         supersedes = None
