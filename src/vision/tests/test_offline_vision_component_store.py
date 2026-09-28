@@ -408,3 +408,45 @@ def test_the_plan_cli_reports_the_code_and_no_plan(tmp_path: Path) -> None:
     assert completed.returncode == 2
     assert completed.stdout == ""
     assert completed.stderr.strip() == f"kit_incomplete:{SECOND_MODEL_PACK_ID}"
+
+
+def test_runtime_bundle_packs_are_validated_like_stored_packs(tmp_path: Path) -> None:
+    binding = _two_pack_binding(tmp_path)
+    _write_runtime(tmp_path / "bundle/windows-x86_64-cpu", provenance="1" * 40, payload=b"cpu")
+    _write_runtime(tmp_path / "bundle/windows-x86_64-cuda", provenance="1" * 40, payload=b"cuda", variant="windows-x86_64-cuda")
+    roots = [tmp_path / "bundle/windows-x86_64-cpu", tmp_path / "bundle/windows-x86_64-cuda"]
+    plan = _plan(tmp_path, binding, optional_variants=["windows-x86_64-cuda"], runtime_pack_roots=roots)
+    assert plan["runtimeBundle"]["runtimePack"]["runtimePackId"] == _binding_entry("windows-x86_64-cpu")["runtimePackId"]
+    assert plan["runtimeBundle"]["runtimePack"]["sourceRoot"] == str(roots[0])
+    assert [item["platformVariant"] for item in plan["runtimeBundle"]["optionalRuntimePacks"]] == ["windows-x86_64-cuda"]
+
+
+@pytest.mark.parametrize("variant", ["windows-x86_64-cpu", "windows-x86_64-cuda"])
+def test_a_damaged_runtime_bundle_pack_fails_the_plan(tmp_path: Path, variant: str) -> None:
+    binding = _two_pack_binding(tmp_path)
+    _write_runtime(tmp_path / "bundle/windows-x86_64-cpu", provenance="1" * 40, payload=b"cpu")
+    _write_runtime(tmp_path / "bundle/windows-x86_64-cuda", provenance="1" * 40, payload=b"cuda", variant="windows-x86_64-cuda")
+    (tmp_path / "bundle" / variant / "payload.bin").write_bytes(b"XXX" if variant.endswith("cpu") else b"XXXX")
+    roots = [tmp_path / "bundle/windows-x86_64-cpu", tmp_path / "bundle/windows-x86_64-cuda"]
+    with pytest.raises(VisionComponentStoreError, match="^component_artifact_mismatch$"):
+        _plan(tmp_path, binding, optional_variants=["windows-x86_64-cuda"], runtime_pack_roots=roots)
+
+
+def test_a_runtime_bundle_pack_that_is_not_the_bound_one_is_refused(tmp_path: Path) -> None:
+    binding = _two_pack_binding(tmp_path)
+    _write_runtime(tmp_path / "bundle", provenance="1" * 40, payload=b"cpu", runtimePackId="mavi-runtime-v2-" + "f" * 64)
+    with pytest.raises(VisionComponentStoreError, match="^kit_unbound_component:mavi-runtime-v2-f"):
+        _plan(tmp_path, binding, runtime_pack_roots=[tmp_path / "bundle"])
+
+
+def test_a_runtime_bundle_without_the_cpu_pack_is_incomplete(tmp_path: Path) -> None:
+    binding = _two_pack_binding(tmp_path)
+    _write_runtime(tmp_path / "bundle", provenance="1" * 40, payload=b"cuda", variant="windows-x86_64-cuda")
+    with pytest.raises(VisionComponentStoreError, match=f"^kit_incomplete:{_binding_entry('windows-x86_64-cpu')['runtimePackId']}$"):
+        _plan(tmp_path, binding, optional_variants=["windows-x86_64-cuda"], runtime_pack_roots=[tmp_path / "bundle"])
+
+
+def test_a_plan_takes_one_source(tmp_path: Path) -> None:
+    binding, kit = _two_pack_kit(tmp_path)
+    with pytest.raises(VisionComponentStoreError, match="^plan_source_ambiguous$"):
+        _plan(tmp_path, binding, kit=kit, runtime_pack_roots=[kit / "vision/runtime"])

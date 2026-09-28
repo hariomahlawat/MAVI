@@ -657,6 +657,13 @@ Scope and gate: `docs/superpowers/plans/2026-09-28-stage2-s2a-4-setup-offline-in
 | E4-13 | documentation scope | `docs/runbooks/local-development.md` is also rewritten. It told operators to use a `bundle-manifest.json` Runtime Bundle whose commit matches HEAD. | §9: remove every instruction relying on `bundle-manifest.json`. |
 | E4-14 | combined setup bundle (PR review) | `New-MaviOfflineSetupBundle.ps1 -IncludeDevelopmentPayload` copies the kit's `vision\` store into the bundle before hashing its files, after running the store verifier when the workspace Python exists. Setup run from the bundle with `-RepositoryRoot` then finds `<bundle>\vision\component-inventory.json`. | Without it the combined bundle could never deliver the Vision components. |
 | E4-15 | §3 preflight for a Runtime Bundle source (owner review) | Each already-installed bound Model Pack must pass, in preflight, the launcher's non-mutating per-pack checks. These are: manifest valid; pack directory; `model-install.json` bound to the installed manifest by SHA-256; state identity equal to the manifest; the capability provided; every artefact re-hashed (`Assert-MaviVisionSetupInstalledModelPack`). Otherwise `kit_incomplete:<modelPackId>`. | A stale or corrupt pack would otherwise be found only by the readiness check, after the Runtime Pack install. |
+| E4-16 | §3 preflight for a Runtime Bundle source (second cold review) | Each Runtime Pack located in a Runtime Bundle (CPU and, if present, CUDA) is proven by the store's own component validator before any installer runs: `sync_offline_vision_components.py plan --runtime-pack <dir>` (`_validate_component`) checks every artefact's size and SHA-256, undeclared files and symlinks, and that the pack is the binding's entry for its variant. The failure codes are `component_artifact_*`, `kit_unbound_component:<id>` and `runtime_requirement_mismatch:<key>`. The PowerShell locator now only finds the pack by its declared variant (and diagnoses D-1). | A damaged optional CUDA pack, installed last, would otherwise fail only after the CPU Runtime Pack was installed. Identity checks now live in one place. |
+
+**Preflight invariant (E4-15, E4-16).** Every component that Setup intends to rely on — whether supplied by the selected source or already installed — passes its authoritative non-mutating validation before the first installation mutation. The authorities are:
+
+- the component-store validator for store packs and Runtime Bundle packs;
+- the launcher's per-pack checks, including `Assert-MaviVisionInstalledModelPackIntegrity`, for already-installed Model Packs;
+- the binding plan for identity and completeness.
 
 Recorded and not changed in S2a.4:
 

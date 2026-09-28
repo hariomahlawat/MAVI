@@ -447,24 +447,51 @@ try {
     $manual = Invoke-VisionSetup -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $bundleOnly; Origin = "explicit" }) -Binding $happyBinding -StoreRoot $happyStore -Compose
     Assert-Equal $script:Calls @("preflight-ok", "runtime:$cpuId", "assert") "a Runtime Bundle over already installed Model Packs"
     Assert-Equal $manual.Status "ready" "the Runtime Bundle path"
-    # An installed Model Pack that is stale or corrupt fails the Runtime Bundle
-    # preflight itself, before the Runtime Pack is installed.
-    foreach ($damage in @("artefact", "state")) {
+    # Pre-mutation boundary for a Runtime Bundle source: the Runtime Pack comes
+    # from the bundle, and both bound Model Packs are relied on from the
+    # installed store. Each damage below leaves the pack's manifest and
+    # model-install.json otherwise valid (status "installed"); preflight must
+    # still refuse it, and neither installer may run.
+    $damageCases = [ordered]@{
+        "wrong-size"      = { param($pack) Write-Utf8File -Path (Join-Path $pack "weights.bin") -Text "corrupted" }
+        "hash-same-size"  = { param($pack) $path = Join-Path $pack "weights.bin"; $bytes = [IO.File]::ReadAllBytes($path); $bytes[0] = [byte](($bytes[0] + 1) % 256); [IO.File]::WriteAllBytes($path, $bytes) }
+        "missing"         = { param($pack) Remove-Item -LiteralPath (Join-Path $pack "weights.bin") -Force }
+        "undeclared-file" = { param($pack) Write-Utf8File -Path (Join-Path $pack "extra.bin") -Text "not declared" }
+        "state-unbound"   = { param($pack) $statePath = Join-Path $pack "model-install.json"; $state = Read-JsonFile $statePath; $state.modelPackManifestSha256 = ("0" * 64); Write-JsonFile -Path $statePath -Value $state }
+    }
+    foreach ($damage in $damageCases.Keys) {
         $damagedStore = Join-Path $tempRoot ("store-damaged-" + $damage)
         Copy-Item -LiteralPath $happyStore -Destination $damagedStore -Recurse
-        if ($damage -eq "artefact") {
-            Write-Utf8File -Path (Join-Path $damagedStore (Join-Path "fixture-embedding" "weights.bin")) -Text "corrupted"
-        }
-        else {
-            $statePath = Join-Path $damagedStore (Join-Path "fixture-embedding" "model-install.json")
-            $damagedState = Read-JsonFile $statePath
-            $damagedState.modelPackManifestSha256 = ("0" * 64)
-            Write-JsonFile -Path $statePath -Value $damagedState
-        }
+        $damagedPack = Join-Path $damagedStore "fixture-embedding"
+        & $damageCases[$damage] $damagedPack
+        $status = @((Resolve-MaviVisionBoundModelPacks -StoreRoot $damagedStore -CapabilityBindings @([pscustomobject]@{ CapabilityId = "embedding"; ModelPackId = $modelB })).ModelPacks)[0].Status
+        Assert-Equal $status "installed" "the damaged pack ($damage) still looks installed to the store lookup"
         Reset-Calls
-        Assert-Throws { Invoke-VisionSetup -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $bundleOnly; Origin = "explicit" }) -Binding $happyBinding -StoreRoot $damagedStore -Compose } "kit_incomplete:$modelB"
-        Assert-Equal $script:Calls.Count 0 "a damaged installed Model Pack ($damage) must be refused before the Runtime Pack is installed"
+        Assert-Throws { Invoke-VisionSetup -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $bundleOnly; Origin = "explicit" }) -Binding $happyBinding -StoreRoot $damagedStore -Compose } "kit_incomplete:${modelB}: the installed Model Pack"
+        Assert-Equal @($script:Calls | Where-Object { $_ -like "runtime:*" }).Count 0 "Runtime Pack installer calls with a damaged installed Model Pack ($damage)"
+        Assert-Equal @($script:Calls | Where-Object { $_ -like "model:*" }).Count 0 "Model Pack installer calls with a damaged installed Model Pack ($damage)"
+        Assert-Equal $script:Calls.Count 0 "a damaged installed Model Pack ($damage) must be refused in preflight"
     }
+
+    # The Runtime Bundle's own packs are proven in preflight too: a damaged CPU
+    # pack, or a damaged optional CUDA pack that would be installed last, fails
+    # before the CPU Runtime Pack is installed.
+    foreach ($damagedVariant in @("windows-x86_64-cpu", "windows-x86_64-cuda")) {
+        $damagedBundle = Join-Path $tempRoot ("bundle-damaged-" + $damagedVariant)
+        New-RuntimePack -Root (Join-Path $damagedBundle "windows-x86_64-cpu") -Variant "windows-x86_64-cpu"
+        New-RuntimePack -Root (Join-Path $damagedBundle "windows-x86_64-cuda") -Variant "windows-x86_64-cuda"
+        Write-Utf8File -Path (Join-Path $damagedBundle (Join-Path $damagedVariant "payload.bin")) -Text "tampered-runtime-payload"
+        Reset-Calls
+        Assert-Throws { Invoke-VisionSetup -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $damagedBundle; Origin = "explicit" }) -Binding $happyBinding -StoreRoot $happyStore -Compose } "component_artifact_mismatch"
+        Assert-Equal $script:Calls.Count 0 "a damaged $damagedVariant Runtime Pack in a Runtime Bundle must be refused before any installer runs"
+    }
+    # ...and an intact bundle with both variants installs CPU, then CUDA.
+    $intactBundle = Join-Path $tempRoot "bundle-intact-both"
+    New-RuntimePack -Root (Join-Path $intactBundle "windows-x86_64-cpu") -Variant "windows-x86_64-cpu"
+    New-RuntimePack -Root (Join-Path $intactBundle "windows-x86_64-cuda") -Variant "windows-x86_64-cuda"
+    Reset-Calls
+    [void](Invoke-VisionSetup -Source ([pscustomobject]@{ Kind = "runtime-bundle"; Root = $intactBundle; Origin = "explicit" }) -Binding $happyBinding -StoreRoot $happyStore -Compose)
+    Assert-Equal $script:Calls @("preflight-ok", "runtime:$cpuId", "runtime:$cudaId", "assert") "an intact two-variant Runtime Bundle"
 
     # A flat Runtime Bundle (the CPU pack at its root) offers no CUDA pack: the
     # optional CUDA lookup must not take the CPU manifest it finds there.

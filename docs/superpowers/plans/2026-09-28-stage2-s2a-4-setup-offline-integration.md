@@ -60,6 +60,8 @@ Before invoking either installer, Setup MUST establish all of the following:
 
 Only after the complete required set passes preflight may Setup begin installation.
 
+Implementation note (parent plan §20, E4-15/E4-16): the preflight covers every component Setup will rely on, whether it comes from the selected source or is already installed. Packs from a component store or a Runtime Bundle are re-hashed by the store's component validator, and an already-installed Model Pack passes the launcher's per-pack checks (`Assert-MaviVisionInstalledModelPackIntegrity`) before the first installer runs.
+
 The legacy/manual Runtime Bundle path remains supported only where already intentionally supported, but D-1 is repaired: installability is determined by `runtime-pack-manifest.json`, never by legacy `bundle-manifest.json`. A directory containing only `bundle-manifest.json` is reported as not installable and is never treated as a valid Runtime Pack.
 
 ## 4. Installation orchestration

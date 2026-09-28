@@ -83,13 +83,16 @@ function Invoke-MaviVisionComponentPlanTool {
         [Parameter(Mandatory = $true)][string]$Python,
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
         [Parameter(Mandatory = $true)][string]$ComponentBindingPath,
-        [string]$KitRoot
+        [string]$KitRoot,
+        # A Runtime Bundle's located Runtime Pack directories, validated by the tool.
+        [AllowEmptyCollection()][string[]]$RuntimePackRoots = @()
     )
     $tool = Join-Path $RepositoryRoot "tools\vision\sync_offline_vision_components.py"
     if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { throw "Vision component-store tool is missing: $tool" }
     $arguments = @($tool, "plan", "--component-binding", $ComponentBindingPath, "--role", $script:VisionSetupRole, "--variant", $script:VisionSetupVariant)
     foreach ($optional in $script:VisionSetupOptionalVariants) { $arguments += @("--optional-variant", $optional) }
     if (-not [string]::IsNullOrWhiteSpace($KitRoot)) { $arguments += @("--kit-root", $KitRoot) }
+    foreach ($runtimePackRoot in @($RuntimePackRoots)) { $arguments += @("--runtime-pack", $runtimePackRoot) }
 
     # Windows PowerShell turns native stderr into terminating errors under
     # "Stop"; the tool's refusal code is on stderr, so read both streams here.
@@ -125,9 +128,12 @@ function Invoke-MaviVisionComponentPreflight {
     A component store is checked by the Python tool against the repository
     binding (kit_binding_mismatch, kit_incomplete:<id>, kit_unbound_component:<id>,
     and the store verifier's own codes). A Runtime Bundle root must hold a
-    runtime-pack-manifest.json for the bound id; a legacy bundle-manifest.json
-    is not installable. ApplicationRevision is the kit's provenance and is
-    reported, never compared.
+    runtime-pack-manifest.json for each variant it offers (a legacy
+    bundle-manifest.json is not installable); each located pack is proven by
+    the same component validator, and every already-installed Model Pack the
+    plan relies on must pass the launcher's per-pack checks. Nothing is
+    installed until all of that holds. ApplicationRevision is the kit's
+    provenance and is reported, never compared.
     #>
     param(
         [Parameter(Mandatory = $true)][object]$Source,
@@ -168,6 +174,16 @@ function Invoke-MaviVisionComponentPreflight {
         foreach ($candidate in @($toolPlan.optionalRuntimePacks)) {
             $entry = Resolve-MaviVisionRuntimeBundleEntry -Root $root -Requirement $candidate
             if ($null -ne $entry) { $optional.Add($entry) }
+        }
+        # The located packs are then proven by the component validator the store
+        # uses (every artefact's size and SHA-256, no undeclared file), so a
+        # damaged CPU or CUDA pack fails here, before any installer runs.
+        $located = [string[]](@([string]$runtime.SourceRoot) + @($optional.ToArray() | ForEach-Object { [string]$_.SourceRoot }))
+        $proven = (Invoke-MaviVisionComponentPlanTool -Python $Python -RepositoryRoot $repository -ComponentBindingPath $bindingPath -RuntimePackRoots $located).runtimeBundle
+        $runtime = [pscustomobject][ordered]@{ RuntimePackId = [string]$proven.runtimePack.runtimePackId; Variant = [string]$proven.runtimePack.platformVariant; SourceRoot = [string]$proven.runtimePack.sourceRoot }
+        $optional.Clear()
+        foreach ($item in @($proven.optionalRuntimePacks)) {
+            $optional.Add([pscustomobject][ordered]@{ RuntimePackId = [string]$item.runtimePackId; Variant = [string]$item.platformVariant; SourceRoot = [string]$item.sourceRoot })
         }
         # Nothing under the Runtime Bundle root may claim a variant the binding does not declare.
         $offered = @(@($required) + @($toolPlan.optionalRuntimePacks) | ForEach-Object { [string]$_.platformVariant })
@@ -239,7 +255,7 @@ function Assert-MaviVisionSetupInstalledModelPack {
 function Resolve-MaviVisionRuntimeBundleEntry {
     <#
     .SYNOPSIS
-    The Runtime Pack of one variant in a Runtime Bundle root, checked against the binding's entry.
+    Locate the Runtime Pack of one variant in a Runtime Bundle root (no validation; see the plan tool).
 
     .DESCRIPTION
     The pack is <Root>\runtime-pack-manifest.json or <Root>\<variant>\runtime-pack-manifest.json
@@ -273,18 +289,11 @@ function Resolve-MaviVisionRuntimeBundleEntry {
         }
         throw "kit_incomplete:${runtimePackId}: no $variant runtime-pack-manifest.json under '$Root'."
     }
+    # Identity, binding requirements and integrity are proven by the component
+    # validator (sync_offline_vision_components.py plan --runtime-pack); this
+    # only locates the pack by its declared variant.
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    [void](Assert-MaviVisionRuntimePackManifest -Manifest $manifest)
-    $foundId = Get-MaviVisionPropertyText -Value $manifest -Name "runtimePackId"
-    if ($foundId -cne $runtimePackId) {
-        throw "kit_unbound_component:${foundId}: '$manifestPath' is not the $variant Runtime Pack the component binding declares ('$runtimePackId')."
-    }
-    foreach ($key in @("thirdPartyLockSha256", "runtimeRequirementsSha256", "nativeAbi")) {
-        if ((Get-MaviVisionPropertyText -Value $manifest -Name $key) -cne [string]$Requirement.$key) {
-            throw "runtime_requirement_mismatch:${key}: '$manifestPath' does not match the component binding."
-        }
-    }
-    return [pscustomobject][ordered]@{ RuntimePackId = $foundId; Variant = $variant; SourceRoot = (Split-Path $manifestPath -Parent) }
+    return [pscustomobject][ordered]@{ RuntimePackId = (Get-MaviVisionPropertyText -Value $manifest -Name "runtimePackId"); Variant = $variant; SourceRoot = (Split-Path $manifestPath -Parent) }
 }
 
 function Invoke-MaviVisionComponentInstallation {

@@ -454,6 +454,7 @@ def plan_vision_components(
     variant: str,
     optional_variants: list[str] | None = None,
     kit_root: Path | None = None,
+    runtime_pack_roots: list[Path] | None = None,
 ) -> dict[str, object]:
     """What Setup must install for ``role_id`` on ``variant``, decided before any installation.
 
@@ -464,6 +465,12 @@ def plan_vision_components(
     inventory (``kit_incomplete:<id>``) and nothing unbound may be
     (``kit_unbound_component:<id>``). Each source is the inventory entry of the
     required id, never a directory found by scanning.
+
+    ``runtime_pack_roots`` are the Runtime Pack directories of a Runtime Bundle
+    source. Each is validated by the same component validator the store uses
+    (every artefact's size and SHA-256, no undeclared file, no symlink) and
+    must be the binding's entry for its variant, so a Runtime Bundle's packs are
+    proven before any installer runs, as a kit's are.
 
     ``applicationOverlay.revision`` is reported as provenance only: a kit
     assembled at another application commit stays usable while the binding is
@@ -490,7 +497,33 @@ def plan_vision_components(
         "modelPacks": models,
         "optionalRuntimePacks": optional,
         "kit": None,
+        "runtimeBundle": None,
     }
+    if kit_root is not None and runtime_pack_roots:
+        raise VisionComponentStoreError("plan_source_ambiguous")
+    if runtime_pack_roots:
+        by_variant = {str(item["platformVariant"]): item for item in [runtime, *optional]}
+        validated: dict[str, dict[str, object]] = {}
+        for root in runtime_pack_roots:
+            manifest = _validate_component(root, "runtime-pack-manifest.json", kind="runtime")
+            variant = str(manifest.get("platformVariant"))
+            required = by_variant.get(variant)
+            if required is None or manifest.get("runtimePackId") != required["runtimePackId"]:
+                raise VisionComponentStoreError(f"kit_unbound_component:{manifest.get('runtimePackId')}")
+            for key in ("thirdPartyLockSha256", "runtimeRequirementsSha256", "nativeAbi"):
+                if manifest.get(key) != required[key]:
+                    raise VisionComponentStoreError(f"runtime_requirement_mismatch:{key}")
+            if variant in validated:
+                raise VisionComponentStoreError("kit_component_duplicate")
+            validated[variant] = {**required, "sourceRoot": str(root)}
+        selected = validated.get(str(runtime["platformVariant"]))
+        if selected is None:
+            raise VisionComponentStoreError(f"kit_incomplete:{runtime['runtimePackId']}")
+        result["runtimeBundle"] = {
+            "runtimePack": selected,
+            "optionalRuntimePacks": [validated[name] for name in sorted(validated) if name != runtime["platformVariant"]],
+        }
+        return result
     if kit_root is None:
         return result
 
@@ -561,6 +594,7 @@ def main() -> int:
     plan.add_argument("--variant", required=True)
     plan.add_argument("--optional-variant", action="append", default=[])
     plan.add_argument("--kit-root", type=Path)
+    plan.add_argument("--runtime-pack", type=Path, action="append", default=[], help="a Runtime Bundle's Runtime Pack directory, validated like a stored pack")
     args = parser.parse_args()
     try:
         if args.command == "plan":
@@ -570,6 +604,7 @@ def main() -> int:
                 variant=args.variant,
                 optional_variants=args.optional_variant,
                 kit_root=args.kit_root,
+                runtime_pack_roots=args.runtime_pack,
             )
         elif args.command == "sync":
             result = sync_vision_components(
