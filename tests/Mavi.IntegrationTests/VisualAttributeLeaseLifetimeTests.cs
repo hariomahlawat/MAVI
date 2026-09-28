@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mavi.Infrastructure.Persistence.Repositories;
+using Mavi.Api.VisualAttributes;
 
 namespace Mavi.IntegrationTests;
 
@@ -234,11 +235,17 @@ public sealed class VisualAttributeLeaseLifetimeTests(PostgresFixture fixture)
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    /// <summary>An evidence reader whose streams deliver 16 bytes, then block until released.</summary>
-    private sealed class GatedEvidenceReader(Func<string, byte[]> read, Gate gate) : IAcceptedEvidenceReader
+    /// <summary>
+    /// An evidence reader whose streams deliver 16 bytes, then block until released. Opening an
+    /// object takes <paramref name="openTime"/> on the platform clock (a slow disk).
+    /// </summary>
+    private sealed class GatedEvidenceReader(Func<string, byte[]> read, Gate gate, Action<TimeSpan> elapse, TimeSpan openTime) : IAcceptedEvidenceReader
     {
-        public Task<Stream> OpenReadAsync(string acceptedStorageKey, CancellationToken cancellationToken) =>
-            Task.FromResult<Stream>(new GatedStream(read(acceptedStorageKey), gate));
+        public Task<Stream> OpenReadAsync(string acceptedStorageKey, CancellationToken cancellationToken)
+        {
+            elapse(openTime);
+            return Task.FromResult<Stream>(new GatedStream(read(acceptedStorageKey), gate));
+        }
     }
 
     private sealed class GatedStream(byte[] content, Gate gate) : Stream
@@ -272,14 +279,15 @@ public sealed class VisualAttributeLeaseLifetimeTests(PostgresFixture fixture)
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
-    private async Task<(VisualAttributeApiHost Host, Gate Gate, SeededRun Run)> GatedEvidenceHostAsync()
+    private async Task<(VisualAttributeApiHost Host, Gate Gate, SeededRun Run)> GatedEvidenceHostAsync(TimeSpan openTime = default)
     {
         var gate = new Gate();
         VisualAttributeWorld? world = null;
         var host = await VisualAttributeApiHost.CreateAsync(fixture, Now, kestrel: true, services: services =>
         {
             services.RemoveAll<IAcceptedEvidenceReader>();
-            services.AddSingleton<IAcceptedEvidenceReader>(_ => new GatedEvidenceReader(key => File.ReadAllBytes(world!.EvidencePath(key)), gate));
+            services.AddSingleton<IAcceptedEvidenceReader>(_ => new GatedEvidenceReader(
+                key => File.ReadAllBytes(world!.EvidencePath(key)), gate, elapsed => world!.Clock.Advance(elapsed), openTime));
         });
         world = host.World;
         await host.RunCycleAsync();
@@ -381,6 +389,58 @@ public sealed class VisualAttributeLeaseLifetimeTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task AnEvidenceStreamStopsWithinOneRecheckIntervalOfItsAuthorisationAfterAHandOver()
+    {
+        // The object takes most of an interval to open; the interval is measured from the
+        // authorisation that last observed ownership, not from when the stream was built.
+        var openTime = LeaseFencedStream.RecheckInterval - TimeSpan.FromSeconds(1);
+        var (host, gate, run) = await GatedEvidenceHostAsync(openTime);
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var crop = run.Track(0).Observations[0];
+        var leaseExpiry = unit.Lease.LeaseExpiresAtUtc;
+
+        var reading = StartEvidenceAsync(host, unit, crop.ObservationId);
+        await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // Handed over with almost all of the first lease left: the owner fails retryably and
+        // another worker claims at once.
+        using (var failed = await host.FailAsync(unit, "visual_attribute_inference_failed", "gave up"))
+            Assert.Equal(HttpStatusCode.OK, failed.StatusCode);
+        var second = await host.LeaseAsync("attributes-02");
+        // Exactly one interval after the authorisation.
+        host.World.Clock.Advance(LeaseFencedStream.RecheckInterval - openTime);
+        Assert.True(leaseExpiry - host.World.Clock.GetUtcNow() > TimeSpan.FromSeconds(60), "the first lease is still far from expiry");
+        gate.Release.SetResult();
+        using var response = await reading;
+        var (bytes, _) = await DrainAsync(response);
+
+        Assert.Equal(2, second.Attempt);
+        Assert.True(bytes < crop.Bytes.Length, $"a superseded attempt received {bytes} of {crop.Bytes.Length} bytes");
+    }
+
+    [Fact]
+    public async Task AnEvidenceStreamStopsAtItsLeaseExpiryInsideARecheckInterval()
+    {
+        var (host, gate, run) = await GatedEvidenceHostAsync();
+        await using var owned = host;
+        var unit = await host.LeaseAsync();
+        var crop = run.Track(0).Observations[0];
+        var leaseExpiry = unit.Lease.LeaseExpiresAtUtc;
+        host.World.Clock.Advance(leaseExpiry - host.World.Clock.GetUtcNow() - TimeSpan.FromSeconds(2));
+
+        var reading = StartEvidenceAsync(host, unit, crop.ObservationId);
+        await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // The expiry itself, well inside the recheck interval: known expiry is enforced by the
+        // clock alone, with no database read due yet.
+        host.World.Clock.Advance(TimeSpan.FromSeconds(2));
+        gate.Release.SetResult();
+        using var response = await reading;
+        var (bytes, _) = await DrainAsync(response);
+
+        Assert.True(bytes < crop.Bytes.Length, $"an expired lease received {bytes} of {crop.Bytes.Length} bytes");
+    }
+
+    [Fact]
     public async Task AnEvidenceStreamKeptAliveByHeartbeatsCompletes()
     {
         var (host, gate, run) = await GatedEvidenceHostAsync();
@@ -452,16 +512,39 @@ public sealed class VisualAttributeLeaseLifetimeTests(PostgresFixture fixture)
     private sealed class SignallingStagingStore(IAttributeStagingStore inner, Gate gate) : IAttributeStagingStore
     {
         public Task<AttributeUploadResult> WriteAsync(Guid analysisId, int attemptCount, Stream body, long declaredSizeBytes,
-            string declaredSha256, CancellationToken cancellationToken)
-        {
-            gate.Reached.TrySetResult();
-            return inner.WriteAsync(analysisId, attemptCount, body, declaredSizeBytes, declaredSha256, cancellationToken);
-        }
+            string declaredSha256, CancellationToken cancellationToken) =>
+            inner.WriteAsync(analysisId, attemptCount, new SignallingStream(body, gate), declaredSizeBytes, declaredSha256, cancellationToken);
 
         public StagedPredictions? Describe(Guid analysisId, int attemptCount) => inner.Describe(analysisId, attemptCount);
 
         public Task<Stream> OpenReadAsync(Guid analysisId, int attemptCount, CancellationToken cancellationToken) =>
             inner.OpenReadAsync(analysisId, attemptCount, cancellationToken);
+    }
+
+    /// <summary>Signals once the first bytes of the body have passed the fence.</summary>
+    private sealed class SignallingStream(Stream inner, Gate gate) : Stream
+    {
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var read = await inner.ReadAsync(buffer, cancellationToken);
+            if (read > 0) gate.Reached.TrySetResult();
+            return read;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private Task<VisualAttributeApiHost> UploadHostAsync(Gate gate) => HostAsync(kestrel: true, services: services =>
@@ -514,6 +597,55 @@ public sealed class VisualAttributeLeaseLifetimeTests(PostgresFixture fixture)
         var sending = UploadInTwoHalvesAsync(host, unit, bytes, gate);
         await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
         host.World.Clock.Advance(TimeSpan.FromMinutes(3));
+        gate.Release.SetResult();
+        var status = await sending;
+
+        Assert.NotEqual(HttpStatusCode.OK, status);
+        Assert.False(File.Exists(Path.Combine(AttemptDirectory(host, unit), AttributeStagingLayout.PredictionsFileName)));
+    }
+
+    [Fact]
+    public async Task AnUploadStopsWithinOneRecheckIntervalWhenTheOwnerGaveUpAndAnotherAttemptClaimed()
+    {
+        var gate = new Gate();
+        await using var host = await UploadHostAsync(gate);
+        var unit = await host.LeaseAsync();
+        var bytes = AttributeCompletionBuilder.Build(unit).Predictions;
+        var leaseExpiry = unit.Lease.LeaseExpiresAtUtc;
+
+        var sending = UploadInTwoHalvesAsync(host, unit, bytes, gate);
+        // The first half has passed a fence that observed ownership in the database.
+        await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // The same worker gives up and claims the unit again: only the attempt and its capability
+        // tell the transfer apart from the new owner's.
+        using (var failed = await host.FailAsync(unit, "visual_attribute_inference_failed", "gave up"))
+            Assert.Equal(HttpStatusCode.OK, failed.StatusCode);
+        var second = await host.LeaseAsync(unit.WorkerId);
+        // Exactly one interval after that observation; the first lease has most of its life left.
+        host.World.Clock.Advance(LeaseFencedStream.RecheckInterval);
+        Assert.True(leaseExpiry - host.World.Clock.GetUtcNow() > TimeSpan.FromSeconds(60), "the first lease is still far from expiry");
+        gate.Release.SetResult();
+        var status = await sending;
+
+        Assert.Equal(2, second.Attempt);
+        Assert.NotEqual(HttpStatusCode.OK, status);
+        var directory = AttemptDirectory(host, unit);
+        Assert.False(File.Exists(Path.Combine(directory, AttributeStagingLayout.PredictionsFileName)));
+        Assert.True(!Directory.Exists(directory) || Directory.GetFiles(directory).Length == 0, "temporary residue left behind");
+    }
+
+    [Fact]
+    public async Task AnUploadStopsAtItsLeaseExpiryInsideARecheckInterval()
+    {
+        var gate = new Gate();
+        await using var host = await UploadHostAsync(gate);
+        var unit = await host.LeaseAsync();
+        var bytes = AttributeCompletionBuilder.Build(unit).Predictions;
+        host.World.Clock.Advance(unit.Lease.LeaseExpiresAtUtc - host.World.Clock.GetUtcNow() - TimeSpan.FromSeconds(2));
+
+        var sending = UploadInTwoHalvesAsync(host, unit, bytes, gate);
+        await gate.Reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        host.World.Clock.Advance(TimeSpan.FromSeconds(2));
         gate.Release.SetResult();
         var status = await sending;
 

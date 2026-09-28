@@ -12,7 +12,8 @@ public sealed class VisualAttributeLeaseLostException() : IOException("visual_at
 /// <para>
 /// The check is a clock comparison. The database is consulted only when the lease the platform
 /// last granted this attempt has been reached — a heartbeat may have renewed it, so it is read
-/// again — or every <see cref="RecheckInterval"/> at most. That is exact: another executor can
+/// again — or once <see cref="RecheckInterval"/> has passed since ownership was last observed
+/// (by the request's authorisation, then by each read of the row). That is exact: another executor can
 /// take the unit only after its lease expires (claim, attempts-exhausted and deadline all require
 /// it), and the single exception — the owner's own failure requeueing the unit, which another
 /// worker may then claim at once — is caught within one interval. A 64 MiB upload therefore
@@ -33,8 +34,12 @@ public sealed class LeaseFencedStream : Stream
     /// The expiry the authorisation observed, or <see cref="DateTimeOffset.MinValue"/> to validate
     /// before the first byte.
     /// </param>
+    /// <param name="verifiedAtUtc">
+    /// A time no later than the authorisation's observation of ownership. The first database read
+    /// is due one <see cref="RecheckInterval"/> after it, whatever preparing the stream cost.
+    /// </param>
     public LeaseFencedStream(Stream inner, Func<CancellationToken, Task<DateTimeOffset?>> revalidate, TimeProvider clock,
-        DateTimeOffset leaseExpiresAtUtc)
+        DateTimeOffset leaseExpiresAtUtc, DateTimeOffset verifiedAtUtc)
     {
         ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(revalidate);
@@ -43,7 +48,7 @@ public sealed class LeaseFencedStream : Stream
         _revalidate = revalidate;
         _clock = clock;
         _leaseExpiresAtUtc = leaseExpiresAtUtc;
-        _nextCheckUtc = clock.GetUtcNow() + RecheckInterval;
+        _nextCheckUtc = verifiedAtUtc + RecheckInterval;
     }
 
     public override bool CanRead => true;
@@ -71,6 +76,7 @@ public sealed class LeaseFencedStream : Stream
     {
         var now = _clock.GetUtcNow();
         if (now < _leaseExpiresAtUtc && now < _nextCheckUtc) return;
+        // `now` precedes the row read, so the next is due no later than an interval after it.
         var expiry = await _revalidate(cancellationToken) ?? throw new VisualAttributeLeaseLostException();
         _leaseExpiresAtUtc = expiry;
         _nextCheckUtc = now + RecheckInterval;

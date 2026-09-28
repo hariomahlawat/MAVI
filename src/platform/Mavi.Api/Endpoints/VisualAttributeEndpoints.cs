@@ -149,6 +149,8 @@ public static class VisualAttributeEndpoints
             !TryAttempt(context, out var attempt))
             return Problem(400, "visual_attribute_evidence_request_invalid", "Evidence request headers are invalid.");
 
+        // Taken before the authorisation reads the row: the fence's first interval runs from here.
+        var verifiedAtUtc = clock.GetUtcNow();
         var authorization = await lifecycle.AuthorizeEvidenceReadAsync(id, workerId, capability, attempt, observationId, cancellationToken);
         if (!authorization.IsAuthorised)
         {
@@ -185,7 +187,7 @@ public static class VisualAttributeEndpoints
 
         // Authorised for the lifetime of the stream, not only for its first byte (plan §10).
         var fenced = new LeaseFencedStream(stream,
-            token => lifecycle.RevalidateLeaseAsync(id, workerId, capability, attempt, token), clock, grant.LeaseExpiresAtUtc);
+            token => lifecycle.RevalidateLeaseAsync(id, workerId, capability, attempt, token), clock, grant.LeaseExpiresAtUtc, verifiedAtUtc);
         return new FencedEvidenceResult(fenced, grant, () => audit.EvidenceLeaseLost(id, attempt, observationId),
             () => audit.EvidenceServed(id, attempt, observationId, grant.SizeBytes));
     }
@@ -257,7 +259,8 @@ public static class VisualAttributeEndpoints
         // mid-upload stages nothing (its temporary file is discarded; nothing is published).
         AttributeUploadResult result;
         await using (var body = new LeaseFencedStream(context.Request.Body,
-                         token => lifecycle.RevalidateLeaseAsync(id, workerId, capability, attempt, token), clock, DateTimeOffset.MinValue))
+                         token => lifecycle.RevalidateLeaseAsync(id, workerId, capability, attempt, token), clock,
+                         DateTimeOffset.MinValue, DateTimeOffset.MinValue))
         {
             try
             {
