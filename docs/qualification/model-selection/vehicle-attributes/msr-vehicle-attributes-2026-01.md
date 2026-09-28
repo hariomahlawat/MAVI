@@ -15,7 +15,7 @@
 | Incumbent | **none.** The S2b fixture inferencer is a Development-only test double |
 | Baseline | VC-B0: MAVI-owned deterministic body-region chroma clustering + CIE-Lab naming |
 | Discovery sources | `docs/qualification/stage2-s2c/model-candidate-survey.md` (2026-09-28); re-run at S2c.2 |
-| Target profiles (licence gate G1) | the Development deployment profiles where S2c runs the learned pack. Production profiles are determined later, by addendum; none in S2c |
+| Target profiles (licence gate G1) | the Development deployment profiles where S2c runs the learned pack; their profile ids are named in the protocol at S2c.2. Production profiles are determined later, by addendum; none in S2c |
 | Frozen-test access count | 0 (the frozen test is not yet sealed) |
 
 ## 1. Task definition

@@ -248,7 +248,7 @@ The record references, and does not duplicate, the authoritative identities:
 
 Imagery and private derived data stay in the access-controlled evidence store (AGENTS.md: no CCTV in Git). Git holds manifests, protocol, record and summary results.
 
-**The links that make the record auditable.** Every hash below is taken over **LF-normalised bytes**, so a Windows checkout that converts line endings does not produce a false mismatch.
+**The links that make the record auditable.** Every hash below is taken over **LF-normalised bytes**: SHA-256 of the UTF-8 file after replacing each CRLF with LF, with no other transformation. A byte-order mark, a lone CR or trailing-whitespace changes all change the hash. A Windows checkout that converts line endings therefore does not produce a false mismatch.
 1. The record cites its protocol by SHA-256.
 2. A `CLOSED` event's record SHA-256 is written in the index (§13) and in the addenda header, whatever the outcome, so `INCUMBENT_RETAINED` and `NO_QUALIFIABLE_CANDIDATE` events are covered too.
 3. When a pack results, its qualification record cites the closed record as `{kind: "model-selection-record", reference: "<path>", sha256: "<record sha>"}`. This is evidence for the capability's own selection gate (`<capabilityId>-model-selection`), in the capability gate set, because gate names are unique across all gate sets. The existing evidence shape is used, and the qualification-record schema does not change.

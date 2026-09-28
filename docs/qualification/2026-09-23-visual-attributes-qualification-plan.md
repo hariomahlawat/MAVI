@@ -381,7 +381,7 @@ Any later exception is documented as a protocol revision and invalidates prior f
 
 ## 20. Protocol revision R2 (2026-09-28, S2c planning): model selection records
 
-**Status: Proposed with the S2c plan; effective on acceptance of that planning change.** R2 only adds requirements; it removes nothing.
+**Status: Proposed with the S2c plan; effective on acceptance of that planning change.** R2 adds requirements and, in item 7, amends §3.1 by splitting its tuning/validation set into tuning and selection partitions. It removes no safeguard.
 
 1. **Retained evidence.** §17 additionally requires one **closed Model Selection Record** per learned capability (`docs/qualification/model-selection/`, MSR method v1). Each record comes with its frozen selection protocol, cited by SHA-256.
 2. **Selection protocol.** Each event's selection protocol instantiates this plan: its partitions, labelling, metrics and freeze order. It may not weaken them.

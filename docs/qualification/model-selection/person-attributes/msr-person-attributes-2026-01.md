@@ -15,7 +15,7 @@
 | Incumbent | **none.** The S2b fixture inferencer is a Development-only test double, not a model and not an incumbent |
 | Baseline | PC-B0 (colour): MAVI-owned deterministic region band + dominant chroma cluster + CIE-Lab naming. No deterministic baseline exists for presence types; there, a constant-prior predictor is the floor for threshold-free metrics |
 | Discovery sources | `docs/qualification/stage2-s2c/model-candidate-survey.md` (2026-09-28); re-run at S2c.2 |
-| Target profiles (licence gate G1) | the Development deployment profiles where S2c runs the learned pack. Production profiles are determined later, by addendum; none in S2c |
+| Target profiles (licence gate G1) | the Development deployment profiles where S2c runs the learned pack; their profile ids are named in the protocol at S2c.2. Production profiles are determined later, by addendum; none in S2c |
 | Frozen-test access count | 0 (the frozen test is not yet sealed) |
 
 ## 1. Task definition
@@ -45,7 +45,7 @@ Checkpoint identities are pinned at S2c.2 (methodology §5). "Pin at S2c.2" mean
 | PO-2 | T-PO | challenger | DINOv3 / DINOv2 heads | as PC-2 | `DISCOVERED` | shortlist | §4 |
 | PO-3 | T-PO | challenger | PromptPAR / VTB / strong baseline trained on PA-100K (method + released checkpoints) | pin at S2c.2 | `DISCOVERED` | shortlist | §2.1 |
 | PO-4 | T-PO | challenger | Awiros ConvNeXt V2-Tiny | as PC-5 | `DISCOVERED` | as PC-5 | §2.2 |
-| PO-5 | T-PO | challenger | PP-Human attribute (PP-LCNet / PP-HGNet) | pin at S2c.2 | `DISCOVERED` | shortlist if evaluation is permitted | §2.2 |
+| PO-5 | T-PO | challenger | PP-Human attribute (PP-LCNet / PP-HGNet) | pin at S2c.2 | `DISCOVERED` | shortlist if evaluation is permitted, else `REFERENCE_ONLY` | §2.2 |
 | PO-6 | T-PO | challenger | Intel OMZ 0230 (0234/0238 for hat) | pin at S2c.2 | `DISCOVERED` | shortlist | §2.2 |
 | PO-7 | T-PO | challenger | small CNN fine-tuned on PA-100K + MAVI labels | backbone pin at S2c.2 | `DISCOVERED` | shortlist | plan §9.2 |
 | C-SEG | both | component | SAM 2.1 / SAM 3 / human parsing for the region step | pin at S2c.2 | `DISCOVERED` | `DEFERRED`: evaluated only if unmasked bands lose materially (plan §9.2) | §4 |

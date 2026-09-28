@@ -140,8 +140,8 @@ A new method `calibrated-mean-margin-v1` (name provisional), versioned beside S2
 2. if fewer than `kMin(type)` crops contribute → **Unknown**;
 3. per value: mean calibrated score; best value `v*`, runner-up `v₂`; deterministic tie rule (S2b's: higher mean, then schema order);
 4. **Observed** iff `n_contributing ≥ kMin(type)` **and** `mean(v*) ≥ τ(type, v*)` **and** `mean(v*) − mean(v₂) ≥ δ(type)`; otherwise **Unknown**;
-5. supporting Observation: S2b's rule (the scored crop with the highest `v*` score, then lower evidence rank), restricted to crops the Representative policy allows as support;
-6. presence attributes (single value `present`): Observed iff `n_scored ≥ kMin` and the top-`kMin` mean ≥ τ; otherwise Unknown — never Absent.
+5. supporting Observation: S2b's rule (the crop with the highest `v*` score, then lower evidence rank), restricted to **contributing** crops (step 1a) that the Representative policy allows as support;
+6. presence attributes (single value `present`): Observed iff `n_contributing ≥ kMin` (every scored crop contributes) and the top-`kMin` mean ≥ τ; otherwise Unknown — never Absent.
 
 The *family* (this rule shape) and the *threshold-selection method* (§10.5) are frozen in S2c.2 before any MAVI result (R1 step 1); only the parameter values (`kMin`, τ, δ, `floor`) are tuned on the tuning partition (R1 step 2) and frozen before frozen-test scoring (R1 step 3).
 
@@ -177,7 +177,7 @@ The *family* (this rule shape) and the *threshold-selection method* (§10.5) are
 | Inconsistent crops within a Track | the margin δ turns disagreement into Unknown | aggregation error analysis |
 | Vehicle partially visible | admissibility minimum; evidence floor | stratum |
 
-Abstention reason vocabulary (closed, versioned with the admissibility method): `subject_too_small`, `region_too_small`, `achromatic_evidence`, `modality_unsupported`, `representative_qualification_unknown`, `model_not_applicable` (the only adapter-emitted reason). Additions are versioned changes.
+Abstention reason vocabulary (one closed vocabulary covering both sources, versioned with the admissibility method, which is part of identity v2; an adapter may emit only `model_not_applicable`, and the runner refuses any other adapter reason): `subject_too_small`, `region_too_small`, `achromatic_evidence`, `modality_unsupported`, `representative_qualification_unknown`, `model_not_applicable` (the only adapter-emitted reason). Additions are versioned changes.
 
 ## 9. Model discovery and selection
 
@@ -267,10 +267,10 @@ Every shortlisted candidate has a row in the survey record's licence matrix (`mo
 The class of each candidate, with its primary source, is recorded once, in the survey's licence matrix (`model-candidate-survey.md` §6), and snapshotted into the event's candidate card at S2c.2. It is not restated here, so the two cannot drift.
 
 Rules:
-1. **Evaluation permission is its own question.** It is a human legal precondition to *measuring* a candidate, not a ranking input, and it is recorded with decision-maker and date. A candidate whose evaluation is not permitted becomes `REFERENCE_ONLY` (reported evidence kept at its reported strength), never `NOT_SHORTLISTED`. A candidate enters the MAVI bake-off only if MAVI's evaluation use is permitted by its terms (some L-C grants cover "testing" for research but exclude product development). Where a checkpoint cannot be evaluated but its *method* code is permissive, the method trained on MAVI-permitted data represents it (e.g. PC-3 re-trained on MAVI labels instead of the PETA/RAP checkpoint); where neither is possible, its reported figures remain in the comparison, marked "not reproduced by MAVI".
-2. **Selection needs qualification for the target release profile** (gate G1, §9.5), applied *after* evaluation: L-A subject to review; L-B only with a recorded per-deployment use determination; L-C only with a separately negotiated licence; L-D not selectable.
+1. **Evaluation permission is its own question.** It is a human legal precondition to *measuring* a candidate, not a ranking input, and it is recorded with decision-maker, date and primary source. A candidate whose evaluation is not permitted becomes `REFERENCE_ONLY` (reported evidence kept at its reported strength), never `NOT_SHORTLISTED`. A candidate enters the MAVI bake-off only if MAVI's evaluation use is permitted by its terms (some L-C grants cover "testing" for research but exclude product development). Where a checkpoint cannot be evaluated but its *method* code is permissive, the method trained on MAVI-permitted data represents it (e.g. PC-3 re-trained on MAVI labels instead of the PETA/RAP checkpoint); where neither is possible, its reported figures remain in the comparison, marked "not reproduced by MAVI".
+2. **Selection needs qualification for each named target profile** (gate G1, §9.5), applied *after* evaluation: L-A subject to review; L-B only with a recorded per-deployment use determination; L-C only with a separately negotiated licence; L-D not selectable.
 3. **The record reports both** the technically strongest evaluated candidate and the strongest deployable one per target profile (MSR method §9), with the measured gap. If they differ, the owner decides whether to seek a licence for the stronger one; the plan does not decide it.
-4. The licence/deployment determination for a profile is recorded as **evidence of the existing common `licence` gate** in that profile's `profileQualifications` entry (`{kind: "licence-use-determination", reference, sha256}`; existing shape, no schema change). For an L-B pack it must be a per-deployment end-use determination. A profile cannot become qualified without it. No licence-class-dependent gate is introduced, so an L-A pack is never left with a gate it cannot satisfy.
+4. The licence/deployment determination for a profile is recorded as **evidence of the existing common `licence` gate** in that profile's `profileQualifications` entry (`{kind: "licence-use-determination", reference, sha256}`; existing shape, no schema change). For an L-B pack it must be a per-deployment end-use determination; that is a review rule, since `kind` is free text and not machine-checked. A profile cannot become qualified without it: the Production resolver requires profile evidence for every gate. **In S2c no `profileQualifications` entry is written.** An entry forces the profile into `qualifiedProfiles` and needs its policy SHA, and no profile is qualified in S2c. The Development G1 determination lives in the MSR licence axis (§9.6), and profile entries are written only when a profile is qualified (S5 or later). The variant-level `licence` gate stays `pending` in S2c. Its eventual evidence is the licence review record for the pack's components (qualification plan §14). No licence-class-dependent gate is introduced, so an L-A pack is never left with a gate it cannot satisfy.
 
 ### 9.4 The bake-off
 
@@ -291,7 +291,7 @@ The layers follow MSR method §8: mandatory gates, then measured metrics, then c
 
 | Gate | Rule |
 |---|---|
-| G1 Licence qualification | applied after evaluation (§9.3 rule 2): the candidate is qualifiable for the target release profile — L-A after review, L-B with a recorded per-deployment use determination, L-C only under a separate licence, L-D never. G1 is evaluated per named target profile and passes exactly when the candidate's licence axis is `CLEARED` for that profile (MSR method §4). In S2c the target profiles are the Development deployment profiles, where the learned packs run; Production profiles are determined later, as addenda (MSR method §11), and never in S2c. A candidate failing G1 stays in the record at its technical rank as the technical reference |
+| G1 Licence qualification | applied after evaluation (§9.3 rule 2): the candidate is qualifiable for the named target profile — L-A after review, L-B with a recorded per-deployment use determination, L-C only under a separate licence, L-D never. G1 is evaluated per named target profile and passes exactly when the candidate's licence axis is `CLEARED` for that profile (MSR method §4). In S2c the target profiles are the Development deployment profiles, where the learned packs run; Production profiles are determined later, as addenda (MSR method §11), and never in S2c. A candidate failing G1 stays in the record at its technical rank as the technical reference |
 | G2 Offline | loads from pack artefacts alone; no hub, index or network call; verified by a network-denied run |
 | G3 Determinism | repeated CPU runs with the pinned thread count give identical Track decisions and scores within 1e-6; where CUDA is measured, the CPU/CUDA Track-decision agreement tolerance is **declared in S2c.2** (qualification plan §10 requires one but declares none) and a variant outside it may not be bound |
 | G4 Runtime budget | p95 end-to-end per crop within the §14 budget on the pinned Development CPU host class (CPU-mandatory in S2c) |
@@ -343,7 +343,7 @@ Only where a probe/fine-tune candidate is shortlisted: a pinned, seeded script i
 
 ### 10.1 Protocol
 
-The Stage-2 qualification plan governs, with protocol revisions R1 (freeze order, §19 there) and R2 (model selection records, §20 there). S2c executes R1 steps 1–2; S5 executes steps 3–4.
+The Stage-2 qualification plan governs, with protocol revisions R1 (freeze order, §19 there) and R2 (model selection records and the four-partition amendment of §3.1, §20 there). S2c executes R1 steps 1–2; S5 executes steps 3–4.
 
 ### 10.2 Corpus
 
@@ -483,7 +483,7 @@ The .NET release parser accepts only `mean-score-argmax` with fixed keys, so agg
 | Aggregation v2 document (both loaders) | `pipeline.py`, `predictions.py`, `VisualAttributeRelease.cs`, vector | §12.5 |
 | Admissibility method + abstention vocabulary | `attributes/admissibility.py`, `contracts.py`, `VisualAttributeContractRules.cs` | ADR-013 item 9 |
 | Registered attribute manifest sections; resolver byte limits | `model_manifest_v2.py`, `resolver.py` | ADR-014 §3 (registry extension) |
-| Attribute gate sets (including `model-selection`) | `capability-gate-sets-v1.json` | ADR-014 §6 |
+| Attribute gate sets (including `<capabilityId>-model-selection`) | `capability-gate-sets-v1.json` | ADR-014 §6 |
 | MSR integrity: re-derive the LF-normalised SHA-256 of every record cited as `model-selection-record` evidence, of every `CLOSED` record listed in the MSR index (including events that produced no pack), and of every protocol whose hash a record cites; refuse a mismatch or a missing file | `verify_repo.py` | ADR-014 MSR note; MSR method §10 |
 | Development overlay binding class; attribute profile loader | `verify_repo.py`, `binding.py` | ADR-014 note (§12.8) |
 | Attributes device policy (`cpu`/`cuda`/Development `auto`) | `supervisor.py`, `settings.py` | ADR-013 §8 (item 10) |
@@ -618,9 +618,9 @@ S2b's boundary is unchanged: no filesystem access to accepted evidence, lease-sc
 | S24 | allow the overlay binding to change a release-binding role or pack | `verify_repo` negative fixture |
 | S25 | plan/install the attributes role in a Production profile | Setup contract test |
 | S26 | ship a learned pipeline profile with `developmentOnly: false`, or remove the Production refusal | `verify_repo` profile rule + Production-mode platform startup and resolver negative tests |
+| S27 | edit a closed Model Selection Record or a frozen protocol, hash CRLF bytes instead of LF-normalised bytes, or mark a `*-model-selection` gate passed without citing a record | `verify_repo` negative fixtures (record, index and protocol hash mismatch; CRLF copy of an LF record hashes equal; passed gate without `model-selection-record` evidence) |
 | S28 | let a sub-floor colour crop vote, apply a floor to a presence type, or pool presence by the full mean | aggregation v2 vectors (low-evidence view; front/back backpack Track) |
 | S29 | adapter output with a type in both maps, a missing type, or an unregistered abstention reason | runner output-validation tests |
-| S27 | edit a closed Model Selection Record or a frozen protocol, hash CRLF bytes instead of LF-normalised bytes, or mark a `*-model-selection` gate passed without citing a record | `verify_repo` negative fixtures (record, index and protocol hash mismatch; CRLF copy of an LF record hashes equal; passed gate without `model-selection-record` evidence) |
 
 Target: every S-mutant killed; equivalents recorded with the reason, as in S2b.
 
@@ -660,8 +660,8 @@ Reconciliation items are numbered DR1… so they cannot be confused with the qua
 | DR11 | `offline-dependency-policy-v1.json` `setupIntegration` predates S2a.4; `offline-binary-inventory.md` has no Model Pack rows; CUDA CPython row imprecise | amend during S2c | S2c.6 |
 | DR12 | `implementation-record.md` attributes schema limits to "ADR-013 §12" | amend during S2c | S2c.5 (the limits are S2b choices) |
 | DR13 | `capability-implementation-roadmap.md` "Worker boundary … one ADR when stage 2 begins" | amend during S2c | mark done (ADR-013 §8) |
-| DR15 | No durable record of *why* a model was chosen: the survey is dated discovery, and qualification records say only whether a pack passed | must amend before | **proposed here**: MSR method v1 (`docs/qualification/model-selection/`), the ADR-014 MSR note, qualification-plan revision R2 (the closed MSR as required retained evidence), and pointers in the architecture index and the lifecycle runbook |
 | DR14 | S2a closure "next slice is S2b"; S2b plan/record status lines; ADR-007 v1 binding names; `windows-cuda-host-session.md` retired file names; baseline tables | historical | leave |
+| DR15 | No durable record of *why* a model was chosen: the survey is dated discovery, and qualification records say only whether a pack passed | must amend before | **proposed here**: MSR method v1 (`docs/qualification/model-selection/`), the ADR-014 MSR note, qualification-plan revision R2 (the closed MSR as required retained evidence), and pointers in the architecture index and the lifecycle runbook |
 
 ## 22. Implementation slices
 
@@ -794,6 +794,22 @@ After these dispositions the author's assessment is **no P1 or P2 open**. A furt
 | K-15 | P3 | The MSR had no documentation-precedence rank | **Fixed** (architecture README precedence item 5) |
 | K-16 | P3 | §9.0 came after §9.1; reconciliation "R1" collided with protocol revision R1 | **Fixed:** §9.0 moved first; reconciliation items renamed DR1… (register reference updated) |
 | K-17 | P3 | "Implementation candidate … explicitly pending" wording | covered by K-5 |
+
+**Re-review of the amended sections (`928d4d4..977074f`)** — 0 P1, 0 P2, 14 P3. It confirmed against `qualification_v2.py`, the resolver and `verify_repo` that the capability-prefixed gates, the `licence`-gate profile evidence, the pending-variant rules and the hash links are valid. The P3s are fixed:
+- no `profileQualifications` entry is written in S2c;
+- the LF-normalisation transform is defined;
+- target profiles are named at S2c.2, with "target profile" wording throughout;
+- rule 1 requires the primary source;
+- PO-5 routes to `REFERENCE_ONLY`;
+- the survey legend and the torchvision class are aligned;
+- support is restricted to contributing crops;
+- ownership of the abstention vocabulary is stated;
+- `n_contributing` wording is used throughout;
+- the gate name in §12.9 is corrected;
+- the table order is fixed;
+- R2's scope is stated.
+
+The per-deployment L-B rule remains a review rule, not a mechanical check (`kind` is free text), as stated in §9.3 rule 4. `.gitattributes` is left unchanged to keep this PR documentation-only, because the hash transform itself is normalised.
 
 ## 25. Scope guard
 
