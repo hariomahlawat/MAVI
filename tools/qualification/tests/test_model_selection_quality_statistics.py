@@ -11,6 +11,8 @@ import pytest
 
 from model_selection.quality_statistics import (
     CONTRACT,
+    NORMATIVE_DOC,
+    REQUIRED_DOC_SNIPPETS,
     QualityStatisticsError,
     read_contract,
     validate_contract,
@@ -32,7 +34,7 @@ def refused(code, document):
 
 
 def test_repository_contract_is_valid():
-    assert validate_repository(REPO) == [CONTRACT.as_posix()]
+    assert validate_repository(REPO) == [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
 
 
 def test_cli_validates_repository():
@@ -112,3 +114,23 @@ def test_unknown_fields_are_refused():
     document = base()
     document["weightedScore"] = {"enabled": True}
     refused("contract_fields", document)
+
+
+def write_minimal_repo(tmp_path, contract_document, normative_text):
+    contract_path = tmp_path / CONTRACT
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.write_text(__import__("json").dumps(contract_document), encoding="utf-8")
+    doc_path = tmp_path / NORMATIVE_DOC
+    doc_path.parent.mkdir(parents=True, exist_ok=True)
+    doc_path.write_text(normative_text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("code", sorted(REQUIRED_DOC_SNIPPETS))
+def test_normative_b1_clauses_are_repository_checked(tmp_path, code):
+    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    snippet = REQUIRED_DOC_SNIPPETS[code]
+    assert snippet in text
+    write_minimal_repo(tmp_path, base(), text.replace(snippet, "WEAKENED", 1))
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == code
