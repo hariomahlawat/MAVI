@@ -177,7 +177,7 @@ Ownership (clarified 2026-09-28 by the S2c plan; no status changes): the parent 
   - the canonical JSON machine contract `docs/qualification/model-selection/s2c-quality-statistics-contract.json`;
   - the protocol `s2c-quality-statistics.md` with its deterministic, byte-compared protected projection of the contract;
   - the validator `tools/qualification/quality_statistics_check.py`, with tests on synthetic fixtures only.
-- Merged in PR #119. The final PR head was `be2629daa2831014a3565ec15850f79762cd7e78`, and the squash merge is `main@3fbfaede6de9aa83697c96d20d95f119cb5b7ef0`. Exact-head PR CI was green on the final head before merge (quality, CPU ubuntu-latest, CPU windows-latest, deterministic-validation, windows-script-validation). That is pre-merge PR evidence, not post-merge verification of the merge commit.
+- Merged in PR #119. The final PR head was `be2629daa2831014a3565ec15850f79762cd7e78`, and the squash merge is `main@3fbfaede6de9aa83697c96d20d95f119cb5b7ef0`. Exact-head PR CI was green on the final head before merge (quality, CPU ubuntu-latest, CPU windows-latest, deterministic-validation, windows-script-validation). That is pre-merge PR evidence. Separately, the merged `main@3fbfaed` passed MAVI Quality Gate #2229 (run 36564432903), Task 10 Runtime Qualification #858 (36564432886) and Task 17 Acceptance Validation #1363 (36564432872).
 - No row changes. It selects, downloads, trains and benchmarks no model and claims no MAVI result. S2c.2b-2 (the current next protocol slice), the S2c.2 protocol freeze, S2c.3 and S2c.4 are OPEN, and F1, F3 and every other F/G row keep their state.
 
 For every PASS entry retain:

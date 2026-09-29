@@ -2,7 +2,7 @@
 
 **Baseline:** `main@db2b25a24d0f850c3841a9eabcb915f7c92eebfb` (PR #118 merge)  
 **Slice:** S2c.2b-1 — quality/statistical protocol only  
-**State:** merged. Final PR head `be2629daa2831014a3565ec15850f79762cd7e78`; merged to `main` as `3fbfaede6de9aa83697c96d20d95f119cb5b7ef0` (PR #119). Exact-head PR CI was green on the final head (quality, CPU ubuntu-latest, CPU windows-latest, deterministic-validation, windows-script-validation), with 0 of 24 review threads unresolved. The final consolidated closure review found 0 P1 / 0 P2 (§8, H12–H15).  
+**State:** merged. Final PR head `be2629daa2831014a3565ec15850f79762cd7e78`; merged to `main` as `3fbfaede6de9aa83697c96d20d95f119cb5b7ef0` (PR #119). Exact-head PR CI was green on the final head (quality, CPU ubuntu-latest, CPU windows-latest, deterministic-validation, windows-script-validation), with 0 of 24 review threads unresolved. Merged `main` passed MAVI Quality Gate #2229, Task 10 #858 and Task 17 #1363. The final consolidated closure review found 0 P1 / 0 P2 (§8, H12–H15).  
 **Non-claim:** no candidate was selected, downloaded, trained, calibrated or benchmarked; no real Model Selection Event protocol was frozen; no F/G acceptance row changes.
 
 ## 1. Purpose
