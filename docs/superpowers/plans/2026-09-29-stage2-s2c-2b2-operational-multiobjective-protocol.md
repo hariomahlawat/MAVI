@@ -565,8 +565,8 @@ For eligible vehicle candidates:
 2. identify candidates that are quality-safe relative to every other member they would outrank;
 3. if exactly one candidate remains, it is `UNIQUE_TECHNICAL_WINNER`;
 4. if several candidates are mutually quality-safe/equivalent and differ on resource axes, apply the frozen lexicographic resource order;
-5. canonical candidate id may break only a complete measurement-equivalence tie;
-6. if unresolved quality relations prevent a defensible unique ordering, return `NO_UNIQUE_TECHNICAL_WINNER` with the unresolved set.
+5. if candidates remain equivalent on every decision measurement under the frozen tolerances, retain them as an equivalent technical set; canonical id may order presentation only and does not create a winner;
+6. if unresolved quality relations or complete decision-measurement equivalence prevent a defensible unique ordering, return `NO_UNIQUE_TECHNICAL_WINNER` with the unresolved/equivalent set.
 
 ### 12.2 Person composition event
 
