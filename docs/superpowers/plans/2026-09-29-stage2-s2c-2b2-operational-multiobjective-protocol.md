@@ -503,6 +503,19 @@ The set is deterministic for a fixed measurement table and frozen tolerances.
 
 An unresolved quality relation can therefore leave more than one candidate non-dominated. This is intentional.
 
+### 10.8 Architectural-extension / MPID rule
+
+MSR method §8.1 already requires a candidate that needs an architectural extension (for example a new Runtime Pack family) to clear the frozen MPID over the best candidate that needs no such extension and to follow the ADR route. b-2 makes that rule executable without inventing a scalar score.
+
+1. Run the b-2 technical rule first on the eligible **existing-graph subset**.
+2. If that subset has one unique technical winner, it is the existing-graph reference.
+3. If that subset has no unique winner, the **entire unresolved existing-graph technical set** is the reference set.
+4. An extension candidate is implementation-eligible only if the frozen b-1 quality comparisons establish the required MPID/practical superiority against **every member of that reference set** on the protocol-declared MPID quality claims, and all other applicable gates pass.
+5. If the extension candidate does not clear that bar, it remains retained technical evidence but cannot become the implementation candidate for this event merely because it is cheaper or attractive on another axis.
+6. If there is no eligible existing-graph candidate, the MPID replacement bar is not applicable; the extension still requires its normal gates and ADR route.
+
+No runtime/dependency burden is converted into an arbitrary penalty score.
+
 ---
 
 ## 11. Sub-task finalist ordering
