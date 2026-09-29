@@ -103,7 +103,7 @@ Each task is its own model-selection problem. One multi-task model is not assume
 | Modality | day colour; low light; IR/greyscale at night | colour-independent; IR usable in principle | colour; IR/greyscale → colour inapplicable |
 | Required Unknown | region not visible, too small, patterned/ambiguous, achromatic imagery | object not assessable (orientation/occlusion/size); **no negative claim in v1** | glare, heavy reflection, achromatic imagery, ambiguous two-tone |
 | Accuracy expectation | set by the owner-approved gate table frozen before selection results are read, with operating values tuned on the tuning partition and gates judged by their predeclared confidence bounds (§10.5, S2c.2b-1) — not by benchmark figures | same | same |
-| Latency/throughput | ≤ the per-crop budget derived in §14 on the Development CPU | same (shared per-crop budget with T-PC when composed) | same |
+| Latency/throughput | measured on the Development CPU (§14); the budget and pass rule are S2c.2b-2's (SG4) | same (composition accounting per S2c.2b-2) | same |
 | Targets | CPU on every deployable CPU variant (Development); CUDA optional Development evidence | same | same |
 
 The frame-edge geometry of a crop is not in the lease today. Whether truncation must be signalled explicitly (an additive lease field) is decided by the bake-off's stratified results (§23, U6), not assumed.
@@ -318,11 +318,11 @@ The layers follow MSR method §8: mandatory gates, then measured metrics, then a
 | SG1 Licence qualification | applied after evaluation (§9.3 rule 2): the candidate is cleared for the declared MAVI non-commercial deployment profile named as a target, by the class rules of §9.3 rule 2. Under those rules an L-C grant that covers every use the profile makes can be cleared, and L-D waits until its open question is resolved. SG1 is evaluated per named target profile and passes exactly when the candidate's licence axis is `CLEARED` for that profile (MSR method §4). In S2c the target profiles are the Development deployment profiles, where the learned packs run; Production profiles are determined later, as addenda (MSR method §11), and never in S2c. A candidate failing SG1 stays in the record at its technical rank as the technical reference |
 | SG2 Offline | loads from pack artefacts alone; no hub, index or network call; verified by a network-denied run |
 | SG3 Determinism | repeated CPU runs with the pinned thread count give identical Track decisions and scores within 1e-6; where CUDA is measured, the CPU/CUDA Track-decision agreement tolerance is **declared in S2c.2** (qualification plan §10 requires one but declares none) and a variant outside it may not be bound |
-| SG4 Runtime budget | p95 end-to-end per crop within the §14 budget on the pinned Development CPU host class (CPU-mandatory in S2c) |
+| SG4 Runtime budget | S2c.2b-2 defines the budget, host class, measured statistic and pass rule (contract `operational-performance`, `whole-job-cpu-host-gates`, `10k-track-deadline-mechanics`). The provisional plan was a p95 end-to-end per-crop time within the §14 derived budget on a pinned Development CPU host class, CPU-mandatory in S2c (§14, historical/provisional) |
 | SG5 Quality / baseline | decided **per attribute** under the b-1 gate table: candidate and baseline are measured on the same S/U/I/A populations; required precision/recall or useful-coverage, unsupported-assertion, calibration, support and required-slice floors must pass their predeclared confidence-bound rules. Baseline comparison uses paired cluster-aware differences and the frozen practical/non-inferiority rule; interval overlap is not a tie. AURC/AP/F1 remain diagnostics where applicable and never fabricate labels for human-unscorable evidence. If no learned candidate clears the required quality gates and a packageable baseline does, the record may retain the baseline; presence PO-B0 remains a statistical floor only |
 | SG6 Abstention / unsupported assertion | absolute upper bound on confident assertions over human-unscorable evidence and a separate one over invalid-subject evidence (U and I are measured separately), plus the b-1 useful-recall/coverage lower bound on scorable evidence. Relative abstention on invalid versus valid evidence is diagnostic only; excessive abstention cannot satisfy the gate |
-| SG7a System scale (projection, S2c.4) | the projected fleet at the 500-camera target, under the owner-declared workload model and host envelope (§14.1, U9), fits the envelope: worker count, hosts, memory, backlog drain after one host loss. The projection is computed from per-worker quantities measured in the bake-off. For person-attributes it is evaluated per **composition** (§9.5a), never per component. A candidate or composition needing an architectural change to fit fails SG7a until the change exists (MSR method §7.1) |
-| SG7b System scale (validation, S2c.9) | the executed representative multi-worker load agrees with the SG7a projection within the tolerance frozen at S2c.2. If it fails, the selection is **re-opened** at S2c.4 with the measured quantities. With only one host available, host-loss drain is validated as the loss of one worker process, and cross-host behaviour is recorded as an unvalidated limitation, never as a pass |
+| SG7a System scale (projection, S2c.4) | the projection method, workload model form, host envelope and pass rule are defined by S2c.2b-2 (contract `500-camera-projection`, `composition-resource-accounting`). The owner declares the values (U9). The projection uses per-worker quantities measured in the bake-off. For person-attributes it is evaluated per **composition** (§9.5a), never per component. A candidate or composition needing an architectural change to fit cannot pass until the change exists (MSR method §7.1). The provisional plan checked worker count, hosts, memory and backlog drain after one host loss against the envelope (§14.1, historical/provisional) |
+| SG7b System scale (validation, S2c.9) | S2c.2b-2 defines the validation method, the agreement tolerance and the consequence of a failure. Cross-host behaviour that was not executed is recorded as an unvalidated limitation, never as a pass. The provisional plan was agreement within a tolerance, re-opening the selection at S2c.4 on failure, and validating host-loss drain as the loss of one worker process when only one host is available (§14.1, historical/provisional) |
 
 **Metric populations and abstention semantics (frozen by S2c.2b-1).**
 - **S — human-scorable:** classification quality and per-value precision/recall use adjudicated scorable truth only.
@@ -377,7 +377,7 @@ The record keeps the pure task-quality view beside this ranking. The **highest t
    - up to **three** further pairs from the finalist product (at most 3 × 3), ordered by the sum of sub-task ranks under that ordering and taken only if not already listed.
 
    The set is therefore at most 1 + S + 3 compositions, where S (at most 9) is the number of shared-backbone finalist pairs. Each is an exact tuple of component identities, with an optional shared region component (for example segmentation, if C-SEG is ever triggered).
-3. **Composition evaluation**, on the selection partition and the pinned host:
+3. **Composition evaluation**, on the selection partition and the host class S2c.2b-2 pins:
    - combined per-attribute quality;
    - CPU latency per crop and Track;
    - throughput;
@@ -476,7 +476,7 @@ No percentage is set in this plan. The procedure:
 3. The complete executable configuration is frozen before selection. Selection compares candidates and paired differences only; it performs no fitting or tuning. Gate decisions use the predeclared confidence-bound direction and preserve `inconclusive` / `insufficient evidence`.
 4. Before S5, the selected identity and every parameter value are re-recorded under R1 step 3. The frozen test is scored once and cannot be used to adaptively select an alternative.
 
-Gate classes kept separate: **functional** (tests, contracts, mutations — S2c), **model quality** (frozen-test gates — S5), **performance** (derived budgets, §14 — S2c measures, S5 re-confirms on the frozen identity), **packaging/reproducibility** (pack id re-derivation, rebuild, offline install — S2c), **Production promotion** (out of Stage-2 S2c; ADR-009).
+Gate classes kept separate: **functional** (tests, contracts, mutations — S2c), **model quality** (frozen-test gates — S5), **performance** (budgets and gates under the S2c.2b-2 rule, §14 — S2c measures, S5 re-confirms on the frozen identity), **packaging/reproducibility** (pack id re-derivation, rebuild, offline install — S2c), **Production promotion** (out of Stage-2 S2c; ADR-009).
 
 ## 11. CPU, CUDA, Development, Production
 
@@ -603,7 +603,29 @@ Decisions are computed once, in Python; the platform refuses the same *inputs* t
 
 ## 14. Performance
 
-**Derived budget.** At the 10,000-Track × 4-crop bound (40,000 crops) the deadline D (default 6 h) runs from first claim, so a retry must fit after a late failure. Per-attempt budget = (D − T_restart − T_load − T_lease) / 2, where T_restart is the launcher's restart delay (§17), T_load the measured model-load/READY time and T_lease one lease duration (reclaim delay). With placeholder values of 60 s, 120 s and 120 s this is ≈ 10,650 s, i.e. **≈ 0.266 s per crop end to end** (evidence read + verify + decode + admissibility + inference + aggregation). S2c.2 pins the **Development CPU host class** (CPU model, cores, RAM, OS) and the inference thread count (leaving one core for the event loop so heartbeats keep their schedule), and recomputes the figure with measured values. **SG4 is CPU-mandatory in S2c**: no release profile binds the attributes role to CUDA in S2c, so a candidate cannot pass SG4 on CUDA alone. Raising D is a lifecycle configuration change with its own justification, never a way to hide model slowness.
+**Governing status (S2c.2b-1, 2026-09-29).** This section separates two kinds of content.
+- **Measurement requirements, which govern.** S2c must collect the performance and resource evidence in the table below and in §14.1 "Measured per candidate or composition" for every evaluated candidate or composition. It is retained as class M-E evidence.
+- **Operational rules, which are deferred to S2c.2b-2.** These are the subjects the b-1 contract (`docs/qualification/model-selection/s2c-quality-statistics-contract.json`, `deferredToS2c2b2`) lists: `operational-performance`, `whole-job-cpu-host-gates`, `composition-resource-accounting`, `10k-track-deadline-mechanics` and `500-camera-projection`. They include:
+  - the whole-job deadline definition and retry accounting;
+  - the host class and CPU/thread constraints;
+  - the workload model form;
+  - the projection algorithm and its queue/backlog assumptions;
+  - the scale-validation method and tolerance;
+  - batch/resource gates;
+  - the pass rules of SG4, SG7a and SG7b.
+
+b-1 may require the collection of performance/resource evidence, but it does not convert those measurements into an operational gate or a final-selection rule. S2c.2b-2 freezes those semantics before selection data are used for technical ordering, and each event's S2c.2 protocol instantiates them. Every formula, figure and choice in this section and §14.1 that goes beyond "measure X" is **historical/provisional planning context**. It records the reasoning behind the accepted plan; it does not bind S2c.2b-2 and must not be applied as a gate.
+
+**Derived budget (historical/provisional, not governing).** At the 10,000-Track × 4-crop bound (40,000 crops), the plan assumed the deadline D (the S2b lifecycle default of 6 h) runs from first claim, so a retry must fit after a late failure. It sketched:
+- per-attempt budget = (D − T_restart − T_load − T_lease) / 2;
+- T_restart is the launcher's restart delay (§17), T_load the measured model-load/READY time and T_lease one lease duration (the reclaim delay);
+- with placeholder values of 60 s, 120 s and 120 s this gives ≈ 10,650 s, i.e. ≈ 0.266 s per crop end to end (evidence read + verify + decode + admissibility + inference + aggregation).
+
+The plan also proposed:
+- pinning a Development CPU host class (CPU model, cores, RAM, OS) and an inference thread count, leaving one core for the event loop so heartbeats keep their schedule;
+- making SG4 CPU-mandatory, because no S2c release profile binds the attributes role to CUDA.
+
+S2c.2b-2 decides the budget definition, the retry accounting, the host class and thread rule, and whether and how CUDA evidence may count. It may adopt, change or replace any of these. Raising D stays a lifecycle configuration change with its own justification, never a way to hide model slowness.
 
 | Measure | How | Where |
 |---|---|---|
@@ -618,9 +640,9 @@ Decisions are computed once, in Python; the platform refuses the same *inputs* t
 
 ### 14.1 System scale: up to 500 cameras (owner constraint B)
 
-The per-run budget above protects one ProcessingRun. Scale is the aggregate question: how many attribute workers and hosts 500 cameras need, and whether a candidate makes that fleet unreasonable. No new architecture is assumed. Horizontal scaling uses the existing lease plane: S2b claims `FOR UPDATE SKIP LOCKED` per worker id, so several attribute workers on one or many hosts drain the same queue, and each worker keeps one unit per process (ADR-013 §8).
+The per-run budget above protects one ProcessingRun. Scale is the aggregate question: how many attribute workers and hosts 500 cameras need, and whether a candidate makes that fleet unreasonable. No new architecture is assumed. Owner constraint B (§5 item 8) stands. As §14 states, only the measurement list below governs here. The projection method, its inputs, outputs and tolerance, and the scale pass rules are S2c.2b-2 scope (contract `500-camera-projection`). The other lists are historical/provisional planning context. Horizontal scaling uses the existing lease plane: S2b claims `FOR UPDATE SKIP LOCKED` per worker id, so several attribute workers on one or many hosts drain the same queue, and each worker keeps one unit per process (ADR-013 §8).
 
-**Frozen at S2c.2** (MSR method §7.1):
+**To be frozen under the S2c.2b-2 rule and instantiated in each event's S2c.2 protocol** (MSR method §7.1). The provisional planning list was:
 - the owner-declared **workload model** (U9): Tracks per camera per minute as a distribution over representative camera loads (quiet, typical, busy), crops per Track from the real Evidence Set distribution, and the share of person vs vehicle Tracks;
 - the **host envelope**: host classes, the maximum host count, and memory per host;
 - the projection script.
@@ -635,7 +657,7 @@ The per-run budget above protects one ProcessingRun. Scale is the aggregate ques
 - recovery time after a worker loss (restart plus reclaim, §17);
 - Model Pack size and evidence/artefact storage growth per Track.
 
-**Projected at 500 cameras (M-E projected):**
+**Provisional projection outputs (M-E projected; S2c.2b-2 decides the final set and method):**
 - required workers and hosts;
 - steady-state queue depth;
 - latency under sustained load (queueing on the measured service-time distribution);
@@ -644,13 +666,17 @@ The per-run budget above protects one ProcessingRun. Scale is the aggregate ques
 - storage growth per day;
 - offline deployment footprint (pack bytes × hosts).
 
-These feed SG7a (and SG7b at S2c.9) and the weighted "projected 500-camera fleet footprint" criterion.
+S2c.2b-2 decides how these feed SG7a and SG7b. The weighted "projected 500-camera fleet footprint" criterion is historical only (§9.5).
 
-**Validation of the extrapolation (S2c.9):** an accelerated or synthetic load of N ≥ 2 concurrent workers, on two hosts where available, drives the real lease plane at the rate the workload model gives for a declared fraction of 500 cameras. Measured throughput, queue depth and drain time are compared with the projection, within a tolerance frozen at S2c.2 (gate SG7b; a failure re-opens S2c.4).
+**Validation of the extrapolation (S2c.9; provisional method).** The plan proposed an accelerated or synthetic load of N ≥ 2 concurrent workers, on two hosts where available:
+- it drives the real lease plane at the rate the workload model gives for a declared fraction of 500 cameras;
+- measured throughput, queue depth and drain time are compared with the projection, within a tolerance.
+
+S2c.2b-2 freezes the validation method, the tolerance and the consequence of a failure (gate SG7b).
 
 **Limitation stated honestly:** S2c does not execute a physical 500-camera deployment and claims no 500-camera qualification. It retains a reproducible projection and the load actually executed. Anything the projection shows to need architectural change (for example a platform-side lease or evidence-read bottleneck) is recorded as a finding for an ADR, not absorbed into S2c.
 
-**Batches** are bounded by count and decoded bytes: the count cap `B` and byte cap are fixed in S2c.2 from measured peak memory at the Development host (so that detector + attributes role fit together), never raised at run time. The serial inference lane stays; one unit per process.
+**Batches** are bounded by count and decoded bytes and are never raised at run time. The serial inference lane stays; one unit per process. The values of the count cap `B` and the byte cap, and any batch/resource gate derived from host memory (for example, detector + attributes role fitting together), are fixed under the S2c.2b-2 resource rule. Deriving them from measured peak memory at the Development host is the provisional plan.
 
 ## 15. Offline deployment
 
@@ -819,7 +845,7 @@ Each slice is a reviewable PR on the S2c feature branch (or a sequence of PRs), 
 | **S2c.6 Packs, overlay and release** | (interim: until S2c.7 adds a pack's adapter, the overlay role reports UNAVAILABLE in Development and nothing is activated; this is expected, and the B0 adapter lands with S2c.7) per task: source manifest, assembled notice, component provenance, qualification records **and** the overlay-binding entry in one change; the real pipeline profile; `verify_repo` overlay class and attribute-profile loader; generalised pack workflow; offline policy/inventory; Development kit assembly for owner-built artefacts; Setup/sync per profile role set; runbooks; Runtime Pack family only if the §12.7 bar is met | `models/`, `src/vision/config/components/development-attributes-v2.json`, `src/vision/config/attributes/`, `tools/verify_repo.py`, `.github/workflows/`, `config/dependencies/`, `tools/setup/`, sync tool, runbooks | `verify_repo` negatives (S24, S26, S27), pack-id derivation, Setup contract (S25) | built packs, pack ids (**F3**); MSR licence axis and implementation candidate recorded (`QUALIFICATION_PENDING`) | licence review not approved → F3 stays OPEN; Development use only where evaluation/use is permitted; no evaluated candidate clears SG1 for any target profile → the MSR records `NO_QUALIFIABLE_CANDIDATE` (or the owner pursues a licence, U3) | Production promotion |
 | **S2c.7 Adapters + device** | adapters for the winners; parity with the harness (same crops → same scores within tolerance); device policy; timeout; OOM/exit sequence; launcher restart policy | `attributes/adapters/`, `supervisor.py`, `runner.py`, `main.py`, `settings.py`, launcher | parity, device and failure-path tests | parity report; mutations S1–S5, S11–S14, S18, S19 | parity fails → fix the adapter, never retune on the frozen test | — |
 | **S2c.8 Learned lifecycle** | learned integration and E2E through the real lease plane (network denied); Stale of fixture analyses; in-flight fixture units complete under their own identity | integration tests, E2E harness | integration and E2E first | E2E record; mutations S15, S22 | — | S3 search |
-| **S2c.9 Performance + Development execution** | 10,000-Track run; CPU on both CPU variants; heartbeat latency under load; multi-worker (N ≥ 2, two hosts where available) load against the real lease plane to validate the 500-camera projection (§14.1); CUDA and co-residency where the GPU host is available; determinism and variant agreement | scale harness | — | performance report; ADR-009 Development evidence (contributes to F8, F9) | budget missed → next candidate (S2c.4) or recorded limitation; never relax D silently | CUDA qualification |
+| **S2c.9 Performance + Development execution** | 10,000-Track run; CPU on both CPU variants; heartbeat latency under load; multi-worker load against the real lease plane to validate the 500-camera projection by the S2c.2b-2 method (§14.1); CUDA and co-residency where the GPU host is available; determinism and variant agreement | scale harness | — | performance report; ADR-009 Development evidence (contributes to F8, F9) | budget missed under the S2c.2b-2 rule → next candidate (S2c.4) or recorded limitation; never relax D silently | CUDA qualification |
 | **S2c.10 Closure** | mutation programme, documentation reconciliation DR9–DR13, register evidence for F1 and F3, contributing reports; close both MSRs (outcome recorded; record hash in the index and addenda; cited by each qualification record's `<capabilityId>-model-selection` gate on variants with a Runtime Pack); independent cold review | docs, MSRs, `models/qualifications/` | — | mutation record; register entries | open P1/P2 → not done | S5 freeze and frozen-test scoring |
 
 ## 23. Risks, unresolved decisions and external dependencies
@@ -834,7 +860,7 @@ Each slice is a reviewable PR on the S2c feature branch (or a sequence of PRs), 
 | U6 | Whether truncation needs explicit crop geometry in the lease (additive field) | bake-off evidence | S2c.4 → possibly S2c.5 |
 | U7 | Whether to recover Representative-only coverage by an explicit qualification contract — persisting and leasing the selector's `qualified` flag for new ProcessingRuns (touches S1: VisionJob completion, persistence, lease) — decided from the bake-off's measured coverage cost of `representativePolicy: abstain` | owner + ADR-013 §4 amendment | after S2c.4 |
 | U8 | The launcher/service that restarts the attributes role (§17) on each Development host (Windows service or scheduled task; Linux systemd unit) | owner | S2c.7 |
-| U9 | **500-camera workload model and host envelope**: Tracks per camera per minute across representative loads, the person/vehicle share, host classes and maximum host count, and the accepted backlog-drain time after a host loss (§14.1) | MAVI Product/Repository Owner + designated Scale/Performance Evidence Owner | S2c.2 (SG7a/SG7b) |
+| U9 | **500-camera workload model and host envelope**: Tracks per camera per minute across representative loads, the person/vehicle share, host classes and maximum host count, and the accepted backlog-drain time after a host loss; the owner declares values in the form S2c.2b-2 defines (§14.1) | MAVI Product/Repository Owner + designated Scale/Performance Evidence Owner | S2c.2 (SG7a/SG7b) |
 | U10 | **Declared MAVI deployment profile(s) for licence review**: non-commercial, with their uses (evaluation, operational running, fine-tuning, derivatives) and delivery route (local acquisition or offline kit, which decides whether redistribution is exercised) | owner | S2c.2 (evaluation), S2c.6 (use) |
 | R-a | No candidate cleared for the declared non-commercial profile reaches a useful precision for colour on MAVI imagery (the strongest evaluated technical candidate may carry terms that do not cover a use the profile needs, for example redistribution) | — | mitigated by B0 floor and MAVI-trained heads; outcome may be "attribute disabled" |
 | R-b | Probe candidates need more labels than the owner can provide | — | pilot measures learning curves early |
@@ -956,7 +982,7 @@ The per-deployment L-B rule remains a review rule, not a mechanical check (`kind
 
 **Final repair pass (2026-09-28, from `065cd0c`).** Two owner constraints were made explicit:
 - **A — MAVI is non-commercial.** "Enterprise-grade" means engineering quality. Licence qualification assesses the declared non-commercial profile with a per-right inventory (MSR §2.1; §9.3; qualification plan R2 item 8).
-- **B — scale to 500 cameras.** See §5 item 8, §14.1, SG7a/SG7b, the weighted footprint criterion, and MSR §7.1.
+- **B — scale to 500 cameras.** See §5 item 8, §14.1, SG7a/SG7b and MSR §7.1. The projection and scale gate rules are S2c.2b-2 scope, and the weighted footprint criterion is historical only.
 
 Findings of the independent whole-PR review of `065cd0c` (0 P1, 4 P2, 5 P3):
 
