@@ -14,6 +14,8 @@ from model_selection.quality_statistics import (
     NORMATIVE_DOC,
     PROJECTION_BEGIN,
     PROJECTION_END,
+    PROJECTION_BEGIN_BYTES,
+    PROJECTION_END_BYTES,
     EXPECTED_FROZEN_INVARIANTS,
     EXPECTED_INVARIANT_STATEMENTS,
     EXPECTED_PARTITIONS,
@@ -286,6 +288,27 @@ def test_projection_rejects_unicode_line_separator(tmp_path):
     assert target in markdown
     weakened = markdown.replace(target, PROJECTION_BEGIN + "\u2028", 1)
     write_minimal_repo(tmp_path, document, weakened)
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "contract_projection"
+
+
+@pytest.mark.parametrize("replacement", [b"\r\n", b"\r"])
+def test_projection_rejects_newline_rewrite_as_raw_bytes(tmp_path, replacement):
+    contract = base()
+    contract_path = tmp_path / CONTRACT
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.write_text(__import__("json").dumps(contract), encoding="utf-8")
+
+    original = (REPO / NORMATIVE_DOC).read_bytes()
+    target = PROJECTION_BEGIN_BYTES + b"\n"
+    assert target in original
+    weakened = original.replace(target, PROJECTION_BEGIN_BYTES + replacement, 1)
+
+    doc_path = tmp_path / NORMATIVE_DOC
+    doc_path.parent.mkdir(parents=True, exist_ok=True)
+    doc_path.write_bytes(weakened)
+
     with pytest.raises(QualityStatisticsError) as caught:
         validate_repository(tmp_path)
     assert str(caught.value) == "contract_projection"
