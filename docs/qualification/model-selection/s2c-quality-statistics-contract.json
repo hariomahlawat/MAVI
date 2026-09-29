@@ -1,0 +1,66 @@
+{
+  "schema": "mavi-s2c-quality-statistics-v1",
+  "method": "s2c-2b1",
+  "populations": {
+    "S": "human-scorable",
+    "U": "human-unscorable",
+    "I": "invalid-subject",
+    "A": "all-assigned"
+  },
+  "metricDenominators": {
+    "classification": "S",
+    "unsupportedAssertion": ["U", "I"],
+    "deliveryCoverage": "A"
+  },
+  "partitionAuthority": {
+    "modelWeights": "training",
+    "taskHeads": "training",
+    "calibrationCoefficients": "training",
+    "calibrationMethodChoice": "training-internal-validation",
+    "confidenceThreshold": "tuning",
+    "presenceThreshold": "tuning",
+    "colourMargin": "tuning",
+    "admissibilityThreshold": "tuning",
+    "cropEvidenceFloor": "tuning",
+    "poolingParameters": "tuning",
+    "aggregationParameters": "tuning",
+    "candidateComparison": "selection",
+    "finalQualification": "frozen-test"
+  },
+  "calibration": {
+    "evaluationLevel": "track-after-aggregation",
+    "fitPartition": "training",
+    "selectionFitForbidden": true,
+    "frozenTestFitForbidden": true
+  },
+  "statistics": {
+    "unseenSiteTopLevelUnit": "site",
+    "pairedCandidateComparison": true,
+    "trackCropsStayTogether": true,
+    "practicalMarginsRequired": true,
+    "intervalOverlapMeansTie": false,
+    "allowedOutcomes": [
+      "superior",
+      "non-inferior",
+      "equivalent",
+      "inconclusive",
+      "insufficient-evidence"
+    ]
+  },
+  "gates": {
+    "ownerTargetsFrozenBeforeSelection": true,
+    "confidenceBoundsRequired": true,
+    "unsupportedAssertionAbsoluteBoundRequired": true,
+    "usefulRecallOrCoverageFloorRequired": true
+  },
+  "selectionBoundary": {
+    "selectionMayTune": false,
+    "frozenTestMaySelect": false
+  },
+  "deferredToS2c2b2": [
+    "operational-performance",
+    "pareto-axes",
+    "final-technical-selection",
+    "500-camera-projection"
+  ]
+}
