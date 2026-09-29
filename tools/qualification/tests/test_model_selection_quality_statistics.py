@@ -12,11 +12,15 @@ import pytest
 from model_selection.quality_statistics import (
     CONTRACT,
     NORMATIVE_DOC,
-    EXPECTED_EXACT_DOC_LINES,
+    PROJECTION_BEGIN,
+    PROJECTION_END,
     EXPECTED_FROZEN_INVARIANTS,
-    EXPECTED_NORMATIVE_INVARIANTS,
+    EXPECTED_INVARIANT_STATEMENTS,
+    EXPECTED_PARTITIONS,
+    EXPECTED_PARTITION_STATEMENTS,
     QualityStatisticsError,
     read_contract,
+    render_contract_projection,
     validate_contract,
     validate_repository,
 )
@@ -35,7 +39,16 @@ def refused(code, document):
     assert str(caught.value) == code
 
 
-def test_repository_contract_is_valid():
+def write_minimal_repo(tmp_path, contract_document, normative_text):
+    contract_path = tmp_path / CONTRACT
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.write_text(__import__("json").dumps(contract_document), encoding="utf-8")
+    doc_path = tmp_path / NORMATIVE_DOC
+    doc_path.parent.mkdir(parents=True, exist_ok=True)
+    doc_path.write_text(normative_text, encoding="utf-8")
+
+
+def test_repository_contract_and_projection_are_valid():
     assert validate_repository(REPO) == [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
 
 
@@ -50,7 +63,9 @@ def test_cli_validates_repository():
 
 
 def test_module_imports_no_network_library():
-    source = (REPO / "tools/qualification/model_selection/quality_statistics.py").read_text(encoding="utf-8")
+    source = (REPO / "tools/qualification/model_selection/quality_statistics.py").read_text(
+        encoding="utf-8"
+    )
     for name in ("urllib", "http", "socket", "requests"):
         assert f"import {name}" not in source
         assert f"from {name}" not in source
@@ -77,6 +92,12 @@ def test_module_imports_no_network_library():
         (lambda d: d["partitionAuthority"].__setitem__("calibrationCoefficients", "tuning"), "partition_authority"),
         (lambda d: d["partitionAuthority"].__setitem__("confidenceThreshold", "selection"), "partition_authority"),
         (lambda d: d["partitionAuthority"].__setitem__("candidateComparison", "tuning"), "partition_authority"),
+        (
+            lambda d: d["partitionStatements"].__setitem__(
+                "confidenceThreshold", "selection"
+            ),
+            "partition_statements",
+        ),
         (lambda d: d["calibration"].__setitem__("evaluationLevel", "crop"), "calibration_not_post_aggregation"),
         (lambda d: d["calibration"].__setitem__("fitPartition", "tuning"), "calibration_fit_not_training"),
         (lambda d: d["calibration"].__setitem__("selectionFitForbidden", False), "selection_calibration_fit_allowed"),
@@ -90,6 +111,8 @@ def test_module_imports_no_network_library():
         (lambda d: d["gates"].__setitem__("usefulRecallOrCoverageFloorRequired", False), "quality_gate_form"),
         (lambda d: d["selectionBoundary"].__setitem__("selectionMayTune", True), "selection_boundary"),
         (lambda d: d["selectionBoundary"].__setitem__("frozenTestMaySelect", True), "selection_boundary"),
+        (lambda d: d["selectionBoundary"].__setitem__("selectionMayTune", 0), "selection_boundary"),
+        (lambda d: d["selectionBoundary"].__setitem__("frozenTestMaySelect", 0), "selection_boundary"),
         (
             lambda d: d["outcomeSemantics"].__setitem__("executionFailurePopulation", "S"),
             "execution_failure_not_all_assigned",
@@ -113,34 +136,11 @@ def test_module_imports_no_network_library():
             "frozen_test_adaptive_selection",
         ),
         (
-            lambda d: d["frozenInvariants"].__setitem__(
-                "I01-human-unscorable-is-not-model-abstention", False
+            lambda d: d["invariantStatements"].__setitem__(
+                "I05-calibration-fit-is-training-only",
+                "Calibration fitting may use tuning data.",
             ),
-            "frozen_invariants",
-        ),
-        (
-            lambda d: d["frozenInvariants"].__setitem__(
-                "I04-track-calibration-is-post-aggregation", False
-            ),
-            "frozen_invariants",
-        ),
-        (
-            lambda d: d["frozenInvariants"].__setitem__(
-                "I08-comparison-is-paired-cluster-aware-and-track-crops-stay-together", False
-            ),
-            "frozen_invariants",
-        ),
-        (
-            lambda d: d["frozenInvariants"].__setitem__(
-                "I13-owner-numerical-targets-are-not-invented-by-b1", False
-            ),
-            "frozen_invariants",
-        ),
-        (
-            lambda d: d["frozenInvariants"].__setitem__(
-                "I14-operational-pareto-fleet-final-ordering-remain-b2-scope", False
-            ),
-            "frozen_invariants",
+            "invariant_statements",
         ),
         (lambda d: d["deferredToS2c2b2"].remove("whole-job-cpu-host-gates"), "b2_scope_boundary"),
         (lambda d: d["deferredToS2c2b2"].remove("composition-resource-accounting"), "b2_scope_boundary"),
@@ -148,26 +148,37 @@ def test_module_imports_no_network_library():
         (lambda d: d["deferredToS2c2b2"].remove("pareto-axes"), "b2_scope_boundary"),
     ],
 )
-def test_critical_invariants_are_fail_closed(mutate, code):
+def test_critical_contract_rules_are_fail_closed(mutate, code):
     document = copy.deepcopy(base())
     mutate(document)
     refused(code, document)
 
 
-def test_unknown_fields_are_refused():
+def test_unknown_contract_fields_are_refused():
     document = base()
     document["weightedScore"] = {"enabled": True}
     refused("contract_fields", document)
 
 
-def test_exactly_fourteen_frozen_invariants_are_machine_checked():
+def test_all_fourteen_invariants_are_contract_owned_and_boolean_guarded():
     document = base()
     assert document["frozenInvariants"] == EXPECTED_FROZEN_INVARIANTS
+    assert document["invariantStatements"] == EXPECTED_INVARIANT_STATEMENTS
     assert len(EXPECTED_FROZEN_INVARIANTS) == 14
+    assert len(EXPECTED_INVARIANT_STATEMENTS) == 14
+    assert set(EXPECTED_FROZEN_INVARIANTS) == set(EXPECTED_INVARIANT_STATEMENTS)
     for key in EXPECTED_FROZEN_INVARIANTS:
         mutated = copy.deepcopy(document)
-        mutated["frozenInvariants"][key] = False
+        mutated["frozenInvariants"][key] = 1
         refused("frozen_invariants", mutated)
+
+
+def test_all_thirteen_partition_rows_are_contract_owned():
+    document = base()
+    assert document["partitionAuthority"] == EXPECTED_PARTITIONS
+    assert document["partitionStatements"] == EXPECTED_PARTITION_STATEMENTS
+    assert len(EXPECTED_PARTITIONS) == 13
+    assert set(EXPECTED_PARTITIONS) == set(EXPECTED_PARTITION_STATEMENTS)
 
 
 def test_unsupported_assertion_populations_are_separate():
@@ -176,161 +187,71 @@ def test_unsupported_assertion_populations_are_separate():
     assert denominators["humanUnscorable"] != denominators["invalidSubject"]
 
 
-def write_minimal_repo(tmp_path, contract_document, normative_text):
-    contract_path = tmp_path / CONTRACT
-    contract_path.parent.mkdir(parents=True, exist_ok=True)
-    contract_path.write_text(__import__("json").dumps(contract_document), encoding="utf-8")
-    doc_path = tmp_path / NORMATIVE_DOC
-    doc_path.parent.mkdir(parents=True, exist_ok=True)
-    doc_path.write_text(normative_text, encoding="utf-8")
-
-
-@pytest.mark.parametrize("tag", sorted(EXPECTED_NORMATIVE_INVARIANTS))
-def test_normative_invariant_registry_is_exact(tmp_path, tag):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    expected = EXPECTED_NORMATIVE_INVARIANTS[tag]
-    line = f"**{tag}:** {expected}"
-    assert line in text
-    write_minimal_repo(tmp_path, base(), text.replace(line, line + " unless owner-approved.", 1))
-    with pytest.raises(QualityStatisticsError) as caught:
-        validate_repository(tmp_path)
-    assert str(caught.value) == "normative_invariants"
-
-
-@pytest.mark.parametrize(("code", "expected"), sorted(EXPECTED_EXACT_DOC_LINES.items()))
-def test_exact_authority_lines_reject_qualifications(tmp_path, code, expected):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    assert expected in text
-    write_minimal_repo(tmp_path, base(), text.replace(expected, expected + " unless owner-approved.", 1))
-    with pytest.raises(QualityStatisticsError) as caught:
-        validate_repository(tmp_path)
-    assert str(caught.value) == code
-
-
-def test_calibration_partition_row_is_training_only(tmp_path):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    expected = EXPECTED_EXACT_DOC_LINES["calibration_partition_row"]
-    weakened = expected.replace("training-derived", "tuning-derived")
-    assert weakened != expected
-    write_minimal_repo(tmp_path, base(), text.replace(expected, weakened, 1))
-    with pytest.raises(QualityStatisticsError) as caught:
-        validate_repository(tmp_path)
-    assert str(caught.value) == "calibration_partition_row"
-
-
-def test_frozen_invariant_numeric_one_is_refused():
-    document = copy.deepcopy(base())
-    key = next(iter(EXPECTED_FROZEN_INVARIANTS))
-    document["frozenInvariants"][key] = 1
-    refused("frozen_invariants", document)
-
-
-def test_frozen_invariant_boolean_type_is_required_for_every_key():
+def test_projection_is_exactly_rendered_from_contract():
     document = base()
-    for key in EXPECTED_FROZEN_INVARIANTS:
-        mutated = copy.deepcopy(document)
-        mutated["frozenInvariants"][key] = 1
-        refused("frozen_invariants", mutated)
+    markdown = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8").replace("\r\n", "\n")
+    expected = render_contract_projection(document)
+    begin = markdown.index(PROJECTION_BEGIN)
+    end = markdown.index(PROJECTION_END, begin) + len(PROJECTION_END)
+    assert markdown[begin:end] == expected
 
 
-def test_registry_rejects_continuation_line_exception(tmp_path):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    target = "**INV-B1-05:** " + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-05"]
-    assert target in text
-    weakened = target + "\nCalibration fitting may instead use tuning data when the owner approves."
-    write_minimal_repo(tmp_path, base(), text.replace(target, weakened, 1))
-    with pytest.raises(QualityStatisticsError) as caught:
-        validate_repository(tmp_path)
-    assert str(caught.value) == "normative_invariant_section"
-
-
-def test_registry_rejects_stray_content_anywhere_in_section(tmp_path):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    marker = "**INV-B1-14:** " + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-14"]
-    assert marker in text
-    weakened = marker + "\nOwner override permitted."
-    write_minimal_repo(tmp_path, base(), text.replace(marker, weakened, 1))
-    with pytest.raises(QualityStatisticsError) as caught:
-        validate_repository(tmp_path)
-    assert str(caught.value) == "normative_invariant_section"
-
-
-def test_registry_accepts_terminal_whitespace_variation(tmp_path):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    marker = "**INV-B1-14:** " + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-14"]
-    assert marker in text
-    varied = text.replace(marker, marker + "  ", 1)
-    write_minimal_repo(tmp_path, base(), varied)
-    assert validate_repository(tmp_path) == [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
+def test_projection_contains_every_partition_and_invariant_once():
+    projection = render_contract_projection(base())
+    for key, statement in EXPECTED_PARTITION_STATEMENTS.items():
+        assert projection.count(statement) == 1
+    for key, statement in EXPECTED_INVARIANT_STATEMENTS.items():
+        assert projection.count(f"`{key}`") == 1
+        assert projection.count(statement) == 1
 
 
 @pytest.mark.parametrize(
-    ("heading", "replacement"),
+    "needle",
     [
-        (
-            "## 13. Frozen invariant registry",
-            "This registry is optional. ## 13. Frozen invariant registry",
-        ),
-        (
-            "## 14. Required retained evidence",
-            "## 14. Required retained evidence trailing text",
-        ),
+        "| confidence threshold | tuning |",
+        "`I05-calibration-fit-is-training-only`",
+        "training-derived, group-disjoint held-out predictions or predeclared cross-fitting",
     ],
 )
-def test_registry_requires_unique_complete_heading_lines(tmp_path, heading, replacement):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    assert heading in text
-    write_minimal_repo(tmp_path, base(), text.replace(heading, replacement, 1))
+def test_projection_tampering_fails_repository_validation(tmp_path, needle):
+    document = base()
+    markdown = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    assert needle in markdown
+    weakened = markdown.replace(needle, needle + " CHANGED", 1)
+    write_minimal_repo(tmp_path, document, weakened)
     with pytest.raises(QualityStatisticsError) as caught:
         validate_repository(tmp_path)
-    assert str(caught.value) == "normative_invariant_section"
+    assert str(caught.value) == "contract_projection"
 
 
-def test_registry_rejects_duplicate_heading_with_trailing_spaces(tmp_path):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    duplicate = (
-        "## 13. Frozen invariant registry  \n"
-        "**INV-B1-05:** "
-        + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-05"]
-        + "  \n"
+@pytest.mark.parametrize("marker", [PROJECTION_BEGIN, PROJECTION_END])
+def test_projection_marker_missing_fails_structure(tmp_path, marker):
+    document = base()
+    markdown = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    weakened = markdown.replace(marker, "", 1)
+    write_minimal_repo(tmp_path, document, weakened)
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "contract_projection_structure"
+
+
+@pytest.mark.parametrize("marker", [PROJECTION_BEGIN, PROJECTION_END])
+def test_projection_marker_duplicate_fails_structure(tmp_path, marker):
+    document = base()
+    markdown = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    weakened = markdown + "\n" + marker + "\n"
+    write_minimal_repo(tmp_path, document, weakened)
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "contract_projection_structure"
+
+
+def test_arbitrary_narrative_outside_projection_is_not_machine_authority(tmp_path):
+    document = base()
+    markdown = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    changed = (
+        "Narrative note outside the protected projection; non-authoritative for machine checks.\n\n"
+        + markdown
     )
-    weakened = text + "\n" + duplicate
-    write_minimal_repo(tmp_path, base(), weakened)
-    with pytest.raises(QualityStatisticsError) as caught:
-        validate_repository(tmp_path)
-    assert str(caught.value) == "normative_invariant_section"
-
-
-@pytest.mark.parametrize("field", ["selectionMayTune", "frozenTestMaySelect"])
-def test_selection_boundary_numeric_zero_is_refused(field):
-    document = copy.deepcopy(base())
-    document["selectionBoundary"][field] = 0
-    refused("selection_boundary", document)
-
-
-def test_registry_rejects_markdown_equivalent_closing_hash_heading(tmp_path):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    duplicate = (
-        "\n## 13. Frozen invariant registry ##\n\n"
-        + "**INV-B1-05:** "
-        + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-05"]
-        + "\n"
-    )
-    write_minimal_repo(tmp_path, base(), text + duplicate)
-    with pytest.raises(QualityStatisticsError) as caught:
-        validate_repository(tmp_path)
-    assert str(caught.value) == "normative_invariant_section"
-
-
-@pytest.mark.parametrize("position", ["before", "after"])
-def test_registry_rejects_duplicate_invariant_tag_outside_section(tmp_path, position):
-    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    duplicate = "**INV-B1-05:** Calibration fitting may use tuning data."
-    if position == "before":
-        weakened = duplicate + "\n\n" + text
-    else:
-        weakened = text + "\n\n" + duplicate + "\n"
-    write_minimal_repo(tmp_path, base(), weakened)
-    with pytest.raises(QualityStatisticsError) as caught:
-        validate_repository(tmp_path)
-    assert str(caught.value) == "normative_invariant_section"
+    write_minimal_repo(tmp_path, document, changed)
+    assert validate_repository(tmp_path) == [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
