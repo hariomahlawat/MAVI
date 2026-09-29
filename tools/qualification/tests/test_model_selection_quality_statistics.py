@@ -18,6 +18,7 @@ from model_selection.quality_statistics import (
     EXPECTED_INVARIANT_STATEMENTS,
     EXPECTED_PARTITIONS,
     EXPECTED_PARTITION_STATEMENTS,
+    PARTITION_LABELS,
     QualityStatisticsError,
     read_contract,
     render_contract_projection,
@@ -199,7 +200,8 @@ def test_projection_is_exactly_rendered_from_contract():
 def test_projection_contains_every_partition_and_invariant_once():
     projection = render_contract_projection(base())
     for key, statement in EXPECTED_PARTITION_STATEMENTS.items():
-        assert projection.count(statement) == 1
+        row = f"| {PARTITION_LABELS[key]} | {statement} |"
+        assert projection.count(row) == 1
     for key, statement in EXPECTED_INVARIANT_STATEMENTS.items():
         assert projection.count(f"`{key}`") == 1
         assert projection.count(statement) == 1
@@ -255,3 +257,35 @@ def test_arbitrary_narrative_outside_projection_is_not_machine_authority(tmp_pat
     )
     write_minimal_repo(tmp_path, document, changed)
     assert validate_repository(tmp_path) == [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
+
+
+def test_duplicate_json_member_is_refused(tmp_path):
+    contract_text = (REPO / CONTRACT).read_text(encoding="utf-8")
+    needle = '"confidenceThreshold": "tuning"'
+    assert needle in contract_text
+    ambiguous = contract_text.replace(
+        needle,
+        '"confidenceThreshold": "selection",\n    ' + needle,
+        1,
+    )
+    contract_path = tmp_path / CONTRACT
+    contract_path.parent.mkdir(parents=True, exist_ok=True)
+    contract_path.write_text(ambiguous, encoding="utf-8")
+    doc_path = tmp_path / NORMATIVE_DOC
+    doc_path.parent.mkdir(parents=True, exist_ok=True)
+    doc_path.write_text((REPO / NORMATIVE_DOC).read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "contract_duplicate_member"
+
+
+def test_projection_rejects_unicode_line_separator(tmp_path):
+    document = base()
+    markdown = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    target = PROJECTION_BEGIN + "\n"
+    assert target in markdown
+    weakened = markdown.replace(target, PROJECTION_BEGIN + "\u2028", 1)
+    write_minimal_repo(tmp_path, document, weakened)
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "contract_projection"
