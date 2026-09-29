@@ -49,7 +49,7 @@ The validator is standard-library only. The **JSON contract is the canonical mac
 - paired/site-aware statistical invariants, practical margins and comparison outcomes;
 - execution-failure, insufficient-evidence, recall-support and no-adaptive-frozen-test-selection semantics;
 - absolute unsupported-assertion/useful-coverage gate form;
-- the complete seven-item b-2 scope boundary.
+- the complete seven-item b-2 scope boundary, including that b-1 defines no Pareto axes, frontier/dominance semantics or final technical-selection rule.
 
 The Markdown protocol no longer has an independent parser-defined authority surface. It contains one protected block between `S2C_B1_CONTRACT_PROJECTION` markers. That block is rendered deterministically from the JSON contract and compared byte-for-byte during repository validation. Arbitrary prose outside the protected projection is intentionally **not** parsed as machine authority; if narrative wording conflicts with the contract/projection, the contract governs.
 
@@ -61,8 +61,8 @@ Discriminating tests mutate contract semantics/types, require all 13 partition r
 - composition resource accounting;
 - 10k-Track deadline/retry mechanics;
 - 500-camera projection and claim boundaries;
-- Pareto axes;
-- deterministic final technical selection;
+- Pareto axes, frontier/dominance semantics and treatment of disabled attributes;
+- deterministic final technical selection, including selection from any non-dominated set;
 - reconciliation/removal of the historical weighted-ordering table.
 
 No S2c event may reach `PROTOCOL_FROZEN` until b-1 and b-2 are both governing.
