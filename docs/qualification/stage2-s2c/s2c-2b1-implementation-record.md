@@ -40,7 +40,7 @@ Freeze the candidate-independent quality/statistical semantics required before t
 
 `python tools/qualification/quality_statistics_check.py repository --repo .`
 
-The validator is standard-library only and fail-closes the **exact 14-invariant list in §3**. The contract carries a `frozenInvariants` map with exactly 14 required true entries; repository validation also pins the corresponding normative Markdown clauses. It additionally checks:
+The validator is standard-library only and fail-closes the **exact 14-invariant list in §3**. The contract carries a `frozenInvariants` map with exactly 14 entries whose values must be Boolean `true` by identity (`is True`). The normative protocol carries a canonical `INV-B1-01` … `INV-B1-14` registry; repository validation parses those tagged clauses and requires exact normalized equality, so deletion, duplication, rewording or appended exceptions fail. The training-only calibration sentence and calibration partition-table row are also exact-checked independently. It additionally checks:
 
 - exact S/U/I/A semantics and denominators, with unsupported assertions measured **separately** for U and I;
 - training/tuning/selection/frozen-test authority;
