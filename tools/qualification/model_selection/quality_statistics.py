@@ -49,8 +49,18 @@ EXPECTED_OUTCOMES = [
     "inconclusive",
     "insufficient-evidence",
 ]
+EXPECTED_OUTCOME_SEMANTICS = {
+    "executionFailurePopulation": "A",
+    "insufficientSupportOutcome": "insufficient-evidence",
+    "unconditionalRecallIncludesAbstention": True,
+    "coverageMultipliedAgainForRecallSupport": False,
+    "frozenQualificationFailureMaySelectAlternative": False,
+}
 EXPECTED_DEFERRED = [
     "operational-performance",
+    "whole-job-cpu-host-gates",
+    "composition-resource-accounting",
+    "10k-track-deadline-mechanics",
     "pareto-axes",
     "final-technical-selection",
     "500-camera-projection",
@@ -96,6 +106,7 @@ def validate_contract(document: dict) -> None:
             "statistics",
             "gates",
             "selectionBoundary",
+            "outcomeSemantics",
             "deferredToS2c2b2",
         },
         "contract",
@@ -176,6 +187,20 @@ def validate_contract(document: dict) -> None:
     )
     if boundary != {"selectionMayTune": False, "frozenTestMaySelect": False}:
         raise _fail("selection_boundary")
+
+    outcomes = _object(
+        root["outcomeSemantics"], set(EXPECTED_OUTCOME_SEMANTICS), "outcome_semantics"
+    )
+    if outcomes["executionFailurePopulation"] != "A":
+        raise _fail("execution_failure_not_all_assigned")
+    if outcomes["insufficientSupportOutcome"] != "insufficient-evidence":
+        raise _fail("insufficient_support_not_fail_closed")
+    if outcomes["unconditionalRecallIncludesAbstention"] is not True:
+        raise _fail("recall_excludes_abstention")
+    if outcomes["coverageMultipliedAgainForRecallSupport"] is not False:
+        raise _fail("recall_support_double_counts_coverage")
+    if outcomes["frozenQualificationFailureMaySelectAlternative"] is not False:
+        raise _fail("frozen_test_adaptive_selection")
 
     if root["deferredToS2c2b2"] != EXPECTED_DEFERRED:
         raise _fail("b2_scope_boundary")
