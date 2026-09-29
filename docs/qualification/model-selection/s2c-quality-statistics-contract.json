@@ -9,7 +9,10 @@
   },
   "metricDenominators": {
     "classification": "S",
-    "unsupportedAssertion": ["U", "I"],
+    "unsupportedAssertion": [
+      "U",
+      "I"
+    ],
     "deliveryCoverage": "A"
   },
   "partitionAuthority": {
@@ -59,8 +62,18 @@
   },
   "deferredToS2c2b2": [
     "operational-performance",
+    "whole-job-cpu-host-gates",
+    "composition-resource-accounting",
+    "10k-track-deadline-mechanics",
     "pareto-axes",
     "final-technical-selection",
     "500-camera-projection"
-  ]
+  ],
+  "outcomeSemantics": {
+    "executionFailurePopulation": "A",
+    "insufficientSupportOutcome": "insufficient-evidence",
+    "unconditionalRecallIncludesAbstention": true,
+    "coverageMultipliedAgainForRecallSupport": false,
+    "frozenQualificationFailureMaySelectAlternative": false
+  }
 }
