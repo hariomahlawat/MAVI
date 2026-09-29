@@ -294,17 +294,42 @@ def validate_contract(document: dict) -> None:
 
 
 def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
+    start_marker = "## 13. Frozen invariant registry"
+    end_marker = "## 14. Required retained evidence"
+    start = document.find(start_marker)
+    end = document.find(end_marker)
+    if start < 0 or end < 0 or end <= start:
+        raise _fail("normative_invariant_section")
+
+    section = document[start:end].replace("\r\n", "\n")
+    lines = section.splitlines()
+    expected_intro = [
+        "## 13. Frozen invariant registry",
+        "",
+        (
+            "The following tagged clauses are the **canonical machine-checked expression** "
+            "of the 14 b-1 invariants. Each `INV-B1-xx` line is exact normative text: "
+            "changing its wording, appending an exception, deleting it or duplicating its "
+            "tag invalidates repository validation."
+        ),
+        "",
+    ]
+    if lines[:4] != expected_intro:
+        raise _fail("normative_invariant_section")
+
+    body = lines[4:]
+    expected_lines = [
+        f"**{tag}:** {text}  "
+        for tag, text in EXPECTED_NORMATIVE_INVARIANTS.items()
+    ]
+    if body != expected_lines + [""]:
+        raise _fail("normative_invariant_section")
+
     found: dict[str, str] = {}
-    prefix = "**INV-B1-"
-    for raw_line in document.splitlines():
+    for raw_line in expected_lines:
         line = raw_line.strip()
-        if not line.startswith(prefix):
-            continue
-        if ":** " not in line:
-            raise _fail("normative_invariant_format")
         tag, text = line.split(":** ", 1)
         tag = tag.removeprefix("**")
-        text = text.removesuffix("  ").strip()
         if tag in found:
             raise _fail("normative_invariant_duplicate")
         found[tag] = text
