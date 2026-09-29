@@ -74,6 +74,31 @@ def test_module_imports_no_network_library():
         (lambda d: d["gates"].__setitem__("usefulRecallOrCoverageFloorRequired", False), "quality_gate_form"),
         (lambda d: d["selectionBoundary"].__setitem__("selectionMayTune", True), "selection_boundary"),
         (lambda d: d["selectionBoundary"].__setitem__("frozenTestMaySelect", True), "selection_boundary"),
+        (
+            lambda d: d["outcomeSemantics"].__setitem__("executionFailurePopulation", "S"),
+            "execution_failure_not_all_assigned",
+        ),
+        (
+            lambda d: d["outcomeSemantics"].__setitem__("insufficientSupportOutcome", "inconclusive"),
+            "insufficient_support_not_fail_closed",
+        ),
+        (
+            lambda d: d["outcomeSemantics"].__setitem__("unconditionalRecallIncludesAbstention", False),
+            "recall_excludes_abstention",
+        ),
+        (
+            lambda d: d["outcomeSemantics"].__setitem__("coverageMultipliedAgainForRecallSupport", True),
+            "recall_support_double_counts_coverage",
+        ),
+        (
+            lambda d: d["outcomeSemantics"].__setitem__(
+                "frozenQualificationFailureMaySelectAlternative", True
+            ),
+            "frozen_test_adaptive_selection",
+        ),
+        (lambda d: d["deferredToS2c2b2"].remove("whole-job-cpu-host-gates"), "b2_scope_boundary"),
+        (lambda d: d["deferredToS2c2b2"].remove("composition-resource-accounting"), "b2_scope_boundary"),
+        (lambda d: d["deferredToS2c2b2"].remove("10k-track-deadline-mechanics"), "b2_scope_boundary"),
         (lambda d: d["deferredToS2c2b2"].remove("pareto-axes"), "b2_scope_boundary"),
     ],
 )
