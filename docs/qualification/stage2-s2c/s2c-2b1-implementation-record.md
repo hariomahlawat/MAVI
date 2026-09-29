@@ -20,7 +20,7 @@ Freeze the candidate-independent quality/statistical semantics required before t
 ## 3. Frozen b-1 invariants
 
 1. Human-unscorable ground truth is not model abstention.
-2. Classification quality uses human-scorable truth; unsupported assertions on U/I are measured separately.
+2. Classification quality uses human-scorable truth; unsupported assertions on U and on I are measured separately.
 3. All-assigned delivery retains execution failures.
 4. Track calibration is evaluated after aggregation/abstention.
 5. Calibration fitting uses training-derived predictions only.
@@ -32,7 +32,7 @@ Freeze the candidate-independent quality/statistical semantics required before t
 11. Insufficient support remains `insufficient evidence`.
 12. Unconditional recall already includes abstention; coverage is not multiplied twice.
 13. Owner numerical quality targets are not invented in this planning slice.
-14. Operational/Pareto/fleet/final-ordering rules remain b-2 scope.
+14. Operational, Pareto/frontier, finalist-ordering, fleet and final-selection rules remain b-2 scope (every subject in the contract's deferred list).
 
 ## 4. Machine contract
 
@@ -48,12 +48,13 @@ The validator is standard-library only. The **JSON contract is the canonical mac
 - post-aggregation calibration and training-only fit authority;
 - paired/site-aware statistical invariants, practical margins and comparison outcomes;
 - execution-failure, insufficient-evidence, recall-support and no-adaptive-frozen-test-selection semantics;
-- absolute unsupported-assertion/useful-coverage gate form;
-- the complete seven-item b-2 scope boundary, including that b-1 defines no Pareto axes, frontier/dominance semantics or final technical-selection rule.
+- the gate form: owner targets frozen before selection, confidence-bound direction, **no numeric target defined by b-1**, and the exact ordered list of ten required gate forms (per-value precision; useful recall/coverage floor; FPR bound; separate unsupported-assertion bounds for U and for I; Track calibration tolerance; attribute/value support; independent-cluster support; required-slice floor; required-slice degradation limit);
+- multiplicity rule predeclared; interval overlap is not a tie; non-significance is not non-inferiority; frozen test may neither tune nor select;
+- the exact ordered fifteen-subject b-2 scope boundary (`deferredToS2c2b2`): operational performance, whole-job CPU/host gates, composition resource accounting, 10k-Track deadline mechanics, 500-camera projection, Pareto axes, directions and normalization, dominance semantics, disabled-attribute frontier treatment, non-dominated-set construction, sub-task finalist ordering, final technical selection, its MSR ranking representation, and reconciliation of the historical weighted ordering. An entry means only "deferred"; b-1 specifies no value for it.
 
-The Markdown protocol no longer has an independent parser-defined authority surface. It contains one protected block between `S2C_B1_CONTRACT_PROJECTION` markers. That block is rendered deterministically from the JSON contract and compared byte-for-byte during repository validation. Arbitrary prose outside the protected projection is intentionally **not** parsed as machine authority; if narrative wording conflicts with the contract/projection, the contract governs.
+The Markdown protocol no longer has an independent parser-defined authority surface. It contains one protected block between `S2C_B1_CONTRACT_PROJECTION` markers. That block is rendered deterministically from the JSON contract (partition statements, required gate forms, deferred b-2 subjects, invariant statements) and compared byte-for-byte during repository validation. `.gitattributes` pins the protocol file to LF so a Windows checkout carries the same bytes as Linux; without the pin, Git's CRLF conversion made the unmodified repository fail its own check on Windows. Arbitrary prose outside the protected projection is intentionally **not** parsed as machine authority; if narrative wording conflicts with the contract/projection, the contract governs.
 
-Discriminating tests mutate contract semantics/types, require all 13 partition rows and 14 invariant statements to be projected exactly once, reject protected-block edits or marker drift, and explicitly prove that unrelated narrative outside the projection is outside the machine trust boundary.
+Discriminating tests mutate contract semantics/types, remove, rename, duplicate or reorder every deferred subject and every required gate form, require all 13 partition rows, 10 gate forms, 15 deferred subjects and 14 invariant statements to be projected exactly once, pin the LF attribute, write every fixture as exact bytes, reject protected-block edits or marker drift, and explicitly prove that unrelated narrative outside the projection is outside the machine trust boundary.
 
 ## 5. Deliberately deferred to S2c.2b-2
 
@@ -61,8 +62,9 @@ Discriminating tests mutate contract semantics/types, require all 13 partition r
 - composition resource accounting;
 - 10k-Track deadline/retry mechanics;
 - 500-camera projection and claim boundaries;
-- Pareto axes, frontier/dominance semantics and treatment of disabled attributes;
-- deterministic final technical selection, including selection from any non-dominated set;
+- Pareto axes, directions, normalization, dominance semantics, treatment of disabled attributes and non-dominated-set construction;
+- the sub-task finalist ordering used for composition generation;
+- deterministic final technical selection, including selection from any non-dominated set, and its MSR representation;
 - reconciliation/removal of the historical weighted-ordering table.
 
 No S2c event may reach `PROTOCOL_FROZEN` until b-1 and b-2 are both governing.
@@ -88,3 +90,22 @@ These are intentionally unresolved policy/operational inputs, not defaults inven
 - required robustness slices supported by the real corpus;
 - practical/non-inferiority/equivalence margins;
 - CPU host/co-resident workload and later b-2 fleet envelope.
+
+## 8. Handover review (2026-09-29)
+
+A fresh cold review of the whole change set and its authority chain was performed after the last Codex round on `e5a057f`. Findings and dispositions:
+
+| # | Sev. | Finding | Disposition |
+|---|---|---|---|
+| H1 | P1 | The Windows CPU job failed on `e5a057f`: `.gitattributes` pinned `*.json` but not the protocol Markdown, so a Windows checkout rewrote it to CRLF and the raw-byte projection check refused the unmodified repository | fixed: path-scoped `eol=lf` pin; test asserts the pin and that the committed file carries no CR |
+| H2 | P2 | Contract protected only coarse `pareto-axes` / `final-technical-selection`; directions, normalization, dominance, disabled-attribute treatment and non-dominated-set construction were deferred only in prose; I14 understated the boundary | fixed: fifteen explicit deferred subjects, projected; I14 restated; remove/rename/duplicate/reorder mutations for every subject |
+| H3 | P2 | Plan §9.5a ranked sub-tasks and built a "winner tuple (best …)" with no governing ordering once the weighted score became historical | fixed: `sub-task-finalist-ordering` deferred to b-2; §9.5a cites it |
+| H4 | P2 | Gate form only partly machine-checked (two of ten required forms); FPR, calibration tolerance, support, independent-cluster and required-slice forms were prose only | fixed: `gates.requiredGateForms` exact ordered list, `numericTargetsDefinedByB1: false`, projected |
+| H5 | P2 | R3 item 2 and plan SG6/§10.4 stated one combined U/I unsupported-assertion bound, contradicting I02 (separate measurement) | fixed: separate U and I bounds in R3, plan, protocol narrative and gate forms |
+| H6 | P2 | Plan residuals: §6 accuracy expectation used the removed "precision–coverage frontier" procedure; §9.0 ended composition in a "Pareto frontier"; PO-B0 "must beat on AURC/AP"; §9.5 said gates "decide the technical ranking"; §9.6 "technical ranking with its sensitivity check" | fixed: each aligned with b-1 gates and the b-2 ordering |
+| H7 | P2 | MSR README §5.1 generic "owner chooses a frontier composition" had no S2c override, conflicting with the plan's deterministic b-2 selection | fixed: S2c note that steps 4–5 are instantiated only by b-2 |
+| H8 | P2 | Tests wrote fixtures with `write_text`, which emits CRLF on Windows, so several tamper tests failed or passed for the wrong reason there | fixed: fixtures written and read as exact bytes |
+| H9 | P3 | `frozenTestMayTune`, `multiplicityRulePredeclared` and `nonSignificanceMeansNonInferiority` were prose-only statistics/firewall rules | fixed: strict Boolean contract fields with stable refusal codes |
+
+Validator source mutation (15 mutants: every new check, the projection sections, raw-byte reading, the duplicate-member hook and I14) — all killed.
+

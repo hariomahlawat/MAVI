@@ -66,8 +66,8 @@ Interval overlap alone is not a tie/equivalence rule.
 
 ## 7a. Composition rule (multi-component capabilities; methodology §5.1)
 - per-sub-task finalist cap `K`;
-- composition generation rule (winner tuple, shared-backbone tuples, capped additional tuples by rank sum);
-- the Pareto axes;
+- composition generation rule (winner tuple, shared-backbone tuples, capped additional tuples by rank sum), naming the finalist ordering it uses;
+- the Pareto/frontier rule: axes, directions, normalization, dominance, treatment of disabled attributes and non-dominated-set construction. For S2c events every one of these, the finalist ordering and the final selection come from S2c.2b-2; S2c.2b-1 defines none;
 - the measurements taken per composition.
 
 ## 7b. Licence review scope

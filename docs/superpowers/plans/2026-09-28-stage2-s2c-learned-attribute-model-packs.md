@@ -102,7 +102,7 @@ Each task is its own model-selection problem. One multi-task model is not assume
 | Viewpoint | elevated CCTV, front/rear/side | orientation decisive (backpack visible from behind) | front/rear/side, oblique |
 | Modality | day colour; low light; IR/greyscale at night | colour-independent; IR usable in principle | colour; IR/greyscale → colour inapplicable |
 | Required Unknown | region not visible, too small, patterned/ambiguous, achromatic imagery | object not assessable (orientation/occlusion/size); **no negative claim in v1** | glare, heavy reflection, achromatic imagery, ambiguous two-tone |
-| Accuracy expectation | set by owner-declared precision targets on the tuning-partition precision–coverage frontier, confirmed on the selection partition (§10.5) — not by benchmark figures | same | same |
+| Accuracy expectation | set by the owner-approved gate table frozen before selection results are read, with operating values tuned on the tuning partition and gates judged by their predeclared confidence bounds (§10.5, S2c.2b-1) — not by benchmark figures | same | same |
 | Latency/throughput | ≤ the per-crop budget derived in §14 on the Development CPU | same (shared per-crop budget with T-PC when composed) | same |
 | Targets | CPU on every deployable CPU variant (Development); CUDA optional Development evidence | same | same |
 
@@ -198,7 +198,7 @@ S2c runs two Model Selection Events under the MSR methodology (`docs/qualificati
 | Survey (discovery) | `stage2-s2c/model-candidate-survey.md`, reported only, with a dated re-survey addendum at S2c.2 | planning, S2c.2 | `PLANNED` | `DISCOVERED` |
 | Shortlist + exact checkpoint pinning + evaluation permission, gated by candidate credibility (MSR method revision M1, S2c.2a) | `<event>-evidence-ledger.json` (External Evidence Ledger), its frozen copy `<event>-evidence-ledger-frozen.json`, `<event>-protocol.md` (frozen-ledger hash recorded; protocol hash recorded in the event record) | S2c.2 | `PROTOCOL_FROZEN` (protocol hash in the record before any MAVI data is read) | `SHORTLISTED` / `NOT_SHORTLISTED` (technical reason, or the credibility reason of an excluded discovery) / `REFERENCE_ONLY` (evaluation permission, availability or credibility) / `DEFERRED` |
 | Frozen evaluation + bake-off | harness (S2c.3); results by hash in the evidence store | S2c.4 | `EVALUATING` | `EVALUATED` → `TECHNICALLY_SELECTED` / `TECHNICAL_ALTERNATIVE` / `REJECTED_TECHNICAL`, per sub-task |
-| Composition (person only, §9.5a) | record §6.1 | S2c.4 | `TECHNICAL_DECISION_RECORDED` | component finalists → composition candidates by the frozen rule → composition evaluation → Pareto frontier |
+| Composition (person only, §9.5a) | record §6.1 | S2c.4 | `TECHNICAL_DECISION_RECORDED` | component finalists → composition candidates by the frozen rule → composition evaluation → multi-objective decision under the S2c.2b-2 rule (b-1 defines no frontier) |
 | Licence/deployment qualification | record §7 (human determinations per profile, primary-source hashes) | S2c.2 (evaluation permission), S2c.6 (use) | `QUALIFICATION_PENDING` | licence axis: `REVIEW_PENDING` → `CLEARED` / `CONSTRAINED` / `NOT_CLEARED` |
 | Implementation choice + packaging | record §8–§9; Model Pack + qualification record | S2c.6 | `CLOSED` (`SELECTED_FOR_PACKAGING`, `BASELINE_SELECTED` or `NO_QUALIFIABLE_CANDIDATE`) at S2c.10 | — |
 | Model Pack qualification | `models/qualifications/*.json` (authoritative), citing the closed record by hash | S2c.10 (record); S5 (quality gates) | addendum records the outcome | `QUALIFIED_INCUMBENT` only through an addendum after the qualification record passes |
@@ -247,7 +247,7 @@ Ordered within each task by the strength and domain relevance of the *reported* 
 | PO-6 | **Intel OMZ 0230** `has_backpack`/`has_bag`/`has_hat` (0234/0238 for hat) | checkpoint (IR) | F1 backpack 0.77, bag 0.66, hat 0.64 | weak reported F1; ≥ 80 px width |
 | PO-7 | Small CNN fine-tuned on PA-100K + MAVI labels | method | as PC-8 | as PC-8 |
 | PO-8 | VTFPAR++ (as PC-9) | checkpoint | as PC-9 | as PC-9 |
-| PO-B0 | **Prevalence reference** (§9.5): per-camera training prevalence, no image evidence | statistical floor | floor every presence candidate must beat on AURC/AP | not packageable |
+| PO-B0 | **Prevalence reference** (§9.5): per-camera training prevalence, no image evidence | statistical floor | paired reference under the b-1 practical/non-inferiority rule on the S population; AURC/AP are diagnostics (§9.5) | not packageable |
 
 **T-VC vehicle dominant colour** (independent survey and bake-off; no assumption that a person model serves it)
 
@@ -311,7 +311,7 @@ Rules:
 
 The layers follow MSR method §8: mandatory gates, then measured metrics, then an optional comparative ordering aid, then owner decisions, then qualification decisions. None is folded into another.
 
-**Mandatory gates** (named SG1–SG7b so they cannot be confused with the register's G-section rows). SG2–SG6, SG7a and SG7b are technical/engineering gates and decide the technical ranking. SG1 is the **qualification** gate: it is recorded on the licence axis and never changes a candidate's rank.
+**Mandatory gates** (named SG1–SG7b so they cannot be confused with the register's G-section rows). SG2–SG6, SG7a and SG7b are technical/engineering gates: a candidate must pass them to enter the technical ordering, which S2c.2b-2 defines. SG1 is the **qualification** gate: it is recorded on the licence axis and never changes a candidate's rank.
 
 | Gate | Rule |
 |---|---|
@@ -320,7 +320,7 @@ The layers follow MSR method §8: mandatory gates, then measured metrics, then a
 | SG3 Determinism | repeated CPU runs with the pinned thread count give identical Track decisions and scores within 1e-6; where CUDA is measured, the CPU/CUDA Track-decision agreement tolerance is **declared in S2c.2** (qualification plan §10 requires one but declares none) and a variant outside it may not be bound |
 | SG4 Runtime budget | p95 end-to-end per crop within the §14 budget on the pinned Development CPU host class (CPU-mandatory in S2c) |
 | SG5 Quality / baseline | decided **per attribute** under the b-1 gate table: candidate and baseline are measured on the same S/U/I/A populations; required precision/recall or useful-coverage, unsupported-assertion, calibration, support and required-slice floors must pass their predeclared confidence-bound rules. Baseline comparison uses paired cluster-aware differences and the frozen practical/non-inferiority rule; interval overlap is not a tie. AURC/AP/F1 remain diagnostics where applicable and never fabricate labels for human-unscorable evidence. If no learned candidate clears the required quality gates and a packageable baseline does, the record may retain the baseline; presence PO-B0 remains a statistical floor only |
-| SG6 Abstention / unsupported assertion | absolute upper bound on confident assertions over human-unscorable and invalid-subject evidence, plus the b-1 useful-recall/coverage lower bound on scorable evidence. Relative abstention on invalid versus valid evidence is diagnostic only; excessive abstention cannot satisfy the gate |
+| SG6 Abstention / unsupported assertion | absolute upper bound on confident assertions over human-unscorable evidence and a separate one over invalid-subject evidence (U and I are measured separately), plus the b-1 useful-recall/coverage lower bound on scorable evidence. Relative abstention on invalid versus valid evidence is diagnostic only; excessive abstention cannot satisfy the gate |
 | SG7a System scale (projection, S2c.4) | the projected fleet at the 500-camera target, under the owner-declared workload model and host envelope (§14.1, U9), fits the envelope: worker count, hosts, memory, backlog drain after one host loss. The projection is computed from per-worker quantities measured in the bake-off. For person-attributes it is evaluated per **composition** (§9.5a), never per component. A candidate or composition needing an architectural change to fit fails SG7a until the change exists (MSR method §7.1) |
 | SG7b System scale (validation, S2c.9) | the executed representative multi-worker load agrees with the SG7a projection within the tolerance frozen at S2c.2. If it fails, the selection is **re-opened** at S2c.4 with the measured quantities. With only one host available, host-loss drain is validated as the loss of one worker process, and cross-host behaviour is recorded as an unvalidated limitation, never as a pass |
 
@@ -370,11 +370,11 @@ The record keeps the pure task-quality view beside this ranking. The **highest t
 ### 9.5a Person-attributes composition (MSR method §5.1)
 
 `person-attributes` is one capability and one pack (ADR-014 §1) covering two sub-tasks. The event runs:
-1. **Sub-task evaluation.** T-PC and T-PO are ranked separately, and each produces up to **K = 3** component finalists. A finalist passes SG2, SG3, SG5 and SG6 for at least one attribute of its sub-task; SG4 and SG7a are judged per composition. The packageable colour baseline PC-B0 may be a T-PC finalist. The non-packageable PO-B0 never enters a tuple.
+1. **Sub-task evaluation.** T-PC and T-PO are evaluated separately, and each produces up to **K = 3** component finalists. The ordering that decides which candidates are finalists, and which finalist is "best" in step 2, is the S2c.2b-2 sub-task finalist ordering; b-1 defines none (contract `sub-task-finalist-ordering`). A finalist passes SG2, SG3, SG5 and SG6 for at least one attribute of its sub-task; SG4 and SG7a are judged per composition. The packageable colour baseline PC-B0 may be a T-PC finalist. The non-packageable PO-B0 never enters a tuple.
 2. **Composition candidates**, generated by the rule frozen at S2c.2:
-   - the winner tuple (best T-PC finalist, best T-PO finalist);
+   - the winner tuple (best T-PC finalist, best T-PO finalist, under the S2c.2b-2 finalist ordering);
    - every finalist pair that shares a backbone checkpoint (for example one tower with separate colour and presence heads). Each is evaluated as its own candidate, with heads trained on the shared features;
-   - up to **three** further pairs from the finalist product (at most 3 × 3), ordered by the sum of sub-task ranks and taken only if not already listed.
+   - up to **three** further pairs from the finalist product (at most 3 × 3), ordered by the sum of sub-task ranks under that ordering and taken only if not already listed.
 
    The set is therefore at most 1 + S + 3 compositions, where S (at most 9) is the number of shared-backbone finalist pairs. Each is an exact tuple of component identities, with an optional shared region component (for example segmentation, if C-SEG is ever triggered).
 3. **Composition evaluation**, on the selection partition and the pinned host:
@@ -402,7 +402,7 @@ Each capability's decision is recorded in its event under `docs/qualification/mo
 - **Record.** `<event>.md` holds:
   - a candidate ledger retaining every candidate, with its exact checkpoint identity, role, technical disposition and per-profile licence status;
   - reported evidence (class R, snapshotted) kept apart from MAVI measurements (M-D, M-E);
-  - gates, the technical ranking with its sensitivity check, and the separate licence qualification;
+  - gates, the technical ordering under the S2c.2b-2 rule, and the separate licence qualification;
   - the decision outputs (MSR method §9):
     - baseline;
     - incumbent ("none" in S2c);
@@ -412,7 +412,7 @@ Each capability's decision is recorded in its event under `docs/qualification/mo
     - strongest candidate cleared for each target profile;
     - implementation candidate or composition;
     - deltas between these;
-    - alternatives and the composition frontier;
+    - alternatives and, if S2c.2b-2 defines one, the composition frontier;
     - rejected, deferred and reference-only candidates, with reasons;
     - projected system-scale footprint;
     - owner decisions;
@@ -463,8 +463,8 @@ Annotation guide per attribute (allowed values with reference swatches, Unknown/
 
 | Attribute kind | Gate / primary measurements | Diagnostics |
 |---|---|---|
-| Colour (categorical) | per-value precision and recall; macro recall over the fixed required value set; useful coverage on S; unsupported-assertion bound on U/I; all-assigned delivery coverage on A; Track-level post-aggregation calibration | macro-F1, balanced accuracy, confusion matrix with abstention, risk–coverage/AURC, crop and Representative ablations, per stratum/camera |
-| Presence | positive precision; unconditional positive recall; FPR on adjudicated scorable negatives; unsupported-assertion bound on U/I; all-assigned delivery coverage on A; Track-level post-aggregation calibration | PR/AP, F1, risk–coverage/AURC, asserted-positive rate, crop/Representative ablations |
+| Colour (categorical) | per-value precision and recall; macro recall over the fixed required value set; useful coverage on S; unsupported-assertion bounds on U and, separately, on I; all-assigned delivery coverage on A; Track-level post-aggregation calibration | macro-F1, balanced accuracy, confusion matrix with abstention, risk–coverage/AURC, crop and Representative ablations, per stratum/camera |
+| Presence | positive precision; unconditional positive recall; FPR on adjudicated scorable negatives; unsupported-assertion bounds on U and, separately, on I; all-assigned delivery coverage on A; Track-level post-aggregation calibration | PR/AP, F1, risk–coverage/AURC, asserted-positive rate, crop/Representative ablations |
 | Both | required-slice floors; attribute/value support and independent-cluster support; values below either are **insufficient evidence** | reliability diagrams, proper calibration scores, per-camera/site/date analyses |
 
 ### 10.5 Thresholds and gates — how numbers are established

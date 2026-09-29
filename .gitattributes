@@ -2,3 +2,5 @@
 *.lock text eol=lf
 *.py text eol=lf
 *.requirements.txt text eol=lf
+# The S2c.2b-1 protocol projection is compared as raw bytes (quality_statistics.py).
+docs/qualification/model-selection/s2c-quality-statistics.md text eol=lf

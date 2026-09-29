@@ -41,7 +41,9 @@
     "pairedCandidateComparison": true,
     "trackCropsStayTogether": true,
     "practicalMarginsRequired": true,
+    "multiplicityRulePredeclared": true,
     "intervalOverlapMeansTie": false,
+    "nonSignificanceMeansNonInferiority": false,
     "allowedOutcomes": [
       "superior",
       "non-inferior",
@@ -53,11 +55,23 @@
   "gates": {
     "ownerTargetsFrozenBeforeSelection": true,
     "confidenceBoundsRequired": true,
-    "unsupportedAssertionAbsoluteBoundRequired": true,
-    "usefulRecallOrCoverageFloorRequired": true
+    "numericTargetsDefinedByB1": false,
+    "requiredGateForms": [
+      "per-value-precision",
+      "useful-recall-or-coverage-floor",
+      "false-positive-rate-bound",
+      "unsupported-assertion-bound-human-unscorable",
+      "unsupported-assertion-bound-invalid-subject",
+      "track-calibration-tolerance",
+      "attribute-value-support",
+      "independent-cluster-support",
+      "required-robustness-slice-floor",
+      "required-robustness-slice-degradation-limit"
+    ]
   },
   "selectionBoundary": {
     "selectionMayTune": false,
+    "frozenTestMayTune": false,
     "frozenTestMaySelect": false
   },
   "deferredToS2c2b2": [
@@ -65,9 +79,17 @@
     "whole-job-cpu-host-gates",
     "composition-resource-accounting",
     "10k-track-deadline-mechanics",
+    "500-camera-projection",
     "pareto-axes",
+    "pareto-directions",
+    "pareto-normalization",
+    "dominance-semantics",
+    "disabled-attribute-frontier-treatment",
+    "non-dominated-set-construction",
+    "sub-task-finalist-ordering",
     "final-technical-selection",
-    "500-camera-projection"
+    "msr-final-ranking-representation",
+    "historical-weighted-ordering-reconciliation"
   ],
   "outcomeSemantics": {
     "executionFailurePopulation": "A",
@@ -106,7 +128,7 @@
     "I11-insufficient-support-remains-insufficient-evidence": "Insufficient attribute/value support or independent-cluster support remains insufficient evidence and cannot become a pass, tie or statistical winner.",
     "I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice": "Unconditional recall already includes abstention, so coverage is not multiplied into recall-support arithmetic a second time.",
     "I13-owner-numerical-targets-are-not-invented-by-b1": "S2c.2b-1 does not invent owner numerical quality targets; it freezes only the form and authority of those gates.",
-    "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": "Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline mechanics, 500-camera projection, Pareto axes and deterministic final technical ordering remain S2c.2b-2 scope."
+    "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": "S2c.2b-1 defines no operational-performance, whole-job CPU/host, composition-resource, 10k-Track deadline/retry or 500-camera projection rule and no Pareto/frontier semantics (axes, directions, normalization, dominance, disabled-attribute treatment, non-dominated set), finalist ordering or final technical selection; every subject in the deferred list remains S2c.2b-2 scope."
   },
   "partitionStatements": {
     "modelWeights": "training",

@@ -1,9 +1,11 @@
 """Machine checks for the S2c.2b-1 quality/statistical method contract.
 
 The JSON contract is the canonical machine authority. The Markdown protocol contains
-one deterministic projection of contract-owned invariant and partition statements.
-Repository validation compares that protected projection byte-for-byte; it does not
-attempt to interpret arbitrary Markdown semantics.
+one deterministic projection of the contract-owned partition statements, required gate
+forms, S2c.2b-2 deferred subjects and invariant statements. Repository validation
+compares that protected projection byte-for-byte; it does not attempt to interpret
+arbitrary Markdown semantics. The protocol file is pinned to LF line endings by
+``.gitattributes`` so that the raw-byte comparison holds on every checkout platform.
 """
 
 from __future__ import annotations
@@ -145,20 +147,44 @@ EXPECTED_INVARIANT_STATEMENTS = {
         "form and authority of those gates."
     ),
     "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": (
-        "Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline "
-        "mechanics, 500-camera projection, Pareto axes and deterministic final technical "
-        "ordering remain S2c.2b-2 scope."
+        "S2c.2b-1 defines no operational-performance, whole-job CPU/host, composition-resource, "
+        "10k-Track deadline/retry or 500-camera projection rule and no Pareto/frontier semantics "
+        "(axes, directions, normalization, dominance, disabled-attribute treatment, non-dominated "
+        "set), finalist ordering or final technical selection; every subject in the deferred list "
+        "remains S2c.2b-2 scope."
     ),
 }
 EXPECTED_FROZEN_INVARIANTS = {key: True for key in EXPECTED_INVARIANT_STATEMENTS}
+# Subjects deferred to S2c.2b-2. An entry means "b-1 defines nothing here", never a value.
 EXPECTED_DEFERRED = [
     "operational-performance",
     "whole-job-cpu-host-gates",
     "composition-resource-accounting",
     "10k-track-deadline-mechanics",
-    "pareto-axes",
-    "final-technical-selection",
     "500-camera-projection",
+    "pareto-axes",
+    "pareto-directions",
+    "pareto-normalization",
+    "dominance-semantics",
+    "disabled-attribute-frontier-treatment",
+    "non-dominated-set-construction",
+    "sub-task-finalist-ordering",
+    "final-technical-selection",
+    "msr-final-ranking-representation",
+    "historical-weighted-ordering-reconciliation",
+]
+# Gate forms every event protocol must instantiate with owner-approved values (as applicable).
+EXPECTED_GATE_FORMS = [
+    "per-value-precision",
+    "useful-recall-or-coverage-floor",
+    "false-positive-rate-bound",
+    "unsupported-assertion-bound-human-unscorable",
+    "unsupported-assertion-bound-invalid-subject",
+    "track-calibration-tolerance",
+    "attribute-value-support",
+    "independent-cluster-support",
+    "required-robustness-slice-floor",
+    "required-robustness-slice-degradation-limit",
 ]
 
 
@@ -269,7 +295,9 @@ def validate_contract(document: dict) -> None:
             "pairedCandidateComparison",
             "trackCropsStayTogether",
             "practicalMarginsRequired",
+            "multiplicityRulePredeclared",
             "intervalOverlapMeansTie",
+            "nonSignificanceMeansNonInferiority",
             "allowedOutcomes",
         },
         "statistics",
@@ -282,8 +310,12 @@ def validate_contract(document: dict) -> None:
         raise _fail("track_crops_split")
     if statistics["practicalMarginsRequired"] is not True:
         raise _fail("practical_margins_missing")
+    if statistics["multiplicityRulePredeclared"] is not True:
+        raise _fail("multiplicity_rule_missing")
     if statistics["intervalOverlapMeansTie"] is not False:
         raise _fail("interval_overlap_tie")
+    if statistics["nonSignificanceMeansNonInferiority"] is not False:
+        raise _fail("non_significance_non_inferiority")
     if statistics["allowedOutcomes"] != EXPECTED_OUTCOMES:
         raise _fail("comparison_outcomes")
 
@@ -292,20 +324,26 @@ def validate_contract(document: dict) -> None:
         {
             "ownerTargetsFrozenBeforeSelection",
             "confidenceBoundsRequired",
-            "unsupportedAssertionAbsoluteBoundRequired",
-            "usefulRecallOrCoverageFloorRequired",
+            "numericTargetsDefinedByB1",
+            "requiredGateForms",
         },
         "gates",
     )
-    if any(value is not True for value in gates.values()):
+    if gates["ownerTargetsFrozenBeforeSelection"] is not True:
+        raise _fail("quality_gate_form")
+    if gates["confidenceBoundsRequired"] is not True:
+        raise _fail("quality_gate_form")
+    if gates["numericTargetsDefinedByB1"] is not False:
+        raise _fail("quality_gate_form")
+    if gates["requiredGateForms"] != EXPECTED_GATE_FORMS:
         raise _fail("quality_gate_form")
 
     boundary = _object(
-        root["selectionBoundary"], {"selectionMayTune", "frozenTestMaySelect"}, "selection_boundary"
+        root["selectionBoundary"],
+        {"selectionMayTune", "frozenTestMayTune", "frozenTestMaySelect"},
+        "selection_boundary",
     )
-    if boundary["selectionMayTune"] is not False:
-        raise _fail("selection_boundary")
-    if boundary["frozenTestMaySelect"] is not False:
+    if any(value is not False for value in boundary.values()):
         raise _fail("selection_boundary")
 
     outcomes = _object(
@@ -354,6 +392,29 @@ def render_contract_projection(document: dict) -> str:
     ]
     for key in EXPECTED_PARTITIONS:
         lines.append(f"| {PARTITION_LABELS[key]} | {document['partitionStatements'][key]} |")
+
+    lines.extend(
+        [
+            "",
+            "### Required gate forms",
+            "",
+            "Each event protocol instantiates every applicable form with an owner-approved value "
+            "before selection results are read; b-1 defines no numeric value.",
+            "",
+        ]
+    )
+    lines.extend(f"- `{form}`" for form in document["gates"]["requiredGateForms"])
+
+    lines.extend(
+        [
+            "",
+            "### Deferred to S2c.2b-2",
+            "",
+            "S2c.2b-1 defines none of the following subjects; each is frozen only by S2c.2b-2.",
+            "",
+        ]
+    )
+    lines.extend(f"- `{subject}`" for subject in document["deferredToS2c2b2"])
 
     lines.extend(["", "### Frozen b-1 invariants", ""])
     for index, key in enumerate(EXPECTED_INVARIANT_STATEMENTS, start=1):

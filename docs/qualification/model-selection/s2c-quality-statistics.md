@@ -1,7 +1,7 @@
 # S2c.2b-1 — Quality and statistical protocol
 
 **Status:** Proposed — becomes governing for the S2c person/vehicle Model Selection Events only when this change merges.  
-**Scope:** quality/statistical semantics only. Operational-performance accounting, Pareto axes, 500-camera projection and the final deterministic technical-selection rule are deliberately deferred to **S2c.2b-2**.  
+**Scope:** quality/statistical semantics only. Operational-performance accounting, every Pareto/frontier decision (axes, directions, normalization, dominance, disabled-attribute treatment, non-dominated-set construction), finalist ordering, the 500-camera projection and the final deterministic technical-selection rule are deliberately deferred to **S2c.2b-2** (the complete list is the contract's `deferredToS2c2b2`, projected in §13).  
 **Authorities:** ADR-013/014 remain unchanged; the visual-attributes qualification plan governs, including R1/R2 and the additive R3 in this change; MSR method v1 + M1 remain governing for event/credibility history.  
 **Machine contract:** `s2c-quality-statistics-contract.json`, checked by `tools/qualification/model_selection/quality_statistics.py`.
 
@@ -40,7 +40,7 @@ Primary operator-facing measurements are Track-level:
 - macro recall over the fixed required value set, with unsupported values remaining explicitly unsupported;
 - useful coverage on S;
 - confusion matrix with model abstentions shown separately;
-- unsupported-assertion rate on U/I;
+- unsupported-assertion rate on U and, separately, on I;
 - all-assigned delivery coverage on A.
 
 Macro-F1 and balanced accuracy remain diagnostics. No candidate may improve its apparent score by removing a difficult required value.
@@ -54,7 +54,7 @@ Report:
 - positive precision;
 - positive recall, with abstention on a true positive counted as missed recall;
 - false-positive rate on adjudicated scorable negatives;
-- unsupported-assertion rate on U/I;
+- unsupported-assertion rate on U and, separately, on I;
 - all-assigned delivery coverage on A;
 - PR curve/AP and F1 as diagnostics.
 
@@ -65,7 +65,7 @@ F1 is not a sole gate because it permits precision/recall compensation that does
 No accuracy figure is valid without its retained-prediction denominator. The event protocol freezes:
 
 - a useful-recall or useful-coverage lower bound;
-- an absolute unsupported-assertion upper bound;
+- an absolute unsupported-assertion upper bound, separately for U and for I;
 - the quality/risk requirement on retained predictions.
 
 Risk–coverage/AURC may be retained as diagnostics but **must not fabricate predictions for U merely to reach nominal full coverage**.
@@ -143,12 +143,12 @@ Required values that cannot reach support remain **insufficient evidence**; they
 
 ## 10. Quality gates before selection
 
-S2c.2b-1 freezes the *form* of the gates, not owner policy numbers. Before selection results are read, each event protocol must carry an owner-approved table containing, as applicable:
+S2c.2b-1 freezes the *form* of the gates, not owner policy numbers; the machine list of required gate forms is the contract's `gates.requiredGateForms`, projected in §13. Before selection results are read, each event protocol must carry an owner-approved table containing, as applicable:
 
 - per-value precision requirement;
 - minimum useful recall / useful coverage;
 - maximum false-positive rate;
-- maximum unsupported-assertion rate;
+- maximum unsupported-assertion rate, separately for U and for I;
 - Track-level calibration tolerance;
 - minimum attribute/value support and independent-cluster support;
 - required robustness slices and maximum permitted degradation.
@@ -165,21 +165,20 @@ The protocol distinguishes pooled quality from claims about low-light, occlusion
 
 ## 12. What remains for S2c.2b-2
 
-This slice deliberately does **not** freeze:
+This slice deliberately does **not** define any of the subjects in the contract's `deferredToS2c2b2` list (projected in §13). An entry there means only that the subject is deferred; b-1 specifies no value for it. In summary:
 
-- the final Pareto axes;
-- the deterministic selection from a non-dominated set;
-- whole-job CPU/host gates;
-- composition resource accounting;
-- the 10k-Track deadline mechanics;
-- the 500-camera projection;
-- final technical ranking representation in the MSR.
+- operational performance, whole-job CPU/host gates and composition resource accounting;
+- the 10k-Track deadline and retry mechanics, and the 500-camera projection and its claim boundaries;
+- every Pareto/frontier decision: the axes, their directions, any normalization, dominance semantics, treatment of disabled attributes, and construction of a non-dominated set;
+- the ordering used to pick sub-task finalists (the "best" finalist of each sub-task for composition generation);
+- the deterministic final technical selection, including any choice from a non-dominated set, and its representation in the MSR;
+- reconciliation or removal of the historical weighted-ordering text in the S2c plan.
 
-The current weighted-score text in the S2c plan is therefore **not frozen by b-1**. S2c.2b-2 must reconcile it before any selection result is read. No event reaches `PROTOCOL_FROZEN` until both b-1 and b-2 are complete.
+b-1 retains raw quality measurements and gate outcomes only. The current weighted-score text in the S2c plan is **not frozen by b-1**. S2c.2b-2 must reconcile it before any selection result is read. No event reaches `PROTOCOL_FROZEN` until both b-1 and b-2 are complete.
 
 ## 13. Machine-contract projection (generated)
 
-The block below is a deterministic projection of the canonical JSON contract. Repository validation compares this protected block byte-for-byte with a renderer driven by the contract; arbitrary Markdown outside the block is deliberately not parsed as machine authority.
+The block below is a deterministic projection of the canonical JSON contract. Repository validation compares this protected block byte-for-byte with a renderer driven by the contract; arbitrary Markdown outside the block is deliberately not parsed as machine authority. `.gitattributes` pins this file to LF line endings, so a checkout on any platform carries the same bytes; a CRLF, bare-CR or other line-separator rewrite inside the block is refused.
 
 <!-- BEGIN S2C_B1_CONTRACT_PROJECTION -->
 _Generated from `s2c-quality-statistics-contract.json`; do not edit this block manually._
@@ -202,6 +201,41 @@ _Generated from `s2c-quality-statistics-contract.json`; do not edit this block m
 | candidate comparison | selection |
 | final qualification | frozen test |
 
+### Required gate forms
+
+Each event protocol instantiates every applicable form with an owner-approved value before selection results are read; b-1 defines no numeric value.
+
+- `per-value-precision`
+- `useful-recall-or-coverage-floor`
+- `false-positive-rate-bound`
+- `unsupported-assertion-bound-human-unscorable`
+- `unsupported-assertion-bound-invalid-subject`
+- `track-calibration-tolerance`
+- `attribute-value-support`
+- `independent-cluster-support`
+- `required-robustness-slice-floor`
+- `required-robustness-slice-degradation-limit`
+
+### Deferred to S2c.2b-2
+
+S2c.2b-1 defines none of the following subjects; each is frozen only by S2c.2b-2.
+
+- `operational-performance`
+- `whole-job-cpu-host-gates`
+- `composition-resource-accounting`
+- `10k-track-deadline-mechanics`
+- `500-camera-projection`
+- `pareto-axes`
+- `pareto-directions`
+- `pareto-normalization`
+- `dominance-semantics`
+- `disabled-attribute-frontier-treatment`
+- `non-dominated-set-construction`
+- `sub-task-finalist-ordering`
+- `final-technical-selection`
+- `msr-final-ranking-representation`
+- `historical-weighted-ordering-reconciliation`
+
 ### Frozen b-1 invariants
 
 1. `I01-human-unscorable-is-not-model-abstention` — Human-unscorable ground truth is not model abstention.
@@ -217,7 +251,7 @@ _Generated from `s2c-quality-statistics-contract.json`; do not edit this block m
 11. `I11-insufficient-support-remains-insufficient-evidence` — Insufficient attribute/value support or independent-cluster support remains insufficient evidence and cannot become a pass, tie or statistical winner.
 12. `I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice` — Unconditional recall already includes abstention, so coverage is not multiplied into recall-support arithmetic a second time.
 13. `I13-owner-numerical-targets-are-not-invented-by-b1` — S2c.2b-1 does not invent owner numerical quality targets; it freezes only the form and authority of those gates.
-14. `I14-operational-pareto-fleet-final-ordering-remain-b2-scope` — Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline mechanics, 500-camera projection, Pareto axes and deterministic final technical ordering remain S2c.2b-2 scope.
+14. `I14-operational-pareto-fleet-final-ordering-remain-b2-scope` — S2c.2b-1 defines no operational-performance, whole-job CPU/host, composition-resource, 10k-Track deadline/retry or 500-camera projection rule and no Pareto/frontier semantics (axes, directions, normalization, dominance, disabled-attribute treatment, non-dominated set), finalist ordering or final technical selection; every subject in the deferred list remains S2c.2b-2 scope.
 
 <!-- END S2C_B1_CONTRACT_PROJECTION -->
 
