@@ -709,14 +709,32 @@ For implementation, define:
 
 `C_all = intersection over all required profiles r of C_r`
 
-where fallback-containing pairs remain eligible only if every required profile admits that exact fallback unit. Apply the same §17.3 joint constraints and H_lo/H_up selection rule directly over `C_all` to derive **`T_impl`**. Do **not** intersect the separately optimized `T_r` sets.
+where fallback-containing pairs remain eligible only if every required profile admits that exact fallback unit.
 
-The implementation pair must belong to `T_impl`. The `T_r` sets remain per-profile reporting outputs. If `T_impl` is empty, record `NO_QUALIFIABLE_CANDIDATE` (or the applicable MSR §8.2 unresolved action); a pair that is merely absent from one profile's optimum is not disqualified if it is cleared for every required profile and is supported by the `C_all` optimization.
+**Implementation eligibility (MSR revision M1 §8, retained by M2).** Credibility is not a technical property: it never changes `E_c`, `F_c`, the quality outcome, `T` or any `T_r`, and an `emerging` member of `T` remains recorded as technically selected. It governs **only** which pairs may be implemented:
+
+A unit is **implementable** when every learned component is `established` or `mavi-owned`, now and in the history entry in force on that event's decision-snapshot date (M1 §8). For a person composition the rule applies to **every** component. A packageable baseline is `mavi-owned`. A disabled-capability fallback has no component and is vacuously implementable. An `emerging` candidate needs a recorded promotion (M1 §7) dated on or before the decision snapshot; until then it is not implementable, however strong it is technically.
+
+Implementation eligibility is decided per capability first, so that one capability's credibility or licence gap cannot block the other (the N1 principle):
+
+`K_c = { x in J_c : x is implementable and CLEARED/admissible for every required profile }` when that set is non-empty; otherwise `K_c = {fallback_c}` if the frozen fallback (§17.0) is itself implementable and admissible for every required profile; otherwise `K_c` is empty.
+
+The fallback is frozen before selection, so using it here is not result-time discretion, and it never changes the capability's `E_c`, `F_c` or quality outcome.
+
+`C_impl = K_person × K_vehicle`
+
+Apply the same §17.3 joint constraints and H_lo/H_up selection rule directly over `C_impl` to derive **`T_impl`**. If either `K_c` is empty, or no pair of `C_impl` is operationally admitted, `T_impl` is empty. `C_all` remains a credibility-blind reporting set: the pairs of `J_person × J_vehicle` cleared for every required profile. Do **not** intersect the separately optimized `T_r` sets, and do not intersect `T` with an implementability filter. As with licence, the filter is applied before the optimum is computed, so the best implementable pair is found rather than lost.
+
+The implementation pair must belong to `T_impl`. The `T_r` sets remain per-profile reporting outputs (credibility-blind, like M1's strongest-cleared field). A pair that is merely absent from one profile's optimum is not disqualified if it is cleared for every required profile, implementation-admissible and supported by the `C_impl` optimization.
+
+**When these sets exist (MSR README §3.2; M1 §8).** `C_r`, `T_r`, `C_all`, `K_c`, `C_impl` and `T_impl` depend on licence determinations and the decision snapshot, so they are computed at `QUALIFICATION_PENDING`, not at `TECHNICAL_DECISION_RECORDED`. An empty `C_r`/`T_impl` while any required licence status is still `NOT_ASSESSED` or `REVIEW_PENDING` is **pending**, not a conclusion. `NO_QUALIFIABLE_CANDIDATE` is recorded only when the event is `CLOSED` and `T_impl` is empty on final determinations (or the applicable MSR §8.2 unresolved action).
 
 Owner may choose among the permitted cleared tied set but may not:
 
 - waive gates;
-- choose a pair outside `T_impl`, or a unit outside the effective `J_c` sets of §17.0 (a frozen fallback in `J_c` is permitted; choosing it leaves that capability's `NO_QUALITY_PROTECTED_TECHNICAL_CHOICE` or other quality outcome unchanged);
+- choose a pair outside `T_impl` (every unit of `T_impl` comes from `K_c`, which contains only `J_c` members or the frozen fallback; choosing the fallback leaves that capability's quality outcome unchanged);
+- implement a non-promoted `emerging` candidate, or relabel it as not technically selected;
+- name an implementation before `QUALIFICATION_PENDING`;
 - reinterpret inconclusive/insufficient evidence;
 - overwrite the technical result.
 
@@ -779,11 +797,13 @@ S2c creates one checked cross-event artefact:
 
 - **schema:** `mavi-s2c-joint-operational-decision-v1`
 - **path:** `docs/qualification/model-selection/s2c-joint-operational-decision.json` for the active S2c event pair, or the event-pair-specific path defined by the M2 index;
-- **identity:** both event ids, both ledger hashes, one **`mavi-s2c-quality-result-v1` hash** for each capability, b-1/b-2 contract hashes and the frozen experiment hash;
-- **evidence:** every evaluated joint pair with exact person/vehicle `unitId`s, operational evidence hash, `H_lo`, `H_up`, admission/constraint outcomes;
-- **outputs:** `T`, every per-profile `T_r`, `C_all`, `T_impl`, technical outcome and joint evidence hash.
+- **identity:** both event ids, both **frozen-ledger** hashes, one **`mavi-s2c-quality-result-v1` hash** for each capability, b-1/b-2 contract hashes and the frozen experiment hash;
+- **`technicalStage`** (written at `TECHNICAL_DECISION_RECORDED`): `J_person`/`J_vehicle`, every evaluated joint pair with exact person/vehicle `unitId`s, operational evidence hash, `H_lo`, `H_up`, admission/constraint outcomes, `T`, technical outcome and joint evidence hash;
+- **`implementationStage`** (`null` until `QUALIFICATION_PENDING`): both events' decision-snapshot hashes, the per-unit licence status per profile, `C_r` and `T_r` per profile, `C_all`, `K_person`, `K_vehicle`, `C_impl` with the per-component credibility class used, `T_impl`, and a `supersedes` hash naming the technical-stage version it extends.
 
-The validator dependency is one-way and acyclic: load both event ledgers and their quality-result artefacts first; validate the joint operational document from those immutable inputs; hash the joint document; then load/validate each event decision-v2, which may cite `jointOperationalDecisionSha256`. The joint document does **not** cite full event decision hashes. Any S2c person/vehicle event still using decision-v1 is refused; decision-v1 remains accepted for non-S2c events.
+A version with a non-null `implementationStage` is a new document, with a new hash. Its `technicalStage` must be byte-identical to that of the version it supersedes (checked), so licence and credibility can never rewrite the technical result. The supersession chain only points backwards, so it stays acyclic.
+
+The validator dependency is one-way and acyclic: load both event ledgers and their quality-result artefacts first; validate the joint operational document from those immutable inputs; hash the joint document (and, for an implementation-stage version, first the decision snapshots and the superseded technical-stage version); then load/validate each event decision-v2, which may cite `jointOperationalDecisionSha256`. The joint document does **not** cite full event decision hashes. Any S2c person/vehicle event still using decision-v1 is refused; decision-v1 remains accepted for non-S2c events.
 
 ### 20.4 Required S2c fields
 
@@ -803,9 +823,20 @@ Joint decision reference in each event decision-v2:
 - `technicalSelectionOutcome`
 - `technicalSelectedSet[]` = T as person×vehicle pairs
 - `technicalWinner` or null
-- `profileClearedSet{profile: []}`
-- `implementationEligibleSet[]` = `T_impl`
-- `implementationPair` = `{personUnitId, vehicleUnitId}`: the chosen person×vehicle pair, identical in both event decision-v2 documents; each event's own implementation unit is its coordinate of this pair
+- `profileClearedSet{profile: []}` = `T_r` (from `QUALIFICATION_PENDING`; absent/`null` before)
+- `implementationEligibleSet[]` = `T_impl` (from `QUALIFICATION_PENDING`; absent/`null` before)
+- `implementationPair` = `{personUnitId, vehicleUnitId}` **or `null`**, following the M1 state rule:
+  - `TECHNICAL_DECISION_RECORDED`: must be `null`;
+  - `QUALIFICATION_PENDING`: `null` (not yet chosen) or a pair in `T_impl`;
+  - `CLOSED`: a pair in `T_impl` when an implementation exists, otherwise `null`.
+
+  Both event decision-v2 documents are either both `null` or carry the identical pair, and both cite the same joint-decision version. Each event's own implementation unit is its coordinate of the pair.
+- per-event `outcome` at `CLOSED`, derived from that event's coordinate:
+  - a learned unit → `SELECTED_FOR_PACKAGING`;
+  - a packageable baseline → `BASELINE_SELECTED`;
+  - the disabled-capability fallback, or `implementationPair = null` → `NO_QUALIFIABLE_CANDIDATE`, with the capability left disabled.
+
+  A capability can therefore be `NO_QUALIFIABLE_CANDIDATE` while the other capability of the same pair is `SELECTED_FOR_PACKAGING`.
 - `qualityContractHash`
 - `operationalContractHash`
 - `decisionEvidenceHash`
@@ -824,8 +855,10 @@ The updated `credibility.py` / decision validator must recompute:
 - joint admitted pairs;
 - H*/T from H_lo/H_up;
 - profile-cleared sets;
-- `T_impl` over `C_all`;
-- that both event decision-v2 documents cite the same `jointOperationalDecisionSha256` and carry the identical `implementationPair`, and that this exact `(personUnitId, vehicleUnitId)` pair is a member of `T_impl` (per-coordinate membership alone is not sufficient).
+- `K_person`, `K_vehicle` and `C_impl` from `J_c`, licence status and each component's credibility class on its event's decision snapshot (M1 §8), including the fallback rule; and `T_impl` over `C_impl`;
+- that the implementation-stage version's `technicalStage` is byte-identical to the superseded version's;
+- the state rules of §20.4: no pair and no `T_r`/`T_impl` before `QUALIFICATION_PENDING`; `NO_QUALIFIABLE_CANDIDATE` only at `CLOSED`; outcome consistent with the event's coordinate;
+- that both event decision-v2 documents cite the same `jointOperationalDecisionSha256` and carry the identical `implementationPair` (or both `null`), and, when non-null, that this exact `(personUnitId, vehicleUnitId)` pair is a member of `T_impl` (per-coordinate membership alone is not sufficient).
 
 It must no longer derive S2c winners from scalar `taskQualityScore` or `comparativeScore`.
 
@@ -918,6 +951,12 @@ Reject:
 - event decision-v2 documents whose `implementationPair` differ, cite different `jointOperationalDecisionSha256`, or name a pair not in `T_impl` even when each coordinate appears in some `T_impl` pair;
 - owner choice of a frozen fallback pair refused merely because the fallback is outside `F_c`;
 - lifecycle instant fields without the `...Utc` suffix or with non-UTC offsets;
+- a pair in `T_impl` containing an `emerging` learned component without a recorded promotion dated on or before the decision snapshot, including one component of a person composition;
+- `T` or `T_r` altered by credibility, or an `emerging` technical winner dropped from `T`;
+- a non-null `implementationPair`, `T_r` or `T_impl` at `TECHNICAL_DECISION_RECORDED`;
+- `NO_QUALIFIABLE_CANDIDATE` recorded while any required licence status is still pending, or at any state other than `CLOSED`;
+- an implementation-stage joint version whose `technicalStage` differs from the version it supersedes;
+- a per-event `CLOSED` outcome inconsistent with that event's coordinate of the pair;
 - missing/invalid quality-result artefact, non-canonical bytes, or mismatched event/ledger/contract/experiment hashes;
 - quality-result artefact whose stored E_c/F_c does not recompute from referenced evidence;
 - missing/invalid joint-decision artefact or mismatched event/ledger/quality-result/contract hashes;
@@ -969,7 +1008,8 @@ Must include:
 - a fallback-containing pair enters `C_r`/`C_all` only when that exact fallback is cleared/admissible for every required profile;
 - empty `F_vehicle` uses the frozen vehicle fallback without rewriting the vehicle quality outcome;
 - no valid fallback yields `NO_OPERATIONALLY_COMPLETE_IDENTITY`;
-- per-profile optima with empty intersection still allow a valid `T_impl` from `C_all`.
+- per-profile optima with empty intersection still allow a valid `T_impl` from `C_impl`;
+- an `emerging`-only (or not-cleared-only) `F_person` falls back to the frozen person fallback in `K_person`, so the vehicle capability is still implementable.
 
 ---
 
@@ -1046,9 +1086,9 @@ Complete only when:
 16. composition search limitation is explicit;
 17. MPID no-comparator disposition is frozen before selection and is not auto-passed;
 18. fallback operational units are frozen before selection and cannot rewrite empty-F quality outcomes;
-19. `T_impl` is derived over `C_all`, not by intersecting per-profile optima, and `C_r/C_all` are formed from the effective `J_c` sets so frozen fallbacks survive licence/implementation selection without rewriting quality outcomes;
+19. `T_impl` is derived over `C_impl = K_person × K_vehicle` (per-capability implementable, all-profile-cleared units, falling back to the frozen fallback when none; credibility applied only there), not by intersecting per-profile optima, and `C_r/C_all` are formed from the effective `J_c` sets so frozen fallbacks survive licence/implementation selection without rewriting quality outcomes;
 20. each event emits a canonical immutable `mavi-s2c-quality-result-v1` artefact whose E_c/F_c recompute from referenced evidence;
-21. the checked joint-decision artefact cross-links both S2c events **without hash cycles**, using event ids, ledger hashes and per-event quality-result hashes; event decision-v2 documents reference the already-hashed joint artefact;
+21. the checked joint-decision artefact is staged (technical at `TECHNICAL_DECISION_RECORDED`, implementation at `QUALIFICATION_PENDING`, with a byte-identical technical stage), `implementationPair` follows the M1 state rule, and the artefact cross-links both S2c events **without hash cycles**, using event ids, ledger hashes and per-event quality-result hashes; event decision-v2 documents reference the already-hashed joint artefact;
 22. b-1 repository check passes;
 23. b-2 repository check passes;
 24. `tools/verify_repo.py` passes;
@@ -1080,6 +1120,9 @@ Complete only when:
 | N2 joint/event decision hash cycle | accepted — one-way ledger/quality-result → joint decision → event decision-v2 hash chain §§20.2–20.3 |
 | F1 fallback dropped during licence/implementation filtering | accepted — `C_r/C_all` now derive from effective `J_c` sets §18 |
 | F2 per-event quality-result node undefined | accepted — canonical `mavi-s2c-quality-result-v1` artefact §20.2 |
+| A M1 implementation eligibility (established/mavi-owned) not reapplied | accepted — credibility applied only at the implementation boundary: per-capability `K_c`, `C_impl = K_person × K_vehicle`, `T_impl` over `C_impl`; T/T_r stay credibility-blind §18 |
+| B implementationPair required at every state | accepted — M1 state rule for `implementationPair`; staged joint artefact (technical at TECHNICAL_DECISION_RECORDED, implementation at QUALIFICATION_PENDING, byte-identical technical stage); `NO_QUALIFIABLE_CANDIDATE` only at CLOSED §§18, 20.3–20.4 |
+| A′ credibility/licence gap in one capability would block the other through C_impl | accepted — per-capability `K_c` falls back to the frozen fallback §18 |
 
 ---
 
