@@ -1,6 +1,6 @@
 # External Evidence Ledger (template)
 
-> Write the ledger as `<capabilityId>/<event-id>-evidence-ledger.json`. At `PROTOCOL_FROZEN`, copy it to `<event-id>-evidence-ledger-frozen.json` with `"frozenOn": "YYYY-MM-DD"` added, record the copy's canonical SHA-256 in the protocol, and record the protocol's LF-normalised SHA-256 in the event record. Afterwards the working ledger may only grow, and everything added is dated on or after `frozenOn` (`../candidate-credibility.md` §7). Follow `../candidate-credibility.md` (MSR method v1 revision M1). Check it with `python tools/qualification/model_selection_check.py ledger <path>`. The repository test suite validates every committed ledger. The ledger holds **external evidence only**: no MAVI measurement or MAVI-produced evidence (reserved `mavi` groups, repository or MAVI sources, MAVI datasets are refused), no licence field, no weights, imagery or credentials. `UNKNOWN` marks an unknown identity value; nothing is guessed. Unknown fields are refused.
+> Write the ledger as `<capabilityId>/<event-id>-evidence-ledger.json`. At `PROTOCOL_FROZEN`, copy it to `<event-id>-evidence-ledger-frozen.json` with `"frozenOn": "YYYY-MM-DD"` added, record the copy's canonical SHA-256 and its `frozenOn` in the protocol, and record the protocol's LF-normalised SHA-256 in the event record. Afterwards the working ledger may only grow, and everything added is dated on or after `frozenOn` (`../candidate-credibility.md` §7). Follow `../candidate-credibility.md` (MSR method v1 revision M1). Check it with `python tools/qualification/model_selection_check.py ledger <path>`. The repository test suite validates every committed ledger. The ledger holds **external evidence only**: no MAVI measurement or MAVI-produced evidence (reserved `mavi` groups, repository or MAVI sources, MAVI datasets are refused), no licence field, no weights, imagery or credentials. `UNKNOWN` marks an unknown identity value; nothing is guessed. Unknown fields are refused.
 
 ## Document
 
@@ -128,14 +128,14 @@ Rules:
 
 ## Decision summary (from S2c.4 on; not written in S2c.2a)
 
-`<event-id>-decision.json`, schema `mavi-model-selection-decision-v1`:
+`<event-id>-decision.json`, schema `mavi-model-selection-decision-v1`. It is written together with the decision snapshot `<event-id>-evidence-ledger-decided.json`, which is the ledger as it stood on `decidedOn`. `ledgerSha256` cites the snapshot, and afterwards the working ledger may only grow from it, with nothing dated before `decidedOn`:
 
 ```json
 {"schema": "mavi-model-selection-decision-v1",
  "eventId": "…", "eventState": "TECHNICAL_DECISION_RECORDED | QUALIFICATION_PENDING | CLOSED",
  "outcome": "<MSR outcome when CLOSED | null>",
  "decidedOn": "YYYY-MM-DD",
- "ledgerSha256": "<canonical SHA-256 of the ledger>",
+ "ledgerSha256": "<canonical SHA-256 of the decision snapshot>",
  "frozenLedgerSha256": "<canonical SHA-256 of the frozen ledger>",
  "protocolSha256": "<LF-normalised SHA-256 of <event-id>-protocol.md>",
  "targetProfiles": ["<profile-id>"],

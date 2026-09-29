@@ -127,15 +127,16 @@ RESERVED_GROUP_RE = re.compile(r"^mavi(?:-|$)")
 MAVI_WORD_RE = re.compile(r"(?<![a-z0-9])mavi(?![a-z0-9])", re.IGNORECASE)
 MAVI_PATH_RE = re.compile(
     r"^(?:\./)?(?:docs|tools|src|models|config|evidence)[/\\]"
-    r"|(?:^|[/\\])docs[/\\]qualification[/\\]"
     r"|^evidence-store:"
-    r"|(?:^|[/\\])(?:msr-[a-z0-9-]+-\d{4}-\d{2})",
+    r"|(?<![a-z0-9])msr-(?:person|vehicle)-attributes-\d{4}-\d{2}(?![0-9])",
     re.IGNORECASE,
 )
-EVIDENCE_TEXT_FIELDS = ("source", "locator", "summary", "independenceBasis")
+# The summary is not scanned: an author may be called Mavi.
+EVIDENCE_TEXT_FIELDS = ("source", "locator", "independenceBasis")
 
 LEDGER_SUFFIX = "-evidence-ledger.json"
 FROZEN_SUFFIX = "-evidence-ledger-frozen.json"
+SNAPSHOT_SUFFIX = "-evidence-ledger-decided.json"
 PROTOCOL_SUFFIX = "-protocol.md"
 DECISION_SUFFIX = "-decision.json"
 MODEL_SELECTION_DIR = Path("docs/qualification/model-selection")
@@ -264,7 +265,11 @@ def _reject_licence_keys(value: object, where: str) -> None:
 
 
 _TRACKING_PARAMETER_RE = re.compile(r"^(?:utm_[a-z]+|ref|source|fbclid|gclid)=", re.IGNORECASE)
-_ARXIV_RE = re.compile(r"^(?:export\.)?arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5})(?:v\d+)?(?:\.pdf)?$")
+_ARXIV_RE = re.compile(
+    r"^(?:(?:export\.)?arxiv\.org/(?:abs|pdf|html)|huggingface\.co/papers|hf\.co/papers)/"
+    r"(\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?/\d{7})(?:v\d+)?(?:\.pdf)?$"
+)
+_OPENREVIEW_RE = re.compile(r"^openreview\.net/(?:forum|pdf|attachment)$")
 
 
 def _normalised_source(source: str) -> str:
@@ -284,6 +289,10 @@ def _normalised_source(source: str) -> str:
     if arxiv:
         return f"arxiv:{arxiv.group(1)}"
     kept = sorted(p for p in query.split("&") if p and not _TRACKING_PARAMETER_RE.match(p))
+    if _OPENREVIEW_RE.match(path):
+        ids = [p for p in kept if p.startswith("id=")]
+        if ids:
+            return f"openreview:{ids[0][3:]}"
     return path + ("?" + "&".join(kept) if kept else "")
 
 
@@ -678,6 +687,7 @@ def _check_history(entry: dict, items: Mapping[str, dict], computed: str, where:
     pinned: list[str] | None = None
     baseline = entry["candidateKind"] == BASELINE
     inputs = classification_inputs_sha256(entry)
+    on_current_inputs = False
     for index, record in enumerate(history):
         at = f"{where}.classificationHistory[{index}]"
         _keys(
@@ -697,6 +707,11 @@ def _check_history(entry: dict, items: Mapping[str, dict], computed: str, where:
             raise _fail("history_reviewer_not_independent", at)
         _match(record["identitySha256"], SHA256_RE, f"{at}.identitySha256")
         _match(record["inputsSha256"], SHA256_RE, f"{at}.inputsSha256")
+        # Entries on superseded inputs can only precede the entries on the current ones.
+        if record["inputsSha256"] == inputs:
+            on_current_inputs = True
+        elif on_current_inputs:
+            raise _fail("history_entry_on_superseded_inputs", at)
         cited = _list(record["evidenceIds"], f"{at}.evidenceIds")
         for evidence_id in cited:
             if evidence_id not in items:
@@ -835,7 +850,7 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
             raise _fail("event_scope_mismatch", "ledger")
 
     summary: dict[str, dict] = {}
-    owners: dict[str, dict] = {}
+    owners: dict[str, list[dict]] = {}
     for index, entry in enumerate(_list(ledger["candidates"], "ledger.candidates")):
         where = f"ledger.candidates[{index}]"
         items = _check_structure(entry, ledger, where)
@@ -846,12 +861,10 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
         # with its own heads, MSR method §5.1, beside another method or a zero-shot
         # checkpoint entry) may share them only with an identical identity block.
         for sha in _pinned_files(entry["identity"]) if entry["candidateKind"] != BASELINE else ():
-            owner = owners.get(sha)
-            if owner is not None and not (
-                METHOD in (owner["candidateKind"], entry["candidateKind"]) and owner["identity"] == entry["identity"]
-            ):
-                raise _fail("weight_hash_shared_by_two_candidates", where)
-            owners.setdefault(sha, entry)
+            for owner in owners.setdefault(sha, []):
+                if not (METHOD in (owner["candidateKind"], entry["candidateKind"]) and owner["identity"] == entry["identity"]):
+                    raise _fail("weight_hash_shared_by_two_candidates", where)
+            owners[sha].append(entry)
         computed = credibility_class(entry, items)
         confidence = provenance_confidence(entry, items)
         classification = _keys(entry["classification"], ("class", "provenanceConfidence"), f"{where}.classification")
@@ -876,32 +889,57 @@ def _shortlist(ledger: Mapping) -> set[str]:
 FROZEN_APPEND_ONLY = ("evidence", "claims", "classificationHistory", "caveats", "popularitySignals")
 
 
-def validate_evolution(frozen: dict, current: dict) -> None:
-    """The working ledger after ``PROTOCOL_FROZEN`` only grows (candidate-credibility.md §7).
+def _dates(entry: Mapping) -> list[date]:
+    """Every date an entry records."""
+    found = [date.fromisoformat(item["recordedAt"]) for item in entry["evidence"]]
+    found += [date.fromisoformat(item["retracted"]["at"]) for item in entry["evidence"] if "retracted" in item]
+    found += [date.fromisoformat(record["at"]) for record in entry["classificationHistory"]]
+    found += [date.fromisoformat(signal["observedOn"]) for signal in entry["popularitySignals"]]
+    conflict = entry["identity"].get("integrityConflict")
+    if conflict is not None:
+        found.append(date.fromisoformat(conflict["at"]))
+    return found
 
-    The frozen copy carries ``frozenOn``. Every frozen candidate, evidence item, claim,
-    history entry, caveat and popularity signal is kept unchanged (an evidence item may
-    only gain a ``retracted`` dated on or after the freeze). Everything added is dated on
-    or after the freeze. The shortlist is fixed, and every field of a shortlisted
-    candidate other than its append-only lists and its recomputed classification is
-    fixed. A changed shortlist needs a protocol revision, which re-freezes the ledger.
+
+def _check_sealed_on(ledger: Mapping, sealed_on: date, code: str) -> None:
+    """A sealing date is no earlier than anything the sealed copy records."""
+    for entry in ledger["candidates"]:
+        if any(value > sealed_on for value in _dates(entry)):
+            raise _fail(code, f"ledger.{entry['candidateId']}")
+
+
+def validate_evolution(older: dict, newer: dict, since: date | None = None) -> None:
+    """A sealed ledger copy only grows afterwards (candidate-credibility.md §7).
+
+    ``older`` is the frozen copy (sealed on its ``frozenOn``) or the decision snapshot
+    (sealed on the decision date, passed as ``since``). Everything it holds is kept
+    unchanged: an evidence item may only gain a ``retracted``, and lists only grow.
+    Everything added, including a new candidate, is dated on or after the sealing date,
+    so nothing can be backdated before the freeze or the decision. The shortlist is
+    fixed, and a shortlisted candidate is fixed apart from its append-only evidence,
+    history, caveats and popularity signals and its recomputed classification.
     """
-    validate_ledger(frozen)
-    validate_ledger(current)
-    if frozen["eventId"] != current["eventId"]:
+    validate_ledger(older)
+    validate_ledger(newer)
+    if older["eventId"] != newer["eventId"]:
         raise _fail("evolution_event_mismatch", "ledger.eventId")
-    if "frozenOn" not in frozen:
+    if "frozenOn" not in older:
         raise _fail("frozen_ledger_without_date", "ledger.frozenOn")
-    frozen_on = date.fromisoformat(frozen["frozenOn"])
-    if current.get("frozenOn", frozen["frozenOn"]) != frozen["frozenOn"]:
+    if newer.get("frozenOn", older["frozenOn"]) != older["frozenOn"]:
         raise _fail("frozen_date_changed", "ledger.frozenOn")
+    bound = date.fromisoformat(older["frozenOn"]) if since is None else since
+    _check_sealed_on(older, bound, "sealed_copy_postdates_its_seal")
     for field in ("capabilityId", "objectClass", "subTasks", "methodRevision"):
-        if current[field] != frozen[field]:
+        if newer[field] != older[field]:
             raise _fail("frozen_ledger_scope_changed", f"ledger.{field}")
-    if _shortlist(frozen) != _shortlist(current):
+    if _shortlist(older) != _shortlist(newer):
         raise _fail("shortlist_changed_after_freeze", "ledger.candidates")
-    now = {entry["candidateId"]: entry for entry in current["candidates"]}
-    for entry in frozen["candidates"]:
+    before = {entry["candidateId"]: entry for entry in older["candidates"]}
+    for later in newer["candidates"]:
+        if later["candidateId"] not in before and any(value < bound for value in _dates(later)):
+            raise _fail("appended_before_freeze", f"ledger.{later['candidateId']}")
+    now = {entry["candidateId"]: entry for entry in newer["candidates"]}
+    for entry in older["candidates"]:
         candidate_id = entry["candidateId"]
         where = f"ledger.{candidate_id}"
         later = now.get(candidate_id)
@@ -911,10 +949,13 @@ def validate_evolution(frozen: dict, current: dict) -> None:
             if later[field][: len(entry[field])] != entry[field] and field != "evidence":
                 raise _fail("frozen_list_rewritten", f"{where}.{field}")
         for record in later["classificationHistory"][len(entry["classificationHistory"]):]:
-            if date.fromisoformat(record["at"]) < frozen_on:
+            if date.fromisoformat(record["at"]) < bound:
                 raise _fail("appended_before_freeze", f"{where}.classificationHistory")
+        for signal in later["popularitySignals"][len(entry["popularitySignals"]):]:
+            if date.fromisoformat(signal["observedOn"]) < bound:
+                raise _fail("appended_before_freeze", f"{where}.popularitySignals")
         later_items = {item["evidenceId"]: item for item in later["evidence"]}
-        frozen_ids = {item["evidenceId"] for item in entry["evidence"]}
+        sealed_ids = {item["evidenceId"] for item in entry["evidence"]}
         for item in entry["evidence"]:
             kept = later_items.get(item["evidenceId"])
             if kept is None:
@@ -922,13 +963,15 @@ def validate_evolution(frozen: dict, current: dict) -> None:
             added_retraction = "retracted" in kept and "retracted" not in item
             if {k: v for k, v in kept.items() if not (k == "retracted" and added_retraction)} != item:
                 raise _fail("frozen_evidence_changed", f"{where}.{item['evidenceId']}")
-            if added_retraction and date.fromisoformat(kept["retracted"]["at"]) < frozen_on:
+            if added_retraction and date.fromisoformat(kept["retracted"]["at"]) < bound:
                 raise _fail("appended_before_freeze", f"{where}.{item['evidenceId']}.retracted")
         for evidence_id, item in later_items.items():
-            if evidence_id not in frozen_ids and date.fromisoformat(item["recordedAt"]) < frozen_on:
+            if evidence_id not in sealed_ids and date.fromisoformat(item["recordedAt"]) < bound:
                 raise _fail("appended_before_freeze", f"{where}.{evidence_id}")
         if entry["disposition"]["status"] == SHORTLISTED:
-            fixed = set(entry) - set(FROZEN_APPEND_ONLY) - {"classification"}
+            # Claims are classification inputs: a shortlisted candidate's are fixed too,
+            # so an append cannot unsettle a recorded promotion (§8).
+            fixed = set(entry) - (set(FROZEN_APPEND_ONLY) - {"claims"}) - {"classification"}
             for field in sorted(fixed):
                 if later.get(field) != entry[field]:
                     raise _fail("frozen_shortlisted_field_changed", f"{where}.{field}")
@@ -945,7 +988,11 @@ def _maximal(scores: Mapping[str, float]) -> set[str]:
 
 
 def validate_decision(decision: object, ledger: dict, frozen: dict) -> None:
-    """Validate a decision summary against its ledger and frozen ledger (candidate-credibility.md §8)."""
+    """Validate a decision summary against its decision snapshot and frozen ledger (§8).
+
+    ``ledger`` is the ledger as it stood at the decision (``<event-id>-evidence-ledger-
+    decided.json``); nothing it holds may postdate the decision.
+    """
     validate_evolution(frozen, ledger)
     entries = {entry["candidateId"]: entry for entry in ledger["candidates"]}
     _keys(
@@ -966,6 +1013,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict) -> None:
     _match(decision["protocolSha256"], SHA256_RE, "decision.protocolSha256")
     state = _enum(decision["eventState"], EVENT_STATES, "decision.eventState")
     decided_on = _date(decision["decidedOn"], "decision.decidedOn")
+    _check_sealed_on(ledger, decided_on, "decision_snapshot_postdates_decision")
     profiles = _list(decision["targetProfiles"], "decision.targetProfiles")
     if not profiles or len(set(profiles)) != len(profiles):
         raise _fail("target_profiles_invalid", "decision.targetProfiles")
@@ -1169,13 +1217,14 @@ def validate_repository(repo: Path) -> list[str]:
         frozen = read_json(path)
         validate_evolution(frozen, ledgers[event])
         protocol = event.parent / f"{event.name}{PROTOCOL_SUFFIX}"
-        if not protocol.is_file() or document_sha256(frozen) not in protocol.read_text(encoding="utf-8"):
+        text = protocol.read_text(encoding="utf-8") if protocol.is_file() else ""
+        if document_sha256(frozen) not in text or frozen.get("frozenOn", "") not in text:
             raise _fail("frozen_ledger_not_cited_by_protocol", relative(path))
         frozen_ledgers[event] = frozen
         checked.append(relative(path))
     for protocol in sorted(root.glob(f"*/msr-*{PROTOCOL_SUFFIX}")):
         event = protocol.parent / protocol.name[: -len(PROTOCOL_SUFFIX)]
-        if event in ledgers and event not in frozen_ledgers:
+        if event not in frozen_ledgers:
             raise _fail("protocol_without_frozen_ledger", relative(protocol))
         record = event.parent / f"{event.name}.md"
         if not record.is_file() or lf_normalised_sha256(protocol) not in record.read_text(encoding="utf-8"):
@@ -1188,6 +1237,13 @@ def validate_repository(repo: Path) -> list[str]:
         protocol = event.parent / f"{event.name}{PROTOCOL_SUFFIX}"
         if decision.get("protocolSha256") != lf_normalised_sha256(protocol):
             raise _fail("decision_protocol_hash_mismatch", relative(path))
-        validate_decision(decision, ledgers[event], frozen_ledgers[event])
+        snapshot_path = event.parent / f"{event.name}{SNAPSHOT_SUFFIX}"
+        if not snapshot_path.is_file():
+            raise _fail("decision_without_snapshot", relative(path))
+        snapshot = read_json(snapshot_path)
+        validate_decision(decision, snapshot, frozen_ledgers[event])
+        # After the decision the working ledger only grows, and nothing is dated before it.
+        validate_evolution(snapshot, ledgers[event], since=date.fromisoformat(decision["decidedOn"]))
+        checked.append(relative(snapshot_path))
         checked.append(relative(path))
     return checked
