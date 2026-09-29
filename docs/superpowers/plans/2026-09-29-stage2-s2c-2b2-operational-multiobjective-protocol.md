@@ -691,14 +691,15 @@ Canonical ids may order presentation only.
 
 ## 18. Licence/profile filtering and owner boundary
 
-Technical quality sets F_person/F_vehicle are computed **before licence filtering**.
+Technical quality sets F_person/F_vehicle are computed **before licence filtering**. Joint runtime selection uses the effective sets `J_person` and `J_vehicle` from §17.0, so a frozen fallback remains available for deployment without altering the empty capability's quality outcome.
 
 For each declared licence deployment profile r:
 
 1. form the cleared pair set:
-   `C_r = { (p,v) in F_person × F_vehicle : every required component is CLEARED for r }`
-2. apply the **same joint operational constraints and H_lo/H_up rule** over C_r;
-3. derive `T_r`, the strongest supported cleared technical set for profile r.
+   `C_r = { (p,v) in J_person × J_vehicle : every required component/fallback unit is CLEARED or otherwise explicitly deployment-admissible for r under the frozen profile rule }`
+2. a fallback unit may enter `C_r` only if its own frozen baseline/disabled-capability admissibility rule is satisfied for r; fallback use never changes the originating event's `E_c`, `F_c` or quality outcome;
+3. apply the **same joint operational constraints and H_lo/H_up rule** over C_r;
+4. derive `T_r`, the strongest supported cleared technical set for profile r.
 
 Do not define strongest-cleared as merely T ∩ cleared; clearance may remove the unconstrained technical minimum.
 
@@ -706,7 +707,7 @@ For implementation, define:
 
 `C_all = intersection over all required profiles r of C_r`
 
-and apply the same §17.3 joint constraints and H_lo/H_up selection rule directly over `C_all` to derive **`T_impl`**. Do **not** intersect the separately optimized `T_r` sets.
+where fallback-containing pairs remain eligible only if every required profile admits that exact fallback unit. Apply the same §17.3 joint constraints and H_lo/H_up selection rule directly over `C_all` to derive **`T_impl`**. Do **not** intersect the separately optimized `T_r` sets.
 
 The implementation pair must belong to `T_impl`. The `T_r` sets remain per-profile reporting outputs. If `T_impl` is empty, record `NO_QUALIFIABLE_CANDIDATE` (or the applicable MSR §8.2 unresolved action); a pair that is merely absent from one profile's optimum is not disqualified if it is cleared for every required profile and is supported by the `C_all` optimization.
 
@@ -756,19 +757,33 @@ M1/v1 remain valid for non-S2c events.
 - single candidate; or
 - composition with exact `components[]`.
 
-### 20.2 Joint-decision artefact
+### 20.2 Per-event quality-result artefact
+
+Each S2c capability event creates one immutable machine-readable quality-result artefact before the joint operational decision is built.
+
+- **schema:** `mavi-s2c-quality-result-v1`
+- **path:** event-specific under `docs/qualification/model-selection/<capability>/`, indexed by M2; for the planned events the canonical names are `msr-person-attributes-2026-01-quality-result.json` and `msr-vehicle-attributes-2026-01-quality-result.json`;
+- **canonical bytes:** UTF-8 JSON, exact-key validated, duplicate-key refused, finite numbers only, deterministic key/order rules defined by the b-2 validator, trailing LF; the SHA-256 is over those canonical bytes;
+- **identity:** event id, capability id, frozen ledger hash, b-1/b-2 contract hashes and frozen experiment hash;
+- **decision inputs:** `decisionClaimsSha256`, pairwise matrix hash, MPID status/reference evidence hash and all gate-result hashes needed to reconstruct `E_c`;
+- **outputs:** exact `E_c`, exact `F_c`, quality outcome and `qualityOutcomeReason`;
+- **immutability:** once consumed by the joint decision its bytes are not rewritten; corrections use the numbered revision/addendum mechanism and therefore produce a new hash.
+
+The validator recomputes the stored `E_c`/`F_c` from the referenced event evidence before accepting the artefact. This artefact is the acyclic bridge between the per-capability quality decision and the cross-event joint operational decision.
+
+### 20.3 Joint-decision artefact
 
 S2c creates one checked cross-event artefact:
 
 - **schema:** `mavi-s2c-joint-operational-decision-v1`
 - **path:** `docs/qualification/model-selection/s2c-joint-operational-decision.json` for the active S2c event pair, or the event-pair-specific path defined by the M2 index;
-- **identity:** both event ids, both ledger hashes, one **per-event quality-result hash** for each capability (covering that event's E_c, F_c, pairwise matrix, decision claims and MPID outcome), b-1/b-2 contract hashes and the frozen experiment hash;
+- **identity:** both event ids, both ledger hashes, one **`mavi-s2c-quality-result-v1` hash** for each capability, b-1/b-2 contract hashes and the frozen experiment hash;
 - **evidence:** every evaluated joint pair with exact person/vehicle `unitId`s, operational evidence hash, `H_lo`, `H_up`, admission/constraint outcomes;
 - **outputs:** `T`, every per-profile `T_r`, `C_all`, `T_impl`, technical outcome and joint evidence hash.
 
 The validator dependency is one-way and acyclic: load both event ledgers and their quality-result artefacts first; validate the joint operational document from those immutable inputs; hash the joint document; then load/validate each event decision-v2, which may cite `jointOperationalDecisionSha256`. The joint document does **not** cite full event decision hashes. Any S2c person/vehicle event still using decision-v1 is refused; decision-v1 remains accepted for non-S2c events.
 
-### 20.3 Required S2c fields
+### 20.4 Required S2c fields
 
 Per capability/event:
 
@@ -793,11 +808,11 @@ Joint decision reference in each event decision-v2:
 - `operationalContractHash`
 - `decisionEvidenceHash`
 
-### 20.4 Highest task quality
+### 20.5 Highest task quality
 
 S2c no longer requires a scalar task-quality maximum where multidimensional evidence does not support one. A set is valid.
 
-### 20.5 Validator obligations
+### 20.6 Validator obligations
 
 The updated `credibility.py` / decision validator must recompute:
 
@@ -812,7 +827,7 @@ The updated `credibility.py` / decision validator must recompute:
 
 It must no longer derive S2c winners from scalar `taskQualityScore` or `comparativeScore`.
 
-### 20.6 What remains human-reviewed
+### 20.7 What remains human-reviewed
 
 Machine validation cannot prove:
 
@@ -898,6 +913,8 @@ Reject:
 - selection-time manifest/objective change;
 - frozen-test selection evidence;
 - owner implementation outside `T_impl`;
+- missing/invalid quality-result artefact, non-canonical bytes, or mismatched event/ledger/contract/experiment hashes;
+- quality-result artefact whose stored E_c/F_c does not recompute from referenced evidence;
 - missing/invalid joint-decision artefact or mismatched event/ledger/quality-result/contract hashes;
 - any joint-decision artefact that cites a full event decision hash (cycle forbidden);
 - S2c event using decision-v1;
@@ -943,6 +960,8 @@ Must include:
 - H_lo/H_up overlap yields tied set;
 - unique winner only with separation of uncertainty intervals;
 - licence filtering recomputes cleared pair optimum without altering F;
+- licence/profile filtering is formed from `J_person × J_vehicle`, not `F_person × F_vehicle`;
+- a fallback-containing pair enters `C_r`/`C_all` only when that exact fallback is cleared/admissible for every required profile;
 - empty `F_vehicle` uses the frozen vehicle fallback without rewriting the vehicle quality outcome;
 - no valid fallback yields `NO_OPERATIONALLY_COMPLETE_IDENTITY`;
 - per-profile optima with empty intersection still allow a valid `T_impl` from `C_all`.
@@ -961,6 +980,8 @@ Planning/protocol/validator surfaces only:
 - tests;
 - MSR README revision M2;
 - decision schema v2;
+- per-event `mavi-s2c-quality-result-v1` artefacts/schema support;
+- joint `mavi-s2c-joint-operational-decision-v1` artefact/schema support;
 - `candidate-credibility.md`;
 - `credibility.py` and its tests;
 - protocol/record templates;
@@ -1020,15 +1041,16 @@ Complete only when:
 16. composition search limitation is explicit;
 17. MPID no-comparator disposition is frozen before selection and is not auto-passed;
 18. fallback operational units are frozen before selection and cannot rewrite empty-F quality outcomes;
-19. `T_impl` is derived over `C_all`, not by intersecting per-profile optima;
-20. the checked joint-decision artefact cross-links both S2c events **without hash cycles**, using event ids, ledger hashes and per-event quality-result hashes; event decision-v2 documents reference the already-hashed joint artefact;
-21. b-1 repository check passes;
-22. b-2 repository check passes;
-23. `tools/verify_repo.py` passes;
-24. exact-head CI is green;
-25. no P1/P2/material review thread remains;
-26. no model was selected/downloaded/trained/benchmarked;
-27. no F/G acceptance row changed.
+19. `T_impl` is derived over `C_all`, not by intersecting per-profile optima, and `C_r/C_all` are formed from the effective `J_c` sets so frozen fallbacks survive licence/implementation selection without rewriting quality outcomes;
+20. each event emits a canonical immutable `mavi-s2c-quality-result-v1` artefact whose E_c/F_c recompute from referenced evidence;
+21. the checked joint-decision artefact cross-links both S2c events **without hash cycles**, using event ids, ledger hashes and per-event quality-result hashes; event decision-v2 documents reference the already-hashed joint artefact;
+22. b-1 repository check passes;
+23. b-2 repository check passes;
+24. `tools/verify_repo.py` passes;
+25. exact-head CI is green;
+26. no P1/P2/material review thread remains;
+27. no model was selected/downloaded/trained/benchmarked;
+28. no F/G acceptance row changed.
 
 ---
 
@@ -1050,7 +1072,9 @@ Complete only when:
 | B3 residual no-comparator disposition result-dependent | accepted — disposition frozen in §§6, 14.1 |
 | B6 residual multi-profile implementation ambiguity | accepted — `C_all` / `T_impl` §18 |
 | B7 residual no joint cross-event document | accepted — checked joint-decision artefact §20.2 |
-| N2 joint/event decision hash cycle | accepted — one-way ledger/quality-result → joint decision → event decision-v2 hash chain §20.2 |
+| N2 joint/event decision hash cycle | accepted — one-way ledger/quality-result → joint decision → event decision-v2 hash chain §§20.2–20.3 |
+| F1 fallback dropped during licence/implementation filtering | accepted — `C_r/C_all` now derive from effective `J_c` sets §18 |
+| F2 per-event quality-result node undefined | accepted — canonical `mavi-s2c-quality-result-v1` artefact §20.2 |
 
 ---
 
