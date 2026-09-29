@@ -107,5 +107,20 @@
     "I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice": "Unconditional recall already includes abstention, so coverage is not multiplied into recall-support arithmetic a second time.",
     "I13-owner-numerical-targets-are-not-invented-by-b1": "S2c.2b-1 does not invent owner numerical quality targets; it freezes only the form and authority of those gates.",
     "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": "Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline mechanics, 500-camera projection, Pareto axes and deterministic final technical ordering remain S2c.2b-2 scope."
+  },
+  "partitionStatements": {
+    "modelWeights": "training",
+    "taskHeads": "training",
+    "calibrationCoefficients": "training-derived, group-disjoint held-out predictions or predeclared cross-fitting",
+    "calibrationMethodChoice": "training-internal validation",
+    "confidenceThreshold": "tuning",
+    "presenceThreshold": "tuning",
+    "colourMargin": "tuning",
+    "admissibilityThreshold": "tuning",
+    "cropEvidenceFloor": "tuning",
+    "poolingParameters": "tuning, within the family frozen before candidate execution",
+    "aggregationParameters": "tuning, within the family frozen before candidate execution",
+    "candidateComparison": "selection",
+    "finalQualification": "frozen test"
   }
 }
