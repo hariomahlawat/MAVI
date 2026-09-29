@@ -169,6 +169,17 @@ def test_url_variants_of_one_document_are_not_independent(variant):
     refused("independent_evidence_not_distinct", validate_ledger, ledger(entry))
 
 
+def test_identifying_query_and_arxiv_variants_are_normalised():
+    entry = established()
+    entry["evidence"][1]["source"] = "https://openreview.net/forum?id=AAA"
+    entry["evidence"][2]["source"] = "https://openreview.net/forum?id=BBB&utm_source=x"
+    assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
+    entry = established()
+    entry["evidence"][0]["source"] = "https://arxiv.org/abs/2601.01234"
+    entry["evidence"][1]["source"] = "https://export.arxiv.org/pdf/2601.01234v2.pdf"
+    refused("independent_evidence_not_distinct", validate_ledger, ledger(entry))
+
+
 def test_same_retrieved_bytes_are_not_independent():
     entry = established()
     entry["evidence"][2]["retrievedSha256"] = entry["evidence"][1]["retrievedSha256"]
@@ -276,11 +287,28 @@ def test_peer_reviewed_requires_venue_and_established_preprint_requires_basis():
     {"source": "docs/qualification/model-selection/vehicle-attributes/msr-vehicle-attributes-2026-01.md"},
     {"source": "evidence/bakeoff/results.json"},
     {"source": "https://github.com/hariomahlawat/MAVI/blob/main/x.md"},
+    {"source": "evidence-store://sha256/abc"},
+    {"source": "https://intranet.invalid/msr-vehicle-attributes-2026-01/results"},
+    {"summary": "MAVI bake-off: rank 1, all gates PASS"},
+    {"locator": "MAVI selection partition, table 3"},
+    {"independenceBasis": "run by the MAVI team"},
 ])
 def test_mavi_measurement_cannot_enter_the_ledger(change):
     entry = established()
     entry["evidence"][1].update(change)
     refused("mavi_evidence_in_ledger", validate_ledger, ledger(entry))
+
+
+@pytest.mark.parametrize("source", [
+    "https://github.com/someone/mavic-aerial-vehicles",
+    "https://paperswithcode.com/task/model-selection/latest",
+    "https://primavision.example.org/report",
+    "https://example.invalid/MAVIS-Street/results",
+])
+def test_unrelated_names_are_not_mistaken_for_mavi(source):
+    entry = established()
+    entry["evidence"][1]["source"] = source
+    assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
 
 
 def test_mavi_dataset_claim_is_refused():
@@ -400,6 +428,9 @@ def test_shortlisting_emerging_needs_basis_and_second_reviewer():
     entry["disposition"]["reviewedBy"] = " Synthetic-Reviewer "
     refused("shortlist_reviewer_not_independent", validate_ledger, ledger(entry))
     entry = shortlist_emerging(established())
+    validate_ledger(ledger(entry))  # kept on record after a promotion
+    entry = shortlist_emerging(reference())
+    entry["disposition"]["status"] = "REFERENCE_ONLY"
     refused("shortlist_basis_only_for_emerging", validate_ledger, ledger(entry))
 
 
@@ -420,6 +451,9 @@ def test_licence_cannot_be_a_technical_not_shortlisted_reason():
     entry = established()
     entry["disposition"] = {"status": "NOT_SHORTLISTED", "reasonClass": "technical",
                             "reason": "weights licence is non-commercial", "revisitTrigger": None, "decidedBy": "r"}
+    refused("licence_reason_not_allowed", validate_ledger, ledger(entry))
+    entry = established()
+    entry["disposition"] = dict(reference()["disposition"], reasonClass="availability", reason="licence NC, cannot bundle")
     refused("licence_reason_not_allowed", validate_ledger, ledger(entry))
 
 
@@ -656,7 +690,7 @@ def test_frozen_history_cannot_be_rewritten():
     frozen = full()
     edited = copy.deepcopy(frozen)
     entry_of(edited, "VC-EST")["classificationHistory"][0]["reason"] = "different story"
-    refused("frozen_history_rewritten", validate_evolution, frozen, edited)
+    refused("frozen_list_rewritten", validate_evolution, frozen, edited)
 
 
 def test_frozen_retraction_is_allowed_but_kept():
@@ -665,6 +699,66 @@ def test_frozen_retraction_is_allowed_but_kept():
     entry = entry_of(edited, "VC-EXC")
     entry["evidence"][0]["retracted"] = {"at": "2026-07-01", "reason": "withdrawn"}
     validate_evolution(frozen, edited)
+    entry["evidence"][0]["retracted"]["at"] = "2026-06-05"  # dated before the freeze
+    refused("appended_before_freeze", validate_evolution, frozen, edited)
+
+
+def test_evidence_and_promotions_after_freeze_cannot_be_backdated():
+    frozen = full()
+    edited = copy.deepcopy(frozen)
+    entry = entry_of(edited, "VC-EMG")
+    entry["evidence"] += [
+        technical("E-REPRO", "independent-reproduction", "other-lab", recorded="2026-06-05",
+                  scope="exact-checkpoint", reproducedArtefact=exact("emg")),
+        evidence("E-ADOPT", "adoption", "framework-team", "independent", recorded="2026-06-05",
+                 scope="method", independenceBasis="separate"),
+    ]
+    entry["publication"] = established()["publication"]
+    settle(entry, at="2026-06-06")
+    refused("appended_before_freeze", validate_evolution, frozen, edited)
+
+
+def test_frozen_ledger_needs_its_date():
+    frozen = full()
+    del frozen["frozenOn"]
+    refused("frozen_ledger_without_date", validate_evolution, frozen, full())
+
+
+def test_frozen_shortlisted_entry_cannot_be_edited():
+    frozen = full()
+    for field, value in (("candidateName", "renamed"),
+                         ("architecture", {"description": "edited", "documentedBy": "E-PAPER"})):
+        edited = copy.deepcopy(frozen)
+        entry = entry_of(edited, "VC-EST")
+        entry[field] = value
+        settle(entry, at="2026-07-01")
+        refused("frozen_shortlisted_field_changed", validate_evolution, frozen, edited)
+
+
+def test_corrected_inputs_need_a_new_entry_but_do_not_invalidate_old_ones():
+    document = full()
+    entry = entry_of(document, "VC-EST")
+    entry["publication"] = {"status": "preprint", "venue": None, "reference": "https://example.invalid/p", "basis": None}
+    entry["classification"]["class"] = "emerging"
+    refused("class_change_not_recorded", validate_ledger, document)
+    settle(entry, at="2026-07-01", reason="venue claim was wrong; preprint only")
+    entry["disposition"] = emerging()["disposition"]
+    assert validate_ledger(document)["VC-EST"]["class"] == "emerging"
+
+
+def test_input_edit_without_history_entry_is_refused():
+    document = full()
+    entry_of(document, "VC-EST")["authors"]["names"].append("Another Author")
+    refused("classification_input_change_not_recorded", validate_ledger, document)
+
+
+def test_implementation_needs_a_promotion_recorded_on_current_inputs():
+    document = full()
+    entry = entry_of(document, "VC-EST")
+    entry["architecture"]["description"] = "corrected description"
+    settle(entry, at="2026-09-10")  # still established, but the entry in force on 09-01 used old inputs
+    summary = decision(document)
+    refused("implementation_promotion_not_verifiable", validate_decision, summary, document, document)
 
 
 # ------------------------------------------------------------------- I11: person/vehicle
@@ -892,7 +986,7 @@ def test_strongest_reported_resolves_and_is_labelled():
 # ------------------------------------------------------------------- repository and CLI
 
 
-def write_event(tmp_path, *, frozen=None, protocol=True, decision_doc=None):
+def write_event(tmp_path, *, frozen=None, protocol=True, record=True, decision_doc=None):
     folder = tmp_path / "docs" / "qualification" / "model-selection" / "vehicle-attributes"
     folder.mkdir(parents=True, exist_ok=True)
     document = full()
@@ -901,7 +995,11 @@ def write_event(tmp_path, *, frozen=None, protocol=True, decision_doc=None):
         (folder / "msr-vehicle-attributes-2026-01-evidence-ledger-frozen.json").write_text(json.dumps(frozen))
     if protocol:
         cited = document_sha256(frozen) if frozen is not None else ""
-        (folder / "msr-vehicle-attributes-2026-01-protocol.md").write_text(f"Frozen ledger SHA-256: {cited}\n")
+        protocol_path = folder / "msr-vehicle-attributes-2026-01-protocol.md"
+        protocol_path.write_text(f"Frozen ledger SHA-256: {cited}\n")
+        if record:
+            (folder / "msr-vehicle-attributes-2026-01.md").write_text(
+                f"Protocol SHA-256: {lf_normalised_sha256(protocol_path)}\n")
     if decision_doc is not None:
         (folder / "msr-vehicle-attributes-2026-01-decision.json").write_text(json.dumps(decision_doc))
     return folder, document
@@ -931,8 +1029,15 @@ def test_repository_scan_requires_protocol_to_cite_frozen_ledger(tmp_path):
 
 
 def test_repository_scan_refuses_decision_without_frozen_ledger(tmp_path):
-    write_event(tmp_path, decision_doc={})
+    write_event(tmp_path, protocol=False, decision_doc={})
     refused("decision_without_frozen_ledger", validate_repository, tmp_path)
+
+
+def test_protocol_requires_frozen_ledger_and_record_citation(tmp_path):
+    folder, _ = write_event(tmp_path)
+    refused("protocol_without_frozen_ledger", validate_repository, tmp_path)
+    folder, _ = write_event(tmp_path / "b", frozen=full(), record=False)
+    refused("protocol_hash_not_recorded_in_record", validate_repository, tmp_path / "b")
 
 
 def test_repository_scan_refuses_misplaced_ledger(tmp_path):

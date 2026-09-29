@@ -1,6 +1,6 @@
 # External Evidence Ledger (template)
 
-> Write the ledger as `<capabilityId>/<event-id>-evidence-ledger.json`. At `PROTOCOL_FROZEN`, copy it unchanged to `<event-id>-evidence-ledger-frozen.json` and record the copy's canonical SHA-256 in the protocol; afterwards the working ledger may only grow (`../candidate-credibility.md` §7). Follow `../candidate-credibility.md` (MSR method v1 revision M1). Check it with `python tools/qualification/model_selection_check.py ledger <path>`. The repository test suite validates every committed ledger. The ledger holds **external evidence only**: no MAVI measurement or MAVI-produced evidence (reserved `mavi` groups, repository or MAVI sources, MAVI datasets are refused), no licence field, no weights, imagery or credentials. `UNKNOWN` marks an unknown identity value; nothing is guessed. Unknown fields are refused.
+> Write the ledger as `<capabilityId>/<event-id>-evidence-ledger.json`. At `PROTOCOL_FROZEN`, copy it to `<event-id>-evidence-ledger-frozen.json` with `"frozenOn": "YYYY-MM-DD"` added, record the copy's canonical SHA-256 in the protocol, and record the protocol's LF-normalised SHA-256 in the event record. Afterwards the working ledger may only grow, and everything added is dated on or after `frozenOn` (`../candidate-credibility.md` §7). Follow `../candidate-credibility.md` (MSR method v1 revision M1). Check it with `python tools/qualification/model_selection_check.py ledger <path>`. The repository test suite validates every committed ledger. The ledger holds **external evidence only**: no MAVI measurement or MAVI-produced evidence (reserved `mavi` groups, repository or MAVI sources, MAVI datasets are refused), no licence field, no weights, imagery or credentials. `UNKNOWN` marks an unknown identity value; nothing is guessed. Unknown fields are refused.
 
 ## Document
 
@@ -96,6 +96,7 @@ Type rules:
 - **independent technical types** also carry `subTask` and `objectClass`, which must be the candidate's and the ledger's.
 - **producers:** an `author` group is in `authors.groups`, an `author-affiliated` group in `authors.affiliatedGroups`; `independent` is in neither.
 - **dates:** `retrievedOn` ≤ `recordedAt`; no future date.
+- **MAVI:** no reserved `mavi` group, MAVI path, MSR event file or `evidence-store:` source, and no item text naming MAVI.
 - **independent-benchmark:** scope is `method`.
 - **exact-checkpoint scope:** needs `reproducedArtefact`, as `{"sha256s": [...]}` equal to **all** pinned weight hashes, or as `{"repository", "revision"}` equal to the identity.
 - **retracted items** stay in the ledger, with the date and reason.
@@ -116,11 +117,12 @@ Every figure is class R (reported, not reproduced by MAVI). `runtime` claims are
 {"at": "YYYY-MM-DD", "from": "<previous class | null>", "to": "<class>", "reason": "…",
  "evidenceIds": ["…"], "recordedBy": "…", "reviewedBy": "<a different person>",
  "identitySha256": "<canonical SHA-256 of the identity block>",
+ "inputsSha256": "<canonical SHA-256 of kind, subTasks, identity, authors, publication, architecture, claims>",
  "checkpointSha256s": ["<sorted weight hashes; [] until pinned>"]}
 ```
 
 Rules:
-- Append an entry whenever the computed class or the identity changes.
+- Append an entry whenever the computed class, the identity or any classification input changes.
 - No entry may claim more than the evidence active on its date supports. A `to: established` entry must be supported by the evidence it cites.
 - Once `checkpointSha256s` is non-empty, it never changes. A different checkpoint is a new candidate entry.
 

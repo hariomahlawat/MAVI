@@ -25,12 +25,13 @@ A high benchmark number is not credibility, and a popular repository is not tech
 | **2. Independent technical evidence** | What do sources other than the authors report about it? | the ledger's evidence items and claims (class R, MSR method §6) | **no**; class R evidence never decides a gate |
 | **3. Controlled MAVI bake-off** | How does it perform on MAVI data under the frozen protocol? | MSR record §4–§6 (classes M-D, M-E) and the decision summary (§8) | this layer **is** the technical ranking |
 
-- Layer 3 never feeds layer 1. A MAVI measurement is never external evidence. The ledger refuses:
+- Layer 3 never feeds layer 1. A MAVI measurement is never external evidence, so a candidate cannot promote itself with its own bake-off result. A denylist narrows this risk **[checked]**; it refuses:
   - evidence produced by the reserved group `mavi` or any `mavi-…` group;
-  - sources that are repository paths or qualification/model-selection documents, or that name MAVI;
-  - claims on a MAVI dataset **[checked]**.
+  - sources that are MAVI repository paths, qualification documents, MSR event files or `evidence-store:` references;
+  - evidence whose source, locator, summary or independence basis names MAVI as a word;
+  - claims on a MAVI dataset.
 
-  A candidate therefore cannot promote itself with its own bake-off result.
+  A denylist cannot recognise every disguise, for example an internal evaluation posted under another group name. The reviewer therefore confirms that no item is MAVI-produced (§9). MAVI is matched as a whole word, so unrelated names such as "Mavic" or "MAVIS" are not refused.
 - External reputation or popularity never determines the technical winner. The ranking comes only from layer 3, under MSR method §8.
 - A high reported score never establishes credibility by itself.
 - Credibility is **not a weighted criterion** and never enters the comparative score. The engineering criterion "implementation stability and maintenance status" (S2c plan §9.5) is scored by its own frozen rule, and it may not reuse the credibility class.
@@ -50,7 +51,11 @@ Each ledger candidate has exactly one class. It is **computed** from the recorde
 
 A **method candidate** (an architecture MAVI trains or fits) is classified on its backbone checkpoint identity, its published method and its code revision. The artefacts MAVI trains are declared in the decision summary with their training-manifest hash (§8).
 
-A **checkpoint used for several sub-tasks** is one entry listing those sub-tasks (for example VTFPAR++ as PC-9/PO-8). Method entries that share one backbone with separate heads (MSR method §5.1, S2c plan §9.5a; for example PC-1 and PO-1 on one SigLIP 2 tower) may share its weight hashes, but only with an **identical** identity block. Any other sharing of weight bytes between entries is refused **[checked]**.
+A **checkpoint used for several sub-tasks** is one entry listing those sub-tasks (for example VTFPAR++ as PC-9/PO-8). An entry that uses the same bytes differently may share their weight hashes, but only with an **identical** identity block **[checked]**:
+- a method entry with its own heads (MSR method §5.1, S2c plan §9.5a), for example PC-1 and PO-1 on one SigLIP 2 tower;
+- such a method entry beside a zero-shot checkpoint entry, for example VC-2 and VC-R.
+
+Two checkpoint entries for the same bytes are one candidate recorded twice, and are refused.
 
 ### 3.1 Provenance confidence
 
@@ -97,7 +102,7 @@ There is one ledger per Model Selection Event: `docs/qualification/model-selecti
   No ledger can claim that a candidate passed a MAVI bake-off;
 - has **no licence field** **[checked]**. A licence reason for `NOT_SHORTLISTED` or `DEFERRED` is refused even in free text **[checked]**. The licence axis lives in the MSR record §7 and the decision summary (§8);
 - contains no weights, imagery or credentials. Sources are citations or URLs;
-- uses no future date, and records no evidence before it was retrieved **[checked]**. The dates themselves are attested by the recorder and anchored by Git history (§9).
+- uses no future date (today in UTC plus one day), and records no evidence before it was retrieved **[checked]**. Before freeze the dates themselves are attested by the recorder and checked in Git review (§9); after freeze, everything added must be dated on or after the freeze (§7) **[checked]**.
 
 Each candidate entry records every field the S2c.2a brief requires:
 
@@ -142,7 +147,11 @@ Laundering makes a first-party number look confirmed because many pages repeat i
 - **Repetitions are typed and traced.** A restatement is typed `repetition` and must point (`repeats`) at the item it copies. Chains are followed to their root, and a cycle is refused.
 - **Claims cite their root.** A claim's `originEvidenceId` must be the root: a first-party claim or an independent technical item, never a repetition or a scrutiny page.
 - **Repetitions count for nothing.** Five websites repeating one README figure are one first-party claim, and the candidate stays at most `emerging`.
-- **Re-typing a page does not help.** An independent item must be a distinct document: its source, normalised for scheme, `www.`, query, fragment, case and trailing slash, and its retrieved-document SHA-256 must differ from those of **every other item in the entry**, whatever its type. A repeating page re-typed as a "reproduction", or one page cited under two groups, is refused.
+- **Re-typing a page does not help.** An independent item must be a distinct document, differing from **every other item in the entry**, whatever its type, in both:
+  - its normalised source (scheme, `www.`, fragment, case, trailing slashes and tracking parameters ignored; an identifying query such as `forum?id=…` kept; arXiv abstract, PDF, HTML, version and export links reduced to one arXiv id);
+  - its retrieved-document SHA-256.
+
+  A repeating page re-typed as a "reproduction", or one page cited under two groups, is refused.
 
 The residual risk is a human mislabelling a genuinely different page (for example a blog that copies a figure without saying so) as a reproduction. The reviewer opens every `independent-*` source (§9).
 
@@ -205,22 +214,29 @@ Every class the entry has held is an entry in `classificationHistory`, with:
 - the evidence ids relied on;
 - `recordedBy` and `reviewedBy`: different people, compared case- and whitespace-insensitively;
 - the identity hash (`identitySha256`: the canonical SHA-256 of the entry's `identity` block);
+- the classification-inputs hash (`inputsSha256`: the canonical SHA-256 of the kind, sub-tasks, identity, authors, publication, architecture and claims);
 - the pinned weight hashes (`checkpointSha256s`, empty until pinned).
 
 **[checked]**:
 - entries are chronological and chain: `from` equals the previous `to`;
 - cited evidence exists and was recorded no later than the entry;
-- no entry claims a higher class than the evidence active on its date supports, so a promotion cannot be backdated ahead of its evidence;
-- an entry reaching `established` is supported by the evidence **it cites**;
+- an entry made on the current classification inputs is recomputed. It may not claim a higher class than the evidence active on its date supports, so a promotion cannot be backdated ahead of its evidence. An entry reaching `established` must be supported by the evidence **it cites**;
+- an entry made on earlier inputs (a later correction changed, say, the publication or the architecture) cannot be recomputed, because its inputs are gone. It is not re-judged, so a correction never invalidates the history. It is fixed by the freeze, and it can never make a candidate implementable (§8);
 - an `emerging` or `established` entry has pinned bytes;
-- the last entry equals the computed current class and the current identity hash. New evidence that changes the class, or an identity edit, fails until a history entry records it;
+- the last entry equals the computed current class, the current identity hash and the current inputs hash. New evidence that changes the class, or any edit to the classification inputs, fails until a history entry records it;
 - once `checkpointSha256s` is non-empty it never changes, and it equals the current weight hashes.
 
-**Freezing makes the ledger append-only.** At `PROTOCOL_FROZEN` the ledger is copied to `<event-id>-evidence-ledger-frozen.json`, and the frozen protocol records the copy's canonical SHA-256. The repository check requires that citation **[checked]**. From then on, the working ledger must be an append-only evolution of the frozen copy **[checked]**:
-- every frozen candidate, evidence item, claim and history entry is kept unchanged. An evidence item may only gain `retracted`;
-- the shortlist and the identity of every shortlisted candidate are fixed.
+**Freezing makes the ledger append-only.** At `PROTOCOL_FROZEN`:
+- the ledger is copied to `<event-id>-evidence-ledger-frozen.json` with `frozenOn` set to the freeze date;
+- the frozen protocol records the copy's canonical SHA-256;
+- the event record `<event-id>.md` records the protocol's LF-normalised SHA-256.
 
-A changed shortlist needs a numbered protocol revision, which voids the results it could bias (MSR method §3.1) and freezes a new copy. Before freezing, ledger edits are ordinary reviewed Git changes. `python tools/qualification/model_selection_check.py evolution <old> <new>` checks two versions on request.
+The repository check refuses a protocol without a frozen ledger, a frozen ledger the protocol does not cite, and a protocol whose hash the record does not carry **[checked]**. From then on, the working ledger must be an append-only evolution of the frozen copy **[checked]**:
+- every frozen candidate, evidence item, claim, history entry, caveat and popularity signal is kept unchanged. An evidence item may only gain `retracted`;
+- every evidence item, retraction and history entry added is dated on or after `frozenOn`, so nothing added after the freeze can be backdated before it or before a decision;
+- the shortlist is fixed. For every shortlisted candidate, every field other than its append-only lists and its recomputed classification is fixed as well.
+
+A changed shortlist needs a numbered protocol revision, which voids the results it could bias (MSR method §3.1), freezes a new copy and records the new protocol hash in the record. Before freezing, ledger edits are ordinary reviewed Git changes. A commit that rewrites the frozen copy, the protocol and the record together can be seen only in Git review. The reviewer treats any change to those files as a protocol revision (§9). `python tools/qualification/model_selection_check.py evolution <old> <new>` checks two versions on request.
 
 **Promoting an important new entrant.** A `reference-only` or `emerging` candidate is promoted only when new evidence meets §3.2, and a history entry records it.
 - Before `PROTOCOL_FROZEN`, it may then be shortlisted in that event.
@@ -234,11 +250,11 @@ Demotion follows the same rule, for example after a retraction or an integrity c
 MSR method §4 is extended. The implementation candidate, and each component of an implementation composition, must be **[checked]**:
 - evaluated in the bake-off and past every technical gate;
 - `CLEARED` for **each** named target profile;
-- **`established`** (or `mavi-owned`) now, **and** in the history entry in force on the decision date. An `emerging` winner stays recorded at its rank (§6), and it needs a recorded promotion before it can be implemented;
+- **`established`** (or `mavi-owned`) now, **and** in the history entry in force on the decision date. That entry must have been made on the current classification inputs, so that it was recomputed (§7). An `emerging` winner stays recorded at its rank (§6), and it needs a recorded promotion before it can be implemented;
 - bound to the exact evaluated bytes, the ledger hash, the frozen-ledger hash and the protocol hash of **one** event.
 
 These rules are checked in the **decision summary** (`mavi-model-selection-decision-v1`, `<event-id>-decision.json`). It is written at `TECHNICAL_DECISION_RECORDED` or later (S2c.4 onward), never in S2c.2a. **[checked]**:
-- the decision cites the current ledger and the frozen ledger by canonical SHA-256. The repository check additionally requires `protocolSha256` to equal the LF-normalised SHA-256 of `<event-id>-protocol.md`;
+- the decision cites the current ledger and the frozen ledger by canonical SHA-256. The repository check additionally requires `protocolSha256` to equal the LF-normalised SHA-256 of `<event-id>-protocol.md`, which the event record also carries;
 - the evaluated set equals the **frozen** shortlist, and the working ledger's shortlist has not changed since. A strong candidate with an inconvenient licence cannot be dropped, before or after freezing;
 - each evaluated artefact set equals the ledger identity:
   - a checkpoint: exactly its weight hashes;
@@ -255,7 +271,10 @@ Before `PROTOCOL_FROZEN`, the independent reviewer named in the event's frozen p
 - **Independent items.** Each `independent-*` item is a genuinely independent measurement or use, not an unmarked copy. The reviewer opens every source.
 - **Attested facts.** The venue and "established group" bases; author, affiliated and independent group assignments (affiliation cannot be proven by a validator); publisher claims; evidence dates.
 - **Candidate kind.** A released checkpoint used end to end is a `checkpoint` candidate, not a `method`. The decision summary requires a method to have MAVI-trained artefacts.
-- **Free text.** No licence reasoning is placed under a technical disposition.
+- **MAVI-produced evidence.** No evidence item reports a MAVI measurement under another name. The validator's denylist (§2) catches only the obvious forms.
+- **Free text.** Licence reasoning appears only under an `evaluation-permission` reason. The validator refuses the word "licence" elsewhere, but not a paraphrase.
+- **MAVI-trained artefacts.** Each training-manifest hash in the decision summary resolves to a retained MAVI training manifest in the S2c.3 evaluation harness's evidence store. The validator checks its form, not its content.
+- **Frozen files.** Any change to a frozen ledger, a protocol or its hash in the record is a protocol revision, and is reviewed as one.
 - **Discovery coverage.** Discovery covered the survey's sources plus a dated re-survey, and no candidate was left out because it was inconvenient. An unlisted strong candidate is a review finding.
 - **Freeze record.** The frozen protocol records the frozen ledger's SHA-256 (template `selection-protocol.md` §2).
 
@@ -281,8 +300,8 @@ Nothing in this revision, and no ledger, claims 500-camera qualification.
 | I4 | Credibility cannot alter measured MAVI technical results, and MAVI results cannot alter credibility | no MAVI result or MAVI-produced evidence in the ledger; the ranking reads recorded scores only |
 | I5 | Licence cannot rewrite the technical ranking, and discovery is licence-blind | no licence field or licence reason in the ledger; derived outputs ignore licence except "strongest cleared" |
 | I6 | A technically strongest but deployment-ineligible candidate remains recorded | evaluated set equals the frozen shortlist; strongest technical derived without licence or credibility |
-| I7 | The implementation candidate traces to one MSR event and exact artefacts | decision summary: event id, ledger, frozen-ledger and protocol hashes; evaluated bytes equal the ledger bytes plus declared MAVI-trained artefacts |
-| I8 | Class changes leave an auditable reason; promotions cannot outrun their evidence; after freeze nothing is rewritten | history rules and the frozen-ledger evolution check (§7) |
+| I7 | The implementation candidate traces to one MSR event and exact artefacts | decision summary: event id, ledger and frozen-ledger hashes; repository check: protocol hash, recorded in the event record; evaluated bytes equal the ledger bytes plus declared MAVI-trained artefacts. A coordinated rewrite of the frozen files is a Git-review item (§9) |
+| I8 | Class changes leave an auditable reason; promotions cannot outrun their evidence; after freeze, frozen content is never rewritten and nothing added is backdated | history rules (inputs hash, recomputation) and the frozen-ledger evolution check (§7) |
 | I9 | An `emerging` candidate cannot become the implementation candidate without a recorded promotion | implementation eligibility on the decision date (§8) |
 | I10 | A name cannot keep its entry while its bytes change | identity hash and pinned-hash history; no weight bytes shared except an identical method backbone |
 | I11 | Person and vehicle evidence cannot be conflated | fixed event scopes; claim and technical-evidence sub-task and object-class checks |
@@ -295,14 +314,16 @@ Nothing in this revision, and no ledger, claims 500-camera qualification.
 | Promote an unknown model with five websites copying one README figure | five `repetition` items collapse to one first-party origin; 0 independent groups, so at most `emerging` |
 | Re-type those pages as `independent-reproduction`, or add `#table-2` / `http` variants of the README URL | refused: an independent item must be a distinct document by normalised source and retrieved bytes |
 | Have an affiliated spin-off act as the "independent" group | refused: affiliated groups are declared and can never be `independent`. Undeclared affiliation is a review item |
-| Record MAVI's own bake-off win as an independent reproduction | refused: reserved `mavi` groups, MAVI sources and MAVI datasets |
+| Record MAVI's own bake-off win as an independent reproduction | the obvious forms are refused (reserved `mavi` groups, MAVI paths and event files, MAVI named in the item's text, MAVI datasets); a disguised internal result is a review item (§9) |
 | Drop the strongest technical candidate because its licence is inconvenient | the frozen shortlist forces it into the evaluated set; strongest technical is recomputed without licence |
 | Edit the shortlist after freeze, then cite the new ledger | refused: the decision checks the frozen ledger, and the working ledger must evolve append-only with a fixed shortlist |
 | Present licence clearance as technical superiority | "strongest cleared" is a separate derived field; MSR method §9's standard sentence applies only when the two coincide |
 | Shortlist a model with unknown checkpoint provenance | Low confidence makes it `reference-only`, and `SHORTLISTED` is refused |
 | Shortlist an `emerging` model quietly | refused without a recorded basis and a second reviewer |
 | Implement an `emerging` model, or one that was `emerging` on the decision date | refused: implementation requires `established` in the history entry in force on the decision date |
-| Backdate a promotion or cite evidence after its date | refused: no entry may overclaim on its date; cited evidence must predate it and support it; no future dates; nothing recorded before it was retrieved |
+| Backdate a promotion or cite evidence after its date | refused: no entry on current inputs may overclaim on its date; cited evidence must predate it and support it; no future dates; nothing recorded before it was retrieved; after freeze, nothing added may be dated before `frozenOn` |
+| Correct a publication after freeze to make an old promotion look invalid, or edit inputs so that an unverifiable old entry carries the decision | a correction needs a new history entry and never invalidates old entries; implementation needs the in-force entry to be on the current inputs; shortlisted entries' inputs are fixed after freeze |
+| Commit a protocol but no frozen ledger, leaving the ledger editable | refused: a protocol requires the frozen ledger it cites and a record carrying its hash |
 | Keep the name, swap the checkpoint | refused by the identity hash and the pinned-hash history; after freeze, a shortlisted identity is fixed |
 | Smuggle a community fine-tune in as part of a method's artefacts | refused: evaluated bytes are the backbone plus declared MAVI-trained artefacts with training manifests |
 | Use person evidence for a vehicle candidate, or widen a ledger's sub-tasks | refused: fixed event scopes; sub-task and object class on claims and technical evidence |
@@ -310,4 +331,14 @@ Nothing in this revision, and no ledger, claims 500-camera qualification.
 | Hide a demotion by deleting evidence | before freeze a Git-reviewed deletion; after freeze refused (append-only); the last history entry must match the recomputed class |
 | Count stars or downloads, or one group posting three reproductions | popularity signals are never read; producer groups count once |
 
-Residual human trust (P3): group independence and affiliation, publisher claims, evidence dates before freeze, and whether an item typed "independent" really measured something itself. These are reviewer obligations (§9), and Git history anchors the dates.
+Residual human trust (P3): these are reviewer obligations (§9), not machine checks.
+- group independence and affiliation, including undeclared sibling groups;
+- publisher claims;
+- evidence dates before freeze;
+- whether an item typed "independent" really measured something itself;
+- relabelled sub-tasks on independent evidence;
+- disguised MAVI results;
+- paraphrased licence reasoning;
+- training-manifest resolution;
+- the checkpoint/method kind;
+- coordinated rewrites of the frozen files in one commit.

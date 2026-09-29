@@ -17,6 +17,7 @@ from model_selection.credibility import (
     CredibilityError,
     _check_evidence,
     _pinned_files,
+    classification_inputs_sha256,
     credibility_class,
     document_sha256,
     provenance_confidence,
@@ -25,6 +26,7 @@ from model_selection.credibility import (
 RECORDED = "2026-06-01"
 SETTLED = "2026-06-02"
 DECIDED = "2026-09-01"
+FROZEN = "2026-06-10"
 
 
 def sha(label: str) -> str:
@@ -247,9 +249,10 @@ def settle(entry, at=SETTLED, reason="classified from recorded evidence"):
         "recordedBy": "synthetic-curator",
         "reviewedBy": "synthetic-reviewer",
         "identitySha256": document_sha256(entry["identity"]),
+        "inputsSha256": classification_inputs_sha256(entry),
         "checkpointSha256s": [] if entry["candidateKind"] == "mavi-baseline" else _pinned_files(entry["identity"]),
     }
-    keys = ("to", "identitySha256", "checkpointSha256s")
+    keys = ("to", "identitySha256", "inputsSha256", "checkpointSha256s")
     if not history or {k: history[-1][k] for k in keys} != {k: record[k] for k in keys}:
         history.append(record)
     return entry
@@ -272,6 +275,7 @@ def ledger(*entries, object_class="vehicle", capability="vehicle-attributes", su
         "objectClass": object_class,
         "subTasks": list(subtasks),
         "methodRevision": METHOD_REVISION,
+        "frozenOn": FROZEN,
         "candidates": candidates,
     }
 
