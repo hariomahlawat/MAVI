@@ -263,7 +263,9 @@ def validate_contract(document: dict) -> None:
     boundary = _object(
         root["selectionBoundary"], {"selectionMayTune", "frozenTestMaySelect"}, "selection_boundary"
     )
-    if boundary != {"selectionMayTune": False, "frozenTestMaySelect": False}:
+    if boundary["selectionMayTune"] is not False:
+        raise _fail("selection_boundary")
+    if boundary["frozenTestMaySelect"] is not False:
         raise _fail("selection_boundary")
 
     outcomes = _object(
@@ -297,9 +299,14 @@ def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
     start_marker = "## 13. Frozen invariant registry"
     end_marker = "## 14. Required retained evidence"
     lines = document.replace("\r\n", "\n").splitlines()
+    normalized_lines = [line.rstrip() for line in lines]
 
-    start_matches = [index for index, line in enumerate(lines) if line == start_marker]
-    end_matches = [index for index, line in enumerate(lines) if line == end_marker]
+    start_matches = [
+        index for index, line in enumerate(normalized_lines) if line == start_marker
+    ]
+    end_matches = [
+        index for index, line in enumerate(normalized_lines) if line == end_marker
+    ]
     if len(start_matches) != 1 or len(end_matches) != 1:
         raise _fail("normative_invariant_section")
 
@@ -308,7 +315,7 @@ def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
     if end <= start:
         raise _fail("normative_invariant_section")
 
-    section = [line.rstrip() for line in lines[start:end]]
+    section = normalized_lines[start:end]
     expected_intro = [
         start_marker,
         "",
