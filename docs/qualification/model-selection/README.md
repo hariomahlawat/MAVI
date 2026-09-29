@@ -1,6 +1,6 @@
 # Model Selection Records — Methodology (MSR method v1)
 
-**Status:** Accepted — PR #115 merged the independently reviewed MSR method v1 at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge is the acceptance event. Future learned Model Pack selections must follow the accepted ADR-014 Model Selection Records note. S2c.0 records/reconciles the accepted method into the implementation baseline; it does not create a second acceptance event. **Revision M1** (candidate credibility and admissibility, `candidate-credibility.md`, slice S2c.2a) is an additive revision of v1. It becomes governing only when its change merges after review (§14).
+**Status:** Accepted — PR #115 merged the independently reviewed MSR method v1 at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge is the acceptance event. Future learned Model Pack selections must follow the accepted ADR-014 Model Selection Records note. S2c.0 records/reconciles the accepted method into the implementation baseline; it does not create a second acceptance event. **Revision M1** (candidate credibility and admissibility, `candidate-credibility.md`, slice S2c.2a) is an additive revision of v1, merged in PR #118 at `main@db2b25a24d0f850c3841a9eabcb915f7c92eebfb` (§14).
 **Scope:** every learned component MAVI binds through a Model Pack. That includes detectors, trackers with learned parts, person and vehicle attributes, embeddings, re-identification, segmentation, OCR, VLMs, and any later capability.
 **Purpose:** make every model choice reconstructible years later without the author's memory. A future reader must be able to answer:
 - which models were considered, and how they were found;
@@ -24,6 +24,7 @@ The MSR does not replace any authoritative document. It cites them:
 | Stage acceptance register (`docs/reviews/<date>-<stage>-acceptance.md`) | the only exit gate of its stage | the MSR is evidence a register row may cite; it holds no acceptance list and marks nothing PASS |
 | Qualification plan (for Stage 2: `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md`) | qualification protocol: corpus governance, partitions, labelling, metrics, freeze order, requalification triggers | the MSR's selection protocol instantiates it and may not weaken it; the frozen qualification test is never used for selection |
 | Candidate credibility and admissibility (`candidate-credibility.md`, revision M1) | which candidates are credible enough for the shortlist and for implementation; the External Evidence Ledger | part of this method; it adds a credibility axis and never changes the technical ranking |
+| S2c quality/statistical protocol (`s2c-quality-statistics.md` + machine contract) | S2c-specific populations, metric denominators, partition authority, calibration and inferential-comparison semantics under qualification-plan R3 | event-specific protocol used by the person/vehicle MSRs; **not** a generic MSR-method revision and does not define the b-2 final technical ordering. Where this method's generic text conflicts with it, §8.2 states which rule governs S2c events |
 | Candidate survey (for S2c: `docs/qualification/stage2-s2c/model-candidate-survey.md`) | discovery and research evidence at a date; reported, not reproduced | an input; the MSR cites survey rows and snapshots what it relies on (§6) |
 | Model Pack qualification record (`models/qualifications/*.json`) | qualification of one exact packaged model per variant and profile | the MSR explains *why* this pack exists; the record says whether it is *qualified*; the record cites the closed MSR by hash (§10) |
 | Implementation plan (for S2c: the plan above) | implementation sequencing | says in which slice each MSR state transition happens |
@@ -115,7 +116,7 @@ Each candidate carries **two independent status axes** and a **role**. They are 
 ```
 DISCOVERED ─→ SHORTLISTED ─→ EVALUATED ─→ TECHNICALLY_SELECTED
     │              │             ├──────→ TECHNICAL_ALTERNATIVE   (passed the technical gates; ranked below)
-    │              │             └──────→ REJECTED_TECHNICAL      (failed a technical gate, or dominated; gate/measurement cited)
+    │              │             └──────→ REJECTED_TECHNICAL      (failed a technical gate, or dominated where the governing protocol defines dominance, §8.2; gate/measurement cited)
     │              ├──────────────────→ DEFERRED                  (evidence or resources insufficient; revisit trigger stated)
     │              └──────────────────→ REFERENCE_ONLY            (could not be evaluated: permission, availability; or under M1 held for credibility; reported evidence kept, marked not reproduced)
     └──────────────────────────────────→ NOT_SHORTLISTED          (technical reason recorded, or under M1 the credibility reason of an excluded discovery; never a licence reason)
@@ -193,7 +194,7 @@ Some capabilities are served by one Model Pack that composes components solving 
    - the failure-domain implications (one process holding all components, and what one component's failure takes down).
    **Every composition must pass the protocol's technical and engineering gates as a unit** (offline, determinism, budget, abstention, system scale, with memory inside the scale/host envelope); gates judged on heads are re-run on the composition's actual heads: components that each fit can exceed the envelope together. Failing compositions are recorded with the reason. So are attributes whose composition heads fail the re-run baseline gate; those are disabled in that composition.
 4. **Pareto frontier.** Compositions are compared on scalar axes frozen in the protocol: a quality scalar (for example the equal-weight mean over a fixed attribute set of the primary-metric improvement over baseline, with disabled attributes scored as zero, which keeps dominance transitive), per-crop cost and memory. Dominated compositions are recorded as dominated, not deleted. The frontier is typically two to four compositions, and the comparative score of §8 ranks within it.
-5. **Implementation composition.** The owner chooses a frontier composition under the same rules as a single implementation candidate (§4, §9). Its components all need licence status `CLEARED` for the target profile.
+5. **Implementation composition.** The owner chooses a frontier composition under the same rules as a single implementation candidate (§4, §9). *(For the S2c person-attributes event, steps 4–5 are instantiated only by the S2c.2b-2 rule: the axes, directions, normalization, dominance, treatment of disabled attributes, non-dominated-set construction and final selection are frozen there; S2c.2b-1 defines none of them, see `s2c-quality-statistics-contract.json` `deferredToS2c2b2` and §8.2.)* Its components all need licence status `CLEARED` for the target profile.
 
 A single-component capability skips steps 2–4. Its composition is the implementation candidate itself.
 
@@ -265,10 +266,10 @@ A decision is reconstructed from five separate layers, recorded in this order. N
 2. **Measured metrics.** The full measurement table, with intervals and evidence classes, for every evaluated candidate including the losers. Raw per-item predictions are retained by hash.
 3. **Comparative scores (optional ordering aid).**
    - Weights and the rule converting each measurement into a criterion score are frozen in the protocol.
-   - Differences within the protocol's statistical interval score as ties.
+   - Differences within the protocol's statistical interval score as ties **unless the capability-specific governing protocol defines explicit superiority/non-inferiority/equivalence/inconclusive states**. For S2c person/vehicle events, qualification-plan R3 + `s2c-quality-statistics.md` override this generic aid: interval overlap is not equivalence, and an inconclusive/insufficient-evidence result cannot become a tie or statistical winner.
    - Scores are reported at the precision the data supports, never more.
-   - The record reports a **sensitivity check**: does the top-ranked candidate change when any one weight group moves by the protocol's declared perturbation, or when any group is removed? An unstable ranking is recorded as unstable, and the choice between the tied candidates becomes an explicit owner decision.
-4. **Owner decisions.** For example the MPID, target precisions, whether to seek a licence for a stronger constrained candidate, and the implementation candidate. Each has a rationale, decision-maker and date.
+   - The record reports a **sensitivity check**: does the top-ranked candidate change when any one weight group moves by the protocol's declared perturbation, or when any group is removed? An unstable ranking is recorded as unstable, and the choice between the tied candidates becomes an explicit owner decision (for S2c events, see the limits in §8.2).
+4. **Owner decisions.** For example the MPID, target precisions, whether to seek a licence for a stronger constrained candidate, and the implementation candidate. Each has a rationale, decision-maker and date. An owner decision never turns a failed gate into a pass, and never turns an inconclusive or insufficient-evidence comparison into a statistical result (§8.2).
 5. **Qualification decisions.**
    - Licence/deployment determinations per profile (human, §2).
    - Then the Model Pack qualification record (authoritative, §1).
@@ -296,13 +297,35 @@ Evidence units are correlated: Tracks from one camera, cameras within one site, 
 - It checks that the procedure's interval covers zero at close to its nominal rate across simulated cluster counts. The protocol freezes the minimum number of top-level clusters at which coverage stays within its declared tolerance, and the same check is applied per stratum.
 
 **When support falls short, the claim is downgraded, never reported as significant.**
-- **Comparison:** below the minimum cluster count, no "significant winner" is declared. The record reports per-cluster results, a cluster-level sign count, and "insufficient independent clusters for an inferential claim". The choice becomes an explicit owner decision (§8 layer 4).
+- **Comparison:** below the minimum cluster count, no "significant winner" is declared. The record reports per-cluster results, a cluster-level sign count, and "insufficient independent clusters for an inferential claim". The choice becomes an explicit owner decision (§8 layer 4), within the limits of §8.2 for S2c events.
 - **Generalisation and strata:** these claims become "limited evidence".
 - **Value support:** a value below its DEFF-inflated support is "insufficient evidence" (qualification plan §5).
 
-"Better" means the hierarchical paired interval of the difference excludes zero, **and** the cluster count meets the frozen minimum.
+"Better" means the hierarchical paired interval of the difference excludes zero, **and** the cluster count meets the frozen minimum. For S2c events the outcome vocabulary of §8.2 replaces "better".
 
 A candidate needing an architectural extension (for example a new Runtime Pack family) must clear the protocol's MPID over the best candidate that needs none, and must pass the ADR route. It is **never rejected merely for needing a reasonable extension** once it clears that bar.
+
+### 8.2 S2c events: precedence of the b-1 protocol
+
+For the S2c person-attributes and vehicle-attributes events, qualification-plan R3, `s2c-quality-statistics.md` and its machine contract `s2c-quality-statistics-contract.json` (S2c.2b-1) govern where this method's generic text differs. This method may not weaken them (§1). The generic rules are unchanged for every other event.
+
+1. **Comparison outcomes.** A paired comparison is `superior`, `non-inferior`, `equivalent`, `inconclusive` or `insufficient evidence`, under margins frozen before selection. `superior` needs the frozen practical-importance rule as well as a confidence bound that excludes zero, so §8.1's "better" is not used. Interval overlap is not a tie or an equivalence (§8 layer 3).
+2. **Cluster sufficiency.** The training-pilot simulation of §8.1 must also vary plausible prevalence, cluster imbalance, dependence, abstention and effect size (`s2c-quality-statistics.md` §7). A cluster-level label swap alone does not establish the minimum cluster count.
+3. **Limits on owner decisions.** When a comparison is `inconclusive` or `insufficient evidence`, or when a ranking is unstable, the owner may:
+   - collect more evidence;
+   - defer;
+   - abandon the event;
+   - open a later event;
+   - decide how the capability is handled operationally, for example by keeping it disabled, or by retaining a baseline that passed its own gates.
+
+   The owner may not:
+   - label a candidate superior, non-inferior or equivalent without that statistical outcome;
+   - use the comparison as technical-ordering evidence;
+   - turn it into a pass, tie or winner.
+
+   A failed gate stays failed. The technical ordering among candidates that passed their gates comes only from the S2c.2b-2 final technical-selection rule. An implementation choice that differs from that ordering is recorded under §9, with its reason and delta, and the statistical outcome is stated unchanged.
+4. **Frontier, dominance and ranking representation.** The Pareto axes, their directions and normalization, dominance, the treatment of disabled attributes, the non-dominated set, the sub-task finalist ordering, the final technical selection and its representation in the record are all frozen by S2c.2b-2 (contract `deferredToS2c2b2`). The §4 "dominated" disposition, the §5.1 frontier steps and the §9 "Pareto frontier" field apply only in the form S2c.2b-2 defines. Where S2c.2b-2 defines no frontier, the record uses the S2c.2b-2 decision representation instead.
+5. **Comparative scores.** The §8 layer-3 weighted comparative score is not frozen for S2c. S2c.2b-2 reconciles it, including the scalar `comparativeScore` from which the M1 decision summary derives "strongest evaluated technical" (`candidate-credibility.md` §8).
 
 ## 9. Required selection output
 
@@ -316,7 +339,7 @@ A record at `TECHNICAL_DECISION_RECORDED` or later states each of the following 
 | **Strongest evaluated technical candidate** | first in the full technical ranking (quality, runtime, engineering, system scale; §8), among candidates MAVI actually evaluated |
 | **Strongest candidate cleared for `<profile id>`** | per target profile: the highest-ranked evaluated candidate whose licence status is `CLEARED` for that declared profile |
 | **Implementation candidate** | the owner's choice (§4); for a multi-component capability, the implementation **composition** (§5.1) |
-| Alternatives | in rank order; for compositions, the Pareto frontier with dominated compositions listed |
+| Alternatives | in rank order; for compositions, the Pareto frontier with dominated compositions listed where the governing protocol defines one (for S2c, the S2c.2b-2 representation, §8.2) |
 | Rejected / deferred / reference-only / not shortlisted | each with its reason and revisit trigger |
 | Deltas | quality and resource deltas between each pair of the fields above that differ: highest task-quality vs strongest evaluated technical, which shows when accuracy lost on cost or scale; strongest evaluated technical vs strongest cleared; strongest cleared vs implementation |
 | Projected system-scale footprint | per finalist or composition (§7.1) |
@@ -417,7 +440,7 @@ Revisions are additive and numbered, and never silently rewrite an earlier rule.
 
 | Revision | Slice | Content | Status |
 |---|---|---|---|
-| **M1** Candidate credibility and admissibility | S2c.2a | `candidate-credibility.md`. It adds: credibility classes computed from an External Evidence Ledger; laundering-resistant tracing of reported figures to their origin; a shortlist rule requiring pinned, original-source provenance; an implementation rule requiring `established` with a recorded promotion; and a checked decision summary (`<event-id>-decision.json`) that derives the §9 outputs. Validator: `tools/qualification/model_selection_check.py` | proposed; governing on merge |
+| **M1** Candidate credibility and admissibility | S2c.2a | `candidate-credibility.md`. It adds: credibility classes computed from an External Evidence Ledger; laundering-resistant tracing of reported figures to their origin; a shortlist rule requiring pinned, original-source provenance; an implementation rule requiring `established` with a recorded promotion; and a checked decision summary (`<event-id>-decision.json`) that derives the §9 outputs. Validator: `tools/qualification/model_selection_check.py` | **governing — PR #118 merged** |
 
 *M1 trade-off:*
 - **Cost:** every serious candidate needs a ledger entry and a reviewer check of its independent evidence. A genuinely strong but newly published model cannot be implemented until independent evidence exists.

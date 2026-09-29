@@ -32,7 +32,7 @@ One **candidate card** per serious candidate, holding every field of methodology
 |---|---|---|---|---|---|
 
 ## 4. MAVI measurements (classes M-D, M-E)
-Quality per attribute, level and stratum, with hierarchical-bootstrap intervals (methodology §8.1) and the cluster count behind each. Engineering measurements per host class. Every row: harness commit, configuration hash, partition hash, result artefact SHA-256.
+For S2c, quality tables name the S/U/I/A population and denominator for every row; report per-value quality, abstention/useful coverage, unsupported assertions, all-assigned delivery, post-aggregation calibration, required slices, support and independent-cluster status. Comparative rows record the frozen practical/non-inferiority/equivalence rule and may be `inconclusive` or `insufficient evidence`. Engineering measurements per host class remain separate. Every row: harness commit, configuration hash, partition hash, result artefact SHA-256.
 
 ### 4.1 System-scale projection (methodology §7.1; class M-E projected)
 Per finalist or composition:
@@ -47,10 +47,12 @@ Per finalist or composition:
 |---|---|---|---|
 
 ## 6. Technical ranking
-Comparative scores under the frozen rule; ties; sensitivity check; cluster-sufficiency status of each comparison (methodology §8.1).
+For S2c, the final ordering is populated only under the S2c.2b-2 rule. S2c.2b-1 quality/statistical results record gate outcomes, paired comparison status (superior / non-inferior / equivalent / inconclusive / insufficient evidence), practical margins and cluster sufficiency; interval overlap alone is not a tie. Any comparative score remains an optional ordering aid under methodology §8.
 
 ### 6.1 Compositions (multi-component capabilities; methodology §5.1)
-| Composition | Exact tuple (components, shared backbone/region) | Combined quality | CPU latency / throughput | RAM / VRAM | Load time | Pack size | Runtime Pack impact | Scale projection | Failure domain | Frontier / dominated |
+For S2c, the decision-status column uses the S2c.2b-2 representation. Frontier and dominated labels are written only if S2c.2b-2 defines them (methodology §8.2).
+
+| Composition | Exact tuple (components, shared backbone/region) | Combined quality | CPU latency / throughput | RAM / VRAM | Load time | Pack size | Runtime Pack impact | Scale projection | Failure domain | Decision status (frontier / dominated only where the governing rule defines them) |
 |---|---|---|---|---|---|---|---|---|---|---|
 
 ## 7. Licence / deployment qualification (separate)
@@ -74,9 +76,9 @@ Per candidate, or per component of a composition, and per declared target profil
 | Implementation candidate or composition (owner decision, rationale, date; each component `established` or `mavi-owned` with its promotion date, M1 §8) | |
 | Standard sentence used? If not, why the implementation choice differs from the strongest cleared candidate | |
 | Deltas: task-quality vs technical; technical vs cleared; cleared vs implementation (quality and resources) | |
-| Alternatives (ranked; composition frontier) | |
+| Alternatives (ranked under the governing rule; for S2c, the S2c.2b-2 representation, and a composition frontier only if S2c.2b-2 defines one) | |
 | Rejected / deferred / reference-only / not shortlisted (reasons, revisit triggers) | |
-| Owner decisions (MPID, targets, licence pursuit, ties, insufficient-cluster choices) | |
+| Owner decisions (MPID, targets, licence pursuit; for unstable, inconclusive or insufficient-evidence comparisons: collect more evidence, defer, abandon, open a later event, or handle the capability operationally, never a statistical winner, methodology §8.2) | |
 | Assumptions and unresolved risks | |
 | Upgrade deltas vs incumbent (upgrade events) | improved / regressed / resources / scale projection / dependencies / qualification / migration |
 
