@@ -296,15 +296,21 @@ def validate_contract(document: dict) -> None:
 def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
     start_marker = "## 13. Frozen invariant registry"
     end_marker = "## 14. Required retained evidence"
-    start = document.find(start_marker)
-    end = document.find(end_marker)
-    if start < 0 or end < 0 or end <= start:
+    lines = document.replace("\r\n", "\n").splitlines()
+
+    start_matches = [index for index, line in enumerate(lines) if line == start_marker]
+    end_matches = [index for index, line in enumerate(lines) if line == end_marker]
+    if len(start_matches) != 1 or len(end_matches) != 1:
         raise _fail("normative_invariant_section")
 
-    section = document[start:end].replace("\r\n", "\n")
-    lines = section.splitlines()
+    start = start_matches[0]
+    end = end_matches[0]
+    if end <= start:
+        raise _fail("normative_invariant_section")
+
+    section = [line.rstrip() for line in lines[start:end]]
     expected_intro = [
-        "## 13. Frozen invariant registry",
+        start_marker,
         "",
         (
             "The following tagged clauses are the **canonical machine-checked expression** "
@@ -314,25 +320,27 @@ def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
         ),
         "",
     ]
-    if lines[:4] != expected_intro:
+    if section[:4] != expected_intro:
         raise _fail("normative_invariant_section")
 
-    body = lines[4:]
-    expected_lines = [
-        f"**{tag}:** {text}  "
-        for tag, text in EXPECTED_NORMATIVE_INVARIANTS.items()
-    ]
-    if body != expected_lines + [""]:
+    body = section[4:]
+    if len(body) != len(EXPECTED_NORMATIVE_INVARIANTS) + 1 or body[-1] != "":
         raise _fail("normative_invariant_section")
 
+    registry_lines = body[:-1]
+    expected_tags = list(EXPECTED_NORMATIVE_INVARIANTS)
     found: dict[str, str] = {}
-    for raw_line in expected_lines:
-        line = raw_line.strip()
-        tag, text = line.split(":** ", 1)
+    for index, raw_line in enumerate(registry_lines):
+        if ":** " not in raw_line or not raw_line.startswith("**INV-B1-"):
+            raise _fail("normative_invariants")
+        tag, text = raw_line.split(":** ", 1)
         tag = tag.removeprefix("**")
-        if tag in found:
-            raise _fail("normative_invariant_duplicate")
+        if tag != expected_tags[index] or tag in found:
+            raise _fail("normative_invariants")
         found[tag] = text
+
+    if found != EXPECTED_NORMATIVE_INVARIANTS:
+        raise _fail("normative_invariants")
     return found
 
 
