@@ -80,20 +80,7 @@ The protocol reports at minimum a proper score (Brier or NLL), a frozen reliabil
 
 ## 5. Partition authority
 
-The following data-access rule is normative:
-
-| Parameter / decision | Permitted source |
-|---|---|
-| model weights / task heads | training |
-| calibration coefficients | training-derived, group-disjoint held-out predictions or predeclared cross-fitting |
-| choice among predeclared calibration methods | training-internal validation |
-| confidence/presence thresholds | tuning |
-| colour margin | tuning |
-| admissibility threshold | tuning |
-| crop evidence floor | tuning |
-| pooling / aggregation parameter values | tuning, within the family frozen before candidate execution |
-| candidate comparison | selection |
-| final qualification | frozen test |
+The machine contract is the canonical authority for partition access. Its complete 13-row partition map is projected verbatim in §13. Narrative text in this section is explanatory; if it conflicts with the contract or generated projection, the contract governs.
 
 **I-QS6.** Selection may compare already-frozen executable configurations but may not fit or tune them.  
 **I-QS7.** Frozen-test evidence cannot tune, rank, replace or rescue a candidate. A failed/inconclusive frozen qualification does not trigger adaptive evaluation of alternatives on the same exposed test.
@@ -190,24 +177,49 @@ This slice deliberately does **not** freeze:
 
 The current weighted-score text in the S2c plan is therefore **not frozen by b-1**. S2c.2b-2 must reconcile it before any selection result is read. No event reaches `PROTOCOL_FROZEN` until both b-1 and b-2 are complete.
 
-## 13. Frozen invariant registry
+## 13. Machine-contract projection (generated)
 
-The following tagged clauses are the **canonical machine-checked expression** of the 14 b-1 invariants. Each `INV-B1-xx` line is exact normative text: changing its wording, appending an exception, deleting it or duplicating its tag invalidates repository validation.
+The block below is a deterministic projection of the canonical JSON contract. Repository validation compares this protected block byte-for-byte with a renderer driven by the contract; arbitrary Markdown outside the block is deliberately not parsed as machine authority.
 
-**INV-B1-01:** Human-unscorable ground truth is not model abstention.  
-**INV-B1-02:** Classification quality uses human-scorable truth; unsupported assertions on U and I are measured separately.  
-**INV-B1-03:** All-assigned delivery retains execution failures.  
-**INV-B1-04:** Track calibration is evaluated after aggregation and abstention.  
-**INV-B1-05:** Calibration fitting uses training-derived predictions only; tuning, selection and frozen-test data cannot fit calibration coefficients.  
-**INV-B1-06:** Tuning chooses operating parameters; selection compares frozen configurations and performs no fitting or tuning.  
-**INV-B1-07:** Frozen-test evidence cannot tune, rank, replace or rescue a candidate, and a failed or inconclusive frozen qualification cannot trigger adaptive alternative selection on the same exposed test.  
-**INV-B1-08:** Candidate comparison is paired and cluster-aware, and every Track's crops stay together.  
-**INV-B1-09:** Practical-difference, non-inferiority and equivalence margins are predeclared before selection.  
-**INV-B1-10:** Interval overlap is not equivalence, and non-significance is not non-inferiority.  
-**INV-B1-11:** Insufficient attribute/value support or independent-cluster support remains insufficient evidence and cannot become a pass, tie or statistical winner.  
-**INV-B1-12:** Unconditional recall already includes abstention, so coverage is not multiplied into recall-support arithmetic a second time.  
-**INV-B1-13:** S2c.2b-1 does not invent owner numerical quality targets; it freezes only the form and authority of those gates.  
-**INV-B1-14:** Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline mechanics, 500-camera projection, Pareto axes and deterministic final technical ordering remain S2c.2b-2 scope.
+<!-- BEGIN S2C_B1_CONTRACT_PROJECTION -->
+_Generated from `s2c-quality-statistics-contract.json`; do not edit this block manually._
+
+### Partition authority
+
+| Parameter / decision | Permitted source |
+|---|---|
+| model weights | training |
+| task heads | training |
+| calibration coefficients | training-derived, group-disjoint held-out predictions or predeclared cross-fitting |
+| choice among predeclared calibration methods | training-internal validation |
+| confidence threshold | tuning |
+| presence threshold | tuning |
+| colour margin | tuning |
+| admissibility threshold | tuning |
+| crop evidence floor | tuning |
+| pooling parameter values | tuning, within the family frozen before candidate execution |
+| aggregation parameter values | tuning, within the family frozen before candidate execution |
+| candidate comparison | selection |
+| final qualification | frozen test |
+
+### Frozen b-1 invariants
+
+1. `I01-human-unscorable-is-not-model-abstention` — Human-unscorable ground truth is not model abstention.
+2. `I02-classification-uses-S-and-U-I-unsupported-assertions-are-separate` — Classification quality uses human-scorable truth; unsupported assertions on U and I are measured separately.
+3. `I03-execution-failures-remain-in-A` — All-assigned delivery retains execution failures.
+4. `I04-track-calibration-is-post-aggregation` — Track calibration is evaluated after aggregation and abstention.
+5. `I05-calibration-fit-is-training-only` — Calibration fitting uses training-derived predictions only; tuning, selection and frozen-test data cannot fit calibration coefficients.
+6. `I06-tuning-selects-operating-parameters-selection-does-not-tune` — Tuning chooses operating parameters; selection compares frozen configurations and performs no fitting or tuning.
+7. `I07-frozen-test-cannot-select-or-rescue-alternative` — Frozen-test evidence cannot tune, rank, replace or rescue a candidate, and a failed or inconclusive frozen qualification cannot trigger adaptive alternative selection on the same exposed test.
+8. `I08-comparison-is-paired-cluster-aware-and-track-crops-stay-together` — Candidate comparison is paired and cluster-aware, and every Track's crops stay together.
+9. `I09-practical-noninferiority-equivalence-margins-are-predeclared` — Practical-difference, non-inferiority and equivalence margins are predeclared before selection.
+10. `I10-interval-overlap-is-not-equivalence` — Interval overlap is not equivalence, and non-significance is not non-inferiority.
+11. `I11-insufficient-support-remains-insufficient-evidence` — Insufficient attribute/value support or independent-cluster support remains insufficient evidence and cannot become a pass, tie or statistical winner.
+12. `I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice` — Unconditional recall already includes abstention, so coverage is not multiplied into recall-support arithmetic a second time.
+13. `I13-owner-numerical-targets-are-not-invented-by-b1` — S2c.2b-1 does not invent owner numerical quality targets; it freezes only the form and authority of those gates.
+14. `I14-operational-pareto-fleet-final-ordering-remain-b2-scope` — Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline mechanics, 500-camera projection, Pareto axes and deterministic final technical ordering remain S2c.2b-2 scope.
+
+<!-- END S2C_B1_CONTRACT_PROJECTION -->
 
 ## 14. Required retained evidence
 
