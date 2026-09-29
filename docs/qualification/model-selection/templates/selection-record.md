@@ -32,7 +32,7 @@ One **candidate card** per serious candidate, holding every field of methodology
 |---|---|---|---|---|---|
 
 ## 4. MAVI measurements (classes M-D, M-E)
-Quality per attribute, level and stratum, with hierarchical-bootstrap intervals (methodology §8.1) and the cluster count behind each. Engineering measurements per host class. Every row: harness commit, configuration hash, partition hash, result artefact SHA-256.
+For S2c, quality tables name the S/U/I/A population and denominator for every row; report per-value quality, abstention/useful coverage, unsupported assertions, all-assigned delivery, post-aggregation calibration, required slices, support and independent-cluster status. Comparative rows record the frozen practical/non-inferiority/equivalence rule and may be `inconclusive` or `insufficient evidence`. Engineering measurements per host class remain separate. Every row: harness commit, configuration hash, partition hash, result artefact SHA-256.
 
 ### 4.1 System-scale projection (methodology §7.1; class M-E projected)
 Per finalist or composition:
@@ -47,7 +47,7 @@ Per finalist or composition:
 |---|---|---|---|
 
 ## 6. Technical ranking
-Comparative scores under the frozen rule; ties; sensitivity check; cluster-sufficiency status of each comparison (methodology §8.1).
+For S2c, the final ordering is populated only under the S2c.2b-2 rule. S2c.2b-1 quality/statistical results record gate outcomes, paired comparison status (superior / non-inferior / equivalent / inconclusive / insufficient evidence), practical margins and cluster sufficiency; interval overlap alone is not a tie. Any comparative score remains an optional ordering aid under methodology §8.
 
 ### 6.1 Compositions (multi-component capabilities; methodology §5.1)
 | Composition | Exact tuple (components, shared backbone/region) | Combined quality | CPU latency / throughput | RAM / VRAM | Load time | Pack size | Runtime Pack impact | Scale projection | Failure domain | Frontier / dominated |
