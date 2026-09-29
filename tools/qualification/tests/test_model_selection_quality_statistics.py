@@ -284,3 +284,25 @@ def test_registry_requires_unique_complete_heading_lines(tmp_path, heading, repl
     with pytest.raises(QualityStatisticsError) as caught:
         validate_repository(tmp_path)
     assert str(caught.value) == "normative_invariant_section"
+
+
+def test_registry_rejects_duplicate_heading_with_trailing_spaces(tmp_path):
+    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    duplicate = (
+        "## 13. Frozen invariant registry  \n"
+        "**INV-B1-05:** "
+        + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-05"]
+        + "  \n"
+    )
+    weakened = text + "\n" + duplicate
+    write_minimal_repo(tmp_path, base(), weakened)
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "normative_invariant_section"
+
+
+@pytest.mark.parametrize("field", ["selectionMayTune", "frozenTestMaySelect"])
+def test_selection_boundary_numeric_zero_is_refused(field):
+    document = copy.deepcopy(base())
+    document["selectionBoundary"][field] = 0
+    refused("selection_boundary", document)
