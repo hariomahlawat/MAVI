@@ -9,10 +9,10 @@
   },
   "metricDenominators": {
     "classification": "S",
-    "unsupportedAssertion": [
-      "U",
-      "I"
-    ],
+    "unsupportedAssertion": {
+      "humanUnscorable": "U",
+      "invalidSubject": "I"
+    },
     "deliveryCoverage": "A"
   },
   "partitionAuthority": {
@@ -75,5 +75,21 @@
     "unconditionalRecallIncludesAbstention": true,
     "coverageMultipliedAgainForRecallSupport": false,
     "frozenQualificationFailureMaySelectAlternative": false
+  },
+  "frozenInvariants": {
+    "I01-human-unscorable-is-not-model-abstention": true,
+    "I02-classification-uses-S-and-U-I-unsupported-assertions-are-separate": true,
+    "I03-execution-failures-remain-in-A": true,
+    "I04-track-calibration-is-post-aggregation": true,
+    "I05-calibration-fit-is-training-only": true,
+    "I06-tuning-selects-operating-parameters-selection-does-not-tune": true,
+    "I07-frozen-test-cannot-select-or-rescue-alternative": true,
+    "I08-comparison-is-paired-cluster-aware-and-track-crops-stay-together": true,
+    "I09-practical-noninferiority-equivalence-margins-are-predeclared": true,
+    "I10-interval-overlap-is-not-equivalence": true,
+    "I11-insufficient-support-remains-insufficient-evidence": true,
+    "I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice": true,
+    "I13-owner-numerical-targets-are-not-invented-by-b1": true,
+    "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": true
   }
 }
