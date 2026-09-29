@@ -1,22 +1,23 @@
 """Machine checks for the S2c.2b-1 quality/statistical method contract.
 
-Normative text:
-    docs/qualification/model-selection/s2c-quality-statistics.md
-
-This module validates only the method contract. It does not score candidates, read
-imagery or define the S2c.2b-2 operational/Pareto decision rule.
+The JSON contract is the canonical machine authority. The Markdown protocol contains
+one deterministic projection of contract-owned invariant and partition statements.
+Repository validation compares that protected projection byte-for-byte; it does not
+attempt to interpret arbitrary Markdown semantics.
 """
 
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 SCHEMA = "mavi-s2c-quality-statistics-v1"
 METHOD = "s2c-2b1"
 CONTRACT = Path("docs/qualification/model-selection/s2c-quality-statistics-contract.json")
 NORMATIVE_DOC = Path("docs/qualification/model-selection/s2c-quality-statistics.md")
+
+PROJECTION_BEGIN = "<!-- BEGIN S2C_B1_CONTRACT_PROJECTION -->"
+PROJECTION_END = "<!-- END S2C_B1_CONTRACT_PROJECTION -->"
 
 EXPECTED_POPULATIONS = {
     "S": "human-scorable",
@@ -47,6 +48,38 @@ EXPECTED_PARTITIONS = {
     "candidateComparison": "selection",
     "finalQualification": "frozen-test",
 }
+EXPECTED_PARTITION_STATEMENTS = {
+    "modelWeights": "training",
+    "taskHeads": "training",
+    "calibrationCoefficients": (
+        "training-derived, group-disjoint held-out predictions or predeclared cross-fitting"
+    ),
+    "calibrationMethodChoice": "training-internal validation",
+    "confidenceThreshold": "tuning",
+    "presenceThreshold": "tuning",
+    "colourMargin": "tuning",
+    "admissibilityThreshold": "tuning",
+    "cropEvidenceFloor": "tuning",
+    "poolingParameters": "tuning, within the family frozen before candidate execution",
+    "aggregationParameters": "tuning, within the family frozen before candidate execution",
+    "candidateComparison": "selection",
+    "finalQualification": "frozen test",
+}
+PARTITION_LABELS = {
+    "modelWeights": "model weights",
+    "taskHeads": "task heads",
+    "calibrationCoefficients": "calibration coefficients",
+    "calibrationMethodChoice": "choice among predeclared calibration methods",
+    "confidenceThreshold": "confidence threshold",
+    "presenceThreshold": "presence threshold",
+    "colourMargin": "colour margin",
+    "admissibilityThreshold": "admissibility threshold",
+    "cropEvidenceFloor": "crop evidence floor",
+    "poolingParameters": "pooling parameter values",
+    "aggregationParameters": "aggregation parameter values",
+    "candidateComparison": "candidate comparison",
+    "finalQualification": "final qualification",
+}
 EXPECTED_OUTCOMES = [
     "superior",
     "non-inferior",
@@ -61,22 +94,61 @@ EXPECTED_OUTCOME_SEMANTICS = {
     "coverageMultipliedAgainForRecallSupport": False,
     "frozenQualificationFailureMaySelectAlternative": False,
 }
-EXPECTED_FROZEN_INVARIANTS = {
-    "I01-human-unscorable-is-not-model-abstention": True,
-    "I02-classification-uses-S-and-U-I-unsupported-assertions-are-separate": True,
-    "I03-execution-failures-remain-in-A": True,
-    "I04-track-calibration-is-post-aggregation": True,
-    "I05-calibration-fit-is-training-only": True,
-    "I06-tuning-selects-operating-parameters-selection-does-not-tune": True,
-    "I07-frozen-test-cannot-select-or-rescue-alternative": True,
-    "I08-comparison-is-paired-cluster-aware-and-track-crops-stay-together": True,
-    "I09-practical-noninferiority-equivalence-margins-are-predeclared": True,
-    "I10-interval-overlap-is-not-equivalence": True,
-    "I11-insufficient-support-remains-insufficient-evidence": True,
-    "I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice": True,
-    "I13-owner-numerical-targets-are-not-invented-by-b1": True,
-    "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": True,
+EXPECTED_INVARIANT_STATEMENTS = {
+    "I01-human-unscorable-is-not-model-abstention": (
+        "Human-unscorable ground truth is not model abstention."
+    ),
+    "I02-classification-uses-S-and-U-I-unsupported-assertions-are-separate": (
+        "Classification quality uses human-scorable truth; unsupported assertions on U "
+        "and I are measured separately."
+    ),
+    "I03-execution-failures-remain-in-A": (
+        "All-assigned delivery retains execution failures."
+    ),
+    "I04-track-calibration-is-post-aggregation": (
+        "Track calibration is evaluated after aggregation and abstention."
+    ),
+    "I05-calibration-fit-is-training-only": (
+        "Calibration fitting uses training-derived predictions only; tuning, selection "
+        "and frozen-test data cannot fit calibration coefficients."
+    ),
+    "I06-tuning-selects-operating-parameters-selection-does-not-tune": (
+        "Tuning chooses operating parameters; selection compares frozen configurations "
+        "and performs no fitting or tuning."
+    ),
+    "I07-frozen-test-cannot-select-or-rescue-alternative": (
+        "Frozen-test evidence cannot tune, rank, replace or rescue a candidate, and a "
+        "failed or inconclusive frozen qualification cannot trigger adaptive alternative "
+        "selection on the same exposed test."
+    ),
+    "I08-comparison-is-paired-cluster-aware-and-track-crops-stay-together": (
+        "Candidate comparison is paired and cluster-aware, and every Track's crops stay together."
+    ),
+    "I09-practical-noninferiority-equivalence-margins-are-predeclared": (
+        "Practical-difference, non-inferiority and equivalence margins are predeclared before selection."
+    ),
+    "I10-interval-overlap-is-not-equivalence": (
+        "Interval overlap is not equivalence, and non-significance is not non-inferiority."
+    ),
+    "I11-insufficient-support-remains-insufficient-evidence": (
+        "Insufficient attribute/value support or independent-cluster support remains "
+        "insufficient evidence and cannot become a pass, tie or statistical winner."
+    ),
+    "I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice": (
+        "Unconditional recall already includes abstention, so coverage is not multiplied "
+        "into recall-support arithmetic a second time."
+    ),
+    "I13-owner-numerical-targets-are-not-invented-by-b1": (
+        "S2c.2b-1 does not invent owner numerical quality targets; it freezes only the "
+        "form and authority of those gates."
+    ),
+    "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": (
+        "Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline "
+        "mechanics, 500-camera projection, Pareto axes and deterministic final technical "
+        "ordering remain S2c.2b-2 scope."
+    ),
 }
+EXPECTED_FROZEN_INVARIANTS = {key: True for key in EXPECTED_INVARIANT_STATEMENTS}
 EXPECTED_DEFERRED = [
     "operational-performance",
     "whole-job-cpu-host-gates",
@@ -87,64 +159,7 @@ EXPECTED_DEFERRED = [
     "500-camera-projection",
 ]
 
-EXPECTED_NORMATIVE_INVARIANTS = {
-    "INV-B1-01": "Human-unscorable ground truth is not model abstention.",
-    "INV-B1-02": (
-        "Classification quality uses human-scorable truth; unsupported assertions on U "
-        "and I are measured separately."
-    ),
-    "INV-B1-03": "All-assigned delivery retains execution failures.",
-    "INV-B1-04": "Track calibration is evaluated after aggregation and abstention.",
-    "INV-B1-05": (
-        "Calibration fitting uses training-derived predictions only; tuning, selection "
-        "and frozen-test data cannot fit calibration coefficients."
-    ),
-    "INV-B1-06": (
-        "Tuning chooses operating parameters; selection compares frozen configurations "
-        "and performs no fitting or tuning."
-    ),
-    "INV-B1-07": (
-        "Frozen-test evidence cannot tune, rank, replace or rescue a candidate, and a "
-        "failed or inconclusive frozen qualification cannot trigger adaptive alternative "
-        "selection on the same exposed test."
-    ),
-    "INV-B1-08": (
-        "Candidate comparison is paired and cluster-aware, and every Track's crops stay together."
-    ),
-    "INV-B1-09": (
-        "Practical-difference, non-inferiority and equivalence margins are predeclared before selection."
-    ),
-    "INV-B1-10": (
-        "Interval overlap is not equivalence, and non-significance is not non-inferiority."
-    ),
-    "INV-B1-11": (
-        "Insufficient attribute/value support or independent-cluster support remains "
-        "insufficient evidence and cannot become a pass, tie or statistical winner."
-    ),
-    "INV-B1-12": (
-        "Unconditional recall already includes abstention, so coverage is not multiplied "
-        "into recall-support arithmetic a second time."
-    ),
-    "INV-B1-13": (
-        "S2c.2b-1 does not invent owner numerical quality targets; it freezes only the "
-        "form and authority of those gates."
-    ),
-    "INV-B1-14": (
-        "Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline "
-        "mechanics, 500-camera projection, Pareto axes and deterministic final technical "
-        "ordering remain S2c.2b-2 scope."
-    ),
-}
-EXPECTED_EXACT_DOC_LINES = {
-    "calibration_partition_row": (
-        "| calibration coefficients | training-derived, group-disjoint held-out predictions "
-        "or predeclared cross-fitting |"
-    ),
-    "calibration_training_clause": (
-        "R1 remains literal: calibration **fitting** belongs to training. R2’s "
-        "“calibration checks” on tuning do not authorise fitting there."
-    ),
-}
+
 class QualityStatisticsError(ValueError):
     """Stable refusal code for a quality/statistics contract violation."""
 
@@ -180,12 +195,14 @@ def validate_contract(document: dict) -> None:
             "populations",
             "metricDenominators",
             "partitionAuthority",
+            "partitionStatements",
             "calibration",
             "statistics",
             "gates",
             "selectionBoundary",
             "outcomeSemantics",
             "frozenInvariants",
+            "invariantStatements",
             "deferredToS2c2b2",
         },
         "contract",
@@ -208,6 +225,12 @@ def validate_contract(document: dict) -> None:
     authority = _object(root["partitionAuthority"], set(EXPECTED_PARTITIONS), "partition_authority")
     if authority != EXPECTED_PARTITIONS:
         raise _fail("partition_authority")
+
+    partition_statements = _object(
+        root["partitionStatements"], set(EXPECTED_PARTITION_STATEMENTS), "partition_statements"
+    )
+    if partition_statements != EXPECTED_PARTITION_STATEMENTS:
+        raise _fail("partition_statements")
 
     calibration = _object(
         root["calibration"],
@@ -286,114 +309,65 @@ def validate_contract(document: dict) -> None:
     invariants = _object(
         root["frozenInvariants"], set(EXPECTED_FROZEN_INVARIANTS), "frozen_invariants"
     )
-    if set(invariants) != set(EXPECTED_FROZEN_INVARIANTS):
-        raise _fail("frozen_invariants")
     for key in EXPECTED_FROZEN_INVARIANTS:
         if invariants[key] is not True:
             raise _fail("frozen_invariants")
+
+    invariant_statements = _object(
+        root["invariantStatements"], set(EXPECTED_INVARIANT_STATEMENTS), "invariant_statements"
+    )
+    if invariant_statements != EXPECTED_INVARIANT_STATEMENTS:
+        raise _fail("invariant_statements")
 
     if root["deferredToS2c2b2"] != EXPECTED_DEFERRED:
         raise _fail("b2_scope_boundary")
 
 
-def _normalize_atx_heading(line: str) -> str | None:
-    stripped = line.rstrip()
-    match = re.fullmatch(r"(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?", stripped)
-    if match is None:
-        return None
-    hashes, text = match.groups()
-    return f"{hashes} {text.rstrip()}"
+def render_contract_projection(document: dict) -> str:
+    """Render the only machine-protected Markdown block from the canonical contract."""
+
+    validate_contract(document)
+    lines = [
+        PROJECTION_BEGIN,
+        "_Generated from `s2c-quality-statistics-contract.json`; do not edit this block manually._",
+        "",
+        "### Partition authority",
+        "",
+        "| Parameter / decision | Permitted source |",
+        "|---|---|",
+    ]
+    for key in EXPECTED_PARTITIONS:
+        lines.append(f"| {PARTITION_LABELS[key]} | {document['partitionStatements'][key]} |")
+
+    lines.extend(["", "### Frozen b-1 invariants", ""])
+    for index, key in enumerate(EXPECTED_INVARIANT_STATEMENTS, start=1):
+        lines.append(f"{index}. `{key}` — {document['invariantStatements'][key]}")
+
+    lines.extend(["", PROJECTION_END])
+    return "\n".join(lines)
 
 
-def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
-    start_marker = "## 13. Frozen invariant registry"
-    end_marker = "## 14. Required retained evidence"
+def _extract_projection(document: str) -> str:
     lines = document.replace("\r\n", "\n").splitlines()
-    normalized_lines = [line.rstrip() for line in lines]
-    normalized_headings = [_normalize_atx_heading(line) for line in lines]
-
-    start_matches = [
-        index for index, heading in enumerate(normalized_headings) if heading == start_marker
-    ]
-    end_matches = [
-        index for index, heading in enumerate(normalized_headings) if heading == end_marker
-    ]
-    if len(start_matches) != 1 or len(end_matches) != 1:
-        raise _fail("normative_invariant_section")
-
-    start = start_matches[0]
-    end = end_matches[0]
-    if end <= start:
-        raise _fail("normative_invariant_section")
-
-    section = normalized_lines[start:end]
-    expected_intro = [
-        start_marker,
-        "",
-        (
-            "The following tagged clauses are the **canonical machine-checked expression** "
-            "of the 14 b-1 invariants. Each `INV-B1-xx` line is exact normative text: "
-            "changing its wording, appending an exception, deleting it or duplicating its "
-            "tag invalidates repository validation."
-        ),
-        "",
-    ]
-    if section[:4] != expected_intro:
-        raise _fail("normative_invariant_section")
-
-    body = section[4:]
-    if len(body) != len(EXPECTED_NORMATIVE_INVARIANTS) + 1 or body[-1] != "":
-        raise _fail("normative_invariant_section")
-
-    registry_lines = body[:-1]
-    expected_tags = list(EXPECTED_NORMATIVE_INVARIANTS)
-
-    tag_occurrences = [
-        index
-        for index, line in enumerate(normalized_lines)
-        if re.match(r"^\*\*INV-B1-\d{2}:\*\*", line)
-    ]
-    expected_occurrences = list(range(start + 4, start + 4 + len(EXPECTED_NORMATIVE_INVARIANTS)))
-    if tag_occurrences != expected_occurrences:
-        raise _fail("normative_invariant_section")
-
-    found: dict[str, str] = {}
-    for index, raw_line in enumerate(registry_lines):
-        if ":** " not in raw_line or not raw_line.startswith("**INV-B1-"):
-            raise _fail("normative_invariants")
-        tag, text = raw_line.split(":** ", 1)
-        tag = tag.removeprefix("**")
-        if tag != expected_tags[index] or tag in found:
-            raise _fail("normative_invariants")
-        found[tag] = text
-
-    if found != EXPECTED_NORMATIVE_INVARIANTS:
-        raise _fail("normative_invariants")
-    return found
-
-
-def _require_exact_line(document: str, expected: str, code: str) -> None:
-    matches = [line.strip() for line in document.splitlines() if line.strip() == expected]
-    if len(matches) != 1:
-        raise _fail(code)
+    begin = [index for index, line in enumerate(lines) if line == PROJECTION_BEGIN]
+    end = [index for index, line in enumerate(lines) if line == PROJECTION_END]
+    if len(begin) != 1 or len(end) != 1 or end[0] <= begin[0]:
+        raise _fail("contract_projection_structure")
+    return "\n".join(lines[begin[0] : end[0] + 1])
 
 
 def validate_repository(repo: Path) -> list[str]:
     contract_path = repo / CONTRACT
-    validate_contract(read_contract(contract_path))
+    contract = read_contract(contract_path)
+    validate_contract(contract)
 
     doc_path = repo / NORMATIVE_DOC
     try:
-        document = doc_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        document = doc_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise _fail("normative_doc_unreadable") from exc
-    registry = _parse_normative_invariant_registry(document)
-    if registry != EXPECTED_NORMATIVE_INVARIANTS:
-        raise _fail("normative_invariants")
-    if len(registry) != 14:
-        raise _fail("normative_invariants")
 
-    for code, expected in EXPECTED_EXACT_DOC_LINES.items():
-        _require_exact_line(document, expected, code)
+    if _extract_projection(document) != render_contract_projection(contract):
+        raise _fail("contract_projection")
 
     return [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
