@@ -40,18 +40,20 @@ Freeze the candidate-independent quality/statistical semantics required before t
 
 `python tools/qualification/quality_statistics_check.py repository --repo .`
 
-The validator is standard-library only and fail-closes the **exact 14-invariant list in §3**. The contract carries a `frozenInvariants` map with exactly 14 entries whose values must be Boolean `true` by identity (`is True`). The normative protocol carries a canonical `INV-B1-01` … `INV-B1-14` registry; repository validation parses those tagged clauses and requires exact normalized equality, so deletion, duplication, rewording or appended exceptions fail. The training-only calibration sentence and calibration partition-table row are also exact-checked independently. It additionally checks:
+The validator is standard-library only. The **JSON contract is the canonical machine authority**. It owns:
 
-- exact S/U/I/A semantics and denominators, with unsupported assertions measured **separately** for U and I;
-- training/tuning/selection/frozen-test authority;
-- post-aggregation calibration;
-- paired/site-aware statistical invariants;
-- practical margins and comparison outcomes;
+- the exact 14 invariant identities, Boolean guards and human-readable invariant statements;
+- the complete 13-entry partition-authority map and its human-readable statements;
+- S/U/I/A semantics and denominators, with unsupported assertions measured **separately** for U and I;
+- post-aggregation calibration and training-only fit authority;
+- paired/site-aware statistical invariants, practical margins and comparison outcomes;
 - execution-failure, insufficient-evidence, recall-support and no-adaptive-frozen-test-selection semantics;
 - absolute unsupported-assertion/useful-coverage gate form;
 - the complete seven-item b-2 scope boundary.
 
-Discriminating tests mutate every one of the 14 contract invariants, weaken every protected normative Markdown clause in a temporary repository, and require fail-closed refusal.
+The Markdown protocol no longer has an independent parser-defined authority surface. It contains one protected block between `S2C_B1_CONTRACT_PROJECTION` markers. That block is rendered deterministically from the JSON contract and compared byte-for-byte during repository validation. Arbitrary prose outside the protected projection is intentionally **not** parsed as machine authority; if narrative wording conflicts with the contract/projection, the contract governs.
+
+Discriminating tests mutate contract semantics/types, require all 13 partition rows and 14 invariant statements to be projected exactly once, reject protected-block edits or marker drift, and explicitly prove that unrelated narrative outside the projection is outside the machine trust boundary.
 
 ## 5. Deliberately deferred to S2c.2b-2
 
