@@ -131,8 +131,14 @@ MAVI_PATH_RE = re.compile(
     r"|(?<![a-z0-9])msr-(?:person|vehicle)-attributes-\d{4}-\d{2}(?![0-9])",
     re.IGNORECASE,
 )
-# The summary is not scanned: an author may be called Mavi.
+# The summary is not scanned for the bare word, because an author may be called Mavi;
+# MAVI next to MAVI's own evaluation vocabulary is refused there and in caveats.
 EVIDENCE_TEXT_FIELDS = ("source", "locator", "independenceBasis")
+MAVI_RESULT_RE = re.compile(
+    r"(?<![a-z0-9])mavi(?![a-z0-9]).{0,40}(?:bake-?off|selection partition|tuning partition|frozen test|gates?\b)"
+    r"|(?:bake-?off|selection partition).{0,40}(?<![a-z0-9])mavi(?![a-z0-9])",
+    re.IGNORECASE,
+)
 
 LEDGER_SUFFIX = "-evidence-ledger.json"
 FROZEN_SUFFIX = "-evidence-ledger-frozen.json"
@@ -291,8 +297,11 @@ def _normalised_source(source: str) -> str:
     kept = sorted(p for p in query.split("&") if p and not _TRACKING_PARAMETER_RE.match(p))
     if _OPENREVIEW_RE.match(path):
         ids = [p for p in kept if p.startswith("id=")]
+        notes = [p for p in kept if p.startswith("noteid=")]
         if ids:
-            return f"openreview:{ids[0][3:]}"
+            # A note (a review or comment) in a paper's forum is its own document.
+            note = f"#{notes[0][len('noteid='):]}" if notes else ""
+            return f"openreview:{ids[0][len('id='):]}{note}"
     return path + ("?" + "&".join(kept) if kept else "")
 
 
@@ -376,7 +385,7 @@ def _check_evidence(entry: dict, ledger: Mapping, where: str) -> dict[str, dict]
         _sha_or_unknown(item["retrievedSha256"], f"{at}.retrievedSha256")
         if RESERVED_GROUP_RE.match(group) or MAVI_PATH_RE.search(source) or any(
             isinstance(item.get(field), str) and MAVI_WORD_RE.search(item[field]) for field in EVIDENCE_TEXT_FIELDS
-        ):
+        ) or MAVI_RESULT_RE.search(item["summary"]):
             raise _fail("mavi_evidence_in_ledger", at)
 
         if relation == AUTHOR and group not in authors:
@@ -589,7 +598,8 @@ def _check_structure(entry: dict, ledger: dict, where: str) -> dict[str, dict]:
         _date(signal["observedOn"], f"{at}.observedOn")
         _text(signal["source"], f"{at}.source")
     for index, caveat in enumerate(_list(entry["caveats"], f"{where}.caveats")):
-        _text(caveat, f"{where}.caveats[{index}]")
+        if MAVI_RESULT_RE.search(_text(caveat, f"{where}.caveats[{index}]")):
+            raise _fail("mavi_evidence_in_ledger", f"{where}.caveats[{index}]")
     return items
 
 
@@ -1095,7 +1105,7 @@ def validate_decision(decision: object, ledger: dict, frozen: dict) -> None:
 
     implementation = decision["implementation"]
     if implementation is not None:
-        _check_implementation(implementation, state, decided_on, evaluated, licence, profiles, entries)
+        _check_implementation(implementation, state, evaluated, licence, profiles, entries)
     outcome = decision["outcome"]
     if state != "CLOSED":
         if outcome is not None:
@@ -1143,18 +1153,9 @@ def _check_evaluated_artefact(entry: dict, row: dict, where: str) -> None:
         raise _fail("evaluated_artefact_differs_from_ledger", f"{where}.artefactSha256s")
 
 
-def _record_on(entry: dict, on: date) -> dict | None:
-    current = None
-    for record in entry["classificationHistory"]:
-        if date.fromisoformat(record["at"]) <= on:
-            current = record
-    return current
-
-
 def _check_implementation(
     implementation: object,
     state: str,
-    decided_on: date,
     evaluated: Mapping[str, dict],
     licence: Mapping[str, Mapping[str, str]],
     profiles: list,
@@ -1177,16 +1178,11 @@ def _check_implementation(
             raise _fail("implementation_failed_technical_gate", where)
         if any(licence[candidate_id][profile] != CLEARED for profile in profiles):
             raise _fail("implementation_not_cleared_for_every_profile", where)
-        entry = entries[candidate_id]
-        if entry["classificationHistory"][-1]["to"] not in IMPLEMENTABLE_CLASSES:
+        # The snapshot holds nothing after the decision date, so its last history entry is
+        # the one in force on that date; that entry is on the current inputs and equals
+        # the recomputed class (§7).
+        if entries[candidate_id]["classificationHistory"][-1]["to"] not in IMPLEMENTABLE_CLASSES:
             raise _fail("implementation_requires_established", where)
-        # The class that held on the decision date, not merely a class held at some time,
-        # and one recorded on today's classification inputs, so it was recomputed (§7).
-        in_force = _record_on(entry, decided_on)
-        if in_force is None or in_force["to"] not in IMPLEMENTABLE_CLASSES:
-            raise _fail("implementation_not_established_on_decision_date", where)
-        if entry["candidateKind"] != BASELINE and in_force["inputsSha256"] != classification_inputs_sha256(entry):
-            raise _fail("implementation_promotion_not_verifiable", where)
 
 
 # ------------------------------------------------------------- repository scan
@@ -1241,9 +1237,15 @@ def validate_repository(repo: Path) -> list[str]:
         if not snapshot_path.is_file():
             raise _fail("decision_without_snapshot", relative(path))
         snapshot = read_json(snapshot_path)
+        record_text = (event.parent / f"{event.name}.md").read_text(encoding="utf-8")
+        if lf_normalised_sha256(path) not in record_text or lf_normalised_sha256(snapshot_path) not in record_text:
+            raise _fail("decision_hash_not_recorded_in_record", relative(path))
         validate_decision(decision, snapshot, frozen_ledgers[event])
         # After the decision the working ledger only grows, and nothing is dated before it.
         validate_evolution(snapshot, ledgers[event], since=date.fromisoformat(decision["decidedOn"]))
         checked.append(relative(snapshot_path))
         checked.append(relative(path))
+    for path in sorted(root.glob(f"*/msr-*{SNAPSHOT_SUFFIX}")):
+        if relative(path) not in checked:
+            raise _fail("snapshot_without_decision", relative(path))
     return checked

@@ -317,6 +317,23 @@ def test_unrelated_names_are_not_mistaken_for_mavi(source):
     assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
 
 
+@pytest.mark.parametrize("where", ["summary", "caveat"])
+def test_mavi_result_wording_is_refused_in_summary_and_caveats(where):
+    entry = established()
+    if where == "summary":
+        entry["evidence"][1]["summary"] = "MAVI bake-off winner, all gates pass"
+    else:
+        entry["caveats"] = ["passed the MAVI selection partition"]
+    refused("mavi_evidence_in_ledger", validate_ledger, ledger(entry))
+
+
+def test_openreview_notes_are_distinct_documents():
+    entry = established()
+    entry["evidence"][0]["source"] = "https://openreview.net/forum?id=AAA"
+    entry["evidence"][1]["source"] = "https://openreview.net/forum?id=AAA&noteId=BBB"
+    assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
+
+
 def test_an_author_named_mavi_is_not_refused():
     entry = established()
     entry["evidence"][1]["summary"] = "reproduction by A. Mavi et al."
@@ -1047,7 +1064,12 @@ def complete_event(tmp_path, current=None):
     folder, _ = write_event(tmp_path, frozen=full(), snapshot=full(), current=current)
     summary = decision(full())
     summary["protocolSha256"] = lf_normalised_sha256(folder / "msr-vehicle-attributes-2026-01-protocol.md")
-    (folder / "msr-vehicle-attributes-2026-01-decision.json").write_text(json.dumps(summary))
+    decision_path = folder / "msr-vehicle-attributes-2026-01-decision.json"
+    decision_path.write_text(json.dumps(summary))
+    record_path = folder / "msr-vehicle-attributes-2026-01.md"
+    snapshot_path = folder / "msr-vehicle-attributes-2026-01-evidence-ledger-decided.json"
+    record_path.write_text(record_path.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}\n"
+                           f"Decision snapshot SHA-256: {lf_normalised_sha256(snapshot_path)}\n")
     return folder
 
 
@@ -1064,6 +1086,20 @@ def test_nothing_added_after_the_decision_is_dated_before_it(tmp_path):
     settle(entry, at="2026-08-02")
     complete_event(tmp_path, current=current)
     refused("appended_before_freeze", validate_repository, tmp_path)
+
+
+def test_record_carries_decision_and_snapshot_hashes(tmp_path):
+    folder = complete_event(tmp_path)
+    snapshot_path = folder / "msr-vehicle-attributes-2026-01-evidence-ledger-decided.json"
+    rewritten = json.loads(snapshot_path.read_text())
+    entry_of(rewritten, "VC-EXC")["caveats"].append("rewritten after the decision")
+    snapshot_path.write_text(json.dumps(rewritten))
+    refused("decision_hash_not_recorded_in_record", validate_repository, tmp_path)
+
+
+def test_orphan_snapshot_is_refused(tmp_path):
+    folder, _ = write_event(tmp_path, frozen=full(), snapshot={})
+    refused("snapshot_without_decision", validate_repository, tmp_path)
 
 
 def test_decision_requires_its_ledger_snapshot(tmp_path):

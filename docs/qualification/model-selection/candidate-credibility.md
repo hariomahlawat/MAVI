@@ -28,7 +28,8 @@ A high benchmark number is not credibility, and a popular repository is not tech
 - Layer 3 never feeds layer 1. A MAVI measurement is never external evidence, so a candidate cannot promote itself with its own bake-off result. A denylist narrows this risk **[checked]**; it refuses:
   - evidence produced by the reserved group `mavi` or any `mavi-…` group;
   - sources that are MAVI repository-relative paths, MAVI MSR event files or `evidence-store:` references;
-  - evidence whose source, locator or independence basis names MAVI as a word. The summary is not scanned, because an author may be called Mavi;
+  - evidence whose source, locator or independence basis names MAVI as a word;
+  - a summary or caveat that puts MAVI next to MAVI's evaluation vocabulary (bake-off, selection or tuning partition, frozen test, gates). The bare word is not refused in a summary, because an author may be called Mavi;
   - claims on a MAVI dataset.
 
   A denylist cannot recognise every disguise, for example an internal evaluation posted under another group name. The reviewer therefore confirms that no item is MAVI-produced (§9). MAVI is matched as a whole word, so unrelated names such as "Mavic" or "MAVIS" are not refused.
@@ -258,7 +259,8 @@ MSR method §4 is extended. The implementation candidate, and each component of 
 
 These rules are checked in the **decision summary** (`mavi-model-selection-decision-v1`, `<event-id>-decision.json`). It is written at `TECHNICAL_DECISION_RECORDED` or later (S2c.4 onward), never in S2c.2a. It comes with a **decision snapshot**: the ledger as it stood on the decision date, `<event-id>-evidence-ledger-decided.json`. **[checked]**:
 - the decision cites the snapshot and the frozen ledger by canonical SHA-256. Nothing in the snapshot postdates the decision, and implementation eligibility is judged on the snapshot;
-- after the decision the working ledger must grow append-only from the snapshot, with nothing added dated before the decision date. A promotion made later can never be backdated to support the decision;
+- after the decision the working ledger must grow append-only from the snapshot, with nothing added dated before the decision date. A promotion made later cannot be backdated in the working ledger to support the decision;
+- the event record `<event-id>.md` carries the LF-normalised SHA-256 of the decision summary and of the snapshot. A snapshot without a decision is refused. Rewriting the snapshot, the decision and the record together remains a Git-review item (§9);
 - the repository check requires `protocolSha256` to equal the LF-normalised SHA-256 of `<event-id>-protocol.md`, which the event record also carries;
 - the evaluated set equals the **frozen** shortlist, and the working ledger's shortlist has not changed since. A strong candidate with an inconvenient licence cannot be dropped, before or after freezing;
 - each evaluated artefact set equals the ledger identity:
@@ -279,7 +281,7 @@ Before `PROTOCOL_FROZEN`, the independent reviewer named in the event's frozen p
 - **MAVI-produced evidence.** No evidence item reports a MAVI measurement under another name. The validator's denylist (§2) catches only the obvious forms.
 - **Free text.** Licence reasoning appears only under an `evaluation-permission` reason. The validator refuses the word "licence" elsewhere, but not a paraphrase.
 - **MAVI-trained artefacts.** Each training-manifest hash in the decision summary resolves to a retained MAVI training manifest in the S2c.3 evaluation harness's evidence store. The validator checks its form, not its content.
-- **Frozen files.** Any change to a frozen ledger, a protocol or its hash in the record is a protocol revision, and is reviewed as one.
+- **Frozen files.** Any change to a frozen ledger, a protocol, a decision snapshot, a decision summary or their hashes in the record is reviewed as a protocol revision or a decision revision. The decision file changes as the event state advances, so the reviewer compares each version's snapshot hash with the previous one.
 - **Discovery coverage.** Discovery covered the survey's sources plus a dated re-survey, and no candidate was left out because it was inconvenient. An unlisted strong candidate is a review finding.
 - **Freeze record.** The frozen protocol records the frozen ledger's SHA-256 (template `selection-protocol.md` §2).
 
@@ -329,7 +331,7 @@ Nothing in this revision, and no ledger, claims 500-camera qualification.
 | Backdate a promotion or cite evidence after its date | refused: no entry on current inputs may overclaim on its date; cited evidence must predate it and support it; no future dates; nothing recorded before it was retrieved; after freeze, nothing added may be dated before `frozenOn` |
 | Correct a publication after freeze to make an old promotion look invalid, or edit inputs so that an unverifiable old entry carries the decision | a correction needs a new history entry and never invalidates old entries; implementation needs the in-force entry to be on the current inputs; shortlisted entries' inputs are fixed after freeze |
 | Commit a protocol but no frozen ledger, leaving the ledger editable | refused: a protocol requires the frozen ledger it cites and a record carrying its hash |
-| After the decision, add independent evidence and a promotion dated between the freeze and the decision | refused: the decision is judged on its snapshot, and the working ledger may only grow from it with nothing dated before the decision |
+| After the decision, add independent evidence and a promotion dated between the freeze and the decision | refused in the working ledger: the decision is judged on its snapshot, whose hash the record carries, and the working ledger may only grow from it with nothing dated before the decision. A coordinated rewrite of the snapshot, the decision and the record is a Git-review item (§9) |
 | Set `frozenOn` earlier than the frozen contents, to open a window for backdated evidence | refused: a sealing date is no earlier than anything the sealed copy records |
 | Keep the name, swap the checkpoint | refused by the identity hash and the pinned-hash history; after freeze, a shortlisted identity is fixed |
 | Smuggle a community fine-tune in as part of a method's artefacts | refused: evaluated bytes are the backbone plus declared MAVI-trained artefacts with training manifests |
@@ -348,4 +350,6 @@ Residual human trust (P3): these are reviewer obligations (§9), not machine che
 - paraphrased licence reasoning;
 - training-manifest resolution;
 - the checkpoint/method kind;
-- coordinated rewrites of the frozen files in one commit.
+- a fabricated history prefix on superseded inputs before freeze (it can never support implementation);
+- URL variants the normaliser does not collapse (for example a repository root and its README);
+- coordinated rewrites of the frozen files, or of the snapshot, the decision and the record, in one commit.

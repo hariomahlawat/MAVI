@@ -128,7 +128,7 @@ Rules:
 
 ## Decision summary (from S2c.4 on; not written in S2c.2a)
 
-`<event-id>-decision.json`, schema `mavi-model-selection-decision-v1`. It is written together with the decision snapshot `<event-id>-evidence-ledger-decided.json`, which is the ledger as it stood on `decidedOn`. `ledgerSha256` cites the snapshot, and afterwards the working ledger may only grow from it, with nothing dated before `decidedOn`:
+`<event-id>-decision.json`, schema `mavi-model-selection-decision-v1`. It is written together with the decision snapshot `<event-id>-evidence-ledger-decided.json`, which is the ledger as it stood on `decidedOn`. `ledgerSha256` cites the snapshot, the event record carries the LF-normalised SHA-256 of both the decision and the snapshot, and afterwards the working ledger may only grow from the snapshot, with nothing dated before `decidedOn`:
 
 ```json
 {"schema": "mavi-model-selection-decision-v1",
