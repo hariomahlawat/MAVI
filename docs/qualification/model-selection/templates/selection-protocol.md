@@ -12,7 +12,9 @@ Task definitions and attribute/value vocabulary: reference the schema id, versio
 | Id | Role | Exact identity (repository, revision, file, SHA-256, or method: backbone identity + training recipe) | Preprocessing hash | Evaluation permitted (human, date) | Reason for inclusion |
 |---|---|---|---|---|---|
 
-Also record the not-shortlisted candidates, each with its **technical** reason, and the reference-only candidates with their snapshotted reported evidence.
+Also record the not-shortlisted candidates, each with its **technical** reason (or, for an `excluded-discovery`, its credibility reason), and the reference-only candidates with their snapshotted reported evidence.
+
+**External Evidence Ledger (MSR method revision M1).** Record the canonical SHA-256 of `<event-id>-evidence-ledger.json` as it stands at freeze. Every `SHORTLISTED` candidate there has computed class `established`, `emerging` or `mavi-owned`, pinned bytes, and snapshotted claim origins (`../candidate-credibility.md` §4.3). The independent reviewer confirms the §9 review obligations before freeze. A candidate promoted after freeze enters only through a numbered protocol revision or a new event (§7 there).
 
 ## 3. Data
 Corpus manifest hash; partition manifest hash; partitions each step may read (training / tuning / selection); the frozen test sealed and **not readable**; near-duplicate and leakage checks.
