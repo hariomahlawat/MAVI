@@ -20,7 +20,9 @@ Also record the not-shortlisted candidates, each with its **technical** reason (
 Corpus manifest hash; partition manifest hash; partitions each step may read (training / tuning / selection); the frozen test sealed and **not readable**; near-duplicate and leakage checks.
 
 ## 4. Measurements
-Metrics per attribute kind; primary metric(s), which are threshold-free; strata; levels (crop / Representative-only / Track); engineering probes (latency p50/p95, memory, load time, determinism, offline run, pack size); host class; thread count; precision; batch caps.
+For S2c person/vehicle events, instantiate `../s2c-quality-statistics.md` and cite the SHA of `../s2c-quality-statistics-contract.json`. Record the four candidate-independent populations (S human-scorable, U human-unscorable, I invalid-subject, A all-assigned), and name the denominator of every metric.
+
+Metrics per attribute kind; required operating-point gates and diagnostics; strata; levels (crop / Representative-only / Track, with Track primary); post-aggregation calibration evidence; unsupported-assertion and all-assigned delivery measurements. Engineering probes are specified separately by the event.
 
 **Baselines.** For each attribute, the exact baseline and how it is scored under every primary metric, including its tie rule and whether it can be packaged or serves only as a statistical floor.
 
@@ -38,25 +40,29 @@ Metrics per attribute kind; primary metric(s), which are threshold-free; strata;
 | Gate | Kind (technical / engineering / qualification) | Rule | Measurement |
 |---|---|---|---|
 
-## 6. Comparative scoring (ordering aid only)
-Required fields:
-- criteria and weights;
-- the rule converting each measurement into a criterion score;
-- how per-attribute scores are combined within a sub-task and across sub-tasks;
-- how a gate with several primary/co-primary metrics is decided (per attribute? all or any? multiplicity handling);
-- how a criterion that cannot be measured for every candidate is handled (dropped for all, weight redistributed, recorded);
-- tie rule (a difference within the interval scores as a tie);
-- the sensitivity perturbation to report;
-- MPID and the extension bar;
-- the replacement bar against the incumbent (upgrade events).
+## 6. Technical decision rule
+The event cites the governing S2c.2b-1 quality/statistical contract and the S2c.2b-2 operational/multi-objective rule. No S2c event may reach `PROTOCOL_FROZEN` until both are complete.
 
-## 7. Statistics (methodology §8.1)
-- cluster hierarchy (site → camera → Track);
-- hierarchical paired bootstrap: replicates, interval level, seeds;
-- design-effect inputs (`ρ` from the pilot, or the declared conservative value);
-- DEFF-inflated support rules for precision (predicted positives) and recall (ground-truth positives);
-- the calibration simulation and the frozen minimum number of top-level clusters, overall and per stratum;
-- the downgrade wording used when a comparison is under-supported.
+For quality/statistical comparison record:
+- the owner-approved gate table (precision/recall or useful-coverage, false-positive/unsupported-assertion, calibration, support and required-slice limits);
+- confidence-bound direction for each gate;
+- practical-difference, non-inferiority and equivalence margins;
+- how a metric with several attribute/value requirements is decided;
+- MPID/replacement bars where applicable.
+
+Any comparative score is optional under MSR method §8 and may not replace these gates. The final Pareto/ordering rule belongs to S2c.2b-2 and must be frozen before selection data are read.
+
+## 7. Statistics (methodology §8.1 + qualification-plan R3)
+- estimand and top-level independent unit for each claim (default site for unseen-site claims);
+- cluster hierarchy, keeping every Track's crops together;
+- paired resampling algorithm: replicates, interval level and seeds;
+- predicted-positive support for precision and ground-truth-positive support for recall, with clustering/design-effect assumptions;
+- training-pilot simulation used to establish independent-cluster sufficiency;
+- practical-difference, non-inferiority/equivalence and multiplicity rules;
+- undefined-denominator handling;
+- exact wording for `inconclusive` and `insufficient evidence`.
+
+Interval overlap alone is not a tie/equivalence rule.
 
 ## 7a. Composition rule (multi-component capabilities; methodology §5.1)
 - per-sub-task finalist cap `K`;
