@@ -127,7 +127,7 @@ Deliberately excluded: age, gender, ethnicity, face attributes, hair length, sle
 
 ### 7.2 Confidence representation
 
-An Observed row's confidence is the aggregation policy's score for the asserted value in [0,1] (ADR-013 §12). S2c makes it meaningful: adapters output **calibrated** per-value probabilities (calibration fitted on the training partition by camera/site-grouped cross-fitting, never on the selection partition or the frozen test, and shipped inside the Model Pack, ADR-013 item 8), and aggregation v2 reports the aggregated calibrated probability. The UI rules (integer percent in lists, one decimal in inspectors, never opacity) are S4's and unchanged. A confidence is never shown for Unknown.
+An Observed row's confidence is the aggregation policy's score for the asserted value in [0,1] (ADR-013 §12). Adapters may output **crop-level calibrated** per-value probabilities (calibration fitted from training-derived, group-disjoint predictions, never on tuning/selection/frozen-test data, and shipped inside the Model Pack, ADR-013 item 8). Aggregation v2 reports a **Track-level aggregate score**. That score may be described as a calibrated Track probability **only if post-aggregation Track-level calibration evidence satisfies S2c.2b-1 / qualification-plan R3**; crop calibration alone is insufficient. The UI rules (integer percent in lists, one decimal in inspectors, never opacity) are S4's and unchanged. A confidence is never shown for Unknown.
 
 ### 7.3 Versioning
 
