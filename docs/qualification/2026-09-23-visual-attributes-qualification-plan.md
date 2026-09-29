@@ -394,7 +394,7 @@ Any later exception is documented as a protocol revision and invalidates prior f
 
 ## 21. Protocol revision R3 (2026-09-29, S2c.2b-1): quality/statistical semantics
 
-**Status: Proposed — governing only when the S2c.2b-1 change merges.** R3 resolves quality/statistical ambiguities identified before the evaluation harness exists. It changes no lifecycle, Model Pack, Runtime Pack, binding, licence rule or acceptance-row state.
+**Status: Governing — merged in PR #119 (`main@3fbfaede6de9aa83697c96d20d95f119cb5b7ef0`).** R3 resolves quality/statistical ambiguities identified before the evaluation harness exists. It changes no lifecycle, Model Pack, Runtime Pack, binding, licence rule or acceptance-row state.
 
 1. **Truth populations.** Human-scorable ground truth, human-unscorable evidence, invalid-subject evidence and all-assigned operational units are separate populations. Classification metrics use adjudicated scorable truth. Human-unscorable evidence is never converted into a class/negative/error or into a successful model abstention. Execution failure remains in all-assigned delivery accounting.
 2. **Abstention.** Model Unknown/abstention is an outcome on otherwise applicable/scorable evidence. It is measured with a fixed denominator. Qualification includes an absolute unsupported-assertion bound on human-unscorable evidence and a separate one on invalid-subject evidence (the two populations are measured separately), plus a useful-recall/coverage floor, so accuracy cannot be improved by abstaining on nearly everything.

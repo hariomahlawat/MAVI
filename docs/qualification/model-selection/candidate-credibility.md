@@ -1,6 +1,6 @@
 # Candidate Admissibility and Credibility (MSR method v1, revision M1)
 
-**Status:** Proposed in slice S2c.2a (planning/protocol only). It becomes governing when its change passes independent review and exact-head CI and merges; that merge is the acceptance event. It is a revision of **MSR method v1** (`README.md` §14), not a new method and not a new source of architectural truth.
+**Status:** Governing — slice S2c.2a (planning/protocol only), merged in PR #118 at `main@db2b25a24d0f850c3841a9eabcb915f7c92eebfb`; that merge is the acceptance event. It is a revision of **MSR method v1** (`README.md` §14), not a new method and not a new source of architectural truth.
 **Scope:** every Model Selection Event under MSR method v1, for every capability. S2c (`msr-person-attributes-2026-01`, `msr-vehicle-attributes-2026-01`) is its first use.
 **Machine checks:** `tools/qualification/model_selection/credibility.py`, run as `python tools/qualification/model_selection_check.py`. The repository test suite validates every committed ledger, frozen ledger and decision summary. Rules marked **[checked]** are enforced by the validator; the rest are review rules (§9).
 **What this revision does not do:** it selects, downloads, runs or benchmarks no model. It changes no ADR, contract, lifecycle state, Model Pack, Runtime Pack or binding, and it writes no ledger for a real event. It records no MAVI measurement and claims no bake-off result.
