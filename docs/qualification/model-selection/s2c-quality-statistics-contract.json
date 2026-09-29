@@ -91,5 +91,21 @@
     "I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice": true,
     "I13-owner-numerical-targets-are-not-invented-by-b1": true,
     "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": true
+  },
+  "invariantStatements": {
+    "I01-human-unscorable-is-not-model-abstention": "Human-unscorable ground truth is not model abstention.",
+    "I02-classification-uses-S-and-U-I-unsupported-assertions-are-separate": "Classification quality uses human-scorable truth; unsupported assertions on U and I are measured separately.",
+    "I03-execution-failures-remain-in-A": "All-assigned delivery retains execution failures.",
+    "I04-track-calibration-is-post-aggregation": "Track calibration is evaluated after aggregation and abstention.",
+    "I05-calibration-fit-is-training-only": "Calibration fitting uses training-derived predictions only; tuning, selection and frozen-test data cannot fit calibration coefficients.",
+    "I06-tuning-selects-operating-parameters-selection-does-not-tune": "Tuning chooses operating parameters; selection compares frozen configurations and performs no fitting or tuning.",
+    "I07-frozen-test-cannot-select-or-rescue-alternative": "Frozen-test evidence cannot tune, rank, replace or rescue a candidate, and a failed or inconclusive frozen qualification cannot trigger adaptive alternative selection on the same exposed test.",
+    "I08-comparison-is-paired-cluster-aware-and-track-crops-stay-together": "Candidate comparison is paired and cluster-aware, and every Track's crops stay together.",
+    "I09-practical-noninferiority-equivalence-margins-are-predeclared": "Practical-difference, non-inferiority and equivalence margins are predeclared before selection.",
+    "I10-interval-overlap-is-not-equivalence": "Interval overlap is not equivalence, and non-significance is not non-inferiority.",
+    "I11-insufficient-support-remains-insufficient-evidence": "Insufficient attribute/value support or independent-cluster support remains insufficient evidence and cannot become a pass, tie or statistical winner.",
+    "I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice": "Unconditional recall already includes abstention, so coverage is not multiplied into recall-support arithmetic a second time.",
+    "I13-owner-numerical-targets-are-not-invented-by-b1": "S2c.2b-1 does not invent owner numerical quality targets; it freezes only the form and authority of those gates.",
+    "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": "Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline mechanics, 500-camera projection, Pareto axes and deterministic final technical ordering remain S2c.2b-2 scope."
   }
 }
