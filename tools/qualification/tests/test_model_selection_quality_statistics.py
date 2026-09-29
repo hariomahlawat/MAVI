@@ -306,3 +306,31 @@ def test_selection_boundary_numeric_zero_is_refused(field):
     document = copy.deepcopy(base())
     document["selectionBoundary"][field] = 0
     refused("selection_boundary", document)
+
+
+def test_registry_rejects_markdown_equivalent_closing_hash_heading(tmp_path):
+    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    duplicate = (
+        "\n## 13. Frozen invariant registry ##\n\n"
+        + "**INV-B1-05:** "
+        + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-05"]
+        + "\n"
+    )
+    write_minimal_repo(tmp_path, base(), text + duplicate)
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "normative_invariant_section"
+
+
+@pytest.mark.parametrize("position", ["before", "after"])
+def test_registry_rejects_duplicate_invariant_tag_outside_section(tmp_path, position):
+    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    duplicate = "**INV-B1-05:** Calibration fitting may use tuning data."
+    if position == "before":
+        weakened = duplicate + "\n\n" + text
+    else:
+        weakened = text + "\n\n" + duplicate + "\n"
+    write_minimal_repo(tmp_path, base(), weakened)
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "normative_invariant_section"
