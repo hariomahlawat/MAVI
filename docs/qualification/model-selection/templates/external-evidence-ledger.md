@@ -96,6 +96,7 @@ Type rules:
 - **independent technical types** also carry `subTask` and `objectClass`, which must be the candidate's and the ledger's.
 - **producers:** an `author` group is in `authors.groups`, an `author-affiliated` group in `authors.affiliatedGroups`; `independent` is in neither.
 - **dates:** `retrievedOn` ≤ `recordedAt`; no future date.
+- **licence:** no key or text anywhere mentions a licence, except the reason and revisit trigger of an `evaluation-permission` disposition.
 - **MAVI:** no reserved `mavi` group, MAVI path, MSR event file or `evidence-store:` source, and no item text naming MAVI.
 - **independent-benchmark:** scope is `method`.
 - **exact-checkpoint scope:** needs `reproducedArtefact`, as `{"sha256s": [...]}` equal to **all** pinned weight hashes, or as `{"repository", "revision"}` equal to the identity.

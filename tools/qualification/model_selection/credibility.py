@@ -259,15 +259,25 @@ def _person(name: str) -> str:
 
 
 def _reject_licence_keys(value: object, where: str) -> None:
-    """The ledger is licence-blind by construction: no key may even mention a licence."""
+    """The ledger is licence-blind by construction.
+
+    No key may mention a licence, and no text may either, except a disposition that
+    records the evaluation-permission carve-out (MSR method §2), whose reason and
+    revisit trigger necessarily talk about terms.
+    """
     if isinstance(value, dict):
+        carve_out = value.get("reasonClass") == "evaluation-permission" and "status" in value
         for key, item in value.items():
             if "licen" in key.lower():
                 raise _fail("licence_field_in_ledger", f"{where}.{key}")
+            if carve_out and key in ("reason", "revisitTrigger"):
+                continue
             _reject_licence_keys(item, f"{where}.{key}")
     elif isinstance(value, list):
         for index, item in enumerate(value):
             _reject_licence_keys(item, f"{where}[{index}]")
+    elif isinstance(value, str) and "licen" in value.lower():
+        raise _fail("licence_reasoning_in_ledger", where)
 
 
 _TRACKING_PARAMETER_RE = re.compile(r"^(?:utm_[a-z]+|ref|source|fbclid|gclid)=", re.IGNORECASE)
@@ -795,9 +805,6 @@ def _check_disposition(entry: dict, items: Mapping[str, dict], computed: str, co
     else:
         _optional_text(disposition["revisitTrigger"], f"{where}.disposition.revisitTrigger")
     _optional_text(disposition.get("reviewedBy"), f"{where}.disposition.reviewedBy")
-    # Licence reasoning belongs only to the evaluation-permission carve-out (MSR method §2).
-    if "licen" in (disposition["reason"] or "").lower() and reason_class != "evaluation-permission":
-        raise _fail("licence_reason_not_allowed", f"{where}.disposition.reason")
 
     if status not in DISPOSITIONS_BY_CLASS[computed]:
         raise _fail("disposition_not_allowed_for_class", f"{where}.disposition.status")
@@ -809,14 +816,14 @@ def _check_disposition(entry: dict, items: Mapping[str, dict], computed: str, co
     # R-CRED: an emerging candidate is normally held as reference-only. Shortlisting one is
     # an exception that needs a recorded basis and a second reviewer.
     basis = disposition.get("emergingShortlistBasis")
-    if status == SHORTLISTED and computed == EMERGING:
+    if basis is not None and not (status == SHORTLISTED and computed in (EMERGING, ESTABLISHED)):
+        # The basis stays on record when a shortlisted emerging candidate is later promoted.
+        raise _fail("shortlist_basis_only_for_emerging", f"{where}.disposition.emergingShortlistBasis")
+    if (status == SHORTLISTED and computed == EMERGING) or basis is not None:
         _text(basis, f"{where}.disposition.emergingShortlistBasis")
         reviewer = _text(disposition.get("reviewedBy"), f"{where}.disposition.reviewedBy")
         if _person(reviewer) == _person(disposition["decidedBy"]):
             raise _fail("shortlist_reviewer_not_independent", f"{where}.disposition")
-    elif basis is not None and not (status == SHORTLISTED and computed == ESTABLISHED):
-        # The basis stays on record when a shortlisted emerging candidate is later promoted.
-        raise _fail("shortlist_basis_only_for_emerging", f"{where}.disposition.emergingShortlistBasis")
 
     if status == SHORTLISTED and entry["candidateKind"] != BASELINE:
         if confidence not in (HIGH, MEDIUM) or not _pinned_files(entry["identity"]):
@@ -933,9 +940,9 @@ def validate_evolution(older: dict, newer: dict, since: date | None = None) -> N
     validate_ledger(newer)
     if older["eventId"] != newer["eventId"]:
         raise _fail("evolution_event_mismatch", "ledger.eventId")
-    if "frozenOn" not in older:
+    if since is None and "frozenOn" not in older:
         raise _fail("frozen_ledger_without_date", "ledger.frozenOn")
-    if newer.get("frozenOn", older["frozenOn"]) != older["frozenOn"]:
+    if "frozenOn" in older and newer.get("frozenOn", older["frozenOn"]) != older["frozenOn"]:
         raise _fail("frozen_date_changed", "ledger.frozenOn")
     bound = date.fromisoformat(older["frozenOn"]) if since is None else since
     _check_sealed_on(older, bound, "sealed_copy_postdates_its_seal")

@@ -480,10 +480,37 @@ def test_licence_cannot_be_a_technical_not_shortlisted_reason():
     entry = established()
     entry["disposition"] = {"status": "NOT_SHORTLISTED", "reasonClass": "technical",
                             "reason": "weights licence is non-commercial", "revisitTrigger": None, "decidedBy": "r"}
-    refused("licence_reason_not_allowed", validate_ledger, ledger(entry))
+    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
     entry = established()
     entry["disposition"] = dict(reference()["disposition"], reasonClass="availability", reason="licence NC, cannot bundle")
-    refused("licence_reason_not_allowed", validate_ledger, ledger(entry))
+    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
+
+
+@pytest.mark.parametrize("where", ["summary", "caveat", "signal"])
+def test_licence_reasoning_is_refused_in_any_ledger_text(where):
+    entry = established()
+    if where == "summary":
+        entry["evidence"][1]["summary"] = "weights licence forbids redistribution"
+    elif where == "caveat":
+        entry["caveats"] = ["non-commercial licence"]
+    else:
+        entry["popularitySignals"] = [{"signal": "other", "value": "1", "observedOn": "2026-06-01",
+                                       "source": "https://example.invalid/LICENSE"}]
+    refused("licence_reasoning_in_ledger", validate_ledger, ledger(entry))
+
+
+def test_evaluation_permission_disposition_may_discuss_terms():
+    entry = established()
+    entry["disposition"] = dict(reference()["disposition"], reasonClass="evaluation-permission",
+                                reason="the weights licence does not permit evaluation",
+                                revisitTrigger="licence terms change")
+    assert validate_ledger(ledger(entry))["VC-EST"]["disposition"] == "REFERENCE_ONLY"
+
+
+def test_promoted_shortlist_keeps_its_second_reviewer():
+    entry = shortlist_emerging(established())
+    entry["disposition"]["reviewedBy"] = entry["disposition"]["decidedBy"]
+    refused("shortlist_reviewer_not_independent", validate_ledger, ledger(entry))
 
 
 def test_not_shortlisted_needs_reason_and_reference_only_needs_revisit_trigger():
@@ -1100,6 +1127,21 @@ def test_record_carries_decision_and_snapshot_hashes(tmp_path):
 def test_orphan_snapshot_is_refused(tmp_path):
     folder, _ = write_event(tmp_path, frozen=full(), snapshot={})
     refused("snapshot_without_decision", validate_repository, tmp_path)
+
+
+def test_working_ledger_and_snapshot_need_not_carry_frozen_on(tmp_path):
+    current, snapshot = full(), full()
+    del current["frozenOn"], snapshot["frozenOn"]
+    folder, _ = write_event(tmp_path, frozen=full(), snapshot=snapshot, current=current)
+    summary = decision(snapshot, frozen=full())
+    summary["protocolSha256"] = lf_normalised_sha256(folder / "msr-vehicle-attributes-2026-01-protocol.md")
+    decision_path = folder / "msr-vehicle-attributes-2026-01-decision.json"
+    decision_path.write_text(json.dumps(summary))
+    record_path = folder / "msr-vehicle-attributes-2026-01.md"
+    snapshot_path = folder / "msr-vehicle-attributes-2026-01-evidence-ledger-decided.json"
+    record_path.write_text(record_path.read_text() + f"{lf_normalised_sha256(decision_path)}\n"
+                           f"{lf_normalised_sha256(snapshot_path)}\n")
+    assert len(validate_repository(tmp_path)) == 4
 
 
 def test_decision_requires_its_ledger_snapshot(tmp_path):
