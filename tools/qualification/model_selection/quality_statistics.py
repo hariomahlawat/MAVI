@@ -18,6 +18,8 @@ NORMATIVE_DOC = Path("docs/qualification/model-selection/s2c-quality-statistics.
 
 PROJECTION_BEGIN = "<!-- BEGIN S2C_B1_CONTRACT_PROJECTION -->"
 PROJECTION_END = "<!-- END S2C_B1_CONTRACT_PROJECTION -->"
+PROJECTION_BEGIN_BYTES = PROJECTION_BEGIN.encode("utf-8")
+PROJECTION_END_BYTES = PROJECTION_END.encode("utf-8")
 
 EXPECTED_POPULATIONS = {
     "S": "human-scorable",
@@ -361,25 +363,20 @@ def render_contract_projection(document: dict) -> str:
     return "\n".join(lines)
 
 
-def _extract_projection(document: str) -> str:
-    begin_matches = []
+def _all_offsets(blob: bytes, needle: bytes) -> list[int]:
+    offsets: list[int] = []
     search_from = 0
     while True:
-        index = document.find(PROJECTION_BEGIN, search_from)
+        index = blob.find(needle, search_from)
         if index < 0:
-            break
-        begin_matches.append(index)
-        search_from = index + len(PROJECTION_BEGIN)
+            return offsets
+        offsets.append(index)
+        search_from = index + len(needle)
 
-    end_matches = []
-    search_from = 0
-    while True:
-        index = document.find(PROJECTION_END, search_from)
-        if index < 0:
-            break
-        end_matches.append(index)
-        search_from = index + len(PROJECTION_END)
 
+def _extract_projection_bytes(document: bytes) -> bytes:
+    begin_matches = _all_offsets(document, PROJECTION_BEGIN_BYTES)
+    end_matches = _all_offsets(document, PROJECTION_END_BYTES)
     if len(begin_matches) != 1 or len(end_matches) != 1:
         raise _fail("contract_projection_structure")
 
@@ -387,7 +384,7 @@ def _extract_projection(document: str) -> str:
     end = end_matches[0]
     if end <= begin:
         raise _fail("contract_projection_structure")
-    return document[begin : end + len(PROJECTION_END)]
+    return document[begin : end + len(PROJECTION_END_BYTES)]
 
 
 def validate_repository(repo: Path) -> list[str]:
@@ -397,11 +394,12 @@ def validate_repository(repo: Path) -> list[str]:
 
     doc_path = repo / NORMATIVE_DOC
     try:
-        document = doc_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
+        document = doc_path.read_bytes()
+    except OSError as exc:
         raise _fail("normative_doc_unreadable") from exc
 
-    if _extract_projection(document) != render_contract_projection(contract):
+    expected_projection = render_contract_projection(contract).encode("utf-8")
+    if _extract_projection_bytes(document) != expected_projection:
         raise _fail("contract_projection")
 
     return [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
