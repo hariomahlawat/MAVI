@@ -86,67 +86,64 @@ EXPECTED_DEFERRED = [
     "500-camera-projection",
 ]
 
-REQUIRED_DOC_SNIPPETS = {
-    "doc_i01": (
-        "**I-QS1.** Classification quality is computed on **S** only. U is never converted "
-        "to a class, negative, false positive, false negative or successful abstention."
+EXPECTED_NORMATIVE_INVARIANTS = {
+    "INV-B1-01": "Human-unscorable ground truth is not model abstention.",
+    "INV-B1-02": (
+        "Classification quality uses human-scorable truth; unsupported assertions on U "
+        "and I are measured separately."
     ),
-    "doc_i02": (
-        "**I-QS2.** Model abstention is an outcome on an otherwise scorable/applicable "
-        "Track; it is not a ground-truth state."
+    "INV-B1-03": "All-assigned delivery retains execution failures.",
+    "INV-B1-04": "Track calibration is evaluated after aggregation and abstention.",
+    "INV-B1-05": (
+        "Calibration fitting uses training-derived predictions only; tuning, selection "
+        "and frozen-test data cannot fit calibration coefficients."
     ),
-    "doc_i03": (
-        "**I-QS3.** Execution failure/Unavailable remains in **A** and lowers all-assigned "
-        "delivery coverage. It cannot disappear by becoming Unknown."
+    "INV-B1-06": (
+        "Tuning chooses operating parameters; selection compares frozen configurations "
+        "and performs no fitting or tuning."
     ),
-    "doc_i04": (
-        "**I-QS4.** Unsupported assertions are measured separately on **U** and **I**."
+    "INV-B1-07": (
+        "Frozen-test evidence cannot tune, rank, replace or rescue a candidate, and a "
+        "failed or inconclusive frozen qualification cannot trigger adaptive alternative "
+        "selection on the same exposed test."
     ),
-    "doc_i05": (
-        "**I-QS5.** Calibration is evaluated at the Track output **after** the complete "
-        "aggregation, quality filtering and abstention procedure."
+    "INV-B1-08": (
+        "Candidate comparison is paired and cluster-aware, and every Track's crops stay together."
     ),
-    "doc_i06": (
-        "**I-QS6.** Selection may compare already-frozen executable configurations but "
-        "may not fit or tune them."
+    "INV-B1-09": (
+        "Practical-difference, non-inferiority and equivalence margins are predeclared before selection."
     ),
-    "doc_i07": (
-        "**I-QS7.** Frozen-test evidence cannot tune, rank, replace or rescue a candidate. "
-        "A failed/inconclusive frozen qualification does not trigger adaptive evaluation "
-        "of alternatives on the same exposed test."
+    "INV-B1-10": (
+        "Interval overlap is not equivalence, and non-significance is not non-inferiority."
     ),
-    "doc_i08": (
-        "**I-QS8.** Candidate comparisons are paired on identical evaluation units."
+    "INV-B1-11": (
+        "Insufficient attribute/value support or independent-cluster support remains "
+        "insufficient evidence and cannot become a pass, tie or statistical winner."
     ),
-    "doc_i09": (
-        "**I-QS9.** Inferential support requires both attribute/value support and sufficient "
-        "independent clusters. Total Track count cannot substitute for cluster support."
+    "INV-B1-12": (
+        "Unconditional recall already includes abstention, so coverage is not multiplied "
+        "into recall-support arithmetic a second time."
     ),
-    "doc_i10": (
-        "**I-QS10.** Overlapping confidence intervals are not proof of equivalence. A "
-        "non-significant degradation is not proof of non-inferiority."
+    "INV-B1-13": (
+        "S2c.2b-1 does not invent owner numerical quality targets; it freezes only the "
+        "form and authority of those gates."
     ),
-    "doc_i11": (
-        "**I-QS11.** “Insufficient evidence” is preserved as an outcome; it is never "
-        "converted into a pass, tie or owner-selected statistical winner."
+    "INV-B1-14": (
+        "Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline "
+        "mechanics, 500-camera projection, Pareto axes and deterministic final technical "
+        "ordering remain S2c.2b-2 scope."
     ),
-    "doc_i12": (
-        "If recall is defined unconditionally over all true positives, it already includes "
-        "abstention. **Coverage is not multiplied into the denominator a second time.**"
-    ),
-    "doc_i13": (
-        "S2c.2b-1 freezes the *form* of the gates, not owner policy numbers."
-    ),
-    "doc_i14": "This slice deliberately does **not** freeze:",
-    "doc_b2_cpu_host": "- whole-job CPU/host gates;",
-    "doc_b2_composition": "- composition resource accounting;",
-    "doc_b2_10k": "- the 10k-Track deadline mechanics;",
-    "doc_b2_pareto": "- the final Pareto axes;",
-    "doc_b2_final_selection": "- the deterministic selection from a non-dominated set;",
-    "doc_b2_fleet": "- the 500-camera projection;",
-    "doc_b2_msr_ordering": "- final technical ranking representation in the MSR.",
 }
-
+EXPECTED_EXACT_DOC_LINES = {
+    "calibration_partition_row": (
+        "| calibration coefficients | training-derived, group-disjoint held-out predictions "
+        "or predeclared cross-fitting |"
+    ),
+    "calibration_training_clause": (
+        "R1 remains literal: calibration **fitting** belongs to training. R2’s "
+        "“calibration checks” on tuning do not authorise fitting there."
+    ),
+}
 class QualityStatisticsError(ValueError):
     """Stable refusal code for a quality/statistics contract violation."""
 
@@ -286,11 +283,38 @@ def validate_contract(document: dict) -> None:
     invariants = _object(
         root["frozenInvariants"], set(EXPECTED_FROZEN_INVARIANTS), "frozen_invariants"
     )
-    if invariants != EXPECTED_FROZEN_INVARIANTS:
+    if set(invariants) != set(EXPECTED_FROZEN_INVARIANTS):
         raise _fail("frozen_invariants")
+    for key in EXPECTED_FROZEN_INVARIANTS:
+        if invariants[key] is not True:
+            raise _fail("frozen_invariants")
 
     if root["deferredToS2c2b2"] != EXPECTED_DEFERRED:
         raise _fail("b2_scope_boundary")
+
+
+def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
+    found: dict[str, str] = {}
+    prefix = "**INV-B1-"
+    for raw_line in document.splitlines():
+        line = raw_line.strip()
+        if not line.startswith(prefix):
+            continue
+        if ":** " not in line:
+            raise _fail("normative_invariant_format")
+        tag, text = line.split(":** ", 1)
+        tag = tag.removeprefix("**")
+        text = text.removesuffix("  ").strip()
+        if tag in found:
+            raise _fail("normative_invariant_duplicate")
+        found[tag] = text
+    return found
+
+
+def _require_exact_line(document: str, expected: str, code: str) -> None:
+    matches = [line.strip() for line in document.splitlines() if line.strip() == expected]
+    if len(matches) != 1:
+        raise _fail(code)
 
 
 def validate_repository(repo: Path) -> list[str]:
@@ -302,8 +326,13 @@ def validate_repository(repo: Path) -> list[str]:
         document = doc_path.read_text(encoding="utf-8").replace("\r\n", "\n")
     except (OSError, UnicodeDecodeError) as exc:
         raise _fail("normative_doc_unreadable") from exc
-    for code, snippet in REQUIRED_DOC_SNIPPETS.items():
-        if snippet not in document:
-            raise _fail(code)
+    registry = _parse_normative_invariant_registry(document)
+    if registry != EXPECTED_NORMATIVE_INVARIANTS:
+        raise _fail("normative_invariants")
+    if len(registry) != 14:
+        raise _fail("normative_invariants")
+
+    for code, expected in EXPECTED_EXACT_DOC_LINES.items():
+        _require_exact_line(document, expected, code)
 
     return [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
