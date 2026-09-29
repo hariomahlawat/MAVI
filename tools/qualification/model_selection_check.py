@@ -2,7 +2,8 @@
 
 Usage:
     python tools/qualification/model_selection_check.py ledger <ledger.json>
-    python tools/qualification/model_selection_check.py decision <decision.json> --ledger <ledger.json>
+    python tools/qualification/model_selection_check.py decision <decision.json> --ledger <ledger.json> --frozen <frozen.json>
+    python tools/qualification/model_selection_check.py evolution <frozen.json> <ledger.json>
     python tools/qualification/model_selection_check.py repository [--repo <path>]
 
 Prints the recomputed classification as JSON and exits 0, or prints the refusal code
@@ -22,6 +23,7 @@ from model_selection.credibility import (  # noqa: E402
     CredibilityError,
     read_json,
     validate_decision,
+    validate_evolution,
     validate_ledger,
     validate_repository,
 )
@@ -35,6 +37,10 @@ def main(argv: list[str] | None = None) -> int:
     decision = commands.add_parser("decision")
     decision.add_argument("path", type=Path)
     decision.add_argument("--ledger", type=Path, required=True)
+    decision.add_argument("--frozen", type=Path, required=True)
+    evolution = commands.add_parser("evolution")
+    evolution.add_argument("frozen", type=Path)
+    evolution.add_argument("ledger", type=Path)
     repository = commands.add_parser("repository")
     repository.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     arguments = parser.parse_args(argv)
@@ -42,8 +48,11 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "ledger":
             result: object = validate_ledger(read_json(arguments.path))
         elif arguments.command == "decision":
-            validate_decision(read_json(arguments.path), read_json(arguments.ledger))
+            validate_decision(read_json(arguments.path), read_json(arguments.ledger), read_json(arguments.frozen))
             result = {"decision": "valid"}
+        elif arguments.command == "evolution":
+            validate_evolution(read_json(arguments.frozen), read_json(arguments.ledger))
+            result = {"evolution": "append-only"}
         else:
             result = {"checked": validate_repository(arguments.repo)}
     except CredibilityError as exc:

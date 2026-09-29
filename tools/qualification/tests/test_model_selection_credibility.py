@@ -14,11 +14,15 @@ from pathlib import Path
 
 import pytest
 
+from model_selection import credibility as module
 from model_selection.credibility import (
+    REPORTED_LABEL,
     CredibilityError,
     credibility_class,
     document_sha256,
+    lf_normalised_sha256,
     validate_decision,
+    validate_evolution,
     validate_ledger,
     validate_repository,
 )
@@ -38,6 +42,8 @@ from model_selection_fixtures import (
     reference,
     settle,
     sha,
+    shortlist_emerging,
+    technical,
 )
 
 REPO = Path(__file__).resolve().parents[3]
@@ -54,16 +60,15 @@ def entry_of(document, candidate_id):
     return next(e for e in document["candidates"] if e["candidateId"] == candidate_id)
 
 
-def resettle(document, candidate_id, at="2026-10-05"):
-    settle(entry_of(document, candidate_id), at=at)
-    return document
+def full():
+    return ledger(baseline(), established(), emerging(), reference(), excluded(), method())
 
 
 # ------------------------------------------------------------------ baseline fixture
 
 
 def test_synthetic_ledger_classifies_every_category():
-    summary = validate_ledger(ledger())
+    summary = validate_ledger(full())
     assert {c: s["class"] for c, s in summary.items()} == {
         "VC-B0": "mavi-owned",
         "VC-EST": "established",
@@ -77,7 +82,7 @@ def test_synthetic_ledger_classifies_every_category():
 
 
 def test_classification_is_deterministic_and_order_independent():
-    first = ledger()
+    first = full()
     second = copy.deepcopy(first)
     for entry in second["candidates"]:
         entry["evidence"].reverse()
@@ -88,13 +93,13 @@ def test_classification_is_deterministic_and_order_independent():
 
 
 def test_declared_class_must_equal_computed_class():
-    document = ledger()
+    document = full()
     entry_of(document, "VC-EMG")["classification"]["class"] = "established"
     refused("declared_class_differs_from_computed", validate_ledger, document)
 
 
 def test_declared_confidence_must_equal_computed():
-    document = ledger()
+    document = full()
     entry_of(document, "VC-REF")["classification"]["provenanceConfidence"] = "High"
     refused("declared_confidence_differs_from_computed", validate_ledger, document)
 
@@ -105,7 +110,6 @@ def test_declared_confidence_must_equal_computed():
 def test_five_repetitions_of_one_readme_figure_do_not_establish():
     entry = emerging()
     assert credibility_class(entry, items(entry)) == "emerging"
-    # even with established-grade publication, repetitions count for nothing
     entry["publication"] = established()["publication"]
     assert credibility_class(entry, items(entry)) == "emerging"
 
@@ -114,6 +118,19 @@ def test_claim_origin_must_be_the_root_not_a_repetition():
     entry = emerging()
     entry["claims"][0]["originEvidenceId"] = "E-COPY0"
     refused("claim_origin_is_repetition", validate_ledger, ledger(entry))
+
+
+def test_claim_origin_must_be_primary_evidence():
+    entry = established()
+    entry["evidence"].append(evidence("E-BLOG", "public-scrutiny", "blogger", "independent"))
+    entry["claims"][0]["originEvidenceId"] = "E-BLOG"
+    refused("claim_origin_not_primary", validate_ledger, ledger(entry))
+
+
+def test_architecture_must_be_documented_first_party():
+    entry = established()
+    entry["architecture"]["documentedBy"] = "E-REPRO"
+    assert credibility_class(entry, items(entry)) == "reference-only"
 
 
 def test_repetition_must_name_what_it_repeats():
@@ -132,13 +149,30 @@ def test_repetition_chain_cycle_is_refused():
 def test_repetition_cannot_be_dressed_as_reproduction_fields():
     entry = emerging()
     entry["evidence"][1]["scope"] = "method"
-    refused("repetition_cannot_carry", validate_ledger, ledger(entry))
+    refused("field_not_allowed_for_type", validate_ledger, ledger(entry))
 
 
-def test_independent_item_reusing_first_party_source_is_refused():
+def test_retyping_a_repeating_page_as_independent_is_refused():
+    entry = emerging()
+    copy_page = entry["evidence"][1]
+    entry["evidence"].append(technical("E-FAKE", "independent-reproduction", "site-0x", scope="method",
+                                       source=copy_page["source"]))
+    refused("independent_evidence_not_distinct", validate_ledger, ledger(entry))
+
+
+@pytest.mark.parametrize("variant", ["{}#table-2", "{}?ref=x", "{}/", "HTTP://{}"])
+def test_url_variants_of_one_document_are_not_independent(variant):
     entry = established()
-    entry["evidence"][1]["source"] = entry["evidence"][0]["source"] + "/"
-    refused("independent_evidence_reuses_first_party_source", validate_ledger, ledger(entry))
+    first_party = entry["evidence"][0]["source"]
+    bare = first_party.split("://", 1)[1]
+    entry["evidence"][1]["source"] = variant.format(first_party if not variant.startswith("HTTP") else bare)
+    refused("independent_evidence_not_distinct", validate_ledger, ledger(entry))
+
+
+def test_same_retrieved_bytes_are_not_independent():
+    entry = established()
+    entry["evidence"][2]["retrievedSha256"] = entry["evidence"][1]["retrievedSha256"]
+    refused("independent_evidence_not_distinct", validate_ledger, ledger(entry))
 
 
 def test_independent_producer_cannot_be_an_author_group():
@@ -147,8 +181,22 @@ def test_independent_producer_cannot_be_an_author_group():
     refused("independent_producer_is_author", validate_ledger, ledger(entry))
 
 
+def test_affiliated_group_cannot_double_as_independent():
+    entry = established()
+    entry["authors"]["affiliatedGroups"] = ["x-spinoff"]
+    entry["evidence"][1]["producer"]["group"] = "x-spinoff"
+    refused("independent_producer_is_author", validate_ledger, ledger(entry))
+
+
+def test_affiliated_first_party_group_must_be_declared():
+    entry = established()
+    entry["evidence"][0]["producer"] = {"group": "undeclared", "relation": "author-affiliated"}
+    refused("affiliated_group_not_declared", validate_ledger, ledger(entry))
+
+
 def test_independent_evidence_requires_independent_relation():
     entry = established()
+    entry["authors"]["affiliatedGroups"] = ["other-lab"]
     entry["evidence"][1]["producer"]["relation"] = "author-affiliated"
     refused("independent_evidence_not_independent", validate_ledger, ledger(entry))
 
@@ -161,7 +209,7 @@ def test_first_party_claim_cannot_be_labelled_independent():
 
 def test_one_group_counts_once():
     entry = established()
-    entry["evidence"][2]["producer"]["group"] = "other-lab"  # adoption from the reproducing group
+    entry["evidence"][2]["producer"]["group"] = "other-lab"
     assert credibility_class(entry, items(entry)) == "emerging"
 
 
@@ -175,7 +223,7 @@ def test_adoption_alone_is_not_independent_technical_evidence():
 def test_popularity_signals_are_never_counted():
     entry = emerging()
     entry["popularitySignals"] = [
-        {"signal": s, "value": "1000000", "observedOn": "2026-10-01", "source": "https://example.invalid/x"}
+        {"signal": s, "value": "1000000", "observedOn": "2026-06-01", "source": "https://example.invalid/x"}
         for s in ("github-stars", "downloads", "citations")
     ]
     assert credibility_class(entry, items(entry)) == "emerging"
@@ -191,8 +239,7 @@ def test_checkpoint_needs_exact_scope_independent_technical_evidence():
     method_entry["identity"]["publisher"] = "original-organisation"
     method_entry["identity"]["derivation"] = None
     method_entry["evidence"] += [
-        evidence("E-BENCH", "independent-benchmark", "bench-server", "independent", scope="method",
-                 independenceBasis="server computes the score"),
+        technical("E-BENCH", "independent-benchmark", "bench-server", scope="method"),
         evidence("E-ADOPT", "adoption", "framework-team", "independent", scope="method", independenceBasis="separate"),
     ]
     assert credibility_class(method_entry, items(method_entry)) == "established"
@@ -220,6 +267,35 @@ def test_peer_reviewed_requires_venue_and_established_preprint_requires_basis():
     refused("text_required", validate_ledger, ledger(entry))
 
 
+# ------------------------------------------------ MAVI results are never external evidence
+
+
+@pytest.mark.parametrize("change", [
+    {"producer": {"group": "mavi", "relation": "independent"}},
+    {"producer": {"group": "mavi-bakeoff", "relation": "independent"}},
+    {"source": "docs/qualification/model-selection/vehicle-attributes/msr-vehicle-attributes-2026-01.md"},
+    {"source": "evidence/bakeoff/results.json"},
+    {"source": "https://github.com/hariomahlawat/MAVI/blob/main/x.md"},
+])
+def test_mavi_measurement_cannot_enter_the_ledger(change):
+    entry = established()
+    entry["evidence"][1].update(change)
+    refused("mavi_evidence_in_ledger", validate_ledger, ledger(entry))
+
+
+def test_mavi_dataset_claim_is_refused():
+    entry = established()
+    entry["claims"][0]["dataset"] = "MAVI selection partition"
+    refused("mavi_evidence_in_ledger", validate_ledger, ledger(entry))
+
+
+def test_mavi_cannot_be_an_author_group_of_an_external_candidate():
+    entry = established()
+    entry["authors"]["groups"] = ["mavi"]
+    entry["evidence"][0]["producer"]["group"] = "mavi"
+    refused("mavi_evidence_in_ledger", validate_ledger, ledger(entry))
+
+
 # ------------------------------------------------------------ I1: provenance and shortlist
 
 
@@ -234,7 +310,7 @@ def test_unpinned_checkpoint_is_low_confidence_and_cannot_be_shortlisted():
     entry["identity"]["files"][0]["sha256"] = "UNKNOWN"
     assert credibility_class(entry, items(entry)) == "reference-only"
     entry = established()
-    entry["identity"]["revision"] = "v1.0"  # a floating tag is not immutable
+    entry["identity"]["revision"] = "v1.0"
     assert credibility_class(entry, items(entry)) == "reference-only"
 
 
@@ -244,14 +320,14 @@ def test_unknown_source_is_excluded_discovery():
     assert credibility_class(entry, items(entry)) == "excluded-discovery"
     entry = established()
     entry["authors"]["groups"] = []
-    entry["evidence"] = [evidence("E-PAPER", "first-party-claim", "x", "author-affiliated")]
     assert credibility_class(entry, items(entry)) == "excluded-discovery"
 
 
-def test_integrity_conflict_excludes():
+def test_integrity_conflict_excludes_from_its_date():
     entry = established()
-    entry["identity"]["integrityConflict"] = "retrieved bytes differ from the published hash"
+    entry["identity"]["integrityConflict"] = {"at": "2026-07-01", "reason": "retrieved bytes differ from the published hash"}
     assert credibility_class(entry, items(entry)) == "excluded-discovery"
+    assert credibility_class(entry, items(entry), module.date(2026, 6, 15)) == "established"
 
 
 def test_excluded_discovery_can_only_be_not_shortlisted_for_credibility():
@@ -293,15 +369,17 @@ def test_framework_conversion_without_documented_derivation_is_low():
 def test_medium_provenance_never_reaches_established():
     entry = method()
     entry["evidence"] += established()["evidence"][2:]
-    entry["evidence"].append(evidence("E-BENCH", "independent-benchmark", "bench", "independent",
-                                      scope="method", independenceBasis="server"))
+    entry["evidence"].append(technical("E-BENCH", "independent-benchmark", "bench", scope="method"))
     assert credibility_class(entry, items(entry)) == "emerging"
 
 
-def test_shortlist_requires_snapshotted_claim_origin():
+def test_shortlist_requires_snapshotted_evidence():
     entry = established()
     entry["evidence"][0]["retrievedSha256"] = "UNKNOWN"
-    refused("shortlist_requires_snapshotted_claims", validate_ledger, ledger(entry))
+    refused("shortlist_requires_snapshotted_evidence", validate_ledger, ledger(entry))
+    entry = established()
+    entry["evidence"][1]["retrievedSha256"] = "UNKNOWN"
+    refused("shortlist_requires_snapshotted_evidence", validate_ledger, ledger(entry))
 
 
 def test_method_shortlist_requires_immutable_code_revision():
@@ -310,8 +388,23 @@ def test_method_shortlist_requires_immutable_code_revision():
     refused("shortlist_requires_method_revision", validate_ledger, ledger(entry))
 
 
-def test_credibility_reason_must_match_evidence():
+def test_emerging_defaults_to_reference_only():
+    assert validate_ledger(ledger(emerging(shortlisted=False)))["VC-EMG"]["disposition"] == "REFERENCE_ONLY"
+
+
+def test_shortlisting_emerging_needs_basis_and_second_reviewer():
     entry = emerging()
+    del entry["disposition"]["emergingShortlistBasis"]
+    refused("text_required", validate_ledger, ledger(entry))
+    entry = emerging()
+    entry["disposition"]["reviewedBy"] = " Synthetic-Reviewer "
+    refused("shortlist_reviewer_not_independent", validate_ledger, ledger(entry))
+    entry = shortlist_emerging(established())
+    refused("shortlist_basis_only_for_emerging", validate_ledger, ledger(entry))
+
+
+def test_established_candidate_cannot_be_parked_for_credibility():
+    entry = established()
     entry["disposition"] = reference()["disposition"]
     refused("credibility_reason_contradicts_evidence", validate_ledger, ledger(entry))
 
@@ -321,6 +414,13 @@ def test_evaluation_permission_reference_only_keeps_computed_class():
     entry["disposition"] = dict(reference()["disposition"], reasonClass="evaluation-permission",
                                 reason="evaluation not permitted by its terms")
     assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
+
+
+def test_licence_cannot_be_a_technical_not_shortlisted_reason():
+    entry = established()
+    entry["disposition"] = {"status": "NOT_SHORTLISTED", "reasonClass": "technical",
+                            "reason": "weights licence is non-commercial", "revisitTrigger": None, "decidedBy": "r"}
+    refused("licence_reason_not_allowed", validate_ledger, ledger(entry))
 
 
 def test_not_shortlisted_needs_reason_and_reference_only_needs_revisit_trigger():
@@ -338,53 +438,62 @@ def test_not_shortlisted_needs_reason_and_reference_only_needs_revisit_trigger()
 
 @pytest.mark.parametrize("status", ["EVALUATED", "TECHNICALLY_SELECTED", "TECHNICAL_ALTERNATIVE", "REJECTED_TECHNICAL"])
 def test_ledger_cannot_record_a_bake_off_outcome(status):
-    document = ledger()
+    document = full()
     entry_of(document, "VC-EST")["disposition"]["status"] = status
     refused("value_not_allowed", validate_ledger, document)
 
 
 def test_ledger_rejects_mavi_measurement_fields():
-    document = ledger()
+    document = full()
     entry_of(document, "VC-EST")["maviResult"] = {"aurc": 0.1}
     refused("unknown_field", validate_ledger, document)
-    document = ledger()
+    document = full()
     entry_of(document, "VC-EST")["evidence"][0]["type"] = "mavi-measurement"
     refused("value_not_allowed", validate_ledger, document)
 
 
 @pytest.mark.parametrize("key", ["licence", "weightsLicense", "licenceStatus"])
 def test_ledger_has_no_licence_field_anywhere(key):
-    document = ledger()
+    document = full()
     entry_of(document, "VC-EST")["identity"][key] = "CLEARED"
     refused("licence_field_in_ledger", validate_ledger, document)
 
 
-def test_licence_never_changes_classification():
-    entry = established()
-    before = credibility_class(entry, items(entry))
-    document = ledger(entry)
-    decision_a = decision(ledger(baseline(), established(), emerging(), method()))
-    assert before == validate_ledger(document)["VC-EST"]["class"] == "established"
-    assert "licence" not in json.dumps(document).lower() and "licence" in json.dumps(decision_a)
+def test_licence_never_changes_classification_or_technical_outputs():
+    document = full()
+    constrained = {c: {"dev-profile": "NOT_CLEARED"} for c in ("VC-B0", "VC-EST", "VC-EMG", "VC-MTH")}
+    a = decision(document, implementation=None)
+    b = decision(document, licence=constrained, implementation=None)
+    validate_decision(a, document, document)
+    validate_decision(b, document, document)
+    assert a["strongestEvaluatedTechnical"] == b["strongestEvaluatedTechnical"] == "VC-EMG"
+    assert a["highestTaskQualityEvaluated"] == b["highestTaskQualityEvaluated"]
+    assert "licen" not in json.dumps(document).lower()
 
 
 # --------------------------------------------------- I8/I10: history, promotion, identity
 
 
-def test_new_evidence_that_changes_class_needs_a_history_entry():
-    entry = settle(emerging())
+def promote(entry, at="2026-06-04"):
     entry["evidence"] += [
-        evidence("E-REPRO", "independent-reproduction", "other-lab", "independent", recorded="2026-10-03",
-                 scope="exact-checkpoint", reproducedArtefact=exact("emg"), independenceBasis="no shared authors"),
-        evidence("E-ADOPT", "adoption", "framework-team", "independent", recorded="2026-10-03",
+        technical("E-REPRO", "independent-reproduction", "other-lab", recorded="2026-06-03",
+                  scope="exact-checkpoint", reproducedArtefact=exact("emg")),
+        evidence("E-ADOPT", "adoption", "framework-team", "independent", recorded="2026-06-03",
                  scope="method", independenceBasis="separate"),
     ]
     entry["publication"] = established()["publication"]
+    return entry
+
+
+def test_new_evidence_that_changes_class_needs_a_history_entry():
+    entry = settle(emerging())
+    promote(entry)
+    entry["disposition"] = established()["disposition"]
     document = ledger(baseline())
     document["candidates"].append(entry)
     entry["classification"] = {"class": "established", "provenanceConfidence": "High"}
     refused("class_change_not_recorded", validate_ledger, document)
-    settle(entry, at="2026-10-04", reason="independent reproduction and adoption recorded")
+    settle(entry, at="2026-06-04", reason="independent reproduction and adoption recorded")
     assert validate_ledger(document)["VC-EMG"]["class"] == "established"
     assert [r["to"] for r in entry["classificationHistory"]] == ["emerging", "established"]
 
@@ -392,51 +501,83 @@ def test_new_evidence_that_changes_class_needs_a_history_entry():
 def test_promotion_cannot_be_backdated_ahead_of_its_evidence():
     entry = established()
     for item in entry["evidence"][1:]:
-        item["recordedAt"] = "2026-10-10"
-    document = ledger(entry)  # settle() dated 2026-10-02, before the independent evidence
-    refused("promotion_not_supported_on_date", validate_ledger, document)
+        item["recordedAt"] = item["retrievedOn"] = "2026-06-10"
+    refused("history_overclaims_on_date", validate_ledger, ledger(entry))
+
+
+def test_promotion_must_cite_the_evidence_it_relies_on():
+    document = full()
+    entry_of(document, "VC-EST")["classificationHistory"][0]["evidenceIds"] = ["E-PAPER"]
+    refused("promotion_not_supported_by_cited_evidence", validate_ledger, document)
+
+
+def test_history_entry_cannot_overclaim_on_its_date():
+    document = full()
+    entry = entry_of(document, "VC-EMG")
+    first = dict(entry["classificationHistory"][0], at="2026-06-02", to="emerging")
+    entry["classificationHistory"] = [dict(first, **{"from": None}), dict(first, **{"from": "emerging"})]
+    validate_ledger(document)  # a repeated but true entry is harmless
+    entry = entry_of(document, "VC-REF")  # pinned third-party upload: reference-only on every date
+    entry["classificationHistory"].insert(0, dict(entry["classificationHistory"][0], at="2026-06-01", to="emerging"))
+    entry["classificationHistory"][1]["from"] = "emerging"
+    refused("history_overclaims_on_date", validate_ledger, document)
+
+
+def test_evidence_cannot_be_recorded_before_it_was_retrieved():
+    entry = established()
+    entry["evidence"][1]["retrievedOn"] = "2026-06-20"
+    refused("recorded_before_retrieved", validate_ledger, ledger(entry))
+
+
+def test_future_dates_are_refused(monkeypatch):
+    monkeypatch.setattr(module, "_today", lambda: module.date(2026, 5, 1))
+    refused("date_in_future", validate_ledger, full())
 
 
 def test_history_cannot_cite_evidence_recorded_later():
-    document = ledger()
+    document = full()
     entry = entry_of(document, "VC-EMG")
-    entry["evidence"][1]["recordedAt"] = "2026-11-01"
+    entry["evidence"][1]["recordedAt"] = entry["evidence"][1]["retrievedOn"] = "2026-08-01"
     refused("history_cites_later_evidence", validate_ledger, document)
 
 
 def test_history_must_chain_and_be_reviewed_by_someone_else():
-    document = ledger()
-    entry_of(document, "VC-EST")["classificationHistory"][0]["reviewedBy"] = "synthetic-curator"
+    document = full()
+    entry_of(document, "VC-EST")["classificationHistory"][0]["reviewedBy"] = " Synthetic-Curator"
     refused("history_reviewer_not_independent", validate_ledger, document)
-    document = ledger()
+    document = full()
     entry_of(document, "VC-EST")["classificationHistory"][0]["from"] = "emerging"
     refused("history_chain_broken", validate_ledger, document)
 
 
 def test_history_is_required():
-    document = ledger()
+    document = full()
     entry_of(document, "VC-EST")["classificationHistory"] = []
     refused("history_required", validate_ledger, document)
 
 
 def test_identity_edit_without_history_entry_is_refused():
-    document = ledger()
+    document = full()
     entry_of(document, "VC-EST")["identity"]["tag"] = "v1.1"
     refused("identity_change_not_recorded", validate_ledger, document)
 
 
 def test_same_name_different_checkpoint_needs_a_new_entry():
-    document = ledger()
+    document = full()
     entry = entry_of(document, "VC-EST")
     entry["identity"]["files"][0]["sha256"] = sha("weights-est-v2")
-    entry["evidence"][1]["reproducedArtefact"] = {"sha256": sha("weights-est-v2")}
-    settle(entry, at="2026-10-06", reason="upstream replaced the weights")
+    entry["evidence"][1]["reproducedArtefact"] = {"sha256s": [sha("weights-est-v2")]}
+    settle(entry, at="2026-06-06", reason="upstream replaced the weights")
     refused("checkpoint_changed_under_same_candidate", validate_ledger, document)
 
 
-def test_exact_scope_evidence_must_name_the_same_bytes():
+def test_exact_scope_evidence_must_name_all_the_same_bytes():
     entry = established()
-    entry["evidence"][1]["reproducedArtefact"] = {"sha256": sha("some-other-weights")}
+    entry["evidence"][1]["reproducedArtefact"] = {"sha256s": [sha("some-other-weights")]}
+    refused("evidence_artefact_mismatch", validate_ledger, ledger(entry))
+    entry = established()
+    entry["identity"]["files"].append({"path": "tokenizer.json", "sha256": sha("tok")})
+    entry["evidence"][1]["reproducedArtefact"] = {"sha256s": [sha("tok")]}  # one shared file only
     refused("evidence_artefact_mismatch", validate_ledger, ledger(entry))
     entry = established()
     entry["evidence"][1]["reproducedArtefact"] = {"repository": entry["identity"]["repository"],
@@ -451,20 +592,79 @@ def test_exact_scope_by_repository_and_revision_is_accepted():
     assert validate_ledger(ledger(entry))["VC-EST"]["class"] == "established"
 
 
-def test_two_entries_cannot_share_weight_bytes():
+def test_two_checkpoint_entries_cannot_share_weight_bytes():
     twin = established("VC-TWIN", "est")
     refused("weight_hash_shared_by_two_candidates", validate_ledger, ledger(established(), twin))
 
 
+def test_method_entries_may_share_one_backbone():
+    first = method("PC-1", "shared")
+    second = method("PO-1", "shared")
+    for entry, subtask in ((first, "T-PC"), (second, "T-PO")):
+        entry["subTasks"] = [subtask]
+        entry["claims"] = [claim("C1", "E-PAPER", subtask=subtask, object_class="person")]
+    document = ledger(first, second, object_class="person", capability="person-attributes", subtasks=("T-PC", "T-PO"))
+    assert set(validate_ledger(document)) == {"PC-1", "PO-1"}
+    entry_of(document, "PO-1")["identity"]["tag"] = "v2"
+    settle(entry_of(document, "PO-1"), at="2026-06-05")
+    refused("weight_hash_shared_by_two_candidates", validate_ledger, document)
+
+
 def test_retracted_evidence_demotes_and_needs_a_history_entry():
-    document = ledger()
+    document = full()
     entry = entry_of(document, "VC-EST")
-    entry["evidence"][1]["retracted"] = {"at": "2026-10-20", "reason": "reproduction withdrawn"}
+    entry["evidence"][1]["retracted"] = {"at": "2026-07-20", "reason": "reproduction withdrawn"}
     refused("declared_class_differs_from_computed", validate_ledger, document)
     entry["classification"]["class"] = "emerging"
     refused("class_change_not_recorded", validate_ledger, document)
-    settle(entry, at="2026-10-21", reason="independent reproduction withdrawn")
+    settle(entry, at="2026-07-21", reason="independent reproduction withdrawn")
+    entry["disposition"] = emerging()["disposition"]
     assert validate_ledger(document)["VC-EST"]["class"] == "emerging"
+
+
+# ------------------------------------------------ after freeze the ledger only grows
+
+
+def test_frozen_ledger_evolution_is_append_only():
+    frozen = full()
+    grown = copy.deepcopy(frozen)
+    entry_of(grown, "VC-EXC")["caveats"].append("later note")
+    validate_evolution(frozen, grown)
+
+    rewritten = copy.deepcopy(frozen)
+    entry_of(rewritten, "VC-REF")["evidence"][0]["summary"] = "rewritten"
+    refused("frozen_evidence_changed", validate_evolution, frozen, rewritten)
+
+    removed = copy.deepcopy(frozen)
+    entry = entry_of(removed, "VC-EXC")
+    entry["caveats"] = []
+    removed["candidates"].remove(entry)
+    refused("frozen_candidate_removed", validate_evolution, frozen, removed)
+
+
+def test_shortlist_cannot_change_after_freeze():
+    frozen = full()
+    edited = copy.deepcopy(frozen)
+    entry_of(edited, "VC-EMG")["disposition"] = {"status": "DEFERRED", "reasonClass": "resources",
+                                                  "reason": "no time", "revisitTrigger": "later", "decidedBy": "r"}
+    refused("shortlist_changed_after_freeze", validate_evolution, frozen, edited)
+    summary = decision(edited, frozen=frozen)
+    refused("shortlist_changed_after_freeze", validate_decision, summary, edited, frozen)
+
+
+def test_frozen_history_cannot_be_rewritten():
+    frozen = full()
+    edited = copy.deepcopy(frozen)
+    entry_of(edited, "VC-EST")["classificationHistory"][0]["reason"] = "different story"
+    refused("frozen_history_rewritten", validate_evolution, frozen, edited)
+
+
+def test_frozen_retraction_is_allowed_but_kept():
+    frozen = full()
+    edited = copy.deepcopy(frozen)
+    entry = entry_of(edited, "VC-EXC")
+    entry["evidence"][0]["retracted"] = {"at": "2026-07-01", "reason": "withdrawn"}
+    validate_evolution(frozen, edited)
 
 
 # ------------------------------------------------------------------- I11: person/vehicle
@@ -476,6 +676,12 @@ def test_person_claim_cannot_support_a_vehicle_candidate():
     refused("claim_object_class_mismatch", validate_ledger, ledger(entry))
 
 
+def test_person_reproduction_cannot_support_a_vehicle_candidate():
+    entry = established()
+    entry["evidence"][1]["objectClass"] = "person"
+    refused("evidence_object_class_mismatch", validate_ledger, ledger(entry))
+
+
 def test_claim_subtask_must_belong_to_the_candidate_and_event():
     entry = established()
     entry["claims"][0]["subTask"] = "T-PC"
@@ -485,10 +691,17 @@ def test_claim_subtask_must_belong_to_the_candidate_and_event():
     refused("candidate_subtasks_invalid", validate_ledger, ledger(entry))
 
 
+def test_known_event_scope_cannot_be_widened():
+    document = ledger(baseline(), object_class="person", capability="person-attributes",
+                      subtasks=("T-PC", "T-PO", "T-VC"))
+    refused("event_scope_mismatch", validate_ledger, document)
+
+
 def test_person_ledger_is_separate():
     entry = established("PC-1", "pc")
     entry["subTasks"] = ["T-PC"]
     entry["claims"] = [claim("C1", "E-PAPER", subtask="T-PC", object_class="person")]
+    entry["evidence"][1].update(subTask="T-PC", objectClass="person")
     document = ledger(entry, object_class="person", capability="person-attributes", subtasks=("T-PC", "T-PO"))
     assert validate_ledger(document)["PC-1"]["class"] == "established"
     document["eventId"] = "msr-vehicle-attributes-2026-01"
@@ -498,14 +711,10 @@ def test_person_ledger_is_separate():
 # ---------------------------------------------------------------- decision summary (§8)
 
 
-def full():
-    return ledger(baseline(), established(), emerging(), reference(), excluded(), method())
-
-
 def test_consistent_decision_is_accepted_and_emerging_winner_stays_recorded():
     document = full()
     summary = decision(document)
-    validate_decision(summary, document)
+    validate_decision(summary, document, document)
     assert summary["strongestEvaluatedTechnical"] == "VC-EMG"
     assert summary["implementation"]["components"] == ["VC-EST"]
 
@@ -515,7 +724,7 @@ def test_shortlisted_candidate_cannot_be_dropped_from_the_evaluation():
     summary = decision(document)
     summary["evaluated"] = [r for r in summary["evaluated"] if r["candidateId"] != "VC-EMG"]
     del summary["licence"]["VC-EMG"]
-    refused("evaluated_set_differs_from_shortlist", validate_decision, summary, document)
+    refused("evaluated_set_differs_from_shortlist", validate_decision, summary, document, document)
 
 
 def test_reference_only_candidate_cannot_be_evaluated():
@@ -524,7 +733,7 @@ def test_reference_only_candidate_cannot_be_evaluated():
     summary["evaluated"].append(dict(summary["evaluated"][1], candidateId="VC-REF",
                                      artefactSha256s=[sha("weights-ref")]))
     summary["licence"]["VC-REF"] = {"dev-profile": "CLEARED"}
-    refused("evaluated_set_differs_from_shortlist", validate_decision, summary, document)
+    refused("evaluated_set_differs_from_shortlist", validate_decision, summary, document, document)
 
 
 def test_strongest_technical_ignores_licence():
@@ -532,36 +741,51 @@ def test_strongest_technical_ignores_licence():
     licence = {c: {"dev-profile": "CLEARED"} for c in ("VC-B0", "VC-EST", "VC-MTH")}
     licence["VC-EMG"] = {"dev-profile": "CONSTRAINED"}
     summary = decision(document, licence=licence)
-    validate_decision(summary, document)
+    validate_decision(summary, document, document)
     assert summary["strongestEvaluatedTechnical"] == "VC-EMG"
     assert summary["strongestClearedPerProfile"]["dev-profile"] == "VC-EST"
-    summary["strongestEvaluatedTechnical"] = "VC-EST"  # hide the constrained winner
-    refused("strongest_technical_not_maximal", validate_decision, summary, document)
+    summary["strongestEvaluatedTechnical"] = "VC-EST"
+    refused("strongest_technical_not_maximal", validate_decision, summary, document, document)
 
 
 def test_strongest_cleared_is_derived_not_asserted():
     document = full()
     summary = decision(document)
     summary["strongestClearedPerProfile"]["dev-profile"] = "VC-MTH"
-    refused("strongest_cleared_not_derived", validate_decision, summary, document)
+    refused("strongest_cleared_not_derived", validate_decision, summary, document, document)
     licence = {c: {"dev-profile": "NOT_CLEARED"} for c in ("VC-B0", "VC-EST", "VC-EMG", "VC-MTH")}
     summary = decision(document, licence=licence, implementation=None)
-    validate_decision(summary, document)
+    validate_decision(summary, document, document)
     summary["strongestClearedPerProfile"]["dev-profile"] = "VC-EST"
-    refused("strongest_cleared_not_derived", validate_decision, summary, document)
+    refused("strongest_cleared_not_derived", validate_decision, summary, document, document)
 
 
 def test_highest_task_quality_is_over_every_evaluated_candidate():
     document = full()
     summary = decision(document)
-    summary["evaluated"][1]["taskQualityScore"] = 0.99  # VC-EST
-    refused("highest_task_quality_not_maximal", validate_decision, summary, document)
+    next(r for r in summary["evaluated"] if r["candidateId"] == "VC-EST")["taskQualityScore"] = 0.99
+    refused("highest_task_quality_not_maximal", validate_decision, summary, document, document)
 
 
 def test_emerging_candidate_cannot_be_implemented_without_promotion():
     document = full()
     summary = decision(document, implementation=("VC-EMG",))
-    refused("implementation_requires_established", validate_decision, summary, document)
+    refused("implementation_requires_established", validate_decision, summary, document, document)
+
+
+def test_implementation_class_is_the_one_on_the_decision_date():
+    document = full()
+    entry = entry_of(document, "VC-EST")
+    entry["evidence"][1]["retracted"] = {"at": "2026-07-01", "reason": "withdrawn"}
+    entry["classification"]["class"] = "emerging"
+    settle(entry, at="2026-07-02")
+    entry["evidence"].append(technical("E-REPRO2", "independent-reproduction", "third-lab", recorded="2026-09-10",
+                                       scope="exact-checkpoint", reproducedArtefact=exact("est")))
+    entry["classification"]["class"] = "established"
+    settle(entry, at="2026-09-11")
+    assert [r["to"] for r in entry["classificationHistory"]] == ["established", "emerging", "established"]
+    summary = decision(document)  # decided 2026-09-01, while the candidate was emerging
+    refused("implementation_not_established_on_decision_date", validate_decision, summary, document, document)
 
 
 def test_implementation_must_be_cleared_for_every_profile():
@@ -569,7 +793,7 @@ def test_implementation_must_be_cleared_for_every_profile():
     licence = {c: {"dev-profile": "CLEARED"} for c in ("VC-B0", "VC-EMG", "VC-MTH")}
     licence["VC-EST"] = {"dev-profile": "REVIEW_PENDING"}
     summary = decision(document, licence=licence)
-    refused("implementation_not_cleared_for_every_profile", validate_decision, summary, document)
+    refused("implementation_not_cleared_for_every_profile", validate_decision, summary, document, document)
 
 
 def test_implementation_must_pass_technical_gates():
@@ -577,20 +801,20 @@ def test_implementation_must_pass_technical_gates():
     summary = decision(document)
     row = next(r for r in summary["evaluated"] if r["candidateId"] == "VC-EST")
     row["technicalGates"], row["comparativeScore"] = "failed", None
-    refused("implementation_failed_technical_gate", validate_decision, summary, document)
+    refused("implementation_failed_technical_gate", validate_decision, summary, document, document)
 
 
 def test_implementation_promotion_must_precede_the_decision():
     document = full()
     summary = decision(document)
-    summary["decidedOn"] = "2026-10-01"
-    refused("implementation_promotion_after_decision", validate_decision, summary, document)
+    summary["decidedOn"] = "2026-06-01"
+    refused("implementation_not_established_on_decision_date", validate_decision, summary, document, document)
 
 
 def test_implementation_only_from_qualification_pending():
     document = full()
     summary = decision(document, state="TECHNICAL_DECISION_RECORDED")
-    refused("implementation_before_qualification_pending", validate_decision, summary, document)
+    refused("implementation_before_qualification_pending", validate_decision, summary, document, document)
 
 
 def test_evaluated_bytes_must_equal_ledger_identity():
@@ -598,61 +822,117 @@ def test_evaluated_bytes_must_equal_ledger_identity():
     summary = decision(document)
     row = next(r for r in summary["evaluated"] if r["candidateId"] == "VC-EST")
     row["artefactSha256s"] = [sha("weights-est-v2")]
-    refused("evaluated_artefact_differs_from_ledger", validate_decision, summary, document)
+    refused("evaluated_artefact_differs_from_ledger", validate_decision, summary, document, document)
     summary = decision(document)
     row = next(r for r in summary["evaluated"] if r["candidateId"] == "VC-MTH")
-    row["artefactSha256s"] = [sha("mavi-head")]  # backbone bytes missing
-    refused("evaluated_artefact_differs_from_ledger", validate_decision, summary, document)
+    row["artefactSha256s"] = sorted(row["artefactSha256s"] + [sha("hf-randomuser-finetune")])
+    refused("evaluated_artefact_differs_from_ledger", validate_decision, summary, document, document)
+
+
+def test_method_must_declare_its_mavi_trained_artefacts_and_checkpoint_none():
+    document = full()
+    summary = decision(document)
+    row = next(r for r in summary["evaluated"] if r["candidateId"] == "VC-MTH")
+    row["maviTrainedArtefacts"], row["artefactSha256s"] = [], [sha("weights-mth")]
+    refused("method_without_mavi_trained_artefact", validate_decision, summary, document, document)
+    summary = decision(document)
+    row = next(r for r in summary["evaluated"] if r["candidateId"] == "VC-EST")
+    row["maviTrainedArtefacts"] = [{"sha256": sha("x"), "trainingManifestSha256": sha("m")}]
+    refused("checkpoint_has_mavi_trained_artefacts", validate_decision, summary, document, document)
 
 
 def test_baseline_evaluation_needs_a_mavi_commit():
     document = full()
     summary = decision(document)
     summary["evaluated"][0]["maviRevision"] = None
-    refused("malformed", validate_decision, summary, document)
+    refused("malformed", validate_decision, summary, document, document)
 
 
-def test_decision_binds_one_ledger_by_hash_and_event():
+def test_decision_binds_the_ledger_and_the_frozen_ledger():
     document = full()
     summary = decision(document)
     entry_of(document, "VC-EXC")["caveats"].append("edited after the decision")
-    refused("decision_ledger_hash_mismatch", validate_decision, summary, document)
+    refused("decision_ledger_hash_mismatch", validate_decision, summary, document, full())
     document = full()
     summary = decision(document)
+    summary["frozenLedgerSha256"] = sha("another frozen ledger")
+    refused("decision_frozen_ledger_hash_mismatch", validate_decision, summary, document, document)
+    summary = decision(document)
     summary["eventId"] = "msr-vehicle-attributes-2026-02"
-    refused("decision_event_mismatch", validate_decision, summary, document)
+    refused("decision_event_mismatch", validate_decision, summary, document, document)
 
 
 def test_outcome_is_consistent_with_state_and_implementation():
     document = full()
     summary = decision(document)
     summary["outcome"] = "SELECTED_FOR_PACKAGING"
-    refused("outcome_before_closed", validate_decision, summary, document)
+    refused("outcome_before_closed", validate_decision, summary, document, document)
     summary = decision(document, state="CLOSED")
-    validate_decision(summary, document)
+    validate_decision(summary, document, document)
     summary["outcome"] = "BASELINE_SELECTED"
-    refused("outcome_implementation_inconsistent", validate_decision, summary, document)
+    refused("outcome_implementation_inconsistent", validate_decision, summary, document, document)
     summary = decision(document, state="CLOSED", implementation=("VC-B0",))
     summary["outcome"] = "BASELINE_SELECTED"
-    validate_decision(summary, document)
+    validate_decision(summary, document, document)
     summary["outcome"] = "SELECTED_FOR_PACKAGING"
-    refused("outcome_implementation_inconsistent", validate_decision, summary, document)
+    refused("outcome_implementation_inconsistent", validate_decision, summary, document, document)
 
 
-def test_strongest_reported_must_resolve_to_a_ledger_claim():
+def test_strongest_reported_resolves_and_is_labelled():
     document = full()
     summary = decision(document)
-    summary["strongestReported"] = {"candidateId": "VC-REF", "claimId": "C1"}
-    validate_decision(summary, document)  # a reference-only candidate may be the strongest reported
-    summary["strongestReported"] = {"candidateId": "VC-REF", "claimId": "C9"}
-    refused("strongest_reported_unresolved", validate_decision, summary, document)
+    summary["strongestReported"] = {"candidateId": "VC-REF", "claimId": "C1", "label": REPORTED_LABEL}
+    validate_decision(summary, document, document)
+    summary["strongestReported"]["claimId"] = "C9"
+    refused("strongest_reported_unresolved", validate_decision, summary, document, document)
+    summary["strongestReported"] = {"candidateId": "VC-REF", "claimId": "C1", "label": "best"}
+    refused("strongest_reported_label", validate_decision, summary, document, document)
 
 
 # ------------------------------------------------------------------- repository and CLI
 
 
+def write_event(tmp_path, *, frozen=None, protocol=True, decision_doc=None):
+    folder = tmp_path / "docs" / "qualification" / "model-selection" / "vehicle-attributes"
+    folder.mkdir(parents=True, exist_ok=True)
+    document = full()
+    (folder / "msr-vehicle-attributes-2026-01-evidence-ledger.json").write_text(json.dumps(document))
+    if frozen is not None:
+        (folder / "msr-vehicle-attributes-2026-01-evidence-ledger-frozen.json").write_text(json.dumps(frozen))
+    if protocol:
+        cited = document_sha256(frozen) if frozen is not None else ""
+        (folder / "msr-vehicle-attributes-2026-01-protocol.md").write_text(f"Frozen ledger SHA-256: {cited}\n")
+    if decision_doc is not None:
+        (folder / "msr-vehicle-attributes-2026-01-decision.json").write_text(json.dumps(decision_doc))
+    return folder, document
+
+
 def test_committed_ledgers_and_decisions_validate():
     validate_repository(REPO)
+
+
+def test_repository_scan_accepts_a_complete_event(tmp_path):
+    folder, document = write_event(tmp_path, frozen=full())
+    summary = decision(document)
+    summary["protocolSha256"] = lf_normalised_sha256(folder / "msr-vehicle-attributes-2026-01-protocol.md")
+    (folder / "msr-vehicle-attributes-2026-01-decision.json").write_text(json.dumps(summary))
+    assert len(validate_repository(tmp_path)) == 3
+
+
+def test_repository_scan_binds_the_protocol_hash(tmp_path):
+    _, document = write_event(tmp_path, frozen=full(), decision_doc=decision(full()))
+    refused("decision_protocol_hash_mismatch", validate_repository, tmp_path)
+
+
+def test_repository_scan_requires_protocol_to_cite_frozen_ledger(tmp_path):
+    folder, _ = write_event(tmp_path, frozen=full())
+    (folder / "msr-vehicle-attributes-2026-01-protocol.md").write_text("no hash here\n")
+    refused("frozen_ledger_not_cited_by_protocol", validate_repository, tmp_path)
+
+
+def test_repository_scan_refuses_decision_without_frozen_ledger(tmp_path):
+    write_event(tmp_path, decision_doc={})
+    refused("decision_without_frozen_ledger", validate_repository, tmp_path)
 
 
 def test_repository_scan_refuses_misplaced_ledger(tmp_path):
@@ -660,13 +940,6 @@ def test_repository_scan_refuses_misplaced_ledger(tmp_path):
     folder.mkdir(parents=True)
     (folder / "msr-vehicle-attributes-2026-01-evidence-ledger.json").write_text(json.dumps(full()))
     refused("ledger_location_mismatch", validate_repository, tmp_path)
-
-
-def test_repository_scan_refuses_decision_without_ledger(tmp_path):
-    folder = tmp_path / "docs" / "qualification" / "model-selection" / "vehicle-attributes"
-    folder.mkdir(parents=True)
-    (folder / "msr-vehicle-attributes-2026-01-decision.json").write_text("{}")
-    refused("decision_without_ledger", validate_repository, tmp_path)
 
 
 def test_cli_reports_classes_and_refusals(tmp_path):
@@ -684,5 +957,5 @@ def test_cli_reports_classes_and_refusals(tmp_path):
 
 def test_module_imports_no_network_library():
     source = (REPO / "tools/qualification/model_selection/credibility.py").read_text()
-    for module in ("urllib", "http", "socket", "requests"):
-        assert f"import {module}" not in source and f"from {module}" not in source
+    for name in ("urllib", "http", "socket", "requests"):
+        assert f"import {name}" not in source and f"from {name}" not in source

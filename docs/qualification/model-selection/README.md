@@ -47,7 +47,7 @@ Every event records three assessments separately. **No single score combines the
 
 Assessments 1 and 2 together form the **technical ranking**. Licence terms never enter it: no weight, no tie-break, no pre-filter.
 
-**The one carve-out: evaluation permission.** Whether MAVI may lawfully *run* a candidate on its data is a human legal precondition to measurement, not a ranking input. It is recorded with decision-maker, date and primary source. A candidate that may not be evaluated becomes `REFERENCE_ONLY`: its reported evidence stays in the record at full strength and is marked "not reproduced by MAVI". It is never `NOT_SHORTLISTED`. Where the method is usable but the released checkpoint is not, the method trained on MAVI-permitted data represents it.
+**The one carve-out: evaluation permission.** Whether MAVI may lawfully *run* a candidate on its data is a human legal precondition to measurement, not a ranking input. It is recorded with decision-maker, date and primary source. A candidate that may not be evaluated becomes `REFERENCE_ONLY`: its reported evidence stays in the record at full strength and is marked "not reproduced by MAVI". It is never `NOT_SHORTLISTED` on that ground. (Under revision M1 an `excluded-discovery`, whose origin cannot be identified, is `NOT_SHORTLISTED` on credibility grounds whatever its evaluation permission.) Where the method is usable but the released checkpoint is not, the method trained on MAVI-permitted data represents it.
 
 Assessment 3 is applied afterwards to decide which ranked candidates are **cleared for a declared deployment profile**. A technically superior candidate stays in the record at its rank, marked with its constraint, even when it is not cleared for any declared profile.
 
@@ -117,7 +117,7 @@ DISCOVERED ─→ SHORTLISTED ─→ EVALUATED ─→ TECHNICALLY_SELECTED
     │              │             ├──────→ TECHNICAL_ALTERNATIVE   (passed the technical gates; ranked below)
     │              │             └──────→ REJECTED_TECHNICAL      (failed a technical gate, or dominated; gate/measurement cited)
     │              ├──────────────────→ DEFERRED                  (evidence or resources insufficient; revisit trigger stated)
-    │              └──────────────────→ REFERENCE_ONLY            (could not be evaluated: permission, availability; reported evidence kept, marked not reproduced)
+    │              └──────────────────→ REFERENCE_ONLY            (could not be evaluated: permission, availability; or under M1 held for credibility; reported evidence kept, marked not reproduced)
     └──────────────────────────────────→ NOT_SHORTLISTED          (technical reason recorded, or under M1 the credibility reason of an excluded discovery; never a licence reason)
 ```
 
@@ -422,4 +422,5 @@ Revisions are additive and numbered, and never silently rewrite an earlier rule.
 *M1 trade-off:*
 - **Cost:** every serious candidate needs a ledger entry and a reviewer check of its independent evidence. A genuinely strong but newly published model cannot be implemented until independent evidence exists.
 - **Gain:** no model reaches a Model Pack on self-reported or copied numbers, and every inclusion and exclusion can be reconstructed.
-- **Unchanged:** M1 changes no ADR, contract or gate set. It adds a credibility axis and an implementation-eligibility rule inside the existing method; the technical ranking and the licence axis are as before. ADR-014's Model Selection Records note continues to govern.
+- **What changes:** M1 adds a precondition to the owner's implementation choice (§4): an implementation candidate must now also be `established`. It also adds a shortlist precondition and three event files: the ledger, its frozen copy and the decision summary. The technical ranking, the licence axis, the outcomes and the qualification-record link are unchanged.
+- **What does not change:** no ADR, contract, schema of any existing record, or gate set. ADR-014's Model Selection Records note governs the method, including its revisions. The note's decision list (three separate assessments, exact bytes, reported versus measured evidence) is what M1 strengthens.

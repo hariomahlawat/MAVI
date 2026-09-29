@@ -1,18 +1,22 @@
 """Candidate credibility and admissibility checks (MSR method v1 revision M1).
 
 Normative text: ``docs/qualification/model-selection/candidate-credibility.md``. This
-module enforces the rules marked **[checked]** there, on two documents:
+module enforces the rules marked **[checked]** there, on three documents:
 
 * the **External Evidence Ledger** (``mavi-external-evidence-ledger-v1``), one per
-  Model Selection Event. It holds external evidence only: no MAVI measurement, no
-  licence field and only pre-evaluation dispositions. Each candidate's provenance
-  confidence and credibility class are *recomputed* from the recorded evidence, and a
-  declared value that disagrees is refused;
+  Model Selection Event. It holds external evidence only: no MAVI measurement or
+  MAVI-produced evidence, no licence field and only pre-evaluation dispositions. Each
+  candidate's provenance confidence and credibility class are *recomputed* from the
+  recorded evidence, and a declared value that disagrees is refused;
+* the **frozen ledger** (``<event-id>-evidence-ledger-frozen.json``), the copy whose
+  hash the frozen protocol records. From then on the working ledger may only grow:
+  evidence and history are append-only and the shortlist and pinned bytes are fixed;
 * the **decision summary** (``mavi-model-selection-decision-v1``), a checked
   projection of MSR method §9 written from S2c.4 on. It binds the evaluated bytes to
-  the ledger, recomputes the derived outputs (strongest technical, strongest cleared)
-  without reading licence or credibility into the ranking, and gates the
-  implementation candidate on clearance and an ``established`` class.
+  the ledger, the evaluated set to the frozen shortlist, recomputes the derived outputs
+  (strongest technical, strongest cleared) without reading licence or credibility into
+  the ranking, and gates the implementation candidate on clearance and an
+  ``established`` class on the decision date.
 
 Standard library only; nothing here reads the network, a model or imagery.
 """
@@ -31,6 +35,7 @@ LEDGER_SCHEMA = "mavi-external-evidence-ledger-v1"
 DECISION_SCHEMA = "mavi-model-selection-decision-v1"
 METHOD_REVISION = "msr-v1-m1"
 UNKNOWN = "UNKNOWN"
+REPORTED_LABEL = "reported, not reproduced by MAVI"
 
 ESTABLISHED = "established"
 EMERGING = "emerging"
@@ -38,11 +43,10 @@ REFERENCE = "reference-only"
 EXCLUDED = "excluded-discovery"
 MAVI_OWNED = "mavi-owned"
 CLASSES = (ESTABLISHED, EMERGING, REFERENCE, EXCLUDED, MAVI_OWNED)
+CLASS_RANK = {EXCLUDED: 0, REFERENCE: 1, EMERGING: 2, ESTABLISHED: 3, MAVI_OWNED: 3}
 IMPLEMENTABLE_CLASSES = (ESTABLISHED, MAVI_OWNED)
-SHORTLISTABLE_CLASSES = (ESTABLISHED, EMERGING, MAVI_OWNED)
 
 HIGH, MEDIUM, LOW = "High", "Medium", "Low"
-CONFIDENCES = (HIGH, MEDIUM, LOW)
 
 CHECKPOINT, METHOD, BASELINE = "checkpoint", "method", "mavi-baseline"
 KINDS = (CHECKPOINT, METHOD, BASELINE)
@@ -63,6 +67,7 @@ SCRUTINY = "public-scrutiny"
 EVIDENCE_TYPES = (FIRST_PARTY, REPETITION, REPRODUCTION, BENCHMARK, ADOPTION, SCRUTINY)
 INDEPENDENT_TECHNICAL = (REPRODUCTION, BENCHMARK)
 INDEPENDENT_TYPES = (REPRODUCTION, BENCHMARK, ADOPTION)
+CLAIM_ORIGIN_TYPES = (FIRST_PARTY, REPRODUCTION, BENCHMARK)
 
 AUTHOR, AFFILIATED, INDEPENDENT = "author", "author-affiliated", "independent"
 RELATIONS = (AUTHOR, AFFILIATED, INDEPENDENT)
@@ -83,7 +88,6 @@ REASONS_BY_DISPOSITION = {
     REFERENCE_ONLY: ("credibility", "evaluation-permission", "availability"),
     DEFERRED: ("technical", "resources", "availability"),
 }
-# Dispositions each class may hold at all (the credibility reason is narrowed below).
 DISPOSITIONS_BY_CLASS = {
     ESTABLISHED: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED),
     EMERGING: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, REFERENCE_ONLY, DEFERRED),
@@ -91,9 +95,18 @@ DISPOSITIONS_BY_CLASS = {
     EXCLUDED: (DISCOVERED, NOT_SHORTLISTED),
     MAVI_OWNED: (DISCOVERED, SHORTLISTED, NOT_SHORTLISTED, DEFERRED),
 }
-# A credibility reason must be the one the evidence computes, so an emerging or
-# established candidate cannot be parked as reference-only "for credibility".
-CREDIBILITY_REASON_CLASS = {NOT_SHORTLISTED: EXCLUDED, REFERENCE_ONLY: REFERENCE}
+# A credibility reason must be one the evidence supports: emerging and reference-only
+# candidates may be held as reference-only (R-CRED's default), an excluded discovery is
+# not shortlisted, and an established candidate never takes a credibility reason.
+CREDIBILITY_REASON_CLASSES = {NOT_SHORTLISTED: (EXCLUDED,), REFERENCE_ONLY: (REFERENCE, EMERGING)}
+LICENCE_FREE_DISPOSITIONS = (NOT_SHORTLISTED, DEFERRED)
+
+# Known events scope their object class and sub-tasks (S2c plan §6); person and vehicle
+# evidence cannot be mixed by declaring extra sub-tasks.
+EVENT_SCOPES = {
+    "person-attributes": ("person", ("T-PC", "T-PO")),
+    "vehicle-attributes": ("vehicle", ("T-VC",)),
+}
 
 EVENT_STATES = ("TECHNICAL_DECISION_RECORDED", "QUALIFICATION_PENDING", "CLOSED")
 IMPLEMENTATION_STATES = ("QUALIFICATION_PENDING", "CLOSED")
@@ -108,8 +121,14 @@ CANDIDATE_ID_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*$")
 LOCAL_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,63}$")
 SUBTASK_RE = re.compile(r"^T-[A-Z]{2,4}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# MAVI's own measurements are layer 3 and never external evidence (candidate-credibility.md §2).
+RESERVED_GROUP_RE = re.compile(r"^mavi(?:-|$)")
+# A repository-relative path, a qualification/model-selection document or any MAVI name.
+MAVI_SOURCE_RE = re.compile(r"^(?:\./)?(?:docs|tools|evidence)[/\\]|docs/qualification|model-selection|mavi", re.IGNORECASE)
 
 LEDGER_SUFFIX = "-evidence-ledger.json"
+FROZEN_SUFFIX = "-evidence-ledger-frozen.json"
+PROTOCOL_SUFFIX = "-protocol.md"
 DECISION_SUFFIX = "-decision.json"
 MODEL_SELECTION_DIR = Path("docs/qualification/model-selection")
 
@@ -131,6 +150,11 @@ def document_sha256(document: object) -> str:
     return hashlib.sha256(canonical_json(document)).hexdigest()
 
 
+def lf_normalised_sha256(path: Path) -> str:
+    """SHA-256 of a text file after CRLF -> LF only (MSR method §10)."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def read_json(path: Path) -> dict:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -139,6 +163,10 @@ def read_json(path: Path) -> dict:
     if not isinstance(document, dict):
         raise CredibilityError(f"json_not_object:{path.name}")
     return document
+
+
+def _today() -> date:
+    return date.today()
 
 
 def _fail(code: str, where: str) -> CredibilityError:
@@ -190,9 +218,12 @@ def _date(value: object, where: str) -> date:
     if not isinstance(value, str) or not DATE_RE.match(value):
         raise _fail("date_malformed", where)
     try:
-        return date.fromisoformat(value)
+        parsed = date.fromisoformat(value)
     except ValueError as exc:
         raise _fail("date_malformed", where) from exc
+    if parsed > _today():
+        raise _fail("date_in_future", where)
+    return parsed
 
 
 def _list(value: object, where: str) -> list:
@@ -205,6 +236,10 @@ def _number(value: object, where: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise _fail("number_required", where)
     return float(value)
+
+
+def _person(name: str) -> str:
+    return " ".join(name.split()).casefold()
 
 
 def _reject_licence_keys(value: object, where: str) -> None:
@@ -220,7 +255,17 @@ def _reject_licence_keys(value: object, where: str) -> None:
 
 
 def _normalised_source(source: str) -> str:
-    return source.strip().lower().rstrip("/")
+    """Scheme, ``www.``, query, fragment, case and trailing slashes do not make a new document."""
+    value = source.strip().lower()
+    value = re.sub(r"^[a-z][a-z0-9+.-]*://", "", value)
+    value = re.sub(r"^www\.", "", value)
+    value = re.split(r"[?#]", value, maxsplit=1)[0]
+    return value.rstrip("/")
+
+
+def _integrity_conflict_at(identity: Mapping, as_of: date | None) -> bool:
+    conflict = identity.get("integrityConflict")
+    return conflict is not None and (as_of is None or date.fromisoformat(conflict["at"]) <= as_of)
 
 
 # ---------------------------------------------------------------- ledger structure
@@ -246,7 +291,10 @@ def _check_identity(entry: dict, where: str) -> None:
     _text(identity["revision"], f"{where}.revision")
     _optional_text(identity["tag"], f"{where}.tag")
     _enum(identity["publisher"], PUBLISHERS, f"{where}.publisher")
-    _optional_text(identity["integrityConflict"], f"{where}.integrityConflict")
+    if identity["integrityConflict"] is not None:
+        conflict = _keys(identity["integrityConflict"], ("at", "reason"), f"{where}.integrityConflict")
+        _date(conflict["at"], f"{where}.integrityConflict.at")
+        _text(conflict["reason"], f"{where}.integrityConflict.reason")
     paths = set()
     for index, item in enumerate(_list(identity["files"], f"{where}.files")):
         _keys(item, ("path", "sha256"), f"{where}.files[{index}]")
@@ -266,8 +314,9 @@ def _check_identity(entry: dict, where: str) -> None:
         _match(derivation["conversionDocumentedBy"], LOCAL_ID_RE, f"{where}.derivation.conversionDocumentedBy")
 
 
-def _check_evidence(entry: dict, where: str) -> dict[str, dict]:
-    groups = set(entry["authors"]["groups"])
+def _check_evidence(entry: dict, ledger: Mapping, where: str) -> dict[str, dict]:
+    authors = set(entry["authors"]["groups"])
+    affiliated = set(entry["authors"]["affiliatedGroups"])
     items: dict[str, dict] = {}
     for index, item in enumerate(_list(entry["evidence"], f"{where}.evidence")):
         at = f"{where}.evidence[{index}]"
@@ -275,7 +324,7 @@ def _check_evidence(entry: dict, where: str) -> dict[str, dict]:
             item,
             ("evidenceId", "type", "producer", "source", "locator", "retrievedOn", "retrievedSha256", "recordedAt", "summary"),
             at,
-            optional=("repeats", "scope", "reproducedArtefact", "independenceBasis", "retracted"),
+            optional=("repeats", "scope", "reproducedArtefact", "independenceBasis", "subTask", "objectClass", "retracted"),
         )
         evidence_id = _match(item["evidenceId"], LOCAL_ID_RE, f"{at}.evidenceId")
         if evidence_id in items:
@@ -284,28 +333,33 @@ def _check_evidence(entry: dict, where: str) -> dict[str, dict]:
         producer = _keys(item["producer"], ("group", "relation"), f"{at}.producer")
         group = _match(producer["group"], TOKEN_RE, f"{at}.producer.group")
         relation = _enum(producer["relation"], RELATIONS, f"{at}.producer.relation")
-        _text(item["source"], f"{at}.source")
+        source = _text(item["source"], f"{at}.source")
         _text(item["locator"], f"{at}.locator")
         _text(item["summary"], f"{at}.summary")
-        _date(item["retrievedOn"], f"{at}.retrievedOn")
+        retrieved = _date(item["retrievedOn"], f"{at}.retrievedOn")
         recorded = _date(item["recordedAt"], f"{at}.recordedAt")
+        if retrieved > recorded:
+            raise _fail("recorded_before_retrieved", at)
         _sha_or_unknown(item["retrievedSha256"], f"{at}.retrievedSha256")
+        if RESERVED_GROUP_RE.match(group) or MAVI_SOURCE_RE.search(source):
+            raise _fail("mavi_evidence_in_ledger", at)
 
-        if relation == AUTHOR and group not in groups:
+        if relation == AUTHOR and group not in authors:
             raise _fail("author_group_not_declared", f"{at}.producer")
-        if relation == INDEPENDENT and group in groups:
+        if relation == AFFILIATED and group not in affiliated:
+            raise _fail("affiliated_group_not_declared", f"{at}.producer")
+        if relation == INDEPENDENT and group in authors | affiliated:
             raise _fail("independent_producer_is_author", f"{at}.producer")
         if kind == FIRST_PARTY and relation == INDEPENDENT:
             raise _fail("first_party_claim_not_from_authors", f"{at}.producer")
         if kind == REPETITION:
             if "repeats" not in item:
                 raise _fail("repetition_without_origin", at)
-            for forbidden in ("scope", "reproducedArtefact", "independenceBasis"):
-                if forbidden in item:
-                    raise _fail("repetition_cannot_carry", f"{at}.{forbidden}")
         elif "repeats" in item:
             raise _fail("only_repetition_repeats", f"{at}.repeats")
+        allowed_extra: set[str] = set()
         if kind in INDEPENDENT_TYPES:
+            allowed_extra = {"scope", "independenceBasis", "reproducedArtefact"}
             if relation != INDEPENDENT:
                 raise _fail("independent_evidence_not_independent", f"{at}.producer")
             _text(item.get("independenceBasis"), f"{at}.independenceBasis")
@@ -316,10 +370,15 @@ def _check_evidence(entry: dict, where: str) -> dict[str, dict]:
                 _check_artefact_matches(entry, item.get("reproducedArtefact"), f"{at}.reproducedArtefact")
             elif "reproducedArtefact" in item:
                 raise _fail("artefact_only_for_exact_scope", f"{at}.reproducedArtefact")
-        elif kind != REPETITION:
-            for forbidden in ("scope", "reproducedArtefact", "independenceBasis"):
-                if forbidden in item:
-                    raise _fail("field_not_allowed_for_type", f"{at}.{forbidden}")
+        if kind in INDEPENDENT_TECHNICAL:
+            allowed_extra |= {"subTask", "objectClass"}
+            if item.get("subTask") not in entry["subTasks"]:
+                raise _fail("evidence_subtask_outside_candidate", f"{at}.subTask")
+            if item.get("objectClass") != ledger["objectClass"]:
+                raise _fail("evidence_object_class_mismatch", f"{at}.objectClass")
+        for field in ("scope", "reproducedArtefact", "independenceBasis", "subTask", "objectClass"):
+            if field in item and field not in allowed_extra:
+                raise _fail("field_not_allowed_for_type", f"{at}.{field}")
         if "retracted" in item:
             retracted = _keys(item["retracted"], ("at", "reason"), f"{at}.retracted")
             if _date(retracted["at"], f"{at}.retracted.at") < recorded:
@@ -331,10 +390,18 @@ def _check_evidence(entry: dict, where: str) -> dict[str, dict]:
     for evidence_id in items:
         _root(items, evidence_id, f"{where}.evidence.{evidence_id}")
 
-    first_party_sources = {_normalised_source(i["source"]) for i in items.values() if i["type"] == FIRST_PARTY}
+    # An independent item must be its own document: not the same page (however the URL
+    # is written) nor the same retrieved bytes as any other item, whatever its type.
     for evidence_id, item in items.items():
-        if item["type"] in INDEPENDENT_TYPES and _normalised_source(item["source"]) in first_party_sources:
-            raise _fail("independent_evidence_reuses_first_party_source", f"{where}.evidence.{evidence_id}")
+        if item["type"] not in INDEPENDENT_TYPES:
+            continue
+        source = _normalised_source(item["source"])
+        digest = item["retrievedSha256"]
+        for other_id, other in items.items():
+            if other_id == evidence_id:
+                continue
+            if _normalised_source(other["source"]) == source or (digest != UNKNOWN and other["retrievedSha256"] == digest):
+                raise _fail("independent_evidence_not_distinct", f"{where}.evidence.{evidence_id}")
     return items
 
 
@@ -366,14 +433,17 @@ def _pinned_files(identity: Mapping) -> list[str]:
 
 
 def _check_artefact_matches(entry: dict, artefact: object, where: str) -> None:
+    """Exact scope names every pinned weight file, or the pinned repository and revision."""
     if artefact is None:
         raise _fail("exact_scope_requires_artefact", where)
     if not isinstance(artefact, dict):
         raise _fail("not_object", where)
     identity = entry["identity"]
-    if set(artefact) == {"sha256"}:
-        sha = _match(artefact["sha256"], SHA256_RE, f"{where}.sha256")
-        if sha not in {item["sha256"] for item in identity["files"]}:
+    if set(artefact) == {"sha256s"}:
+        hashes = _list(artefact["sha256s"], f"{where}.sha256s")
+        for value in hashes:
+            _match(value, SHA256_RE, f"{where}.sha256s")
+        if sorted(hashes) != _pinned_files(identity) or not hashes:
             raise _fail("evidence_artefact_mismatch", where)
         return
     _keys(artefact, ("repository", "revision"), where)
@@ -403,11 +473,15 @@ def _check_claims(entry: dict, ledger: dict, items: Mapping[str, dict], where: s
         _enum(claim["kind"], CLAIM_KINDS, f"{at}.kind")
         for field in ("metric", "value", "dataset", "split"):
             _text(claim[field], f"{at}.{field}")
+        if MAVI_SOURCE_RE.search(claim["dataset"]):
+            raise _fail("mavi_evidence_in_ledger", f"{at}.dataset")
         origin = claim["originEvidenceId"]
         if origin not in items:
             raise _fail("claim_origin_unresolved", f"{at}.originEvidenceId")
         if items[origin]["type"] == REPETITION:
             raise _fail("claim_origin_is_repetition", f"{at}.originEvidenceId")
+        if items[origin]["type"] not in CLAIM_ORIGIN_TYPES:
+            raise _fail("claim_origin_not_primary", f"{at}.originEvidenceId")
         for supporting in _list(claim["supportingEvidenceIds"], f"{at}.supportingEvidenceIds"):
             if supporting not in items:
                 raise _fail("claim_support_unresolved", f"{at}.supportingEvidenceIds")
@@ -438,11 +512,16 @@ def _check_structure(entry: dict, ledger: dict, where: str) -> dict[str, dict]:
     if kind == BASELINE and (entry["evidence"] or entry["claims"]):
         raise _fail("baseline_has_external_evidence", where)
 
-    authors = _keys(entry["authors"], ("names", "groups"), f"{where}.authors")
+    authors = _keys(entry["authors"], ("names", "groups", "affiliatedGroups"), f"{where}.authors")
     for index, name in enumerate(_list(authors["names"], f"{where}.authors.names")):
         _text(name, f"{where}.authors.names[{index}]")
-    for index, group in enumerate(_list(authors["groups"], f"{where}.authors.groups")):
-        _match(group, TOKEN_RE, f"{where}.authors.groups[{index}]")
+    for field in ("groups", "affiliatedGroups"):
+        for index, group in enumerate(_list(authors[field], f"{where}.authors.{field}")):
+            _match(group, TOKEN_RE, f"{where}.authors.{field}[{index}]")
+            if kind != BASELINE and RESERVED_GROUP_RE.match(group):
+                raise _fail("mavi_evidence_in_ledger", f"{where}.authors.{field}[{index}]")
+    if set(authors["groups"]) & set(authors["affiliatedGroups"]):
+        raise _fail("author_and_affiliated_groups_overlap", f"{where}.authors")
 
     publication = _keys(entry["publication"], ("status", "venue", "reference", "basis"), f"{where}.publication")
     status = _enum(publication["status"], PUBLICATIONS, f"{where}.publication.status")
@@ -461,7 +540,7 @@ def _check_structure(entry: dict, ledger: dict, where: str) -> dict[str, dict]:
     if architecture["documentedBy"] is not None:
         _match(architecture["documentedBy"], LOCAL_ID_RE, f"{where}.architecture.documentedBy")
 
-    items = _check_evidence(entry, where)
+    items = _check_evidence(entry, ledger, where)
     for reference in (architecture["documentedBy"], (entry["identity"].get("derivation") or {}).get("conversionDocumentedBy")):
         if reference is not None and reference not in items:
             raise _fail("evidence_reference_unresolved", f"{where}.{reference}")
@@ -494,15 +573,15 @@ def _active(items: Mapping[str, dict], as_of: date | None) -> dict[str, dict]:
     return active
 
 
-def _documents(active: Mapping[str, dict], evidence_id: str | None) -> bool:
-    return evidence_id is not None and evidence_id in active and active[evidence_id]["type"] != REPETITION
+def _is(active: Mapping[str, dict], evidence_id: str | None, types: Iterable[str]) -> bool:
+    return evidence_id is not None and evidence_id in active and active[evidence_id]["type"] in tuple(types)
 
 
 def provenance_confidence(entry: Mapping, items: Mapping[str, dict], as_of: date | None = None) -> str:
     if entry["candidateKind"] == BASELINE:
         return HIGH
     identity = entry["identity"]
-    if identity["integrityConflict"] is not None:
+    if _integrity_conflict_at(identity, as_of):
         return LOW
     if UNKNOWN in (identity["repository"], identity["organisation"]) or not _pinned_files(identity):
         return LOW
@@ -515,7 +594,7 @@ def provenance_confidence(entry: Mapping, items: Mapping[str, dict], as_of: date
         and derivation["fromRepository"] != UNKNOWN
         and IMMUTABLE_REVISION_RE.match(derivation["fromRevision"])
         and SHA256_RE.match(derivation["fromSha256"])
-        and _documents(_active(items, as_of), derivation["conversionDocumentedBy"])
+        and _is(_active(items, as_of), derivation["conversionDocumentedBy"], (FIRST_PARTY, REPRODUCTION, BENCHMARK, ADOPTION))
     ):
         return MEDIUM
     return LOW
@@ -527,7 +606,7 @@ def credibility_class(entry: Mapping, items: Mapping[str, dict], as_of: date | N
         return MAVI_OWNED
     identity = entry["identity"]
     if (
-        identity["integrityConflict"] is not None
+        _integrity_conflict_at(identity, as_of)
         or identity["repository"] == UNKNOWN
         or identity["publisher"] == "unknown"
         or not entry["authors"]["groups"]
@@ -536,8 +615,11 @@ def credibility_class(entry: Mapping, items: Mapping[str, dict], as_of: date | N
     active = _active(items, as_of)
     confidence = provenance_confidence(entry, items, as_of)
     quality_claims = [claim for claim in entry["claims"] if claim["kind"] == "task-quality"]
-    traceable = bool(quality_claims) and all(_documents(active, claim["originEvidenceId"]) for claim in entry["claims"])
-    if confidence == LOW or not _documents(active, entry["architecture"]["documentedBy"]) or not traceable:
+    traceable = bool(quality_claims) and all(
+        _is(active, claim["originEvidenceId"], CLAIM_ORIGIN_TYPES) for claim in entry["claims"]
+    )
+    documented = _is(active, entry["architecture"]["documentedBy"], (FIRST_PARTY,))
+    if confidence == LOW or not documented or not traceable:
         return REFERENCE
     technical = [item for item in active.values() if item["type"] in INDEPENDENT_TECHNICAL]
     if entry["candidateKind"] == CHECKPOINT:
@@ -560,6 +642,7 @@ def _check_history(entry: dict, items: Mapping[str, dict], computed: str, where:
     previous_to: str | None = None
     previous_at: date | None = None
     pinned: list[str] | None = None
+    baseline = entry["candidateKind"] == BASELINE
     for index, record in enumerate(history):
         at = f"{where}.classificationHistory[{index}]"
         _keys(
@@ -574,10 +657,11 @@ def _check_history(entry: dict, items: Mapping[str, dict], computed: str, where:
             raise _fail("history_chain_broken", f"{at}.from")
         to = _enum(record["to"], CLASSES, f"{at}.to")
         _text(record["reason"], f"{at}.reason")
-        if _text(record["recordedBy"], f"{at}.recordedBy") == _text(record["reviewedBy"], f"{at}.reviewedBy"):
+        if _person(_text(record["recordedBy"], f"{at}.recordedBy")) == _person(_text(record["reviewedBy"], f"{at}.reviewedBy")):
             raise _fail("history_reviewer_not_independent", at)
         _match(record["identitySha256"], SHA256_RE, f"{at}.identitySha256")
-        for evidence_id in _list(record["evidenceIds"], f"{at}.evidenceIds"):
+        cited = _list(record["evidenceIds"], f"{at}.evidenceIds")
+        for evidence_id in cited:
             if evidence_id not in items:
                 raise _fail("history_evidence_unresolved", f"{at}.evidenceIds")
             if date.fromisoformat(items[evidence_id]["recordedAt"]) > when:
@@ -587,18 +671,26 @@ def _check_history(entry: dict, items: Mapping[str, dict], computed: str, where:
             _match(value, SHA256_RE, f"{at}.checkpointSha256s")
         if hashes != sorted(set(hashes)):
             raise _fail("history_hashes_not_sorted_unique", f"{at}.checkpointSha256s")
-        if entry["candidateKind"] == BASELINE:
+        if baseline:
             if to != MAVI_OWNED or hashes:
                 raise _fail("baseline_history_invalid", at)
         elif to in (ESTABLISHED, EMERGING) and not hashes:
             raise _fail("history_class_needs_pinned_bytes", at)
+        elif to == MAVI_OWNED:
+            raise _fail("mavi_owned_only_for_baseline", at)
         if pinned and hashes != pinned:
             raise _fail("checkpoint_changed_under_same_candidate", at)
         if hashes:
             pinned = hashes
-        # A promotion to established must be justified by the evidence active on its date.
-        if to == ESTABLISHED and credibility_class(entry, items, when) != ESTABLISHED:
-            raise _fail("promotion_not_supported_on_date", at)
+        if not baseline:
+            # No entry may claim more than the evidence active on its date supports, and a
+            # promotion to established must be supported by the evidence it cites.
+            if CLASS_RANK[to] > CLASS_RANK[credibility_class(entry, items, when)]:
+                raise _fail("history_overclaims_on_date", at)
+            if to == ESTABLISHED:
+                cited_items = {evidence_id: items[evidence_id] for evidence_id in cited}
+                if credibility_class(entry, cited_items, when) != ESTABLISHED:
+                    raise _fail("promotion_not_supported_by_cited_evidence", at)
         previous_to, previous_at = to, when
 
     last = history[-1]
@@ -606,14 +698,17 @@ def _check_history(entry: dict, items: Mapping[str, dict], computed: str, where:
         raise _fail("class_change_not_recorded", f"{where}.classificationHistory")
     if last["identitySha256"] != document_sha256(entry["identity"]):
         raise _fail("identity_change_not_recorded", f"{where}.classificationHistory")
-    current = [] if entry["candidateKind"] == BASELINE else _pinned_files(entry["identity"])
+    current = [] if baseline else _pinned_files(entry["identity"])
     if last["checkpointSha256s"] != current:
         raise _fail("checkpoint_changed_under_same_candidate", f"{where}.classificationHistory")
 
 
 def _check_disposition(entry: dict, items: Mapping[str, dict], computed: str, confidence: str, where: str) -> None:
     disposition = _keys(
-        entry["disposition"], ("status", "reasonClass", "reason", "revisitTrigger", "decidedBy"), f"{where}.disposition"
+        entry["disposition"],
+        ("status", "reasonClass", "reason", "revisitTrigger", "decidedBy"),
+        f"{where}.disposition",
+        optional=("reviewedBy", "emergingShortlistBasis"),
     )
     status = _enum(disposition["status"], DISPOSITIONS, f"{where}.disposition.status")
     reason_class = disposition["reasonClass"]
@@ -632,22 +727,38 @@ def _check_disposition(entry: dict, items: Mapping[str, dict], computed: str, co
         _text(disposition["revisitTrigger"], f"{where}.disposition.revisitTrigger")
     else:
         _optional_text(disposition["revisitTrigger"], f"{where}.disposition.revisitTrigger")
+    _optional_text(disposition.get("reviewedBy"), f"{where}.disposition.reviewedBy")
+    if status in LICENCE_FREE_DISPOSITIONS and "licen" in (disposition["reason"] or "").lower():
+        raise _fail("licence_reason_not_allowed", f"{where}.disposition.reason")
 
     if status not in DISPOSITIONS_BY_CLASS[computed]:
         raise _fail("disposition_not_allowed_for_class", f"{where}.disposition.status")
-    if reason_class == "credibility" and CREDIBILITY_REASON_CLASS[status] != computed:
+    if reason_class == "credibility" and computed not in CREDIBILITY_REASON_CLASSES[status]:
         raise _fail("credibility_reason_contradicts_evidence", f"{where}.disposition.reasonClass")
     if computed == EXCLUDED and status == NOT_SHORTLISTED and reason_class != "credibility":
         raise _fail("excluded_discovery_reason_is_credibility", f"{where}.disposition.reasonClass")
+
+    # R-CRED: an emerging candidate is normally held as reference-only. Shortlisting one is
+    # an exception that needs a recorded basis and a second reviewer.
+    basis = disposition.get("emergingShortlistBasis")
+    if status == SHORTLISTED and computed == EMERGING:
+        _text(basis, f"{where}.disposition.emergingShortlistBasis")
+        reviewer = _text(disposition.get("reviewedBy"), f"{where}.disposition.reviewedBy")
+        if _person(reviewer) == _person(disposition["decidedBy"]):
+            raise _fail("shortlist_reviewer_not_independent", f"{where}.disposition")
+    elif basis is not None:
+        raise _fail("shortlist_basis_only_for_emerging", f"{where}.disposition.emergingShortlistBasis")
 
     if status == SHORTLISTED and entry["candidateKind"] != BASELINE:
         if confidence not in (HIGH, MEDIUM) or not _pinned_files(entry["identity"]):
             raise _fail("shortlist_requires_pinned_provenance", f"{where}.identity")
         if entry["candidateKind"] == METHOD and not IMMUTABLE_REVISION_RE.match(entry["methodCode"]["revision"]):
             raise _fail("shortlist_requires_method_revision", f"{where}.methodCode.revision")
-        for claim in entry["claims"]:
-            if items[claim["originEvidenceId"]]["retrievedSha256"] == UNKNOWN:
-                raise _fail("shortlist_requires_snapshotted_claims", f"{where}.claims.{claim['claimId']}")
+        relied = {claim["originEvidenceId"] for claim in entry["claims"]}
+        relied |= {i for i, item in _active(items, None).items() if item["type"] in INDEPENDENT_TYPES}
+        for evidence_id in sorted(relied):
+            if items[evidence_id]["retrievedSha256"] == UNKNOWN:
+                raise _fail("shortlist_requires_snapshotted_evidence", f"{where}.evidence.{evidence_id}")
 
 
 def validate_ledger(ledger: object) -> dict[str, dict]:
@@ -667,19 +778,28 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
         raise _fail("subtasks_invalid", "ledger.subTasks")
     for index, subtask in enumerate(subtasks):
         _match(subtask, SUBTASK_RE, f"ledger.subTasks[{index}]")
+    if capability in EVENT_SCOPES:
+        object_class, scoped = EVENT_SCOPES[capability]
+        if ledger["objectClass"] != object_class or sorted(subtasks) != sorted(scoped):
+            raise _fail("event_scope_mismatch", "ledger")
 
     summary: dict[str, dict] = {}
-    owners: dict[str, str] = {}
+    owners: dict[str, dict] = {}
     for index, entry in enumerate(_list(ledger["candidates"], "ledger.candidates")):
         where = f"ledger.candidates[{index}]"
         items = _check_structure(entry, ledger, where)
         candidate_id = entry["candidateId"]
         if candidate_id in summary:
             raise _fail("duplicate_candidate_id", where)
+        # One entry per checkpoint. Method candidates sharing one backbone (separate heads,
+        # MSR method §5.1) may share it only with an identical identity block.
         for sha in _pinned_files(entry["identity"]) if entry["candidateKind"] != BASELINE else ():
-            if sha in owners:
+            owner = owners.get(sha)
+            if owner is not None and not (
+                owner["candidateKind"] == METHOD == entry["candidateKind"] and owner["identity"] == entry["identity"]
+            ):
                 raise _fail("weight_hash_shared_by_two_candidates", where)
-            owners[sha] = candidate_id
+            owners.setdefault(sha, entry)
         computed = credibility_class(entry, items)
         confidence = provenance_confidence(entry, items)
         classification = _keys(entry["classification"], ("class", "provenanceConfidence"), f"{where}.classification")
@@ -697,6 +817,48 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
     return summary
 
 
+def _shortlist(ledger: Mapping) -> set[str]:
+    return {e["candidateId"] for e in ledger["candidates"] if e["disposition"]["status"] == SHORTLISTED}
+
+
+def validate_evolution(frozen: dict, current: dict) -> None:
+    """The working ledger after ``PROTOCOL_FROZEN`` only grows (candidate-credibility.md §7).
+
+    Every frozen candidate, evidence item, claim and history entry is kept unchanged
+    (an evidence item may only gain ``retracted``); the shortlist and the identity of
+    every shortlisted candidate are fixed. A changed shortlist needs a protocol
+    revision, which re-freezes the ledger.
+    """
+    validate_ledger(frozen)
+    validate_ledger(current)
+    if frozen["eventId"] != current["eventId"]:
+        raise _fail("evolution_event_mismatch", "ledger.eventId")
+    now = {entry["candidateId"]: entry for entry in current["candidates"]}
+    for entry in frozen["candidates"]:
+        candidate_id = entry["candidateId"]
+        where = f"ledger.{candidate_id}"
+        later = now.get(candidate_id)
+        if later is None:
+            raise _fail("frozen_candidate_removed", where)
+        later_items = {item["evidenceId"]: item for item in later["evidence"]}
+        for item in entry["evidence"]:
+            kept = later_items.get(item["evidenceId"])
+            if kept is None:
+                raise _fail("frozen_evidence_removed", f"{where}.{item['evidenceId']}")
+            if {k: v for k, v in kept.items() if not (k == "retracted" and "retracted" not in item)} != item:
+                raise _fail("frozen_evidence_changed", f"{where}.{item['evidenceId']}")
+        later_claims = {claim["claimId"]: claim for claim in later["claims"]}
+        for claim in entry["claims"]:
+            if later_claims.get(claim["claimId"]) != claim:
+                raise _fail("frozen_claim_changed", f"{where}.{claim['claimId']}")
+        if later["classificationHistory"][: len(entry["classificationHistory"])] != entry["classificationHistory"]:
+            raise _fail("frozen_history_rewritten", where)
+        if entry["disposition"]["status"] == SHORTLISTED and later["identity"] != entry["identity"]:
+            raise _fail("frozen_identity_changed", where)
+    if _shortlist(frozen) != _shortlist(current):
+        raise _fail("shortlist_changed_after_freeze", "ledger.candidates")
+
+
 # ------------------------------------------------------------- decision summary
 
 
@@ -707,15 +869,15 @@ def _maximal(scores: Mapping[str, float]) -> set[str]:
     return {candidate for candidate, score in scores.items() if score == best}
 
 
-def validate_decision(decision: object, ledger: dict) -> None:
-    """Validate a decision summary against the ledger it cites (candidate-credibility.md §8)."""
-    summary = validate_ledger(ledger)
+def validate_decision(decision: object, ledger: dict, frozen: dict) -> None:
+    """Validate a decision summary against its ledger and frozen ledger (candidate-credibility.md §8)."""
+    validate_evolution(frozen, ledger)
     entries = {entry["candidateId"]: entry for entry in ledger["candidates"]}
     _keys(
         decision,
-        ("schema", "eventId", "eventState", "outcome", "decidedOn", "ledgerSha256", "protocolSha256", "targetProfiles",
-         "evaluated", "licence", "strongestReported", "highestTaskQualityEvaluated", "strongestEvaluatedTechnical",
-         "strongestClearedPerProfile", "implementation"),
+        ("schema", "eventId", "eventState", "outcome", "decidedOn", "ledgerSha256", "frozenLedgerSha256",
+         "protocolSha256", "targetProfiles", "evaluated", "licence", "strongestReported",
+         "highestTaskQualityEvaluated", "strongestEvaluatedTechnical", "strongestClearedPerProfile", "implementation"),
         "decision",
     )
     if decision["schema"] != DECISION_SCHEMA:
@@ -724,6 +886,8 @@ def validate_decision(decision: object, ledger: dict) -> None:
         raise _fail("decision_event_mismatch", "decision.eventId")
     if decision["ledgerSha256"] != document_sha256(ledger):
         raise _fail("decision_ledger_hash_mismatch", "decision.ledgerSha256")
+    if decision["frozenLedgerSha256"] != document_sha256(frozen):
+        raise _fail("decision_frozen_ledger_hash_mismatch", "decision.frozenLedgerSha256")
     _match(decision["protocolSha256"], SHA256_RE, "decision.protocolSha256")
     state = _enum(decision["eventState"], EVENT_STATES, "decision.eventState")
     decided_on = _date(decision["decidedOn"], "decision.decidedOn")
@@ -733,15 +897,15 @@ def validate_decision(decision: object, ledger: dict) -> None:
     for index, profile in enumerate(profiles):
         _match(profile, TOKEN_RE, f"decision.targetProfiles[{index}]")
 
-    # Every shortlisted candidate is evaluated, and only shortlisted candidates are:
-    # an inconvenient candidate cannot be dropped between shortlist and ranking.
+    # Every candidate shortlisted at freeze is evaluated, and only those are: an
+    # inconvenient candidate cannot be dropped between shortlist and ranking.
     evaluated: dict[str, dict] = {}
     for index, row in enumerate(_list(decision["evaluated"], "decision.evaluated")):
         at = f"decision.evaluated[{index}]"
         _keys(
             row,
-            ("candidateId", "artefactSha256s", "maviRevision", "technicalGates", "comparativeScore",
-             "taskQualityScore", "measurementSha256"),
+            ("candidateId", "artefactSha256s", "maviTrainedArtefacts", "maviRevision", "technicalGates",
+             "comparativeScore", "taskQualityScore", "measurementSha256"),
             at,
         )
         candidate_id = row["candidateId"]
@@ -758,8 +922,7 @@ def validate_decision(decision: object, ledger: dict) -> None:
             raise _fail("failed_gate_has_score", f"{at}.comparativeScore")
         _check_evaluated_artefact(entries[candidate_id], row, at)
         evaluated[candidate_id] = row
-    shortlisted = {candidate for candidate, facts in summary.items() if facts["disposition"] == SHORTLISTED}
-    if set(evaluated) != shortlisted:
+    if set(evaluated) != _shortlist(frozen):
         raise _fail("evaluated_set_differs_from_shortlist", "decision.evaluated")
 
     licence = _keys(decision["licence"], evaluated, "decision.licence")
@@ -768,16 +931,19 @@ def validate_decision(decision: object, ledger: dict) -> None:
         for profile in profiles:
             _enum(statuses[profile], LICENCE_STATUSES, f"decision.licence.{candidate_id}.{profile}")
 
+    # The strongest reported candidate is a recorded judgement over class R evidence; it
+    # must resolve to a ledger claim and carry the "not reproduced" label.
     reported = decision["strongestReported"]
-    has_claims = any(entry["claims"] for entry in entries.values())
     if reported is None:
-        if has_claims:
+        if any(entry["claims"] for entry in entries.values()):
             raise _fail("strongest_reported_required", "decision.strongestReported")
     else:
-        _keys(reported, ("candidateId", "claimId"), "decision.strongestReported")
+        _keys(reported, ("candidateId", "claimId", "label"), "decision.strongestReported")
         entry = entries.get(reported["candidateId"])
         if entry is None or reported["claimId"] not in {claim["claimId"] for claim in entry["claims"]}:
             raise _fail("strongest_reported_unresolved", "decision.strongestReported")
+        if reported["label"] != REPORTED_LABEL:
+            raise _fail("strongest_reported_label", "decision.strongestReported.label")
 
     # Task quality alone, over every evaluated candidate (gates, runtime and licence ignored).
     quality = {candidate: row["taskQualityScore"] for candidate, row in evaluated.items()}
@@ -824,23 +990,42 @@ def validate_decision(decision: object, ledger: dict) -> None:
 
 
 def _check_evaluated_artefact(entry: dict, row: dict, where: str) -> None:
+    """The evaluated bytes are exactly the ledger identity plus declared MAVI-trained artefacts."""
     artefacts = _list(row["artefactSha256s"], f"{where}.artefactSha256s")
     for value in artefacts:
         _match(value, SHA256_RE, f"{where}.artefactSha256s")
     if artefacts != sorted(set(artefacts)):
         raise _fail("artefacts_not_sorted_unique", f"{where}.artefactSha256s")
-    if entry["candidateKind"] == BASELINE:
+    trained = set()
+    for index, item in enumerate(_list(row["maviTrainedArtefacts"], f"{where}.maviTrainedArtefacts")):
+        at = f"{where}.maviTrainedArtefacts[{index}]"
+        _keys(item, ("sha256", "trainingManifestSha256"), at)
+        trained.add(_match(item["sha256"], SHA256_RE, f"{at}.sha256"))
+        _match(item["trainingManifestSha256"], SHA256_RE, f"{at}.trainingManifestSha256")
+    kind = entry["candidateKind"]
+    if kind == BASELINE:
         revision = _match(row["maviRevision"], IMMUTABLE_REVISION_RE, f"{where}.maviRevision")
         if entry["identity"]["revision"] not in (UNKNOWN, revision):
             raise _fail("evaluated_artefact_differs_from_ledger", f"{where}.maviRevision")
+        if artefacts or trained:
+            raise _fail("evaluated_artefact_differs_from_ledger", f"{where}.artefactSha256s")
         return
     if row["maviRevision"] is not None:
         raise _fail("mavi_revision_only_for_baseline", f"{where}.maviRevision")
-    pinned = _pinned_files(entry["identity"])
-    if entry["candidateKind"] == CHECKPOINT and artefacts != pinned:
+    if kind == CHECKPOINT and trained:
+        raise _fail("checkpoint_has_mavi_trained_artefacts", f"{where}.maviTrainedArtefacts")
+    if kind == METHOD and not trained:
+        raise _fail("method_without_mavi_trained_artefact", f"{where}.maviTrainedArtefacts")
+    if artefacts != sorted(set(_pinned_files(entry["identity"])) | trained):
         raise _fail("evaluated_artefact_differs_from_ledger", f"{where}.artefactSha256s")
-    if entry["candidateKind"] == METHOD and not set(pinned) <= set(artefacts):
-        raise _fail("evaluated_artefact_differs_from_ledger", f"{where}.artefactSha256s")
+
+
+def _class_on(entry: dict, on: date) -> str | None:
+    current = None
+    for record in entry["classificationHistory"]:
+        if date.fromisoformat(record["at"]) <= on:
+            current = record["to"]
+    return current
 
 
 def _check_implementation(
@@ -870,36 +1055,53 @@ def _check_implementation(
         if any(licence[candidate_id][profile] != CLEARED for profile in profiles):
             raise _fail("implementation_not_cleared_for_every_profile", where)
         entry = entries[candidate_id]
-        current = entry["classificationHistory"][-1]["to"]
-        if current not in IMPLEMENTABLE_CLASSES:
+        if entry["classificationHistory"][-1]["to"] not in IMPLEMENTABLE_CLASSES:
             raise _fail("implementation_requires_established", where)
-        if current == ESTABLISHED and not any(
-            record["to"] == ESTABLISHED and date.fromisoformat(record["at"]) <= decided_on
-            for record in entry["classificationHistory"]
-        ):
-            raise _fail("implementation_promotion_after_decision", where)
+        # The class that held on the decision date, not merely a class held at some time.
+        if _class_on(entry, decided_on) not in IMPLEMENTABLE_CLASSES:
+            raise _fail("implementation_not_established_on_decision_date", where)
 
 
 # ------------------------------------------------------------- repository scan
 
 
 def validate_repository(repo: Path) -> list[str]:
-    """Validate every committed ledger and decision summary; return the paths checked."""
+    """Validate every committed ledger, frozen ledger and decision summary; return the paths checked."""
     root = repo / MODEL_SELECTION_DIR
     checked: list[str] = []
     ledgers: dict[Path, dict] = {}
+
+    def relative(path: Path) -> str:
+        return path.relative_to(repo).as_posix()
+
     for path in sorted(root.glob(f"*/*{LEDGER_SUFFIX}")):
         ledger = read_json(path)
         validate_ledger(ledger)
         event = path.name[: -len(LEDGER_SUFFIX)]
         if ledger["eventId"] != event or ledger["capabilityId"] != path.parent.name:
-            raise _fail("ledger_location_mismatch", path.relative_to(repo).as_posix())
+            raise _fail("ledger_location_mismatch", relative(path))
         ledgers[path.parent / event] = ledger
-        checked.append(path.relative_to(repo).as_posix())
+        checked.append(relative(path))
+    frozen_ledgers: dict[Path, dict] = {}
+    for path in sorted(root.glob(f"*/*{FROZEN_SUFFIX}")):
+        event = path.parent / path.name[: -len(FROZEN_SUFFIX)]
+        if event not in ledgers:
+            raise _fail("frozen_ledger_without_ledger", relative(path))
+        frozen = read_json(path)
+        validate_evolution(frozen, ledgers[event])
+        protocol = event.parent / f"{event.name}{PROTOCOL_SUFFIX}"
+        if not protocol.is_file() or document_sha256(frozen) not in protocol.read_text(encoding="utf-8"):
+            raise _fail("frozen_ledger_not_cited_by_protocol", relative(path))
+        frozen_ledgers[event] = frozen
+        checked.append(relative(path))
     for path in sorted(root.glob(f"*/*{DECISION_SUFFIX}")):
         event = path.parent / path.name[: -len(DECISION_SUFFIX)]
-        if event not in ledgers:
-            raise _fail("decision_without_ledger", path.relative_to(repo).as_posix())
-        validate_decision(read_json(path), ledgers[event])
-        checked.append(path.relative_to(repo).as_posix())
+        if event not in frozen_ledgers:
+            raise _fail("decision_without_frozen_ledger", relative(path))
+        decision = read_json(path)
+        protocol = event.parent / f"{event.name}{PROTOCOL_SUFFIX}"
+        if decision.get("protocolSha256") != lf_normalised_sha256(protocol):
+            raise _fail("decision_protocol_hash_mismatch", relative(path))
+        validate_decision(decision, ledgers[event], frozen_ledgers[event])
+        checked.append(relative(path))
     return checked
