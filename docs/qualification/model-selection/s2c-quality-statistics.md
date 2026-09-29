@@ -209,7 +209,7 @@ The following tagged clauses are the **canonical machine-checked expression** of
 **INV-B1-13:** S2c.2b-1 does not invent owner numerical quality targets; it freezes only the form and authority of those gates.  
 **INV-B1-14:** Whole-job CPU/host gates, composition resource accounting, 10k-Track deadline mechanics, 500-camera projection, Pareto axes and deterministic final technical ordering remain S2c.2b-2 scope.
 
-## 13. Required retained evidence
+## 14. Required retained evidence
 
 Later S2c.3/S2c.4 artefacts retain, by hash:
 
