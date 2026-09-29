@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "mavi-s2c-f1-evidence-record-v1",
+  "claimedStatus": "OPEN",
+  "annotationGuide": {
+    "path": "docs/qualification/stage2-s2c/annotation-guide.md",
+    "frozenSha256": null
+  },
+  "attributeTask": {
+    "candidatePath": "tools/qualification/attributes/corpus/data/attribute-task-v1-candidate.json",
+    "frozenSha256": null
+  },
+  "corpus": {
+    "corpusKind": null,
+    "corpusManifestSha256": null,
+    "partitionManifestSha256": null,
+    "recurrenceAuditSha256": null,
+    "duplicateAuditSha256": null
+  },
+  "labelling": {
+    "pilotReportSha256": null,
+    "mainAgreementReportSha256": null,
+    "adjudicationSha256s": [],
+    "groundTruthSha256": null,
+    "annotationLedgerHead": null
+  },
+  "seal": {
+    "sealSha256": null,
+    "accessLogHead": null
+  },
+  "limitations": [],
+  "custodian": null,
+  "missingExternalInputs": [
+    "Corpus Custodian named (S2c.0 record section 4)",
+    "owner-supplied recorded footage from multiple sites and cameras, day and night, processed through the real MAVI VisionJob under one raw-evidence pin",
+    "owner confirmation of the pilot decision thresholds (attribute-task-v1-candidate.json pilotDecisionRules)",
+    "at least two annotators, at least one independent of model selection and threshold tuning",
+    "executed pilot, owner freeze decision, main labelling, adjudication and frozen-test seal",
+    "Corpus Custodian's retained-record store (outside Git), which the checker re-verifies with --store"
+  ]
+}

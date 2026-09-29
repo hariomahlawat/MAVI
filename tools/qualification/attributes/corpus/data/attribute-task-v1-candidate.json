@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "mavi-attribute-task-v1",
+  "taskId": "s2c-attribute-task",
+  "version": "1.0.0-candidate",
+  "status": "candidate",
+  "derivedFrom": null,
+  "source": "S2c plan §6 and §7.1 (candidate v1); frozen only by the pilot and owner decision (plan §10.3; qualification plan §4, §19 R1 step 1)",
+  "excludedAttributeKinds": [
+    "age",
+    "ethnicity",
+    "face-attributes",
+    "face-identity",
+    "gender",
+    "garment-style",
+    "hair-length",
+    "licence-plate-text",
+    "re-identification",
+    "sleeve-length",
+    "vehicle-make-model",
+    "vehicle-type"
+  ],
+  "unitKinds": ["crop", "track"],
+  "unscorableReasons": [
+    "achromatic-imagery",
+    "ambiguous",
+    "insufficient-area",
+    "non-subject",
+    "not-visible",
+    "occluded",
+    "truncated"
+  ],
+  "subjectValidity": {
+    "attributeType": "subject-validity",
+    "values": ["multiple-subjects", "non-subject", "valid", "wrong-class"]
+  },
+  "attributes": [
+    {
+      "attributeType": "person-upper-colour",
+      "objectClass": "person",
+      "kind": "categorical",
+      "values": ["black", "blue", "brown", "green", "grey", "orange", "pink", "purple", "red", "white", "yellow"],
+      "conditionalValues": ["multicolour"],
+      "conditional": false
+    },
+    {
+      "attributeType": "person-lower-colour",
+      "objectClass": "person",
+      "kind": "categorical",
+      "values": ["black", "blue", "brown", "green", "grey", "orange", "pink", "purple", "red", "white", "yellow"],
+      "conditionalValues": ["multicolour"],
+      "conditional": false
+    },
+    {
+      "attributeType": "person-backpack",
+      "objectClass": "person",
+      "kind": "presence",
+      "values": ["absent", "present"],
+      "conditionalValues": [],
+      "conditional": false
+    },
+    {
+      "attributeType": "person-bag",
+      "objectClass": "person",
+      "kind": "presence",
+      "values": ["absent", "present"],
+      "conditionalValues": [],
+      "conditional": false
+    },
+    {
+      "attributeType": "person-headwear",
+      "objectClass": "person",
+      "kind": "presence",
+      "values": ["absent", "present"],
+      "conditionalValues": [],
+      "conditional": true
+    },
+    {
+      "attributeType": "vehicle-colour",
+      "objectClass": "vehicle",
+      "kind": "categorical",
+      "values": ["beige", "black", "blue", "brown", "green", "grey", "orange", "red", "silver", "white", "yellow"],
+      "conditionalValues": ["multicolour"],
+      "conditional": false
+    }
+  ],
+  "valueMergeCandidates": [
+    {"attributeType": "person-lower-colour", "values": ["brown", "orange"]},
+    {"attributeType": "person-lower-colour", "values": ["grey", "white"]},
+    {"attributeType": "person-upper-colour", "values": ["brown", "orange"]},
+    {"attributeType": "person-upper-colour", "values": ["grey", "white"]},
+    {"attributeType": "vehicle-colour", "values": ["beige", "brown"]},
+    {"attributeType": "vehicle-colour", "values": ["beige", "white"]},
+    {"attributeType": "vehicle-colour", "values": ["grey", "silver"]}
+  ],
+  "attributeMergeCandidates": [
+    {"attributeTypes": ["person-backpack", "person-bag"], "mergedAttributeType": "person-carried-bag"}
+  ],
+  "pilotDecisionRules": {
+    "status": "proposed",
+    "ownerConfirmation": null,
+    "agreementStatistic": "krippendorff-alpha-nominal",
+    "minimumValueAlpha": 0.667,
+    "minimumScorabilityAlpha": 0.667,
+    "mergeConfusionShare": 0.25,
+    "minimumDoubleLabelledUnitsPerAttribute": 30,
+    "rationale": "Krippendorff (2004): alpha >= 0.667 is the lowest level at which tentative conclusions are acceptable. Proposed only; the owner confirms or raises these values before the pilot is labelled, and they are never lowered after pilot results are seen."
+  }
+}
