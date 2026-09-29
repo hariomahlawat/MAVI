@@ -176,9 +176,23 @@ def _object(value: object, keys: set[str], code: str) -> dict:
     return value
 
 
+def _reject_duplicate_json_members(pairs: list[tuple[str, object]]) -> dict:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _fail("contract_duplicate_member")
+        result[key] = value
+    return result
+
+
 def read_contract(path: Path) -> dict:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_members,
+        )
+    except QualityStatisticsError:
+        raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise _fail("contract_unreadable") from exc
     if not isinstance(value, dict):
@@ -348,12 +362,32 @@ def render_contract_projection(document: dict) -> str:
 
 
 def _extract_projection(document: str) -> str:
-    lines = document.replace("\r\n", "\n").splitlines()
-    begin = [index for index, line in enumerate(lines) if line == PROJECTION_BEGIN]
-    end = [index for index, line in enumerate(lines) if line == PROJECTION_END]
-    if len(begin) != 1 or len(end) != 1 or end[0] <= begin[0]:
+    begin_matches = []
+    search_from = 0
+    while True:
+        index = document.find(PROJECTION_BEGIN, search_from)
+        if index < 0:
+            break
+        begin_matches.append(index)
+        search_from = index + len(PROJECTION_BEGIN)
+
+    end_matches = []
+    search_from = 0
+    while True:
+        index = document.find(PROJECTION_END, search_from)
+        if index < 0:
+            break
+        end_matches.append(index)
+        search_from = index + len(PROJECTION_END)
+
+    if len(begin_matches) != 1 or len(end_matches) != 1:
         raise _fail("contract_projection_structure")
-    return "\n".join(lines[begin[0] : end[0] + 1])
+
+    begin = begin_matches[0]
+    end = end_matches[0]
+    if end <= begin:
+        raise _fail("contract_projection_structure")
+    return document[begin : end + len(PROJECTION_END)]
 
 
 def validate_repository(repo: Path) -> list[str]:
