@@ -10,6 +10,7 @@ imagery or define the S2c.2b-2 operational/Pareto decision rule.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 SCHEMA = "mavi-s2c-quality-statistics-v1"
@@ -295,17 +296,27 @@ def validate_contract(document: dict) -> None:
         raise _fail("b2_scope_boundary")
 
 
+def _normalize_atx_heading(line: str) -> str | None:
+    stripped = line.rstrip()
+    match = re.fullmatch(r"(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?", stripped)
+    if match is None:
+        return None
+    hashes, text = match.groups()
+    return f"{hashes} {text.rstrip()}"
+
+
 def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
     start_marker = "## 13. Frozen invariant registry"
     end_marker = "## 14. Required retained evidence"
     lines = document.replace("\r\n", "\n").splitlines()
     normalized_lines = [line.rstrip() for line in lines]
+    normalized_headings = [_normalize_atx_heading(line) for line in lines]
 
     start_matches = [
-        index for index, line in enumerate(normalized_lines) if line == start_marker
+        index for index, heading in enumerate(normalized_headings) if heading == start_marker
     ]
     end_matches = [
-        index for index, line in enumerate(normalized_lines) if line == end_marker
+        index for index, heading in enumerate(normalized_headings) if heading == end_marker
     ]
     if len(start_matches) != 1 or len(end_matches) != 1:
         raise _fail("normative_invariant_section")
@@ -336,6 +347,16 @@ def _parse_normative_invariant_registry(document: str) -> dict[str, str]:
 
     registry_lines = body[:-1]
     expected_tags = list(EXPECTED_NORMATIVE_INVARIANTS)
+
+    tag_occurrences = [
+        index
+        for index, line in enumerate(normalized_lines)
+        if re.match(r"^\*\*INV-B1-\d{2}:\*\*", line)
+    ]
+    expected_occurrences = list(range(start + 4, start + 4 + len(EXPECTED_NORMATIVE_INVARIANTS)))
+    if tag_occurrences != expected_occurrences:
+        raise _fail("normative_invariant_section")
+
     found: dict[str, str] = {}
     for index, raw_line in enumerate(registry_lines):
         if ":** " not in raw_line or not raw_line.startswith("**INV-B1-"):
