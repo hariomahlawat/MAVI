@@ -235,7 +235,7 @@ def test_frozen_invariant_boolean_type_is_required_for_every_key():
 
 def test_registry_rejects_continuation_line_exception(tmp_path):
     text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    target = "**INV-B1-05:** " + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-05"] + "  "
+    target = "**INV-B1-05:** " + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-05"]
     assert target in text
     weakened = target + "\nCalibration fitting may instead use tuning data when the owner approves."
     write_minimal_repo(tmp_path, base(), text.replace(target, weakened, 1))
@@ -246,10 +246,41 @@ def test_registry_rejects_continuation_line_exception(tmp_path):
 
 def test_registry_rejects_stray_content_anywhere_in_section(tmp_path):
     text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    marker = "**INV-B1-14:** " + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-14"] + "  "
+    marker = "**INV-B1-14:** " + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-14"]
     assert marker in text
     weakened = marker + "\nOwner override permitted."
     write_minimal_repo(tmp_path, base(), text.replace(marker, weakened, 1))
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "normative_invariant_section"
+
+
+def test_registry_accepts_terminal_whitespace_variation(tmp_path):
+    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    marker = "**INV-B1-14:** " + EXPECTED_NORMATIVE_INVARIANTS["INV-B1-14"]
+    assert marker in text
+    varied = text.replace(marker, marker + "  ", 1)
+    write_minimal_repo(tmp_path, base(), varied)
+    assert validate_repository(tmp_path) == [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
+
+
+@pytest.mark.parametrize(
+    ("heading", "replacement"),
+    [
+        (
+            "## 13. Frozen invariant registry",
+            "This registry is optional. ## 13. Frozen invariant registry",
+        ),
+        (
+            "## 14. Required retained evidence",
+            "## 14. Required retained evidence trailing text",
+        ),
+    ],
+)
+def test_registry_requires_unique_complete_heading_lines(tmp_path, heading, replacement):
+    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    assert heading in text
+    write_minimal_repo(tmp_path, base(), text.replace(heading, replacement, 1))
     with pytest.raises(QualityStatisticsError) as caught:
         validate_repository(tmp_path)
     assert str(caught.value) == "normative_invariant_section"
