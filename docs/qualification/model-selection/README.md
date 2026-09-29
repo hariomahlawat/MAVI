@@ -266,7 +266,7 @@ A decision is reconstructed from five separate layers, recorded in this order. N
 2. **Measured metrics.** The full measurement table, with intervals and evidence classes, for every evaluated candidate including the losers. Raw per-item predictions are retained by hash.
 3. **Comparative scores (optional ordering aid).**
    - Weights and the rule converting each measurement into a criterion score are frozen in the protocol.
-   - Differences within the protocol's statistical interval score as ties.
+   - Differences within the protocol's statistical interval score as ties **unless the capability-specific governing protocol defines explicit superiority/non-inferiority/equivalence/inconclusive states**. For S2c person/vehicle events, qualification-plan R3 + `s2c-quality-statistics.md` override this generic aid: interval overlap is not equivalence, and an inconclusive/insufficient-evidence result cannot become a tie or statistical winner.
    - Scores are reported at the precision the data supports, never more.
    - The record reports a **sensitivity check**: does the top-ranked candidate change when any one weight group moves by the protocol's declared perturbation, or when any group is removed? An unstable ranking is recorded as unstable, and the choice between the tied candidates becomes an explicit owner decision.
 4. **Owner decisions.** For example the MPID, target precisions, whether to seek a licence for a stronger constrained candidate, and the implementation candidate. Each has a rationale, decision-maker and date.
