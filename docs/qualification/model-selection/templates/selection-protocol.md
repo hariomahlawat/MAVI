@@ -50,7 +50,7 @@ For quality/statistical comparison record:
 - how a metric with several attribute/value requirements is decided;
 - MPID/replacement bars where applicable.
 
-Any comparative score is optional under MSR method §8 and may not replace these gates. The final Pareto/ordering rule belongs to S2c.2b-2 and must be frozen before selection data are read.
+Any comparative score is optional under MSR method §8 and may not replace these gates. **For S2c events, MSR §8's generic “differences within the statistical interval score as ties” rule is explicitly overridden:** a paired result that is not `superior`, `non-inferior` or `equivalent` under the frozen margins remains `inconclusive`; it cannot be converted to a tie, owner-selected statistical winner or technical-ordering input. `Insufficient evidence` likewise remains non-decisive. The final Pareto/ordering rule belongs to S2c.2b-2 and must be frozen before selection data are read.
 
 ## 7. Statistics (methodology §8.1 + qualification-plan R3)
 - estimand and top-level independent unit for each claim (default site for unseen-site claims);
