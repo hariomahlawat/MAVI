@@ -168,7 +168,7 @@ Before any selection result is read, freeze:
 - joint person×vehicle operational decision schema;
 - licence target profiles;
 - revision invalidation rule;
-- freeze commit/hash/date bound to the S2c.1 selection-view/access-log evidence proving the freeze predates selection-data access.
+- freeze commit/hash/date bound to the sealed S2c.1 evaluation-view date. Freeze-before-selection-data access remains a reviewed protocol attestation until the S2c.3 harness provides a hash-chained first-selection-read record; if that record is implemented, it becomes the preferred machine evidence.
 
 A result-informed revision that changes candidate inclusion, claims, margins, objective or composition manifest does not become unbiased by rerunning the same exposed selection data. Affected confirmatory evidence needs a fresh evaluation basis or later event.
 
@@ -219,7 +219,7 @@ The replay must match current S2b semantics:
 - every lease is capped at the first-claim analysis deadline;
 - Phase A requires a live lease and therefore must occur before the deadline;
 - protected publication window follows successful Phase A and is capped at deadline + one lease duration as currently defined;
-- successful Phase-C publication commit and acknowledgement are distinct; the persisted `CompletedAtUtc` is the Phase-C commit time, while acknowledgement is client/harness evidence;
+- successful Phase-C publication commit and acknowledgement are distinct; for a unit in `Completed`, persisted `CompletedAtUtc` records the Phase-C transaction time, while acknowledgement is client/harness evidence;
 - no unimplemented partial-progress/checkpoint reuse is assumed.
 
 ### 7.4 Performance views
@@ -762,11 +762,11 @@ S2c creates one checked cross-event artefact:
 
 - **schema:** `mavi-s2c-joint-operational-decision-v1`
 - **path:** `docs/qualification/model-selection/s2c-joint-operational-decision.json` for the active S2c event pair, or the event-pair-specific path defined by the M2 index;
-- **identity:** both event ids, both ledger hashes, both event decision hashes, b-1/b-2 contract hashes and the frozen experiment hash;
+- **identity:** both event ids, both ledger hashes, one **per-event quality-result hash** for each capability (covering that event's E_c, F_c, pairwise matrix, decision claims and MPID outcome), b-1/b-2 contract hashes and the frozen experiment hash;
 - **evidence:** every evaluated joint pair with exact person/vehicle `unitId`s, operational evidence hash, `H_lo`, `H_up`, admission/constraint outcomes;
 - **outputs:** `T`, every per-profile `T_r`, `C_all`, `T_impl`, technical outcome and joint evidence hash.
 
-The v2 validator cross-loads both S2c event decisions plus this artefact and recomputes the joint sets. Any S2c person/vehicle event still using decision-v1 is refused; decision-v1 remains accepted for non-S2c events.
+The validator dependency is one-way and acyclic: load both event ledgers and their quality-result artefacts first; validate the joint operational document from those immutable inputs; hash the joint document; then load/validate each event decision-v2, which may cite `jointOperationalDecisionSha256`. The joint document does **not** cite full event decision hashes. Any S2c person/vehicle event still using decision-v1 is refused; decision-v1 remains accepted for non-S2c events.
 
 ### 20.3 Required S2c fields
 
@@ -780,7 +780,7 @@ Per capability/event:
 - `highestTaskQualityEvaluatedSet[]`
 - `qualityOutcomeReason`
 
-Joint decision:
+Joint decision reference in each event decision-v2:
 
 - `jointOperationalDecisionSha256`
 - `technicalSelectionOutcome`
@@ -819,7 +819,8 @@ Machine validation cannot prove:
 - that workload/camera classes are representative;
 - that a licence determination is legally correct;
 - that a human-labelled b-1 comparison result is scientifically well grounded beyond the harness evidence;
-- that an owner-selected SLA/NI/MPID margin is wise.
+- that an owner-selected SLA/NI/MPID margin is wise;
+- until S2c.3 emits a hash-chained first-selection-read record, that the protocol freeze occurred before any selection-partition read.
 
 These remain reviewed protocol inputs with retained evidence/attestation.
 
@@ -897,7 +898,8 @@ Reject:
 - selection-time manifest/objective change;
 - frozen-test selection evidence;
 - owner implementation outside `T_impl`;
-- missing/invalid joint-decision artefact or mismatched event/ledger/decision hashes;
+- missing/invalid joint-decision artefact or mismatched event/ledger/quality-result/contract hashes;
+- any joint-decision artefact that cites a full event decision hash (cycle forbidden);
 - S2c event using decision-v1;
 - scalar S2c winner schema where v2 is required.
 
@@ -1019,7 +1021,7 @@ Complete only when:
 17. MPID no-comparator disposition is frozen before selection and is not auto-passed;
 18. fallback operational units are frozen before selection and cannot rewrite empty-F quality outcomes;
 19. `T_impl` is derived over `C_all`, not by intersecting per-profile optima;
-20. the checked joint-decision artefact cross-links both S2c events;
+20. the checked joint-decision artefact cross-links both S2c events **without hash cycles**, using event ids, ledger hashes and per-event quality-result hashes; event decision-v2 documents reference the already-hashed joint artefact;
 21. b-1 repository check passes;
 22. b-2 repository check passes;
 23. `tools/verify_repo.py` passes;
@@ -1048,6 +1050,7 @@ Complete only when:
 | B3 residual no-comparator disposition result-dependent | accepted — disposition frozen in §§6, 14.1 |
 | B6 residual multi-profile implementation ambiguity | accepted — `C_all` / `T_impl` §18 |
 | B7 residual no joint cross-event document | accepted — checked joint-decision artefact §20.2 |
+| N2 joint/event decision hash cycle | accepted — one-way ledger/quality-result → joint decision → event decision-v2 hash chain §20.2 |
 
 ---
 
