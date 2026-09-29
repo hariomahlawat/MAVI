@@ -20,8 +20,10 @@
 Reference the schema; summarise the operating envelope.
 
 ## 2. Candidate ledger
-| Id | Role | Candidate (family) | Exact identity | Technical disposition | Licence/deployment status (per profile) | Survey/source ref |
-|---|---|---|---|---|---|---|
+| Id | Role | Candidate (family) | Exact identity | Credibility class (M1) | Technical disposition | Licence/deployment status (per profile) | Survey/source ref |
+|---|---|---|---|---|---|---|---|
+
+The credibility class and all external evidence come from the event's External Evidence Ledger, `<event-id>-evidence-ledger.json` (`../candidate-credibility.md`; template `templates/external-evidence-ledger.md`). This table restates the class; the ledger is authoritative for it, and the credibility class never enters §6.
 
 One **candidate card** per serious candidate, holding every field of methodology §5. It is filled at `PROTOCOL_FROZEN` and extended with measurements.
 
@@ -69,7 +71,7 @@ Per candidate, or per component of a composition, and per declared target profil
 | Highest task-quality evaluated candidate | |
 | Strongest evaluated technical candidate | |
 | Strongest candidate cleared for `<profile id>` (per profile) | |
-| Implementation candidate or composition (owner decision, rationale, date) | |
+| Implementation candidate or composition (owner decision, rationale, date; each component `established` or `mavi-owned` with its promotion date, M1 §8) | |
 | Standard sentence used? If not, why the implementation choice differs from the strongest cleared candidate | |
 | Deltas: task-quality vs technical; technical vs cleared; cleared vs implementation (quality and resources) | |
 | Alternatives (ranked; composition frontier) | |
@@ -77,6 +79,8 @@ Per candidate, or per component of a composition, and per declared target profil
 | Owner decisions (MPID, targets, licence pursuit, ties, insufficient-cluster choices) | |
 | Assumptions and unresolved risks | |
 | Upgrade deltas vs incumbent (upgrade events) | improved / regressed / resources / scale projection / dependencies / qualification / migration |
+
+The §8 outputs are also written as the checked decision summary `<event-id>-decision.json` (M1 §8). The summary must validate against the ledger it cites by hash.
 
 ## 9. Resulting identities (by reference, when created)
 Model Pack id; Runtime Pack id per variant; binding; pipeline profile and identity; qualification record id.

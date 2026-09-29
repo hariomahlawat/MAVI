@@ -1,6 +1,6 @@
 # Model Selection Records — Methodology (MSR method v1)
 
-**Status:** Accepted — PR #115 merged the independently reviewed MSR method v1 at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge is the acceptance event. Future learned Model Pack selections must follow the accepted ADR-014 Model Selection Records note. S2c.0 records/reconciles the accepted method into the implementation baseline; it does not create a second acceptance event.
+**Status:** Accepted — PR #115 merged the independently reviewed MSR method v1 at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge is the acceptance event. Future learned Model Pack selections must follow the accepted ADR-014 Model Selection Records note. S2c.0 records/reconciles the accepted method into the implementation baseline; it does not create a second acceptance event. **Revision M1** (candidate credibility and admissibility, `candidate-credibility.md`, slice S2c.2a) is an additive revision of v1. It becomes governing only when its change merges after review (§14).
 **Scope:** every learned component MAVI binds through a Model Pack. That includes detectors, trackers with learned parts, person and vehicle attributes, embeddings, re-identification, segmentation, OCR, VLMs, and any later capability.
 **Purpose:** make every model choice reconstructible years later without the author's memory. A future reader must be able to answer:
 - which models were considered, and how they were found;
@@ -23,6 +23,7 @@ The MSR does not replace any authoritative document. It cites them:
 | ADRs (`docs/decisions/`) | architecture: capability contracts, Model/Runtime Pack model, identity rules | the MSR cannot change architecture; a candidate that needs an architectural change is recorded with that need, and the change goes through an ADR first |
 | Stage acceptance register (`docs/reviews/<date>-<stage>-acceptance.md`) | the only exit gate of its stage | the MSR is evidence a register row may cite; it holds no acceptance list and marks nothing PASS |
 | Qualification plan (for Stage 2: `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md`) | qualification protocol: corpus governance, partitions, labelling, metrics, freeze order, requalification triggers | the MSR's selection protocol instantiates it and may not weaken it; the frozen qualification test is never used for selection |
+| Candidate credibility and admissibility (`candidate-credibility.md`, revision M1) | which candidates are credible enough for the shortlist and for implementation; the External Evidence Ledger | part of this method; it adds a credibility axis and never changes the technical ranking |
 | Candidate survey (for S2c: `docs/qualification/stage2-s2c/model-candidate-survey.md`) | discovery and research evidence at a date; reported, not reproduced | an input; the MSR cites survey rows and snapshots what it relies on (§6) |
 | Model Pack qualification record (`models/qualifications/*.json`) | qualification of one exact packaged model per variant and profile | the MSR explains *why* this pack exists; the record says whether it is *qualified*; the record cites the closed MSR by hash (§10) |
 | Implementation plan (for S2c: the plan above) | implementation sequencing | says in which slice each MSR state transition happens |
@@ -46,7 +47,7 @@ Every event records three assessments separately. **No single score combines the
 
 Assessments 1 and 2 together form the **technical ranking**. Licence terms never enter it: no weight, no tie-break, no pre-filter.
 
-**The one carve-out: evaluation permission.** Whether MAVI may lawfully *run* a candidate on its data is a human legal precondition to measurement, not a ranking input. It is recorded with decision-maker, date and primary source. A candidate that may not be evaluated becomes `REFERENCE_ONLY`: its reported evidence stays in the record at full strength and is marked "not reproduced by MAVI". It is never `NOT_SHORTLISTED`. Where the method is usable but the released checkpoint is not, the method trained on MAVI-permitted data represents it.
+**The one carve-out: evaluation permission.** Whether MAVI may lawfully *run* a candidate on its data is a human legal precondition to measurement, not a ranking input. It is recorded with decision-maker, date and primary source. A candidate that may not be evaluated becomes `REFERENCE_ONLY`: its reported evidence stays in the record at full strength and is marked "not reproduced by MAVI". It is never `NOT_SHORTLISTED` on that ground. (Under revision M1 an `excluded-discovery`, whose origin cannot be identified, is `NOT_SHORTLISTED` on credibility grounds whatever its evaluation permission.) Where the method is usable but the released checkpoint is not, the method trained on MAVI-permitted data represents it.
 
 Assessment 3 is applied afterwards to decide which ranked candidates are **cleared for a declared deployment profile**. A technically superior candidate stays in the record at its rank, marked with its constraint, even when it is not cleared for any declared profile.
 
@@ -105,7 +106,7 @@ A `CLOSED` event has exactly one **outcome**:
 
 ## 4. Candidate lifecycle
 
-Each candidate carries **two independent status axes** and a **role**. They are never collapsed into one field.
+Each candidate carries **two independent status axes** and a **role**. They are never collapsed into one field. Revision M1 adds a third, independent **credibility class** (`established`, `emerging`, `reference-only`, `excluded-discovery`, `mavi-owned`), computed from the event's External Evidence Ledger (`candidate-credibility.md` §3). It restricts which candidates may be `SHORTLISTED` and which may become the implementation candidate. It never enters the technical ranking.
 
 **Role:** `baseline` (deterministic/simple floor), `incumbent` (the currently bound pack, if any), `challenger`, or `reference` (reported only, never evaluated).
 
@@ -116,8 +117,8 @@ DISCOVERED ─→ SHORTLISTED ─→ EVALUATED ─→ TECHNICALLY_SELECTED
     │              │             ├──────→ TECHNICAL_ALTERNATIVE   (passed the technical gates; ranked below)
     │              │             └──────→ REJECTED_TECHNICAL      (failed a technical gate, or dominated; gate/measurement cited)
     │              ├──────────────────→ DEFERRED                  (evidence or resources insufficient; revisit trigger stated)
-    │              └──────────────────→ REFERENCE_ONLY            (could not be evaluated: permission, availability; reported evidence kept, marked not reproduced)
-    └──────────────────────────────────→ NOT_SHORTLISTED          (technical reason recorded; never a licence reason)
+    │              └──────────────────→ REFERENCE_ONLY            (could not be evaluated: permission, availability; or under M1 held for credibility; reported evidence kept, marked not reproduced)
+    └──────────────────────────────────→ NOT_SHORTLISTED          (technical reason recorded, or under M1 the credibility reason of an excluded discovery; never a licence reason)
 ```
 
 **Licence / deployment qualification status** (per target deployment profile; independent of technical disposition):
@@ -138,6 +139,7 @@ Required combinations:
 - A candidate can be `TECHNICALLY_SELECTED` and `CONSTRAINED` at once. That is the case this methodology exists to preserve.
 - A candidate whose licence forbids commercial use but grants every use the declared non-commercial profile makes is a fully valid implementation candidate.
 - The **implementation candidate** is the owner's choice among candidates that are at least `TECHNICAL_ALTERNATIVE`, past every technical gate, and `CLEARED` for **each named target profile** of the event (the licence gate is per profile). An event may not close as `SELECTED_FOR_PACKAGING` for a profile whose determination is still pending. Profiles determined later (for example a Production deployment) are recorded as licence/deployment-determination addenda (§11) and in the qualification record's `licence` gate evidence. It may differ from the strongest evaluated technical candidate. The measured gap between them is always recorded (§9).
+- Under revision M1 the implementation candidate (each component, for a composition) must also have credibility class `established` (or `mavi-owned`). That class must be reached by a recorded history entry dated on or before the decision (`candidate-credibility.md` §8). An `emerging` candidate that wins the bake-off stays at its rank as the strongest evaluated technical candidate. It needs a recorded promotion before it can be implemented.
 
 ## 5. Candidate record: exact identity
 
@@ -153,6 +155,8 @@ A candidate is identified by the **bytes evaluated**, never by a family name.
 - the backbone checkpoint identity as above;
 - the MAVI training manifest hash (inputs by manifest hash, seed, environment lock, code revision);
 - the SHA-256 of each produced artefact (head, calibration).
+
+Every serious candidate also has an entry in the event's **External Evidence Ledger** (`<event-id>-evidence-ledger.json`, revision M1; `candidate-credibility.md` §4). The ledger keeps first-party claims apart from independent evidence and traces each reported figure to its origin. Its checkpoint identity is the one below.
 
 Every serious candidate records, where available, the fields below. Unknown means `UNKNOWN`, and `UNVERIFIED` marks an unconfirmed claim. Nothing is left blank or guessed.
 
@@ -406,3 +410,17 @@ A replacement follows these steps:
 |---|---|---|---|---|---|---|
 | [`msr-person-attributes-2026-01`](person-attributes/msr-person-attributes-2026-01.md) | `person-attributes` | S2c | `PLANNED` | — | — | — |
 | [`msr-vehicle-attributes-2026-01`](vehicle-attributes/msr-vehicle-attributes-2026-01.md) | `vehicle-attributes` | S2c | `PLANNED` | — | — | — |
+
+## 14. Method revisions
+
+Revisions are additive and numbered, and never silently rewrite an earlier rule. Each becomes governing when its change merges after independent review and exact-head CI.
+
+| Revision | Slice | Content | Status |
+|---|---|---|---|
+| **M1** Candidate credibility and admissibility | S2c.2a | `candidate-credibility.md`. It adds: credibility classes computed from an External Evidence Ledger; laundering-resistant tracing of reported figures to their origin; a shortlist rule requiring pinned, original-source provenance; an implementation rule requiring `established` with a recorded promotion; and a checked decision summary (`<event-id>-decision.json`) that derives the §9 outputs. Validator: `tools/qualification/model_selection_check.py` | proposed; governing on merge |
+
+*M1 trade-off:*
+- **Cost:** every serious candidate needs a ledger entry and a reviewer check of its independent evidence. A genuinely strong but newly published model cannot be implemented until independent evidence exists.
+- **Gain:** no model reaches a Model Pack on self-reported or copied numbers, and every inclusion and exclusion can be reconstructed.
+- **What changes:** M1 adds a precondition to the owner's implementation choice (§4): an implementation candidate must now also be `established`. It also adds a shortlist precondition and three event files: the ledger, its frozen copy and the decision summary. The technical ranking, the licence axis, the outcomes and the qualification-record link are unchanged.
+- **What does not change:** no ADR, contract, schema of any existing record, or gate set. ADR-014's Model Selection Records note governs the method, including its revisions. The note's decision list (three separate assessments, exact bytes, reported versus measured evidence) is what M1 strengthens.

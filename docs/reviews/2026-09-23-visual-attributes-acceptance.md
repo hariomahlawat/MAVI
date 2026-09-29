@@ -1,6 +1,6 @@
 # Visual Attributes — Stage-2 Acceptance Register
 
-**Status:** Open — S2a closed; S2b closed; S2c.0 closed (PR #116); S2c.1 in progress (tooling delivered for review; F1 OPEN)  
+**Status:** Open — S2a closed; S2b closed; S2c.0 closed (PR #116); S2c.1 in progress (tooling merged in PR #117; F1 OPEN); S2c.2a candidate credibility protocol in review  
 **Date opened:** 2026-09-23  
 **Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c`  
 **Reconciled:** 2026-09-28 against S2a `main@406172657599350ecbb27819865ecc9482c6c97d`; S2b closure evidence reconciled against `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`; PR #115 acceptance authority is `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; the S2c.0 implementation baseline is `main@647d8f605d7c29bb6984408cb4d7e87eb5dcc163` (merge of PR #116)
@@ -11,7 +11,7 @@ Nothing unexecuted is marked PASS.
 
 ## Current verdict
 
-**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE CLOSED; PR #115 S2c PLAN ACCEPTED; S2c.0 BASELINE CLOSED (PR #116). S2c.1 IN PROGRESS: CORPUS/LABEL TOOLING DELIVERED; F1 OPEN PENDING OPERATIONAL EVIDENCE.**
+**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE CLOSED; PR #115 S2c PLAN ACCEPTED; S2c.0 BASELINE CLOSED (PR #116). S2c.1 IN PROGRESS: CORPUS/LABEL TOOLING MERGED (PR #117); F1 OPEN PENDING OPERATIONAL EVIDENCE. S2c.2a CANDIDATE CREDIBILITY PROTOCOL IN REVIEW; NO MODEL SELECTED.**
 
 S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`; C1–C7 remain reconciled below. S2b is closed through PR #114 at `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`: final PR head `37376fb28e4be181642eace65d09dec7884c550f` passed exact-head runs 36403353060, 36403353027 and 36403353097, and merged main passed MAVI Quality Gate #2150 (36406745354), Task 17 #1284 (36406745355) and Task 10 #807 (36406745357). The durable closure record is `docs/reviews/2026-09-28-stage2-s2c-0-baseline.md`; the obsolete "exact-head CI pending" qualifiers are therefore removed from D1–D8/E1–E4 without changing their already-recorded PASS status. E5–E8 remain OPEN for S3. PR #115 merged the independently reviewed S2c plan at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge accepted its governing ADR/qualification/MSR decisions. S2c.0 reconciled those already-effective decisions; its merge (PR #116, `main@647d8f605d7c29bb6984408cb4d7e87eb5dcc163`) is the implementation baseline. No F/G row changed status because of S2c.0. S2c.1 delivers the F1 tooling (manifests, partitions, leakage audits, annotation guide v1, independent labelling, agreement, frozen-test seal) but no operational evidence yet, so F1 remains OPEN.
 
@@ -160,6 +160,13 @@ Ownership (clarified 2026-09-28 by the S2c plan; no status changes): the parent 
 - Delivered: `tools/qualification/attributes/corpus/` (tooling and README), `docs/qualification/stage2-s2c/annotation-guide.md` (v1, candidate vocabulary), `docs/qualification/stage2-s2c/s2c-1-implementation-record.md`, and the F1 evidence record with its fail-closed checker.
 - Evidence class: tooling tests on **synthetic fixtures only**; they prove the mechanisms, not annotation agreement, corpus diversity or camera/site support.
 - F1: OPEN. Missing external inputs are listed in the evidence record.
+- Merged in PR #117 at `main@1d9c0ff8dd67cbd65acaf2d0942efbea5e19fd18` (see the S2c.1 implementation record for the review rounds).
+
+### S2c.2a candidate credibility protocol — 2026-09-29
+
+- Baseline: `main@1d9c0ff8dd67cbd65acaf2d0942efbea5e19fd18` (merge of PR #117, S2c.1 tooling).
+- Delivered: MSR method v1 revision M1 (`docs/qualification/model-selection/candidate-credibility.md`), the External Evidence Ledger template, and the ledger/decision-summary validator `tools/qualification/model_selection_check.py`, with tests on synthetic fixtures only.
+- No row changes. It selects, downloads and benchmarks no model, writes no ledger for a real event, and claims no MAVI result. F1, F3 and every other F/G row keep their state; S2c.2, S2c.3 and S2c.4 are OPEN.
 
 For every PASS entry retain:
 - exact commit SHA;

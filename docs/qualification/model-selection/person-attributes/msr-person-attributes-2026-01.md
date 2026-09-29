@@ -35,7 +35,7 @@ No winner or composition is named in this planning record.
 
 ## 2. Candidate ledger
 
-Checkpoint identities are pinned at S2c.2 (methodology §5). "Pin at S2c.2" means the exact repository revision, file and SHA-256 are not yet recorded. Licence status is `NOT_ASSESSED` for all candidates: the survey's class (§6 there) is an input to the review, not a determination.
+Checkpoint identities are pinned at S2c.2 (methodology §5). "Pin at S2c.2" means the exact repository revision, file and SHA-256 are not yet recorded. Licence status is `NOT_ASSESSED` for all candidates: the survey's class (§6 there) is an input to the review, not a determination. Credibility classes (MSR method revision M1, `../candidate-credibility.md`) are assigned in S2c.2 through this event's External Evidence Ledger. No candidate has a class yet, and each "proposed at freeze" entry is subject to that gate: a candidate that does not compute as `established` or `emerging` with pinned provenance cannot be shortlisted, and an `emerging` one is normally held reference-only.
 
 | Id | Sub-task | Role | Candidate (family) | Exact identity | Technical disposition | Proposed at freeze | Survey ref |
 |---|---|---|---|---|---|---|---|
