@@ -1,6 +1,6 @@
 # Visual Attributes — Stage-2 Acceptance Register
 
-**Status:** Open — S2a closed; S2b closed; S2c.0 closed (PR #116); S2c.1 in progress (tooling merged in PR #117; F1 OPEN); S2c.2a candidate credibility protocol merged (PR #118); S2c.2b-1 quality/statistical protocol in review (PR #119)  
+**Status:** Open — S2a closed; S2b closed; S2c.0 closed (PR #116); S2c.1 in progress (tooling merged in PR #117; F1 OPEN); S2c.2a candidate credibility protocol merged (PR #118); S2c.2b-1 quality/statistical protocol merged (PR #119); S2c.2b-2 next  
 **Date opened:** 2026-09-23  
 **Baseline:** `main@ca23adf55b0b4a14faf58e12d048a3c90221557c`  
 **Reconciled:** 2026-09-28 against S2a `main@406172657599350ecbb27819865ecc9482c6c97d`; S2b closure evidence reconciled against `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`; PR #115 acceptance authority is `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; the S2c.0 implementation baseline is `main@647d8f605d7c29bb6984408cb4d7e87eb5dcc163` (merge of PR #116)
@@ -11,7 +11,7 @@ Nothing unexecuted is marked PASS.
 
 ## Current verdict
 
-**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE CLOSED; PR #115 S2c PLAN ACCEPTED; S2c.0 BASELINE CLOSED (PR #116). S2c.1 IN PROGRESS: CORPUS/LABEL TOOLING MERGED (PR #117); F1 OPEN PENDING OPERATIONAL EVIDENCE. S2c.2a CANDIDATE CREDIBILITY PROTOCOL MERGED (PR #118); S2c.2b-1 QUALITY/STATISTICAL PROTOCOL IN REVIEW (PR #119); NO MODEL SELECTED.**
+**ARCHITECTURE FROZEN — S2a COMPONENT BINDING v2 CLOSED; S2b ATTRIBUTE LIFECYCLE CLOSED; PR #115 S2c PLAN ACCEPTED; S2c.0 BASELINE CLOSED (PR #116). S2c.1 IN PROGRESS: CORPUS/LABEL TOOLING MERGED (PR #117); F1 OPEN PENDING OPERATIONAL EVIDENCE. S2c.2a CANDIDATE CREDIBILITY PROTOCOL MERGED (PR #118); S2c.2b-1 QUALITY/STATISTICAL PROTOCOL MERGED (PR #119); S2c.2b-2 OPERATIONAL/MULTI-OBJECTIVE PROTOCOL NEXT; NO MODEL SELECTED.**
 
 S1 implementation is merged; B1–B6 remain OPEN wherever the retained S1.4 qualification/evidence requirement has not yet been entered as executed evidence in this register. S2a.1–S2a.4 are merged through PR #112 at `main@406172657599350ecbb27819865ecc9482c6c97d`; C1–C7 remain reconciled below. S2b is closed through PR #114 at `main@f7b03a24aba8b8bd303ed3a93b26622395e94c5f`: final PR head `37376fb28e4be181642eace65d09dec7884c550f` passed exact-head runs 36403353060, 36403353027 and 36403353097, and merged main passed MAVI Quality Gate #2150 (36406745354), Task 17 #1284 (36406745355) and Task 10 #807 (36406745357). The durable closure record is `docs/reviews/2026-09-28-stage2-s2c-0-baseline.md`; the obsolete "exact-head CI pending" qualifiers are therefore removed from D1–D8/E1–E4 without changing their already-recorded PASS status. E5–E8 remain OPEN for S3. PR #115 merged the independently reviewed S2c plan at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge accepted its governing ADR/qualification/MSR decisions. S2c.0 reconciled those already-effective decisions; its merge (PR #116, `main@647d8f605d7c29bb6984408cb4d7e87eb5dcc163`) is the implementation baseline. No F/G row changed status because of S2c.0. S2c.1 delivers the F1 tooling (manifests, partitions, leakage audits, annotation guide v1, independent labelling, agreement, frozen-test seal) but no operational evidence yet, so F1 remains OPEN.
 
@@ -172,8 +172,13 @@ Ownership (clarified 2026-09-28 by the S2c plan; no status changes): the parent 
 ### S2c.2b-1 quality/statistical protocol — 2026-09-29
 
 - Baseline: `main@db2b25a24d0f850c3841a9eabcb915f7c92eebfb` (merge of PR #118, S2c.2a).
-- Delivered, in review in PR #119 (not merged): qualification-plan R3; `docs/qualification/model-selection/s2c-quality-statistics.md` with its canonical machine contract; and the validator `tools/qualification/quality_statistics_check.py`, with tests on synthetic fixtures only.
-- No row changes. It selects, downloads and benchmarks no model and claims no MAVI result. S2c.2b-2, S2c.2, S2c.3 and S2c.4 are OPEN, and F1, F3 and every other F/G row keep their state.
+- Delivered:
+  - qualification-plan R3;
+  - the canonical JSON machine contract `docs/qualification/model-selection/s2c-quality-statistics-contract.json`;
+  - the protocol `s2c-quality-statistics.md` with its deterministic, byte-compared protected projection of the contract;
+  - the validator `tools/qualification/quality_statistics_check.py`, with tests on synthetic fixtures only.
+- Merged in PR #119. The final PR head was `be2629daa2831014a3565ec15850f79762cd7e78`, and the squash merge is `main@3fbfaede6de9aa83697c96d20d95f119cb5b7ef0`. Exact-head PR CI was green on the final head before merge (quality, CPU ubuntu-latest, CPU windows-latest, deterministic-validation, windows-script-validation). That is pre-merge PR evidence. Separately, the merged `main@3fbfaed` passed MAVI Quality Gate #2229 (run 36564432903), Task 10 Runtime Qualification #858 (36564432886) and Task 17 Acceptance Validation #1363 (36564432872).
+- No row changes. It selects, downloads, trains and benchmarks no model and claims no MAVI result. S2c.2b-2 (the current next protocol slice), the S2c.2 protocol freeze, S2c.3 and S2c.4 are OPEN, and F1, F3 and every other F/G row keep their state.
 
 For every PASS entry retain:
 - exact commit SHA;

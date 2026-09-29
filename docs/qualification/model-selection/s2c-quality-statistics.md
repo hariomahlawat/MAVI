@@ -1,6 +1,6 @@
 # S2c.2b-1 — Quality and statistical protocol
 
-**Status:** Proposed — becomes governing for the S2c person/vehicle Model Selection Events only when this change merges.  
+**Status:** Governing for the S2c person/vehicle Model Selection Events — merged in PR #119 (`main@3fbfaede6de9aa83697c96d20d95f119cb5b7ef0`).  
 **Scope:** quality/statistical semantics only. Operational-performance accounting, every Pareto/frontier decision (axes, directions, normalization, dominance, disabled-attribute treatment, non-dominated-set construction), finalist ordering, the 500-camera projection and the final deterministic technical-selection rule are deliberately deferred to **S2c.2b-2** (the complete list is the contract's `deferredToS2c2b2`, projected in §13).  
 **Authorities:** ADR-013/014 remain unchanged; the visual-attributes qualification plan governs, including R1/R2 and the additive R3 in this change; MSR method v1 + M1 remain governing for event/credibility history.  
 **Machine contract:** `s2c-quality-statistics-contract.json`, checked by `tools/qualification/model_selection/quality_statistics.py`.
