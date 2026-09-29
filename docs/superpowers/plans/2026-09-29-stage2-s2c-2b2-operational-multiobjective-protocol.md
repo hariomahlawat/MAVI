@@ -541,15 +541,17 @@ The frozen resource lexicographic order is:
 4. 10k whole-job elapsed time;
 5. model-load/READY time;
 6. offline deployment footprint;
-7. canonical candidate id, **only as a final mechanical tie-break when all preceding decision measurements are equivalent under frozen tolerances**.
+7. canonical candidate id may order **presentation only** after all preceding decision measurements are equivalent; it never decides which technically equivalent candidate survives a K boundary.
 
 ### 11.1 Finalist overflow
 
-If more than K candidates remain in the same unresolved quality tier and the quality-safe condition does not permit enough of them to be ordered, the outcome is `FINALIST_OVERFLOW_UNRESOLVED`.
+If a quality/resource-equivalent or unresolved tier would straddle the K boundary, the outcome is `FINALIST_OVERFLOW_UNRESOLVED`.
 
-The event must then collect more evidence, revise K before reading selection data through a protocol revision, or defer. It may not discard candidates by index order, popularity or owner preference.
+The event must then collect more evidence or defer. Changing K after this result has been observed requires a numbered protocol revision that explicitly invalidates the affected selection results and reruns the affected selection step under the revised protocol; K may not be expanded adaptively while retaining the already-exposed result.
 
-This makes composition generation deterministic without manufacturing a statistical winner.
+Candidates may not be discarded by index order, canonical id, popularity, owner preference or prospective shared-backbone convenience.
+
+This makes composition generation deterministic without manufacturing a statistical winner or suppressing a potentially material composition interaction.
 
 ---
 
