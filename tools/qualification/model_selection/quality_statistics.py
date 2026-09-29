@@ -15,6 +15,7 @@ from pathlib import Path
 SCHEMA = "mavi-s2c-quality-statistics-v1"
 METHOD = "s2c-2b1"
 CONTRACT = Path("docs/qualification/model-selection/s2c-quality-statistics-contract.json")
+NORMATIVE_DOC = Path("docs/qualification/model-selection/s2c-quality-statistics.md")
 
 EXPECTED_POPULATIONS = {
     "S": "human-scorable",
@@ -65,6 +66,28 @@ EXPECTED_DEFERRED = [
     "final-technical-selection",
     "500-camera-projection",
 ]
+
+REQUIRED_DOC_SNIPPETS = {
+    "doc_execution_failure": (
+        "**I-QS3.** Execution failure/Unavailable remains in **A** and lowers all-assigned "
+        "delivery coverage. It cannot disappear by becoming Unknown."
+    ),
+    "doc_frozen_test_no_adaptive_selection": (
+        "A failed/inconclusive frozen qualification does not trigger adaptive evaluation "
+        "of alternatives on the same exposed test."
+    ),
+    "doc_insufficient_evidence": (
+        "**I-QS11.** “Insufficient evidence” is preserved as an outcome; it is never "
+        "converted into a pass, tie or owner-selected statistical winner."
+    ),
+    "doc_recall_support": (
+        "If recall is defined unconditionally over all true positives, it already includes "
+        "abstention. **Coverage is not multiplied into the denominator a second time.**"
+    ),
+    "doc_b2_cpu_host": "- whole-job CPU/host gates;",
+    "doc_b2_composition": "- composition resource accounting;",
+    "doc_b2_10k": "- the 10k-Track deadline mechanics;",
+}
 
 
 class QualityStatisticsError(ValueError):
@@ -207,6 +230,16 @@ def validate_contract(document: dict) -> None:
 
 
 def validate_repository(repo: Path) -> list[str]:
-    path = repo / CONTRACT
-    validate_contract(read_contract(path))
-    return [CONTRACT.as_posix()]
+    contract_path = repo / CONTRACT
+    validate_contract(read_contract(contract_path))
+
+    doc_path = repo / NORMATIVE_DOC
+    try:
+        document = doc_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise _fail("normative_doc_unreadable") from exc
+    for code, snippet in REQUIRED_DOC_SNIPPETS.items():
+        if snippet not in document:
+            raise _fail(code)
+
+    return [CONTRACT.as_posix(), NORMATIVE_DOC.as_posix()]
