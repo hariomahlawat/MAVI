@@ -1,28 +1,29 @@
 # Stage 2 S2c.2b-2 — Operational and Multi-objective Protocol
 
-**Status:** Revised draft implementation plan — architecture rewritten after independent Astra review; not governing until repository-grounded review, acceptance, exact-head CI and merge.  
+**Status:** Revised draft implementation plan — updated after independent Astra architecture review and Claude repository-grounded cold review; not governing until final bounded review, acceptance, exact-head CI and merge.  
 **Date:** 2026-09-29  
 **Starting baseline:** `main@7d97cca565098bf1bef9a48122e01540ec5a37db` (PR #120 merge; S2c.2b-1 governing).  
 **Scope:** planning/protocol design only. No model is selected, downloaded, trained, calibrated or benchmarked. No F/G acceptance row changes.  
 **Governing authorities:** ADR-013, ADR-014, Stage-2 parent plan, Stage-2 qualification plan including R1/R2/R3, the Stage-2 acceptance register, MSR method v1 + M1, and the governing S2c.2b-1 quality/statistical protocol and machine contract.  
-**Independent design input:** Astra architecture review of PR #121 at head `03462d4`, incorporated where valid. The original pairwise-dominance/tiering selection core and Track-fluid-only fleet model are superseded by this revision.
+**Independent design input:** Astra architecture review of PR #121 at `03462d4`; Claude cold review of revised PR #121 at `e706b2f`. Their valid findings are reconciled here.
 
 ---
 
 ## 1. Purpose
 
-S2c.2b-1 defines trustworthy quality evidence but deliberately stops before operational selection. S2c.2b-2 must convert already-frozen measurements into an auditable, executable technical decision without:
+S2c.2b-1 defines trustworthy quality evidence but deliberately stops before operational selection. S2c.2b-2 must convert already-frozen measurements into an auditable technical decision without:
 
-- trading away failed or unresolved quality for lower resource cost;
-- inventing transitivity where b-1 pairwise outcomes do not provide it;
-- treating Track throughput as if Tracks were independently schedulable work;
+- trading failed or unresolved quality for lower cost;
+- assuming transitivity of pairwise non-inferiority/equivalence;
+- treating Tracks as independently schedulable work;
+- hiding person/vehicle runtime coupling;
 - using a weighted utility score;
-- turning an owner preference into a statistical winner;
-- overstating a 500-camera projection as a 500-camera qualification.
+- turning owner preference into statistical evidence;
+- overstating a 500-camera projection as qualification.
 
-The revised decision architecture is:
+The governing decision architecture is:
 
-> **freeze complete experiment → apply mandatory gates → establish direct quality protection against the complete eligible comparison set → optimize a declared deployment objective subject to operational constraints → preserve genuine ties and unresolved outcomes**
+> **freeze complete experiment → pre-screen label-free engineering infeasibility → per-capability absolute gates → MPID filter → direct quality protection against the complete eligible comparison set → joint person×vehicle operational evaluation → constrained deployment selection → preserve genuine ties and unresolved outcomes**
 
 ---
 
@@ -31,15 +32,13 @@ The revised decision architecture is:
 This slice does not:
 
 - choose any real candidate or composition;
-- invent event-specific quality or operational numbers;
+- invent event-specific numerical owner targets;
 - execute models or expose selection/frozen-test data;
 - change the S2b worker/lifecycle/lease plane;
 - make CUDA mandatory;
 - change b-1 populations, partition authority, statistical outcomes or gate forms;
 - promote any acceptance row;
-- create a generic optimization or simulation platform.
-
-The method is intentionally bounded to S2c person/vehicle Model Selection Events.
+- create a generic optimization or simulation framework.
 
 ---
 
@@ -50,51 +49,52 @@ The method is intentionally bounded to S2c person/vehicle Model Selection Events
 b-2 consumes but does not redefine:
 
 - S/U/I/A;
-- post-aggregation calibration;
+- post-aggregation Track calibration;
 - training/tuning/selection/frozen-test authority;
-- paired cluster-aware comparisons;
+- paired cluster-aware comparison;
 - support sufficiency;
 - practical/non-inferiority/equivalence margins;
 - outcomes `superior`, `non-inferior`, `equivalent`, `inconclusive`, `insufficient-evidence`;
 - owner quality targets frozen before selection;
 - no frozen-test tuning, ranking, replacement or rescue.
 
-### 3.2 Exact b-2 subjects
+### 3.2 Explicit disposition of all fifteen b-1 deferred subjects
 
-The b-2 contract must explicitly resolve all fifteen b-1 deferred subjects:
+| Deferred subject | b-2 disposition |
+|---|---|
+| operational-performance | **Defined** — §§7–10, 16 |
+| whole-job-cpu-host-gates | **Defined** — §§7, 9, 16 |
+| composition-resource-accounting | **Defined** — §§10, 16 |
+| 10k-track-deadline-mechanics | **Defined** — §§7–8, 17 |
+| 500-camera-projection | **Defined** — §§11, 17 |
+| pareto-axes | **Retired as governing selection mechanism** — diagnostics only; replaced by §§13–16 |
+| pareto-directions | **Retired as governing selection mechanism** |
+| pareto-normalization | **Retired** — no normalization/utility score |
+| dominance-semantics | **Retired as governing selection mechanism** |
+| disabled-attribute-frontier-treatment | **Replaced** — required disabled attribute fails the capability scope before selection (§10.2) |
+| non-dominated-set-construction | **Retired as governing selection mechanism** |
+| sub-task-finalist-ordering | **Retired** — replaced by predeclared bounded composition manifest (§10.3) |
+| final-technical-selection | **Defined** — §§13–16 |
+| msr-final-ranking-representation | **Defined** — M2 / decision-v2 in §20 |
+| historical-weighted-ordering-reconciliation | **Defined** — §21 |
 
-1. operational-performance;
-2. whole-job-cpu-host-gates;
-3. composition-resource-accounting;
-4. 10k-track-deadline-mechanics;
-5. 500-camera-projection;
-6. pareto-axes;
-7. pareto-directions;
-8. pareto-normalization;
-9. dominance-semantics;
-10. disabled-attribute-frontier-treatment;
-11. non-dominated-set-construction;
-12. sub-task-finalist-ordering;
-13. final-technical-selection;
-14. msr-final-ranking-representation;
-15. historical-weighted-ordering-reconciliation.
-
-The revised design resolves the Pareto-related subjects by **not using a Pareto frontier as the final selection engine**. That is an explicit disposition, not an omission.
+No deferred subject remains implicit.
 
 ---
 
 ## 4. Design principles
 
-1. **Direct quality protection.** A candidate may not reach resource selection by successively eliminating the comparator against which its quality protection would fail.
-2. **No transitivity assumption.** Pairwise non-inferiority/equivalence is not assumed transitive.
-3. **Complete candidates before selection.** Candidate/composition identities and configurations are frozen before selection evidence is read.
-4. **Actual compositions, not component arithmetic.** Shared execution benefits and combined costs must be measured on the exact composition.
-5. **Operational constraints before optimization.** Deadline, memory, queueing, recovery and deployment limits are feasibility constraints, not score components.
-6. **One declared primary deployment objective.** b-2 does not create a universal six-axis ranking. The event declares the operational objective before selection.
-7. **Set-valued outcomes are valid.** Equivalent, tied or unresolved technical sets are legitimate outputs.
-8. **Projection is not qualification.** 500-camera claims remain projected and bounded by executed validation.
-9. **Owner decisions do not rewrite evidence.**
-10. **Licence/credibility remain separate from technical evidence.**
+1. **Direct quality protection.** No candidate reaches deployment selection by eliminating the comparator against which it would fail quality protection.
+2. **No transitivity assumption.**
+3. **Complete candidates before selection.**
+4. **Actual compositions, not component arithmetic.**
+5. **Joint runtime reality.** Person and vehicle quality remain separate, but final operational selection is over the pair because the bound identity and worker execute both capability packs in one process.
+6. **Operational constraints before optimization.**
+7. **One frozen deployment objective.**
+8. **Set-valued outcomes are valid.**
+9. **Projection is not qualification.**
+10. **Owner decisions do not rewrite evidence.**
+11. **Licence/credibility remain separate from technical evidence.**
 
 ---
 
@@ -119,266 +119,253 @@ Exact top-level sections:
 - `hostProfile`
 - `workloadFamily`
 - `compositionAccounting`
-- `scaleProjection`
-- `qualityProtection`
-- `deploymentObjective`
-- `finalSelection`
+- `qualityDecisionClaims`
 - `mpidExtensionRule`
+- `scaleProjection`
+- `jointOperationalSelection`
+- `finalSelection`
 - `msrRepresentation`
 - `historicalOrdering`
 - `ownerInputs`
 - `frozenInvariants`
 - `invariantStatements`
 
-The Markdown protocol contains one deterministic protected projection from this contract and is byte-compared like b-1.
+The Markdown protocol contains one deterministic protected projection from the contract and is byte-compared like b-1.
 
 ### 5.1 Cross-contract enforcement
 
-The repository validator must load b-1 and prove:
+The validator must load b-1 and prove:
 
-- every current b-1 deferred subject has one explicit b-2 disposition;
-- no b-2 field redefines b-1 populations, partition authority, statistical outcomes or gate forms;
-- event `PROTOCOL_FROZEN` requires both b-1 and b-2 ids/hashes;
-- no S2c event uses weighted `comparativeScore` as technical authority.
+- every current b-1 deferred subject has one explicit disposition;
+- no b-2 field redefines b-1 authority;
+- `PROTOCOL_FROZEN` requires both b-1 and b-2 ids/hashes;
+- no S2c event uses weighted `comparativeScore` as technical authority;
+- no frozen-test result enters b-2 selection inputs.
 
 ---
 
 ## 6. Freeze complete experiment before selection
 
-Before any selection result is read, each event freezes:
+Before any selection result is read, freeze:
 
 - exact candidate/component identities;
 - exact executable configurations;
-- target attribute set/profile;
-- aggregation/admissibility family already allowed by b-1;
-- complete composition manifest for multi-component events;
-- host profile;
+- target capability scope per event;
+- complete person composition manifest;
+- host class/profile;
 - workload family;
-- quality gate table and margins;
+- owner quality gate table and margins;
+- **decision-claim set Q_c for each capability**;
+- direction of every claim in Q_c;
+- one simultaneous-inference family per event covering all ordered candidate pairs × decision claims;
 - operational constraints;
 - deployment objective;
-- MPID rule;
-- required engineering evidence and allowed pending stages;
-- decision/report schema.
+- MPID claim(s) and margin;
+- existing-graph candidate designation;
+- E1/E2/E3 evidence obligations;
+- joint person×vehicle operational decision schema;
+- licence target profiles;
+- revision invalidation rule.
 
-No candidate, composition, workload shape, objective or decision rule may be added after selection data are read except by a numbered protocol revision with explicit invalidation semantics.
-
-A revision made because selection results exposed a weakness is **not made unbiased merely by rerunning the same deterministic selection data**. If the change could alter candidate inclusion, comparison or selection, the affected confirmatory evidence requires a fresh evaluation basis or a new event.
+A result-informed revision that changes candidate inclusion, claims, margins, objective or composition manifest does not become unbiased by rerunning the same exposed selection data. Affected confirmatory evidence needs a fresh evaluation basis or later event.
 
 ---
 
 ## 7. Whole-job operational-performance contract
 
-### 7.1 Scheduling unit
+### 7.1 Scheduling unit and capability coupling
 
-The operational unit is the existing S2b **analysis of one ProcessingRun/capability identity**, not an independently schedulable Track.
+The S2b scheduling unit is one analysis of one ProcessingRun under one bound attribute identity. The bound identity includes the required person and vehicle capabilities and their Model Pack identities. One worker process holds one unit.
 
-Tracks remain useful demand descriptors inside a run, but operational deadline/recovery claims are made at the analysis-job level.
+Therefore:
 
-### 7.2 Required timestamps
+- **quality evaluation remains per capability/event**;
+- **final whole-job resource, memory, queueing and fleet selection is over a person×vehicle implementation pair**.
 
-Retain at minimum:
+Per-capability operational measurements may be retained as diagnostics/pre-screen evidence, but final host-count or whole-job selection is not computed independently for person and vehicle.
 
-- `jobAvailableAt` — work becomes eligible for the attributes lease plane;
-- `firstClaimAt`;
-- each `attemptClaimAt`;
-- `phaseAValidatedAt` — completion validation/deadline point under current S2b lifecycle;
-- `publicationCommittedAt`;
-- `completionAcknowledgedAt`;
-- `readyAt` for worker startup/restart.
+### 7.2 Lifecycle timestamps and their source
 
-These timestamps serve different claims.
+Retain/derive:
 
-### 7.3 Performance views
+- `queuedAtUtc` / job available — platform persisted;
+- `firstClaimedAtUtc` — platform persisted;
+- `attemptClaimAt` — worker/harness instrumentation, tied to claim response;
+- `leaseExpiresAtUtc` — platform persisted;
+- `phaseAValidatedAt` — harness/platform instrumentation around successful Phase-A response; not currently a durable platform field;
+- `publicationCommittedAt` — harness/platform instrumentation around Phase-C commit;
+- `completedAtUtc` — platform persisted;
+- `completionAcknowledgedAt` — client/harness instrumentation;
+- `readyAt` — worker/supervisor instrumentation;
+- attempt failures — platform persisted where the current lifecycle records them.
+
+The implementation record must distinguish persisted platform evidence from harness instrumentation.
+
+### 7.3 Exact lifecycle semantics to replay
+
+The replay must match current S2b semantics:
+
+- FIFO claim order by `queued_at_utc, id`;
+- retryable requeue preserves original `QueuedAtUtc`;
+- one unit per worker process;
+- identity fence respected;
+- attempt consumed at claim;
+- maximum attempts from the frozen lifecycle policy;
+- worker/process loss becomes reclaimable only after lease expiry and subsequent claim;
+- every lease is capped at the first-claim analysis deadline;
+- Phase A requires a live lease and therefore must occur before the deadline;
+- protected publication window follows successful Phase A and is capped at deadline + one lease duration as currently defined;
+- successful publication and acknowledgement are distinct;
+- no unimplemented partial-progress/checkpoint reuse is assumed.
+
+### 7.4 Performance views
 
 Report separately:
 
-1. **boot-to-READY** — startup/recovery evidence;
-2. **claim-to-Phase-A** — lifecycle deadline evidence;
-3. **claim-to-publication** — service/recovery performance;
-4. **available-to-publication** — queueing + service operational latency;
-5. **publication-to-acknowledgement** — transport/confirmation diagnostic.
+1. boot-to-READY;
+2. claim-to-Phase-A;
+3. claim-to-publication;
+4. available-to-publication;
+5. publication-to-acknowledgement.
 
-A protected publication committed after the nominal lifecycle deadline may still be valid under S2b if Phase A was timely. b-2 must not relabel that as lifecycle failure. An owner SLA may nevertheless require publication by a stricter bound; that is a separate frozen operational gate.
+A protected publication after D but within the valid publication window remains lifecycle-valid. A stricter owner SLA may still fail separately.
 
-### 7.4 Steady-state whole-job gate
+### 7.5 Warm whole-job gate
 
-The primary warm CPU gate is claim-to-publication for a frozen workload shape on the pinned host profile.
+The primary warm CPU gate is claim-to-publication for frozen workload shapes on the pinned joint runtime topology.
 
-It includes:
+It includes evidence read/verify/decode, admissibility, preprocessing, inference, aggregation, artefact construction/upload, completion and publication.
 
-- lease-scoped evidence reads;
-- hash verification;
-- decode;
-- admissibility;
-- preprocessing;
-- inference;
-- aggregation/abstention;
-- artefact construction/upload;
-- completion/publication.
+Per-crop/per-Track latency remains diagnostic.
 
-It excludes initial boot/model load because READY precedes leasing, but startup is measured separately.
+### 7.6 Recoverability gate
 
-Per-crop/per-Track p50/p95/p99 remain diagnostics and model inputs, not substitutes for the whole-job gate.
+The protocol freezes required failure scenarios. Each required scenario must still satisfy:
 
-### 7.5 Recoverability gate
+- Phase-A before the frozen lifecycle deadline;
+- publication inside the valid publication window;
+- owner recovery/publication SLA, if stricter;
+- attempt bound.
 
-Injected retry/process-loss scenarios preserve the original first-claim lifecycle deadline and explicitly model:
-
-- work already consumed before failure;
-- explicit `/fail` vs silent process loss;
-- lease expiry/reclaim where required;
-- launcher restart/backoff;
-- model load/READY;
-- retry claim;
-- re-execution;
-- Phase-A validation;
-- publication.
-
-Restart and lease expiry may overlap. The implementation models actual event ordering rather than blindly summing delays.
-
-Candidate-caused OOM, timeout, malformed output or deterministic failure is evidence, not an invalid run.
+Explicit fail and hard process/host loss are modelled separately where both apply.
 
 ---
 
 ## 8. Workload family and 10k boundary
 
-A single 10,000-Track workload is insufficient to characterize a ProcessingRun service model.
-
-The frozen workload family contains at minimum:
+Freeze a workload family containing:
 
 - representative typical jobs;
-- small-job burst scenario;
+- small-job burst;
 - demanding feasible 10k-Track boundary job;
-- mixed person/vehicle job mix where relevant;
-- recovery/failure scenario;
-- any workload shape required by the 500-camera envelope.
+- mixed person/vehicle jobs;
+- failure/recovery scenario;
+- workloads needed for the 500-camera envelope.
 
-Each workload definition records:
+Each definition records:
 
 - job/run count;
-- Track count per job;
-- person/vehicle composition;
-- Evidence Set crops/Track distribution;
-- crop-size distribution;
-- byte-volume bounds;
+- Tracks per job by capability;
+- person/vehicle mix;
+- crops/Track distribution;
+- crop-size/byte distribution;
 - release cadence;
-- initial backlog if any.
+- initial backlog;
+- any synchronized busy-period trace.
 
-The 10k job remains a hard capacity/resilience boundary, not the only operational workload.
+10k remains a hard capacity/resilience boundary, not the sole operational workload.
 
 ---
 
-## 9. Host profile and co-residency
+## 9. Host class and topology
 
-Freeze before selection:
+The deployment objective is valid only on a frozen host class.
 
-- host id/version;
+Freeze:
+
+- host class/id;
 - CPU model;
-- physical/logical cores;
+- cores;
 - RAM;
 - OS/build;
-- Runtime Pack id/lock;
-- attribute worker count;
-- inference/runtime threads;
-- storage/evidence path class;
+- Runtime Pack/lock;
+- storage/evidence path;
 - detector co-residency state;
-- active/resident/reserved detector mode;
-- relevant power/performance policy;
-- network topology where material.
+- worker-process range allowed for topology search;
+- inference/runtime thread settings;
+- power/performance policy where material.
 
-An idle detector does not prove safe active co-residency. The same co-residency mode must be used across compared candidates.
+Mixed host classes are not allowed in S2c b-2 selection unless the owner explicitly freezes a cost-normalized multi-class objective. Default S2c uses one host class.
+
+Topology search operates only over predeclared worker/process counts and uses **unlabelled engineering evidence**. It does not tune model outputs.
 
 ---
 
-## 10. Composition accounting
+## 10. Composition accounting and baselines
 
-For person attributes, quality and resources are measured on the exact composition.
+### 10.1 Exact compositions
 
-Record:
+For person attributes, quality/resource evidence refers to exact executable compositions.
 
-- component identities;
-- shared-backbone identity;
-- trained heads and training-manifest hashes;
-- region component if any;
-- enabled target attributes;
-- Runtime Pack family;
-- whole-job service by workload shape;
-- sustained throughput;
-- peak RSS/VRAM;
-- startup/READY;
-- pack/runtime bytes;
-- workers/host;
-- failure domain;
-- scale-model inputs/outputs.
+Record component identities, shared backbone, heads/training manifests, region component, enabled attributes, Runtime Pack family, service distributions, memory, startup, pack/runtime bytes and failure domain.
 
-### 10.1 Shared resources
+### 10.2 Capability scope and disabled attributes
 
-A shared-backbone benefit counts only if the executable actually shares it.
+Use the term **capability scope** for the frozen required attribute set, distinct from licence deployment profiles.
 
-Forbidden:
+A candidate/composition with a disabled required attribute because a b-1 gate failed is ineligible for that capability scope.
 
-- subtracting theoretical duplicate memory;
-- summing separate component throughputs;
-- inferring composition latency/load time from components;
-- calling same-checkpoint components “shared” when execution is duplicated.
+A partial capability scope is allowed only if separately predeclared before selection.
 
-### 10.2 Target attributes
+### 10.3 Person composition manifest
 
-The target attribute set is frozen before selection.
-
-A candidate/composition missing or disabling a required attribute because a b-1 gate failed is ineligible for that full-capability profile.
-
-Partial profiles are allowed only if **predeclared as separate profiles before selection**, with their own decision rule.
-
-### 10.3 Composition manifest
-
-The person event freezes a **bounded composition manifest** before selection.
+Freeze a bounded composition manifest before selection.
 
 Preferred rule:
 
-- enumerate every compatible composition among the admitted component shortlist when the product is tractable;
-- explicitly include shared-backbone configurations intended for evaluation;
-- train any composition-specific/shared heads on training data;
+- enumerate every compatible composition from the admitted component shortlist when tractable;
+- explicitly include intended shared-backbone combinations;
+- train composition-specific/shared heads on training data;
 - tune allowed parameters on tuning data;
-- freeze all executable compositions before selection.
+- freeze exact executable compositions before selection.
 
-The accepted parent-plan K=3 language is amended for S2c.2b-2: K is not a statistical selection law. It may remain a planning/budget parameter, but no standalone top-K rule is permitted to discard a component after selection results are read.
+K=3 from the parent plan becomes a planning/experiment-budget parameter, not a statistical top-K pruning law. No component is discarded after selection results by standalone rank.
 
-Where the Cartesian product is too large, the experiment budget and retained composition subset are frozen **before** selection and reported as a search limitation. b-2 does not claim dominance-preserving pruning from standalone component measurements unless such preservation is formally demonstrated.
+For larger products, the subset is fixed before selection and the search-completeness limitation is recorded.
 
-This supersedes the original PR #121 quality-tier/finalist-overflow algorithm.
+Label-free operational infeasibility may prune a composition **before selection** only under frozen candidate-independent engineering limits.
+
+### 10.4 Baselines
+
+- **PO-B0** remains a non-packageable statistical floor only. It is never a member of E and cannot be selected.
+- **PC-B0** is packageable and may enter E like any other colour-capable candidate/composition if it passes applicable gates.
+- A packageable baseline selected under the technical rule is represented as the implementation candidate with the MSR outcome `BASELINE_SELECTED` where the methodology requires that outcome.
+- Baseline/reference measurements never delete comparison obligations for learned candidates unless the frozen protocol explicitly defines them as non-selectable references.
 
 ---
 
 ## 11. 500-camera methodology
 
-Use two levels for two different questions.
+### 11.1 Level 1 — fluid service-demand screen
 
-### 11.1 Level 1 — fluid capacity screening
-
-Use worker-service demand:
+Use:
 
 `W[t+1] = max(0, W[t] + A[t] - C[t])`
 
-where:
+where A and C are **job-service demand/capacity**, not raw Track counts.
 
-- `A[t]` = service demand released in bin t;
-- `C[t]` = available service capacity in bin t;
-- `W[t]` = unfinished service demand.
+Use only for:
 
-This gives coarse:
+- coarse instability detection;
+- initial host lower-bound screening;
+- reserve/headroom intuition;
+- rough drain bounds.
 
-- stability;
-- initial host sizing;
-- reserve/headroom estimates;
-- rough drain behaviour.
-
-It does **not** establish job deadlines, publication latency or lost-work recovery.
+Never use it as proof of job deadlines.
 
 ### 11.2 Level 2 — deterministic analysis-job replay
 
-Implement a small standard-library discrete-event helper over actual analysis jobs and workers.
+Implement a bounded standard-library discrete-event helper with fixed event ordering.
 
 For a healthy worker:
 
@@ -386,20 +373,21 @@ For a healthy worker:
 
 `finish[j] = start[j] + service[j,w]`
 
-The helper extends this narrowly for:
+Extend only for the actual S2b semantics in §7.3:
 
-- claim/polling discipline;
-- attempts;
-- leases;
+- FIFO queue;
+- claim polling;
+- attempt consumption;
+- lease expiry/reclaim;
 - explicit failure;
 - process loss;
 - restart/READY;
 - host loss;
 - lost work;
-- Phase-A validation;
+- Phase A;
 - publication.
 
-It is not a generic simulation framework.
+No generic scheduler/simulator.
 
 ### 11.3 Owner workload envelope
 
@@ -409,28 +397,25 @@ Freeze:
 - camera classes/proportions;
 - correlated busy periods;
 - run duration/release cadence;
-- jobs per interval;
-- Tracks/job distribution;
-- person/vehicle mix;
-- Evidence Set count/size distributions;
+- jobs/interval;
+- Tracks/job by capability;
+- Evidence Set counts/sizes;
 - initial backlog;
 - burst traces;
 - failure timing/duration;
 - reserve policy;
 - maximum installed hosts;
-- memory/IO constraints;
-- backlog/queue-age/drain limits.
-
-“500 cameras × average Tracks/minute” is insufficient.
+- memory/IO/API constraints;
+- queue-age/backlog/drain limits.
 
 ### 11.4 Required measurements
 
-On the exact candidate/configuration:
+Measure on exact candidate pairs/topologies:
 
-- warm and cold startup;
-- whole-job service by representative job size/composition;
-- 10k boundary job;
-- admitted concurrency/topology;
+- warm/cold startup;
+- service distributions by job shape;
+- 10k boundary;
+- feasible worker concurrency;
 - active co-residency;
 - evidence-read demand;
 - upload/publication demand;
@@ -438,10 +423,10 @@ On the exact candidate/configuration:
 - explicit-failure recovery;
 - process-loss recovery;
 - host-loss recovery;
-- joint memory peak including restart transients;
+- joint memory including restart transients;
 - deployment/storage growth.
 
-Retain distributions or trace samples where available. Do not multiply per-crop p95 by crop count and call it a job p95.
+Do not derive job p95 by multiplying per-crop p95.
 
 ### 11.5 Projection outputs
 
@@ -455,611 +440,567 @@ Report:
 - oldest queue age;
 - queue-to-publication latency;
 - Phase-A deadline misses;
-- owner SLA misses;
+- owner-SLA misses;
 - peak backlog;
-- post-peak drain;
-- post-host-loss drain;
-- memory/IO bottlenecks;
+- peak/post-failure drain;
+- memory/IO/API bottlenecks;
 - deployment footprint;
-- sensitivity to frozen workload/service assumptions.
+- sensitivity to workload/service assumptions.
 
-### 11.6 Projection validation
+### 11.6 Validation
 
-Freeze projected outputs **before** integrated validation.
+Freeze projections before E3 validation.
 
-S2c.9 executes the real lease/evidence/publication path at several meaningful loads, including:
+Use held-out engineering traces distinct from traces used to calibrate the operational model.
 
-- intended operating region;
-- burst scenario;
-- failure/host-loss scenario where feasible.
+Require one-sided protection against dangerous underprediction plus any declared symmetric tolerance.
 
-Separate:
+If validation fails:
 
-- traces used to calibrate the performance model;
-- held-out engineering traces used to validate it.
+- candidate-independent model error → numbered method revision; recompute all admitted pairs consistently from unchanged E2 evidence where valid;
+- candidate-specific mismatch → affected pair becomes `TECHNICAL_EVIDENCE_INCOMPLETE` and the event reopens; no silent alternative rescue.
 
-These are engineering traces, not the ML frozen test.
-
-Validation includes one-sided protection against dangerous **underprediction**, not only symmetric agreement.
-
-A materially failed validation invalidates the affected projection method/claim. The event is revised/reopened and affected candidates are re-evaluated consistently. The preferred candidate is not simply assigned a new host number.
-
-Permitted wording:
-
-> projected attribute-processing capacity for the declared 500-camera workload envelope, validated against the stated executed loads and hardware.
-
-Not permitted:
-
-> qualified for 500 live cameras.
+Permitted claim: projected capacity for the declared 500-camera envelope validated at stated executed loads/hardware.
 
 ---
 
-## 12. Technical eligibility
+## 12. Evidence stages
 
-Let `E` be the complete set of evaluated frozen candidates/compositions for the profile that pass all applicable absolute technical/engineering gates.
+### E1 — isolated bake-off
+Model-quality and diagnostic engineering evidence from the evaluation harness.
 
-At minimum:
+### E2 — joint selection-stage operational evidence
+For every pair that can still affect the technical decision, run the **real S2b attribute runner against a local/qualification platform path** under the frozen identity/topology sufficiently to measure the service/resource quantities used by the joint operational model.
 
-- SG2 Offline;
-- SG3 Determinism;
-- b-1 SG5 quality/baseline gates;
-- b-1 SG6 abstention/unsupported-assertion gates;
-- required whole-job operational gates;
-- memory/co-residency constraints;
-- projected scale feasibility;
-- mandatory evidence completeness for the selection stage.
+E2 must not require Production qualification, but it must use the real lease/evidence/upload/completion semantics for quantities that claim whole-job meaning.
+
+### E3 — integrated S2c.9 validation
+Selected/tied pair(s) execute multi-worker and, where available, multi-host validation against held-out engineering traces, including projection validation and combined-role deployment.
+
+E2 estimates are never labelled E3 execution.
+
+---
+
+## 13. Per-capability eligibility E_c
+
+For each capability c ∈ {person, vehicle}:
+
+1. begin with the frozen manifest M_c;
+2. apply label-free pre-selection engineering exclusions;
+3. apply applicable absolute b-1 quality/support gates;
+4. apply applicable component/capability engineering gates that do not depend on the final joint pair;
+5. apply the MPID extension filter in §14.
+
+The result is E_c.
 
 Rules:
 
 - missing mandatory evidence is not a pass;
 - insufficient support remains insufficient evidence;
-- disabled required attributes exclude the candidate from that profile;
-- licence and credibility do not affect membership in E;
-- reported class-R evidence cannot satisfy measured technical gates;
-- integrated S2c.9 obligations not yet executed remain visibly pending rather than being misrepresented as selection-stage execution.
+- disabled required attributes exclude the candidate;
+- licence/credibility do not affect E_c;
+- PO-B0 is never in E_presence;
+- reported evidence cannot satisfy measured gates.
 
 ---
 
-## 13. Direct quality protection against the complete set
+## 14. MPID / architectural-extension filter
 
-For every ordered pair `a,b in E`, b-1 supplies the required paired quality outcomes.
+An extension candidate x enters E_c only if it satisfies the frozen MPID rule **before** F_c is computed.
 
-Define:
+### 14.1 Comparator chain
 
-`P(a,b) = true`
+1. Let G be the existing-graph candidates in the same frozen manifest that passed the same absolute b-1 SG5/SG6 gates.
+2. If any member of G remains technically eligible apart from the extension issue, compare x against every such member on the frozen MPID claim(s).
+3. If none remains, use every existing-graph candidate in G that passed the quality gates as the comparator set.
+4. If G is empty, outcome = `MPID_COMPARATOR_UNAVAILABLE`. x does not automatically pass. The event requires an explicit owner/ADR disposition before x can become implementation-eligible.
 
-only when **every required quality comparison needed by the frozen protocol** establishes that candidate a satisfies the declared protection relative to b, using only supported:
+### 14.2 MPID pass
+
+x passes only if:
+
+- the frozen MPID claim(s) establish `superior` by at least the MPID requirement against every required comparator;
+- all non-MPID required quality dimensions satisfy the same protection rule used elsewhere;
+- normal operational/ADR/dependency gates still apply.
+
+An extension candidate that fails MPID is removed before F_c and therefore cannot poison the quality-protection set.
+
+---
+
+## 15. Decision-claim set Q_c and simultaneous inference
+
+### 15.1 Q_c
+
+Each capability freezes a **small finite set of decision claims Q_c** before selection.
+
+Q_c contains only claims that can legitimately block technical selection, for example:
+
+- one declared primary quality claim per required attribute;
+- specifically designated robustness-slice claims where owner policy makes them selection-critical.
+
+Everything else remains an absolute gate or diagnostic.
+
+Q_c must not mechanically include every reported metric/value/slice.
+
+### 15.2 Direction
+
+Every claim declares whether higher or lower is better. Lower-is-better quantities such as FPR, unsupported-assertion rates or calibration error are transformed/interpreted consistently before b-1 directional outcomes are recorded.
+
+### 15.3 Simultaneous inference family
+
+The event freezes one multiplicity/simultaneous-inference family covering:
+
+- every ordered candidate pair that can enter E_c;
+- every claim in Q_c.
+
+No pair/claim is added after results are seen.
+
+This is the b-2 use of b-1's predeclared multiplicity requirement.
+
+---
+
+## 16. Direct quality protection F_c
+
+For every ordered pair a,b in E_c define:
+
+`P_c(a,b) = true`
+
+iff for **every q in Q_c**, the b-1 paired result for a relative to b on q is one of:
 
 - `superior`;
 - `non-inferior`;
-- `equivalent`.
+- `equivalent`;
 
-If any required comparison is:
+under the frozen simultaneous family.
 
-- `inconclusive`;
-- `insufficient-evidence`;
-- or establishes a material loss beyond the frozen permitted margin,
+Anything else, including `inconclusive` and `insufficient-evidence`, yields false for that q.
 
-then `P(a,b) = false`.
+Then:
 
-Now define the **quality-acceptable set**:
+`F_c = { a in E_c : P_c(a,b) for every b in E_c, b != a }`
 
-`F = { a in E : P(a,b) for every b in E, b != a }`
+F_c is computed against the **complete original E_c**. No comparator is peeled away first.
 
-Crucially, F is computed against the **original complete E**. No candidate is removed first and no comparison obligation disappears because of resource elimination.
+### 16.1 Outcomes
 
-Consequences:
+- E_c empty → `NO_TECHNICALLY_ELIGIBLE_CANDIDATE`
+- F_c empty → `NO_QUALITY_PROTECTED_TECHNICAL_CHOICE`
 
-- no chained non-inferiority degradation;
-- no transitivity assumption;
-- no Condorcet/tier-peeling requirement;
-- quality cycles yield unresolved evidence rather than an arbitrary winner;
-- an inconclusive comparison cannot be converted into a resource tie;
-- a cheaper candidate cannot bypass a materially better challenger that remains in E.
+When F_c is empty, record whether the cause is:
 
-### 13.1 Empty F
+- genuine supported trade-off;
+- inconclusive evidence;
+- insufficient evidence;
+- mixed causes.
 
-If F is empty:
-
-`NO_QUALITY_PROTECTED_TECHNICAL_CHOICE`
-
-The event must collect more evidence, defer, retain a permitted baseline/incumbent, or open a later event. Resource optimization does not run.
-
-### 13.2 Meaning
-
-Membership in F means:
-
-> acceptable under the frozen quality-loss/protection policy against every eligible evaluated alternative.
-
-It does **not** mean identical quality or universal superiority.
+A noisy candidate that passed every absolute gate may legitimately block F_c if direct protection cannot be established. The remedy is adequate power/evidence, not silently deleting the comparator.
 
 ---
 
-## 14. Deployment optimization
+## 17. Joint person×vehicle operational stage
 
-b-2 does not define a six-axis universal Pareto ranking.
+This replaces the old post-selection “combined-role check.”
 
-The event freezes one **primary deployment objective** before selection.
+For every pair:
 
-Default S2c objective:
+`u = (p,v) in F_person × F_vehicle`
 
-> **minimize supported installed attribute-host count for the declared workload envelope on the frozen host class, including the frozen reserve requirement.**
+construct the exact bound runtime identity/topology and use E2 measurements plus the frozen workload model to evaluate the pair jointly.
 
-For candidate a:
+### 17.1 Joint constraints
 
-`H[a] = minimum admitted host topology that satisfies every frozen workload, recovery, memory, queue/backlog and SLA constraint`.
+Each pair must satisfy:
 
-Only topology settings allowed by the frozen protocol may be searched. Batch/thread/process settings are not selection-time tuning.
-
-### 14.1 Other resource quantities
-
-Use primarily as constraints/evidence:
-
-- memory/host;
-- queue age;
-- backlog drain;
-- whole-job completion;
-- recovery time;
-- load/READY;
-- evidence/API/storage capacity;
-- offline pack/runtime bytes;
-- workers/host;
-- CPU saturation/headroom;
-- failure-domain limits.
-
-A secondary objective is allowed only if frozen in advance and justified operationally. b-2 does not impose a universal lexicographic chain.
-
-### 14.2 Resource uncertainty
-
-A claimed host-count advantage must be supported at the declared engineering confidence/tolerance. If measurement/model uncertainty could change required host count, that advantage is not established.
-
----
-
-## 15. Final technical selection
-
-If `F` is non-empty, compute the minimum supported deployment objective:
-
-`H* = min(H[a] for a in F)`
-
-and:
-
-`T = { a in F : H[a] == H* under the frozen support/tolerance rule }`
-
-Outcomes:
-
-- `UNIQUE_TECHNICAL_WINNER` if |T| = 1;
-- `TECHNICAL_TIED_SET` if |T| > 1;
-- `NO_QUALITY_PROTECTED_TECHNICAL_CHOICE` if F is empty;
-- `NO_TECHNICALLY_ELIGIBLE_CANDIDATE` if E is empty;
-- `TECHNICAL_EVIDENCE_INCOMPLETE` if required evidence is missing.
-
-Canonical candidate id may order presentation only. It never creates a winner.
-
-No Pareto/non-dominated set is required for the governing selection rule. Pareto plots may be retained as diagnostics, but they have no decision authority.
-
-This explicitly resolves b-1's Pareto/dominance deferred subjects by replacing the historical frontier concept with constrained quality-protected deployment optimization.
-
----
-
-## 16. Owner implementation choice
-
-The owner may choose among candidates in T.
-
-The owner may not:
-
-- waive a failed gate;
-- choose outside F merely for cost/convenience;
-- reinterpret inconclusive/insufficient evidence;
-- alter target attributes or margins after seeing results;
-- relabel a tied set as statistical superiority;
-- overwrite the technical outcome.
-
-If T contains several candidates, the owner records operational reasons separately.
-
-If F is empty, “owner choice” cannot be used as a hidden ranking algorithm. The allowed actions remain those already permitted by MSR §8.2: more evidence, defer, abandon, later event, baseline/incumbent/disabled capability where applicable.
-
----
-
-## 17. Architectural-extension / MPID rule
-
-The accepted MSR requirement remains: an architectural extension is not rejected merely because it needs an extension, but it must clear the frozen material-quality bar and ADR/dependency route.
-
-Do **not** derive the reference through the old frontier.
-
-For an extension candidate x:
-
-1. identify all comparable gate-passing **existing-graph** candidates in E;
-2. if an accepted single quality reference exists under the event protocol, use it;
-3. otherwise use the relevant existing-graph quality envelope/reference set and direct simultaneous comparisons;
-4. require the frozen MPID on the protocol-declared improvement claim(s);
-5. require normal quality protection on all other required dimensions;
-6. require all operational/deployment gates separately.
-
-No arbitrary dependency penalty score is introduced.
-
-If no eligible existing-graph comparator exists, the record states that the MPID comparator is unavailable. b-2 does **not** silently claim the material-improvement requirement satisfied. The authority disposition for that case must be explicit in the protocol/ADR review before implementation selection.
-
----
-
-## 18. Combined attributes-role deployment check
-
-Person and vehicle events remain separate for quality and MSR history.
-
-However, before the Development role is treated as operationally viable, the selected/retained person and vehicle packs are also checked together under the declared attributes-role deployment for:
-
+- whole-job warm gate;
+- recovery/deadline gate;
+- active co-resident memory;
 - Runtime Pack compatibility;
-- combined resident memory;
-- mixed job workload;
-- worker/host topology;
-- evidence/API pressure;
-- failure behaviour;
-- startup/recovery.
+- queue-age/backlog/drain limits;
+- evidence/API/storage constraints;
+- reserve policy;
+- maximum host count;
+- all owner SLAs;
+- any required failure-domain constraint.
 
-Separate capability passes do not imply the combined role passes.
+### 17.2 Primary deployment objective
 
-This combined check is deployment evidence, not a merged quality ranking.
+The event must explicitly freeze the objective. Default proposed S2c objective:
 
----
+> minimize supported installed host count on one frozen host class, including the frozen reserve requirement.
 
-## 19. MSR representation
+This is not silently assumed; it is a required protocol field.
 
-S2c decision summaries become set-valued where the evidence requires it.
+### 17.3 Host-count uncertainty
 
-Required S2c fields include:
+For each admitted pair u derive:
 
-- `highestTaskQualityEvaluatedSet[]`;
-- `technicalEligibleSet[]`;
-- `qualityAcceptableSet[]`;
-- `technicalSelectionOutcome`;
-- `technicalSelectedSet[]`;
-- `technicalWinnerCandidateId` or null;
-- `profileClearedTechnicalSet[]` per target profile;
-- `implementationCandidateId` or composition id;
-- `qualityContractHash`;
-- `operationalContractHash`;
-- `decisionEvidenceHash`.
+- `H_lo[u]` — defensible lower bound on required hosts;
+- `H_up[u]` — conservative supported upper bound on required hosts;
 
-### 19.1 Highest task quality
+from the frozen uncertainty/tolerance rule over service-demand measurements and model validation error.
 
-S2c no longer requires a scalar task-quality score to manufacture one “highest task-quality candidate” where multidimensional b-1 evidence does not support one. A supported set is valid.
+A pair is operationally admitted only if H_up is finite and all constraints pass.
 
-### 19.2 Strongest evaluated technical
+Let:
 
-- one candidate only when outcome is `UNIQUE_TECHNICAL_WINNER`;
-- otherwise `UNRESOLVED/SET — see technicalSelectedSet`.
+`H* = min(H_up[u])`
 
-### 19.3 Profile-cleared set
+over admitted pairs.
 
-Licence clearance filters technically supported candidates for a declared profile; it does not remove technical comparators retrospectively or establish missing quality relations.
+Define:
 
-### 19.4 Implementation candidate
+`T = { u : H_lo[u] <= H* }`
 
-Remains a separate owner field and must be a permitted member under the governing technical/profile rules.
+This preserves pairs whose supported host requirement overlaps the best conservative requirement.
 
-Generic scalar `comparativeScore` remains available for non-S2c MSR events but is not used to derive S2c outputs.
+### 17.4 Joint outcomes
+
+- no admitted pair and required evidence missing → `TECHNICAL_EVIDENCE_INCOMPLETE`
+- no admitted pair with complete evidence → `NO_OPERATIONALLY_FEASIBLE_PAIR`
+- |T| = 1 **and** its H_up is below every other admitted pair's H_lo → `UNIQUE_TECHNICAL_WINNER`
+- otherwise → `TECHNICAL_TIED_SET`
+
+Canonical ids may order presentation only.
 
 ---
 
-## 20. Historical weighted/Pareto reconciliation
+## 18. Licence/profile filtering and owner boundary
 
-The S2c parent plan's old weighted table and provisional Pareto language become historical only.
+Technical quality sets F_person/F_vehicle are computed **before licence filtering**.
 
-Implementation must:
+For each declared licence deployment profile r:
 
-- mark the weighted rule superseded/non-governing;
-- remove S2c dependence on scalar `comparativeScore`;
-- remove weight redistribution for unavailable criteria;
-- remove “interval overlap = tie” paths;
-- remove score-sensitivity as selection authority;
-- state that Pareto plots/frontiers, if retained, are diagnostics only;
-- preserve historical text for audit without leaving two live selection systems.
+1. form the cleared pair set:
+   `C_r = { (p,v) in F_person × F_vehicle : every required component is CLEARED for r }`
+2. apply the **same joint operational constraints and H_lo/H_up rule** over C_r;
+3. derive `T_r`, the strongest supported cleared technical set for profile r.
+
+Do not define strongest-cleared as merely T ∩ cleared; clearance may remove the unconstrained technical minimum.
+
+The implementation pair must belong to every required T_r or to the intersection required by the target deployment policy.
+
+If no such pair exists, record `NO_QUALIFIABLE_CANDIDATE`/profile-specific unresolved outcome as defined by the MSR revision.
+
+Owner may choose among the permitted cleared tied set but may not:
+
+- waive gates;
+- choose outside F;
+- reinterpret inconclusive/insufficient evidence;
+- overwrite the technical result.
 
 ---
 
-## 21. Owner inputs frozen before selection
+## 19. Revision semantics and E3 contradiction
+
+A numbered revision must state whether it changes:
+
+- candidate/composition manifest;
+- Q_c;
+- margins/multiplicity;
+- operational objective/constraints;
+- workload;
+- replay semantics;
+- E2 calibration model;
+- profile definitions.
+
+If a revision can bias selection, affected confirmatory evidence needs a fresh basis; administrative invalidation plus rerunning identical exposed data is insufficient.
+
+For E3 failure:
+
+- candidate-independent modelling error → revise method, retain prior result as superseded, recompute all affected pairs consistently from still-valid E2 evidence;
+- candidate-specific mismatch → invalidate that pair's E2 operational evidence, mark evidence incomplete, reopen event; do not silently select the next pair.
+
+---
+
+## 20. MSR method revision M2 and decision schema v2
+
+This plan requires an explicit numbered MSR revision **M2** and a new S2c decision schema:
+
+`mavi-model-selection-decision-v2`
+
+M1/v1 remain valid for non-S2c events.
+
+### 20.1 Unit identity
+
+`evaluated[]` is keyed by `unitId`, representing:
+
+- single candidate; or
+- composition with exact `components[]`.
+
+### 20.2 Required S2c fields
+
+Per capability/event:
+
+- `technicalEligibleSet[]` = E_c
+- `qualityAcceptableSet[]` = F_c
+- `pairwiseMatrixSha256`
+- `decisionClaimsSha256`
+- `mpidStatus`
+- `highestTaskQualityEvaluatedSet[]`
+- `qualityOutcomeReason`
+
+Joint decision:
+
+- `jointOperationalDecisionSha256`
+- `technicalSelectionOutcome`
+- `technicalSelectedSet[]` = T as person×vehicle pairs
+- `technicalWinner` or null
+- `profileClearedSet{profile: []}`
+- `implementation.unitId`
+- `qualityContractHash`
+- `operationalContractHash`
+- `decisionEvidenceHash`
+
+### 20.3 Highest task quality
+
+S2c no longer requires a scalar task-quality maximum where multidimensional evidence does not support one. A set is valid.
+
+### 20.4 Validator obligations
+
+The updated `credibility.py` / decision validator must recompute:
+
+- E_c membership from supplied gate/MPID inputs;
+- P_c matrix validity against declared decision outcomes;
+- F_c;
+- joint admitted pairs;
+- H*/T from H_lo/H_up;
+- profile-cleared sets;
+- implementation membership.
+
+It must no longer derive S2c winners from scalar `taskQualityScore` or `comparativeScore`.
+
+### 20.5 What remains human-reviewed
+
+Machine validation cannot prove:
+
+- that workload/camera classes are representative;
+- that a licence determination is legally correct;
+- that a human-labelled b-1 comparison result is scientifically well grounded beyond the harness evidence;
+- that an owner-selected SLA/NI/MPID margin is wise.
+
+These remain reviewed protocol inputs with retained evidence/attestation.
+
+---
+
+## 21. Historical weighted/Pareto reconciliation
+
+The implementation must enumerate and reconcile every live scalar/ranking assumption, including at minimum:
+
+- MSR README §3.2 references to comparative weights/scoring;
+- README §8 generic comparative-score layer;
+- README §9 “first in full technical ranking” / alternatives in rank order;
+- selection-record template §6 “Technical ranking”;
+- `candidate-credibility.md` scalar derivations;
+- current `credibility.py` v1 maxima;
+- parent S2c §9.5 weighted table;
+- parent §9.5a top-K/rank-sum composition generation;
+- parent references to ranking instability / score sensitivity;
+- any “best finalist” language whose governing definition is removed.
+
+For S2c, weighted score and Pareto frontier are historical/diagnostic only.
+
+---
+
+## 22. Owner inputs frozen before selection
 
 ### Inherited from b-1
 - quality gate table;
-- confidence-bound directions;
-- practical/non-inferiority/equivalence margins;
-- required robustness slices;
-- MPID/replacement bar where applicable.
+- margins;
+- support rules;
+- robustness claims;
+- MPID.
 
 ### Defined by b-2
-- target profile/attribute set;
-- host profile;
+- capability scopes;
+- Q_person and Q_vehicle;
+- simultaneous-inference family;
+- composition manifest;
+- host class/profile;
 - workload family;
-- lifecycle deadline and owner SLA(s);
-- run repetition/summary rule;
+- lifecycle/owner SLA;
 - failure scenarios;
-- 500-camera workload envelope;
-- reserve policy;
-- maximum hosts/memory/IO bounds;
-- queue-age/backlog/drain constraints;
-- model calibration vs held-out validation trace split;
-- projection validation tolerances;
+- 500-camera envelope;
+- reserve/max-host/memory/IO limits;
+- E2 calibration traces and E3 held-out traces;
+- H_lo/H_up uncertainty rule;
 - primary deployment objective;
 - allowed topology search space;
-- composition manifest/experiment budget;
-- combined-role deployment requirements.
-
-No value is added after selection without a protocol revision and explicit evidence invalidation consequences.
-
----
-
-## 22. Evidence stages
-
-The plan distinguishes three engineering evidence stages.
-
-### E1 — isolated bake-off measurement
-Candidate/composition measurements in the network-denied evaluation harness.
-
-### E2 — selection-stage operational model
-Whole-job/service/topology measurements sufficient to compute the frozen b-2 decision consistently across candidates.
-
-### E3 — integrated S2c.9 validation
-Real worker/lease/evidence/publication execution for selected/finalist configurations, including projection validation and combined-role deployment.
-
-The MSR must never describe E2 estimates as E3 execution.
-
-If E3 materially contradicts the frozen model, the selection event is reopened/revised consistently; the next candidate is not silently “rescued” using the same exposed evidence.
-
----
-
-## 23. Event-template changes
-
-### Selection protocol
-Require:
-
-- b-1 and b-2 contract ids/hashes;
-- experiment-freeze hash;
-- complete candidate/composition manifest;
-- target profile/attributes;
-- host profile;
-- workload family;
-- lifecycle deadline vs owner SLA;
-- quality comparison matrix requirements;
-- deployment objective;
-- topology search space;
-- 500-camera fluid/replay model config;
-- validation traces/tolerances;
-- MPID reference rule;
-- combined-role deployment requirement;
+- licence deployment profiles;
 - revision invalidation rule.
 
-### Selection record
-Retain:
-
-- quality comparison matrix;
-- E and F sets;
-- deployment objective result per F candidate;
-- T set;
-- evidence-stage labels;
-- workload/model hashes;
-- integrated validation status;
-- MPID evidence;
-- combined-role evidence;
-- profile-cleared set;
-- owner implementation choice separately.
-
 ---
 
-## 24. Validator and algorithm tests
+## 23. Validator and tests
 
-### 24.1 Contract refusal tests
+### 23.1 Contract refusal tests
 
 Reject:
 
 - duplicate keys;
 - unknown/missing exact keys;
-- Python bool/int coercion;
+- bool/int coercion;
 - non-finite numbers;
-- missing b-1 deferred dispositions;
-- redefinition of b-1 authority;
-- weighted S2c comparative score;
-- selection rule based on transitive closure/tier peeling;
-- comparator deletion after resource elimination;
-- licence/credibility in technical selection;
-- missing composition manifest at freeze;
-- selection-time workload/objective changes;
-- frozen-test references in selection;
-- owner implementation outside permitted technical/profile set.
+- missing b-1 deferred disposition;
+- b-1 redefinition;
+- weighted S2c score;
+- missing Q_c or direction;
+- incomplete simultaneous family;
+- comparator deletion before F_c;
+- extension candidate in E_c after MPID failure;
+- PO-B0 in E;
+- selection-time manifest/objective change;
+- frozen-test selection evidence;
+- owner implementation outside permitted cleared set;
+- scalar S2c winner schema where v2 is required.
 
-### 24.2 Known-answer decision tests
+### 23.2 Decision counterexamples
 
-Must cover:
+Must include:
 
-1. chained non-inferiority A→B→C where A fails direct protection vs C;
-2. cyclic quality outcomes;
-3. cheaper candidate with inconclusive quality relation;
-4. resource-cheaper candidate facing materially superior challenger;
-5. full-set F empty;
-6. F with one candidate;
-7. F with several candidates and one minimum host count;
-8. exact deployment tie preserving a set;
-9. missing required evidence producing `TECHNICAL_EVIDENCE_INCOMPLETE`;
-10. licence filtering not rewriting technical sets;
-11. owner choice not rewriting outcome;
-12. MPID extension with and without eligible comparator.
+1. chained NI A→B→C with A failing protection vs C;
+2. noisy weak C blocking F when evidence is inconclusive;
+3. multidimensional cross-trade;
+4. empty F;
+5. tied host requirement;
+6. mixed host classes refused by default;
+7. different job-size skew at same Track rate;
+8. host loss with nearly completed jobs;
+9. Phase-A before D / publication after D but valid;
+10. composition interaction;
+11. MPID with no comparator;
+12. E3 contradiction.
 
-### 24.3 Composition tests
+### 23.3 Lifecycle/replay tests
 
-- fourth standalone-equivalent component forms best shared-backbone composition;
-- no standalone top-K pruning after selection;
-- actual composition resources differ from component arithmetic;
-- shared-backbone claim without actual shared execution refused;
-- partial target attribute cannot enter full profile;
-- predeclared partial profile remains separate.
-
-### 24.4 Fleet/replay tests
-
-- fluid recurrence closed-form cases;
-- same Track throughput but different job-size distribution gives different queue latency;
-- synchronized release burst;
-- one long job with idle workers;
-- process loss near completion reintroduces lost work;
+- FIFO by queued timestamp;
+- retry keeps original queue position;
+- attempt consumed at claim;
+- lease capped at deadline;
+- reclaim only after expiry + claim;
+- one unit/process;
+- identity fence;
 - restart and lease expiry overlap;
-- host loss removes several workers and their in-flight jobs;
-- protected publication after Phase-A deadline point remains lifecycle-valid where S2b allows it;
-- owner SLA can still fail separately;
-- calibration trace and held-out validation trace separated;
-- projection underprediction beyond tolerance fails validation.
+- lost work re-executed;
+- protected publication cap;
+- acknowledgement distinct from commit.
 
-### 24.5 Mutation targets
+### 23.4 Joint operational tests
 
-At minimum kill mutants that:
-
-- use transitive/non-inferiority chaining;
-- peel comparators before F is computed;
-- convert inconclusive to tie;
-- rank by weighted score;
-- choose by candidate id;
-- prune composition by standalone top-K after selection;
-- sum component resources;
-- ignore lost work on process/host loss;
-- use Track-fluid output as job-deadline proof;
-- conflate Phase-A deadline with publication SLA;
-- reuse calibration trace as validation evidence;
-- silently replace E2 with E3 claims;
-- let licence delete a technical comparator;
-- let owner choice overwrite F/T;
-- treat absent MPID comparator as automatic MPID pass.
+- person/vehicle individually attractive but poor jointly;
+- alternate pair wins on joint host count;
+- H_lo/H_up overlap yields tied set;
+- unique winner only with separation of uncertainty intervals;
+- licence filtering recomputes cleared pair optimum without altering F.
 
 ---
 
-## 25. Expected implementation file set
+## 24. Expected implementation file set
 
 Planning/protocol/validator surfaces only:
 
-- new b-2 JSON contract;
-- new b-2 Markdown protocol;
-- standard-library validator/checker;
-- unit/known-answer/mutation tests;
-- MSR README/M1 S2c representation amendments;
+- b-2 JSON contract;
+- b-2 Markdown protocol;
+- b-2 standard-library validator/checker;
+- pure decision helpers;
+- bounded job replay helper;
+- tests;
+- MSR README revision M2;
+- decision schema v2;
+- `candidate-credibility.md`;
+- `credibility.py` and its tests;
 - protocol/record templates;
 - S2c parent-plan reconciliation;
 - qualification-plan additive authority only if genuinely required;
 - b-2 implementation record;
 - roadmap/register status text.
 
-No runtime, API, UI, Model Pack or Runtime Pack implementation belongs in this slice.
+No runtime/API/UI/Model-Pack/Runtime-Pack implementation belongs in this slice.
 
 ---
 
-## 26. Implementation sequence
+## 25. Implementation sequence
 
 1. Write discriminating tests first.
-2. Implement canonical contract + cross-load b-1.
-3. Implement pure decision helpers:
-   - E construction validation;
-   - direct pairwise P matrix;
-   - F calculation;
-   - deployment objective calculation;
-   - T calculation;
-   - MPID rule;
-   - set-valued MSR derivation.
-4. Implement fluid screen + bounded deterministic job replay helper.
-5. Add deterministic Markdown projection.
-6. Amend templates/M1 representation.
-7. Reconcile parent historical weighted/Pareto text.
+2. Add M2 / decision-v2 schema and validator tests.
+3. Implement canonical b-2 contract + cross-load b-1.
+4. Implement pure per-capability decision helpers:
+   - E_c;
+   - MPID filter;
+   - P_c;
+   - F_c.
+5. Implement joint operational helpers:
+   - fluid screen;
+   - bounded replay;
+   - H_lo/H_up;
+   - T;
+   - T_r.
+6. Add deterministic Markdown projection.
+7. Amend templates/MSR docs/parent plan.
 8. Record implementation/non-claims.
 9. Perform one comprehensive closure review with complete P1/P2 ledger before edits, then one consolidated repair.
 10. After closure, only bounded regression/merge-gate verification unless new scope is introduced.
 
 ---
 
-## 27. Acceptance criteria for b-2 implementation
+## 26. Acceptance criteria
 
 Complete only when:
 
-1. every b-1 deferred subject has one explicit disposition;
+1. all 15 deferred subjects have explicit disposition;
 2. b-1 remains unchanged;
-3. complete experiment freeze is machine represented;
-4. job-level timing semantics match S2b lifecycle;
-5. 10k is a boundary inside a workload family, not the sole workload;
-6. actual composition accounting is enforced;
-7. no post-selection standalone top-K pruning exists;
-8. direct quality protection is computed against complete E;
-9. no transitivity assumption is used;
-10. primary deployment objective and feasibility constraints are explicit;
-11. set-valued technical outcomes are supported;
-12. weighted S2c comparative score is retired;
-13. fluid sizing and job replay are both implemented and clearly separated;
-14. 500-camera claim boundary is explicit;
-15. integrated validation stage is distinct from selection-stage estimates;
-16. combined person+vehicle role deployment check is specified;
-17. MPID no-reference case is explicit and not auto-passed;
-18. MSR task-quality/technical/profile outputs can be sets;
-19. b-1 repository check still passes;
-20. b-2 repository check passes;
-21. `tools/verify_repo.py` passes;
-22. exact-head CI is green;
-23. no P1/P2/material review thread remains;
-24. no model was selected/downloaded/trained/benchmarked;
-25. no F/G row changed.
-
-After b-2 merges, S2c.2 protocol freeze may instantiate both contracts and the real owner inputs before any selection results are read.
+3. Q_c and simultaneous family are frozen and machine represented;
+4. MPID runs before F_c;
+5. baseline membership rules are explicit;
+6. F_c is computed against complete E_c;
+7. person/vehicle operational selection is joint;
+8. H_lo/H_up and T rules are deterministic;
+9. licence profile sets are derived explicitly;
+10. M2/decision-v2 are governing for S2c;
+11. scalar S2c winner derivation is removed;
+12. lifecycle replay matches S2b queue/lease/attempt/publication semantics;
+13. timestamp provenance is explicit;
+14. E2 and E3 are distinct;
+15. 500-camera claim boundary is explicit;
+16. composition search limitation is explicit;
+17. MPID no-comparator case is not auto-passed;
+18. b-1 repository check passes;
+19. b-2 repository check passes;
+20. `tools/verify_repo.py` passes;
+21. exact-head CI is green;
+22. no P1/P2/material review thread remains;
+23. no model was selected/downloaded/trained/benchmarked;
+24. no F/G acceptance row changed.
 
 ---
 
-## 28. Disposition of Astra review findings
+## 27. Claude B1–B10 disposition
 
-| Astra finding | Revised disposition |
+| Finding | Disposition |
 |---|---|
-| pairwise dominance elimination can discard essential comparator | accepted — removed; direct complete-set quality protection |
-| tiering/tolerance dominance can cycle | accepted — tier/frontier selection removed |
-| component pruning not composition-preserving | accepted — predeclared bounded composition manifest |
-| Track-fluid model wrong unit for deadline/recovery claims | accepted — fluid screening + job replay |
-| lifecycle deadline/publication conflated | accepted — explicit Phase-A/publication/SLA timestamps |
-| selection vs integrated measurement mismatch | accepted — E1/E2/E3 evidence stages |
-| person/vehicle separate passes do not prove role viability | accepted — combined attributes-role deployment check |
-| six resource axes obscure decision | accepted — one primary deployment objective + constraints |
-| MSR still scalar for task quality | accepted — set-valued task-quality/technical/profile outputs |
-| revision after exposure remains adaptive | accepted — explicit fresh-evidence/new-event consequences where bias is possible |
+| B1 per-capability operational decision conflicts with joint runtime | accepted — joint pair stage §§7.1, 17 |
+| B2 P(a,b) unbounded/no simultaneous family | accepted — Q_c + simultaneous family §§15–16 |
+| B3 MPID candidate can poison F | accepted — MPID filter before E/F §14 |
+| B4 baseline membership undefined | accepted — §10.4 |
+| B5 H equality/tolerance undefined | accepted — H_lo/H_up §17.3 |
+| B6 licence filtering ambiguous | accepted — recomputed profile set §18 |
+| B7 scalar M1 schema conflicts with sets | accepted — M2 + decision-v2 §20 |
+| B8 no 15-row disposition table | accepted — §3.2 |
+| B9 E2/E3 undefined | accepted — §§12, 19 |
+| B10 replay fidelity incomplete | accepted — §§7.2–7.6, 11.2 |
 
 ---
 
-## 29. Questions for Claude cold review
+## 28. Final bounded review target
 
-Claude should now review this **revised** plan from first principles against current `main`.
+The architecture is now intentionally narrow:
 
-Actively attack:
+- quality remains per capability;
+- final runtime/deployment selection is joint;
+- only a small predeclared claim set drives pairwise quality protection;
+- extension candidates are filtered before they can block F;
+- deployment selection uses explicit uncertainty bounds;
+- set-valued outcomes are first-class;
+- replay follows the actual S2b lifecycle;
+- M2/v2 makes the prose enforceable.
 
-- whether direct quality protection P/F is too strict or under-specified;
-- whether any pairwise outcome semantics still violate b-1;
-- whether the default minimum-host objective creates hidden owner policy;
-- whether the composition manifest amendment properly reconciles accepted parent K=3 text;
-- whether E1/E2/E3 evidence staging is implementable without prematurely integrating every candidate;
-- whether Phase-A/publication semantics match current code/ADR;
-- whether job replay overclaims platform scheduler behaviour;
-- whether fluid/replay calibration and validation can leak selection adaptation;
-- whether the MPID no-reference rule needs an ADR amendment;
-- whether set-valued MSR outputs conflict with M1 validator/current JSON shape;
-- whether licence filtering of T/profile sets is mathematically and semantically correct;
-- whether the combined-role check belongs in b-2 or a later S2c execution slice;
-- whether any owner decision path still creates a hidden ranking;
-- whether machine checks prove the claims the prose makes.
-
-Claude must produce a complete P1/P2 ledger before proposing edits and should propose a materially different design if this revision is still not the cleanest architecture.
-
----
-
-## 30. Decision record for revised draft
-
-This revision deliberately adopts:
-
-- whole-job/job-level operational semantics;
-- separate lifecycle deadline validity and publication/SLA claims;
-- workload family with 10k boundary;
-- actual composition measurement;
-- predeclared composition manifest instead of post-selection top-K pruning;
-- direct quality protection against the complete eligible set;
-- one frozen primary deployment objective with operational constraints;
-- set-valued technical outcomes;
-- fluid screening plus deterministic job replay;
-- combined-role deployment evidence;
-- set-valued MSR representation;
-- explicit MPID/no-reference handling;
-- retirement of weighted and governing Pareto selection for S2c.
-
-These are now the primary subjects for the formal repository-grounded cold review before implementation.
+The next review should be bounded to verifying that B1–B10 are correctly closed and that these amendments introduce no new authority contradiction. No further open-ended redesign should occur unless a new material defect is found.
