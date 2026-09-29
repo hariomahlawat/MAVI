@@ -193,13 +193,15 @@ Retain/derive:
 
 - `queuedAtUtc` / job available — platform persisted;
 - `firstClaimedAtUtc` — platform persisted;
-- `attemptClaimAt` — worker/harness instrumentation, tied to claim response;
+- `attemptClaimedAtUtc` — worker/harness instrumentation, tied to claim response;
 - `leaseExpiresAtUtc` — platform persisted;
-- `phaseAValidatedAt` — harness/platform instrumentation around successful Phase-A response; not currently a durable platform field;
-- `publicationCommittedAt` — harness/platform instrumentation around Phase-C commit;
+- `phaseAValidatedAtUtc` — harness/platform instrumentation around successful Phase-A response; not currently a durable platform field;
+- `publicationCommittedAtUtc` — harness/platform instrumentation around Phase-C commit;
 - `completedAtUtc` — platform persisted;
-- `completionAcknowledgedAt` — client/harness instrumentation;
-- `readyAt` — worker/supervisor instrumentation;
+- `completionAcknowledgedAtUtc` — client/harness instrumentation;
+- `readyAtUtc` — worker/supervisor instrumentation;
+
+Every lifecycle instant above is an absolute UTC instant named with the `...Utc` suffix (AGENTS.md time naming); durations are derived from these instants, never from local wall-clock values.
 - attempt failures — platform persisted where the current lifecycle records them.
 
 The implementation record must distinguish persisted platform evidence from harness instrumentation.
@@ -714,7 +716,7 @@ The implementation pair must belong to `T_impl`. The `T_r` sets remain per-profi
 Owner may choose among the permitted cleared tied set but may not:
 
 - waive gates;
-- choose outside F;
+- choose a pair outside `T_impl`, or a unit outside the effective `J_c` sets of §17.0 (a frozen fallback in `J_c` is permitted; choosing it leaves that capability's `NO_QUALITY_PROTECTED_TECHNICAL_CHOICE` or other quality outcome unchanged);
 - reinterpret inconclusive/insufficient evidence;
 - overwrite the technical result.
 
@@ -803,7 +805,7 @@ Joint decision reference in each event decision-v2:
 - `technicalWinner` or null
 - `profileClearedSet{profile: []}`
 - `implementationEligibleSet[]` = `T_impl`
-- `implementation.unitId`
+- `implementationPair` = `{personUnitId, vehicleUnitId}`: the chosen person×vehicle pair, identical in both event decision-v2 documents; each event's own implementation unit is its coordinate of this pair
 - `qualityContractHash`
 - `operationalContractHash`
 - `decisionEvidenceHash`
@@ -823,7 +825,7 @@ The updated `credibility.py` / decision validator must recompute:
 - H*/T from H_lo/H_up;
 - profile-cleared sets;
 - `T_impl` over `C_all`;
-- implementation membership in `T_impl`.
+- that both event decision-v2 documents cite the same `jointOperationalDecisionSha256` and carry the identical `implementationPair`, and that this exact `(personUnitId, vehicleUnitId)` pair is a member of `T_impl` (per-coordinate membership alone is not sufficient).
 
 It must no longer derive S2c winners from scalar `taskQualityScore` or `comparativeScore`.
 
@@ -913,6 +915,9 @@ Reject:
 - selection-time manifest/objective change;
 - frozen-test selection evidence;
 - owner implementation outside `T_impl`;
+- event decision-v2 documents whose `implementationPair` differ, cite different `jointOperationalDecisionSha256`, or name a pair not in `T_impl` even when each coordinate appears in some `T_impl` pair;
+- owner choice of a frozen fallback pair refused merely because the fallback is outside `F_c`;
+- lifecycle instant fields without the `...Utc` suffix or with non-UTC offsets;
 - missing/invalid quality-result artefact, non-canonical bytes, or mismatched event/ledger/contract/experiment hashes;
 - quality-result artefact whose stored E_c/F_c does not recompute from referenced evidence;
 - missing/invalid joint-decision artefact or mismatched event/ledger/quality-result/contract hashes;
