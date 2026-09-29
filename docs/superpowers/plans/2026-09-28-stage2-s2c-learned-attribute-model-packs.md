@@ -304,9 +304,11 @@ Rules:
   - Below that minimum, no significant winner is declared. Per-cluster results and a cluster sign count are reported, and the choice is an owner decision.
 - **Protocol frozen first.** Candidates, weights, gates, strata, the minimum practically important difference (MPID) and the report format are committed (slice S2c.2) **before** any candidate sees MAVI data.
 
-### 9.5 Selection gates and weighted decision
+### 9.5 Selection gates and technical decision
 
-The layers follow MSR method §8: mandatory gates, then measured metrics, then comparative scores (an ordering aid), then owner decisions, then qualification decisions. None is folded into another.
+**S2c.2b-1 quality/statistical amendment (2026-09-29).** Qualification-plan R3 and `docs/qualification/model-selection/s2c-quality-statistics.md` govern quality populations, denominators, calibration, support and inferential comparison. The old full-coverage AURC treatment of “unscorable” evidence and the “interval overlap = tie” rule are superseded. The weighted/Pareto final-ordering material below is retained as planning history but is **not frozen or governing** after b-1; S2c.2b-2 must reconcile the operational gates, Pareto axes and deterministic final-selection rule before either event reaches `PROTOCOL_FROZEN`.
+
+The layers follow MSR method §8: mandatory gates, then measured metrics, then an optional comparative ordering aid, then owner decisions, then qualification decisions. None is folded into another.
 
 **Mandatory gates** (named SG1–SG7b so they cannot be confused with the register's G-section rows). SG2–SG6, SG7a and SG7b are technical/engineering gates and decide the technical ranking. SG1 is the **qualification** gate: it is recorded on the licence axis and never changes a candidate's rank.
 
@@ -316,27 +318,20 @@ The layers follow MSR method §8: mandatory gates, then measured metrics, then c
 | SG2 Offline | loads from pack artefacts alone; no hub, index or network call; verified by a network-denied run |
 | SG3 Determinism | repeated CPU runs with the pinned thread count give identical Track decisions and scores within 1e-6; where CUDA is measured, the CPU/CUDA Track-decision agreement tolerance is **declared in S2c.2** (qualification plan §10 requires one but declares none) and a variant outside it may not be bound |
 | SG4 Runtime budget | p95 end-to-end per crop within the §14 budget on the pinned Development CPU host class (CPU-mandatory in S2c) |
-| SG5 Baseline | decided **per attribute**: beats the deterministic baseline (B0) on the **primary metric** with the bootstrap interval excluding zero, and is not significantly worse on the co-primary; a candidate is eligible only for the attributes it passes, and an attribute with no passing candidate keeps B0 or is disabled; primary metrics are threshold-free and frozen in S2c.2: Track-level **AURC** (area under the risk–coverage curve) for every attribute, with Track-level macro-F1 at full coverage (colour) and average precision (presence) as co-primary; the baseline for each attribute is defined below the table; if no learned candidate beats a *packageable* baseline, that baseline is selectable, and the record says the learned capability did not beat it |
-| SG6 Abstention sanity | on non-subject/error crops of the selection partition it produces Unknown/abstention at a higher rate than on valid crops (F6 direction), and no confident prediction on achromatic crops for colour types |
+| SG5 Quality / baseline | decided **per attribute** under the b-1 gate table: candidate and baseline are measured on the same S/U/I/A populations; required precision/recall or useful-coverage, unsupported-assertion, calibration, support and required-slice floors must pass their predeclared confidence-bound rules. Baseline comparison uses paired cluster-aware differences and the frozen practical/non-inferiority rule; interval overlap is not a tie. AURC/AP/F1 remain diagnostics where applicable and never fabricate labels for human-unscorable evidence. If no learned candidate clears the required quality gates and a packageable baseline does, the record may retain the baseline; presence PO-B0 remains a statistical floor only |
+| SG6 Abstention / unsupported assertion | absolute upper bound on confident assertions over human-unscorable and invalid-subject evidence, plus the b-1 useful-recall/coverage lower bound on scorable evidence. Relative abstention on invalid versus valid evidence is diagnostic only; excessive abstention cannot satisfy the gate |
 | SG7a System scale (projection, S2c.4) | the projected fleet at the 500-camera target, under the owner-declared workload model and host envelope (§14.1, U9), fits the envelope: worker count, hosts, memory, backlog drain after one host loss. The projection is computed from per-worker quantities measured in the bake-off. For person-attributes it is evaluated per **composition** (§9.5a), never per component. A candidate or composition needing an architectural change to fit fails SG7a until the change exists (MSR method §7.1) |
 | SG7b System scale (validation, S2c.9) | the executed representative multi-worker load agrees with the SG7a projection within the tolerance frozen at S2c.2. If it fails, the selection is **re-opened** at S2c.4 with the measured quantities. With only one host available, host-loss drain is validated as the loss of one worker process, and cross-host behaviour is recorded as an unvalidated limitation, never as a pass |
 
-**Metric tie semantics (all candidates and baselines; frozen at S2c.2).** AP and AURC are computed with **threshold-grouped ties**: all items with an equal score form one operating point, entered together.
-- AP = Σ_k (R_k − R_{k−1}) · P_k over the distinct score thresholds k, in descending order, where P_k and R_k are the precision and recall after including group k.
-- AURC = Σ_k (C_k − C_{k−1}) · risk_k, where C_k is the coverage and risk_k the error share after including group k.
-
-The remaining terms have one frozen definition, identical for every candidate and baseline:
-- **Coverage denominator:** every labelled Track of the evaluation partition for that attribute.
-- **Score and ordering.** Tracks are ranked by the *aggregated* Track-level score, after pooling.
-  - Presence types: the `present` score.
-  - Colour types: the confidence of the predicted value.
-- **Error.**
-  - Presence: a covered Track counts as a claim of presence, and an error when the Track lacks the object. This is the false-discovery reading, which matches MAVI's Observed-or-Unknown semantics with no Absent.
-  - Colour: a covered Track is an error when the predicted value is wrong.
-- **Unscorable Tracks** (admissibility abstention, or fewer than `kMin` contributing crops) enter as one **final tie group**, after all scored groups. They count as errors for colour; for presence they count as errors only when the Track lacks the object. Every method therefore reaches full coverage, and abstaining can never lower AURC artificially. For PO-B0, which uses no images, the final group holds admissibility abstentions only; the `kMin` condition does not apply to it.
-- **Colour macro-F1 at full coverage** (co-primary): an unscorable Track counts as a false negative for its true value and adds no false positive.
-
-No random or index-order tie breaking is used anywhere, so results do not depend on implementation. Metric unit tests pin the closed forms (mutation S32).
+**Metric populations and abstention semantics (frozen by S2c.2b-1).**
+- **S — human-scorable:** classification quality and per-value precision/recall use adjudicated scorable truth only.
+- **U — human-unscorable:** no class/negative/error is fabricated. A model assertion here contributes to the unsupported-assertion metric.
+- **I — invalid-subject:** confident attribute assertions contribute to the unsupported-assertion metric.
+- **A — all-assigned:** delivery/completion accounting includes every assigned Track, including execution failures.
+- A model abstention is an outcome on otherwise applicable/scorable evidence; it is not a ground-truth state.
+- Track confidence is evaluated after the complete aggregation/quality-filter/abstention pipeline. Crop calibration does not imply Track calibration.
+- AP, PR curves, macro-F1, risk–coverage and AURC may be retained as diagnostics under frozen definitions. They do not force U into a final synthetic tie group.
+- Equal-score groups remain deterministic operating points for AP/risk–coverage diagnostics; no random or index-order tie breaking is used. Statistical equivalence/ties, however, follow the b-1 practical/equivalence rule rather than interval overlap.
 
 **Baselines per attribute (frozen at S2c.2; SG5):**
 - **Colour (PC-B0, VC-B0).** A deterministic region-chroma + CIE-Lab naming classifier. Its confidence is the share of region pixels in the winning colour cluster, and ties are broken by schema order. It is scored under exactly the same Track-level AURC and macro-F1 as a learned candidate. It is **packageable**, so `BASELINE_SELECTED` is possible.
@@ -348,7 +343,7 @@ No random or index-order tie breaking is used anywhere, so results do not depend
   - A learned presence candidate passes SG5 only if it beats PO-B0 on AURC (primary) and is not significantly worse on AP (co-primary), under §9.4's statistics.
   - PO-B0 is a **statistical floor only and is not packageable**: it uses no image evidence, so an Observed value from it would be meaningless. For presence attributes `BASELINE_SELECTED` is unavailable, and if no learned candidate beats PO-B0 the attribute is disabled.
 
-**Weighted technical decision** (weights proposed here, reviewed and frozen in S2c.2 before results exist). Licence is deliberately **not** a weighted criterion: the weighted score ranks candidates technically, and SG1 then decides which of them can be qualified (§9.3); both rankings are reported:
+**Historical/provisional weighted technical decision — not governing after S2c.2b-1.** The table below is retained to preserve the planning record. It is not frozen and must not be used to rank selection results. S2c.2b-2 will replace/reconcile it with the gate-first multi-objective/Pareto rule and deterministic final-selection procedure. Licence remains outside technical ranking:
 
 | Group | Criterion | Weight |
 |---|---|---|
@@ -396,7 +391,7 @@ The weighted score orders candidates that passed SG2–SG6 and SG7a. For person-
    - the failure domain (one worker process holds all components; what a component fault takes down).
 
    **Each composition must pass SG2, SG3, SG4, SG6 and SG7a as a unit.** SG5 and SG6 are re-run on the composition's actual heads, because a shared-backbone pair uses retrained heads that are new components. The reason for gating the unit: two components that each fit can exceed the budget, memory or fleet envelope together. A failing composition is recorded with its reason. Attribute coverage is recorded too: an attribute whose composition heads fail the re-run SG5 is disabled in that composition.
-4. **Pareto frontier** on three scalars: **quality**, the equal-weight mean over the **fixed full attribute set** of T-PC and T-PO of the primary-metric improvement over each attribute's baseline, with a disabled attribute scored as zero improvement; **per-crop cost** (CPU p95); and **peak memory**. The fixed set keeps dominance transitive, and the enabled attributes of each composition are recorded beside it. The §9.5 weighted score ranks within the frontier, and dominated compositions stay in the record.
+4. **Pareto frontier** on three scalars: **quality**, the equal-weight mean over the **fixed full attribute set** of T-PC and T-PO of the primary-metric improvement over each attribute's baseline, with a disabled attribute scored as zero improvement; **per-crop cost** (CPU p95); and **peak memory**. The fixed set keeps dominance transitive, and the enabled attributes of each composition are recorded beside it. Dominated compositions stay in the record. How the non-dominated set is ordered/selected is **deferred to S2c.2b-2**; the historical §9.5 weighted score is not a governing rule after b-1.
 5. **Implementation composition.** The owner's choice from the frontier. Every component must be cleared for the target profile.
 
 The vehicle event is single-component and skips steps 2–4.
@@ -455,7 +450,7 @@ The Stage-2 qualification plan governs, with protocol revisions R1 (freeze order
 | Recurring subjects | site/date grouping does not stop the same regular person or vehicle from recurring on different dates. S2c.1 therefore runs a **cross-partition recurrence audit** before sealing. An evaluation-environment-only appearance-similarity pass, never shipped and never a bake-off candidate's family, proposes cross-partition pairs, and annotators confirm or reject each one. A confirmed recurring subject is moved wholly into one partition, preferring training. The frozen test prefers whole held-out sites, where recurrence is least likely. The audit's recall is sampled, and residual recurrence is a recorded limitation beside the held-camera results. No identity is stored: the audit records crop-SHA pairs only |
 | Raw-evidence pin | the corpus manifest records the vision pipeline profile SHA and Evidence Set selector version that produced every crop; a change to either (S1.4 is still open: B1–B6) invalidates crop-level labels under qualification-plan §16 — slice S2c.1 stops and re-derives the affected crops rather than mixing versions |
 | Camera and site count | every partition needs at least three cameras, and the frozen test at least one camera unseen elsewhere, as a floor. **Sufficiency for inferential claims is determined, not assumed.** S2c.2 runs the calibration simulation of MSR method §8.1 on the pilot's cluster structure, and freezes the minimum number of top-level clusters (sites, or camera blocks) at which the hierarchical bootstrap keeps its nominal coverage, overall and per stratum. S2c.2 freezes the method and the perturbation model. The simulation tool is built in S2c.3, and the resulting minimum is computed and hash-appended to the protocol, as a pre-registered output, before S2c.4 reads any selection data. Below it, comparison and generalisation claims are downgraded (§9.4). The achieved count is a recorded limitation, never waived silently |
-| Size | derived, not guessed. **Precision** is estimated over *predicted* positives at the operating point, so each exposed value needs `n_pred ≈ z²·p(1−p)/e²` Observed decisions (e.g. p = 0.9, e = 0.05 → ≈ 139 at 95 %). With abstention and Unknown, this means labelled positives ≈ `n_pred · p / (recall_op · coverage)`, where `recall_op` and `coverage` are the pilot's estimates at the provisional operating point, re-estimated on the tuning partition. **Recall** has its own requirement, `n_pos ≈ z²·r(1−r)/e²` ground-truth positives. The larger of the two decides. Both counts are then **multiplied by the design effect** `DEFF = 1 + (m̄ − 1)·ρ`: `m̄` is the size-weighted mean Tracks per camera block (`Σm²/Σm`), and `ρ` the intra-cluster correlation estimated on the pilot, or a declared conservative value where the pilot cannot estimate it. The pilot supplies prevalence per value, from which the number of Tracks to label per partition follows. Values that cannot reach it are reported as insufficient evidence (qualification plan §5) |
+| Size | derived, not guessed. **Precision** is estimated over *predicted* positives at the operating point, so each exposed value needs `n_pred ≈ z²·p(1−p)/e²` Observed decisions (e.g. p = 0.9, e = 0.05 → ≈ 139 at 95 %). With abstention and Unknown, labelled-positive planning uses **unconditional positive recall** `recall_op` (TP divided by all true positives), so labelled positives ≈ `n_pred · p / recall_op`. Because this recall already includes abstention, coverage is **not multiplied again**. Every planning formula defines its denominator explicitly. **Recall** has its own requirement, `n_pos ≈ z²·r(1−r)/e²` ground-truth positives. The larger of the two decides. Both counts are then **multiplied by the design effect** `DEFF = 1 + (m̄ − 1)·ρ`: `m̄` is the size-weighted mean Tracks per camera block (`Σm²/Σm`), and `ρ` the intra-cluster correlation estimated on the pilot, or a declared conservative value where the pilot cannot estimate it. The pilot supplies prevalence per value, from which the number of Tracks to label per partition follows. Values that cannot reach it are reported as insufficient evidence (qualification plan §5) |
 | Public data | PA-100K may enter the training partition if the licence review clears it; never the frozen test (qualification plan §3.1); research-only datasets are not used |
 | Contamination | frozen test is MAVI-sourced, so disjoint from third-party training data by construction; near-duplicate check (perceptual hash) across partitions |
 | Coverage | the strata of §8.2 and qualification plan §3.3; gaps are limitations |
@@ -467,19 +462,20 @@ Annotation guide per attribute (allowed values with reference swatches, Unknown/
 
 ### 10.4 Metrics
 
-| Attribute kind | Metrics |
-|---|---|
-| Colour (categorical) | per-value precision/recall/F1; macro-F1 over values meeting support; balanced accuracy; confusion matrix; coverage and Unknown rate; per stratum; per camera; leave-one-camera-out |
-| Presence | positive precision/recall; FPR/FNR; Unknown rate; PR curve; no negative metrics (no Absent) |
-| Both | risk–coverage curve and AURC; expected calibration error and reliability diagram; crop vs Representative-only vs Evidence-Set Track level (primary: Track level); values under support are "insufficient evidence", never merged into a passing macro score |
+| Attribute kind | Gate / primary measurements | Diagnostics |
+|---|---|---|
+| Colour (categorical) | per-value precision and recall; macro recall over the fixed required value set; useful coverage on S; unsupported-assertion bound on U/I; all-assigned delivery coverage on A; Track-level post-aggregation calibration | macro-F1, balanced accuracy, confusion matrix with abstention, risk–coverage/AURC, crop and Representative ablations, per stratum/camera |
+| Presence | positive precision; unconditional positive recall; FPR on adjudicated scorable negatives; unsupported-assertion bound on U/I; all-assigned delivery coverage on A; Track-level post-aggregation calibration | PR/AP, F1, risk–coverage/AURC, asserted-positive rate, crop/Representative ablations |
+| Both | required-slice floors; attribute/value support and independent-cluster support; values below either are **insufficient evidence** | reliability diagrams, proper calibration scores, per-camera/site/date analyses |
 
 ### 10.5 Thresholds and gates — how numbers are established
 
 No percentage is set in this plan. The procedure:
 
-1. S2c reports, per attribute and value, the **precision–coverage frontier** of the selected candidate on the tuning partition (and confirms it on the selection partition) with bootstrap intervals, plus the support measured per value. The frontier is threshold-free, so model selection (§9.5) never needs the owner's targets.
-2. The owner declares, per exposed attribute, a **target precision** (an operational policy decision, recorded with its rationale) and the minimum support; the operating point `τ` is the lowest threshold whose **lower** 95 % bound meets the target, maximising coverage; δ and `kMin` are chosen the same way. This *method* is frozen in S2c.2; only its outputs are produced later.
-3. Those values are frozen (R1 step 3) before S5 scores the frozen test.
+1. Before any **selection** result is read, the event protocol carries the owner's gate table: required precision, minimum useful recall/coverage, FPR/unsupported-assertion bounds, calibration tolerance, support/cluster requirements and required robustness slices. No universal percentage is invented by this plan.
+2. Candidate-specific operating values (`τ`, δ, `kMin`, evidence floor and pooling/aggregation parameters inside the frozen family) are chosen **only on tuning** by the common bounded optimisation procedure. Calibration coefficients are fitted from training-derived group-disjoint predictions; tuning may check calibration but does not fit those coefficients.
+3. The complete executable configuration is frozen before selection. Selection compares candidates and paired differences only; it performs no fitting or tuning. Gate decisions use the predeclared confidence-bound direction and preserve `inconclusive` / `insufficient evidence`.
+4. Before S5, the selected identity and every parameter value are re-recorded under R1 step 3. The frozen test is scored once and cannot be used to adaptively select an alternative.
 
 Gate classes kept separate: **functional** (tests, contracts, mutations — S2c), **model quality** (frozen-test gates — S5), **performance** (derived budgets, §14 — S2c measures, S5 re-confirms on the frozen identity), **packaging/reproducibility** (pack id re-derivation, rebuild, offline install — S2c), **Production promotion** (out of Stage-2 S2c; ADR-009).
 
