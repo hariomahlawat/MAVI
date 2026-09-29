@@ -12,8 +12,9 @@ import pytest
 from model_selection.quality_statistics import (
     CONTRACT,
     NORMATIVE_DOC,
-    REQUIRED_DOC_SNIPPETS,
+    EXPECTED_EXACT_DOC_LINES,
     EXPECTED_FROZEN_INVARIANTS,
+    EXPECTED_NORMATIVE_INVARIANTS,
     QualityStatisticsError,
     read_contract,
     validate_contract,
@@ -184,12 +185,49 @@ def write_minimal_repo(tmp_path, contract_document, normative_text):
     doc_path.write_text(normative_text, encoding="utf-8")
 
 
-@pytest.mark.parametrize("code", sorted(REQUIRED_DOC_SNIPPETS))
-def test_normative_b1_clauses_are_repository_checked(tmp_path, code):
+@pytest.mark.parametrize("tag", sorted(EXPECTED_NORMATIVE_INVARIANTS))
+def test_normative_invariant_registry_is_exact(tmp_path, tag):
     text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
-    snippet = REQUIRED_DOC_SNIPPETS[code]
-    assert snippet in text
-    write_minimal_repo(tmp_path, base(), text.replace(snippet, "WEAKENED", 1))
+    expected = EXPECTED_NORMATIVE_INVARIANTS[tag]
+    line = f"**{tag}:** {expected}"
+    assert line in text
+    write_minimal_repo(tmp_path, base(), text.replace(line, line + " unless owner-approved.", 1))
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "normative_invariants"
+
+
+@pytest.mark.parametrize(("code", "expected"), sorted(EXPECTED_EXACT_DOC_LINES.items()))
+def test_exact_authority_lines_reject_qualifications(tmp_path, code, expected):
+    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    assert expected in text
+    write_minimal_repo(tmp_path, base(), text.replace(expected, expected + " unless owner-approved.", 1))
     with pytest.raises(QualityStatisticsError) as caught:
         validate_repository(tmp_path)
     assert str(caught.value) == code
+
+
+def test_calibration_partition_row_is_training_only(tmp_path):
+    text = (REPO / NORMATIVE_DOC).read_text(encoding="utf-8")
+    expected = EXPECTED_EXACT_DOC_LINES["calibration_partition_row"]
+    weakened = expected.replace("training-derived", "tuning-derived")
+    assert weakened != expected
+    write_minimal_repo(tmp_path, base(), text.replace(expected, weakened, 1))
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "calibration_partition_row"
+
+
+def test_frozen_invariant_numeric_one_is_refused():
+    document = copy.deepcopy(base())
+    key = next(iter(EXPECTED_FROZEN_INVARIANTS))
+    document["frozenInvariants"][key] = 1
+    refused("frozen_invariants", document)
+
+
+def test_frozen_invariant_boolean_type_is_required_for_every_key():
+    document = base()
+    for key in EXPECTED_FROZEN_INVARIANTS:
+        mutated = copy.deepcopy(document)
+        mutated["frozenInvariants"][key] = 1
+        refused("frozen_invariants", mutated)
