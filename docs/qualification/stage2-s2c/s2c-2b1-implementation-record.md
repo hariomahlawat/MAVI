@@ -40,17 +40,18 @@ Freeze the candidate-independent quality/statistical semantics required before t
 
 `python tools/qualification/quality_statistics_check.py repository --repo .`
 
-The validator is standard-library only and checks:
+The validator is standard-library only and fail-closes the **exact 14-invariant list in §3**. The contract carries a `frozenInvariants` map with exactly 14 required true entries; repository validation also pins the corresponding normative Markdown clauses. It additionally checks:
 
-- exact S/U/I/A semantics and denominators;
+- exact S/U/I/A semantics and denominators, with unsupported assertions measured **separately** for U and I;
 - training/tuning/selection/frozen-test authority;
 - post-aggregation calibration;
 - paired/site-aware statistical invariants;
 - practical margins and comparison outcomes;
+- execution-failure, insufficient-evidence, recall-support and no-adaptive-frozen-test-selection semantics;
 - absolute unsupported-assertion/useful-coverage gate form;
-- b-2 scope boundary.
+- the complete seven-item b-2 scope boundary.
 
-Discriminating tests mutate each critical rule and require fail-closed refusal.
+Discriminating tests mutate every one of the 14 contract invariants, weaken every protected normative Markdown clause in a temporary repository, and require fail-closed refusal.
 
 ## 5. Deliberately deferred to S2c.2b-2
 
