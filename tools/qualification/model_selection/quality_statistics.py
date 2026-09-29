@@ -25,7 +25,10 @@ EXPECTED_POPULATIONS = {
 }
 EXPECTED_DENOMINATORS = {
     "classification": "S",
-    "unsupportedAssertion": ["U", "I"],
+    "unsupportedAssertion": {
+        "humanUnscorable": "U",
+        "invalidSubject": "I",
+    },
     "deliveryCoverage": "A",
 }
 EXPECTED_PARTITIONS = {
@@ -57,6 +60,22 @@ EXPECTED_OUTCOME_SEMANTICS = {
     "coverageMultipliedAgainForRecallSupport": False,
     "frozenQualificationFailureMaySelectAlternative": False,
 }
+EXPECTED_FROZEN_INVARIANTS = {
+    "I01-human-unscorable-is-not-model-abstention": True,
+    "I02-classification-uses-S-and-U-I-unsupported-assertions-are-separate": True,
+    "I03-execution-failures-remain-in-A": True,
+    "I04-track-calibration-is-post-aggregation": True,
+    "I05-calibration-fit-is-training-only": True,
+    "I06-tuning-selects-operating-parameters-selection-does-not-tune": True,
+    "I07-frozen-test-cannot-select-or-rescue-alternative": True,
+    "I08-comparison-is-paired-cluster-aware-and-track-crops-stay-together": True,
+    "I09-practical-noninferiority-equivalence-margins-are-predeclared": True,
+    "I10-interval-overlap-is-not-equivalence": True,
+    "I11-insufficient-support-remains-insufficient-evidence": True,
+    "I12-unconditional-recall-includes-abstention-and-coverage-is-not-multiplied-twice": True,
+    "I13-owner-numerical-targets-are-not-invented-by-b1": True,
+    "I14-operational-pareto-fleet-final-ordering-remain-b2-scope": True,
+}
 EXPECTED_DEFERRED = [
     "operational-performance",
     "whole-job-cpu-host-gates",
@@ -68,27 +87,65 @@ EXPECTED_DEFERRED = [
 ]
 
 REQUIRED_DOC_SNIPPETS = {
-    "doc_execution_failure": (
+    "doc_i01": (
+        "**I-QS1.** Classification quality is computed on **S** only. U is never converted "
+        "to a class, negative, false positive, false negative or successful abstention."
+    ),
+    "doc_i02": (
+        "**I-QS2.** Model abstention is an outcome on an otherwise scorable/applicable "
+        "Track; it is not a ground-truth state."
+    ),
+    "doc_i03": (
         "**I-QS3.** Execution failure/Unavailable remains in **A** and lowers all-assigned "
         "delivery coverage. It cannot disappear by becoming Unknown."
     ),
-    "doc_frozen_test_no_adaptive_selection": (
+    "doc_i04": (
+        "**I-QS4.** Unsupported assertions are measured separately on **U** and **I**."
+    ),
+    "doc_i05": (
+        "**I-QS5.** Calibration is evaluated at the Track output **after** the complete "
+        "aggregation, quality filtering and abstention procedure."
+    ),
+    "doc_i06": (
+        "**I-QS6.** Selection may compare already-frozen executable configurations but "
+        "may not fit or tune them."
+    ),
+    "doc_i07": (
+        "**I-QS7.** Frozen-test evidence cannot tune, rank, replace or rescue a candidate. "
         "A failed/inconclusive frozen qualification does not trigger adaptive evaluation "
         "of alternatives on the same exposed test."
     ),
-    "doc_insufficient_evidence": (
+    "doc_i08": (
+        "**I-QS8.** Candidate comparisons are paired on identical evaluation units."
+    ),
+    "doc_i09": (
+        "**I-QS9.** Inferential support requires both attribute/value support and sufficient "
+        "independent clusters. Total Track count cannot substitute for cluster support."
+    ),
+    "doc_i10": (
+        "**I-QS10.** Overlapping confidence intervals are not proof of equivalence. A "
+        "non-significant degradation is not proof of non-inferiority."
+    ),
+    "doc_i11": (
         "**I-QS11.** “Insufficient evidence” is preserved as an outcome; it is never "
         "converted into a pass, tie or owner-selected statistical winner."
     ),
-    "doc_recall_support": (
+    "doc_i12": (
         "If recall is defined unconditionally over all true positives, it already includes "
         "abstention. **Coverage is not multiplied into the denominator a second time.**"
     ),
+    "doc_i13": (
+        "S2c.2b-1 freezes the *form* of the gates, not owner policy numbers."
+    ),
+    "doc_i14": "This slice deliberately does **not** freeze:",
     "doc_b2_cpu_host": "- whole-job CPU/host gates;",
     "doc_b2_composition": "- composition resource accounting;",
     "doc_b2_10k": "- the 10k-Track deadline mechanics;",
+    "doc_b2_pareto": "- the final Pareto axes;",
+    "doc_b2_final_selection": "- the deterministic selection from a non-dominated set;",
+    "doc_b2_fleet": "- the 500-camera projection;",
+    "doc_b2_msr_ordering": "- final technical ranking representation in the MSR.",
 }
-
 
 class QualityStatisticsError(ValueError):
     """Stable refusal code for a quality/statistics contract violation."""
@@ -130,6 +187,7 @@ def validate_contract(document: dict) -> None:
             "gates",
             "selectionBoundary",
             "outcomeSemantics",
+            "frozenInvariants",
             "deferredToS2c2b2",
         },
         "contract",
@@ -224,6 +282,12 @@ def validate_contract(document: dict) -> None:
         raise _fail("recall_support_double_counts_coverage")
     if outcomes["frozenQualificationFailureMaySelectAlternative"] is not False:
         raise _fail("frozen_test_adaptive_selection")
+
+    invariants = _object(
+        root["frozenInvariants"], set(EXPECTED_FROZEN_INVARIANTS), "frozen_invariants"
+    )
+    if invariants != EXPECTED_FROZEN_INVARIANTS:
+        raise _fail("frozen_invariants")
 
     if root["deferredToS2c2b2"] != EXPECTED_DEFERRED:
         raise _fail("b2_scope_boundary")
