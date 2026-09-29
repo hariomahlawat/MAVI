@@ -409,3 +409,57 @@ def test_projection_rejects_newline_rewrite_as_raw_bytes(tmp_path, replacement):
     with pytest.raises(QualityStatisticsError) as caught:
         validate_repository(tmp_path)
     assert str(caught.value) == "contract_projection"
+
+
+@pytest.mark.parametrize(
+    ("raw", "code"),
+    [
+        (b"[]", "contract_not_object"),
+        (b'"contract"', "contract_not_object"),
+        (b"{not json", "contract_unreadable"),
+        (b'{"schema": "\xff"}', "contract_unreadable"),
+        (b"", "contract_unreadable"),
+    ],
+)
+def test_unreadable_or_non_object_contract_is_refused(tmp_path, raw, code):
+    path = tmp_path / "contract.json"
+    path.write_bytes(raw)
+    with pytest.raises(QualityStatisticsError) as caught:
+        read_contract(path)
+    assert str(caught.value) == code
+
+
+def test_end_marker_before_begin_marker_fails_structure(tmp_path):
+    original = (REPO / NORMATIVE_DOC).read_bytes()
+    swapped = (
+        original.replace(PROJECTION_BEGIN_BYTES, b"\x00SWAP\x00", 1)
+        .replace(PROJECTION_END_BYTES, PROJECTION_BEGIN_BYTES, 1)
+        .replace(b"\x00SWAP\x00", PROJECTION_END_BYTES, 1)
+    )
+    assert swapped.index(PROJECTION_END_BYTES) < swapped.index(PROJECTION_BEGIN_BYTES)
+    write_minimal_repo(tmp_path, base(), swapped)
+    with pytest.raises(QualityStatisticsError) as caught:
+        validate_repository(tmp_path)
+    assert str(caught.value) == "contract_projection_structure"
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "code"),
+    [
+        ("calibration", "frozenTestFitForbidden", "calibration_fields"),
+        ("statistics", "allowedOutcomes", "statistics_fields"),
+        ("gates", "requiredGateForms", "gates_fields"),
+        ("outcomeSemantics", "insufficientSupportOutcome", "outcome_semantics_fields"),
+    ],
+)
+def test_missing_nested_field_is_refused(section, field, code):
+    document = copy.deepcopy(base())
+    del document[section][field]
+    refused(code, document)
+
+
+@pytest.mark.parametrize("value", [False, 1, "true"])
+def test_frozen_test_calibration_fit_must_be_forbidden(value):
+    document = copy.deepcopy(base())
+    document["calibration"]["frozenTestFitForbidden"] = value
+    refused("frozen_test_calibration_fit_allowed", document)

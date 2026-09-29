@@ -169,6 +169,12 @@ Ownership (clarified 2026-09-28 by the S2c plan; no status changes): the parent 
 - No row changes. It selects, downloads and benchmarks no model, writes no ledger for a real event, and claims no MAVI result. F1, F3 and every other F/G row keep their state; S2c.2, S2c.3 and S2c.4 are OPEN.
 - Merged in PR #118.
 
+### S2c.2b-1 quality/statistical protocol — 2026-09-29
+
+- Baseline: `main@db2b25a24d0f850c3841a9eabcb915f7c92eebfb` (merge of PR #118, S2c.2a).
+- Delivered, in review in PR #119 (not merged): qualification-plan R3; `docs/qualification/model-selection/s2c-quality-statistics.md` with its canonical machine contract; and the validator `tools/qualification/quality_statistics_check.py`, with tests on synthetic fixtures only.
+- No row changes. It selects, downloads and benchmarks no model and claims no MAVI result. S2c.2b-2, S2c.2, S2c.3 and S2c.4 are OPEN, and F1, F3 and every other F/G row keep their state.
+
 For every PASS entry retain:
 - exact commit SHA;
 - environment/runtime/model/capability identities;

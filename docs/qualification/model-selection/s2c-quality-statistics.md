@@ -130,6 +130,8 @@ For a higher-is-better metric with paired difference Δ = A − B:
 - **inconclusive:** none of the above is established;
 - **insufficient evidence:** support/cluster requirements are not met.
 
+The support/cluster check is applied first. When it fails, the outcome is `insufficient evidence` whatever the interval shows.
+
 **I-QS10.** Overlapping confidence intervals are not proof of equivalence. A non-significant degradation is not proof of non-inferiority.  
 **I-QS11.** “Insufficient evidence” is preserved as an outcome; it is never converted into a pass, tie or owner-selected statistical winner.
 

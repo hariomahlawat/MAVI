@@ -44,20 +44,20 @@ Metrics per attribute kind; required operating-point gates and diagnostics; stra
 The event cites the governing S2c.2b-1 quality/statistical contract and the S2c.2b-2 operational/multi-objective rule. No S2c event may reach `PROTOCOL_FROZEN` until both are complete.
 
 For quality/statistical comparison record:
-- the owner-approved gate table (precision/recall or useful-coverage, false-positive/unsupported-assertion, calibration, support and required-slice limits);
+- the owner-approved gate table: one row for every applicable form in the contract's `gates.requiredGateForms` (per-value precision; useful recall/coverage floor; FPR bound; unsupported-assertion bounds for U and for I, separately; Track calibration tolerance; attribute/value support; independent-cluster support; required-slice floor; required-slice degradation limit), each with its owner-approved value;
 - confidence-bound direction for each gate;
 - practical-difference, non-inferiority and equivalence margins;
 - how a metric with several attribute/value requirements is decided;
 - MPID/replacement bars where applicable.
 
-Any comparative score is optional under MSR method §8 and may not replace these gates. **For S2c events, MSR §8's generic “differences within the statistical interval score as ties” rule is explicitly overridden:** a paired result that is not `superior`, `non-inferior` or `equivalent` under the frozen margins remains `inconclusive`; it cannot be converted to a tie, owner-selected statistical winner or technical-ordering input. `Insufficient evidence` likewise remains non-decisive. The final Pareto/ordering rule belongs to S2c.2b-2 and must be frozen before selection data are read.
+Any comparative score is optional under MSR method §8 and may not replace these gates. **For S2c events, MSR §8's generic “differences within the statistical interval score as ties” rule is explicitly overridden:** a paired result that is not `superior`, `non-inferior` or `equivalent` under the frozen margins remains `inconclusive`; it cannot be converted to a tie, owner-selected statistical winner or technical-ordering input. `Insufficient evidence` likewise remains non-decisive. Owner decisions on such results are limited to those in methodology §8.2. The final Pareto/ordering rule belongs to S2c.2b-2 and must be frozen before selection data are read.
 
 ## 7. Statistics (methodology §8.1 + qualification-plan R3)
 - estimand and top-level independent unit for each claim (default site for unseen-site claims);
 - cluster hierarchy, keeping every Track's crops together;
 - paired resampling algorithm: replicates, interval level and seeds;
 - predicted-positive support for precision and ground-truth-positive support for recall, with clustering/design-effect assumptions;
-- training-pilot simulation used to establish independent-cluster sufficiency;
+- training-pilot simulation used to establish independent-cluster sufficiency, varying plausible prevalence, cluster imbalance, dependence, abstention and effect size (a cluster-label swap alone is insufficient; `../s2c-quality-statistics.md` §7, methodology §8.2);
 - practical-difference, non-inferiority/equivalence and multiplicity rules;
 - undefined-denominator handling;
 - exact wording for `inconclusive` and `insufficient evidence`.

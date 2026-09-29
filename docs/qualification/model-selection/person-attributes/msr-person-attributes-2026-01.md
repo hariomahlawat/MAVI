@@ -28,7 +28,7 @@ The capability binds one pack (ADR-014 §1). The event therefore records one ran
 1. T-PC and T-PO finalists, up to K = 3 each plus baselines;
 2. composition candidates by the frozen rule (winner tuple, shared-backbone pairs, up to three further pairs by rank sum);
 3. composition evaluation, including the 500-camera projection;
-4. Pareto frontier;
+4. the multi-objective decision under the S2c.2b-2 rule (a Pareto frontier only if S2c.2b-2 defines one; MSR method §8.2);
 5. implementation composition.
 
 No winner or composition is named in this planning record.
@@ -79,7 +79,7 @@ None. No model is selected in the planning change. When filled, §8 records the 
 - strongest candidate cleared for each declared profile;
 - implementation composition;
 - deltas between these;
-- the composition frontier;
+- the composition decision in the S2c.2b-2 representation (a frontier only if S2c.2b-2 defines one);
 - projected 500-camera footprint;
 - owner decisions.
 

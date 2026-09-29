@@ -58,6 +58,9 @@ Discriminating tests mutate contract semantics/types, remove, rename, duplicate 
 
 ## 5. Deliberately deferred to S2c.2b-2
 
+The contract's `deferredToS2c2b2` list is authoritative; in summary:
+
+- operational performance;
 - whole-job CPU/host performance gates;
 - composition resource accounting;
 - 10k-Track deadline/retry mechanics;
@@ -65,7 +68,7 @@ Discriminating tests mutate contract semantics/types, remove, rename, duplicate 
 - Pareto axes, directions, normalization, dominance semantics, treatment of disabled attributes and non-dominated-set construction;
 - the sub-task finalist ordering used for composition generation;
 - deterministic final technical selection, including selection from any non-dominated set, and its MSR representation;
-- reconciliation/removal of the historical weighted-ordering table.
+- reconciliation/removal of the historical weighted-ordering table, including the scalar `comparativeScore` from which the merged M1 decision summary derives "strongest evaluated technical" (`candidate-credibility.md` §8; MSR method §8.2 item 5).
 
 No S2c event may reach `PROTOCOL_FROZEN` until b-1 and b-2 are both governing.
 
@@ -108,6 +111,10 @@ A fresh cold review of the whole change set and its authority chain was performe
 | H9 | P3 | `frozenTestMayTune`, `multiplicityRulePredeclared` and `nonSignificanceMeansNonInferiority` were prose-only statistics/firewall rules | fixed: strict Boolean contract fields with stable refusal codes |
 | H10 | P1 | Second cold review of `267cfdf`: plan §14/§14.1 and the SG4/SG7a/SG7b rows still stated b-2 operational rules as governing. These were the retry-budget formula and ≈0.266 s/crop figure, the host class and CPU-mandatory SG4, the workload model/host envelope/projection script "Frozen at S2c.2", the concrete projection outputs, N ≥ 2 validation with a tolerance "frozen at S2c.2", and batch caps "fixed in S2c.2". Each contradicted the contract's `deferredToS2c2b2` | fixed: §14 opens with a governing-status note separating the measurement requirements (governing) from the operational rules (S2c.2b-2). The old figures, formula and choices are retained as historical/provisional context. SG4/SG7a/SG7b, §5 latency, the gate classes, S2c.9, U9 and constraint B now defer the rules to b-2. Docs-only; the contract is unchanged |
 | H11 | P2 | `capability-roadmap.md` §9 item 4 still named S2c.2a the current slice, contradicting its own table (PR #118 merged). The implementation roadmap and the acceptance-register status header carried the same stale state | fixed: S2c.2a merged (PR #118); S2c.2b-1 current and in review (PR #119, not merged); S2c.2b-2, the S2c.2 freeze and S2c.3 onward OPEN; no register row change |
+| H12 | P2 | Closure review of `8096891`: generic MSR text reachable by S2c events had no single S2c precedence rule. README §4 "dominated", the §9 and record-template frontier fields, and the person MSR record's "Pareto frontier" presupposed a representation deferred to b-2. README §8/§8.1 and the record template let an owner decision turn tied or insufficient-cluster comparisons into a choice of winner. §8.1 "better" lacked the practical-importance rule, and its cluster-swap simulation is insufficient under b-1 §7 | fixed: README §8.2 states the S2c precedence of R3/b-1 (outcome vocabulary, simulation sufficiency, allowed and forbidden owner decisions, frontier/dominance/ranking representation from b-2, comparative score and M1 `comparativeScore` reconciled by b-2). §4, §5.1, §8, §8.1 and §9 point to it, and the templates and the person MSR record are conditional. The generic rules are unchanged for non-S2c events |
+| H13 | P2 | Plan U3 scheduled owner targets for S5, contradicting §10.5 step 1 and `ownerTargetsFrozenBeforeSelection`. It also allowed an owner choice "when the ranking is unstable" without the b-1 limits | fixed: U3 names the gate table and margins as frozen before selection results are read; S5 only re-confirms; owner choice is bounded by MSR §8.2 |
+| H14 | P2 | The protocol template's gate table listed a subset of the gate forms without separate U/I bounds, and its pilot-simulation line lacked b-1 §7's sufficiency requirements | fixed: one row per `gates.requiredGateForms` entry, U and I separate; the simulation requirements are stated |
+| H15 | P3 | Outcome precedence not stated; record §5 omitted `operational-performance`; register had no S2c.2b-1 entry; untested refusal branches (unreadable/non-object/empty JSON, end-before-begin markers, a missing nested field, `frozenTestFitForbidden`) | fixed: "support check first" sentence (b-1 §8); record §5 completed; register entry added (no row change); tests added |
 
 Validator source mutation (15 mutants: every new check, the projection sections, raw-byte reading, the duplicate-member hook and I14) — all killed.
 
