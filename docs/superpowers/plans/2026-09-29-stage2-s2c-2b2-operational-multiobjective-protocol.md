@@ -752,7 +752,8 @@ Use synthetic fixtures to prove:
 - unavailable required axis yields unresolved comparison;
 - disabled target attribute blocks full-capability selection;
 - finalist overflow is fail-closed;
-- canonical id is used only for complete measurement-equivalence ties;
+- canonical id cannot manufacture a winner from a complete measurement-equivalence tie;
+- architectural-extension candidates cannot bypass the frozen MPID/reference-set rule;
 - technical result can be `NO_UNIQUE_TECHNICAL_WINNER`.
 
 ### 17.3 Mutation targets
@@ -776,9 +777,10 @@ At minimum kill mutants that:
 15. use licence or credibility in technical ordering;
 16. use weighted `comparativeScore`;
 17. choose first candidate on unresolved finalist overflow;
-18. use candidate id before all measurements are equivalent;
-19. emit a single strongest technical candidate when the outcome is unresolved;
-20. allow owner choice to rewrite the technical outcome.
+18. use candidate id to choose a winner from a measurement-equivalent set;
+19. let an architectural-extension candidate bypass the frozen MPID/reference-set rule;
+20. emit a single strongest technical candidate when the outcome is unresolved;
+21. allow owner choice to rewrite the technical outcome.
 
 ---
 
@@ -930,6 +932,8 @@ The draft deliberately chooses:
 - quality-protected resource dominance;
 - a non-dominated set rather than a weighted utility score;
 - fail-closed unresolved finalist/final-selection outcomes;
+- exact technical equivalence remains a set rather than an id-based manufactured winner;
+- explicit execution of the existing MSR architectural-extension/MPID rule;
 - explicit S2c removal of scalar `comparativeScore` as technical authority.
 
 These are the primary subjects Astra and Claude should challenge before implementation begins.
