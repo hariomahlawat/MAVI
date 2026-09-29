@@ -62,8 +62,8 @@ b-2 consumes but does not redefine:
 
 | Deferred subject | b-2 disposition |
 |---|---|
-| operational-performance | **Defined** — §§7–10, 16 |
-| whole-job-cpu-host-gates | **Defined** — §§7, 9, 16 |
+| operational-performance | **Defined** — §§7–10, 17 |
+| whole-job-cpu-host-gates | **Defined** — §§7, 9, 17 |
 | composition-resource-accounting | **Defined** — §§10, 16 |
 | 10k-track-deadline-mechanics | **Defined** — §§7–8, 17 |
 | 500-camera-projection | **Defined** — §§11, 17 |
@@ -74,7 +74,7 @@ b-2 consumes but does not redefine:
 | disabled-attribute-frontier-treatment | **Replaced** — required disabled attribute fails the capability scope before selection (§10.2) |
 | non-dominated-set-construction | **Retired as governing selection mechanism** |
 | sub-task-finalist-ordering | **Retired** — replaced by predeclared bounded composition manifest (§10.3) |
-| final-technical-selection | **Defined** — §§13–16 |
+| final-technical-selection | **Defined** — §§13–18 |
 | msr-final-ranking-representation | **Defined** — M2 / decision-v2 in §20 |
 | historical-weighted-ordering-reconciliation | **Defined** — §21 |
 
@@ -162,10 +162,13 @@ Before any selection result is read, freeze:
 - deployment objective;
 - MPID claim(s) and margin;
 - existing-graph candidate designation;
+- **predeclared `MPID_COMPARATOR_UNAVAILABLE` disposition** for each extension route (`exclude-pending-ADR` by default unless an already-governing route explicitly admits it);
+- **per-capability fallback operational unit** for the joint stage if `F_c` is empty: either a packageable gate-passing baseline or a predeclared disabled-capability identity/scope with its own valid schema/identity;
 - E1/E2/E3 evidence obligations;
 - joint person×vehicle operational decision schema;
 - licence target profiles;
-- revision invalidation rule.
+- revision invalidation rule;
+- freeze commit/hash/date bound to the S2c.1 selection-view/access-log evidence proving the freeze predates selection-data access.
 
 A result-informed revision that changes candidate inclusion, claims, margins, objective or composition manifest does not become unbiased by rerunning the same exposed selection data. Affected confirmatory evidence needs a fresh evaluation basis or later event.
 
@@ -212,10 +215,11 @@ The replay must match current S2b semantics:
 - attempt consumed at claim;
 - maximum attempts from the frozen lifecycle policy;
 - worker/process loss becomes reclaimable only after lease expiry and subsequent claim;
+- no claim or reclaim is permitted at or after the first-claim analysis deadline;
 - every lease is capped at the first-claim analysis deadline;
 - Phase A requires a live lease and therefore must occur before the deadline;
 - protected publication window follows successful Phase A and is capped at deadline + one lease duration as currently defined;
-- successful publication and acknowledgement are distinct;
+- successful Phase-C publication commit and acknowledgement are distinct; the persisted `CompletedAtUtc` is the Phase-C commit time, while acknowledgement is client/harness evidence;
 - no unimplemented partial-progress/checkpoint reuse is assumed.
 
 ### 7.4 Performance views
@@ -338,7 +342,7 @@ Label-free operational infeasibility may prune a composition **before selection*
 ### 10.4 Baselines
 
 - **PO-B0** remains a non-packageable statistical floor only. It is never a member of E and cannot be selected.
-- **PC-B0** is packageable and may enter E like any other colour-capable candidate/composition if it passes applicable gates.
+- **PC-B0** and **VC-B0** are packageable colour baselines and may enter their applicable E sets like any other packageable candidate/composition if they pass applicable gates.
 - A packageable baseline selected under the technical rule is represented as the implementation candidate with the MSR outcome `BASELINE_SELECTED` where the methodology requires that outcome.
 - Baseline/reference measurements never delete comparison obligations for learned candidates unless the frozen protocol explicitly defines them as non-selectable references.
 
@@ -472,6 +476,8 @@ Model-quality and diagnostic engineering evidence from the evaluation harness.
 ### E2 — joint selection-stage operational evidence
 For every pair that can still affect the technical decision, run the **real S2b attribute runner against a local/qualification platform path** under the frozen identity/topology sufficiently to measure the service/resource quantities used by the joint operational model.
 
+Before S2c.7 production adapters exist, E2 uses the runner's existing `AttributeInferencer` seam fed by the S2c.3/S2c.4 candidate-runner implementation; this is evaluation plumbing, not a release binding. The parent-plan S2c.3/S2c.4 rows must be reconciled so that this E2 responsibility is explicit.
+
 E2 must not require Production qualification, but it must use the real lease/evidence/upload/completion semantics for quantities that claim whole-job meaning.
 
 ### E3 — integrated S2c.9 validation
@@ -513,7 +519,7 @@ An extension candidate x enters E_c only if it satisfies the frozen MPID rule **
 1. Let G be the existing-graph candidates in the same frozen manifest that passed the same absolute b-1 SG5/SG6 gates.
 2. If any member of G remains technically eligible apart from the extension issue, compare x against every such member on the frozen MPID claim(s).
 3. If none remains, use every existing-graph candidate in G that passed the quality gates as the comparator set.
-4. If G is empty, outcome = `MPID_COMPARATOR_UNAVAILABLE`. x does not automatically pass. The event requires an explicit owner/ADR disposition before x can become implementation-eligible.
+4. If G is empty, outcome = `MPID_COMPARATOR_UNAVAILABLE`. The **predeclared protocol disposition frozen under §6** is applied. Unless an already-governing ADR-013 item 10 / parent §12.7 route explicitly admits the no-comparator case, the default disposition is `exclude-pending-ADR`: x is **not in E_c while pending**. No result-time owner decision may change E_c membership.
 
 ### 14.2 MPID pass
 
@@ -556,6 +562,8 @@ The event freezes one multiplicity/simultaneous-inference family covering:
 No pair/claim is added after results are seen.
 
 This is the b-2 use of b-1's predeclared multiplicity requirement.
+
+The protocol also declares the intended relationship between the practical-superiority margin and the non-inferiority margin. If the chosen margins permit one candidate to be `superior` while the other is also `non-inferior`, that is treated as an intentional consequence of the frozen margins rather than an implicit tie-break.
 
 ---
 
@@ -601,11 +609,28 @@ A noisy candidate that passed every absolute gate may legitimately block F_c if 
 
 This replaces the old post-selection “combined-role check.”
 
-For every pair:
+### 17.0 Fallback operational units when `F_c` is empty
 
-`u = (p,v) in F_person × F_vehicle`
+Each event freezes before selection one fallback operational unit under §6:
 
-construct the exact bound runtime identity/topology and use E2 measurements plus the frozen workload model to evaluate the pair jointly.
+- a packageable baseline that passed its own applicable gates; or
+- a predeclared **disabled-capability identity/scope** that is valid under the schema/binding rules and produces no false quality claim.
+
+Define `J_c` as:
+
+- `F_c` when `F_c` is non-empty;
+- `{fallback_c}` when `F_c` is empty and the frozen fallback is operationally available;
+- empty only when no valid fallback exists.
+
+The event's original quality outcome remains unchanged: using a fallback in the joint runtime stage does **not** convert `NO_QUALITY_PROTECTED_TECHNICAL_CHOICE` into a quality pass or winner.
+
+The joint product is evaluated over:
+
+`u = (p,v) in J_person × J_vehicle`
+
+If either `J_c` is empty, the joint outcome is `NO_OPERATIONALLY_COMPLETE_IDENTITY`; the healthy capability's quality/MSR result remains independently recorded.
+
+For every pair in that product, construct the exact bound runtime identity/topology and use E2 measurements plus the frozen workload model to evaluate the pair jointly.
 
 ### 17.1 Joint constraints
 
@@ -637,7 +662,7 @@ For each admitted pair u derive:
 - `H_lo[u]` — defensible lower bound on required hosts;
 - `H_up[u]` — conservative supported upper bound on required hosts;
 
-from the frozen uncertainty/tolerance rule over service-demand measurements and model validation error.
+from the **same deterministic replay** under frozen lower/upper service-demand scenarios. At selection time the bounds use E2 measurement uncertainty plus the frozen error envelope calibrated on the designated calibration engineering traces; E3 held-out validation error is not known or used yet.
 
 A pair is operationally admitted only if H_up is finite and all constraints pass.
 
@@ -657,7 +682,7 @@ This preserves pairs whose supported host requirement overlaps the best conserva
 
 - no admitted pair and required evidence missing → `TECHNICAL_EVIDENCE_INCOMPLETE`
 - no admitted pair with complete evidence → `NO_OPERATIONALLY_FEASIBLE_PAIR`
-- |T| = 1 **and** its H_up is below every other admitted pair's H_lo → `UNIQUE_TECHNICAL_WINNER`
+- |T| = 1 → `UNIQUE_TECHNICAL_WINNER`
 - otherwise → `TECHNICAL_TIED_SET`
 
 Canonical ids may order presentation only.
@@ -677,9 +702,13 @@ For each declared licence deployment profile r:
 
 Do not define strongest-cleared as merely T ∩ cleared; clearance may remove the unconstrained technical minimum.
 
-The implementation pair must belong to every required T_r or to the intersection required by the target deployment policy.
+For implementation, define:
 
-If no such pair exists, record `NO_QUALIFIABLE_CANDIDATE`/profile-specific unresolved outcome as defined by the MSR revision.
+`C_all = intersection over all required profiles r of C_r`
+
+and apply the same §17.3 joint constraints and H_lo/H_up selection rule directly over `C_all` to derive **`T_impl`**. Do **not** intersect the separately optimized `T_r` sets.
+
+The implementation pair must belong to `T_impl`. The `T_r` sets remain per-profile reporting outputs. If `T_impl` is empty, record `NO_QUALIFIABLE_CANDIDATE` (or the applicable MSR §8.2 unresolved action); a pair that is merely absent from one profile's optimum is not disqualified if it is cleared for every required profile and is supported by the `C_all` optimization.
 
 Owner may choose among the permitted cleared tied set but may not:
 
@@ -727,7 +756,19 @@ M1/v1 remain valid for non-S2c events.
 - single candidate; or
 - composition with exact `components[]`.
 
-### 20.2 Required S2c fields
+### 20.2 Joint-decision artefact
+
+S2c creates one checked cross-event artefact:
+
+- **schema:** `mavi-s2c-joint-operational-decision-v1`
+- **path:** `docs/qualification/model-selection/s2c-joint-operational-decision.json` for the active S2c event pair, or the event-pair-specific path defined by the M2 index;
+- **identity:** both event ids, both ledger hashes, both event decision hashes, b-1/b-2 contract hashes and the frozen experiment hash;
+- **evidence:** every evaluated joint pair with exact person/vehicle `unitId`s, operational evidence hash, `H_lo`, `H_up`, admission/constraint outcomes;
+- **outputs:** `T`, every per-profile `T_r`, `C_all`, `T_impl`, technical outcome and joint evidence hash.
+
+The v2 validator cross-loads both S2c event decisions plus this artefact and recomputes the joint sets. Any S2c person/vehicle event still using decision-v1 is refused; decision-v1 remains accepted for non-S2c events.
+
+### 20.3 Required S2c fields
 
 Per capability/event:
 
@@ -746,16 +787,17 @@ Joint decision:
 - `technicalSelectedSet[]` = T as person×vehicle pairs
 - `technicalWinner` or null
 - `profileClearedSet{profile: []}`
+- `implementationEligibleSet[]` = `T_impl`
 - `implementation.unitId`
 - `qualityContractHash`
 - `operationalContractHash`
 - `decisionEvidenceHash`
 
-### 20.3 Highest task quality
+### 20.4 Highest task quality
 
 S2c no longer requires a scalar task-quality maximum where multidimensional evidence does not support one. A set is valid.
 
-### 20.4 Validator obligations
+### 20.5 Validator obligations
 
 The updated `credibility.py` / decision validator must recompute:
 
@@ -765,11 +807,12 @@ The updated `credibility.py` / decision validator must recompute:
 - joint admitted pairs;
 - H*/T from H_lo/H_up;
 - profile-cleared sets;
-- implementation membership.
+- `T_impl` over `C_all`;
+- implementation membership in `T_impl`.
 
 It must no longer derive S2c winners from scalar `taskQualityScore` or `comparativeScore`.
 
-### 20.5 What remains human-reviewed
+### 20.6 What remains human-reviewed
 
 Machine validation cannot prove:
 
@@ -795,6 +838,7 @@ The implementation must enumerate and reconcile every live scalar/ranking assump
 - parent S2c §9.5 weighted table;
 - parent §9.5a top-K/rank-sum composition generation;
 - parent references to ranking instability / score sensitivity;
+- parent-plan S2c.3/S2c.4 rows so the E2 candidate-runner/real-runner seam is explicit;
 - any “best finalist” language whose governing definition is removed.
 
 For S2c, weighted score and Pareto frontier are historical/diagnostic only.
@@ -815,6 +859,8 @@ For S2c, weighted score and Pareto frontier are historical/diagnostic only.
 - Q_person and Q_vehicle;
 - simultaneous-inference family;
 - composition manifest;
+- predeclared per-capability fallback operational units;
+- predeclared `MPID_COMPARATOR_UNAVAILABLE` disposition;
 - host class/profile;
 - workload family;
 - lifecycle/owner SLA;
@@ -850,7 +896,9 @@ Reject:
 - PO-B0 in E;
 - selection-time manifest/objective change;
 - frozen-test selection evidence;
-- owner implementation outside permitted cleared set;
+- owner implementation outside `T_impl`;
+- missing/invalid joint-decision artefact or mismatched event/ledger/decision hashes;
+- S2c event using decision-v1;
 - scalar S2c winner schema where v2 is required.
 
 ### 23.2 Decision counterexamples
@@ -882,7 +930,9 @@ Must include:
 - restart and lease expiry overlap;
 - lost work re-executed;
 - protected publication cap;
-- acknowledgement distinct from commit.
+- acknowledgement distinct from commit;
+- no claim/reclaim at or after deadline;
+- `CompletedAtUtc` corresponds to the Phase-C publication commit.
 
 ### 23.4 Joint operational tests
 
@@ -890,7 +940,10 @@ Must include:
 - alternate pair wins on joint host count;
 - H_lo/H_up overlap yields tied set;
 - unique winner only with separation of uncertainty intervals;
-- licence filtering recomputes cleared pair optimum without altering F.
+- licence filtering recomputes cleared pair optimum without altering F;
+- empty `F_vehicle` uses the frozen vehicle fallback without rewriting the vehicle quality outcome;
+- no valid fallback yields `NO_OPERATIONALLY_COMPLETE_IDENTITY`;
+- per-profile optima with empty intersection still allow a valid `T_impl` from `C_all`.
 
 ---
 
@@ -933,7 +986,8 @@ No runtime/API/UI/Model-Pack/Runtime-Pack implementation belongs in this slice.
    - bounded replay;
    - H_lo/H_up;
    - T;
-   - T_r.
+   - T_r;
+   - T_impl and the joint-decision artefact.
 6. Add deterministic Markdown projection.
 7. Amend templates/MSR docs/parent plan.
 8. Record implementation/non-claims.
@@ -962,18 +1016,21 @@ Complete only when:
 14. E2 and E3 are distinct;
 15. 500-camera claim boundary is explicit;
 16. composition search limitation is explicit;
-17. MPID no-comparator case is not auto-passed;
-18. b-1 repository check passes;
-19. b-2 repository check passes;
-20. `tools/verify_repo.py` passes;
-21. exact-head CI is green;
-22. no P1/P2/material review thread remains;
-23. no model was selected/downloaded/trained/benchmarked;
-24. no F/G acceptance row changed.
+17. MPID no-comparator disposition is frozen before selection and is not auto-passed;
+18. fallback operational units are frozen before selection and cannot rewrite empty-F quality outcomes;
+19. `T_impl` is derived over `C_all`, not by intersecting per-profile optima;
+20. the checked joint-decision artefact cross-links both S2c events;
+21. b-1 repository check passes;
+22. b-2 repository check passes;
+23. `tools/verify_repo.py` passes;
+24. exact-head CI is green;
+25. no P1/P2/material review thread remains;
+26. no model was selected/downloaded/trained/benchmarked;
+27. no F/G acceptance row changed.
 
 ---
 
-## 27. Claude B1–B10 disposition
+## 27. Claude B1–B10 disposition and bounded-closure amendments
 
 | Finding | Disposition |
 |---|---|
@@ -987,6 +1044,10 @@ Complete only when:
 | B8 no 15-row disposition table | accepted — §3.2 |
 | B9 E2/E3 undefined | accepted — §§12, 19 |
 | B10 replay fidelity incomplete | accepted — §§7.2–7.6, 11.2 |
+| N1 empty F in one capability deadlocks joint identity | accepted — frozen fallback operational unit + `J_c` §17.0 |
+| B3 residual no-comparator disposition result-dependent | accepted — disposition frozen in §§6, 14.1 |
+| B6 residual multi-profile implementation ambiguity | accepted — `C_all` / `T_impl` §18 |
+| B7 residual no joint cross-event document | accepted — checked joint-decision artefact §20.2 |
 
 ---
 
