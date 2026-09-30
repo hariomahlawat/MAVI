@@ -18,25 +18,25 @@ The following statements were stale at `main@d0db6ef` and are reconciled in the 
 | `docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md` §9.5 reconciliation note | b-2 "implementation is pending independent review and exact-head CI" | merged in PR #122; execution plan PR #123 |
 | `docs/superpowers/plans/2026-09-23-visual-attributes.md` S2c status | as above | as above |
 | `docs/superpowers/plans/capability-implementation-roadmap.md` (two status sentences) | as above | as above |
-| both MSRs §0 owner row | "to be named at S2c.0" (S2c.0 closed without names) | roles and their missing names are tracked in §2 of this record |
+| both MSRs §0 owner row | "to be named at S2c.0" (S2c.0 closed without names) | roles and current assignments are tracked in §2 of this record |
 
 Not claimed anywhere: an operational F1 PASS, candidate qualification, real E2, S2c closure, S5, or Production qualification. S1.4 B1–B6 remain separately governed and OPEN.
 
 ## 2. Accountable roles (Slice A item 1; owner input OI-1)
 
-No human name has been supplied. Every role below is **MISSING**. None is defaulted to the repository owner or to the drafting agent. A role is filled only by an entry here naming the person and the date the owner assigned them.
+Owner assignments supplied on 2026-09-30 are recorded below. R-1, R-2 and R-5 are assigned; R-3, R-4, R-6 and R-7 remain **MISSING**. No missing role is defaulted to the repository owner or to the drafting agent.
 
 | Id | Role | Responsibility in this plan | First slice that needs it | Status |
 |---|---|---|---|---|
-| R-1 | Accountable execution owner | owner of both events; signs owner inputs; later owner implementation choice (Slice G) | A (to accept this slice) | MISSING |
-| R-2 | Independent reviewer | reviews freeze, protocol and closure; cannot be R-1 | A (ledger history `reviewedBy`) | MISSING |
+| R-1 | Accountable execution owner | owner of both events; signs owner inputs; later owner implementation choice (Slice G) | A (to accept this slice) | **Aarav — ASSIGNED 2026-09-30** |
+| R-2 | Independent reviewer | reviews freeze, protocol and closure; cannot be R-1 | A (ledger history `reviewedBy`) | **Hari Om — ASSIGNED 2026-09-30** |
 | R-3 | Corpus Custodian | footage custody, partitions, seal, access log, reference swatches | B | MISSING |
 | R-4 | Annotation owner and annotators (at least two, one independent) | pilot, main labelling, adjudication | B | MISSING |
-| R-5 | Licence Review Owner | evaluation permissions now; final per-unit, per-profile determinations later | A (evaluation permission) | MISSING |
+| R-5 | Licence Review Owner | evaluation permissions now; final per-unit, per-profile determinations later | A (evaluation permission) | **Aarav — ASSIGNED 2026-09-30** |
 | R-6 | Scale/Performance Evidence Owner | host profile, workload envelope, E1/E2/E3 evidence | D | MISSING |
 | R-7 | Statistical recipe reviewer | reviews the one executable b-1 recipe | B | MISSING |
 
-The ledger's `classificationHistory` needs a named `recordedBy` and a different named `reviewedBy` for every entry (`tools/qualification/model_selection/credibility.py`, `history_reviewer_not_independent`). The working ledgers therefore cannot be written honestly until R-1/R-2 (or other named recorders and reviewers) exist (§8, blocker SA-B1).
+The ledger's `classificationHistory` needs a named `recordedBy` and a different named `reviewedBy` for every entry (`tools/qualification/model_selection/credibility.py`, `history_reviewer_not_independent`). R-1 Aarav and R-2 Hari Om satisfy the identity/independence prerequisite. Their assignment does **not** itself create a classification-history action: the working ledgers still need actual dated evidence items and explicit recorder/reviewer actions (§8).
 
 ## 3. Owner-input checklist (plan §19)
 
@@ -44,10 +44,10 @@ Each item is **MISSING** unless an evidence reference is entered here. A missing
 
 | Id | Input (plan §19 item) | Blocks from | Status | Notes |
 |---|---|---|---|---|
-| OI-1 | Named roles R-1…R-7 | A | MISSING | §2 |
+| OI-1 | Named roles R-1…R-7 | A | PARTIAL | R-1 Aarav, R-2 Hari Om and R-5 Aarav assigned; R-3/R-4/R-6/R-7 remain MISSING (§2) |
 | OI-2 | Authorized real footage; retention/access arrangements; site/camera/day/night coverage; stable raw-evidence pin; annotation time; independently reviewable custody store | B | MISSING | footage availability is not assumed |
-| OI-3 | Pilot-rule confirmation; task/vocabulary/headwear decision; required attribute scope per capability; lawful fallback policy | A (scope/fallback, §6), B (pilot) | MISSING | a disabled or colour-only fallback is not assumed |
-| OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | MISSING | no passwords or tokens in Git |
+| OI-3 | Pilot-rule confirmation; task/vocabulary/headwear decision; required attribute scope per capability; lawful fallback policy | A (scope/fallback, §6), B (pilot) | PARTIAL | owner fixed first-event scope and fallback direction (§3.1, §6); pilot/vocabulary confirmation remains for Slice B |
+| OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | PARTIAL | owner fixed the initial families and conditional acquisition authority (§3.1); exact variants, budget and R-5 evaluation determinations remain MISSING; no passwords or tokens in Git |
 | OI-5 | Every numerical quality/support/slice gate; practical/NI/equivalence/MPID margins; bootstrap seed/replicates/multiplicity/undefined-denominator rule; pilot-simulation coverage tolerance and perturbations — one executable recipe | B | MISSING | no gate threshold is supplied by this record |
 | OI-6 | Training/tuning search and compute budgets; calibration family; allowed parameter families; reproducibility tolerances; evidence storage capacity | B | MISSING | |
 | OI-7 | Host/OS/runtime variants; detector/platform co-residency; worker range and chosen topology; lease/retry/deadline settings; resource/SLA/host/reserve limits; physical measurement access | D | MISSING | no host limit is supplied |
@@ -56,11 +56,24 @@ Each item is **MISSING** unless an evidence reference is entered here. A missing
 | OI-10 | Named non-commercial deployment profiles, end uses and delivery route; genuine final legal determinations for every frozen unit and fallback across every required profile (§7); CUDA host and restart-service decisions | A (profile ids), F (determinations) | MISSING | no licence determination is made here |
 | OI-11 | At the decision stage only: exact owner pair within a complete T_impl; authorization for the Development integration environment | G | NOT YET APPLICABLE | no implementation choice exists or is implied |
 
+### 3.1 Owner directions recorded 2026-09-30
+
+These directions narrow the first execution event without freezing the protocol or creating any licence determination.
+
+- **Required scope.** Person: upper clothing colour, lower clothing colour, backpack, bag and headwear. Vehicle: dominant body colour.
+- **Fallback.** Person: `fallback: null`. Vehicle: VC-B0 only after implementation and passage of its own frozen gates; otherwise `fallback: null`. No disabled fallback is introduced for the first event.
+- **Initial person families to pursue.** SigLIP 2 + MAVI heads (PC-1/PO-1); DINOv3 + MAVI heads (PC-2A/PO-2A); DINOv2 + MAVI heads (PC-2B/PO-2B); Intel OMZ 0230 plus 0234/0238 for headwear as applicable (PC-7/PO-6B/PO-6C); Awiros ConvNeXt V2-Tiny (PC-5), subject to R-5; the MAVI small-CNN route (PC-8/PO-7); and VTFPAR++ (PC-9), conditional on R-5 and Evidence-Set compatibility. Other surveyed person families stay in the record but are not prioritized for first-pass acquisition.
+- **Initial vehicle families to pursue.** DINOv3 + MAVI colour head (VC-1A); DINOv2 + MAVI colour head (VC-1B); SigLIP 2 + MAVI colour head (VC-2); Intel OMZ 0042 (VC-5A); the MAVI compact-CNN route (VC-4A); and VC-B0. PP-Vehicle, OMZ 0039 and zero-shot references remain retained but are not prioritized for first-pass acquisition.
+- **Variant rule.** Start with one smallest/base variant per actively pursued family that preserves the intended method and is realistically executable on the declared Development host. Do not create a multi-size bake-off unless the first variant cannot represent the method faithfully. Exact variants remain to be confirmed before pinning.
+- **Acquisition authorization.** Candidate artefacts may be acquired into the controlled component/evidence store only after R-5 documents evaluation permission for that specific candidate. For every acquired artefact record exact upstream revision, filenames, SHA-256, licence source and acquisition date. No floating tags, runtime network download, credentials or model bytes are committed to Git.
+
+These directions do not themselves mark any candidate `SHORTLISTED`, `CLEARED`, acquired or pinned.
+
 ## 4. Candidate re-survey (Slice A items 4–5)
 
 **Method.** Every committed proposal in both MSR ledgers was re-read against the survey and parent plan §9.2. Multi-family and multi-checkpoint rows are split into individually identifiable family variants (plan §4 item 1). A checkpoint serving both person sub-tasks is one entry (ledger rule), and method entries sharing a backbone carry identical identity blocks. No new model family was introduced.
 
-**What was not done, and why.** The survey records source URLs and licence texts, but no immutable revision, checkpoint filename or SHA-256 for any candidate. Acquiring bytes needs authorized network acquisition and evaluation permission (OI-4, R-5), which Slice A does not have. Every learned candidate therefore has an explicit **blocked** byte disposition, and no placeholder hash was written. The evaluation-permission column restates the survey's licence class (L-A…L-D, survey §6) as an **input to R-5**, not a determination. Operational-use and redistribution status is `NOT_ASSESSED` for every candidate and is recorded separately (§7).
+**What was not done, and why.** The survey records source URLs and licence texts, but no immutable revision, checkpoint filename or SHA-256 for any candidate. R-1 has authorized controlled acquisition for the initial families in §3.1 **only after** R-5 records evaluation permission for the specific candidate; no such permission determination exists yet, and exact variants remain unpinned. Every learned candidate therefore still has an explicit **blocked** byte disposition, and no placeholder hash was written. The evaluation-permission column restates the survey's licence class (L-A…L-D, survey §6) as an **input to R-5**, not a determination. Operational-use and redistribution status is `NOT_ASSESSED` for every candidate and is recorded separately (§7).
 
 **M1 status.** No External Evidence Ledger exists yet (SA-B1). No evidence item has a snapshot (`retrievedSha256`), and no candidate has pinned files. Under `credibility.py`, a non-baseline candidate without pinned files has `Low` provenance confidence. It can therefore compute at most `reference-only`, or `excluded-discovery` when its origin repository, publisher or author group is unknown. It cannot be `SHORTLISTED`: `shortlist_requires_pinned_provenance` would refuse it. The class is always computed by the validator and is never asserted here. MAVI baselines compute `mavi-owned` once they have an implemented revision.
 
@@ -136,9 +149,9 @@ PO-B0 stays a training-derived reference only. It is never a unit, component or 
 
 ## 6. Draft executable-unit proposals, required scope and fallback (Slice A items 7–8)
 
-These drafts are **preparation, not freeze**. The final manifest is enumerated at freeze from the admitted shortlist under the b-2 rule: every compatible composition when tractable; otherwise a subset fixed before selection with the search limitation recorded. K=3 is only a preparation budget, and no result-time pruning is permitted. Each unit will carry exactly `unitId`, `kind`, sorted `components`, `configurationSha256`, sorted `enabledAttributes`, `extension`, `existingGraph`. `configurationSha256` cannot be computed until the configuration document exists (after training/tuning), so it is not written here. `enabledAttributes` below assume the candidate v1 attribute set. Headwear is conditional on OI-3.
+These drafts are **preparation, not freeze**. The final manifest is enumerated at freeze from the admitted shortlist under the b-2 rule: every compatible composition when tractable; otherwise a subset fixed before selection with the search limitation recorded. K=3 is only a preparation budget, and no result-time pruning is permitted. Each unit will carry exactly `unitId`, `kind`, sorted `components`, `configurationSha256`, sorted `enabledAttributes`, `extension`, `existingGraph`. `configurationSha256` cannot be computed until the configuration document exists (after training/tuning), so it is not written here. `enabledAttributes` below assume the candidate v1 attribute set. Owner direction keeps headwear in the first-event required scope.
 
-**Person (structurally required units: 10).** A person unit is one exact executable composition covering the required scope:
+**Person: 10 currently identifiable structural unit/baseline proposals, excluding cross-family tuples to be enumerated pre-selection from the admitted shortlist.** A selectable person composition must cover the required scope; PC-B0 remains a colour-only baseline component unless paired with an admitted T-PO component:
 
 | Draft unit | kind | components | enabledAttributes (candidate) | extension / existingGraph (proposed) | Why it is required |
 |---|---|---|---|---|---|
@@ -151,25 +164,21 @@ These drafts are **preparation, not freeze**. The final manifest is enumerated a
 | U-P-AWIROS | learned | PC-5 | all five | false / true | single checkpoint covering both sub-tasks |
 | U-P-OMZ0230 | learned | PC-7 (+ PO-6B or PO-6C when headwear is required) | all five | false / true | single checkpoint covering both sub-tasks |
 | U-P-VTFPAR | learned | PC-9 | all five | false / true | single checkpoint covering both sub-tasks |
-| U-P-B0-COLOUR | baseline | PC-B0 | upper/lower colour only | false / true | colour baseline; admissible only if the required scope excludes T-PO (OI-3) |
+| U-P-B0-COLOUR | baseline | PC-B0 | upper/lower colour only | false / true | colour baseline only; not a full-scope person fallback under the current owner direction |
 
 Cross-sub-task tuples (a T-PC component from one family with a T-PO component from another, including PC-B0 with a learned T-PO component) are enumerated at freeze from the admitted shortlist. They are not listed now because no component is admitted yet. The unit identifiers above are working labels, and the frozen `unitId` values are assigned at freeze.
 
 **Vehicle (proposed units: 11).** Vehicle units are single-component: VC-B0, VC-1A, VC-1B, VC-2, VC-3, VC-4A, VC-4B, VC-5A, VC-5B, VC-RA and VC-RB. The ensemble variant from VC-1 (DINOv3 with CNNs) would be a multi-component unit. Its CNN members are not identified in the survey, so it is recorded as **BLOCKED** (unidentified components) and is not counted. Adding it later requires a pre-selection decision with identified components.
 
-**Required scope (OI-3, MISSING).**
-- Person: upper colour, lower colour, backpack, bag; headwear only if the owner keeps it in scope. Presence is present/Unknown only; there is no Absent.
+**Required scope (OI-3, owner direction recorded 2026-09-30).**
+- Person: upper colour, lower colour, backpack, bag and headwear. Presence is present/Unknown only; there is no Absent.
 - Vehicle: dominant body colour.
 
-These are the candidate v1 attributes. The required scope is frozen only by the owner at freeze. Until then no fallback can be judged.
+These are the required first-event capabilities. The vocabulary/pilot details are still finalized in Slice B and the protocol freeze remains later; this direction does not create a frozen protocol.
 
 **Fallback policy.**
-- **Person.** PC-B0 is colour-only, so it can be the person fallback only if the frozen required scope excludes T-PO. With presence in the required scope, the only fallback options are:
-  - a `kind: disabled` fallback, allowed only with an owner-frozen admissibility rule for every required gate, and the full licence rows (§7); or
-  - `fallback: null`.
-
-  No such rule exists, so the person fallback status is **BLOCKED on OI-3**, and the value is `null` unless the owner supplies either the colour-only scope or the disabled rule.
-- **Vehicle.** VC-B0 covers the vehicle scope, so it is the proposed fallback once implemented (§5), subject to its own gates. A disabled vehicle fallback likewise needs an owner-frozen rule. Status: proposed VC-B0, BLOCKED until VC-B0 is implemented.
+- **Person.** Owner direction for the first event is `fallback: null`. PC-B0 is colour-only and cannot cover the required T-PO scope by itself. No disabled person fallback is introduced.
+- **Vehicle.** Owner direction is VC-B0 as the intended fallback **only after** it is implemented and passes its own frozen gates; until then the vehicle fallback is `null`. No disabled vehicle fallback is introduced.
 - **No invented gate passes.** A disabled identity never receives conventional model-quality evidence, and no gate pass is recorded for it without the frozen rule and the evidence that rule names.
 
 ## 7. Licence-review scope (Slice A item 9)
@@ -183,14 +192,14 @@ These are the candidate v1 attributes. The required scope is frozen only by the 
 
 ## 8. Slice A blockers and acceptance
 
-**SA-B1 — working ledgers cannot be written honestly (owner input).**
-- **Cause.** Every ledger entry needs a named, independent recorder and reviewer, and no role is named (OI-1).
-- **Consequence.** No `<event>-evidence-ledger.json` is committed. `model_selection_check.py repository` passes, but only vacuously: there is nothing to validate.
-- **Smallest resolution.** Name R-1/R-2 (or other named recorders and reviewers). Then write both M2 ledgers (`methodRevision: msr-v1-m2`) from §4 with dated evidence items, and copy each validator-computed class.
+**SA-B1 — ledger construction pending; identity prerequisite resolved.**
+- **Resolved prerequisite.** R-1 Aarav and R-2 Hari Om are named and distinct. No review or classification action is inferred merely from assignment.
+- **Remaining work.** No `<event>-evidence-ledger.json` is committed yet. The ledgers still need dated evidence items and explicit recorder/reviewer actions; `model_selection_check.py repository` therefore still passes without exercising an event ledger.
+- **Smallest resolution.** Write both M2 ledgers (`methodRevision: msr-v1-m2`) from the retained evidence, record actual `recordedBy`/`reviewedBy` actions, and copy each validator-computed class.
 
-**SA-B2 — no candidate bytes pinned (owner input and authority).**
-- **Cause.** Variant choices, acquisition authority, gated terms and evaluation permissions are missing (OI-4, R-5).
-- **Smallest resolution.** R-5 records evaluation permission per candidate. The owner chooses variants and authorizes acquisition into the controlled component store. The pinning run then records the revision, file paths and SHA-256 for every byte outside Git.
+**SA-B2 — no candidate bytes pinned (remaining owner/legal inputs).**
+- **Cause.** The initial families and conditional acquisition authority are now recorded (§3.1), but exact variants, candidate-specific R-5 evaluation permissions and the pinning run are still missing (OI-4).
+- **Smallest resolution.** R-5 records evaluation permission per candidate; the owner confirms the exact one-per-family variant; the controlled acquisition/pinning run then records revision, file paths and SHA-256 for every byte outside Git.
 
 **SA-B3 — baselines not implemented (plan sequencing).** See §5. The implementation moves to C2. This is not an execution blocker.
 
@@ -199,11 +208,11 @@ These are the candidate v1 attributes. The required scope is frozen only by the 
 | Slice A acceptance item | State |
 |---|---|
 | every proposed runnable component has verifiable bytes or an explicit blocked disposition | met: all blocked, with reasons (§4) |
-| ledger validator passes | not yet meaningful: no ledger can be written (SA-B1) |
+| ledger validator passes | not yet meaningful: ledgers are not yet written; R-1/R-2 identity prerequisite is resolved (SA-B1) |
 | no fixture incumbent / PO-B0 unit | met: the fixture is not a candidate; PO-B0 is in no unit or fallback (§4, §6) |
-| no unresolved owner input silently defaulted | met: all MISSING (§2, §3) |
+| no unresolved owner input silently defaulted | met: supplied inputs are explicit and remaining inputs stay PARTIAL/MISSING (§2, §3) |
 
-Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until SA-B1 and SA-B2 are resolved and this record is updated and reviewed.
+Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until the remaining SA-B1 ledger work and SA-B2 candidate pinning are resolved and this record is updated and reviewed.
 
 ## 9. Dependencies and offline policy
 
