@@ -161,7 +161,7 @@ def replay(jobs: list[dict], workers: list[dict], policy: dict, services: dict,
             continue
         owned = unit["status"] == "Running" and unit["owner"] == wid and unit["attempts"] == attempt
         worker_live = generation == process["generation"] and at >= process["ready"]
-        if kind == "phaseA" and worker_live and not owned and process["busy"] == (jid, attempt):
+        if kind in ("phaseA", "fail") and worker_live and not owned and process["busy"] == (jid, attempt):
             # An expired attempt still occupies the serial inference lane until
             # its measured execution drains. Then release it for the next job.
             process["busy"] = None

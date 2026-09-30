@@ -135,9 +135,10 @@ def test_equal_track_rate_different_job_skew_changes_queue_latency(replay):
     assert skew["jobs"]["b"]["publicationCommittedAtUtc"] > smooth["jobs"]["b"]["publicationCommittedAtUtc"]
 
 
-def test_terminal_attempt_cannot_permanently_starve_next_job(replay):
+@pytest.mark.parametrize("explicit_failure", [False, True])
+def test_terminal_attempt_cannot_permanently_starve_next_job(replay, explicit_failure):
     result = run(replay, jobs=[job("a", "large"), job("b", queuedAtUtc="2026-09-01T00:00:30.000000Z")],
-                 services={"large": service(25), "small": service(3)})
+                 services={"large": service(26, explicitFailureAtUs=25_000_000 if explicit_failure else None), "small": service(3)})
     assert result["jobs"]["a"]["status"] == "Failed"
     assert result["jobs"]["b"]["status"] == "Completed"
 
@@ -161,3 +162,29 @@ def test_phase_c_row_lock_blocks_reclaim_and_sweep_until_commit(replay):
     assert row['completedAtUtc'] == '2026-09-01T00:00:07.000000Z'
     assert row['publicationCommittedAtUtc'] == '2026-09-01T00:00:12.000000Z'
     assert row['boundedPublicationPassed'] is False
+
+
+@pytest.mark.parametrize("stale", ["attempt", "generation"])
+def test_stale_failure_drain_cannot_release_current_lane(replay, monkeypatch, stale):
+    import model_selection.job_replay as module
+    original = module.heapq.heappush
+    injected = False
+    def push(heap, event):
+        nonlocal injected
+        original(heap, event)
+        # Inject a delayed stale callback while the current expired attempt is
+        # still draining. Only its matching real failure may free the lane.
+        if event[5] == "fail" and event[3] == "a" and event[6] == 2 and not injected:
+            injected = True
+            callback = list(event)
+            callback[0] = module.instant(T0, "start")+(22_000_000 if stale == "generation" else 21_000_000)
+            if stale == "attempt": callback[6] -= 1
+            else: callback[7] -= 1
+            original(heap, tuple(callback))
+    monkeypatch.setattr(module.heapq, "heappush", push)
+    outages = [{"workerIds":["w"],"lostAtUtc":T0,"readyAtUtc":"2026-09-01T00:00:01.000000Z","publicationLost":False}] if stale == "generation" else []
+    result = run(replay, jobs=[job("a", "large"),job("b", queuedAtUtc="2026-09-01T00:00:23.000000Z")],
+                 services={"large":service(16,explicitFailureAtUs=15_000_000),"small":service(3)},outages=outages)
+    claims = [e for e in result["events"] if e["kind"] == "claim" and e["jobId"] == "b"]
+    assert injected and claims[0]["atUtc"] == ("2026-09-01T00:00:31.000000Z" if stale == "generation" else "2026-09-01T00:00:30.000000Z")
+    assert result["jobs"]["b"]["status"] == "Completed"

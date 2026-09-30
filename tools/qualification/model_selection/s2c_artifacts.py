@@ -257,7 +257,7 @@ def validate_e2_trace(trace: dict, pair: dict, identity: str) -> None:
 
 MEASUREMENT_FIELDS = {
     "startup": {"lowerReadyUs", "upperReadyUs"},
-    "services": {"lowerServices", "upperServices"},
+    "services": {"lowerServices", "upperServices", "serviceCoverage"},
     "resources": {"ramBytesPerHost", "ioBytesPerSecond", "apiRequestsPerSecond", "runtimeCompatible"},
     "footprint": {"footprint"},
     "serverTiming": {"e2TraceSha256"},
@@ -341,7 +341,7 @@ def operational_projection(repo: Path, experiment: dict, exp_hash: str, evidence
     for raw in evidence["pairs"]:
         keys(raw, {"pair", "identitySha256", "lowerServices", "upperServices", "ramBytesPerHost", "ioBytesPerSecond",
                    "runtimeCompatible", "evidenceComplete", "e2TraceSha256", "lowerReadyUs", "upperReadyUs",
-                   "apiRequestsPerSecond", "footprint", "measurementReferences"}, "operational_pair")
+                   "apiRequestsPerSecond", "footprint", "measurementReferences", "serviceCoverage"}, "operational_pair")
         p, v = op.pair_key(raw["pair"])
         require(p in units["person"] and v in units["vehicle"], "operational_pair:unit_identity")
         seen.append((p, v))
@@ -354,6 +354,7 @@ def operational_projection(repo: Path, experiment: dict, exp_hash: str, evidence
                 "evidenceComplete": False, "constraints": {k: False for k in CONSTRAINTS}, "operationalEvidenceSha256": evidence_hash})
             continue
         _measurement_sources(repo, experiment, raw)
+        inputs.service_coverage(raw["serviceCoverage"], experiment["workloads"])
         for k in ("lowerReadyUs", "upperReadyUs", "apiRequestsPerSecond"): integer(raw[k], k)
         require(raw["lowerReadyUs"] <= raw["upperReadyUs"], "startup:bounds_order")
         keys(raw["footprint"], {"modelPackBytes", "runtimePackBytes", "deploymentGrowthBytes"}, "footprint")
@@ -407,7 +408,8 @@ def operational_projection(repo: Path, experiment: dict, exp_hash: str, evidence
                     count = (hosts-experiment["reserveHosts"])*experiment["workersPerHost"]
                     workers = [{"workerId": f"w-{n:05d}", "hostId": f"h-{n//experiment['workersPerHost']:05d}",
                                 "readyAtUtc": utc(instant(workload["startAtUtc"], "startAtUtc")+ready), "identitySha256": raw["identitySha256"]} for n in range(count)]
-                    jobs = [{**j, "identitySha256": raw["identitySha256"]} for j in workload["jobs"]]
+                    jobs = [{**{k:v for k,v in j.items() if k not in ("cropsPerTrack", "evidenceSetBytes")},
+                             "identitySha256": raw["identitySha256"]} for j in workload["jobs"]]
                     result = replay(jobs, workers, experiment["wholeJob"], services, workload["outages"],
                                     startAtUtc=workload["startAtUtc"], endAtUtc=workload["endAtUtc"])
                     metrics = _replay_report(workload, result, experiment)
@@ -678,6 +680,7 @@ def build_event_decision(repo: Path, joint_hash: str, c: str, state: str, decide
         require(impl["decidedOn"][c] == decided_on, "decision:snapshot_date")
         snapshot_hash = impl["snapshotHashes"][c]
         if implementation_pair is not None:
+            require(not impl["outputs"]["unresolvedOperationalPairs"], "decision:unresolved_operational_implementation")
             op.pair_key(implementation_pair)
             require(implementation_pair in impl["outputs"]["T_impl"], "decision:exact_pair_not_in_T_impl")
             keys(owner_choice, {"decidedBy", "rationale"}, "ownerChoice")
@@ -688,6 +691,7 @@ def build_event_decision(repo: Path, joint_hash: str, c: str, state: str, decide
     require(cred._date(decided_on, "decision:decidedOn") >= cred._date(experiment["frozenOn"], "frozenOn"), "decision:before_freeze")
     outcome = None
     if state == "CLOSED":
+        require(not impl["outputs"]["unresolvedOperationalPairs"], "decision:unresolved_operational_at_closed")
         require(not impl["outputs"]["pending"], "decision:pending_licence_at_closed")
         if implementation_pair is None:
             require(not impl["outputs"]["T_impl"], "decision:no_qualifiable_with_implementation_available")
@@ -712,7 +716,7 @@ def build_event_decision(repo: Path, joint_hash: str, c: str, state: str, decide
               "mpidStatus": quality["outputs"]["mpidStatus"], "highestTaskQualityEvaluatedSet": quality["outputs"]["highestTaskQualityEvaluatedSet"],
               "qualityOutcomeReason": {"outcome": quality["outputs"]["qualityOutcome"], "causes": quality["outputs"]["qualityOutcomeReason"]},
               "technicalSelectionOutcome": selection["outcome"], "technicalSelectedSet": selection["T"],
-              "technicalWinner": selection["T"][0] if len(selection["T"]) == 1 else None,
+              "technicalWinner": selection["T"][0] if selection["outcome"] == "UNIQUE_TECHNICAL_WINNER" else None,
               "profileClearedSet": None if impl is None else impl["outputs"]["T_r"],
               "implementationEligibleSet": None if impl is None else impl["outputs"]["T_impl"],
               "implementationPair": implementation_pair, "ownerChoice": owner_choice}

@@ -102,6 +102,10 @@ def fixture(a, root, *, event_pair_id="msr-synthetic-2026-01", horizon_us=60_000
         if role == "mixed": w["jobs"] = [job("a"), job("b", personTracks=10000, shape="boundary")]
         if role == "recovery": w["outages"] = [{"workerIds": ["w-00000"], "lostAtUtc": "2026-09-01T00:00:01.000000Z", "readyAtUtc": "2026-09-01T00:00:02.000000Z", "publicationLost": True}]
         experiment["workloads"].append(w)
+    for w in experiment["workloads"]:
+        for j in w["jobs"]:
+            j["cropsPerTrack"] = {c:[1]*j[c+"Tracks"] for c in ("person","vehicle")}
+            j["evidenceSetBytes"] = 10
     experiment["requiredWorkloadIds"] = [w["workloadId"] for w in experiment["workloads"]]
     host = {'schema':'mavi-s2c-host-profile-v1','hostClassId':'host','cpuModel':'synthetic CPU','physicalCores':2,'logicalCores':2,
             'smtEnabled':False,'ramBytes':1000,'osVersion':'synthetic OS','storage':{'kind':'local','readBytesPerSecond':1000,'writeBytesPerSecond':1000},
@@ -112,7 +116,7 @@ def fixture(a, root, *, event_pair_id="msr-synthetic-2026-01", horizon_us=60_000
     experiment['workloadEnvelope'] = {'targetCameraCount':500,'cameraClasses':[{'classId':'small','proportionPpm':1_000_000,'description':'sparse synthetic release class'}],
         'correlatedBusyPeriods':[],'releaseCadenceUs':60_000_000,'runDurationUs':60_000_000,'jobsPerInterval':{'small':1},
         'tracksPerJob':{'person':[{'minimum':10,'maximum':10000,'count':1}],'vehicle':[{'minimum':0,'maximum':0,'count':1}]},
-        'cropsPerTrack':[{'minimum':1,'maximum':3,'count':1}],'evidenceSetBytes':[{'minimum':1,'maximum':100,'count':1}],
+        'cropsPerTrack':[{'minimum':1,'maximum':3,'count':10}],'evidenceSetBytes':[{'minimum':1,'maximum':100,'count':1}],
         'initialBacklog':0,'burstWorkloadIds':['small-burst'],'failureWorkloadIds':['recovery'],
         'drainLimitUs':30_000_000,'storageLimitBytes':1000,'apiMaxRequestsPerSecond':100}
     if horizon_us != 60_000_000:
@@ -140,6 +144,9 @@ def fixture(a, root, *, event_pair_id="msr-synthetic-2026-01", horizon_us=60_000
                            "upperServices": {"small": service(), "boundary": service()}, "ramBytesPerHost": 100,
                            "ioBytesPerSecond": 10, "runtimeCompatible": True, "evidenceComplete": True, "e2TraceSha256": "f"*64}]}
     row = evidence["pairs"][0]
+    from model_selection.operational_inputs import job_service_shape
+    row["serviceCoverage"] = {shape: [job_service_shape(next(j for w in experiment["workloads"] for j in w["jobs"] if j["shape"] == shape))]
+                              for shape in ("small", "boundary")}
     trace = {"schema": "mavi-s2c-e2-runner-evidence-v1", "apiMode": "real-platform", "pair": pair,
              "identitySha256": row["identitySha256"], "workerId": "w-00000",
              "attempts": [{"status": "completed", "failureCode": None}],
@@ -690,3 +697,148 @@ def test_qualification_cannot_skip_unrecorded_technical_revision(artefacts, tmp_
     artefacts.validate_chain(tmp_path, 'msr-synthetic-2026-01')
     with pytest.raises(ValueError, match='joint_continuity'):
         artefacts.build_event_decision(tmp_path, implementation, 'person', 'QUALIFICATION_PENDING', '2026-09-01', None, None)
+
+
+@pytest.mark.parametrize("incomplete", [True, False])
+def test_closed_distinguishes_unresolved_from_established_infeasibility(artefacts, tmp_path, incomplete):
+    exp, eh, quality, technical = fixture(artefacts, tmp_path)
+    evidence = artefacts.resolve(tmp_path, technical["technicalStage"]["operationalEvidenceSha256"])
+    row = evidence["pairs"][0]
+    if incomplete:
+        row["evidenceComplete"] = False
+        for k in set(row)-{"pair", "identitySha256", "evidenceComplete"}: row[k] = None
+    else:
+        row["runtimeCompatible"] = False
+        measurement_sources(artefacts, tmp_path, exp, row)
+    evidence_hash = artefacts.retain_evidence(tmp_path, evidence)
+    technical = artefacts.build_technical(tmp_path, eh, quality, evidence_hash)
+    first = artefacts.retain_joint(tmp_path, technical)
+    artefacts.retain_event_pair(tmp_path, technical_decisions(artefacts, tmp_path, first))
+    implementation = artefacts.retain_joint(tmp_path, implementation_revision(artefacts, tmp_path, first))
+    pending = {c: artefacts.build_event_decision(tmp_path, implementation, c, "QUALIFICATION_PENDING", "2026-09-01", None, None)
+               for c in ("person", "vehicle")}
+    artefacts.retain_event_pair(tmp_path, pending)
+    assert pending["person"]["outcome"] is None
+    if incomplete:
+        with pytest.raises(ValueError, match="unresolved_operational"):
+            artefacts.build_event_decision(tmp_path, implementation, "person", "CLOSED", "2026-09-01", None, None)
+    else:
+        closed = {c: artefacts.build_event_decision(tmp_path, implementation, c, "CLOSED", "2026-09-01", None, None)
+                  for c in ("person", "vehicle")}
+        artefacts.retain_event_pair(tmp_path, closed)
+        artefacts.validate_repository(tmp_path)
+        assert closed["person"]["outcome"] == "NO_QUALIFIABLE_CANDIDATE"
+
+
+@pytest.mark.parametrize("attack", ["histogram", "omitted-heavy", "backlog", "busy", "crop", "evidence"])
+def test_frozen_envelope_refuses_unrepresented_job_population(artefacts, tmp_path, attack):
+    from model_selection.operational_inputs import workload_envelope
+    exp, _, _, _ = fixture(artefacts, tmp_path)
+    envelope = exp["workloadEnvelope"]
+    trace = next(w for w in exp["workloads"] if w["role"] == "500-camera")
+    if attack in ("histogram", "omitted-heavy"):
+        envelope["tracksPerJob"]["person"] = [{"minimum":10,"maximum":10,"count":1},
+                                               {"minimum":10000,"maximum":10000,"count":999 if attack == "histogram" else 1}]
+    if attack == "backlog":
+        envelope["initialBacklog"] = 1
+        trace["jobs"].append({**copy.deepcopy(trace["jobs"][0]), "id":"backlog", "personTracks":5, "cropsPerTrack":{"person":[1]*5,"vehicle":[]},
+                              "queuedAtUtc":"2026-08-31T23:59:59.000000Z"})
+    if attack == "busy":
+        envelope["correlatedBusyPeriods"] = [{"startOffsetUs":1_000_000,"endOffsetUs":2_000_000,"classes":["small"]}]
+    if attack == "crop": envelope["cropsPerTrack"][0]["count"] += 1
+    if attack == "evidence": envelope["evidenceSetBytes"][0]["count"] += 1
+    with pytest.raises(ValueError, match="envelope:"):
+        workload_envelope(envelope, exp["workloads"])
+
+
+@pytest.mark.parametrize("field", ["personTracks", "cropsPerTrack", "evidenceSetBytes"])
+def test_service_coverage_refuses_unmeasured_payload(artefacts, tmp_path, field):
+    exp, eh, _, joint = fixture(artefacts, tmp_path)
+    evidence = artefacts.resolve(tmp_path, joint["technicalStage"]["operationalEvidenceSha256"])
+    row = evidence["pairs"][0]
+    signature = row["serviceCoverage"]["small"][0]
+    if field == "personTracks":
+        signature[field] = 9
+        signature["cropsPerTrack"]["person"].pop()
+    elif field == "cropsPerTrack": signature[field]["person"][-1] = 2
+    else: signature[field] = 9
+    measurement_sources(artefacts, tmp_path, exp, row)
+    with pytest.raises(ValueError, match="serviceCoverage:unmeasured_job_shape"):
+        artefacts.operational_measurements(tmp_path, exp, eh, artefacts.retain_evidence(tmp_path, evidence))
+
+
+def test_backlog_histogram_and_synchronized_busy_release_can_be_established(artefacts, tmp_path):
+    from model_selection.operational_inputs import workload_envelope
+    exp, _, _, _ = fixture(artefacts, tmp_path)
+    trace = next(w for w in exp["workloads"] if w["role"] == "500-camera")
+    envelope = exp["workloadEnvelope"]
+    trace["jobs"].append({**copy.deepcopy(trace["jobs"][0]), "id":"backlog", "queuedAtUtc":"2026-08-31T23:59:59.000000Z"})
+    envelope["initialBacklog"] = 1
+    for c in ("person", "vehicle"): envelope["tracksPerJob"][c][0]["count"] = 2
+    envelope["cropsPerTrack"][0]["count"] = 20
+    envelope["evidenceSetBytes"][0]["count"] = 2
+    envelope["correlatedBusyPeriods"] = [{"startOffsetUs":0,"endOffsetUs":1_000_000,"classes":["small"]}]
+    workload_envelope(envelope, exp["workloads"])
+
+
+
+def test_payload_coverage_refuses_ambiguous_cross_capability_crops():
+    from model_selection.operational_inputs import job_service_shape
+    with pytest.raises(ValueError, match="envelope:crops"):
+        job_service_shape({"personTracks":1,"vehicleTracks":1,"cropsPerTrack":[1,5],"evidenceSetBytes":10})
+
+
+
+def test_cross_capability_crop_allocation_requires_distinct_service_coverage():
+    from model_selection.operational_inputs import service_coverage
+    person_heavy = {"personTracks":1,"vehicleTracks":1,"cropsPerTrack":{"person":[5],"vehicle":[1]},"evidenceSetBytes":10}
+    vehicle_heavy = {**person_heavy, "cropsPerTrack":{"person":[1],"vehicle":[5]}}
+    with pytest.raises(ValueError, match="unmeasured_job_shape"):
+        service_coverage({"mixed":[person_heavy]}, [{"jobs":[{**vehicle_heavy,"shape":"mixed"}]}])
+    service_coverage({"mixed":[vehicle_heavy]}, [{"jobs":[{**vehicle_heavy,"shape":"mixed"}]}])
+
+
+@pytest.mark.parametrize("field", ["cropsPerTrack", "evidenceSetBytes"])
+def test_trace_payload_cannot_outgrow_measured_service_signature(artefacts, tmp_path, field):
+    exp, _, _, joint = fixture(artefacts, tmp_path)
+    job = exp["workloads"][0]["jobs"][0]
+    if field == "cropsPerTrack": job[field]["person"][-1] = 2
+    else: job[field] = 11
+    exp_hash = artefacts.retain_evidence(tmp_path, exp)
+    evidence = artefacts.resolve(tmp_path, joint["technicalStage"]["operationalEvidenceSha256"])
+    evidence["experimentSha256"] = exp_hash
+    with pytest.raises(ValueError, match="unmeasured_job_shape"):
+        artefacts.operational_measurements(tmp_path, exp, exp_hash, artefacts.retain_evidence(tmp_path, evidence))
+
+
+def test_mixed_unresolved_joint_cannot_name_or_implement_partial_winner(artefacts, tmp_path):
+    exp, _, _, original = fixture(artefacts, tmp_path)
+    person = exp["capabilities"]["person"]
+    person["units"].append({**copy.deepcopy(person["units"][0]), "unitId":"PC-ALT"})
+    person["units"].sort(key=lambda u:u["unitId"])
+    person["simultaneousFamily"] = [{"a":a,"b":b,"claimId":"colour"} for a,b in (("PC-ALT","PC-B0"),("PC-B0","PC-ALT"))]
+    exp_hash = artefacts.retain_evidence(tmp_path, exp)
+    quality = {}
+    for c in ("person","vehicle"):
+        protocol = f"Frozen {exp['frozenOn']} {exp_hash} {exp['ledgerHashes'][c]} {exp['qualityContractHash']} {exp['operationalContractHash']}\n".encode()
+        artefacts.retain_protocol(tmp_path, exp_hash, c, protocol)
+        quality_evidence = {"schema":artefacts.QUALITY_EVIDENCE_SCHEMA,"experimentSha256":exp_hash,"capability":c,
+                            "gateResults":gates(exp["capabilities"][c]),"pairwise":matrix(exp["capabilities"][c]),"partition":"selection"}
+        quality[c] = artefacts.retain_evidence(tmp_path, artefacts.build_quality(tmp_path, exp_hash, c, artefacts.retain_evidence(tmp_path, quality_evidence)))
+    evidence = artefacts.resolve(tmp_path, original["technicalStage"]["operationalEvidenceSha256"])
+    evidence["experimentSha256"] = exp_hash
+    pair = {"personUnitId":"PC-ALT","vehicleUnitId":"VC-B0"}
+    incomplete = {k:None for k in evidence["pairs"][0]}
+    incomplete.update(pair=pair,identitySha256=artefacts.runtime_identity(exp,pair),evidenceComplete=False)
+    evidence["pairs"].insert(0,incomplete)
+    evidence_hash = artefacts.retain_evidence(tmp_path,evidence)
+    technical = artefacts.build_technical(tmp_path,exp_hash,quality,evidence_hash)
+    first = artefacts.retain_joint(tmp_path,technical)
+    initial = technical_decisions(artefacts,tmp_path,first)
+    assert initial["person"]["technicalWinner"] is None
+    assert initial["person"]["technicalSelectionOutcome"] == "TECHNICAL_EVIDENCE_INCOMPLETE"
+    artefacts.retain_event_pair(tmp_path,initial)
+    implementation = artefacts.retain_joint(tmp_path,implementation_revision(artefacts,tmp_path,first))
+    with pytest.raises(ValueError, match="unresolved_operational_implementation"):
+        artefacts.build_event_decision(tmp_path,implementation,"person","QUALIFICATION_PENDING","2026-09-01",
+                                      {"personUnitId":"PC-B0","vehicleUnitId":"VC-B0"}, {"decidedBy":"owner","rationale":"partial winner"})

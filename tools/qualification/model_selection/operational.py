@@ -236,10 +236,12 @@ def select_pairs(population: list[dict], measurements: list[dict], host: str, co
     admitted = [p for p in population if rows[pair_key(p)]["evidenceComplete"] and all(rows[pair_key(p)]["constraints"].values())]
     Hstar = min((rows[pair_key(p)]["H_up"] for p in admitted), default=None)
     T = [p for p in admitted if rows[pair_key(p)]["H_lo"] <= Hstar]
+    unresolved = [p for p in population if not rows[pair_key(p)]["evidenceComplete"]]
     if not population: outcome = "NO_OPERATIONALLY_COMPLETE_IDENTITY"
-    elif not admitted: outcome = "TECHNICAL_EVIDENCE_INCOMPLETE" if any(not rows[i]["evidenceComplete"] for i in identities) else "NO_OPERATIONALLY_FEASIBLE_PAIR"
+    elif unresolved: outcome = "TECHNICAL_EVIDENCE_INCOMPLETE"
+    elif not admitted: outcome = "NO_OPERATIONALLY_FEASIBLE_PAIR"
     else: outcome = "UNIQUE_TECHNICAL_WINNER" if len(T) == 1 else "TECHNICAL_TIED_SET"
-    return {"admitted": admitted, "Hstar": Hstar, "T": T, "outcome": outcome}
+    return {"admitted": admitted, "Hstar": Hstar, "T": T, "outcome": outcome, "unresolved": unresolved}
 
 
 def fluid_screen(arrivals: list[int], capacity: list[int]) -> list[int]:
@@ -315,13 +317,17 @@ def implementation_sets(capabilities: dict, quality: dict, measurements: list[di
         # Retain class of all units, even a licence-rejected/emerging technical winner.
         for uid in units[c]: implementable(uid)
     population = product(quality["person"]["J"], quality["vehicle"]["J"])
-    C_r, T_r = {}, {}
+    C_r, T_r, unresolved_profiles = {}, {}, {}
     for profile in profiles:
         C_r[profile] = [p for p in population if licence["person"][p["personUnitId"]][profile] == "CLEARED"
                         and licence["vehicle"][p["vehicleUnitId"]][profile] == "CLEARED"]
-        T_r[profile] = select_pairs(C_r[profile], measurements, host, constraints)["T"]
+        selection = select_pairs(C_r[profile], measurements, host, constraints)
+        T_r[profile] = selection["T"]
+        unresolved_profiles[profile] = selection["unresolved"]
     C_all = [p for p in population if all(p in C_r[r] for r in profiles)]
     C_impl = product(K["person"], K["vehicle"])
-    T_impl = select_pairs(C_impl, measurements, host, constraints)["T"]
+    selection = select_pairs(C_impl, measurements, host, constraints)
+    T_impl = selection["T"]
     return {"C_r": C_r, "T_r": T_r, "C_all": C_all, "K_person": K["person"], "K_vehicle": K["vehicle"],
-            "C_impl": C_impl, "T_impl": T_impl, "componentClasses": classes, "pending": pending}
+            "C_impl": C_impl, "T_impl": T_impl, "componentClasses": classes, "pending": pending,
+            "unresolvedOperationalPairs": selection["unresolved"], "unresolvedProfilePairs": unresolved_profiles}

@@ -185,3 +185,21 @@ def test_contract_authority_mutations_refused(op, section):
     doc = copy.deepcopy(op.contract())
     doc[section]["unexpected"] = True
     with pytest.raises(ValueError): op.validate_contract(doc)
+
+
+@pytest.mark.parametrize("incomplete", ["B", "A"])
+def test_incomplete_relevant_pair_blocks_conclusive_selection(op, incomplete):
+    rows = [measured("A", "V", 8, 8), measured("B", "V", 9, 10)]
+    row = next(r for r in rows if r["pair"]["personUnitId"] == incomplete)
+    row.update(evidenceComplete=False, H_lo=None, H_up=None)
+    result = op.select_pairs([r["pair"] for r in rows], rows, "host", ["warm", "recovery"])
+    assert result["outcome"] == "TECHNICAL_EVIDENCE_INCOMPLETE"
+    assert result["unresolved"] == [pair(incomplete, "V")]
+    assert result["T"] == [pair("A" if incomplete == "B" else "B", "V")]
+
+
+def test_complete_infeasibility_does_not_become_unresolved(op):
+    row = measured("A", "V", None, None, constraints={"bounds": False})
+    result = op.select_pairs([row["pair"]], [row], "host", ["bounds"])
+    assert result["outcome"] == "NO_OPERATIONALLY_FEASIBLE_PAIR"
+    assert result["unresolved"] == [] and result["T"] == []

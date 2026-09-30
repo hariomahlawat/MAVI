@@ -543,13 +543,35 @@
             "outcome": {
               "minLength": 1,
               "type": "string"
+            },
+            "unresolved": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "personUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "vehicleUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "personUnitId",
+                  "vehicleUnitId"
+                ],
+                "type": "object"
+              },
+              "type": "array"
             }
           },
           "required": [
             "Hstar",
             "T",
             "admitted",
-            "outcome"
+            "outcome",
+            "unresolved"
           ],
           "type": "object"
         }

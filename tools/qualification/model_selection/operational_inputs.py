@@ -1,7 +1,7 @@
 """Frozen host and 500-camera envelope checks for the bounded S2c projection."""
 from __future__ import annotations
 
-from .canonical import digest, integer, keys, require, text, tokens
+from .canonical import canonical, digest, integer, keys, require, text, tokens
 from .job_replay import instant
 
 
@@ -27,6 +27,38 @@ def host_profile(profile: dict, experiment: dict) -> None:
     require(counts == sorted(set(counts)) and experiment['workersPerHost'] in counts, 'hostProfile:frozen_topology')
     digest(profile['runtimeManifestSha256'], 'runtimeManifestSha256')
     require(experiment['limits']['maxRamBytesPerHost'] <= profile['ramBytes'], 'hostProfile:RAM_limit')
+
+
+def job_service_shape(job: dict) -> dict:
+    """Exact finite payload covered by a measured whole-job service shape."""
+    for c in ('person','vehicle'): integer(job[c+'Tracks'], c+'Tracks')
+    tracks = job['personTracks']+job['vehicleTracks']
+    require(tracks <= 10_000, 'envelope:job_Track_bound')
+    crops = job['cropsPerTrack']
+    keys(crops, {'person','vehicle'}, 'envelope:crops')
+    for c, counts in crops.items():
+        require(type(counts) is list and len(counts) == job[c+'Tracks'], 'envelope:crops_per_Track_population')
+        for count in counts: integer(count, 'envelope:crop_count')
+        require(counts == sorted(counts), 'envelope:crop_counts_order')
+    integer(job['evidenceSetBytes'], 'envelope:evidence_bytes')
+    return {k: job[k] for k in ('personTracks','vehicleTracks','cropsPerTrack','evidenceSetBytes')}
+
+
+def service_coverage(coverage: dict, workloads: list[dict]) -> None:
+    """No service time may be extrapolated to an unmeasured payload signature."""
+    expected = {}
+    for w in workloads:
+        for job in w['jobs']:
+            expected.setdefault(job['shape'], set()).add(canonical(job_service_shape(job)))
+    keys(coverage, set(expected), 'serviceCoverage')
+    for shape, signatures in expected.items():
+        rows = coverage[shape]
+        require(type(rows) is list and bool(rows), 'serviceCoverage:list')
+        for row in rows:
+            keys(row, {'personTracks','vehicleTracks','cropsPerTrack','evidenceSetBytes'}, 'serviceCoverage:shape')
+            job_service_shape(row)
+        actual = [canonical(row) for row in rows]
+        require(actual == sorted(set(actual)) and set(actual) == signatures, 'serviceCoverage:unmeasured_job_shape')
 
 
 def workload_envelope(envelope: dict, workloads: list[dict]) -> None:
@@ -69,6 +101,12 @@ def workload_envelope(envelope: dict, workloads: list[dict]) -> None:
     periods=(envelope['runDurationUs']+envelope['releaseCadenceUs']-1)//envelope['releaseCadenceUs']
     require(periods*sum(envelope['jobsPerInterval'].values()) <= 100_000, 'envelope:bounded_releases')
     for w in workloads:
+        for job in w['jobs']:
+            keys(job, {'id','shape','queuedAtUtc','identitySha256','personTracks','vehicleTracks',
+                       'cropsPerTrack','evidenceSetBytes'}, 'envelope:job')
+            job_service_shape(job)
+            for label, values in (('cropsPerTrack',[n for counts in job['cropsPerTrack'].values() for n in counts]), ('evidenceSetBytes',[job['evidenceSetBytes']])):
+                require(all(any(b['minimum'] <= value <= b['maximum'] for b in envelope[label]) for value in values), 'envelope:payload_distribution')
         if w['role'] != '500-camera': continue
         start=instant(w['startAtUtc'], 'startAtUtc')
         require(instant(w['endAtUtc'],'endAtUtc')-start == envelope['runDurationUs'], 'envelope:horizon')
@@ -79,6 +117,15 @@ def workload_envelope(envelope: dict, workloads: list[dict]) -> None:
         for j,t in zip(w['jobs'],queued):
             if t < start: continue
             key=(t,j['shape']); actual[key]=actual.get(key,0)+1
-            for c in ('person','vehicle'):
-                require(any(b['minimum'] <= j[c+'Tracks'] <= b['maximum'] for b in envelope['tracksPerJob'][c]), 'envelope:Track_distribution')
         require(actual == expected, 'envelope:release_trace_mismatch')
+        # Histograms describe each entire 500-camera trace, including backlog.
+        populations = [(c,[j[c+'Tracks'] for j in w['jobs']],bins) for c,bins in envelope['tracksPerJob'].items()]
+        populations += [('cropsPerTrack',[n for j in w['jobs'] for counts in j['cropsPerTrack'].values() for n in counts],envelope['cropsPerTrack']),
+                        ('evidenceSetBytes',[j['evidenceSetBytes'] for j in w['jobs']],envelope['evidenceSetBytes'])]
+        for label, values, bins in populations:
+            counts = [sum(b['minimum'] <= value <= b['maximum'] for value in values) for b in bins]
+            require(sum(counts) == len(values) and counts == [b['count'] for b in bins], 'envelope:histogram_count:'+label)
+        for period in envelope['correlatedBusyPeriods']:
+            synchronized = [t for t,_ in actual if start+period['startOffsetUs'] <= t < start+period['endOffsetUs']
+                            and all(actual.get((t,c),0) > 0 for c in period['classes'])]
+            require(bool(synchronized), 'envelope:busy_period_unrepresented')

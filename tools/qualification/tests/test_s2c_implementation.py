@@ -94,3 +94,20 @@ def test_failed_fallback_cannot_enter_K_even_when_licence_cleared(op):
     values = data()
     values[1]["person"]["fallbackOperationallyAvailable"] = False
     assert evaluate(op, values)["K_person"] == []
+
+
+
+def test_implementation_preserves_relevant_unresolved_status(op):
+    values = data()
+    row = next(r for r in values[2] if r["pair"] == pair("VC-B0", "VC-EST"))
+    row.update(evidenceComplete=False, H_lo=None, H_up=None)
+    result = evaluate(op, values)
+    assert result["T_impl"] == []
+    assert result["unresolvedOperationalPairs"] == [row["pair"]]
+    # An inadmissible emerging pair cannot change the implementation population.
+    row["evidenceComplete"] = True
+    row["H_lo"] = row["H_up"] = 4
+    values[2][0].update(evidenceComplete=False, H_lo=None, H_up=None)
+    result = evaluate(op, values)
+    assert result["unresolvedOperationalPairs"] == []
+    assert result["unresolvedProfilePairs"]["one"] == [values[2][0]["pair"]]
