@@ -257,7 +257,7 @@ MSR method §4 is extended. The implementation candidate, and each component of 
 - **`established`** (or `mavi-owned`) now, **and** in the history entry in force on the decision date. That entry must have been made on the current classification inputs, so that it was recomputed (§7). An `emerging` winner stays recorded at its rank (§6), and it needs a recorded promotion before it can be implemented;
 - bound to the exact evaluated bytes, the ledger hash, the frozen-ledger hash and the protocol hash of **one** event.
 
-These rules are checked in the **decision summary** (`mavi-model-selection-decision-v1`, `<event-id>-decision.json`). It is written at `TECHNICAL_DECISION_RECORDED` or later (S2c.4 onward), never in S2c.2a. It comes with a **decision snapshot**: the ledger as it stood on the decision date, `<event-id>-evidence-ledger-decided.json`. **[checked]**:
+For non-S2c events these rules are checked in the **decision summary** (`mavi-model-selection-decision-v1`, `<event-id>-decision.json`). It is written at `TECHNICAL_DECISION_RECORDED` or later (S2c.4 onward), never in S2c.2a. It comes with a **decision snapshot**: the ledger as it stood on the decision date, `<event-id>-evidence-ledger-decided.json`. **[checked]**:
 - the decision cites the snapshot and the frozen ledger by canonical SHA-256. Nothing in the snapshot postdates the decision, and implementation eligibility is judged on the snapshot;
 - after the decision the working ledger must grow append-only from the snapshot, with nothing added dated before the decision date. A promotion made later cannot be backdated in the working ledger to support the decision;
 - the event record `<event-id>.md` carries the LF-normalised SHA-256 of the decision summary and of the snapshot. A snapshot without a decision is refused. Rewriting the snapshot, the decision and the record together remains a Git-review item (§9);
@@ -353,3 +353,10 @@ Residual human trust (P3): these are reviewer obligations (§9), not machine che
 - a fabricated history prefix on superseded inputs before freeze (it can never support implementation);
 - URL variants the normaliser does not collapse (for example a repository root and its README);
 - coordinated rewrites of the frozen files, or of the snapshot, the decision and the record, in one commit.
+
+
+## 13. M2 S2c implementation boundary
+
+S2c uses README §14.1 and `s2c-operational-selection.md`. M1 evidence/classification, sealing, dated promotion and append-only snapshot evolution remain unchanged. Credibility never changes E, F, J, T or T_r, including when the strongest technical unit is emerging. At QUALIFICATION_PENDING, each component of each unit is independently checked on the event's dated snapshot. K_c contains M1-implementable units from J_c cleared for every required profile, or the admissible frozen fallback if K_c would be empty. T_impl is recomputed on K_person×K_vehicle; it is not a filter/intersection of T or per-profile winners.
+
+At TECHNICAL_DECISION_RECORDED the decision snapshot, profile outputs and implementation pair are absent/null. Later implementation versions can resolve pending determinations without reopening technical selection: each extends the immediate retained predecessor and copies its technical stage byte-identically. Dates cannot regress and snapshots cannot backdate later promotions. The M2 validator checks every retained paired decision, not only its active projection. Non-S2c v1 behaviour remains supported.

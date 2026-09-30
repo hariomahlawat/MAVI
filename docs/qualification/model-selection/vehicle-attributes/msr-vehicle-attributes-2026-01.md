@@ -55,3 +55,8 @@ None.
 ## 10. Closure
 
 Open.
+
+
+### S2c.2b-2 / M2 reconciliation
+
+This event remains PLANNED: no freeze, measurement or choice occurred in protocol implementation. Use the b-1 quality/statistical authority and b-2 `../s2c-operational-selection.md`, M2 ledger revision and decision-v2. Person and vehicle quality evidence remain capability-specific; final operational identity and owner implementation are one exact person×vehicle pair under event pair id `msr-attributes-2026-01`. Neither capability's independent result substitutes for joint measurement. Technical T is recorded before implementation snapshots/licence/profile outputs; a frozen fallback never rewrites F or its original quality outcome.

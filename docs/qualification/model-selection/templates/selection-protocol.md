@@ -76,3 +76,14 @@ Interval overlap alone is not a tie/equivalence rule.
 
 ## 8. Report format
 The tables the record must contain (methodology §9) and the result artefacts to retain, by hash.
+
+
+## 9. S2c M2 machine freeze (required for person/vehicle events)
+
+Cite the canonical b-1/b-2 contract hashes and the frozen experiment hash. Record both event ids and frozen M2 ledger hashes, exact unit configurations/components and fallback identity, required attribute scope, Q/directions/margins references, every ordered manifest-pair×Q comparison, owner absolute/support gates, component engineering gates and the frozen MPID-unavailable disposition. Freeze the bounded person composition manifest before selection; K=3 is a budget, never result-time pruning.
+
+Freeze one host class, workers/host, reserves, host limit, queue/lease/attempt/deadline/polling policy, six workload roles (typical, small-burst, 10k-boundary, mixed, recovery, 500-camera), exact job releases/Track counts, loss/READY instants, memory/IO and SLA limits, lower/upper service-demand scenarios and calibration error envelope. All absolute lifecycle instants are UTC `...Utc` fields. State workload/camera representativeness and the executed hardware/load supporting the projection; a projection does not qualify 500 cameras.
+
+E1 isolates micro-level engineering. E2 uses `operational_measurement.measure_attempts` with the production AttributeApiClient and existing AttributeRunner inference seam; retain client calls separately from server Phase-C/commit/ack timing and host/resource measurements. E3 is integrated held-out engineering validation. Candidate-specific contradiction reopens incomplete evidence; numbered method/workload changes reevaluate the affected population from fresh calibration evidence. E3 cannot rescue selection.
+
+Freeze required deployment profiles and their delivery routes. No credibility/licence signal enters technical ranking. At implementation, compute K separately per capability with its frozen fallback, then recompute T_impl jointly. An owner choice must be an exact member of T_impl. No weighted score, rank-sum pruning, Pareto tie-break, independent capability winners or per-profile winner intersection is permitted.

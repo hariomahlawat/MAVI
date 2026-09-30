@@ -1,0 +1,612 @@
+{
+  "$id": "urn:mavi:mavi-s2c-joint-operational-decision-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Shape contract; canonical bytes and recomputed semantics additionally require s2c_operational_check.py.",
+  "properties": {
+    "eventPairId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "events": {
+      "additionalProperties": false,
+      "properties": {
+        "person": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "vehicle": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "person",
+        "vehicle"
+      ],
+      "type": "object"
+    },
+    "experimentSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "implementationStage": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "decidedOn": {
+              "additionalProperties": false,
+              "properties": {
+                "person": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "vehicle": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "person",
+                "vehicle"
+              ],
+              "type": "object"
+            },
+            "licence": {
+              "type": "object"
+            },
+            "measurements": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "H_lo": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "H_up": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "constraints": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "api": {
+                        "type": "boolean"
+                      },
+                      "bounds": {
+                        "type": "boolean"
+                      },
+                      "cold": {
+                        "type": "boolean"
+                      },
+                      "footprint": {
+                        "type": "boolean"
+                      },
+                      "io": {
+                        "type": "boolean"
+                      },
+                      "memory": {
+                        "type": "boolean"
+                      },
+                      "publication": {
+                        "type": "boolean"
+                      },
+                      "queue": {
+                        "type": "boolean"
+                      },
+                      "recovery": {
+                        "type": "boolean"
+                      },
+                      "runtime": {
+                        "type": "boolean"
+                      },
+                      "warm": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "bounds",
+                      "io",
+                      "memory",
+                      "publication",
+                      "queue",
+                      "recovery",
+                      "runtime",
+                      "warm",
+                      "api",
+                      "cold",
+                      "footprint"
+                    ],
+                    "type": "object"
+                  },
+                  "evidenceComplete": {
+                    "type": "boolean"
+                  },
+                  "hostClassId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "operationalEvidenceSha256": {
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  "pair": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "personUnitId": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "vehicleUnitId": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "personUnitId",
+                      "vehicleUnitId"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "H_lo",
+                  "H_up",
+                  "constraints",
+                  "evidenceComplete",
+                  "hostClassId",
+                  "operationalEvidenceSha256",
+                  "pair"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "operationalEvidenceSha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "outputs": {
+              "type": "object"
+            },
+            "projectionReports": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "snapshotHashes": {
+              "additionalProperties": false,
+              "properties": {
+                "person": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "vehicle": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "person",
+                "vehicle"
+              ],
+              "type": "object"
+            },
+            "supersedes": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "decidedOn",
+            "licence",
+            "measurements",
+            "operationalEvidenceSha256",
+            "outputs",
+            "snapshotHashes",
+            "supersedes",
+            "projectionReports"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ledgerHashes": {
+      "additionalProperties": false,
+      "properties": {
+        "person": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "vehicle": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "person",
+        "vehicle"
+      ],
+      "type": "object"
+    },
+    "operationalContractHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "qualityContractHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "qualityResultHashes": {
+      "additionalProperties": false,
+      "properties": {
+        "person": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "vehicle": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "person",
+        "vehicle"
+      ],
+      "type": "object"
+    },
+    "revision": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "changes": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "freshEvaluationBasisSha256": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "number": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "reason": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "changes",
+            "freshEvaluationBasisSha256",
+            "number",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema": {
+      "const": "mavi-s2c-joint-operational-decision-v1"
+    },
+    "stage": {
+      "enum": [
+        "technical",
+        "implementation"
+      ]
+    },
+    "supersedes": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "technicalStage": {
+      "additionalProperties": false,
+      "properties": {
+        "J_person": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "J_vehicle": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "jointEvidenceSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "measurements": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "H_lo": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "H_up": {
+                "anyOf": [
+                  {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "constraints": {
+                "additionalProperties": false,
+                "properties": {
+                  "api": {
+                    "type": "boolean"
+                  },
+                  "bounds": {
+                    "type": "boolean"
+                  },
+                  "cold": {
+                    "type": "boolean"
+                  },
+                  "footprint": {
+                    "type": "boolean"
+                  },
+                  "io": {
+                    "type": "boolean"
+                  },
+                  "memory": {
+                    "type": "boolean"
+                  },
+                  "publication": {
+                    "type": "boolean"
+                  },
+                  "queue": {
+                    "type": "boolean"
+                  },
+                  "recovery": {
+                    "type": "boolean"
+                  },
+                  "runtime": {
+                    "type": "boolean"
+                  },
+                  "warm": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "bounds",
+                  "io",
+                  "memory",
+                  "publication",
+                  "queue",
+                  "recovery",
+                  "runtime",
+                  "warm",
+                  "api",
+                  "cold",
+                  "footprint"
+                ],
+                "type": "object"
+              },
+              "evidenceComplete": {
+                "type": "boolean"
+              },
+              "hostClassId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "operationalEvidenceSha256": {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              "pair": {
+                "additionalProperties": false,
+                "properties": {
+                  "personUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "vehicleUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "personUnitId",
+                  "vehicleUnitId"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "H_lo",
+              "H_up",
+              "constraints",
+              "evidenceComplete",
+              "hostClassId",
+              "operationalEvidenceSha256",
+              "pair"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "operationalEvidenceSha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "projectionReports": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "selection": {
+          "additionalProperties": false,
+          "properties": {
+            "Hstar": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "T": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "personUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "vehicleUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "personUnitId",
+                  "vehicleUnitId"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "admitted": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "personUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "vehicleUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "personUnitId",
+                  "vehicleUnitId"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "outcome": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "unresolved": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "personUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "vehicleUnitId": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "personUnitId",
+                  "vehicleUnitId"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Hstar",
+            "T",
+            "admitted",
+            "outcome",
+            "unresolved"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "J_person",
+        "J_vehicle",
+        "jointEvidenceSha256",
+        "measurements",
+        "operationalEvidenceSha256",
+        "selection",
+        "projectionReports"
+      ],
+      "type": "object"
+    },
+    "version": {
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "eventPairId",
+    "events",
+    "experimentSha256",
+    "implementationStage",
+    "ledgerHashes",
+    "operationalContractHash",
+    "qualityContractHash",
+    "qualityResultHashes",
+    "revision",
+    "schema",
+    "stage",
+    "supersedes",
+    "technicalStage",
+    "version"
+  ],
+  "type": "object"
+}

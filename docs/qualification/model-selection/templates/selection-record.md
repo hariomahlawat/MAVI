@@ -47,7 +47,7 @@ Per finalist or composition:
 |---|---|---|---|
 
 ## 6. Technical ranking
-For S2c, the final ordering is populated only under the S2c.2b-2 rule. S2c.2b-1 quality/statistical results record gate outcomes, paired comparison status (superior / non-inferior / equivalent / inconclusive / insufficient evidence), practical margins and cluster sufficiency; interval overlap alone is not a tie. Any comparative score remains an optional ordering aid under methodology §8.
+For S2c, the final ordering is populated only under the S2c.2b-2 rule. S2c.2b-1 quality/statistical results record gate outcomes, paired comparison status (superior / non-inferior / equivalent / inconclusive / insufficient evidence), practical margins and cluster sufficiency; interval overlap alone is not a tie. S2c refuses weighted winner logic; report E/F/J, the unchanged quality outcome, exact joint H_lo/H_up, admission, H* and the complete T. Optional scores apply only to non-S2c events.
 
 ### 6.1 Compositions (multi-component capabilities; methodology §5.1)
 For S2c, the decision-status column uses the S2c.2b-2 representation. Frontier and dominated labels are written only if S2c.2b-2 defines them (methodology §8.2).
@@ -89,3 +89,16 @@ Model Pack id; Runtime Pack id per variant; binding; pipeline profile and identi
 
 ## 10. Closure
 Closing commit and outcome. The record's own SHA-256 (LF-normalised) is **not** written here, because a file cannot contain its own hash. It goes into the index (`../README.md` §13), the addenda header, and the qualification record's `<capabilityId>-model-selection` evidence.
+
+
+## 11. S2c M2 artefact/state ledger
+
+| Artefact | Retained path | Canonical SHA-256 | Supersedes / stage |
+|---|---|---|---|
+| Frozen experiment and evidence | s2c-evidence/<sha>.json | | frozen |
+| Person/vehicle quality result | <event>-quality-result.json (numbered correction files retained) | | quality |
+| Joint version | s2c-joint/<eventPairId>-joint-<stage>-v<N>.json | | immediate retained predecessor |
+| Joint index | s2c-joint/<eventPairId>-joint-index.json | | active is last entry |
+| Event decisions | <event>-decision-v<N>.json, active <event>-decision.json | | same pair/version/state in both events |
+
+At TECHNICAL_DECISION_RECORDED: T exists; snapshot/profile/implementation outputs and implementationPair are null. At QUALIFICATION_PENDING: record decision snapshots, every unit/profile licence status, credibility-blind C_r/T_r/C_all, component classes, K_person/K_vehicle, C_impl and recomputed T_impl; implementationPair may remain null. At CLOSED: exact chosen pair and coordinate-derived outcomes, or null with disabled capability. NO_QUALIFIABLE_CANDIDATE cannot close while required licence determinations remain pending. Preserve emerging technical winners and fallback quality-outcome reasons. Record owner rationale/date separately from statistical outcomes.
