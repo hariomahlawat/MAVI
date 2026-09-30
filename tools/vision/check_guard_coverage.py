@@ -399,11 +399,21 @@ def _run_suites() -> bool:
     return completed.returncode == 0
 
 
-def check(selected: str | None = None) -> list[Mutation]:
-    """Apply each mutation in turn; return the ones the suites did not catch."""
+def check(
+    selected: str | None = None,
+    shard_index: int | None = None,
+    shard_count: int | None = None,
+) -> list[Mutation]:
+    """Apply each selected mutation; return the ones the suites did not catch.
+
+    Sharding is deterministic by the catalogue order. With no shard arguments the
+    historical behaviour is unchanged and every mutation runs.
+    """
     survivors: list[Mutation] = []
-    for mutation in MUTATIONS:
+    for index, mutation in enumerate(MUTATIONS):
         if selected is not None and selected not in mutation.label:
+            continue
+        if shard_count is not None and index % shard_count != shard_index:
             continue
         path = ROOT / mutation.path
         original = path.read_text(encoding="utf-8")
@@ -432,11 +442,22 @@ def main() -> int:
         "--only",
         help="run only mutations whose label contains this text",
     )
+    parser.add_argument("--shard-index", type=int, help="zero-based deterministic mutation shard")
+    parser.add_argument("--shard-count", type=int, help="total deterministic mutation shards")
     args = parser.parse_args()
+    if (args.shard_index is None) != (args.shard_count is None):
+        parser.error("--shard-index and --shard-count must be supplied together")
+    if args.shard_count is not None:
+        if args.shard_count < 1:
+            parser.error("--shard-count must be positive")
+        if not 0 <= args.shard_index < args.shard_count:
+            parser.error("--shard-index must be in [0, shard-count)")
 
-    survivors = check(args.only)
-    for mutation in MUTATIONS:
+    survivors = check(args.only, args.shard_index, args.shard_count)
+    for index, mutation in enumerate(MUTATIONS):
         if args.only is not None and args.only not in mutation.label:
+            continue
+        if args.shard_count is not None and index % args.shard_count != args.shard_index:
             continue
         caught = mutation not in survivors
         print(f"{'caught  ' if caught else 'SURVIVED'}  {mutation.label}")
