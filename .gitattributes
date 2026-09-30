@@ -5,3 +5,4 @@
 # The S2c.2b-1 protocol projection is compared as raw bytes (quality_statistics.py).
 docs/qualification/model-selection/s2c-quality-statistics.md text eol=lf
 docs/qualification/model-selection/s2c-operational-selection.md text eol=lf
+tools/qualification/model_selection/acquire_s2c_candidates.ps1 text eol=lf
