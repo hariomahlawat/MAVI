@@ -639,8 +639,16 @@ def _event_predecessor(repo: Path, c: str, event_id: str, version: int, predeces
             and previous["eventId"] == event_id and previous["capability"] == c, "event_decision:predecessor_mismatch")
     require(cred._date(decided_on, "decidedOn") >= cred._date(previous["decidedOn"], "decidedOn"), "event_decision:date_regressed")
     require(previous["eventState"] != "CLOSED", "event_decision:closed_immutable")
+    previous_joint_hash = previous["jointOperationalDecisionSha256"]
+    if sha256(joint) != previous_joint_hash:
+        # find_joint validates the complete retained index/files, not merely
+        # the supplied document's version number or supersedes field.
+        older_joint = find_joint(repo, previous_joint_hash)
+        require(joint["eventPairId"] == older_joint["eventPairId"]
+                and joint["version"] == older_joint["version"]+1
+                and joint["supersedes"] == previous_joint_hash, "event_decision:joint_continuity")
     if state == "TECHNICAL_DECISION_RECORDED" and previous["eventState"] != state:
-        older_joint = find_joint(repo, previous["jointOperationalDecisionSha256"])
+        older_joint = find_joint(repo, previous_joint_hash)
         require(joint["stage"] == "technical" and joint["version"] > older_joint["version"]
                 and joint["experimentSha256"] != older_joint["experimentSha256"], "event_decision:state_regressed")
     else:

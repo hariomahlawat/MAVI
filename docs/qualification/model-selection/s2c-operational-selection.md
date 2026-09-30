@@ -30,6 +30,8 @@ Frozen inputs, raw evidence and immutable quality results are content addressed 
 
 The first implementation version extends the preceding technical version. Clarification I1 permits later implementation-only revisions to resolve pending licence/snapshot determinations by extending the preceding implementation version, keeping all frozen inputs and technicalStage byte-identical, dates monotone and snapshots append-only. A numbered technical revision requires new frozen evaluation/calibration inputs. The event protocol is retained create-only at `<event>-protocol-<experimentSHA>.md`, independently of the current protocol projection. Every retained event decision-v<N>.json embeds decisionVersion=N and the immediately previous event decision hash, checks monotone dates and state transitions, and keeps its own joint hash; active event decision.json is a checked projection. Earlier person/vehicle decision versions remain paired and validated.
 
+Across all event states, a successor event decision must retain the same joint hash or reference the immediate retained successor in the same event-pair chain. Repository artefacts prove that continuity; changing state cannot bypass an unrecorded technical revision or introduce a replacement chain.
+
 Hash dependencies are frozen inputs → per-event quality result → joint version → event decision-v2. Joint documents reject full event-decision hash fields. Shape schemas under tools/qualification/model_selection/schemas supplement, but never replace, canonical parsing/recomputation. Check with `python tools/qualification/s2c_operational_check.py repository`; deterministic projection is emitted by its `projection` command and validated by verify_repo.py.
 
 ## Review boundary

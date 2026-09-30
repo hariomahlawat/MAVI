@@ -42,3 +42,13 @@ The final independent read-only review found no remaining substantiated P1/P2. T
 Human review remains responsible for representative engineering workloads/hardware, scientific grounding and provenance of measured leaf evidence and b-1 outcomes, confidence-envelope calibration, legal clearance and freeze-before-first-read attestation until the execution harness supplies that record. Canonical hashes detect mismatches against retained references; they do not authenticate authors or detect coordinated replacement of all evidence roots. E3 execution/validation remains a later gate and cannot rescue or tune selection.
 
 No real model was selected, downloaded, trained or benchmarked. No frozen-test evidence was consumed, no acceptance row was promoted, and no unrelated runtime/API/UI work was introduced. The architecture-closure principle is recorded in the MSR README §14.2; it adds no machinery or scope.
+
+## PR #122 P1 retained-chain continuity repair
+
+Review of `ca27c94ddee12ecb8d78bd7295f9916ac871f85d` exposed repeated technical event decisions switching to an unrelated, individually valid joint chain with the same event IDs. The merged plan's retained linear-chain authority requires continuity from repository artefacts. The shared event-predecessor guard now permits an unchanged joint hash or the immediate retained successor with the same event-pair identity, next version and exact predecessor hash. It applies across states so qualification cannot bypass an unrecorded technical revision. Existing canonical, M2, state, reopening and technical-evidence checks remain intact.
+
+Thirteen new cases cover unchanged references, legitimate technical/reopening/implementation progression, unrelated chains, stored malicious event histories, backward references, skipped revisions and fabricated forks/predecessors. Against the exact prior production head, six regression cases failed as expected and seven passed; the repaired targeted suite passed **389 tests**. The existing exact-pair unit test isolates its deliberately synthetic, hash-inconsistent joint from lineage validation; retained-chain tests exercise real files and indexes without that mock.
+
+Repair validation also passed the full qualification suite (**1,264 passed, 3 skipped**), `tools/verify_repo.py`, Python compilation and `git diff --check`.
+
+Independent cold review found two transition variants of the same P1, both repaired by the shared guard, and no remaining P1/P2 in the repair. Architecture closure in README §14.2 is unchanged. Exact-head CI and unresolved external review threads remain merge gates.

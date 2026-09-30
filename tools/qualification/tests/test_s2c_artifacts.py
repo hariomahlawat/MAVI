@@ -52,7 +52,7 @@ def measurement_sources(a, root, experiment, row):
         row['measurementReferences'][kind] = a.retain_evidence(root, source)
 
 
-def fixture(a, root):
+def fixture(a, root, *, event_pair_id="msr-synthetic-2026-01", horizon_us=60_000_000):
     from model_selection import operational as op
     from model_selection import quality_statistics as b1
     from model_selection.canonical import read
@@ -75,7 +75,7 @@ def fixture(a, root):
         caps[c] = capability((uid,))
         caps[c]["units"] = [candidate(uid, kind="baseline")]
         caps[c]["fallback"] = caps[c]["units"][0]
-    experiment = {"schema": a.EXPERIMENT_SCHEMA, "eventPairId": "msr-synthetic-2026-01",
+    experiment = {"schema": a.EXPERIMENT_SCHEMA, "eventPairId": event_pair_id,
                   "events": {c: frozen[c]["eventId"] for c in frozen},
                   "ledgerHashes": {c: a.retain_evidence(root, frozen[c]) for c in frozen},
                   "qualityContractHash": sha256(b1.read_contract(source/b1.CONTRACT)),
@@ -115,6 +115,12 @@ def fixture(a, root):
         'cropsPerTrack':[{'minimum':1,'maximum':3,'count':1}],'evidenceSetBytes':[{'minimum':1,'maximum':100,'count':1}],
         'initialBacklog':0,'burstWorkloadIds':['small-burst'],'failureWorkloadIds':['recovery'],
         'drainLimitUs':30_000_000,'storageLimitBytes':1000,'apiMaxRequestsPerSecond':100}
+    if horizon_us != 60_000_000:
+        from model_selection.job_replay import instant, utc
+        for workload in experiment['workloads']:
+            workload['endAtUtc'] = utc(instant(workload['startAtUtc'], 'startAtUtc')+horizon_us)
+        experiment['workloadEnvelope']['releaseCadenceUs'] = horizon_us
+        experiment['workloadEnvelope']['runDurationUs'] = horizon_us
     exp_hash = a.retain_evidence(root, experiment)
     quality = {}
     for c in caps:
@@ -308,6 +314,10 @@ def test_exact_pair_refused_even_when_both_coordinates_occur(artefacts, tmp_path
         {"personUnitId": "P1", "vehicleUnitId": "V1"},
         {"personUnitId": "P2", "vehicleUnitId": "V2"}]
     monkeypatch.setattr(artefacts, "find_joint", lambda *_: joint)
+    # Isolate exact-pair membership from retention: this synthetic joint has
+    # deliberately changed bytes under the original hash. Real retained-chain
+    # continuity is exercised separately without mocking either validator.
+    monkeypatch.setattr(artefacts, "_event_predecessor", lambda *_: None)
     with pytest.raises(ValueError, match="exact_pair_not_in_T_impl"):
         artefacts.build_event_decision(tmp_path, joint_hash, "person", "QUALIFICATION_PENDING", "2026-09-01",
             {"personUnitId": "P1", "vehicleUnitId": "V2"}, {"decidedBy": "owner", "rationale": "invalid cross"})
@@ -505,3 +515,178 @@ def test_measurement_provenance_cannot_be_a_bare_hash(artefacts, tmp_path):
     assert 'measurementReferences' in evidence['pairs'][0]
     evidence['pairs'][0]['measurementReferences']['resources'] = '0'*64
     with pytest.raises(ValueError): artefacts.operational_measurements(tmp_path, exp, eh, artefacts.retain_evidence(tmp_path, evidence))
+
+
+def technical_revision(a, root, predecessor, *, horizon_us):
+    previous = a.find_joint(root, predecessor)
+    _, _, _, revised = fixture(a, root, event_pair_id=previous['eventPairId'], horizon_us=horizon_us)
+    revised['version'] = previous['version']+1
+    revised['supersedes'] = predecessor
+    revised['revision'] = {
+        'number': 1 if previous['revision'] is None else previous['revision']['number']+1,
+        'reason': 'Synthetic fresh engineering workload revision', 'changes': ['workload'],
+        'freshEvaluationBasisSha256': a.retain_evidence(root, {'schema':'synthetic-fresh-basis', 'horizonUs':horizon_us})}
+    return revised
+
+
+def technical_decisions(a, root, joint_hash):
+    return {c: a.build_event_decision(root, joint_hash, c, 'TECHNICAL_DECISION_RECORDED', '2026-09-01', None, None)
+            for c in ('person', 'vehicle')}
+
+
+def test_repeated_technical_decision_rejects_unrelated_retained_chain(artefacts, tmp_path):
+    initial = decisions(artefacts, tmp_path)
+    artefacts.retain_event_pair(tmp_path, initial)
+    _, _, _, unrelated = fixture(artefacts, tmp_path, event_pair_id='msr-unrelated-2026-01')
+    unrelated_hash = artefacts.retain_joint(tmp_path, unrelated)
+    # Both chains and their original event IDs are individually valid. The attack
+    # must fail specifically because event history cannot jump between them.
+    artefacts.validate_chain(tmp_path, unrelated['eventPairId'])
+    with pytest.raises(ValueError, match='joint_continuity'):
+        later = technical_decisions(artefacts, tmp_path, unrelated_hash)
+        artefacts.retain_event_pair(tmp_path, later)
+        artefacts.validate_repository(tmp_path)
+
+
+def test_repeated_technical_decision_accepts_unchanged_retained_reference(artefacts, tmp_path):
+    initial = decisions(artefacts, tmp_path)
+    artefacts.retain_event_pair(tmp_path, initial)
+    later = technical_decisions(artefacts, tmp_path, initial['person']['jointOperationalDecisionSha256'])
+    artefacts.retain_event_pair(tmp_path, later)
+    artefacts.validate_repository(tmp_path)
+    assert later['person']['decisionVersion'] == 2
+    assert later['person']['supersedesEventDecisionSha256'] == sha256(initial['person'])
+
+
+def test_repeated_technical_decision_accepts_immediate_retained_revision(artefacts, tmp_path):
+    initial = decisions(artefacts, tmp_path)
+    artefacts.retain_event_pair(tmp_path, initial)
+    original = initial['person']['jointOperationalDecisionSha256']
+    revised = technical_revision(artefacts, tmp_path, original, horizon_us=61_000_000)
+    revised_hash = artefacts.retain_joint(tmp_path, revised)
+    later = technical_decisions(artefacts, tmp_path, revised_hash)
+    artefacts.retain_event_pair(tmp_path, later)
+    artefacts.validate_repository(tmp_path)
+    assert revised['supersedes'] == original and revised['version'] == 2
+    assert later['person']['jointOperationalDecisionSha256'] == revised_hash
+
+
+def test_repeated_technical_decision_rejects_skipping_valid_retained_revision(artefacts, tmp_path):
+    initial = decisions(artefacts, tmp_path)
+    artefacts.retain_event_pair(tmp_path, initial)
+    original = initial['person']['jointOperationalDecisionSha256']
+    second = artefacts.retain_joint(tmp_path, technical_revision(artefacts, tmp_path, original, horizon_us=61_000_000))
+    third = artefacts.retain_joint(tmp_path, technical_revision(artefacts, tmp_path, second, horizon_us=62_000_000))
+    artefacts.validate_chain(tmp_path, 'msr-synthetic-2026-01')
+    with pytest.raises(ValueError, match='joint_continuity'):
+        technical_decisions(artefacts, tmp_path, third)
+
+
+@pytest.mark.parametrize('attack', ['fork', 'skip', 'fabricated'])
+def test_repeated_technical_decision_refuses_fabricated_retained_lineage(artefacts, tmp_path, attack):
+    initial = decisions(artefacts, tmp_path)
+    artefacts.retain_event_pair(tmp_path, initial)
+    original = initial['person']['jointOperationalDecisionSha256']
+    revised = technical_revision(artefacts, tmp_path, original, horizon_us=61_000_000)
+    if attack == 'fork': revised['version'] = 1
+    if attack == 'skip': revised['version'] = 3
+    if attack == 'fabricated': revised['supersedes'] = '0'*64
+    directory = tmp_path/artefacts.ROOT/'s2c-joint'
+    path = directory/f"{revised['eventPairId']}-joint-technical-v{revised['version']}.json"
+    if attack == 'fork': path = directory/f"{revised['eventPairId']}-joint-implementation-v1.json"
+    path.write_bytes(canonical(revised))
+    identity = sha256(revised)
+    index_path = directory/(revised['eventPairId']+'-joint-index.json')
+    index = parse(index_path.read_bytes())
+    index['versions'].append({'path':path.relative_to(tmp_path).as_posix(), 'stage':revised['stage'], 'sha256':identity, 'supersedes':revised['supersedes']})
+    index['active'] = identity
+    index_path.write_bytes(canonical(index))
+    with pytest.raises(ValueError): technical_decisions(artefacts, tmp_path, identity)
+
+
+def test_repository_refuses_preexisting_cross_chain_technical_event_versions(artefacts, tmp_path, monkeypatch):
+    initial = decisions(artefacts, tmp_path)
+    artefacts.retain_event_pair(tmp_path, initial)
+    _, _, _, unrelated = fixture(artefacts, tmp_path, event_pair_id='msr-unrelated-2026-01')
+    unrelated_hash = artefacts.retain_joint(tmp_path, unrelated)
+    # Simulate documents written by the vulnerable producer. Only the event
+    # continuity guard is bypassed during fixture construction; canonical bytes,
+    # derived outputs, joint files and indexes retain their normal validity.
+    with monkeypatch.context() as producer:
+        producer.setattr(artefacts, '_event_predecessor', lambda *args: None)
+        artefacts.retain_event_pair(tmp_path, technical_decisions(artefacts, tmp_path, unrelated_hash))
+    for eid in ('msr-synthetic-2026-01', 'msr-unrelated-2026-01'):
+        artefacts.validate_chain(tmp_path, eid)
+    with pytest.raises(ValueError, match='joint_continuity'):
+        artefacts.validate_repository(tmp_path)
+
+
+def test_reopening_qualification_accepts_immediate_retained_technical_revision(artefacts, tmp_path):
+    pending = decisions(artefacts, tmp_path, state='QUALIFICATION_PENDING')
+    artefacts.retain_event_pair(tmp_path, pending)
+    old = pending['person']['jointOperationalDecisionSha256']
+    revised = technical_revision(artefacts, tmp_path, old, horizon_us=61_000_000)
+    new = artefacts.retain_joint(tmp_path, revised)
+    later = technical_decisions(artefacts, tmp_path, new)
+    artefacts.retain_event_pair(tmp_path, later)
+    artefacts.validate_repository(tmp_path)
+    assert later['person']['decisionVersion'] == 3
+
+
+def implementation_revision(a, root, predecessor, *, decided_on='2026-09-01'):
+    prior = a.find_joint(root, predecessor)
+    exp = a.resolve(root, prior['experimentSha256'])
+    licence = {c: {u['unitId']: {'dev':'CLEARED'} for u in exp['capabilities'][c]['units']} for c in ('person','vehicle')}
+    return a.build_implementation(root, predecessor, exp['ledgerHashes'], {c:decided_on for c in licence}, licence,
+                                  prior['technicalStage']['operationalEvidenceSha256'])
+
+
+def test_qualification_transition_rejects_unrelated_retained_chain(artefacts, tmp_path):
+    initial = decisions(artefacts, tmp_path)
+    artefacts.retain_event_pair(tmp_path, initial)
+    _, _, _, unrelated = fixture(artefacts, tmp_path, event_pair_id='msr-unrelated-2026-01')
+    first = artefacts.retain_joint(tmp_path, unrelated)
+    other_impl = artefacts.retain_joint(tmp_path, implementation_revision(artefacts, tmp_path, first))
+    artefacts.validate_chain(tmp_path, unrelated['eventPairId'])
+    with pytest.raises(ValueError, match='joint_continuity'):
+        later = {c: artefacts.build_event_decision(tmp_path, other_impl, c, 'QUALIFICATION_PENDING', '2026-09-01', None, None)
+                 for c in ('person','vehicle')}
+        artefacts.retain_event_pair(tmp_path, later)
+        artefacts.validate_repository(tmp_path)
+
+
+def test_implementation_reference_accepts_each_immediate_retained_version(artefacts, tmp_path):
+    pending = decisions(artefacts, tmp_path, state='QUALIFICATION_PENDING')
+    artefacts.retain_event_pair(tmp_path, pending)
+    prior = pending['person']['jointOperationalDecisionSha256']
+    for _ in range(2):
+        successor = artefacts.retain_joint(tmp_path, implementation_revision(artefacts, tmp_path, prior))
+        later = {c: artefacts.build_event_decision(tmp_path, successor, c, 'QUALIFICATION_PENDING', '2026-09-01', None, None)
+                 for c in ('person','vehicle')}
+        artefacts.retain_event_pair(tmp_path, later)
+        artefacts.validate_repository(tmp_path)
+        assert artefacts.find_joint(tmp_path, successor)['supersedes'] == prior
+        prior = successor
+
+
+def test_implementation_reference_rejects_backward_progress_within_same_chain(artefacts, tmp_path):
+    pending = decisions(artefacts, tmp_path, state='QUALIFICATION_PENDING')
+    artefacts.retain_event_pair(tmp_path, pending)
+    old = pending['person']['jointOperationalDecisionSha256']
+    new = artefacts.retain_joint(tmp_path, implementation_revision(artefacts, tmp_path, old))
+    later = {c: artefacts.build_event_decision(tmp_path, new, c, 'QUALIFICATION_PENDING', '2026-09-01', None, None)
+             for c in ('person','vehicle')}
+    artefacts.retain_event_pair(tmp_path, later)
+    with pytest.raises(ValueError, match='joint_continuity'):
+        artefacts.build_event_decision(tmp_path, old, 'person', 'QUALIFICATION_PENDING', '2026-09-01', None, None)
+
+
+def test_qualification_cannot_skip_unrecorded_technical_revision(artefacts, tmp_path):
+    initial = decisions(artefacts, tmp_path)
+    artefacts.retain_event_pair(tmp_path, initial)
+    original = initial['person']['jointOperationalDecisionSha256']
+    revised = artefacts.retain_joint(tmp_path, technical_revision(artefacts, tmp_path, original, horizon_us=61_000_000))
+    implementation = artefacts.retain_joint(tmp_path, implementation_revision(artefacts, tmp_path, revised))
+    artefacts.validate_chain(tmp_path, 'msr-synthetic-2026-01')
+    with pytest.raises(ValueError, match='joint_continuity'):
+        artefacts.build_event_decision(tmp_path, implementation, 'person', 'QUALIFICATION_PENDING', '2026-09-01', None, None)
