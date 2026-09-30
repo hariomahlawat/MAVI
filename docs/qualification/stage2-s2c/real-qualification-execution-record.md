@@ -387,7 +387,7 @@ No hash, size or identity mismatch occurred.
 
 #### 4.3.11 Completed controlled acquisition — 2026-09-30
 
-The Development-machine acquisition completed successfully in the designated store `D:\\MAVI-Controlled\\Models\\S2c\\2026-01` using acquisition script v1.1.0. The returned `acquisition-manifest.json` reports `overallStatus: COMPLETE` for `msr-person-attributes-2026-01` and `msr-vehicle-attributes-2026-01`.
+The Development-machine acquisition completed successfully in the designated store `D:\MAVI-Controlled\Models\S2c\2026-01` using acquisition script v1.1.0. The returned `acquisition-manifest.json` reports `overallStatus: COMPLETE` for `msr-person-attributes-2026-01` and `msr-vehicle-attributes-2026-01`.
 
 **Retained run identity.**
 - acquisition host: `QUEENSGAMBIT`;
