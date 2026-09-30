@@ -451,7 +451,7 @@ Revisions are additive and numbered, and never silently rewrite an earlier rule.
 
 ### 14.1 M2 — S2c joint operational decisions
 
-**Status:** implemented for independent review; acceptance requires merge and exact-head CI. Architecture baseline: PR #121, `main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`. Governing method: [b-2 protocol](s2c-operational-selection.md), consumed alongside [b-1](s2c-quality-statistics.md). M1 credibility remains authoritative.
+**Status:** implemented and merged in PR #122 (`main@7b8913982dc6796a1676de075cf1dc22a7676891`); both S2c events remain `PLANNED`, and no M2 ledger, experiment or decision exists yet. Architecture baseline: PR #121, `main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`. Governing method: [b-2 protocol](s2c-operational-selection.md), consumed alongside [b-1](s2c-quality-statistics.md). M1 credibility remains authoritative.
 
 M2 uses `methodRevision: msr-v1-m2` in S2c ledgers and `mavi-model-selection-decision-v2` for decisions. Ledger fields/classification rules remain M1; the revision does not confer credibility. The two planned S2c events and all M2 events refuse decision-v1. Other events retain v1 unless explicitly migrated; M2 is restricted to person/vehicle attributes.
 

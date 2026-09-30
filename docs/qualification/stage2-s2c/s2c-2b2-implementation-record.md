@@ -1,6 +1,6 @@
 # S2c.2b-2 — Operational implementation record
 
-Authoritative baseline: `main@8b6614721ff3d0fe7a77cde66ce6051defcceb74` (PR #121). Branch: `feature/s2c-2b2-operational-protocol`. Status: implementation and independent cold review complete; exact-head CI and external review remain merge gates. No Stage-2 acceptance is claimed.
+Authoritative baseline: `main@8b6614721ff3d0fe7a77cde66ce6051defcceb74` (PR #121). Branch: `feature/s2c-2b2-operational-protocol`. Status: merged in PR #122 (final head `d45a17dd6b36e2ddb529ddaf8c8d40d52b1b782e`, merge `main@7b8913982dc6796a1676de075cf1dc22a7676891`). No Stage-2 acceptance is claimed.
 
 ## Implementation and authority
 
