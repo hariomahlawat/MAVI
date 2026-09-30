@@ -2,9 +2,9 @@
 
 **Governing plan:** `docs/superpowers/plans/2026-09-30-stage2-s2c-real-qualification-execution.md` (merged in PR #123, `main@d0db6efff201a003b9699cde675d8069259f980e`).
 **Events:** `msr-person-attributes-2026-01`, `msr-vehicle-attributes-2026-01`; joint `eventPairId = msr-attributes-2026-01`.
-**Status:** Slice A (accountable inputs and candidate manifest preparation) prepared on 2026-09-30. Slice A is **not accepted**: roles are assigned, evidence/variants/R-5 packet/draft ledgers are prepared (§4.3), and R-2 Hari Om explicitly approved the exact repaired draft-ledger bytes on 2026-09-30 (§4.3.6). R-1 Aarav then performed the recorder action, and both working M2 ledgers are committed and validate (§4.3.7; SA-B1 RESOLVED). Acceptance still depends on the remaining R-5/acquisition work (SA-B2, §8). Slices B–J have not started. Both MSRs remain `PLANNED`. No candidate has been acquired, run, trained, tuned, measured or selected. No selection or frozen-test label has been read, and no experiment, protocol, ledger freeze, E/F/J/T, E1/E2/E3 or Model Pack exists. F1, F3 and every other F/G row keep their state.
+**Status:** Slice A (accountable inputs and candidate manifest preparation) is **ACCEPTED 2026-09-30**. SA-B1 is resolved (§4.3.6–§4.3.7), and SA-B2 is resolved by the reviewed completed controlled-acquisition manifest (§4.3.11). Every R-5-permitted first-pass artefact is pinned in the controlled store; non-permitted/pending candidates remain explicitly blocked. Slices B–J have not started. Both MSRs remain `PLANNED`. No candidate has been run, trained, tuned, measured or selected. No selection or frozen-test label has been read, and no experiment, protocol, ledger freeze, E/F/J/T, E1/E2/E3 or Model Pack exists. F1, F3 and every other F/G row keep their state.
 
-This record holds the dated execution evidence and dispositions required by plan §18. It is not a registry. Candidate facts come from the committed survey (`model-candidate-survey.md`, 2026-09-28), the parent plan (§9.2) and the two MSRs. All figures there are class R (reported, not reproduced by MAVI). No source was re-fetched and no candidate byte was downloaded for this record (§4).
+This record holds the dated execution evidence and dispositions required by plan §18. It is not a registry. Candidate facts come from the committed survey (`model-candidate-survey.md`, 2026-09-28), the parent plan (§9.2), the two MSRs and the retained controlled-acquisition evidence (§4.3.11). Reported survey figures remain class R unless separately reproduced by MAVI. Candidate bytes stay outside Git in the designated controlled store.
 
 ## 1. Status reconciliation (Slice A item 1)
 
@@ -47,7 +47,7 @@ Each item is **MISSING** unless an evidence reference is entered here. A missing
 | OI-1 | Named roles R-1…R-7 | A | **COMPLETE** | R-1 Aarav; R-2 Hari Om; R-3 Aarav; R-4 Aarav + Savita (independent); R-5 Aarav; R-6 Aarav; R-7 Hari Om (§2) |
 | OI-2 | Authorized real footage; retention/access arrangements; site/camera/day/night coverage; stable raw-evidence pin; annotation time; independently reviewable custody store | B | MISSING | footage availability is not assumed |
 | OI-3 | Pilot-rule confirmation; task/vocabulary/headwear decision; required attribute scope per capability; lawful fallback policy | A (scope/fallback, §6), B (pilot) | PARTIAL | owner fixed first-event scope and fallback direction (§3.1, §6); pilot/vocabulary confirmation remains for Slice B |
-| OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | PARTIAL | owner fixed the initial families and conditional acquisition authority (§3.1); variants resolved under the R-1 variant rule (§4.3.2); R-5 determinations are recorded in §4.3.8; the controlled store location and acquisition remain MISSING; Awiros, MobileNetV3-Small and VTFPAR++ stay REVIEW_PENDING; DINOv3 is NOT_PERMITTED_FOR_EVALUATION and gated access is NOT APPROVED; no passwords or tokens in Git |
+| OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | PARTIAL | owner fixed the initial families and conditional acquisition authority (§3.1); variants resolved under the R-1 variant rule (§4.3.2); R-5 determinations are recorded in §4.3.8; the controlled store is designated and every permitted first-pass artefact is acquired/verified (§4.3.11). Awiros, MobileNetV3-Small and VTFPAR++ stay REVIEW_PENDING; DINOv3 is NOT_PERMITTED_FOR_EVALUATION and gated access is NOT APPROVED. Candidate evaluation budget remains explicitly unspecified; no password/token/model byte is stored in Git |
 | OI-5 | Every numerical quality/support/slice gate; practical/NI/equivalence/MPID margins; bootstrap seed/replicates/multiplicity/undefined-denominator rule; pilot-simulation coverage tolerance and perturbations — one executable recipe | B | MISSING | no gate threshold is supplied by this record |
 | OI-6 | Training/tuning search and compute budgets; calibration family; allowed parameter families; reproducibility tolerances; evidence storage capacity | B | MISSING | |
 | OI-7 | Host/OS/runtime variants; detector/platform co-residency; worker range and chosen topology; lease/retry/deadline settings; resource/SLA/host/reserve limits; physical measurement access | D | MISSING | no host limit is supplied |
@@ -73,9 +73,9 @@ These directions do not themselves mark any candidate `SHORTLISTED`, `CLEARED`, 
 
 **Method.** Every committed proposal in both MSR ledgers was re-read against the survey and parent plan §9.2. Multi-family and multi-checkpoint rows are split into individually identifiable family variants (plan §4 item 1). A checkpoint serving both person sub-tasks is one entry (ledger rule), and method entries sharing a backbone carry identical identity blocks. No new model family was introduced.
 
-**What was not done, and why.** The survey records source URLs and licence texts, but no immutable revision, checkpoint filename or SHA-256 for any candidate. R-1 has authorized controlled acquisition for the initial families in §3.1 **only after** R-5 records evaluation permission for the specific candidate; no such permission determination exists yet. Exact variants and upstream identities are now resolved in §4.3.2, but nothing has been acquired or pinned by MAVI. Every learned candidate therefore still has an explicit **blocked** byte disposition, and no placeholder hash was written. The evaluation-permission column restates the survey's licence class (L-A…L-D, survey §6) as an **input to R-5**, not a determination. Operational-use and redistribution status is `NOT_ASSESSED` for every candidate and is recorded separately (§7).
+**Current byte state.** R-5 evaluation permission is recorded in §4.3.8. The designated controlled store and acquisition tooling are recorded in §4.3.9–§4.3.10, and the reviewed completed manifest in §4.3.11 pins every permitted first-pass artefact with immutable revision, exact filename, local SHA-256, size and publisher-integrity checks where available. Pending/not-permitted candidates remain explicitly blocked and unacquired. Operational-use and redistribution clearance remain separate later-stage determinations (§7).
 
-**M1 status.** Superseded for the actively pursued set by §4.3 (2026-09-30 continuation). Draft M2 ledgers now exist for review (§4.3.5), and their classes are computed by `credibility.py`, not asserted. The committed working ledgers still do not exist, because no genuine classification-history action has been recorded (SA-B1).
+**M1 status.** Superseded for the actively pursued set by §4.3 (2026-09-30 continuation). The working M2 ledgers are committed and validate (§4.3.7); their classes are computed by `credibility.py`, not asserted. Acquisition evidence is separate from M1 credibility and does not alter any class or disposition.
 
 **Runtime marks.** Proposed `existingGraph`/`extension` marks follow parent plan §12.7. The default is a first-party torch module on `mmdetection-phase1-v1` (torch 2.6.0 / torchvision 0.21.0): OpenVINO-IR/ONNX checkpoints are ported with a build-time parity test, and towers are loaded as state dicts (`weights_only=True`). Any other engine is an extension (a separate `attributes-<engine>-v1` family), admitted only past MPID. Every mark is **proposed** until actual bytes and dependency requirements are inspected at pinning. No dependency is added (§9).
 
@@ -342,7 +342,7 @@ Aarav, acting as R-5 Licence Review Owner, reviewed the candidate-specific evide
 
 **DINOv3 gated access:** `NOT APPROVED`. No gated terms are to be accepted and no DINOv3 model bytes are to be acquired for this event.
 
-**Permitted acquisition set:** SigLIP 2, DINOv2, OMZ 0230, OMZ 0234, OMZ 0238 and OMZ 0042. Acquisition remains blocked until R-1/R-6 identifies the controlled component/evidence store outside Git. Awiros, MobileNetV3-Small and VTFPAR++ remain on hold; no acquisition or execution is permitted while they are `REVIEW_PENDING`.
+**Permitted acquisition set:** SigLIP 2, DINOv2, OMZ 0230, OMZ 0234, OMZ 0238 and OMZ 0042. R-1/R-6 designated the controlled component/evidence store in §4.3.9, and the completed acquisition is retained in §4.3.11. Awiros, MobileNetV3-Small and VTFPAR++ remain on hold; no acquisition or execution is permitted while they are `REVIEW_PENDING`.
 
 No candidate is shortlisted by this action, and every ledger disposition remains `DISCOVERED`.
 
@@ -362,7 +362,7 @@ No candidate is shortlisted by this action, and every ledger disposition remains
 - **What it never fetches.** DINOv3, Awiros, MobileNetV3-Small and VTFPAR++ have no source in the script and appear in the manifest only as `BLOCKED`.
 - **Tests.** `tools/qualification/tests/test_s2c_acquisition_script.py` checks the catalog and runs PowerShell behaviour tests with a fake downloader; no network is used.
 
-**Status.** Acquisition has **not** been executed, and no candidate byte is acquired or pinned by MAVI. Ledger identities are unchanged. SA-B2 stays open until the script is run on the Development machine and the returned manifest is reviewed and recorded.
+**Historical status at tooling preparation.** Acquisition had not yet been executed when this tooling section was written. The subsequent real runs and final reviewed manifest are recorded in §4.3.10–§4.3.11. Ledger identities remain unchanged.
 
 #### 4.3.10 First real acquisition runs and transfer repair — 2026-09-30
 
@@ -383,7 +383,28 @@ No hash, size or identity mismatch occurred.
 - **No weakening.** Identity and integrity checks, promotion rules and the catalog are unchanged. An oversized, mismatching or rejected partial is kept for diagnosis and never promoted.
 - **Manifest.** The manifest adds `resumedFromBytes`, `transferAttempts` and `partialRetained` per artefact (additive; schema id unchanged).
 
-**Status.** SA-B2 stays open until the remaining permitted Hugging Face files verify in a returned manifest. No Hugging Face weight is recorded as acquired here.
+**Historical status after the first runs.** At this point SA-B2 remained open pending the remaining Hugging Face files. That condition was later satisfied by the completed manifest recorded in §4.3.11.
+
+#### 4.3.11 Completed controlled acquisition — 2026-09-30
+
+The Development-machine acquisition completed successfully in the designated store `D:\\MAVI-Controlled\\Models\\S2c\\2026-01` using acquisition script v1.1.0. The returned `acquisition-manifest.json` reports `overallStatus: COMPLETE` for `msr-person-attributes-2026-01` and `msr-vehicle-attributes-2026-01`.
+
+**Retained run identity.**
+- acquisition host: `QUEENSGAMBIT`;
+- run UTC: `2026-09-30T14:46:48.015Z` to `2026-09-30T14:48:14.532Z`;
+- acquisition manifest SHA-256: `bbc949bc546464f57301dd5f05fdccb368dd54ac87efbee2be038ecbd83618a5`;
+- script version: `1.1.0`; script SHA-256: `eaa3069580ac7ddb850389424f1d48f26357448309d56c1e995bf6916977a973`.
+
+**Permitted first-pass artefacts now acquired/verified.**
+- DINOv2 `facebook/dinov2-small@ed25f3a31f01632728cabb09d1542f84ab7b0056`: `config.json`, `model.safetensors`, `preprocessor_config.json`. Weight SHA-256 `ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1` matches the publisher value.
+- SigLIP 2 `google/siglip2-base-patch16-224@75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2`: `config.json`, `model.safetensors`, `preprocessor_config.json`. Weight SHA-256 `612923381c76ec5a9bed335d1c48827e3f2e506ac31b044b63b2031fadee6a0b` matches the publisher value.
+- OMZ 0230, 0234, 0238 and 0042 at `a6946b6d6ce42cbf4278df20275fab199655fc7d`: each FP32 `.xml` + `.bin` pair is present, publisher SHA-384 checks match, and a local MAVI SHA-256 is retained in the manifest for every file.
+
+All 14 permitted files are therefore present and integrity-verified. Model bytes remain outside Git. The manifest retains the exact source URL, immutable revision, relative path, size, local SHA-256, publisher checksum comparison, acquisition status and timestamp per file.
+
+**Blocked candidates are unchanged.** Awiros (`PC-5`) and MobileNetV3-Small (`PC-8/PO-7/VC-4A`) remain `REVIEW_PENDING`; VTFPAR++ (`PC-9`) remains `REVIEW_PENDING` with no identifiable checkpoint file; DINOv3 (`PC-2A/PO-2A/VC-1A`) remains `NOT_PERMITTED_FOR_EVALUATION` with gated access `NOT APPROVED`. No bytes were acquired for those families.
+
+**Scope.** This completes acquisition/pinning only. It does not shortlist, run, train, tune, measure or select any candidate; it does not create a frozen ledger/protocol, E/F/J/T, E1/E2/E3 or Model Pack.
 
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
@@ -444,17 +465,11 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 
 **SA-B1 — RESOLVED (2026-09-30).** R-2 Hari Om approved the exact draft bytes (§4.3.6). R-1 Aarav performed the recorder action, and both working M2 ledgers are committed with genuine initial history (`recordedBy: Aarav`, `reviewedBy: Hari Om`). `model_selection_check.py repository` validates both (§4.3.7).
 
-**SA-B2 — R-5 decisions recorded; controlled acquisition remains (EXECUTION DEPENDENCY: store location and permitted-candidate acquisition).**
-- **Done.** Variants are resolved for every pursued family. Immutable revisions and upstream-published SHA-256 values are recorded where available. Aarav's dated R-5 evaluation-permission determinations are recorded in §4.3.8: SigLIP 2, DINOv2 and OMZ 0230/0234/0238/0042 are `PERMITTED_FOR_EVALUATION`; DINOv3 is `NOT_PERMITTED_FOR_EVALUATION` with gated access `NOT APPROVED`; Awiros, MobileNetV3-Small and VTFPAR++ remain `REVIEW_PENDING`.
-- **Remaining.**
-  - The controlled store is designated (`D:\MAVI-Controlled\Models\S2c\2026-01`), and acquisition has begun. OMZ 0230/0234/0238/0042 and the DINOv2 configuration files are verified locally, and the SigLIP 2 `config.json` is acquired. The two HF weight files and the SigLIP 2 `preprocessor_config.json` remain transport-blocked, and the tooling was repaired for resume/retry (§4.3.10). A returned manifest is still required.
-  - The six permitted candidate families have not yet been acquired into that store and locally hashed.
-  - OMZ publishes no SHA-256, so local acquisition hashes are required.
-  - Awiros, MobileNetV3-Small and VTFPAR++ remain blocked while their R-5 decisions are pending; VTFPAR++ also lacks an identifiable checkpoint file.
-- **Smallest resolution.**
-  1. R-1/R-6 names the controlled store (done 2026-09-30, §4.3.9).
-  2. A controlled acquisition run (`acquire_s2c_candidates.ps1`, §4.3.9) fetches only the permitted exact files/revisions into that store, computes SHA-256, compares with publisher hashes where available, and records acquisition date/source/file/hash.
-  3. Pending candidates remain untouched unless a later dated R-5 determination changes their status.
+**SA-B2 — RESOLVED (2026-09-30).** Aarav's R-5 decisions are recorded in §4.3.8, the controlled store is designated in §4.3.9, and the reviewed completed acquisition manifest is recorded in §4.3.11.
+- SigLIP 2, DINOv2 and OMZ 0230/0234/0238/0042: every required first-pass file is present and integrity-verified in the controlled store.
+- DINOv3 remains `NOT_PERMITTED_FOR_EVALUATION` with gated access `NOT APPROVED`; no byte was acquired.
+- Awiros, MobileNetV3-Small and VTFPAR++ remain `REVIEW_PENDING` and explicitly blocked; VTFPAR++ also lacks an identifiable checkpoint file.
+- No blocked candidate is required to be acquired to satisfy Slice A: the governing acceptance permits an explicit blocked disposition.
 
 **SA-B3 — baselines not implemented (plan sequencing).** See §5. The implementation moves to C2. This is not an execution blocker.
 
@@ -462,14 +477,14 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 
 | Slice A acceptance item | State |
 |---|---|
-| every proposed runnable component has verifiable bytes or an explicit blocked disposition | met: nothing is acquired, and each pursued component has an exact blocked reason (§4.3.2–§4.3.4) |
+| every proposed runnable component has verifiable bytes or an explicit blocked disposition | **met**: every R-5-permitted first-pass artefact is acquired/verified (§4.3.11); non-permitted/pending candidates retain explicit blocked dispositions (§4.3.8) |
 | ledger validator passes | **met**: both working M2 ledgers validate, including under the repository check (§4.3.7) |
 | no fixture incumbent / PO-B0 unit | met: the fixture is not a candidate; PO-B0 is in no unit, fallback or ledger entry (§4, §4.3.5, §6) |
 | required roles assigned | met (§2) |
-| candidate acquisition and identity auditable | partial: retrieved documents and upstream identities are recorded with SHA-256 and immutable revisions (§4.3.1–§4.3.2); no acquisition exists yet to audit (SA-B2) |
+| candidate acquisition and identity auditable | **met**: completed controlled manifest records immutable revision, exact file/path, byte size, local SHA-256, publisher-integrity comparison, status and timestamps for all 14 permitted files (§4.3.11) |
 | no unresolved owner input silently defaulted | met: supplied inputs are explicit and remaining inputs stay PARTIAL/MISSING (§2, §3) |
 
-Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until the remaining SA-B2 controlled-store designation and permitted-candidate acquisition are completed, this record is updated, and the result is reviewed. SA-B1 is resolved.
+**Slice A is ACCEPTED 2026-09-30.** SA-B1 and SA-B2 are resolved, and every Slice A acceptance item above is met. Owner inputs that belong to later slices remain explicitly PARTIAL/MISSING in §3 and are not silently defaulted. Slice B may now begin preparation under its own gates; candidate corpus execution still cannot occur until Slice B's real-footage/seal/recipe prerequisites are satisfied.
 
 ## 9. Dependencies and offline policy
 
