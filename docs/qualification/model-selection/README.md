@@ -463,10 +463,14 @@ The governing sequence is frozen experiment → label-free pre-screen → absolu
 |---|---|---|
 | TECHNICAL_DECISION_RECORDED | immutable quality results; technical joint version; T | null; T_r/T_impl also null |
 | QUALIFICATION_PENDING | new implementation version; snapshots, licence determinations, K, C_impl, T_r and T_impl | null or an exact pair in T_impl |
-| CLOSED | final coordinate-derived outcome after required licence determinations resolve | exact pair in T_impl, or null with capability disabled |
+| CLOSED | final coordinate-derived outcome after required licence determinations resolve | exact pair in T_impl; null only when T_impl is empty |
 
 Both event decisions carry the same exact implementation pair, joint hash and state. Membership of the two coordinates in different pairs does not authorize their combination. `NO_QUALIFIABLE_CANDIDATE` is a CLOSED outcome only. Technical and implementation sets may have several members; an emerging technical winner stays visible in T and T_r.
 
 M2 retains immutable canonical content-addressed inputs under `s2c-evidence/`, per-event quality-result files, every joint version under `s2c-joint/` and numbered event decision versions beside the MSR. Active decision files and the joint index are checked lookup projections. Earlier decisions remain paired and checkable from repository files. The dependency direction is frozen inputs → quality results → joint version → event decisions; a joint document cannot cite event-decision hashes.
 
 Run `python tools/qualification/s2c_operational_check.py repository`, `python tools/qualification/model_selection_check.py repository` and `python tools/verify_repo.py`. Schema shape checking alone is insufficient: canonical byte checks, b-1 cross-validation and recomputation are required. Retention cannot authenticate an author's account or detect a coordinated rewrite of every evidence root; those remain review obligations.
+
+### 14.2 Architecture closure principle
+
+After this implementation and one independent post-implementation review, the S2c selection/qualification architecture is considered closed. Subsequent changes should address material defects found during execution, qualification or production integration. New machinery is justified only when it materially improves quality, reproducibility, operational feasibility, auditability or deployment legality. This principle does not enlarge this slice or weaken existing gates.

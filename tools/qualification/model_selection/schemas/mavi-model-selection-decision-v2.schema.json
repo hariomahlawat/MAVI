@@ -22,6 +22,10 @@
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
     },
+    "decisionVersion": {
+      "minimum": 1,
+      "type": "integer"
+    },
     "evaluated": {
       "items": {
         "additionalProperties": false,
@@ -252,6 +256,17 @@
     "schema": {
       "const": "mavi-model-selection-decision-v2"
     },
+    "supersedesEventDecisionSha256": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      ]
+    },
     "technicalEligibleSet": {
       "items": {
         "minLength": 1,
@@ -341,7 +356,9 @@
     "technicalEligibleSet",
     "technicalSelectedSet",
     "technicalSelectionOutcome",
-    "technicalWinner"
+    "technicalWinner",
+    "decisionVersion",
+    "supersedesEventDecisionSha256"
   ],
   "type": "object"
 }

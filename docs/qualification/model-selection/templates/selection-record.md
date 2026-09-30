@@ -91,7 +91,7 @@ Model Pack id; Runtime Pack id per variant; binding; pipeline profile and identi
 Closing commit and outcome. The record's own SHA-256 (LF-normalised) is **not** written here, because a file cannot contain its own hash. It goes into the index (`../README.md` §13), the addenda header, and the qualification record's `<capabilityId>-model-selection` evidence.
 
 
-## 10. S2c M2 artefact/state ledger
+## 11. S2c M2 artefact/state ledger
 
 | Artefact | Retained path | Canonical SHA-256 | Supersedes / stage |
 |---|---|---|---|

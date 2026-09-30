@@ -39,6 +39,19 @@ def test_unicode_has_one_canonical_utf8_representation():
     assert parse(blob) == {"number": 1, "x": "\u00e9"}
 
 
+def measurement_sources(a, root, experiment, row):
+    row['measurementReferences'] = {}
+    for kind, fields in a.MEASUREMENT_FIELDS.items():
+        source = {'schema':'mavi-s2c-engineering-measurements-v1','kind':kind,'pair':row['pair'],
+                  'identitySha256':row['identitySha256'],'hostProfileSha256':experiment['hostProfileSha256'],
+                  'recordedBy':'synthetic-test','recordedAtUtc':T0,'measurements':{k:row[k] for k in fields},'transactions':[]}
+        if kind == 'serverTiming':
+            source['transactions'] = [{'jobId':'j','claimedAtUtc':T0,'phaseAAtUtc':'2026-09-01T00:00:03.000000Z',
+                                       'completedAtUtc':'2026-09-01T00:00:03.000000Z','committedAtUtc':'2026-09-01T00:00:04.000000Z',
+                                       'acknowledgedAtUtc':'2026-09-01T00:00:06.000000Z'}]
+        row['measurementReferences'][kind] = a.retain_evidence(root, source)
+
+
 def fixture(a, root):
     from model_selection import operational as op
     from model_selection import quality_statistics as b1
@@ -90,6 +103,18 @@ def fixture(a, root):
         if role == "recovery": w["outages"] = [{"workerIds": ["w-00000"], "lostAtUtc": "2026-09-01T00:00:01.000000Z", "readyAtUtc": "2026-09-01T00:00:02.000000Z", "publicationLost": True}]
         experiment["workloads"].append(w)
     experiment["requiredWorkloadIds"] = [w["workloadId"] for w in experiment["workloads"]]
+    host = {'schema':'mavi-s2c-host-profile-v1','hostClassId':'host','cpuModel':'synthetic CPU','physicalCores':2,'logicalCores':2,
+            'smtEnabled':False,'ramBytes':1000,'osVersion':'synthetic OS','storage':{'kind':'local','readBytesPerSecond':1000,'writeBytesPerSecond':1000},
+            'apiPlacement':'local','coResidentIdentities':[],'threadSettings':{'inferenceThreads':1,'runtimeThreads':1,'decodeThreads':1},
+            'workerProcessCounts':[1],'powerPolicy':'fixed','runtimeFamily':'synthetic','runtimeManifestSha256':'e'*64}
+    experiment['hostProfileSha256'] = a.retain_evidence(root, host)
+    experiment['limits']['maxBootToReadyUs'] = 20_000_000
+    experiment['workloadEnvelope'] = {'targetCameraCount':500,'cameraClasses':[{'classId':'small','proportionPpm':1_000_000,'description':'sparse synthetic release class'}],
+        'correlatedBusyPeriods':[],'releaseCadenceUs':60_000_000,'runDurationUs':60_000_000,'jobsPerInterval':{'small':1},
+        'tracksPerJob':{'person':[{'minimum':10,'maximum':10000,'count':1}],'vehicle':[{'minimum':0,'maximum':0,'count':1}]},
+        'cropsPerTrack':[{'minimum':1,'maximum':3,'count':1}],'evidenceSetBytes':[{'minimum':1,'maximum':100,'count':1}],
+        'initialBacklog':0,'burstWorkloadIds':['small-burst'],'failureWorkloadIds':['recovery'],
+        'drainLimitUs':30_000_000,'storageLimitBytes':1000,'apiMaxRequestsPerSecond':100}
     exp_hash = a.retain_evidence(root, experiment)
     quality = {}
     for c in caps:
@@ -97,6 +122,7 @@ def fixture(a, root):
         protocol.parent.mkdir(parents=True, exist_ok=True)
         protocol.write_text(f"Frozen {experiment['frozenOn']} {exp_hash} {experiment['ledgerHashes'][c]} "
                             f"{experiment['qualityContractHash']} {experiment['operationalContractHash']}\n")
+        a.retain_protocol(root, exp_hash, c, protocol.read_bytes())
         evidence = {"schema": a.QUALITY_EVIDENCE_SCHEMA, "experimentSha256": exp_hash, "capability": c,
                     "gateResults": gates(caps[c]), "pairwise": matrix(caps[c]), "partition": "selection"}
         evidence_hash = a.retain_evidence(root, evidence)
@@ -116,6 +142,9 @@ def fixture(a, root):
     # Hypothetical evidence in a temporary synthetic repository, never an actual
     # platform measurement or a committed candidate evaluation.
     row["e2TraceSha256"] = a.retain_evidence(root, trace)
+    row.update(lowerReadyUs=0, upperReadyUs=0, apiRequestsPerSecond=10,
+               footprint={'modelPackBytes':100,'runtimePackBytes':100,'deploymentGrowthBytes':100})
+    measurement_sources(a, root, experiment, row)
     evidence_hash = a.retain_evidence(root, evidence)
     joint = a.build_technical(root, exp_hash, quality, evidence_hash)
     return experiment, exp_hash, quality, joint
@@ -185,6 +214,7 @@ def decisions(a, root, *, state="TECHNICAL_DECISION_RECORDED"):
     exp, eh, q, technical = fixture(a, root)
     joint_hash = a.retain_joint(root, technical)
     if state != "TECHNICAL_DECISION_RECORDED":
+        a.retain_event_pair(root, {c: a.build_event_decision(root, joint_hash, c, "TECHNICAL_DECISION_RECORDED", "2026-09-01", None, None) for c in ("person", "vehicle")})
         licence = {c: {u["unitId"]: {"dev": "CLEARED"} for u in exp["capabilities"][c]["units"]} for c in ("person", "vehicle")}
         impl = a.build_implementation(root, joint_hash, exp["ledgerHashes"], {c: "2026-09-01" for c in licence}, licence,
                                       technical["technicalStage"]["operationalEvidenceSha256"])
@@ -230,6 +260,7 @@ def test_decision_state_and_exact_pair_refusals(artefacts, tmp_path, mutation):
 
 def test_closed_baseline_pair_outcomes_and_pending_licence_refused(artefacts, tmp_path):
     docs = decisions(artefacts, tmp_path, state="QUALIFICATION_PENDING")
+    artefacts.retain_event_pair(tmp_path, docs)
     joint_hash = docs["person"]["jointOperationalDecisionSha256"]
     chosen = {"personUnitId": "PC-B0", "vehicleUnitId": "VC-B0"}
     owner = {"decidedBy": "owner", "rationale": "synthetic owner choice"}
@@ -260,8 +291,9 @@ def test_published_schemas_accept_recomputed_artefacts(artefacts, tmp_path):
     second = artefacts.retain_joint(tmp_path, implementation)
     documents = [artefacts.resolve(tmp_path, q) for q in qualities.values()]+[technical, implementation]
     documents.append(parse((tmp_path/artefacts.ROOT/"s2c-joint"/(exp["eventPairId"]+"-joint-index.json")).read_bytes()))
-    documents += [artefacts.build_event_decision(tmp_path, h, "person", state, "2026-09-01", None, None)
-                  for h, state in ((first,"TECHNICAL_DECISION_RECORDED"),(second,"QUALIFICATION_PENDING"))]
+    initial = {c: artefacts.build_event_decision(tmp_path, first, c, "TECHNICAL_DECISION_RECORDED", "2026-09-01", None, None) for c in ("person", "vehicle")}
+    artefacts.retain_event_pair(tmp_path, initial)
+    documents += list(initial.values()) + [artefacts.build_event_decision(tmp_path, second, "person", "QUALIFICATION_PENDING", "2026-09-01", None, None)]
     source = Path(__file__).resolve().parents[3]
     for doc in documents:
         schema = json.loads((source/"tools/qualification/model_selection/schemas"/(doc["schema"]+".schema.json")).read_bytes())
@@ -361,3 +393,115 @@ def test_earlier_event_pair_versions_cannot_be_deleted_together_with_renumbering
     (directory/(eid+"-decision-v1.json")).unlink()
     (directory/(eid+"-decision-v2.json")).rename(directory/(eid+"-decision-v1.json"))
     with pytest.raises(ValueError): artefacts.validate_repository(tmp_path)
+
+
+def test_closed_cannot_hide_available_implementation(artefacts, tmp_path):
+    docs = decisions(artefacts, tmp_path, state='QUALIFICATION_PENDING')
+    artefacts.retain_event_pair(tmp_path, docs)
+    with pytest.raises(ValueError, match='implementation_available'):
+        artefacts.build_event_decision(tmp_path, docs['person']['jointOperationalDecisionSha256'], 'person', 'CLOSED', '2026-09-01', None, None)
+
+
+def test_decision_cannot_predate_frozen_experiment(artefacts, tmp_path):
+    docs = decisions(artefacts, tmp_path)
+    with pytest.raises(ValueError, match='before_freeze'):
+        artefacts.build_event_decision(tmp_path, docs['person']['jointOperationalDecisionSha256'], 'person', 'TECHNICAL_DECISION_RECORDED', '2026-01-01', None, None)
+
+
+def test_raw_operational_evidence_cannot_change_with_unchanged_host_result(artefacts, tmp_path):
+    exp, eh, q, technical = fixture(artefacts, tmp_path)
+    first = artefacts.retain_joint(tmp_path, technical)
+    evidence = artefacts.resolve(tmp_path, technical['technicalStage']['operationalEvidenceSha256'])
+    evidence['pairs'][0]['ramBytesPerHost'] = 900
+    revised = artefacts.retain_evidence(tmp_path, evidence)
+    licence = {c: {u['unitId']: {'dev': 'CLEARED'} for u in exp['capabilities'][c]['units']} for c in ('person','vehicle')}
+    with pytest.raises(ValueError, match='technical_operational_evidence_changed'):
+        artefacts.build_implementation(tmp_path, first, exp['ledgerHashes'], {c:'2026-09-01' for c in licence}, licence, revised)
+
+
+def test_current_protocol_changes_cannot_rewrite_historical_quality(artefacts, tmp_path):
+    exp, eh, q, technical = fixture(artefacts, tmp_path)
+    current = tmp_path/artefacts.ROOT/'person-attributes'/(exp['events']['person']+'-protocol.md')
+    current.write_text('A later protocol revision.\n')
+    artefacts.validate_quality(tmp_path, artefacts.resolve(tmp_path, q['person']))
+
+
+def test_deleting_both_predecessor_events_and_renaming_does_not_hide_gap(artefacts, tmp_path):
+    docs = decisions(artefacts, tmp_path, state='QUALIFICATION_PENDING')
+    artefacts.retain_event_pair(tmp_path, docs)
+    for c, doc in docs.items():
+        directory = tmp_path/artefacts.ROOT/(c+'-attributes')
+        (directory/(doc['eventId']+'-decision-v1.json')).unlink()
+        (directory/(doc['eventId']+'-decision-v2.json')).rename(directory/(doc['eventId']+'-decision-v1.json'))
+    with pytest.raises(ValueError): artefacts.validate_repository(tmp_path)
+
+
+def install_active_ledgers(a, root, docs):
+    from model_selection import credibility as cred
+    for c, doc in docs.items():
+        directory = root/a.ROOT/(c+'-attributes')
+        frozen = a.resolve(root, doc['frozenLedgerSha256'])
+        for suffix in (cred.LEDGER_SUFFIX, cred.FROZEN_SUFFIX):
+            (directory/(doc['eventId']+suffix)).write_bytes(canonical(frozen))
+        record = directory/(doc['eventId']+'.md')
+        hashes = [cred.lf_normalised_sha256(directory/(doc['eventId']+cred.PROTOCOL_SUFFIX)), sha256(doc)]
+        if doc['ledgerSha256']:
+            snapshot = a.resolve(root, doc['ledgerSha256'])
+            (directory/(doc['eventId']+cred.SNAPSHOT_SUFFIX)).write_bytes(canonical(snapshot))
+            hashes.append(sha256(snapshot))
+        record.write_text('\n'.join(hashes)+'\n')
+
+
+@pytest.mark.parametrize('mutation', ['scope','frozen','record','snapshot','working'])
+def test_v2_active_repository_binding_cannot_bypass_m1(artefacts, tmp_path, mutation):
+    from model_selection import credibility as cred
+    docs = decisions(artefacts, tmp_path, state='QUALIFICATION_PENDING')
+    artefacts.retain_event_pair(tmp_path, docs)
+    install_active_ledgers(artefacts, tmp_path, docs)
+    cred.validate_repository(tmp_path)
+    d = docs['person']; directory = tmp_path/artefacts.ROOT/'person-attributes'
+    if mutation == 'scope':
+        d['eventId'] = docs['vehicle']['eventId']
+        (directory/(docs['person']['eventId']+cred.DECISION_SUFFIX)).write_bytes(canonical(d))
+    if mutation == 'record': (directory/(d['eventId']+'.md')).write_text('omitted hashes\n')
+    if mutation in ('snapshot','working','frozen'):
+        suffix = {'snapshot':cred.SNAPSHOT_SUFFIX,'working':cred.LEDGER_SUFFIX,'frozen':cred.FROZEN_SUFFIX}[mutation]
+        path = directory/(d['eventId']+suffix)
+        value = parse(path.read_bytes()); value['candidates'][0]['maviRevision'] = 'rewritten'
+        path.write_bytes(canonical(value))
+    with pytest.raises(ValueError): cred.validate_repository(tmp_path)
+
+
+def test_host_profile_reference_must_resolve_and_match_class(artefacts, tmp_path):
+    exp, *_ = fixture(artefacts, tmp_path)
+    exp['hostProfileSha256'] = '0'*64
+    with pytest.raises(ValueError): artefacts.validate_experiment(tmp_path, exp)
+
+
+def test_operational_projection_retains_required_views(artefacts, tmp_path):
+    _, _, _, joint = fixture(artefacts, tmp_path)
+    reports = joint['technicalStage']['projectionReports']
+    assert reports and {r['bound'] for r in reports} == {'lower','upper'}
+    metrics = reports[0]['workloads'][0]
+    assert {'queueToPublicationUs','claimToPhaseAUs','claimToPublicationUs','publicationToAcknowledgementUs',
+            'waitingJobs','unfinishedTracks','oldestQueueAgeUs','retriedJobs','phaseADeadlineMisses','ownerSlaMisses','drainAtUtc'} <= metrics.keys()
+
+
+def test_cold_start_and_footprint_are_operational_admission_constraints(artefacts, tmp_path):
+    exp, eh, q, joint = fixture(artefacts, tmp_path)
+    evidence = artefacts.resolve(tmp_path, joint['technicalStage']['operationalEvidenceSha256'])
+    row = evidence['pairs'][0]
+    assert {'lowerReadyUs','upperReadyUs','footprint','measurementReferences'} <= row.keys()
+    row['lowerReadyUs'] = row['upperReadyUs'] = 25_000_000
+    measurement_sources(artefacts, tmp_path, exp, row)
+    result = artefacts.build_technical(tmp_path, eh, q, artefacts.retain_evidence(tmp_path, evidence))
+    assert result['technicalStage']['selection']['T'] == []
+    assert result['technicalStage']['measurements'][0]['constraints']['cold'] is False
+
+
+def test_measurement_provenance_cannot_be_a_bare_hash(artefacts, tmp_path):
+    exp, eh, _, joint = fixture(artefacts, tmp_path)
+    evidence = artefacts.resolve(tmp_path, joint['technicalStage']['operationalEvidenceSha256'])
+    assert 'measurementReferences' in evidence['pairs'][0]
+    evidence['pairs'][0]['measurementReferences']['resources'] = '0'*64
+    with pytest.raises(ValueError): artefacts.operational_measurements(tmp_path, exp, eh, artefacts.retain_evidence(tmp_path, evidence))

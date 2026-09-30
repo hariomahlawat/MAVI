@@ -151,3 +151,13 @@ def test_replay_strict_input_refusals(replay, mutation):
     if mutation == "bool": p["maximumAttempts"] = True
     with pytest.raises(ValueError): replay(jobs, [worker()], p, {"small": service()}, [], startAtUtc=T0,
                                          endAtUtc="2026-09-01T00:01:00.000000Z")
+
+
+def test_phase_c_row_lock_blocks_reclaim_and_sweep_until_commit(replay):
+    result = run(replay, workers=[worker('a'), worker('b')],
+                 services={'small': service(3,9,phaseCStampOffsetUs=4_000_000)})
+    row = result['jobs']['j']
+    assert row['attempts'] == 1
+    assert row['completedAtUtc'] == '2026-09-01T00:00:07.000000Z'
+    assert row['publicationCommittedAtUtc'] == '2026-09-01T00:00:12.000000Z'
+    assert row['boundedPublicationPassed'] is False

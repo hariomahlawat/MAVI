@@ -8,6 +8,7 @@ rewrites of all roots still require review: hashes do not authenticate their aut
 from __future__ import annotations
 
 import copy
+import hashlib
 import itertools
 import os
 import re
@@ -16,9 +17,10 @@ from pathlib import Path
 
 from . import credibility as cred
 from . import operational as op
+from . import operational_inputs as inputs
 from . import quality_statistics as b1
 from .canonical import OperationalError, canonical, digest, integer, keys, parse, read, require, sha256, text, tokens
-from .job_replay import POLICY_KEYS, instant, replay
+from .job_replay import POLICY_KEYS, instant, replay, utc
 
 ROOT = Path("docs/qualification/model-selection")
 EXPERIMENT_SCHEMA = "mavi-s2c-experiment-v1"
@@ -32,21 +34,21 @@ CAPS = {"person", "vehicle"}
 EXPERIMENT_KEYS = {"schema", "eventPairId", "events", "ledgerHashes", "qualityContractHash", "operationalContractHash",
                    "frozenOn", "sealedViewOn", "freezeAttestation", "capabilities", "profiles", "hostClassId",
                    "hostProfileSha256", "objective", "workersPerHost", "reserveHosts", "maximumHosts", "wholeJob",
-                   "workloads", "requiredWorkloadIds", "uncertainty", "limits", "componentArtefacts"}
+                   "workloads", "workloadEnvelope", "requiredWorkloadIds", "uncertainty", "limits", "componentArtefacts"}
 QUALITY_KEYS = {"schema", "eventId", "capability", "frozenLedgerSha256", "protocolSha256", "qualityContractHash",
                 "operationalContractHash", "experimentSha256", "qualityEvidenceSha256", "decisionClaimsSha256",
                 "pairwiseMatrixSha256", "gateResultsSha256", "outputs"}
 JOINT_KEYS = {"schema", "eventPairId", "version", "stage", "supersedes", "events", "ledgerHashes",
               "qualityResultHashes", "qualityContractHash", "operationalContractHash", "experimentSha256",
               "technicalStage", "implementationStage", "revision"}
-DECISION_KEYS = {"schema", "methodRevision", "eventId", "capability", "eventState", "outcome", "decidedOn",
+DECISION_KEYS = {"decisionVersion", "supersedesEventDecisionSha256", "schema", "methodRevision", "eventId", "capability", "eventState", "outcome", "decidedOn",
                  "experimentSha256", "qualityResultSha256", "jointOperationalDecisionSha256", "ledgerSha256",
                  "frozenLedgerSha256", "protocolSha256", "qualityContractHash", "operationalContractHash",
                  "decisionEvidenceHash", "evaluated", "technicalEligibleSet", "qualityAcceptableSet",
                  "pairwiseMatrixSha256", "decisionClaimsSha256", "mpidStatus", "highestTaskQualityEvaluatedSet",
                  "qualityOutcomeReason", "technicalSelectionOutcome", "technicalSelectedSet", "technicalWinner",
                  "profileClearedSet", "implementationEligibleSet", "implementationPair", "ownerChoice"}
-CONSTRAINTS = ["bounds", "io", "memory", "publication", "queue", "recovery", "runtime", "warm"]
+CONSTRAINTS = ["api", "cold", "footprint", "bounds", "io", "memory", "publication", "queue", "recovery", "runtime", "warm"]
 PAIR_ID = re.compile(r"^msr-[a-z0-9]+(?:-[a-z0-9]+)*-\d{4}-\d{2}$")
 
 
@@ -135,8 +137,10 @@ def validate_experiment(repo: Path, document: dict) -> None:
     keys(document["uncertainty"], {"lowerErrorPpm", "upperErrorPpm"}, "uncertainty")
     for k, value in document["uncertainty"].items(): integer(value, k)
     require(document["uncertainty"]["lowerErrorPpm"] < 1_000_000, "uncertainty:lower")
-    keys(document["limits"], {"maxWarmUs", "maxQueueToPublicationUs", "maxBacklog", "maxRamBytesPerHost", "maxIoBytesPerSecond"}, "limits")
+    keys(document["limits"], {"maxWarmUs", "maxQueueToPublicationUs", "maxBacklog", "maxRamBytesPerHost", "maxIoBytesPerSecond", "maxBootToReadyUs"}, "limits")
     for k, value in document["limits"].items(): integer(value, k, 1)
+    inputs.host_profile(resolve(repo, document["hostProfileSha256"]), document)
+    require(document["maximumHosts"] <= 1000 and document["workersPerHost"] <= 1000, "hosts:bounded_search")
     tokens(document["requiredWorkloadIds"], "requiredWorkloadIds", nonempty=True)
     require(type(document["workloads"]) is list, "workloads:list")
     workload_ids = []
@@ -156,6 +160,7 @@ def validate_experiment(repo: Path, document: dict) -> None:
     require(workload_ids == document["requiredWorkloadIds"], "workloads:incomplete_or_order")
     require({w["role"] for w in document["workloads"]} == set(op.contract()["workloadFamily"]["requiredShapes"]),
             "workload:incomplete_family")
+    inputs.workload_envelope(document["workloadEnvelope"], document["workloads"])
 
 
 def runtime_identity(experiment: dict, pair: dict) -> str:
@@ -172,13 +177,32 @@ def runtime_identity(experiment: dict, pair: dict) -> str:
                    "hostProfileSha256": experiment["hostProfileSha256"], "workersPerHost": experiment["workersPerHost"]})
 
 
-def _protocol_hash(repo: Path, experiment: dict, c: str, exp_hash: str) -> str:
-    path = repo/ROOT/(c+"-attributes")/(experiment["events"][c]+"-protocol.md")
-    try: contents = path.read_text(encoding="utf-8")
-    except OSError as exc: raise OperationalError("protocol:missing") from exc
+def _protocol_bytes(experiment: dict, c: str, exp_hash: str, blob: bytes) -> None:
+    require(type(blob) is bytes and not blob.startswith(b"\xef\xbb\xbf") and b"\r" not in blob
+            and blob.endswith(b"\n") and not blob.endswith(b"\n\n"), "protocol:canonical_LF")
+    try: contents = blob.decode("utf-8", errors="strict")
+    except UnicodeError as exc: raise OperationalError("protocol:UTF8") from exc
     for value in (exp_hash, experiment["ledgerHashes"][c], experiment["qualityContractHash"], experiment["operationalContractHash"], experiment["frozenOn"]):
         require(value in contents, "protocol:frozen_input_not_cited")
-    return cred.lf_normalised_sha256(path)
+
+
+def retain_protocol(repo: Path, experiment_hash: str, c: str, blob: bytes) -> str:
+    require(c in CAPS, "protocol:capability")
+    experiment = resolve(repo, experiment_hash)
+    _protocol_bytes(experiment, c, experiment_hash, blob)
+    path = repo/ROOT/(c+"-attributes")/(experiment["events"][c]+"-protocol-"+experiment_hash+".md")
+    if path.exists(): require(path.read_bytes() == blob and not path.is_symlink(), "protocol:retained_rewritten")
+    else: _create(path, blob)
+    return hashlib.sha256(blob).hexdigest()
+
+
+def _protocol_hash(repo: Path, experiment: dict, c: str, exp_hash: str) -> str:
+    path = repo/ROOT/(c+"-attributes")/(experiment["events"][c]+"-protocol-"+exp_hash+".md")
+    try: blob = path.read_bytes()
+    except OSError as exc: raise OperationalError("protocol:missing") from exc
+    require(not path.is_symlink(), "protocol:symlink")
+    _protocol_bytes(experiment, c, exp_hash, blob)
+    return hashlib.sha256(blob).hexdigest()
 
 
 def build_quality(repo: Path, experiment_hash: str, c: str, evidence_hash: str) -> dict:
@@ -231,21 +255,93 @@ def validate_e2_trace(trace: dict, pair: dict, identity: str) -> None:
     require({"lease", "read_evidence", "upload", "complete"} <= set(operations), "E2_trace:incomplete_runner_path")
 
 
+MEASUREMENT_FIELDS = {
+    "startup": {"lowerReadyUs", "upperReadyUs"},
+    "services": {"lowerServices", "upperServices"},
+    "resources": {"ramBytesPerHost", "ioBytesPerSecond", "apiRequestsPerSecond", "runtimeCompatible"},
+    "footprint": {"footprint"},
+    "serverTiming": {"e2TraceSha256"},
+}
+
+
+def _measurement_sources(repo: Path, experiment: dict, raw: dict) -> None:
+    keys(raw["measurementReferences"], set(MEASUREMENT_FIELDS), "measurementReferences")
+    for kind, fields in MEASUREMENT_FIELDS.items():
+        source = resolve(repo, raw["measurementReferences"][kind])
+        keys(source, {"schema", "kind", "pair", "identitySha256", "hostProfileSha256", "recordedBy", "recordedAtUtc", "measurements", "transactions"}, "measurementSource")
+        require(source["schema"] == "mavi-s2c-engineering-measurements-v1" and source["kind"] == kind
+                and source["pair"] == raw["pair"] and source["identitySha256"] == raw["identitySha256"]
+                and source["hostProfileSha256"] == experiment["hostProfileSha256"], "measurementSource:identity")
+        text(source["recordedBy"], "measurementSource:recordedBy")
+        instant(source["recordedAtUtc"], "recordedAtUtc")
+        require(canonical(source["measurements"]) == canonical({k: raw[k] for k in fields}), "measurementSource:values")
+        require(type(source["transactions"]) is list, "measurementSource:transactions")
+        if kind != "serverTiming": require(not source["transactions"], "measurementSource:unexpected_transactions")
+        else:
+            require(bool(source["transactions"]), "measurementSource:server_transactions_required")
+            for row in source["transactions"]:
+                fields = ["claimedAtUtc", "phaseAAtUtc", "completedAtUtc", "committedAtUtc", "acknowledgedAtUtc"]
+                keys(row, {"jobId", *fields}, "serverTransaction")
+                text(row["jobId"], "serverTransaction:jobId")
+                times = [instant(row[k], k) for k in fields]
+                require(times == sorted(times), "serverTransaction:ordering")
+
+
+def _distribution(values: list[int]) -> dict:
+    ordered = sorted(values)
+    return {"count": len(ordered), "minimum": ordered[0] if ordered else None,
+            "p95": ordered[(95*len(ordered)+99)//100-1] if ordered else None,
+            "maximum": ordered[-1] if ordered else None}
+
+
+def _replay_report(workload: dict, result: dict, experiment: dict) -> dict:
+    distributions = {k: [] for k in ("queueToPublicationUs", "claimToPhaseAUs", "claimToPublicationUs", "publicationToAcknowledgementUs")}
+    misses = sla = 0
+    completed = []
+    rows = list(result["jobs"].values())
+    for row in rows:
+        claim = instant(row["firstClaimedAtUtc"], "firstClaimedAtUtc") if row["firstClaimedAtUtc"] else None
+        phase = instant(row["phaseAValidatedAtUtc"], "phaseAValidatedAtUtc") if row["phaseAValidatedAtUtc"] else None
+        commit = instant(row["publicationCommittedAtUtc"], "publicationCommittedAtUtc") if row["publicationCommittedAtUtc"] else None
+        ack = instant(row["completionAcknowledgedAtUtc"], "completionAcknowledgedAtUtc") if row["completionAcknowledgedAtUtc"] else None
+        misses += int(claim is not None and (phase is None or phase >= claim+experiment["wholeJob"]["maximumAnalysisDurationUs"]))
+        if commit is None: sla += 1
+        else:
+            duration = commit-instant(row["queuedAtUtc"], "queuedAtUtc")
+            distributions["queueToPublicationUs"].append(duration)
+            distributions["claimToPublicationUs"].append(commit-claim)
+            completed.append(row["publicationCommittedAtUtc"])
+            sla += int(duration > experiment["limits"]["maxQueueToPublicationUs"])
+        if phase is not None: distributions["claimToPhaseAUs"].append(phase-claim)
+        if ack is not None: distributions["publicationToAcknowledgementUs"].append(ack-commit)
+    return {"workloadId": workload["workloadId"], "completedJobs": sum(r["status"] == "Completed" for r in rows),
+            "failedJobs": sum(r["status"] == "Failed" for r in rows), "retriedJobs": sum(r["attempts"] > 1 for r in rows),
+            "phaseADeadlineMisses": misses, "ownerSlaMisses": sla, "peakBacklog": result["peakBacklog"],
+            "waitingJobs": result["waitingJobs"], "unfinishedTracks": result["unfinishedTracks"], "oldestQueueAgeUs": result["oldestQueueAgeUs"],
+            "drainAtUtc": max(completed) if len(completed) == len(rows) else None,
+            **{k: _distribution(v) for k, v in distributions.items()}}
+
+
 def operational_measurements(repo: Path, experiment: dict, exp_hash: str, evidence_hash: str) -> list[dict]:
+    return operational_projection(repo, experiment, exp_hash, evidence_hash)["measurements"]
+
+
+def operational_projection(repo: Path, experiment: dict, exp_hash: str, evidence_hash: str) -> dict:
     """Derive both host bounds with the same replay and frozen error envelope."""
     evidence = resolve(repo, evidence_hash)
     keys(evidence, {"schema", "experimentSha256", "pairs"}, "operational_evidence")
     require(evidence["schema"] == OPERATIONAL_EVIDENCE_SCHEMA and evidence["experimentSha256"] == exp_hash,
             "operational_evidence:experiment")
     require(type(evidence["pairs"]) is list, "operational_evidence:pairs")
-    rows, seen = [], []
+    rows, seen, reports = [], [], []
     units = {c: {u["unitId"]: u for u in experiment["capabilities"][c]["units"]} for c in CAPS}
     for c in CAPS:
         fallback = experiment["capabilities"][c]["fallback"]
         if fallback: units[c][fallback["unitId"]] = fallback
     for raw in evidence["pairs"]:
         keys(raw, {"pair", "identitySha256", "lowerServices", "upperServices", "ramBytesPerHost", "ioBytesPerSecond",
-                   "runtimeCompatible", "evidenceComplete", "e2TraceSha256"}, "operational_pair")
+                   "runtimeCompatible", "evidenceComplete", "e2TraceSha256", "lowerReadyUs", "upperReadyUs",
+                   "apiRequestsPerSecond", "footprint", "measurementReferences"}, "operational_pair")
         p, v = op.pair_key(raw["pair"])
         require(p in units["person"] and v in units["vehicle"], "operational_pair:unit_identity")
         seen.append((p, v))
@@ -257,6 +353,11 @@ def operational_measurements(repo: Path, experiment: dict, exp_hash: str, eviden
             rows.append({"pair": raw["pair"], "H_lo": None, "H_up": None, "hostClassId": experiment["hostClassId"],
                 "evidenceComplete": False, "constraints": {k: False for k in CONSTRAINTS}, "operationalEvidenceSha256": evidence_hash})
             continue
+        _measurement_sources(repo, experiment, raw)
+        for k in ("lowerReadyUs", "upperReadyUs", "apiRequestsPerSecond"): integer(raw[k], k)
+        require(raw["lowerReadyUs"] <= raw["upperReadyUs"], "startup:bounds_order")
+        keys(raw["footprint"], {"modelPackBytes", "runtimePackBytes", "deploymentGrowthBytes"}, "footprint")
+        for k, v in raw["footprint"].items(): integer(v, k)
         digest(raw["e2TraceSha256"], "E2_trace")
         validate_e2_trace(resolve(repo, raw["e2TraceSha256"]), raw["pair"], raw["identitySha256"])
         integer(raw["ramBytesPerHost"], "ramBytesPerHost")
@@ -276,6 +377,8 @@ def operational_measurements(repo: Path, experiment: dict, exp_hash: str, eviden
         constraints["runtime"] = raw["runtimeCompatible"]
         constraints["memory"] = raw["ramBytesPerHost"] <= experiment["limits"]["maxRamBytesPerHost"]
         constraints["io"] = raw["ioBytesPerSecond"] <= experiment["limits"]["maxIoBytesPerSecond"]
+        constraints["api"] = raw["apiRequestsPerSecond"] <= experiment["workloadEnvelope"]["apiMaxRequestsPerSecond"]
+        constraints["footprint"] = sum(raw["footprint"].values()) <= experiment["workloadEnvelope"]["storageLimitBytes"]
         bounds = []
         for bound in ("lower", "upper"):
             services = copy.deepcopy(raw[bound+"Services"])
@@ -284,6 +387,8 @@ def operational_measurements(repo: Path, experiment: dict, exp_hash: str, eviden
             for service in services.values():
                 for field in ("phaseAUs", "publicationUs", "phaseCStampOffsetUs", "acknowledgementUs"):
                     service[field] = (service[field]*factor + (999_999 if bound == "upper" else 0))//1_000_000
+            ready = (raw[bound+"ReadyUs"]*factor + (999_999 if bound == "upper" else 0))//1_000_000
+            constraints["cold"] &= ready <= experiment["limits"]["maxBootToReadyUs"]
             supported = None
             last_checks = None
             # Fluid screen is only a necessary lower bound; all deadline and
@@ -296,13 +401,21 @@ def operational_measurements(repo: Path, experiment: dict, exp_hash: str, eviden
             checks = {k: False for k in CONSTRAINTS}
             for hosts in range(fluid_hosts, experiment["maximumHosts"]+1):
                 checks = {k: True for k in CONSTRAINTS}
+                report = {"pair": raw["pair"], "bound": bound, "installedHosts": hosts, "activeHosts": hosts-experiment["reserveHosts"],
+                          "workersPerHost": experiment["workersPerHost"], "coldReadyUs": ready, "workloads": []}
                 for workload in experiment["workloads"]:
                     count = (hosts-experiment["reserveHosts"])*experiment["workersPerHost"]
                     workers = [{"workerId": f"w-{n:05d}", "hostId": f"h-{n//experiment['workersPerHost']:05d}",
-                                "readyAtUtc": workload["startAtUtc"], "identitySha256": raw["identitySha256"]} for n in range(count)]
+                                "readyAtUtc": utc(instant(workload["startAtUtc"], "startAtUtc")+ready), "identitySha256": raw["identitySha256"]} for n in range(count)]
                     jobs = [{**j, "identitySha256": raw["identitySha256"]} for j in workload["jobs"]]
                     result = replay(jobs, workers, experiment["wholeJob"], services, workload["outages"],
                                     startAtUtc=workload["startAtUtc"], endAtUtc=workload["endAtUtc"])
+                    metrics = _replay_report(workload, result, experiment)
+                    report["workloads"].append(metrics)
+                    if metrics["drainAtUtc"] is None: checks["recovery"] = False
+                    else:
+                        last_release = max(instant(j["queuedAtUtc"], "queuedAtUtc") for j in jobs)
+                        checks["recovery"] &= instant(metrics["drainAtUtc"], "drainAtUtc")-last_release <= experiment["workloadEnvelope"]["drainLimitUs"]
                     checks["queue"] &= result["peakBacklog"] <= experiment["limits"]["maxBacklog"]
                     for row in result["jobs"].values():
                         checks["recovery"] &= row["status"] == "Completed"
@@ -313,18 +426,18 @@ def operational_measurements(repo: Path, experiment: dict, exp_hash: str, eviden
                             commit = instant(row["publicationCommittedAtUtc"], "publicationCommittedAtUtc")
                             checks["warm"] &= commit-instant(row["firstClaimedAtUtc"], "firstClaimedAtUtc") <= experiment["limits"]["maxWarmUs"]
                             checks["queue"] &= commit-instant(row["queuedAtUtc"], "queuedAtUtc") <= experiment["limits"]["maxQueueToPublicationUs"]
+                reports.append(report)
                 last_checks = checks
                 if all(checks.values()): supported = hosts; break
             bounds.append(supported)
-            if bound == "upper":
-                for k in checks: constraints[k] &= (last_checks or checks)[k]
+            for k in checks: constraints[k] &= (last_checks or checks)[k]
         constraints["bounds"] = all(b is not None for b in bounds)
         # Complete evidence can demonstrate infeasibility. A finite display sentinel
         # would fabricate support; infeasible bounds remain null and admission false.
-        rows.append({"pair": raw["pair"], "H_lo": bounds[0], "H_up": bounds[1], "hostClassId": experiment["hostClassId"],
+        rows.append({"pair": raw["pair"], "H_lo": min(bounds) if all(b is not None for b in bounds) else None, "H_up": max(bounds) if all(b is not None for b in bounds) else None, "hostClassId": experiment["hostClassId"],
                      "evidenceComplete": True, "constraints": constraints, "operationalEvidenceSha256": evidence_hash})
     require(seen == sorted(set(seen)), "operational_pairs:sorted_unique")
-    return rows
+    return {"measurements": rows, "reports": reports}
 
 
 def build_technical(repo: Path, experiment_hash: str, quality_hashes: dict, operational_hash: str) -> dict:
@@ -337,11 +450,12 @@ def build_technical(repo: Path, experiment_hash: str, quality_hashes: dict, oper
         validate_quality(repo, q)
         require(q["experimentSha256"] == experiment_hash and q["capability"] == c, "joint:quality_identity")
         quality[c] = q["outputs"]
-    rows = operational_measurements(repo, experiment, experiment_hash, operational_hash)
+    projection = operational_projection(repo, experiment, experiment_hash, operational_hash)
+    rows = projection["measurements"]
     population = op.product(quality["person"]["J"], quality["vehicle"]["J"])
     selection = op.select_pairs(population, rows, experiment["hostClassId"], CONSTRAINTS)
     stage = {"J_person": quality["person"]["J"], "J_vehicle": quality["vehicle"]["J"], "measurements": rows,
-             "operationalEvidenceSha256": operational_hash, "selection": selection}
+             "operationalEvidenceSha256": operational_hash, "selection": selection, "projectionReports": projection["reports"]}
     stage["jointEvidenceSha256"] = sha256(stage)
     return {"schema": JOINT_SCHEMA, "eventPairId": experiment["eventPairId"], "version": 1, "stage": "technical", "supersedes": None,
             "events": experiment["events"], "ledgerHashes": experiment["ledgerHashes"], "qualityResultHashes": quality_hashes,
@@ -353,11 +467,20 @@ def _implementation_stage(repo, joint, snapshot_hashes, dates, licence, operatio
     experiment = resolve(repo, joint["experimentSha256"])
     keys(snapshot_hashes, CAPS, "snapshotHashes")
     snapshots = {c: resolve(repo, snapshot_hashes[c]) for c in CAPS}
+    keys(dates, CAPS, "decidedOn")
     for c in CAPS:
+        require(cred._date(dates[c], "implementation:decidedOn") >= cred._date(experiment["frozenOn"], "frozenOn"), "implementation:before_freeze")
         frozen = resolve(repo, experiment["ledgerHashes"][c])
         cred.validate_evolution(frozen, snapshots[c])
     quality = {c: resolve(repo, joint["qualityResultHashes"][c])["outputs"] for c in CAPS}
-    rows = operational_measurements(repo, experiment, joint["experimentSha256"], operational_hash)
+    original = resolve(repo, joint["technicalStage"]["operationalEvidenceSha256"])
+    later = resolve(repo, operational_hash)
+    originals = {op.pair_key(r["pair"]): r for r in original["pairs"]}
+    additions = {op.pair_key(r["pair"]): r for r in later["pairs"]}
+    for ident, raw in originals.items():
+        require(ident in additions and canonical(raw) == canonical(additions[ident]), "implementation:technical_operational_evidence_changed")
+    projection = operational_projection(repo, experiment, joint["experimentSha256"], operational_hash)
+    rows = projection["measurements"]
     # A later stage may add frozen-fallback pairs; evidence for all original technical
     # pairs must remain identical to the technical evidence, not recalibrated.
     old = {op.pair_key(r["pair"]): r for r in joint["technicalStage"]["measurements"]}
@@ -368,7 +491,7 @@ def _implementation_stage(repo, joint, snapshot_hashes, dates, licence, operatio
     outputs = op.implementation_sets(experiment["capabilities"], quality, rows, licence, snapshots, dates,
                                      experiment["profiles"], experiment["hostClassId"], CONSTRAINTS)
     return {"snapshotHashes": snapshot_hashes, "decidedOn": dates, "licence": licence,
-            "operationalEvidenceSha256": operational_hash, "measurements": rows, "outputs": outputs,
+            "operationalEvidenceSha256": operational_hash, "measurements": rows, "outputs": outputs, "projectionReports": projection["reports"],
             "supersedes": joint["supersedes"]}
 
 
@@ -420,7 +543,7 @@ def validate_joint(repo: Path, doc: dict, predecessor: dict | None) -> None:
     if doc["stage"] == "technical":
         require(doc["implementationStage"] is None, "technical:early_implementation")
     else:
-        stage = keys(doc["implementationStage"], {"snapshotHashes", "decidedOn", "licence", "operationalEvidenceSha256", "measurements", "outputs", "supersedes"}, "implementationStage")
+        stage = keys(doc["implementationStage"], {"snapshotHashes", "decidedOn", "licence", "operationalEvidenceSha256", "measurements", "outputs", "projectionReports", "supersedes"}, "implementationStage")
         expected_stage = _implementation_stage(repo, doc, stage["snapshotHashes"], stage["decidedOn"], stage["licence"], stage["operationalEvidenceSha256"])
         require(canonical(stage) == canonical(expected_stage), "implementationStage:derived")
 
@@ -494,12 +617,49 @@ def retain_joint(repo: Path, document: dict) -> str:
     return identity
 
 
+def _event_versions(repo: Path, c: str, event_id: str) -> list[tuple[int, Path]]:
+    directory = repo/ROOT/(c+"-attributes")
+    pattern = re.compile(re.escape(event_id)+r"-decision-v([1-9][0-9]*)\.json$")
+    versions = sorted((int(pattern.fullmatch(p.name)[1]), p) for p in directory.glob(event_id+"-decision-v*.json") if pattern.fullmatch(p.name))
+    require([n for n, _ in versions] == list(range(1, len(versions)+1)), "event_decision:version_gap")
+    return versions
+
+
+def _event_predecessor(repo: Path, c: str, event_id: str, version: int, predecessor_hash: str | None,
+                       state: str, decided_on: str, joint: dict) -> None:
+    integer(version, "decisionVersion", 1)
+    if version == 1:
+        require(predecessor_hash is None and state == "TECHNICAL_DECISION_RECORDED", "event_decision:initial_technical_required")
+        return
+    digest(predecessor_hash, "event_decision:predecessor_hash")
+    path = repo/ROOT/(c+"-attributes")/f"{event_id}-decision-v{version-1}.json"
+    try: previous = read(path)
+    except OSError as exc: raise OperationalError("event_decision:predecessor_missing") from exc
+    require(not path.is_symlink() and sha256(previous) == predecessor_hash and previous["decisionVersion"] == version-1
+            and previous["eventId"] == event_id and previous["capability"] == c, "event_decision:predecessor_mismatch")
+    require(cred._date(decided_on, "decidedOn") >= cred._date(previous["decidedOn"], "decidedOn"), "event_decision:date_regressed")
+    require(previous["eventState"] != "CLOSED", "event_decision:closed_immutable")
+    if state == "TECHNICAL_DECISION_RECORDED" and previous["eventState"] != state:
+        older_joint = find_joint(repo, previous["jointOperationalDecisionSha256"])
+        require(joint["stage"] == "technical" and joint["version"] > older_joint["version"]
+                and joint["experimentSha256"] != older_joint["experimentSha256"], "event_decision:state_regressed")
+    else:
+        states = ["TECHNICAL_DECISION_RECORDED", "QUALIFICATION_PENDING", "CLOSED"]
+        require(state in states and 0 <= states.index(state)-states.index(previous["eventState"]) <= 1, "event_decision:state_transition")
+
+
 def build_event_decision(repo: Path, joint_hash: str, c: str, state: str, decided_on: str,
-                         implementation_pair: dict | None, owner_choice: dict | None) -> dict:
+                         implementation_pair: dict | None, owner_choice: dict | None, *,
+                         decision_version: int | None = None, predecessor_hash: str | None = None) -> dict:
     require(c in CAPS and state in cred.EVENT_STATES, "decision:scope_or_state")
     joint = find_joint(repo, joint_hash)
     quality = resolve(repo, joint["qualityResultHashes"][c])
     experiment = resolve(repo, joint["experimentSha256"])
+    if decision_version is None:
+        versions = _event_versions(repo, c, experiment["events"][c])
+        decision_version = len(versions)+1
+        predecessor_hash = sha256(read(versions[-1][1])) if versions else None
+    _event_predecessor(repo, c, experiment["events"][c], decision_version, predecessor_hash, state, decided_on, joint)
     impl = joint["implementationStage"]
     expected_stage = "technical" if state == "TECHNICAL_DECISION_RECORDED" else "implementation"
     require(joint["stage"] == expected_stage, "decision:wrong_joint_stage")
@@ -517,11 +677,12 @@ def build_event_decision(repo: Path, joint_hash: str, c: str, state: str, decide
             text(owner_choice["rationale"], "ownerChoice:rationale")
         else:
             require(owner_choice is None, "decision:owner_without_pair")
-    cred._date(decided_on, "decision:decidedOn")
+    require(cred._date(decided_on, "decision:decidedOn") >= cred._date(experiment["frozenOn"], "frozenOn"), "decision:before_freeze")
     outcome = None
     if state == "CLOSED":
         require(not impl["outputs"]["pending"], "decision:pending_licence_at_closed")
         if implementation_pair is None:
+            require(not impl["outputs"]["T_impl"], "decision:no_qualifiable_with_implementation_available")
             outcome = "NO_QUALIFIABLE_CANDIDATE"
         else:
             uid = implementation_pair[c+"UnitId"]
@@ -530,7 +691,7 @@ def build_event_decision(repo: Path, joint_hash: str, c: str, state: str, decide
             unit = next(u for u in units+([fallback] if fallback else []) if u["unitId"] == uid)
             outcome = {"learned": "SELECTED_FOR_PACKAGING", "baseline": "BASELINE_SELECTED", "disabled": "NO_QUALIFIABLE_CANDIDATE"}[unit["kind"]]
     selection = joint["technicalStage"]["selection"]
-    result = {"schema": DECISION_SCHEMA, "methodRevision": "msr-v1-m2", "eventId": experiment["events"][c],
+    result = {"decisionVersion": decision_version, "supersedesEventDecisionSha256": predecessor_hash, "schema": DECISION_SCHEMA, "methodRevision": "msr-v1-m2", "eventId": experiment["events"][c],
               "capability": c, "eventState": state, "outcome": outcome, "decidedOn": decided_on,
               "experimentSha256": joint["experimentSha256"], "qualityResultSha256": joint["qualityResultHashes"][c],
               "jointOperationalDecisionSha256": joint_hash, "ledgerSha256": snapshot_hash,
@@ -556,14 +717,15 @@ def build_event_decision(repo: Path, joint_hash: str, c: str, state: str, decide
 def validate_event_decision(repo: Path, doc: dict) -> None:
     keys(doc, DECISION_KEYS, "decision_v2")
     expected = build_event_decision(repo, doc["jointOperationalDecisionSha256"], doc["capability"], doc["eventState"],
-                                    doc["decidedOn"], doc["implementationPair"], doc["ownerChoice"])
+                                    doc["decidedOn"], doc["implementationPair"], doc["ownerChoice"],
+                                    decision_version=doc["decisionVersion"], predecessor_hash=doc["supersedesEventDecisionSha256"])
     require(canonical(doc) == canonical(expected), "decision_v2:derived_or_identity_mismatch")
 
 
 def validate_event_pair(repo: Path, decisions: dict) -> None:
     keys(decisions, CAPS, "event_decisions")
     for doc in decisions.values(): validate_event_decision(repo, doc)
-    for field in ("jointOperationalDecisionSha256", "implementationPair", "eventState", "ownerChoice"):
+    for field in ("jointOperationalDecisionSha256", "implementationPair", "eventState", "ownerChoice", "decisionVersion"):
         require(decisions["person"][field] == decisions["vehicle"][field], f"event_decisions:pair_disagreement:{field}")
     require(decisions["person"]["capability"] == "person" and decisions["vehicle"]["capability"] == "vehicle", "event_decisions:capability")
 
@@ -583,6 +745,7 @@ def retain_event_pair(repo: Path, decisions: dict) -> None:
             if older["ledgerSha256"] is not None and doc["ledgerSha256"] is not None:
                 cred.validate_evolution(resolve(repo, older["ledgerSha256"]), resolve(repo, doc["ledgerSha256"]),
                                         since=date.fromisoformat(older["decidedOn"]))
+        require(doc["decisionVersion"] == len(versions)+1, "event_decision:version_not_next")
         retained = directory/f"{doc['eventId']}-decision-v{len(versions)+1}.json"
         require(not retained.exists(), "event_decision:version_exists")
         paths.append((retained, directory/(doc["eventId"]+"-decision.json"), doc))
@@ -621,7 +784,7 @@ def validate_repository(repo: Path) -> list[str]:
         validate_event_decision(repo, doc)
         eid = doc["eventId"]
         match = re.fullmatch(re.escape(eid)+r"-decision-v([1-9][0-9]*)\.json", path.name)
-        require(match is not None, "decision:version_filename")
+        require(match is not None and int(match[1]) == doc["decisionVersion"], "decision:version_filename")
         grouped.setdefault(eid, []).append((int(match[1]), path, doc))
         checked.append(path.relative_to(repo).as_posix())
     paired = {}

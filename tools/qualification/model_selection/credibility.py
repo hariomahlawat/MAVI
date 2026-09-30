@@ -1266,8 +1266,26 @@ def validate_repository(repo: Path) -> list[str]:
             raise _fail("decision_without_frozen_ledger", relative(path))
         decision = read_json(path)
         if decision.get("schema") == "mavi-model-selection-decision-v2":
-            from .s2c_artifacts import validate_event_decision
+            from .s2c_artifacts import resolve, validate_event_decision
             validate_event_decision(repo, decision)
+            if decision["eventId"] != event.name or decision["capability"]+"-attributes" != event.parent.name:
+                raise _fail("decision_location_mismatch", relative(path))
+            if decision["frozenLedgerSha256"] != document_sha256(frozen_ledgers[event]):
+                raise _fail("decision_frozen_ledger_mismatch", relative(path))
+            record_text = (event.parent / f"{event.name}.md").read_text(encoding="utf-8")
+            if lf_normalised_sha256(path) not in record_text:
+                raise _fail("decision_hash_not_recorded_in_record", relative(path))
+            if decision["ledgerSha256"] is not None:
+                snapshot_path = event.parent / f"{event.name}{SNAPSHOT_SUFFIX}"
+                if not snapshot_path.is_file():
+                    raise _fail("decision_without_snapshot", relative(path))
+                snapshot = read_json(snapshot_path)
+                if document_sha256(snapshot) != decision["ledgerSha256"] or lf_normalised_sha256(snapshot_path) not in record_text:
+                    raise _fail("decision_snapshot_mismatch", relative(path))
+                validate_evolution(snapshot, ledgers[event], since=date.fromisoformat(decision["decidedOn"]))
+                checked.append(relative(snapshot_path))
+            else:
+                validate_evolution(frozen_ledgers[event], ledgers[event])
             checked.append(relative(path))
             continue
         protocol = event.parent / f"{event.name}{PROTOCOL_SUFFIX}"

@@ -85,7 +85,16 @@
                   "constraints": {
                     "additionalProperties": false,
                     "properties": {
+                      "api": {
+                        "type": "boolean"
+                      },
                       "bounds": {
+                        "type": "boolean"
+                      },
+                      "cold": {
+                        "type": "boolean"
+                      },
+                      "footprint": {
                         "type": "boolean"
                       },
                       "io": {
@@ -118,7 +127,10 @@
                       "queue",
                       "recovery",
                       "runtime",
-                      "warm"
+                      "warm",
+                      "api",
+                      "cold",
+                      "footprint"
                     ],
                     "type": "object"
                   },
@@ -172,6 +184,12 @@
             "outputs": {
               "type": "object"
             },
+            "projectionReports": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array"
+            },
             "snapshotHashes": {
               "additionalProperties": false,
               "properties": {
@@ -202,7 +220,8 @@
             "operationalEvidenceSha256",
             "outputs",
             "snapshotHashes",
-            "supersedes"
+            "supersedes",
+            "projectionReports"
           ],
           "type": "object"
         },
@@ -363,7 +382,16 @@
               "constraints": {
                 "additionalProperties": false,
                 "properties": {
+                  "api": {
+                    "type": "boolean"
+                  },
                   "bounds": {
+                    "type": "boolean"
+                  },
+                  "cold": {
+                    "type": "boolean"
+                  },
+                  "footprint": {
                     "type": "boolean"
                   },
                   "io": {
@@ -396,7 +424,10 @@
                   "queue",
                   "recovery",
                   "runtime",
-                  "warm"
+                  "warm",
+                  "api",
+                  "cold",
+                  "footprint"
                 ],
                 "type": "object"
               },
@@ -446,6 +477,12 @@
         "operationalEvidenceSha256": {
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
+        },
+        "projectionReports": {
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
         },
         "selection": {
           "additionalProperties": false,
@@ -523,7 +560,8 @@
         "jointEvidenceSha256",
         "measurements",
         "operationalEvidenceSha256",
-        "selection"
+        "selection",
+        "projectionReports"
       ],
       "type": "object"
     },

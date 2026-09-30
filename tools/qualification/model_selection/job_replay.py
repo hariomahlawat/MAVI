@@ -1,7 +1,7 @@
 """Bounded deterministic S2b job replay, not a general scheduler.
 
 Instants are exact UTC microseconds. Fixed ordering at an instant: worker/platform
-loss, sweep, Phase A, Phase C commit, acknowledgement, heartbeat, claim poll.
+loss, sweep, Phase A, Phase C lock/fence, Phase C commit, acknowledgement, heartbeat, claim poll.
 Thus a boundary failure cannot disappear through presentation ordering. Heartbeats
 stop at Phase A; Phase C is ownership fenced independently of the live lease.
 The bounded publication constraint is reported separately from lifecycle validity.
@@ -68,7 +68,7 @@ def replay(jobs: list[dict], workers: list[dict], policy: dict, services: dict,
         require(job["personTracks"] + job["vehicleTracks"] <= 10_000, "job:10k_bound")
         state[jid] = {**job, "queue": queued, "status": "Queued", "attempts": 0, "first": None,
                       "lease": None, "owner": None, "phaseA": None, "commit": None, "stamp": None,
-                      "ack": None, "cap": None, "failureCode": None, "boundedPublicationPassed": None}
+                      "ack": None, "cap": None, "phaseCLock": None, "failureCode": None, "boundedPublicationPassed": None}
     for worker in workers:
         keys(worker, {"workerId", "hostId", "readyAtUtc", "identitySha256"}, "worker")
         wid = text(worker["workerId"], "workerId")
@@ -78,7 +78,7 @@ def replay(jobs: list[dict], workers: list[dict], policy: dict, services: dict,
         processes[wid] = {**worker, "ready": instant(worker["readyAtUtc"], "readyAtUtc"), "generation": 0,
                           "busy": None}
     heap, sequence, events = [], 0, []
-    priorities = {"loss": 0, "sweep": 1, "phaseA": 2, "commit": 3, "ack": 4, "heartbeat": 5, "poll": 6, "fail": 2}
+    priorities = {"loss": 0, "sweep": 1, "phaseA": 2, "phaseC": 3, "commit": 4, "ack": 5, "heartbeat": 6, "poll": 7, "fail": 2}
 
     def schedule(at, kind, wid="", jid="", attempt=0, generation=0, payload=None):
         nonlocal sequence
@@ -118,12 +118,14 @@ def replay(jobs: list[dict], workers: list[dict], policy: dict, services: dict,
             if payload[1]:
                 # Platform-side publication loss is distinct from worker-only loss.
                 for u in state.values():
-                    if u["owner"] == wid and u["status"] == "Running": u["publicationLost"] = True
+                    if u["owner"] == wid and u["status"] == "Running":
+                        u["publicationLost"] = True
+                        u["phaseCLock"] = None
             record(at, "loss", "", workerId=wid)
             continue
         if kind == "sweep":
             for ident, u in sorted(state.items()):
-                if u["status"] not in ("Queued", "Running") or u["first"] is None: continue
+                if u["status"] not in ("Queued", "Running") or u["first"] is None or u["phaseCLock"] is not None: continue
                 live = u["lease"] is not None and at < u["lease"]
                 deadline = u["first"] + policy["maximumAnalysisDurationUs"]
                 if not live and (at >= deadline or u["attempts"] >= policy["maximumAttempts"]):
@@ -135,7 +137,7 @@ def replay(jobs: list[dict], workers: list[dict], policy: dict, services: dict,
         if kind == "poll":
             schedule(at + policy["claimPollUs"], "poll", wid)
             if at < process["ready"] or process["busy"] is not None: continue
-            available = [u for u in state.values() if u["queue"] <= at and u["identitySha256"] == process["identitySha256"]
+            available = [u for u in state.values() if u["phaseCLock"] is None and u["queue"] <= at and u["identitySha256"] == process["identitySha256"]
                          and u["attempts"] < policy["maximumAttempts"]
                          and (u["first"] is None or at < u["first"] + policy["maximumAnalysisDurationUs"])
                          and (u["status"] == "Queued" or (u["status"] == "Running" and at >= u["lease"]))]
@@ -163,8 +165,15 @@ def replay(jobs: list[dict], workers: list[dict], policy: dict, services: dict,
             # An expired attempt still occupies the serial inference lane until
             # its measured execution drains. Then release it for the next job.
             process["busy"] = None
-        if kind == "commit":
+        if kind == "phaseC":
             if owned and not unit.get("publicationLost"):
+                unit["phaseCLock"] = (wid, attempt)
+                unit["stamp"] = at
+                record(at, "phaseC", jid, attempt=attempt)
+            continue
+        if kind == "commit":
+            if owned and unit["phaseCLock"] == (wid, attempt) and not unit.get("publicationLost"):
+                unit["phaseCLock"] = None
                 unit.update(status="Completed", commit=at, boundedPublicationPassed=at <= unit["cap"])
                 record(at, "commit", jid, attempt=attempt)
                 if worker_live: schedule(at + services[unit["shape"]]["acknowledgementUs"], "ack", wid, jid, attempt, generation)
@@ -203,9 +212,10 @@ def replay(jobs: list[dict], workers: list[dict], policy: dict, services: dict,
             service = services[unit["shape"]]
             deadline = unit["first"] + policy["maximumAnalysisDurationUs"]
             unit.update(phaseA=at, cap=min(at + policy["leaseDurationUs"], deadline + policy["leaseDurationUs"]),
-                        stamp=at + service["phaseCStampOffsetUs"])
+                        stamp=None)
             unit["lease"] = max(unit["lease"], unit["cap"])
             record(at, "phaseA", jid, attempt=attempt, leaseExpiresAtUtc=utc(unit["lease"]))
+            schedule(at + service["phaseCStampOffsetUs"], "phaseC", wid, jid, attempt, generation)
             schedule(at + service["publicationUs"], "commit", wid, jid, attempt, generation)
     output = {}
     for jid, unit in sorted(state.items()):
