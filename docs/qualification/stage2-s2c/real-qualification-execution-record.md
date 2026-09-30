@@ -24,17 +24,17 @@ Not claimed anywhere: an operational F1 PASS, candidate qualification, real E2, 
 
 ## 2. Accountable roles (Slice A item 1; owner input OI-1)
 
-Owner assignments supplied on 2026-09-30 are recorded below. R-1, R-2 and R-5 are assigned; R-3, R-4, R-6 and R-7 remain **MISSING**. No missing role is defaulted to the repository owner or to the drafting agent.
+Owner assignments supplied on 2026-09-30 are recorded below. All R-1…R-7 roles are assigned. No role is defaulted to the repository owner or to the drafting agent.
 
 | Id | Role | Responsibility in this plan | First slice that needs it | Status |
 |---|---|---|---|---|
 | R-1 | Accountable execution owner | owner of both events; signs owner inputs; later owner implementation choice (Slice G) | A (to accept this slice) | **Aarav — ASSIGNED 2026-09-30** |
 | R-2 | Independent reviewer | reviews freeze, protocol and closure; cannot be R-1 | A (ledger history `reviewedBy`) | **Hari Om — ASSIGNED 2026-09-30** |
-| R-3 | Corpus Custodian | footage custody, partitions, seal, access log, reference swatches | B | MISSING |
-| R-4 | Annotation owner and annotators (at least two, one independent) | pilot, main labelling, adjudication | B | MISSING |
+| R-3 | Corpus Custodian | footage custody, partitions, seal, access log, reference swatches | B | **Aarav — ASSIGNED 2026-09-30** |
+| R-4 | Annotation owner and annotators (at least two, one independent) | pilot, main labelling, adjudication | B | **Aarav — annotation owner/annotator; Savita — independent annotator/reviewer; ASSIGNED 2026-09-30** |
 | R-5 | Licence Review Owner | evaluation permissions now; final per-unit, per-profile determinations later | A (evaluation permission) | **Aarav — ASSIGNED 2026-09-30** |
-| R-6 | Scale/Performance Evidence Owner | host profile, workload envelope, E1/E2/E3 evidence | D | MISSING |
-| R-7 | Statistical recipe reviewer | reviews the one executable b-1 recipe | B | MISSING |
+| R-6 | Scale/Performance Evidence Owner | host profile, workload envelope, E1/E2/E3 evidence | D | **Aarav — ASSIGNED 2026-09-30** |
+| R-7 | Statistical recipe reviewer | reviews the one executable b-1 recipe | B | **Hari Om — ASSIGNED 2026-09-30** |
 
 The ledger's `classificationHistory` needs a named `recordedBy` and a different named `reviewedBy` for every entry (`tools/qualification/model_selection/credibility.py`, `history_reviewer_not_independent`). R-1 Aarav and R-2 Hari Om satisfy the identity/independence prerequisite. Their assignment does **not** itself create a classification-history action: the working ledgers still need actual dated evidence items and explicit recorder/reviewer actions (§8).
 
@@ -44,7 +44,7 @@ Each item is **MISSING** unless an evidence reference is entered here. A missing
 
 | Id | Input (plan §19 item) | Blocks from | Status | Notes |
 |---|---|---|---|---|
-| OI-1 | Named roles R-1…R-7 | A | PARTIAL | R-1 Aarav, R-2 Hari Om and R-5 Aarav assigned; R-3/R-4/R-6/R-7 remain MISSING (§2) |
+| OI-1 | Named roles R-1…R-7 | A | **COMPLETE** | R-1 Aarav; R-2 Hari Om; R-3 Aarav; R-4 Aarav + Savita (independent); R-5 Aarav; R-6 Aarav; R-7 Hari Om (§2) |
 | OI-2 | Authorized real footage; retention/access arrangements; site/camera/day/night coverage; stable raw-evidence pin; annotation time; independently reviewable custody store | B | MISSING | footage availability is not assumed |
 | OI-3 | Pilot-rule confirmation; task/vocabulary/headwear decision; required attribute scope per capability; lawful fallback policy | A (scope/fallback, §6), B (pilot) | PARTIAL | owner fixed first-event scope and fallback direction (§3.1, §6); pilot/vocabulary confirmation remains for Slice B |
 | OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | PARTIAL | owner fixed the initial families and conditional acquisition authority (§3.1); exact variants, budget and R-5 evaluation determinations remain MISSING; no passwords or tokens in Git |
