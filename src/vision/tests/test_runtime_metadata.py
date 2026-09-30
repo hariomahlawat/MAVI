@@ -137,10 +137,12 @@ def test_runtime_qualification_binds_evidence_to_exact_checked_out_source() -> N
     assert 'if bytetrack.get("headSha") != executed_source_sha:' in workflow
 
 
-def test_task10_triggers_on_and_qualifies_the_whole_s1_surface() -> None:
-    """S1.4 §10.1: every vision-package change runs Task 10, and the qualified
-    CPU job runs the S1 suites that used to run only on the unqualified Quality
-    Gate interpreter, with JUnit XML so pass/skip/fail counts are retained."""
+def test_task10_triggers_on_and_qualifies_the_runtime_bearing_s1_surface() -> None:
+    """S1.4 §10.1: every runtime-bearing vision/S1 change runs Task 10.
+
+    Generic qualification helpers have their own Quality Gate coverage and must
+    not force an MMCV/RTMDet rebuild merely by living under tools/qualification.
+    """
     workflow = (
         Path(__file__).parents[3] / ".github" / "workflows" / "task10-runtime-qualification.yml"
     ).read_text(encoding="utf-8")
@@ -148,7 +150,17 @@ def test_task10_triggers_on_and_qualifies_the_whole_s1_surface() -> None:
     push = push.split("\n  workflow_dispatch:", 1)[0]
     for trigger in (pull_request, push):
         assert "- 'src/vision/mavi_vision/**'" in trigger
-        assert "- 'tools/qualification/**'" in trigger
+        assert "- 'tools/qualification/**'" not in trigger
+        for qualification_path in (
+            "s1-qualification-evidence.schema.json",
+            "s1_b1.py",
+            "s1_evidence.py",
+            "s1_memory.py",
+            "process_memory.py",
+            "tests/conftest.py",
+            "tests/test_s1_*.py",
+        ):
+            assert f"- 'tools/qualification/{qualification_path}'" in trigger, qualification_path
         for suite in (
             "test_worker_completion_v3.py",
             "test_completion_contract_*.py",
