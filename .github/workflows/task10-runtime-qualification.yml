@@ -43,7 +43,16 @@ on:
       - 'src/vision/tests/test_s1_bound_agreement.py'
       - 'contracts/schemas/vision-job-complete-v3.schema.json'
       - 'contracts/examples/vision-job-complete-v3.example.json'
-      - 'tools/qualification/**'
+      # Native/runtime qualification depends on S1 qualification evidence tooling,
+      # not every qualification helper. Generic S2c/source-acquisition changes are
+      # covered by the parallel Quality Gate and must not rebuild MMCV/RTMDet.
+      - 'tools/qualification/s1-qualification-evidence.schema.json'
+      - 'tools/qualification/s1_b1.py'
+      - 'tools/qualification/s1_evidence.py'
+      - 'tools/qualification/s1_memory.py'
+      - 'tools/qualification/process_memory.py'
+      - 'tools/qualification/tests/conftest.py'
+      - 'tools/qualification/tests/test_s1_*.py'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
@@ -97,7 +106,16 @@ on:
       - 'src/vision/tests/test_s1_bound_agreement.py'
       - 'contracts/schemas/vision-job-complete-v3.schema.json'
       - 'contracts/examples/vision-job-complete-v3.example.json'
-      - 'tools/qualification/**'
+      # Native/runtime qualification depends on S1 qualification evidence tooling,
+      # not every qualification helper. Generic S2c/source-acquisition changes are
+      # covered by the parallel Quality Gate and must not rebuild MMCV/RTMDet.
+      - 'tools/qualification/s1-qualification-evidence.schema.json'
+      - 'tools/qualification/s1_b1.py'
+      - 'tools/qualification/s1_evidence.py'
+      - 'tools/qualification/s1_memory.py'
+      - 'tools/qualification/process_memory.py'
+      - 'tools/qualification/tests/conftest.py'
+      - 'tools/qualification/tests/test_s1_*.py'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
