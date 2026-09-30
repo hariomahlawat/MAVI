@@ -131,7 +131,7 @@ jobs:
           status=0
           for project in "${selected[@]}"; do
             name="$(basename "$project" .csproj)"
-            dotnet test "$project" --configuration Release --no-build               --logger "trx;LogFileName=${name}.trx"               --results-directory qualification-evidence/trx || status=1
+            dotnet test "$project" --configuration Release --no-build --logger "trx;LogFileName=${name}.trx" --results-directory qualification-evidence/trx || status=1
           done
           exit "$status"
       - name: Retain .NET results
