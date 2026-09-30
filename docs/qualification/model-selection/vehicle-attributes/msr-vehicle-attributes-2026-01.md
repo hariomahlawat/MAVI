@@ -9,7 +9,7 @@
 | Event id / capability | `msr-vehicle-attributes-2026-01` / `vehicle-attributes` |
 | State / outcome | `PLANNED` / — |
 | Originating stage | Stage 2 S2c (`docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md` §9, §22) |
-| Owner / independent reviewer | MISSING / MISSING: roles R-1 and R-2 in `../../stage2-s2c/real-qualification-execution-record.md` §2; not defaulted |
+| Owner / independent reviewer | **Aarav / Hari Om**: roles R-1 and R-2 in `../../stage2-s2c/real-qualification-execution-record.md` §2; assigned 2026-09-30 |
 | Governing documents | ADR-013, ADR-014; qualification plan `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` (with R1–R2); register `docs/reviews/2026-09-23-visual-attributes-acceptance.md` |
 | Protocol | `msr-vehicle-attributes-2026-01-protocol.md`, not yet written (S2c.2) |
 | Incumbent | **none.** The S2b fixture inferencer is a Development-only test double |
@@ -63,4 +63,4 @@ This event remains PLANNED: no freeze, measurement or choice occurred in protoco
 
 ### Real qualification Slice A preparation (2026-09-30)
 
-This event remains `PLANNED`. The candidate re-survey, split variants, blocked byte dispositions, draft unit proposals, required-scope and fallback status, licence-review scope and the owner-input checklist are in `../../stage2-s2c/real-qualification-execution-record.md`. No candidate identity is pinned, and no candidate is shortlisted, run or selected. The External Evidence Ledger is not yet written, because its history entries need a named recorder and an independent named reviewer (record §8, SA-B1). The candidate table above remains the planning proposal.
+This event remains `PLANNED`. The candidate re-survey, split variants, blocked byte dispositions, draft unit proposals, required-scope and fallback status, licence-review scope and the owner-input checklist are in `../../stage2-s2c/real-qualification-execution-record.md`. No candidate identity is pinned, and no candidate is shortlisted, run or selected. R-1 Aarav and R-2 Hari Om are now assigned and distinct, but the External Evidence Ledger is still not written: assignment alone does not create a classification-history action, and actual dated evidence plus explicit recorder/reviewer actions are still required (record §8, SA-B1). The candidate table above remains the planning proposal.
