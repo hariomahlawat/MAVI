@@ -2,7 +2,7 @@
 
 **Governing plan:** `docs/superpowers/plans/2026-09-30-stage2-s2c-real-qualification-execution.md` (merged in PR #123, `main@d0db6efff201a003b9699cde675d8069259f980e`).
 **Events:** `msr-person-attributes-2026-01`, `msr-vehicle-attributes-2026-01`; joint `eventPairId = msr-attributes-2026-01`.
-**Status:** Slice A (accountable inputs and candidate manifest preparation) prepared on 2026-09-30. Slice A is **not accepted**: its acceptance depends on owner inputs that are still missing (§8). Slices B–J have not started. Both MSRs remain `PLANNED`. No candidate has been acquired, run, trained, tuned, measured or selected. No selection or frozen-test label has been read, and no experiment, protocol, ledger freeze, E/F/J/T, E1/E2/E3 or Model Pack exists. F1, F3 and every other F/G row keep their state.
+**Status:** Slice A (accountable inputs and candidate manifest preparation) prepared on 2026-09-30. Slice A is **not accepted**: roles are assigned and a 2026-09-30 continuation prepared evidence, variants, an R-5 packet and draft ledgers (§4.3), but acceptance depends on human recorder/reviewer and R-5 actions that do not yet exist (§8). Slices B–J have not started. Both MSRs remain `PLANNED`. No candidate has been acquired, run, trained, tuned, measured or selected. No selection or frozen-test label has been read, and no experiment, protocol, ledger freeze, E/F/J/T, E1/E2/E3 or Model Pack exists. F1, F3 and every other F/G row keep their state.
 
 This record holds the dated execution evidence and dispositions required by plan §18. It is not a registry. Candidate facts come from the committed survey (`model-candidate-survey.md`, 2026-09-28), the parent plan (§9.2) and the two MSRs. All figures there are class R (reported, not reproduced by MAVI). No source was re-fetched and no candidate byte was downloaded for this record (§4).
 
@@ -47,7 +47,7 @@ Each item is **MISSING** unless an evidence reference is entered here. A missing
 | OI-1 | Named roles R-1…R-7 | A | **COMPLETE** | R-1 Aarav; R-2 Hari Om; R-3 Aarav; R-4 Aarav + Savita (independent); R-5 Aarav; R-6 Aarav; R-7 Hari Om (§2) |
 | OI-2 | Authorized real footage; retention/access arrangements; site/camera/day/night coverage; stable raw-evidence pin; annotation time; independently reviewable custody store | B | MISSING | footage availability is not assumed |
 | OI-3 | Pilot-rule confirmation; task/vocabulary/headwear decision; required attribute scope per capability; lawful fallback policy | A (scope/fallback, §6), B (pilot) | PARTIAL | owner fixed first-event scope and fallback direction (§3.1, §6); pilot/vocabulary confirmation remains for Slice B |
-| OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | PARTIAL | owner fixed the initial families and conditional acquisition authority (§3.1); exact variants, budget and R-5 evaluation determinations remain MISSING; no passwords or tokens in Git |
+| OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | PARTIAL | owner fixed the initial families and conditional acquisition authority (§3.1); variants resolved under the R-1 variant rule (§4.3.2); budget, R-5 evaluation determinations, DINOv3 gated-access acceptance and the controlled store location remain MISSING; no passwords or tokens in Git |
 | OI-5 | Every numerical quality/support/slice gate; practical/NI/equivalence/MPID margins; bootstrap seed/replicates/multiplicity/undefined-denominator rule; pilot-simulation coverage tolerance and perturbations — one executable recipe | B | MISSING | no gate threshold is supplied by this record |
 | OI-6 | Training/tuning search and compute budgets; calibration family; allowed parameter families; reproducibility tolerances; evidence storage capacity | B | MISSING | |
 | OI-7 | Host/OS/runtime variants; detector/platform co-residency; worker range and chosen topology; lease/retry/deadline settings; resource/SLA/host/reserve limits; physical measurement access | D | MISSING | no host limit is supplied |
@@ -73,9 +73,9 @@ These directions do not themselves mark any candidate `SHORTLISTED`, `CLEARED`, 
 
 **Method.** Every committed proposal in both MSR ledgers was re-read against the survey and parent plan §9.2. Multi-family and multi-checkpoint rows are split into individually identifiable family variants (plan §4 item 1). A checkpoint serving both person sub-tasks is one entry (ledger rule), and method entries sharing a backbone carry identical identity blocks. No new model family was introduced.
 
-**What was not done, and why.** The survey records source URLs and licence texts, but no immutable revision, checkpoint filename or SHA-256 for any candidate. R-1 has authorized controlled acquisition for the initial families in §3.1 **only after** R-5 records evaluation permission for the specific candidate; no such permission determination exists yet, and exact variants remain unpinned. Every learned candidate therefore still has an explicit **blocked** byte disposition, and no placeholder hash was written. The evaluation-permission column restates the survey's licence class (L-A…L-D, survey §6) as an **input to R-5**, not a determination. Operational-use and redistribution status is `NOT_ASSESSED` for every candidate and is recorded separately (§7).
+**What was not done, and why.** The survey records source URLs and licence texts, but no immutable revision, checkpoint filename or SHA-256 for any candidate. R-1 has authorized controlled acquisition for the initial families in §3.1 **only after** R-5 records evaluation permission for the specific candidate; no such permission determination exists yet. Exact variants and upstream identities are now resolved in §4.3.2, but nothing has been acquired or pinned by MAVI. Every learned candidate therefore still has an explicit **blocked** byte disposition, and no placeholder hash was written. The evaluation-permission column restates the survey's licence class (L-A…L-D, survey §6) as an **input to R-5**, not a determination. Operational-use and redistribution status is `NOT_ASSESSED` for every candidate and is recorded separately (§7).
 
-**M1 status.** No External Evidence Ledger exists yet (SA-B1). No evidence item has a snapshot (`retrievedSha256`), and no candidate has pinned files. Under `credibility.py`, a non-baseline candidate without pinned files has `Low` provenance confidence. It can therefore compute at most `reference-only`, or `excluded-discovery` when its origin repository, publisher or author group is unknown. It cannot be `SHORTLISTED`: `shortlist_requires_pinned_provenance` would refuse it. The class is always computed by the validator and is never asserted here. MAVI baselines compute `mavi-owned` once they have an implemented revision.
+**M1 status.** Superseded for the actively pursued set by §4.3 (2026-09-30 continuation). Draft M2 ledgers now exist for review (§4.3.5), and their classes are computed by `credibility.py`, not asserted. The committed working ledgers still do not exist, because no genuine classification-history action has been recorded (SA-B1).
 
 **Runtime marks.** Proposed `existingGraph`/`extension` marks follow parent plan §12.7. The default is a first-party torch module on `mmdetection-phase1-v1` (torch 2.6.0 / torchvision 0.21.0): OpenVINO-IR/ONNX checkpoints are ported with a build-time parity test, and towers are loaded as state dicts (`weights_only=True`). Any other engine is an extension (a separate `attributes-<engine>-v1` family), admitted only past MPID. Every mark is **proposed** until actual bytes and dependency requirements are inspected at pinning. No dependency is added (§9).
 
@@ -135,6 +135,122 @@ These directions do not themselves mark any candidate `SHORTLISTED`, `CLEARED`, 
 
 **Pinned versus blocked.** Pinned: **none**. Blocked: every learned candidate above (a missing variant choice, missing acquisition authority, missing evaluation permission, or several of these) and both MAVI baselines (§5). This meets the Slice A requirement of "verifiable bytes or an explicit blocked disposition" for every proposed runnable component. It does not meet the purpose of Slice A, which stays open.
 
+### 4.3 Continuation 2026-09-30: primary evidence, variants, R-5 packet and draft ledgers
+
+This continuation was performed by the implementation agent on 2026-09-30. It retrieved primary documents at immutable revisions and read upstream-published metadata. It **downloaded no model weights**, accepted no gated terms, used no credentials, and read no MAVI label of any partition.
+
+**Where §4.1–§4.2 differ.** For the actively pursued set (§3.1), this section supersedes the "runnable revision", "evaluation permission" and "byte disposition" columns of §4.1–§4.2. Those tables remain the pre-continuation re-survey.
+
+#### 4.3.1 Retrieved primary documents
+
+Each document was retrieved on 2026-09-30 from the stated immutable location. The SHA-256 is of the retrieved bytes. The documents are third-party texts and are not committed; each is reproducible from its URL.
+
+| Document | Immutable location | SHA-256 of retrieved bytes |
+|---|---|---|
+| SigLIP 2 base model card | `huggingface.co/google/siglip2-base-patch16-224` @ `75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2` `README.md` | `39ac3705d62af9ffa1a14675b8ccb220a75f2d81acd530e564a3b1e3dfe418d8` |
+| DINOv2 small model card | `huggingface.co/facebook/dinov2-small` @ `ed25f3a31f01632728cabb09d1542f84ab7b0056` `README.md` | `4c20dca454a8e5c670e8de5c7e6040f512aeca5438516f7623eedc4e3b00599c` |
+| DINOv2 LICENSE | `github.com/facebookresearch/dinov2` @ `7764ea0f912e53c92e82eb78a2a1631e92725fc8` `LICENSE` | `600cc67cc4cb2f5ea317dcfc687ad1c74dc4bec8782bbe9db0afd83513b935b7` |
+| DINOv3 README | `github.com/facebookresearch/dinov3` @ `6876159a11b4df116f30f667f8c9888617df0751` `README.md` | `da4e6e2fa1f2580be9a782338dc108ae68f98b6c9d10636583f97d8a340e664d` |
+| DINOv3 License | same revision, `LICENSE.md` | `25d122eb8f5b880fd23c736fb6ea8018ee45c12237e00b8a86d14c653904999e` |
+| OMZ LICENSE | `github.com/openvinotoolkit/open_model_zoo` @ `a6946b6d6ce42cbf4278df20275fab199655fc7d` `LICENSE` | `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4` |
+| OMZ 0230 README / model.yml | same revision, `models/intel/person-attributes-recognition-crossroad-0230/` | `1a5064c4869a696474d1416f3070ee50fbf1372e1c0cef5db0884b460ca8c70b` / `67ff0345485208ec679200cb9b3bfffdb7ce189e4ceaf8e92e9d4f081a9ae0ba` |
+| OMZ 0234 README / model.yml | same revision, `…-crossroad-0234/` | `7f31e8b5a1841a293a81a3ba416a201f1d11c2fc21b84fbaa4f0022d639284b2` / `fe1de6a6e330bfdd506b49fd8ca76c4695c3f4977570aa759d461aaac107fb7f` |
+| OMZ 0238 README / model.yml | same revision, `…-crossroad-0238/` | `d4acfbde0151feb9e85f0f678739ec6e14989ece741c2e95c39bf3294a79a554` / `d37996182ed4fe4d6179e50464c4db9df9b55aeacbfc4977310d67b2d6e8d8c6` |
+| OMZ 0042 README / model.yml | same revision, `models/intel/vehicle-attributes-recognition-barrier-0042/` | `e94c0cdcd470f6de7721f3c922aebceb43ee19418fa156ee7c59a4e7f9f64c76` / `66de75615f6f7fd48c2ea7c3eb6d506e3bc7eb2b5a4ecc0761ca620f6f4f19d4` |
+| Awiros model card | `huggingface.co/Awiros/person-attribute-recognition` @ `e43ac25dc08ac6fce65a69ca37f79a1006a48283` `README.md` | `980ad220edfae5ca62c79d0471b3f7f99ae7eac62d2ed09d63138406cf101e5b` |
+| torchvision MobileNetV3 weights definition | `github.com/pytorch/vision` tag `v0.21.0` = `7af698794eded568735f9519593603c1ec889eba` `torchvision/models/mobilenetv3.py` | `f97937da6fd6767f9aa7cc022f84e5ef08e244e2300f085ab089d84ccc303ab1` |
+| torchvision LICENSE | same revision, `LICENSE` | `6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d` |
+| OpenPAR README / LICENSE | `github.com/Event-AHU/OpenPAR` @ `15de98ac66e9e834029074d2375571b1bbd281b0` | `be1cac7a42b904e4c7b34ad43d8a9f653921139fe13b68c8eaa41905fa6d05df` / `4a83a0af74830e9e42b3d40576838ddffb481a92f7ef614bb8bfdf75da13f742` |
+| VTFPAR++ README | same revision, `VTFPAR++/README.md` | `21c1fa4fa75b679528cdf91cafc565064b047947fbf9d11506c43936270a8f7a` |
+
+#### 4.3.2 Variants resolved under the R-1 variant rule
+
+One smallest or base CPU-realistic variant was chosen per family. No choice used any MAVI result.
+
+"Upstream-published SHA-256" is the publisher's hub metadata for that file at that immutable revision. It is **not** a MAVI-verified hash of acquired bytes: acquisition is blocked (§4.3.4), and the pinning run must recompute and compare it.
+
+| Family (ids) | Chosen variant | Immutable revision | Weight file | Upstream-published SHA-256 | Why this variant |
+|---|---|---|---|---|---|
+| SigLIP 2 (PC-1, PO-1, VC-2) | `google/siglip2-base-patch16-224` | `75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2` | `model.safetensors` (1,500,800,904 B; includes the unused text tower) | `612923381c76ec5a9bed335d1c48827e3f2e506ac31b044b63b2031fadee6a0b` | base is the smallest SigLIP 2 size; fixed 224 px (NaFlex not chosen) |
+| DINOv3 (PC-2A, PO-2A, VC-1A) | `facebook/dinov3-vits16-pretrain-lvd1689m` | `114c1379950215c8b35dfcd4e90a5c251dde0d32` | `model.safetensors` (86,406,384 B) | `4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d` | smallest DINOv3 ViT; hub access is **gated (manual approval)** |
+| DINOv2 (PC-2B, PO-2B, VC-1B) | `facebook/dinov2-small` (ViT-S/14) | `ed25f3a31f01632728cabb09d1542f84ab7b0056` | `model.safetensors` (88,249,960 B) | `ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1` | smallest DINOv2 |
+| OMZ 0230 (PC-7; PO-6A alias) | FP32 IR | OMZ `a6946b6d6ce42cbf4278df20275fab199655fc7d` | `FP32/person-attributes-recognition-crossroad-0230.{xml,bin}` | not published: `model.yml` gives SHA-384 only | FP32 for torch-port parity; the only 0230 model |
+| OMZ 0234 / 0238 (PO-6B / PO-6C) | FP32 IR | as above | `FP32/…-0234.{xml,bin}`, `FP32/…-0238.{xml,bin}` | not published (SHA-384 only) | headwear models named by R-1 |
+| OMZ 0042 (VC-5A) | FP32 IR | as above | `FP32/vehicle-attributes-recognition-barrier-0042.{xml,bin}` | not published (SHA-384 only) | the model named by R-1 |
+| Awiros (PC-5; PO-4 alias) | single released ONNX | `e43ac25dc08ac6fce65a69ca37f79a1006a48283` | `person-attribute-recognition-model-17-attrs.onnx` (112,032,282 B) | `b5186578597bc5a783e5fca593629435d39eabcc68de36897956d0e87ba9a5ef` | the only released file; the hub is **not** gated at this revision (the 2026-09-28 survey said gated) |
+| Small / compact CNN (PC-8, PO-7, VC-4A) | torchvision MobileNetV3-Small `IMAGENET1K_V1` backbone | torchvision `v0.21.0` = `7af698794eded568735f9519593603c1ec889eba` (matches the existing `torchvision==0.21.0` runtime lock) | `mobilenet_v3_small-047dcff4.pth` (10,306,551 B per server header) | not published (the filename carries an 8-hex prefix only) | smallest backbone in the parent-plan list; MAVI-trained heads do not exist yet, and no checkpoint hash is invented |
+| VTFPAR++ (PC-9; PO-8 alias) | ViT-B/16 MARS checkpoint | OpenPAR `15de98ac66e9e834029074d2375571b1bbd281b0` (code) | not identifiable: cloud-drive link only | not published | **BLOCKED**: no filename or hash; MARS-trained |
+| PC-B0 / VC-B0 | — | — | — | — | §5; implementation moves to C2 |
+
+#### 4.3.3 R-5 evaluation-permission packet
+
+This packet was prepared by the implementation agent from primary sources for R-5 (Aarav).
+
+**Every status below is `REVIEW_PENDING`.** A candidate-specific evaluation-permission determination is a Licence Review Owner action. The agent cannot make it on R-5's behalf, and R-5 has not recorded one. The "primary-source finding" column is evidence for R-5, not a determination. The survey's L-A…L-D classes are not used as outcomes.
+
+Evaluation permission, operational use, derivatives, redistribution and profile clearance stay separate. Every one of the last four is `NOT_ASSESSED`.
+
+| Candidate(s) | Primary-source finding (retrieved document, §4.3.1) | What R-5 must decide | Evaluation-permission status |
+|---|---|---|---|
+| SigLIP 2 base (PC-1, PO-1, VC-2) | Publisher model card declares `license: apache-2.0`; the hub revision has no separate LICENSE file | whether the card-declared Apache-2.0 grant covers evaluation and fine-tuning of these weights | REVIEW_PENDING |
+| DINOv2 small (PC-2B, PO-2B, VC-1B) | Model card declares `apache-2.0`; the repository LICENSE is Apache-2.0 | as above | REVIEW_PENDING |
+| DINOv3 ViT-S/16 (PC-2A, PO-2A, VC-1A) | DINOv3 License §1(a) grants a limited licence to use, reproduce, distribute and create derivatives. §1(b)(v) prohibits ITAR / trade-control end uses, including military or warfare purposes. The term starts on acceptance **or access**, and hub download needs manual approval. | whether MAVI's declared end uses fall outside the prohibited uses; who may accept the agreement; whether to request access | REVIEW_PENDING (legal interpretation and gated acceptance required) |
+| OMZ 0230 / 0234 / 0238 / 0042 (PC-7, PO-6B, PO-6C, VC-5A) | `model.yml` names the OMZ LICENSE (Apache-2.0; its URL points at `master`, so the pinned-revision copy was retrieved). Training data is undisclosed. | whether Apache-2.0 on these IR weights suffices for evaluation, given the undisclosed training data | REVIEW_PENDING |
+| Awiros (PC-5) | Hub licence field `other`, and no licence text is present. The card states an intended use ("legitimate computer-vision research, benchmarking, and responsible video-analytics development"), not a grant. The model has gender/age heads, which must be discarded. | whether any evaluation right exists without written terms; obtaining terms from the publisher | REVIEW_PENDING (terms absent) |
+| MobileNetV3-Small (PC-8, PO-7, VC-4A) | torchvision code is BSD-3-Clause. The retrieved documents state no separate terms for the ImageNet-trained weights. | whether the weights' terms (and ImageNet provenance) permit evaluation and fine-tuning | REVIEW_PENDING |
+| VTFPAR++ (PC-9) | OpenPAR code is MIT. The checkpoint is trained on MARS, and the MARS terms were not retrieved. | MARS terms; whether any evaluation right attaches to the checkpoint | REVIEW_PENDING (and identity BLOCKED) |
+
+#### 4.3.4 Acquisition and pinning result
+
+**No artefact was acquired, and no artefact is pinned by MAVI.** Acquisition is authorized only after a documented, candidate-specific R-5 determination (§3.1), and none exists. Two further gaps block it:
+- DINOv3 additionally needs a gated-access acceptance, which is a legal act for R-5 or R-1, not the agent.
+- The controlled component/evidence store outside Git is not identified in this environment. Its location is an R-1/R-6 input, and nothing may be stored in Git.
+
+Upstream-published SHA-256 identities are recorded for SigLIP 2, DINOv3, DINOv2 and Awiros (§4.3.2). The OMZ, MobileNetV3 and VTFPAR++ identities cannot be completed without acquisition, because their publishers give no SHA-256.
+
+#### 4.3.5 Draft M2 ledgers and validator-derived classes
+
+The two draft ledgers are **drafts, not the working ledgers**. Their paths do not match the validator's committed-ledger glob, so the repository check does not treat them as event ledgers.
+
+| Draft | SHA-256 of the committed draft file |
+|---|---|
+| `ledger-drafts/msr-person-attributes-2026-01-evidence-ledger.draft.json` (35 entries) | `7761fac49acfb8572ebf47c02202efa5336325d1e375ea5cb974aa198979f658` |
+| `ledger-drafts/msr-vehicle-attributes-2026-01-evidence-ledger.draft.json` (13 entries) | `375b0a51988f30b6166f4f71384f0a0d78af27aefed3b1c0c44da4bbf9efc76f` |
+
+**Contents.**
+- `methodRevision: msr-v1-m2`.
+- The drafts hold every MSR-listed candidate and discovery, including retained non-pursued entries and references. Aliases (PO-4, PO-6A, PO-8) are the same entries as PC-5, PC-7 and PC-9. PO-B0 is not a ledger candidate; it is a statistical reference with no identity. The VC-1 ensemble is not an entry, because it is a composition of unidentified components.
+- Evidence items are first-party documents from §4.3.1 with their retrieved SHA-256. Claims are copied only from the retrieved OMZ and Awiros documents.
+- The ledgers contain no licence text (the validator's licence-blind rule refused an earlier draft that had it). All dispositions are `DISCOVERED`: nothing is `SHORTLISTED`.
+- `classificationHistory` is **empty** for every entry.
+
+**Validation.**
+- Each entry passes the validator's structure, identity, evidence, claim and disposition checks. Its `classification` equals `credibility_class` and `provenance_confidence` as computed by `tools/qualification/model_selection/credibility.py`.
+- Full `validate_ledger` refuses both drafts with exactly `history_required`.
+- A throwaway in-memory probe with an obviously synthetic history entry (never written) validated both drafts completely. The only missing input is therefore the genuine recorder/reviewer action.
+
+**Validator-computed classes (not asserted):**
+
+| Class | Person | Vehicle |
+|---|---|---|
+| `mavi-owned` | PC-B0 | VC-B0 |
+| `emerging` (High confidence; published hash) | PC-5 (Awiros) | — |
+| `reference-only`, High confidence (published hash, no task-quality claim yet) | PC-1, PO-1, PC-2A, PO-2A, PC-2B, PO-2B | VC-1A, VC-1B, VC-2 |
+| `reference-only`, Low confidence (no SHA-256 published) | PC-7, PO-6B, PO-6C, PC-8, PO-7, PC-9 | VC-4A, VC-5A |
+| `excluded-discovery` (identity not yet recorded) | the 21 retained non-pursued entries and references | the 7 retained non-pursued entries and references |
+
+Two consequences for shortlisting:
+- A `reference-only` class for the frozen towers is the correct M1 result while no traceable task-quality claim exists for them. It cannot be shortlisted.
+- PC-5 is `emerging`. Shortlisting it would need an `emergingShortlistBasis`, a second reviewer, snapshotted evidence and R-5 evaluation permission. None exists, so it stays `DISCOVERED`.
+
+**The human action that turns a draft into a working ledger.**
+1. R-2 Hari Om reviews the exact draft bytes (the hash above) against the §4.3.1 sources.
+2. The recorder appends one `classificationHistory` entry per candidate, carrying the actual date, `recordedBy`, `reviewedBy`, and the `identitySha256`/`inputsSha256`/`checkpointSha256s` values that `credibility.py` computes (`document_sha256`, `classification_inputs_sha256`, `_pinned_files`).
+3. The file is committed as `docs/qualification/model-selection/<capability>/<event>-evidence-ledger.json`.
+4. `model_selection_check.py repository` must then pass.
+
+The implementation agent cannot perform or attest steps 1–2.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:
@@ -192,14 +308,23 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 
 ## 8. Slice A blockers and acceptance
 
-**SA-B1 — ledger construction pending; identity prerequisite resolved.**
-- **Resolved prerequisite.** R-1 Aarav and R-2 Hari Om are named and distinct. No review or classification action is inferred merely from assignment.
-- **Remaining work.** No `<event>-evidence-ledger.json` is committed yet. The ledgers still need dated evidence items and explicit recorder/reviewer actions; `model_selection_check.py repository` therefore still passes without exercising an event ledger.
-- **Smallest resolution.** Write both M2 ledgers (`methodRevision: msr-v1-m2`) from the retained evidence, record actual `recordedBy`/`reviewedBy` actions, and copy each validator-computed class.
+**SA-B1 — draft ledgers exist; the working ledgers need a genuine human recorder/reviewer action (EXECUTION DEPENDENCY).**
+- **Done.** R-1/R-2 are named and distinct. Both draft M2 ledgers are built from dated primary evidence and pass every validator check except `history_required` (§4.3.5).
+- **Remaining.** No classification-history action exists. The implementation agent cannot truthfully record Hari Om's review or Aarav's recording, so no working `<event>-evidence-ledger.json` is committed, and `model_selection_check.py repository` still does not exercise an event ledger.
+- **Smallest resolution.** R-2 reviews the draft bytes; the recorder appends genuine dated history entries and commits the working ledgers (§4.3.5 steps 1–4).
 
-**SA-B2 — no candidate bytes pinned (remaining owner/legal inputs).**
-- **Cause.** The initial families and conditional acquisition authority are now recorded (§3.1), but exact variants, candidate-specific R-5 evaluation permissions and the pinning run are still missing (OI-4).
-- **Smallest resolution.** R-5 records evaluation permission per candidate; the owner confirms the exact one-per-family variant; the controlled acquisition/pinning run then records revision, file paths and SHA-256 for every byte outside Git.
+**SA-B2 — no candidate bytes acquired or pinned by MAVI (EXECUTION DEPENDENCY: R-5 determinations, gated terms, store location).**
+- **Done.** Variants are resolved for every pursued family. Immutable revisions and upstream-published SHA-256 values are recorded where the publisher provides them (SigLIP 2, DINOv3, DINOv2, Awiros). An R-5 evidence packet is prepared (§4.3.2–§4.3.3).
+- **Remaining.**
+  - Every candidate-specific R-5 evaluation-permission determination is still `REVIEW_PENDING`.
+  - DINOv3 access acceptance is still required.
+  - The controlled component-store location is unidentified.
+  - OMZ, MobileNetV3 and VTFPAR++ publish no SHA-256.
+  - VTFPAR++ has no identifiable checkpoint file.
+- **Smallest resolution.**
+  1. R-5 records a dated determination per candidate.
+  2. R-1/R-6 name the controlled store.
+  3. For each permitted candidate, a controlled acquisition run fetches the exact file at the recorded revision into that store, computes SHA-256, compares it with any published value, and records the acquisition date.
 
 **SA-B3 — baselines not implemented (plan sequencing).** See §5. The implementation moves to C2. This is not an execution blocker.
 
@@ -207,12 +332,14 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 
 | Slice A acceptance item | State |
 |---|---|
-| every proposed runnable component has verifiable bytes or an explicit blocked disposition | met: all blocked, with reasons (§4) |
-| ledger validator passes | not yet meaningful: ledgers are not yet written; R-1/R-2 identity prerequisite is resolved (SA-B1) |
-| no fixture incumbent / PO-B0 unit | met: the fixture is not a candidate; PO-B0 is in no unit or fallback (§4, §6) |
+| every proposed runnable component has verifiable bytes or an explicit blocked disposition | met: nothing is acquired, and each pursued component has an exact blocked reason (§4.3.2–§4.3.4) |
+| ledger validator passes | **not met**: the drafts fail only `history_required`, and no working ledger is committed (SA-B1) |
+| no fixture incumbent / PO-B0 unit | met: the fixture is not a candidate; PO-B0 is in no unit, fallback or ledger entry (§4, §4.3.5, §6) |
+| required roles assigned | met (§2) |
+| candidate acquisition and identity auditable | partial: retrieved documents and upstream identities are recorded with SHA-256 and immutable revisions (§4.3.1–§4.3.2); no acquisition exists yet to audit (SA-B2) |
 | no unresolved owner input silently defaulted | met: supplied inputs are explicit and remaining inputs stay PARTIAL/MISSING (§2, §3) |
 
-Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until the remaining SA-B1 ledger work and SA-B2 candidate pinning are resolved and this record is updated and reviewed.
+Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until the SA-B1 human ledger actions and the SA-B2 R-5 determinations and controlled acquisition are completed, this record is updated, and the result is reviewed.
 
 ## 9. Dependencies and offline policy
 
