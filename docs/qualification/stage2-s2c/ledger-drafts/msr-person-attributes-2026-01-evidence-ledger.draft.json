@@ -1188,44 +1188,69 @@
     },
     {
       "candidateId": "PC-3A",
-      "candidateName": "PromptPAR method (OpenPAR)",
+      "candidateName": "PromptPAR method (OpenPAR; frozen CLIP ViT-L/14 + prompts)",
       "candidateKind": "method",
       "subTasks": [
         "T-PC"
       ],
       "identity": {
-        "repository": "https://github.com/Event-AHU/OpenPAR",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "repository": "https://github.com/openai/CLIP",
+        "organisation": "OpenAI",
+        "revision": "d05afc436d78f1c48dc0dbf8e5980a9d471f35f6",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
-        "names": [],
-        "groups": [],
+        "names": [
+          "Xiao Wang",
+          "Jiandong Jin",
+          "Chenglong Li",
+          "Jin Tang",
+          "Cheng Zhang",
+          "Wei Wang"
+        ],
+        "groups": [
+          "event-ahu"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
-        "venue": null,
-        "reference": null,
+        "status": "peer-reviewed",
+        "venue": "IEEE TCSVT (2024)",
+        "reference": "Pedestrian Attribute Recognition via CLIP based Vision-Language Fusion with Prompt Tuning",
         "basis": null
       },
       "architecture": {
-        "description": "PromptPAR method (OpenPAR)",
-        "documentedBy": null
+        "description": "CLIP ViT-L/14 with vision-language fusion and prompt tuning",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "event-ahu",
+            "relation": "author"
+          },
+          "source": "https://github.com/Event-AHU/OpenPAR/blob/15de98ac66e9e834029074d2375571b1bbd281b0/PromptPAR/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "8a5b2db9ac4d2632c90ad6cb3e5ea460b1beb32b885fad6be2f60cb8317747bb",
+          "recordedAt": "2026-09-30",
+          "summary": "Official implementation README for PromptPAR."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Backbone identity follows the committed survey (CLIP ViT-L/14); the README also references a timm ViT-B file, so the exact backbone is confirmed at pinning."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1237,8 +1262,8 @@
         "decidedBy": null
       },
       "methodCode": {
-        "repository": "MAVI heads/training code (Slice C2; not yet written)",
-        "revision": "UNKNOWN"
+        "repository": "https://github.com/Event-AHU/OpenPAR",
+        "revision": "15de98ac66e9e834029074d2375571b1bbd281b0"
       }
     },
     {
@@ -1249,38 +1274,63 @@
         "T-PO"
       ],
       "identity": {
-        "repository": "https://github.com/Event-AHU/OpenPAR",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "repository": "https://github.com/openai/CLIP",
+        "organisation": "OpenAI",
+        "revision": "d05afc436d78f1c48dc0dbf8e5980a9d471f35f6",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
-        "names": [],
-        "groups": [],
+        "names": [
+          "Xiao Wang",
+          "Jiandong Jin",
+          "Chenglong Li",
+          "Jin Tang",
+          "Cheng Zhang",
+          "Wei Wang"
+        ],
+        "groups": [
+          "event-ahu"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
-        "venue": null,
-        "reference": null,
+        "status": "peer-reviewed",
+        "venue": "IEEE TCSVT (2024)",
+        "reference": "Pedestrian Attribute Recognition via CLIP based Vision-Language Fusion with Prompt Tuning",
         "basis": null
       },
       "architecture": {
-        "description": "PromptPAR trained on PA-100K",
-        "documentedBy": null
+        "description": "CLIP ViT-L/14 with vision-language fusion and prompt tuning",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "event-ahu",
+            "relation": "author"
+          },
+          "source": "https://github.com/Event-AHU/OpenPAR/blob/15de98ac66e9e834029074d2375571b1bbd281b0/PromptPAR/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "8a5b2db9ac4d2632c90ad6cb3e5ea460b1beb32b885fad6be2f60cb8317747bb",
+          "recordedAt": "2026-09-30",
+          "summary": "Official implementation README for PromptPAR."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Backbone identity follows the committed survey (CLIP ViT-L/14); the README also references a timm ViT-B file, so the exact backbone is confirmed at pinning."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1292,50 +1342,78 @@
         "decidedBy": null
       },
       "methodCode": {
-        "repository": "MAVI heads/training code (Slice C2; not yet written)",
-        "revision": "UNKNOWN"
+        "repository": "https://github.com/Event-AHU/OpenPAR",
+        "revision": "15de98ac66e9e834029074d2375571b1bbd281b0"
       }
     },
     {
       "candidateId": "PC-3B",
-      "candidateName": "VTB method",
+      "candidateName": "VTB method (ViT-B/16 + text)",
       "candidateKind": "method",
       "subTasks": [
         "T-PC"
       ],
       "identity": {
-        "repository": "https://github.com/cxh0519/VTB",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "repository": "https://github.com/rwightman/pytorch-image-models",
+        "organisation": "timm (Ross Wightman)",
+        "revision": "7613094fb5cb960813f606a5c42e3c00c961bc8f",
         "tag": null,
-        "files": [],
-        "publisher": "unknown",
+        "files": [
+          {
+            "path": "jx_vit_base_p16_224-80ecf9dd.pth",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "third-party",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
-        "names": [],
-        "groups": [],
+        "names": [
+          "Xinhua Cheng",
+          "Mengxi Jia",
+          "Qian Wang",
+          "Jian Zhang"
+        ],
+        "groups": [
+          "vtb-authors"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
-        "venue": null,
-        "reference": null,
+        "status": "peer-reviewed",
+        "venue": "IEEE TCSVT (2022)",
+        "reference": "VTB (per the committed survey)",
         "basis": null
       },
       "architecture": {
-        "description": "VTB method",
-        "documentedBy": null
+        "description": "ViT-B/16 visual-textual baseline",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "vtb-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/cxh0519/VTB/blob/669153bc1dae3217e1d937e215481e18d19d8947/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "0917059930e770a1f692eb4be7f7273406121e05ebbfb3342058ca6db6131cfa",
+          "recordedAt": "2026-09-30",
+          "summary": "Author README; names the ImageNet ViT-Base backbone file."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Author group token denotes the README's cited author set; affiliation not recorded."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1347,8 +1425,8 @@
         "decidedBy": null
       },
       "methodCode": {
-        "repository": "MAVI heads/training code (Slice C2; not yet written)",
-        "revision": "UNKNOWN"
+        "repository": "https://github.com/cxh0519/VTB",
+        "revision": "669153bc1dae3217e1d937e215481e18d19d8947"
       }
     },
     {
@@ -1359,38 +1437,66 @@
         "T-PO"
       ],
       "identity": {
-        "repository": "https://github.com/cxh0519/VTB",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "repository": "https://github.com/rwightman/pytorch-image-models",
+        "organisation": "timm (Ross Wightman)",
+        "revision": "7613094fb5cb960813f606a5c42e3c00c961bc8f",
         "tag": null,
-        "files": [],
-        "publisher": "unknown",
+        "files": [
+          {
+            "path": "jx_vit_base_p16_224-80ecf9dd.pth",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "third-party",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
-        "names": [],
-        "groups": [],
+        "names": [
+          "Xinhua Cheng",
+          "Mengxi Jia",
+          "Qian Wang",
+          "Jian Zhang"
+        ],
+        "groups": [
+          "vtb-authors"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
-        "venue": null,
-        "reference": null,
+        "status": "peer-reviewed",
+        "venue": "IEEE TCSVT (2022)",
+        "reference": "VTB (per the committed survey)",
         "basis": null
       },
       "architecture": {
-        "description": "VTB trained on PA-100K",
-        "documentedBy": null
+        "description": "ViT-B/16 visual-textual baseline",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "vtb-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/cxh0519/VTB/blob/669153bc1dae3217e1d937e215481e18d19d8947/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "0917059930e770a1f692eb4be7f7273406121e05ebbfb3342058ca6db6131cfa",
+          "recordedAt": "2026-09-30",
+          "summary": "Author README; names the ImageNet ViT-Base backbone file."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Author group token denotes the README's cited author set; affiliation not recorded."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1402,8 +1508,8 @@
         "decidedBy": null
       },
       "methodCode": {
-        "repository": "MAVI heads/training code (Slice C2; not yet written)",
-        "revision": "UNKNOWN"
+        "repository": "https://github.com/cxh0519/VTB",
+        "revision": "669153bc1dae3217e1d937e215481e18d19d8947"
       }
     },
     {
@@ -1414,7 +1520,7 @@
         "T-PO"
       ],
       "identity": {
-        "repository": "https://github.com/valencebond/Rethinking_of_PAR",
+        "repository": "UNKNOWN",
         "organisation": "UNKNOWN",
         "revision": "UNKNOWN",
         "tag": null,
@@ -1425,24 +1531,42 @@
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "rethinking-par-authors"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "preprint",
         "venue": null,
-        "reference": null,
+        "reference": "arXiv:2107.03576 (extension of arXiv:2005.11909)",
         "basis": null
       },
       "architecture": {
-        "description": "Strong baseline / Rethinking PAR recipe",
-        "documentedBy": null
+        "description": "ResNet-50 / Swin-S strong-baseline recipe",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "rethinking-par-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/valencebond/Rethinking_of_PAR/blob/5f09ea67778ff8a3d83b2bb9a4a9b998df0c4333/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "4ea1394e35792d6b14e1522d775660d21d0988de91294f82e75db95199c6c601",
+          "recordedAt": "2026-09-30",
+          "summary": "Official implementation README."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Weights link empty in the survey."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Backbone checkpoint source is not stated in the retrieved README, so the backbone identity stays UNKNOWN."
       ],
       "classification": {
         "class": "excluded-discovery",
@@ -1457,8 +1581,8 @@
         "decidedBy": null
       },
       "methodCode": {
-        "repository": "MAVI heads/training code (Slice C2; not yet written)",
-        "revision": "UNKNOWN"
+        "repository": "https://github.com/valencebond/Rethinking_of_PAR",
+        "revision": "5f09ea67778ff8a3d83b2bb9a4a9b998df0c4333"
       }
     },
     {
@@ -1469,7 +1593,7 @@
         "T-PC"
       ],
       "identity": {
-        "repository": "https://github.com/speckean/upar_challenge",
+        "repository": "UNKNOWN",
         "organisation": "UNKNOWN",
         "revision": "UNKNOWN",
         "tag": null,
@@ -1479,25 +1603,47 @@
         "integrityConflict": null
       },
       "authors": {
-        "names": [],
-        "groups": [],
+        "names": [
+          "Andreas Specker",
+          "Mickael Cormier",
+          "Jürgen Beyerer"
+        ],
+        "groups": [
+          "upar-authors"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
-        "venue": null,
-        "reference": null,
+        "status": "peer-reviewed",
+        "venue": "WACV 2023",
+        "reference": "UPAR: Unified Pedestrian Attribute Recognition and Person Retrieval (arXiv:2209.02522)",
         "basis": null
       },
       "architecture": {
-        "description": "UPAR-trained ConvNeXt-B baseline",
-        "documentedBy": null
+        "description": "ConvNeXt-B baseline trained on UPAR",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "upar-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/speckean/upar_challenge/blob/d79c1916a12b362433ef880900af525ecce479c1/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "d14bee08cb07d2f11fe7fcac7d8cd983fabe8ef758b0d78421ed05b841feb491",
+          "recordedAt": "2026-09-30",
+          "summary": "Author README for the UPAR dataset and challenge."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Checkpoint not located as a pinned release."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "No released checkpoint is located, so the checkpoint identity stays UNKNOWN."
       ],
       "classification": {
         "class": "excluded-discovery",
@@ -1521,37 +1667,63 @@
       ],
       "identity": {
         "repository": "https://github.com/caodoanh2001/upar_challenge",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "C2T-Net authors",
+        "revision": "fd31f39f6d7ed8175c5f876af5e3b7f863e8eab2",
         "tag": null,
-        "files": [],
-        "publisher": "unknown",
+        "files": [
+          {
+            "path": "best_model.pth",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-author",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
-        "names": [],
-        "groups": [],
+        "names": [
+          "Doanh C. Bui",
+          "Thinh V. Le",
+          "Ba Hung Ngo"
+        ],
+        "groups": [
+          "c2t-net-authors"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
-        "venue": null,
-        "reference": null,
+        "status": "peer-reviewed",
+        "venue": "WACV 2024 Workshops",
+        "reference": "C2T-Net: Channel-Aware Cross-Fused Transformer-Style Networks for Pedestrian Attribute Recognition",
         "basis": null
       },
       "architecture": {
-        "description": "C2T-Net (UPAR 2024) checkpoint",
-        "documentedBy": null
+        "description": "Channel-aware cross-fused transformer-style network",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "c2t-net-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/caodoanh2001/upar_challenge/blob/fd31f39f6d7ed8175c5f876af5e3b7f863e8eab2/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "77020b2b0ee9469305412f69f1a43d0ec827bc68cec38a963e3011b7be8ead8e",
+          "recordedAt": "2026-09-30",
+          "summary": "Author README; checkpoint best_model.pth via a cloud-drive link without a published hash."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1572,37 +1744,54 @@
       ],
       "identity": {
         "repository": "https://github.com/openai/CLIP",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "OpenAI",
+        "revision": "d05afc436d78f1c48dc0dbf8e5980a9d471f35f6",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "openai"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "preprint",
         "venue": null,
-        "reference": null,
+        "reference": "arXiv:2103.00020 (CLIP; per the retrieved README)",
         "basis": null
       },
       "architecture": {
-        "description": "OpenAI CLIP tower + heads",
-        "documentedBy": null
+        "description": "CLIP image tower (variant not selected)",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "openai",
+            "relation": "author"
+          },
+          "source": "https://github.com/openai/CLIP/blob/d05afc436d78f1c48dc0dbf8e5980a9d471f35f6/model-card.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "7baf04f60c6234b301ec2c9ca39e67a3ca54b47c05e9509bddf732cbcbec8b7f",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card for the CLIP image and text encoders."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1627,17 +1816,19 @@
       ],
       "identity": {
         "repository": "https://github.com/mlfoundations/open_clip",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "mlfoundations",
+        "revision": "8e9b7f4c3fc7deceef098e76840804a19d4adefc",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "mlfoundations"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
@@ -1647,17 +1838,32 @@
         "basis": null
       },
       "architecture": {
-        "description": "OpenCLIP tower + heads",
-        "documentedBy": null
+        "description": "OpenCLIP image tower (variant not selected)",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "mlfoundations",
+            "relation": "author"
+          },
+          "source": "https://github.com/mlfoundations/open_clip/blob/8e9b7f4c3fc7deceef098e76840804a19d4adefc/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "1161fd4bd0a9c5588eab7fd6d62023a1c04a7d175b772fccb30711c422efefaf",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for OpenCLIP."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1682,17 +1888,19 @@
       ],
       "identity": {
         "repository": "https://github.com/apple/ml-mobileclip",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "Apple",
+        "revision": "48faa0fea4b08d74188b3841771aca6ff2c92852",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "apple"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
@@ -1702,17 +1910,32 @@
         "basis": null
       },
       "architecture": {
-        "description": "MobileCLIP 2 tower + heads",
-        "documentedBy": null
+        "description": "MobileCLIP image tower (variant not selected)",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "apple",
+            "relation": "author"
+          },
+          "source": "https://github.com/apple/ml-mobileclip/blob/48faa0fea4b08d74188b3841771aca6ff2c92852/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "ee6649a0fa45635dcd6a7b543dec5cc3ac64e017186e70199348f0f4a8cef62e",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for MobileCLIP."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1737,17 +1960,19 @@
       ],
       "identity": {
         "repository": "https://github.com/facebookresearch/MetaCLIP",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "Meta AI",
+        "revision": "f47f7841f6a91cc5676729a3d125519393d87d1e",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "meta-ai"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
@@ -1757,17 +1982,32 @@
         "basis": null
       },
       "architecture": {
-        "description": "MetaCLIP tower + heads",
-        "documentedBy": null
+        "description": "MetaCLIP image tower (variant not selected)",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "meta-ai",
+            "relation": "author"
+          },
+          "source": "https://github.com/facebookresearch/MetaCLIP/blob/f47f7841f6a91cc5676729a3d125519393d87d1e/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "ae5bc434c348828b6c1947e03d44751ae260db9d3f476270faa5159a048aa030",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for MetaCLIP."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1792,17 +2032,21 @@
       ],
       "identity": {
         "repository": "https://huggingface.co/QuanSun/EVA-CLIP",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "BAAI (EVA team)",
+        "revision": "11afd202f2ae80869d6cef18b1ec775e79bd8d12",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-author",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
-        "names": [],
-        "groups": [],
+        "names": [
+          "Quan Sun"
+        ],
+        "groups": [
+          "baai"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
@@ -1812,17 +2056,32 @@
         "basis": null
       },
       "architecture": {
-        "description": "EVA-CLIP tower + heads",
-        "documentedBy": null
+        "description": "EVA-CLIP image tower (variant not selected)",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "baai",
+            "relation": "author"
+          },
+          "source": "https://huggingface.co/QuanSun/EVA-CLIP/blob/11afd202f2ae80869d6cef18b1ec775e79bd8d12/README.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "ceed3974499d78844d627b4a127be3c88ec0edf1661c912945d668ba87ace709",
+          "recordedAt": "2026-09-30",
+          "summary": "Author hub card listing EVA-CLIP checkpoints; links the BAAI repository."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1847,37 +2106,59 @@
       ],
       "identity": {
         "repository": "https://github.com/PaddlePaddle/PaddleDetection",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "PaddlePaddle",
+        "revision": "7a4fc2578e9542d94df12907c10ec3b449be5f1e",
         "tag": null,
-        "files": [],
-        "publisher": "unknown",
+        "files": [
+          {
+            "path": "PPLCNet_x1_0_person_attribute_945_infer.tar",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "paddlepaddle"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "official-model-documentation",
         "venue": null,
-        "reference": null,
+        "reference": "PaddleDetection release/2.8 pphuman_attribute_en.md",
         "basis": null
       },
       "architecture": {
-        "description": "PP-Human attribute PP-LCNet",
-        "documentedBy": null
+        "description": "PP-LCNet person attribute classifier",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "paddlepaddle",
+            "relation": "author"
+          },
+          "source": "https://github.com/PaddlePaddle/PaddleDetection/blob/7a4fc2578e9542d94df12907c10ec3b449be5f1e/deploy/pipeline/docs/tutorials/pphuman_attribute_en.md",
+          "locator": "model table",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "4cfd83cefcadd8898e410de0d331b59e7414273d2c5e7ea48d543d918c9aee46",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher documentation for the PP-Human attribute models."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1898,37 +2179,54 @@
       ],
       "identity": {
         "repository": "https://github.com/PaddlePaddle/PaddleDetection",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "PaddlePaddle",
+        "revision": "7a4fc2578e9542d94df12907c10ec3b449be5f1e",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "paddlepaddle"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "official-model-documentation",
         "venue": null,
-        "reference": null,
+        "reference": "PaddleDetection release/2.8 pphuman_attribute_en.md",
         "basis": null
       },
       "architecture": {
-        "description": "PP-Human attribute PP-HGNet",
-        "documentedBy": null
+        "description": "PP-HGNet person attribute classifier (small or tiny variant not selected)",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "paddlepaddle",
+            "relation": "author"
+          },
+          "source": "https://github.com/PaddlePaddle/PaddleDetection/blob/7a4fc2578e9542d94df12907c10ec3b449be5f1e/deploy/pipeline/docs/tutorials/pphuman_attribute_en.md",
+          "locator": "model table",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "4cfd83cefcadd8898e410de0d331b59e7414273d2c5e7ea48d543d918c9aee46",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher documentation for the PP-Human attribute models."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -1977,7 +2275,7 @@
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). DEFERRED in the MSR (technical)."
+        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). DEFERRED in the MSR (technical). Groups several alternative families (SAM 2.1, SAM 3, human parsing), so no single identity exists until it is split before selection."
       ],
       "classification": {
         "class": "excluded-discovery",
@@ -2016,20 +2314,21 @@
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
-        "venue": null,
-        "reference": null,
+        "status": "peer-reviewed",
+        "venue": "AAAI 2025",
+        "reference": "arXiv:2408.09720 (per the committed survey)",
         "basis": null
       },
       "architecture": {
-        "description": "LLM-PAR",
+        "description": "EVA-ViT-G + Q-Former + Vicuna-7B",
         "documentedBy": null
       },
       "evidence": [],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). MSR: NOT_SHORTLISTED (technical)."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "MSR: NOT_SHORTLISTED (technical). Code/checkpoint source and author group are not recorded in committed material."
       ],
       "classification": {
         "class": "excluded-discovery",

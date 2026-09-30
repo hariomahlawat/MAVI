@@ -84,11 +84,11 @@ These directions do not themselves mark any candidate `SHORTLISTED`, `CLEARED`, 
 | Id | Sub-tasks | Upstream family / variant | Kind | Runnable revision located | Evaluation permission (survey input) | Proposed runtime mark | Byte disposition | Proposed disposition and reason |
 |---|---|---|---|---|---|---|---|---|
 | PC-B0 | T-PC | MAVI deterministic region band + chroma cluster + CIE-Lab naming | mavi-baseline | not implemented (§5) | MAVI-owned | existingGraph | BLOCKED: §5 | shortlist when implemented |
-| PC-1 | T-PC | SigLIP 2 image tower + MAVI heads (`google/siglip2-*`; size variant unselected) | method | no revision pinned | L-A (Apache-2.0) | existingGraph (state-dict tower) | BLOCKED: variant (OI-4) and acquisition | shortlist once pinned; shares identity with PO-1 |
+| PC-1 | T-PC | SigLIP 2 image tower + MAVI heads (`google/siglip2-base-patch16-224`, §4.3.2) | method | variant resolved in §4.3.2 (not acquired) | L-A (Apache-2.0) | existingGraph (state-dict tower) | BLOCKED: R-5 determination and acquisition (§4.3.4) | shortlist once pinned; shares identity with PO-1 |
 | PO-1 | T-PO | SigLIP 2 heads on the PC-1 tower | method | as PC-1 | as PC-1 | as PC-1 | BLOCKED: as PC-1 | as PC-1 |
-| PC-2A | T-PC | DINOv3 tower + MAVI heads (ViT-S/B or ConvNeXt; variant unselected) | method | no revision pinned | L-B (DINOv3 licence; ITAR/trade-control end-use condition) | existingGraph (state-dict tower) | BLOCKED: variant (OI-4), end-use review (R-5), acquisition | shortlist only if R-5 permits evaluation; shares identity with PO-2A |
+| PC-2A | T-PC | DINOv3 tower + MAVI heads (ViT-S/16 LVD-1689M, §4.3.2) | method | variant resolved in §4.3.2 (not acquired); hub access gated | L-B (DINOv3 licence; ITAR/trade-control end-use condition) | existingGraph (state-dict tower) | BLOCKED: end-use review (R-5), acquisition | shortlist only if R-5 permits evaluation; shares identity with PO-2A |
 | PO-2A | T-PO | DINOv3 heads on the PC-2A tower | method | as PC-2A | as PC-2A | as PC-2A | BLOCKED: as PC-2A | as PC-2A |
-| PC-2B | T-PC | DINOv2 tower + MAVI heads (split from PC-2) | method | no revision pinned | L-A (Apache-2.0) | existingGraph | BLOCKED: variant (OI-4) and acquisition | shortlist once pinned; shares identity with PO-2B |
+| PC-2B | T-PC | DINOv2 tower + MAVI heads (split from PC-2; ViT-S/14, §4.3.2) | method | variant resolved in §4.3.2 (not acquired) | L-A (Apache-2.0) | existingGraph | BLOCKED: R-5 determination and acquisition (§4.3.4) | shortlist once pinned; shares identity with PO-2B |
 | PO-2B | T-PO | DINOv2 heads on the PC-2B tower | method | as PC-2B | as PC-2B | as PC-2B | BLOCKED: as PC-2B | as PC-2B |
 | PC-3A | T-PC | PromptPAR method (OpenPAR, CLIP ViT-L/14 prompts) | method | code located, revision unpinned | code L-A (MIT); CLIP card out-of-scope statements (L-B); released checkpoints trained on restricted data (L-D) | extension likely (ViT-L/14 cost) | BLOCKED: acquisition, R-5 | method shortlist once pinned; released checkpoints `REFERENCE_ONLY` (evaluation-permission) unless R-5 permits |
 | PO-3A | T-PO | PromptPAR trained on PA-100K | method | as PC-3A | as PC-3A | as PC-3A | BLOCKED: as PC-3A | as PC-3A; shares identity with PC-3A |
@@ -97,7 +97,7 @@ These directions do not themselves mark any candidate `SHORTLISTED`, `CLEARED`, 
 | PO-3C | T-PO | Strong baseline / Rethinking PAR recipe trained on PA-100K (split from PO-3) | method | code located; weights link empty; no LICENSE found | not stated (R-5) | existingGraph (ResNet-50) | BLOCKED: acquisition, R-5 | method shortlist if R-5 permits |
 | PC-4A | T-PC | UPAR-trained ConvNeXt-B baseline | checkpoint | not located as a pinned release | L-C data (CC-BY-NC-SA), derived weights L-D | existingGraph (proposed) | BLOCKED: acquisition, R-5 | `REFERENCE_ONLY` (evaluation-permission) unless R-5 permits |
 | PC-4B | T-PC | C2T-Net (UPAR 2024) checkpoint (split from PC-4) | checkpoint | released; revision unpinned; no LICENSE file | as PC-4A | extension likely (Swin + EVA-ViT cost) | BLOCKED: acquisition, R-5 | as PC-4A |
-| PC-5 | T-PC, T-PO | Awiros person-attribute-recognition, ConvNeXt V2-Tiny ONNX (PO-4 is this entry) | checkpoint | gated; terms not obtained | L-D (terms not stated; gated) | existingGraph via torch port (proposed) | BLOCKED: gated terms (OI-4, R-5) | shortlist only if terms are obtained, else `REFERENCE_ONLY` |
+| PC-5 | T-PC, T-PO | Awiros person-attribute-recognition, ConvNeXt V2-Tiny ONNX (PO-4 is this entry) | checkpoint | released revision located (§4.3.2); hub not gated at that revision (the 2026-09-28 survey said gated) | L-D (hub licence `other`; no grant text located) | existingGraph via torch port (proposed) | BLOCKED: licence terms unresolved; R-5 determination pending (§4.3.3) | shortlist only if terms are obtained, else `REFERENCE_ONLY` |
 | PC-6A | T-PC | OpenAI CLIP tower + MAVI heads (split from PC-6) | method | no revision pinned | L-B (card: surveillance out of scope) | existingGraph | BLOCKED: R-5, acquisition | shortlist only if R-5 permits evaluation |
 | PC-6B | T-PC | OpenCLIP tower (LAION-2B / DataComp) + MAVI heads | method | no revision pinned | L-B | existingGraph | BLOCKED: R-5, acquisition | as PC-6A |
 | PC-6C | T-PC | MobileCLIP 2 tower + MAVI heads | method | no revision pinned | L-C (Apple research-only; derivatives research-only) | existingGraph | BLOCKED: R-5 | expected `REFERENCE_ONLY` (evaluation-permission) unless R-5 finds the profile permitted |
@@ -108,7 +108,7 @@ These directions do not themselves mark any candidate `SHORTLISTED`, `CLEARED`, 
 | PO-6C | T-PO | Intel OMZ 0238 (headwear) | checkpoint | as PC-7 | as PC-7 | as PC-7 | BLOCKED: acquisition | as PO-6B |
 | PO-5A | T-PO | PP-Human attribute, PP-LCNet (split from PO-5) | checkpoint | PaddleDetection release; revision unpinned | code L-A; weights L-D (training data inheritance, R-5) | extension (Paddle) unless a parity-tested torch port exists | BLOCKED: R-5, acquisition | shortlist if R-5 permits evaluation, else `REFERENCE_ONLY` |
 | PO-5B | T-PO | PP-Human attribute, PP-HGNet | checkpoint | as PO-5A | as PO-5A | as PO-5A | BLOCKED: as PO-5A | as PO-5A |
-| PC-8 | T-PC | small CNN fine-tuned on MAVI labels (MobileNetV3 / ResNet / ConvNeXt-T; one backbone to be chosen) | method | backbone unselected | per chosen backbone (R-5) | existingGraph (torchvision backbone) | BLOCKED: backbone variant (OI-4, OI-6) | shortlist once the backbone is chosen and pinned; a second backbone is a new candidate id |
+| PC-8 | T-PC | small CNN fine-tuned on MAVI labels (torchvision MobileNetV3-Small backbone, §4.3.2) | method | variant resolved in §4.3.2 (not acquired); backbone SHA-256 not published | per chosen backbone (R-5) | existingGraph (torchvision backbone) | BLOCKED: R-5 determination and acquisition; heads not yet trained (§4.3.2–§4.3.4) | shortlist once the backbone is chosen and pinned; a second backbone is a new candidate id |
 | PO-7 | T-PO | small CNN fine-tuned on PA-100K + MAVI labels | method | as PC-8 | as PC-8 (PA-100K CC-BY 4.0 stated) | as PC-8 | BLOCKED: as PC-8 | shares identity with PC-8 when the same backbone is used |
 | PC-9 | T-PC, T-PO | VTFPAR++ (CLIP ViT-B/16 side-tuned on tracklets; MARS checkpoint; PO-8 is this entry) | checkpoint | located; revision unpinned | not reviewed (CLIP card L-B; MARS terms, R-5) | existingGraph (proposed) | BLOCKED: acquisition, R-5 | conditional shortlist (single- and few-crop modes), else `DEFERRED` |
 | C-SEG | T-PC, T-PO | SAM 2.1 / SAM 3 / human parsing (region step) | component | — | SAM 2.1 L-A; SAM 3 L-B | — | not requested | `DEFERRED` (technical): included only by a pre-selection decision (plan §4 item 4), never because results disappoint |
@@ -120,11 +120,11 @@ These directions do not themselves mark any candidate `SHORTLISTED`, `CLEARED`, 
 | Id | Upstream family / variant | Kind | Runnable revision located | Evaluation permission (survey input) | Proposed runtime mark | Byte disposition | Proposed disposition and reason |
 |---|---|---|---|---|---|---|---|
 | VC-B0 | MAVI deterministic body-region chroma clustering + CIE-Lab naming | mavi-baseline | not implemented (§5) | MAVI-owned | existingGraph | BLOCKED: §5 | shortlist when implemented |
-| VC-1A | DINOv3 tower + MAVI colour head (split from VC-1) | method | no revision pinned | L-B (end-use condition) | existingGraph | BLOCKED: variant (OI-4), R-5, acquisition | shortlist only if R-5 permits evaluation |
-| VC-1B | DINOv2 tower + MAVI colour head | method | no revision pinned | L-A | existingGraph | BLOCKED: variant, acquisition | shortlist once pinned |
-| VC-2 | SigLIP 2 tower + MAVI colour head | method | no revision pinned | L-A | existingGraph | BLOCKED: variant, acquisition | shortlist once pinned; shares identity with VC-RA |
+| VC-1A | DINOv3 tower + MAVI colour head (split from VC-1; ViT-S/16, §4.3.2) | method | variant resolved in §4.3.2 (not acquired); hub access gated | L-B (end-use condition) | existingGraph | BLOCKED: R-5, acquisition | shortlist only if R-5 permits evaluation |
+| VC-1B | DINOv2 tower + MAVI colour head (ViT-S/14, §4.3.2) | method | variant resolved in §4.3.2 (not acquired) | L-A | existingGraph | BLOCKED: R-5, acquisition | shortlist once pinned |
+| VC-2 | SigLIP 2 tower + MAVI colour head (base patch16-224, §4.3.2) | method | variant resolved in §4.3.2 (not acquired) | L-A | existingGraph | BLOCKED: R-5, acquisition | shortlist once pinned; shares identity with VC-RA |
 | VC-3 | PP-Vehicle PP-LCNet attribute checkpoint | checkpoint | PaddleDetection release; revision unpinned | code L-A; weights trained on VeRi (NC), L-D | extension (Paddle) unless a parity-tested torch port exists | BLOCKED: R-5, acquisition | shortlist if R-5 permits evaluation, else `REFERENCE_ONLY` |
-| VC-4A | CNN fine-tuned on MAVI labels (Lima et al. recipe; backbone to be chosen) | method | backbone unselected | per backbone | existingGraph | BLOCKED: backbone variant (OI-4, OI-6) | shortlist once chosen and pinned |
+| VC-4A | CNN fine-tuned on MAVI labels (torchvision MobileNetV3-Small backbone, §4.3.2) | method | variant resolved in §4.3.2 (not acquired); backbone SHA-256 not published | per backbone | existingGraph | BLOCKED: R-5, acquisition; heads not yet trained | shortlist once chosen and pinned |
 | VC-4B | ViT-B/16 fine-tuned on MAVI labels (Lima et al.) | method | backbone revision unpinned | per backbone (R-5) | existingGraph | BLOCKED: acquisition | shortlist once pinned |
 | VC-5A | Intel OMZ vehicle-attributes-recognition-barrier-0042 | checkpoint | OMZ release; revision unpinned | L-A (training data undisclosed) | existingGraph via torch port with parity test | BLOCKED: acquisition | shortlist once pinned |
 | VC-5B | Intel OMZ vehicle-attributes-recognition-barrier-0039 (small reference; split from VC-5) | checkpoint | as VC-5A | as VC-5A | as VC-5A | BLOCKED: acquisition | shortlist once pinned |
@@ -162,6 +162,26 @@ Each document was retrieved on 2026-09-30 from the stated immutable location. Th
 | torchvision LICENSE | same revision, `LICENSE` | `6502f676851cfe25f8af75531dfb32375b7325b73c37e7b43741fa422893e71d` |
 | OpenPAR README / LICENSE | `github.com/Event-AHU/OpenPAR` @ `15de98ac66e9e834029074d2375571b1bbd281b0` | `be1cac7a42b904e4c7b34ad43d8a9f653921139fe13b68c8eaa41905fa6d05df` / `4a83a0af74830e9e42b3d40576838ddffb481a92f7ef614bb8bfdf75da13f742` |
 | VTFPAR++ README | same revision, `VTFPAR++/README.md` | `21c1fa4fa75b679528cdf91cafc565064b047947fbf9d11506c43936270a8f7a` |
+
+Retained, non-prioritized entries: documents retrieved on 2026-09-30 during the provenance repair (§4.3.5). Retrieval here records provenance only; it changes no acquisition priority.
+
+| Document | Immutable location | SHA-256 of retrieved bytes |
+|---|---|---|
+| PromptPAR README | OpenPAR @ `15de98ac66e9e834029074d2375571b1bbd281b0` `PromptPAR/README.md` | `8a5b2db9ac4d2632c90ad6cb3e5ea460b1beb32b885fad6be2f60cb8317747bb` |
+| VTB README | `github.com/cxh0519/VTB` @ `669153bc1dae3217e1d937e215481e18d19d8947` `README.md` | `0917059930e770a1f692eb4be7f7273406121e05ebbfb3342058ca6db6131cfa` |
+| Rethinking-PAR README | `github.com/valencebond/Rethinking_of_PAR` @ `5f09ea67778ff8a3d83b2bb9a4a9b998df0c4333` `README.md` | `4ea1394e35792d6b14e1522d775660d21d0988de91294f82e75db95199c6c601` |
+| UPAR README | `github.com/speckean/upar_challenge` @ `d79c1916a12b362433ef880900af525ecce479c1` `README.md` | `d14bee08cb07d2f11fe7fcac7d8cd983fabe8ef758b0d78421ed05b841feb491` |
+| C2T-Net README | `github.com/caodoanh2001/upar_challenge` @ `fd31f39f6d7ed8175c5f876af5e3b7f863e8eab2` `README.md` | `77020b2b0ee9469305412f69f1a43d0ec827bc68cec38a963e3011b7be8ead8e` |
+| OpenAI CLIP README / model card | `github.com/openai/CLIP` @ `d05afc436d78f1c48dc0dbf8e5980a9d471f35f6` | `f82c5c75e140532eb37a7d943921e1bdd57d740c6b40d0030985bc5b5d11d6f1` / `7baf04f60c6234b301ec2c9ca39e67a3ca54b47c05e9509bddf732cbcbec8b7f` |
+| OpenCLIP README | `github.com/mlfoundations/open_clip` @ `8e9b7f4c3fc7deceef098e76840804a19d4adefc` | `1161fd4bd0a9c5588eab7fd6d62023a1c04a7d175b772fccb30711c422efefaf` |
+| MobileCLIP README | `github.com/apple/ml-mobileclip` @ `48faa0fea4b08d74188b3841771aca6ff2c92852` | `ee6649a0fa45635dcd6a7b543dec5cc3ac64e017186e70199348f0f4a8cef62e` |
+| MetaCLIP README | `github.com/facebookresearch/MetaCLIP` @ `f47f7841f6a91cc5676729a3d125519393d87d1e` | `ae5bc434c348828b6c1947e03d44751ae260db9d3f476270faa5159a048aa030` |
+| EVA-CLIP hub card | `huggingface.co/QuanSun/EVA-CLIP` @ `11afd202f2ae80869d6cef18b1ec775e79bd8d12` `README.md` | `ceed3974499d78844d627b4a127be3c88ec0edf1661c912945d668ba87ace709` |
+| PP-Human attribute doc | PaddleDetection `release/2.8` = `7a4fc2578e9542d94df12907c10ec3b449be5f1e` `deploy/pipeline/docs/tutorials/pphuman_attribute_en.md` | `4cfd83cefcadd8898e410de0d331b59e7414273d2c5e7ea48d543d918c9aee46` |
+| PP-Vehicle attribute doc | PaddleDetection `release/2.6` = `7fde274c27a4a01fd88cbc53348bb05ed9b38313` `…/ppvehicle_attribute.md` | `7dfe183e80e5eeac22bc79b252faa7d4cff1fb2b6c58960767d4e9440d3e7a0b` |
+| OMZ 0039 README / model.yml | OMZ @ `a6946b6d6ce42cbf4278df20275fab199655fc7d` `models/intel/vehicle-attributes-recognition-barrier-0039/` | `027ceb592bf5d96070b7ed771db32c35c6a00ddb43e83505f5ab1b81fd5a7521` / `101d05d2c3653fdc32ca4692e68d69d4136c80dedf6a6390a040d1a1ff9b5be7` |
+
+The VTB backbone file is resolved to its hosting tag: timm `v0.1-vitjx` = `7613094fb5cb960813f606a5c42e3c00c961bc8f`, `jx_vit_base_p16_224-80ecf9dd.pth`, SHA-256 not published.
 
 #### 4.3.2 Variants resolved under the R-1 variant rule
 
@@ -214,8 +234,8 @@ The two draft ledgers are **drafts, not the working ledgers**. Their paths do no
 
 | Draft | SHA-256 of the committed draft file |
 |---|---|
-| `ledger-drafts/msr-person-attributes-2026-01-evidence-ledger.draft.json` (35 entries) | `7761fac49acfb8572ebf47c02202efa5336325d1e375ea5cb974aa198979f658` |
-| `ledger-drafts/msr-vehicle-attributes-2026-01-evidence-ledger.draft.json` (13 entries) | `375b0a51988f30b6166f4f71384f0a0d78af27aefed3b1c0c44da4bbf9efc76f` |
+| `ledger-drafts/msr-person-attributes-2026-01-evidence-ledger.draft.json` (35 entries) | `38c9d55790027d447e7952de57e41a2d8845c8b5b36a96ff0c4076b01284a9c6` |
+| `ledger-drafts/msr-vehicle-attributes-2026-01-evidence-ledger.draft.json` (13 entries) | `6160bdd47098c350f2f9a69599eb09ebf1159985b442e8381c5f584fed573c85` |
 
 **Contents.**
 - `methodRevision: msr-v1-m2`.
@@ -229,15 +249,31 @@ The two draft ledgers are **drafts, not the working ledgers**. Their paths do no
 - Full `validate_ledger` refuses both drafts with exactly `history_required`.
 - A throwaway in-memory probe with an obviously synthetic history entry (never written) validated both drafts completely. The only missing input is therefore the genuine recorder/reviewer action.
 
+**Provenance repair (2026-09-30).** An independent review found a P2: the first drafts had omitted provenance the committed material already supported for retained, non-prioritized entries, and those entries computed `excluded-discovery` only because of the omission.
+
+The repaired drafts carry forward, from the committed survey and the retrieved first-party documents above, each entry's:
+- upstream repository and immutable revision;
+- publisher and author group;
+- publication;
+- first-party README/card evidence with its SHA-256.
+
+Acquisition priority is kept separate: those entries carry the caveat "Retained discovery; not prioritized for first-pass acquisition", and the owner's first-pass set is unchanged. Unpinned files keep `sha256: UNKNOWN`, every disposition stays `DISCOVERED`, and every class is recomputed by `credibility.py`.
+
 **Validator-computed classes (not asserted):**
 
 | Class | Person | Vehicle |
 |---|---|---|
 | `mavi-owned` | PC-B0 | VC-B0 |
 | `emerging` (High confidence; published hash) | PC-5 (Awiros) | — |
-| `reference-only`, High confidence (published hash, no task-quality claim yet) | PC-1, PO-1, PC-2A, PO-2A, PC-2B, PO-2B | VC-1A, VC-1B, VC-2 |
-| `reference-only`, Low confidence (no SHA-256 published) | PC-7, PO-6B, PO-6C, PC-8, PO-7, PC-9 | VC-4A, VC-5A |
-| `excluded-discovery` (identity not yet recorded) | the 21 retained non-pursued entries and references | the 7 retained non-pursued entries and references |
+| `reference-only`, High confidence (published hash, no task-quality claim yet) | PC-1, PO-1, PC-2A, PO-2A, PC-2B, PO-2B | VC-1A, VC-1B, VC-2, VC-RA (shares the VC-2 identity) |
+| `reference-only`, Low confidence (no SHA-256 published or variant not selected) | PC-7, PO-6B, PO-6C, PC-8, PO-7, PC-9, PC-3A, PO-3A, PC-3B, PO-3B, PC-4B, PC-6A, PC-6B, PC-6C, PC-6D, PC-6E, PO-5A, PO-5B | VC-4A, VC-5A, VC-3, VC-5B, VC-RB |
+| `excluded-discovery` | PO-3C, PC-4A, R-LLMPAR, C-SEG, R-GVLM, R-OPENPAR, R-EVENT, R-OTHER26, R-PAR | VC-4B, C-SEG, R-VCR |
+
+**Why the remaining `excluded-discovery` entries are legitimate.** Each follows from genuinely unknown identity inputs, not omission:
+- **PO-3C.** The retrieved README does not state the backbone checkpoint source, so the method's identity (its backbone) is UNKNOWN. Its authors, publication and method code are recorded.
+- **PC-4A.** No released UPAR ConvNeXt-B checkpoint is located. Its authors, publication and README evidence are recorded.
+- **R-LLMPAR and VC-4B.** The committed material gives only the publication. No code/checkpoint source or author group is recorded, and nothing was retrieved for them in this pass.
+- **C-SEG, the grouped R-* references and R-VCR.** Each groups several alternative families, so no single identity exists until an entry is split before selection.
 
 Two consequences for shortlisting:
 - A `reference-only` class for the frozen towers is the correct M1 result while no traceable task-quality claim exists for them. It cannot be shortlisted.

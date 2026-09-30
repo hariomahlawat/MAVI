@@ -469,37 +469,54 @@
       ],
       "identity": {
         "repository": "https://github.com/PaddlePaddle/PaddleDetection",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "PaddlePaddle",
+        "revision": "7fde274c27a4a01fd88cbc53348bb05ed9b38313",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "paddlepaddle"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "official-model-documentation",
         "venue": null,
-        "reference": null,
+        "reference": "PaddleDetection release/2.6 ppvehicle_attribute.md",
         "basis": null
       },
       "architecture": {
-        "description": "PP-Vehicle PP-LCNet attribute",
-        "documentedBy": null
+        "description": "PP-LCNet vehicle attribute classifier",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "paddlepaddle",
+            "relation": "author"
+          },
+          "source": "https://github.com/PaddlePaddle/PaddleDetection/blob/7fde274c27a4a01fd88cbc53348bb05ed9b38313/deploy/pipeline/docs/tutorials/ppvehicle_attribute.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "7dfe183e80e5eeac22bc79b252faa7d4cff1fb2b6c58960767d4e9440d3e7a0b",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher documentation for the PP-Vehicle attribute model."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -534,20 +551,21 @@
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "preprint",
         "venue": null,
-        "reference": null,
+        "reference": "arXiv:2408.11589 (per the committed survey)",
         "basis": null
       },
       "architecture": {
-        "description": "ViT-B/16 fine-tuned (Lima et al. recipe)",
+        "description": "ViT-B/16 fine-tuned for vehicle colour",
         "documentedBy": null
       },
       "evidence": [],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Backbone checkpoint and author group are not recorded in committed material; nothing retrieved in this pass."
       ],
       "classification": {
         "class": "excluded-discovery",
@@ -575,37 +593,77 @@
       ],
       "identity": {
         "repository": "https://github.com/openvinotoolkit/open_model_zoo",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "organisation": "Intel",
+        "revision": "a6946b6d6ce42cbf4278df20275fab199655fc7d",
         "tag": null,
-        "files": [],
-        "publisher": "unknown",
+        "files": [
+          {
+            "path": "FP32/vehicle-attributes-recognition-barrier-0039.xml",
+            "sha256": "UNKNOWN"
+          },
+          {
+            "path": "FP32/vehicle-attributes-recognition-barrier-0039.bin",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "intel"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "official-model-documentation",
         "venue": null,
-        "reference": null,
+        "reference": "Open Model Zoo models/intel/vehicle-attributes-recognition-barrier-0039/README.md",
         "basis": null
       },
       "architecture": {
-        "description": "Intel OMZ vehicle-attributes-recognition-barrier-0039",
-        "documentedBy": null
+        "description": "Small vehicle colour/type classifier (7 colours)",
+        "documentedBy": "E1"
       },
-      "evidence": [],
-      "claims": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "intel",
+            "relation": "author"
+          },
+          "source": "https://github.com/openvinotoolkit/open_model_zoo/blob/a6946b6d6ce42cbf4278df20275fab199655fc7d/models/intel/vehicle-attributes-recognition-barrier-0039/README.md",
+          "locator": "README, Accuracy",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "027ceb592bf5d96070b7ed771db32c35c6a00ddb43e83505f5ab1b81fd5a7521",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for vehicle-attributes-recognition-barrier-0039, including the accuracy table."
+        }
+      ],
+      "claims": [
+        {
+          "claimId": "C1",
+          "subTask": "T-VC",
+          "objectClass": "vehicle",
+          "kind": "task-quality",
+          "metric": "colour average accuracy",
+          "value": "81.15%",
+          "dataset": "not disclosed by the publisher",
+          "split": "not disclosed by the publisher",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        }
+      ],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "model.yml publishes SHA-384 checksums, not SHA-256; pinning requires an authorized acquisition and local SHA-256."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -619,45 +677,68 @@
     },
     {
       "candidateId": "VC-RA",
-      "candidateName": "SigLIP 2 zero-shot prompts",
+      "candidateName": "SigLIP 2 base patch16-224 zero-shot prompts",
       "candidateKind": "checkpoint",
       "subTasks": [
         "T-VC"
       ],
       "identity": {
-        "repository": "UNKNOWN",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "repository": "https://huggingface.co/google/siglip2-base-patch16-224",
+        "organisation": "Google",
+        "revision": "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2",
         "tag": null,
-        "files": [],
-        "publisher": "unknown",
+        "files": [
+          {
+            "path": "model.safetensors",
+            "sha256": "612923381c76ec5a9bed335d1c48827e3f2e506ac31b044b63b2031fadee6a0b"
+          }
+        ],
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "google"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "preprint",
         "venue": null,
-        "reference": null,
+        "reference": "arXiv:2502.14786 (SigLIP 2)",
         "basis": null
       },
       "architecture": {
-        "description": "SigLIP 2 zero-shot prompts",
-        "documentedBy": null
+        "description": "SigLIP 2 image and text towers used zero-shot",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "google",
+            "relation": "author"
+          },
+          "source": "https://huggingface.co/google/siglip2-base-patch16-224/blob/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/README.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "39ac3705d62af9ffa1a14675b8ccb220a75f2d81acd530e564a3b1e3dfe418d8",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card for the SigLIP 2 base patch16-224 image-text model."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Shares the VC-2 backbone identity."
       ],
       "classification": {
-        "class": "excluded-discovery",
-        "provenanceConfidence": "Low"
+        "class": "reference-only",
+        "provenanceConfidence": "High"
       },
       "classificationHistory": [],
       "disposition": {
@@ -676,38 +757,55 @@
         "T-VC"
       ],
       "identity": {
-        "repository": "UNKNOWN",
-        "organisation": "UNKNOWN",
-        "revision": "UNKNOWN",
+        "repository": "https://github.com/openai/CLIP",
+        "organisation": "OpenAI",
+        "revision": "d05afc436d78f1c48dc0dbf8e5980a9d471f35f6",
         "tag": null,
         "files": [],
-        "publisher": "unknown",
+        "publisher": "original-organisation",
         "derivation": null,
         "integrityConflict": null
       },
       "authors": {
         "names": [],
-        "groups": [],
+        "groups": [
+          "openai"
+        ],
         "affiliatedGroups": []
       },
       "publication": {
-        "status": "none",
+        "status": "preprint",
         "venue": null,
-        "reference": null,
+        "reference": "arXiv:2103.00020 (CLIP; per the retrieved README)",
         "basis": null
       },
       "architecture": {
-        "description": "CLIP zero-shot prompts",
-        "documentedBy": null
+        "description": "CLIP image and text towers used zero-shot (variant not selected)",
+        "documentedBy": "E1"
       },
-      "evidence": [],
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "openai",
+            "relation": "author"
+          },
+          "source": "https://github.com/openai/CLIP/blob/d05afc436d78f1c48dc0dbf8e5980a9d471f35f6/model-card.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "7baf04f60c6234b301ec2c9ca39e67a3ca54b47c05e9509bddf732cbcbec8b7f",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card for the CLIP image and text encoders."
+        }
+      ],
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). Identity not yet recorded."
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
       ],
       "classification": {
-        "class": "excluded-discovery",
+        "class": "reference-only",
         "provenanceConfidence": "Low"
       },
       "classificationHistory": [],
@@ -755,7 +853,7 @@
       "claims": [],
       "popularitySignals": [],
       "caveats": [
-        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). DEFERRED in the MSR (technical)."
+        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). DEFERRED in the MSR (technical). Groups several alternative families (SAM 2.1, SAM 3, human parsing), so no single identity exists until it is split before selection."
       ],
       "classification": {
         "class": "excluded-discovery",
