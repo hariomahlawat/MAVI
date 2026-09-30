@@ -307,7 +307,7 @@ Rules:
 
 ### 9.5 Selection gates and technical decision
 
-**S2c.2b-2 reconciliation (2026-09-30).** PR #121 merged the governing operational design at `main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`. The operational protocol and M2 replace weighted/Pareto/rank-sum selection authority; §9.5a and the event templates instantiate that replacement. Earlier review-disposition tables record history, not current selection laws. Implementation is pending independent review and exact-head CI; all acceptance rows retain their existing state.
+**S2c.2b-2 reconciliation (2026-09-30).** PR #121 merged the governing operational design at `main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`. The operational protocol and M2 replace weighted/Pareto/rank-sum selection authority; §9.5a and the event templates instantiate that replacement. Earlier review-disposition tables record history, not current selection laws. The implementation merged in PR #122 (`main@7b8913982dc6796a1676de075cf1dc22a7676891`) and the real qualification execution plan in PR #123 (`main@d0db6efff201a003b9699cde675d8069259f980e`); all acceptance rows retain their existing state.
 
 **S2c.2b-1 quality/statistical amendment (2026-09-29).** Qualification-plan R3 and `docs/qualification/model-selection/s2c-quality-statistics.md` govern quality populations, denominators, calibration, support and inferential comparison. The old full-coverage AURC treatment of “unscorable” evidence and the “interval overlap = tie” rule are superseded. The weighted/Pareto final-ordering material below is retained as planning history but is **not frozen or governing** after b-1; S2c.2b-2 must reconcile the operational gates, Pareto axes and deterministic final-selection rule before either event reaches `PROTOCOL_FROZEN`.
 

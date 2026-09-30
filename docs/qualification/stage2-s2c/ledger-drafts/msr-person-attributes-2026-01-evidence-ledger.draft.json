@@ -1,0 +1,2627 @@
+{
+  "schema": "mavi-external-evidence-ledger-v1",
+  "eventId": "msr-person-attributes-2026-01",
+  "capabilityId": "person-attributes",
+  "objectClass": "person",
+  "subTasks": [
+    "T-PC",
+    "T-PO"
+  ],
+  "methodRevision": "msr-v1-m2",
+  "candidates": [
+    {
+      "candidateId": "PC-B0",
+      "candidateName": "Deterministic region band + chroma cluster + CIE-Lab naming (not yet implemented)",
+      "candidateKind": "mavi-baseline",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "MAVI",
+        "revision": "UNKNOWN"
+      },
+      "authors": {
+        "names": [],
+        "groups": [],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "Deterministic region-chroma colour naming",
+        "documentedBy": null
+      },
+      "evidence": [],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Implementation moves to Slice C2 (execution record §5); revision UNKNOWN until then."
+      ],
+      "classification": {
+        "class": "mavi-owned",
+        "provenanceConfidence": "High"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PC-1",
+      "candidateName": "SigLIP 2 base patch16-224 image tower + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://huggingface.co/google/siglip2-base-patch16-224",
+        "organisation": "Google",
+        "revision": "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2",
+        "tag": null,
+        "files": [
+          {
+            "path": "model.safetensors",
+            "sha256": "612923381c76ec5a9bed335d1c48827e3f2e506ac31b044b63b2031fadee6a0b"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "google"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "preprint",
+        "venue": null,
+        "reference": "arXiv:2502.14786 (SigLIP 2)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "SigLIP 2 ViT-B/16 image tower at 224 px (text tower unused), frozen; attribute heads trained later",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "google",
+            "relation": "author"
+          },
+          "source": "https://huggingface.co/google/siglip2-base-patch16-224/blob/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/README.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "39ac3705d62af9ffa1a14675b8ccb220a75f2d81acd530e564a3b1e3dfe418d8",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card for the SigLIP 2 base patch16-224 image-text model."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "High"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PO-1",
+      "candidateName": "SigLIP 2 base patch16-224 image tower + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://huggingface.co/google/siglip2-base-patch16-224",
+        "organisation": "Google",
+        "revision": "75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2",
+        "tag": null,
+        "files": [
+          {
+            "path": "model.safetensors",
+            "sha256": "612923381c76ec5a9bed335d1c48827e3f2e506ac31b044b63b2031fadee6a0b"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "google"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "preprint",
+        "venue": null,
+        "reference": "arXiv:2502.14786 (SigLIP 2)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "SigLIP 2 ViT-B/16 image tower at 224 px (text tower unused), frozen; attribute heads trained later",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "google",
+            "relation": "author"
+          },
+          "source": "https://huggingface.co/google/siglip2-base-patch16-224/blob/75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2/README.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "39ac3705d62af9ffa1a14675b8ccb220a75f2d81acd530e564a3b1e3dfe418d8",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card for the SigLIP 2 base patch16-224 image-text model."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "High"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PC-2A",
+      "candidateName": "DINOv3 ViT-S/16 LVD-1689M + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://huggingface.co/facebook/dinov3-vits16-pretrain-lvd1689m",
+        "organisation": "Meta AI",
+        "revision": "114c1379950215c8b35dfcd4e90a5c251dde0d32",
+        "tag": null,
+        "files": [
+          {
+            "path": "model.safetensors",
+            "sha256": "4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "meta-ai"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "preprint",
+        "venue": null,
+        "reference": "arXiv:2508.10104 (DINOv3)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "DINOv3 ViT-S/16 (LVD-1689M) backbone, frozen; attribute heads trained later",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "meta-ai",
+            "relation": "author"
+          },
+          "source": "https://github.com/facebookresearch/dinov3/blob/6876159a11b4df116f30f667f8c9888617df0751/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "da4e6e2fa1f2580be9a782338dc108ae68f98b6c9d10636583f97d8a340e664d",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for the DINOv3 model family including ViT-S/16 LVD-1689M."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Weights are access-gated on the publisher hub; the published LFS SHA-256 is recorded, bytes are not acquired."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "High"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PO-2A",
+      "candidateName": "DINOv3 ViT-S/16 LVD-1689M + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://huggingface.co/facebook/dinov3-vits16-pretrain-lvd1689m",
+        "organisation": "Meta AI",
+        "revision": "114c1379950215c8b35dfcd4e90a5c251dde0d32",
+        "tag": null,
+        "files": [
+          {
+            "path": "model.safetensors",
+            "sha256": "4610ad75edef83e75afdebf162d148dc628045ea6cbb83d67d4708c709c4f91d"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "meta-ai"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "preprint",
+        "venue": null,
+        "reference": "arXiv:2508.10104 (DINOv3)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "DINOv3 ViT-S/16 (LVD-1689M) backbone, frozen; attribute heads trained later",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "meta-ai",
+            "relation": "author"
+          },
+          "source": "https://github.com/facebookresearch/dinov3/blob/6876159a11b4df116f30f667f8c9888617df0751/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "da4e6e2fa1f2580be9a782338dc108ae68f98b6c9d10636583f97d8a340e664d",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for the DINOv3 model family including ViT-S/16 LVD-1689M."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Weights are access-gated on the publisher hub; the published LFS SHA-256 is recorded, bytes are not acquired."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "High"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PC-2B",
+      "candidateName": "DINOv2 ViT-S/14 + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://huggingface.co/facebook/dinov2-small",
+        "organisation": "Meta AI",
+        "revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+        "tag": null,
+        "files": [
+          {
+            "path": "model.safetensors",
+            "sha256": "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "meta-ai"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "preprint",
+        "venue": null,
+        "reference": "arXiv:2304.07193 (DINOv2)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "DINOv2 ViT-S/14 self-supervised backbone, frozen; attribute heads trained later",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "meta-ai",
+            "relation": "author"
+          },
+          "source": "https://huggingface.co/facebook/dinov2-small/blob/ed25f3a31f01632728cabb09d1542f84ab7b0056/README.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "4c20dca454a8e5c670e8de5c7e6040f512aeca5438516f7623eedc4e3b00599c",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card for DINOv2 ViT-S/14."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "High"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PO-2B",
+      "candidateName": "DINOv2 ViT-S/14 + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://huggingface.co/facebook/dinov2-small",
+        "organisation": "Meta AI",
+        "revision": "ed25f3a31f01632728cabb09d1542f84ab7b0056",
+        "tag": null,
+        "files": [
+          {
+            "path": "model.safetensors",
+            "sha256": "ae1e99fcefd534ed978cdeb8326f08030c96e28b7a81ffcbc98a857c84d14be1"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "meta-ai"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "preprint",
+        "venue": null,
+        "reference": "arXiv:2304.07193 (DINOv2)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "DINOv2 ViT-S/14 self-supervised backbone, frozen; attribute heads trained later",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "meta-ai",
+            "relation": "author"
+          },
+          "source": "https://huggingface.co/facebook/dinov2-small/blob/ed25f3a31f01632728cabb09d1542f84ab7b0056/README.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "4c20dca454a8e5c670e8de5c7e6040f512aeca5438516f7623eedc4e3b00599c",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card for DINOv2 ViT-S/14."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "High"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PC-5",
+      "candidateName": "Awiros person-attribute-recognition ConvNeXt V2 Tiny (17 heads)",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://huggingface.co/Awiros/person-attribute-recognition",
+        "organisation": "Awiros",
+        "revision": "e43ac25dc08ac6fce65a69ca37f79a1006a48283",
+        "tag": null,
+        "files": [
+          {
+            "path": "person-attribute-recognition-model-17-attrs.onnx",
+            "sha256": "b5186578597bc5a783e5fca593629435d39eabcc68de36897956d0e87ba9a5ef"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "awiros"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "official-model-documentation",
+        "venue": null,
+        "reference": "Awiros person-attribute-recognition model card",
+        "basis": null
+      },
+      "architecture": {
+        "description": "ConvNeXt V2 Tiny multi-head classifier (ONNX); gender and age heads to be discarded",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "awiros",
+            "relation": "author"
+          },
+          "source": "https://huggingface.co/Awiros/person-attribute-recognition/blob/e43ac25dc08ac6fce65a69ca37f79a1006a48283/README.md",
+          "locator": "§6.3 Per-Attribute Accuracy Comparison",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "980ad220edfae5ca62c79d0471b3f7f99ae7eac62d2ed09d63138406cf101e5b",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card and benchmark report; current ConvNeXt V2 Tiny column."
+        }
+      ],
+      "claims": [
+        {
+          "claimId": "C1",
+          "subTask": "T-PC",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "top-1 accuracy, top colour",
+          "value": "74.76%",
+          "dataset": "Awiros Person Attribute Benchmark (vendor, gated)",
+          "split": "held-out benchmark",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        },
+        {
+          "claimId": "C2",
+          "subTask": "T-PC",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "top-1 accuracy, bottom colour",
+          "value": "75.19%",
+          "dataset": "Awiros Person Attribute Benchmark (vendor, gated)",
+          "split": "held-out benchmark",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        },
+        {
+          "claimId": "C3",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "top-1 accuracy, has backpack",
+          "value": "94.23%",
+          "dataset": "Awiros Person Attribute Benchmark (vendor, gated)",
+          "split": "held-out benchmark",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        },
+        {
+          "claimId": "C4",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "top-1 accuracy, has handbag",
+          "value": "91.34%",
+          "dataset": "Awiros Person Attribute Benchmark (vendor, gated)",
+          "split": "held-out benchmark",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        },
+        {
+          "claimId": "C5",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "top-1 accuracy, head accessory",
+          "value": "84.66%",
+          "dataset": "Awiros Person Attribute Benchmark (vendor, gated)",
+          "split": "held-out benchmark",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        }
+      ],
+      "popularitySignals": [],
+      "caveats": [
+        "Vendor-reported on a vendor benchmark; pseudo-labels from an unnamed model per the card."
+      ],
+      "classification": {
+        "class": "emerging",
+        "provenanceConfidence": "High"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PC-7",
+      "candidateName": "Intel OMZ person-attributes-recognition-crossroad-0230",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/openvinotoolkit/open_model_zoo",
+        "organisation": "Intel",
+        "revision": "a6946b6d6ce42cbf4278df20275fab199655fc7d",
+        "tag": null,
+        "files": [
+          {
+            "path": "FP32/person-attributes-recognition-crossroad-0230.xml",
+            "sha256": "UNKNOWN"
+          },
+          {
+            "path": "FP32/person-attributes-recognition-crossroad-0230.bin",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "intel"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "official-model-documentation",
+        "venue": null,
+        "reference": "Open Model Zoo models/intel/person-attributes-recognition-crossroad-0230/README.md",
+        "basis": null
+      },
+      "architecture": {
+        "description": "PVANet-with-hyperfeatures backbone + classification head; colour points for top/bottom",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "intel",
+            "relation": "author"
+          },
+          "source": "https://github.com/openvinotoolkit/open_model_zoo/blob/a6946b6d6ce42cbf4278df20275fab199655fc7d/models/intel/person-attributes-recognition-crossroad-0230/README.md",
+          "locator": "README, Accuracy",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "1a5064c4869a696474d1416f3070ee50fbf1372e1c0cef5db0884b460ca8c70b",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for person-attributes-recognition-crossroad-0230, including the accuracy table."
+        }
+      ],
+      "claims": [
+        {
+          "claimId": "C1",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "F1 has_bag",
+          "value": "0.66",
+          "dataset": "not disclosed by the publisher",
+          "split": "not disclosed by the publisher",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        },
+        {
+          "claimId": "C2",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "F1 has_backpack",
+          "value": "0.77",
+          "dataset": "not disclosed by the publisher",
+          "split": "not disclosed by the publisher",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        },
+        {
+          "claimId": "C3",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "F1 has_hat",
+          "value": "0.64",
+          "dataset": "not disclosed by the publisher",
+          "split": "not disclosed by the publisher",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        }
+      ],
+      "popularitySignals": [],
+      "caveats": [
+        "model.yml publishes SHA-384 checksums, not SHA-256; pinning requires an authorized acquisition and local SHA-256.",
+        "No colour accuracy is published for the colour-point outputs."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PO-6B",
+      "candidateName": "Intel OMZ person-attributes-recognition-crossroad-0234 (headwear)",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/openvinotoolkit/open_model_zoo",
+        "organisation": "Intel",
+        "revision": "a6946b6d6ce42cbf4278df20275fab199655fc7d",
+        "tag": null,
+        "files": [
+          {
+            "path": "FP32/person-attributes-recognition-crossroad-0234.xml",
+            "sha256": "UNKNOWN"
+          },
+          {
+            "path": "FP32/person-attributes-recognition-crossroad-0234.bin",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "intel"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "official-model-documentation",
+        "venue": null,
+        "reference": "Open Model Zoo models/intel/person-attributes-recognition-crossroad-0234/README.md",
+        "basis": null
+      },
+      "architecture": {
+        "description": "Person attributes classifier (23.5 M params)",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "intel",
+            "relation": "author"
+          },
+          "source": "https://github.com/openvinotoolkit/open_model_zoo/blob/a6946b6d6ce42cbf4278df20275fab199655fc7d/models/intel/person-attributes-recognition-crossroad-0234/README.md",
+          "locator": "README, Accuracy",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "7f31e8b5a1841a293a81a3ba416a201f1d11c2fc21b84fbaa4f0022d639284b2",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for person-attributes-recognition-crossroad-0234, including the accuracy table."
+        }
+      ],
+      "claims": [
+        {
+          "claimId": "C1",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "F1 has_hat",
+          "value": "0.74",
+          "dataset": "not disclosed by the publisher",
+          "split": "not disclosed by the publisher",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        },
+        {
+          "claimId": "C2",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "F1 has_bag",
+          "value": "0.44",
+          "dataset": "not disclosed by the publisher",
+          "split": "not disclosed by the publisher",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        }
+      ],
+      "popularitySignals": [],
+      "caveats": [
+        "model.yml publishes SHA-384 checksums, not SHA-256; pinning requires an authorized acquisition and local SHA-256."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PO-6C",
+      "candidateName": "Intel OMZ person-attributes-recognition-crossroad-0238 (headwear)",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/openvinotoolkit/open_model_zoo",
+        "organisation": "Intel",
+        "revision": "a6946b6d6ce42cbf4278df20275fab199655fc7d",
+        "tag": null,
+        "files": [
+          {
+            "path": "FP32/person-attributes-recognition-crossroad-0238.xml",
+            "sha256": "UNKNOWN"
+          },
+          {
+            "path": "FP32/person-attributes-recognition-crossroad-0238.bin",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "intel"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "official-model-documentation",
+        "venue": null,
+        "reference": "Open Model Zoo models/intel/person-attributes-recognition-crossroad-0238/README.md",
+        "basis": null
+      },
+      "architecture": {
+        "description": "Person attributes classifier (21.8 M params)",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "intel",
+            "relation": "author"
+          },
+          "source": "https://github.com/openvinotoolkit/open_model_zoo/blob/a6946b6d6ce42cbf4278df20275fab199655fc7d/models/intel/person-attributes-recognition-crossroad-0238/README.md",
+          "locator": "README, Accuracy",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "d4acfbde0151feb9e85f0f678739ec6e14989ece741c2e95c39bf3294a79a554",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for person-attributes-recognition-crossroad-0238, including the accuracy table."
+        }
+      ],
+      "claims": [
+        {
+          "claimId": "C1",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "F1 has_hat",
+          "value": "0.42",
+          "dataset": "not disclosed by the publisher",
+          "split": "not disclosed by the publisher",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        },
+        {
+          "claimId": "C2",
+          "subTask": "T-PO",
+          "objectClass": "person",
+          "kind": "task-quality",
+          "metric": "F1 has_bag",
+          "value": "0.48",
+          "dataset": "not disclosed by the publisher",
+          "split": "not disclosed by the publisher",
+          "originEvidenceId": "E1",
+          "supportingEvidenceIds": []
+        }
+      ],
+      "popularitySignals": [],
+      "caveats": [
+        "model.yml publishes SHA-384 checksums, not SHA-256; pinning requires an authorized acquisition and local SHA-256."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PC-8",
+      "candidateName": "Small CNN route: torchvision MobileNetV3-Small + fine-tuned heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://github.com/pytorch/vision",
+        "organisation": "PyTorch",
+        "revision": "7af698794eded568735f9519593603c1ec889eba",
+        "tag": null,
+        "files": [
+          {
+            "path": "mobilenet_v3_small-047dcff4.pth",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "pytorch"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "official-model-documentation",
+        "venue": null,
+        "reference": "torchvision v0.21.0 models/mobilenetv3.py (MobileNet_V3_Small_Weights.IMAGENET1K_V1)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "torchvision MobileNetV3-Small ImageNet backbone, fine-tuned later on permitted labels",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "pytorch",
+            "relation": "author"
+          },
+          "source": "https://github.com/pytorch/vision/blob/7af698794eded568735f9519593603c1ec889eba/torchvision/models/mobilenetv3.py",
+          "locator": "MobileNet_V3_Small_Weights",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "f97937da6fd6767f9aa7cc022f84e5ef08e244e2300f085ab089d84ccc303ab1",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher weight definition for MobileNetV3-Small ImageNet weights; filename carries only an 8-hex SHA-256 prefix."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Full SHA-256 of the weight file is not published (filename prefix 047dcff4 only); pinning requires an authorized acquisition."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PO-7",
+      "candidateName": "Small CNN route: torchvision MobileNetV3-Small + fine-tuned heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/pytorch/vision",
+        "organisation": "PyTorch",
+        "revision": "7af698794eded568735f9519593603c1ec889eba",
+        "tag": null,
+        "files": [
+          {
+            "path": "mobilenet_v3_small-047dcff4.pth",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "pytorch"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "official-model-documentation",
+        "venue": null,
+        "reference": "torchvision v0.21.0 models/mobilenetv3.py (MobileNet_V3_Small_Weights.IMAGENET1K_V1)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "torchvision MobileNetV3-Small ImageNet backbone, fine-tuned later on permitted labels",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "pytorch",
+            "relation": "author"
+          },
+          "source": "https://github.com/pytorch/vision/blob/7af698794eded568735f9519593603c1ec889eba/torchvision/models/mobilenetv3.py",
+          "locator": "MobileNet_V3_Small_Weights",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "f97937da6fd6767f9aa7cc022f84e5ef08e244e2300f085ab089d84ccc303ab1",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher weight definition for MobileNetV3-Small ImageNet weights; filename carries only an 8-hex SHA-256 prefix."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Full SHA-256 of the weight file is not published (filename prefix 047dcff4 only); pinning requires an authorized acquisition."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PC-9",
+      "candidateName": "VTFPAR++ (CLIP ViT-B/16 spatio-temporal side tuning, MARS checkpoint)",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/Event-AHU/OpenPAR",
+        "organisation": "Event-AHU",
+        "revision": "15de98ac66e9e834029074d2375571b1bbd281b0",
+        "tag": null,
+        "files": [],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "event-ahu"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "peer-reviewed",
+        "venue": "Computer Vision and Image Understanding (2025)",
+        "reference": "arXiv:2404.17929",
+        "basis": null
+      },
+      "architecture": {
+        "description": "CLIP ViT-B/16 with spatio-temporal side tuning over tracklets",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "event-ahu",
+            "relation": "author"
+          },
+          "source": "https://github.com/Event-AHU/OpenPAR/blob/15de98ac66e9e834029074d2375571b1bbd281b0/VTFPAR%2B%2B/README.md",
+          "locator": "Datasets and Checkpoint",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "21c1fa4fa75b679528cdf91cafc565064b047947fbf9d11506c43936270a8f7a",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README; checkpoint distributed via a cloud-drive link without a published hash."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Checkpoint filename and SHA-256 are not published; it is trained on MARS tracklets."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PC-3A",
+      "candidateName": "PromptPAR method (OpenPAR; frozen CLIP ViT-L/14 + prompts)",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://github.com/openai/CLIP",
+        "organisation": "OpenAI",
+        "revision": "d05afc436d78f1c48dc0dbf8e5980a9d471f35f6",
+        "tag": null,
+        "files": [],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [
+          "Xiao Wang",
+          "Jiandong Jin",
+          "Chenglong Li",
+          "Jin Tang",
+          "Cheng Zhang",
+          "Wei Wang"
+        ],
+        "groups": [
+          "event-ahu"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "peer-reviewed",
+        "venue": "IEEE TCSVT (2024)",
+        "reference": "Pedestrian Attribute Recognition via CLIP based Vision-Language Fusion with Prompt Tuning",
+        "basis": null
+      },
+      "architecture": {
+        "description": "CLIP ViT-L/14 with vision-language fusion and prompt tuning",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "event-ahu",
+            "relation": "author"
+          },
+          "source": "https://github.com/Event-AHU/OpenPAR/blob/15de98ac66e9e834029074d2375571b1bbd281b0/PromptPAR/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "8a5b2db9ac4d2632c90ad6cb3e5ea460b1beb32b885fad6be2f60cb8317747bb",
+          "recordedAt": "2026-09-30",
+          "summary": "Official implementation README for PromptPAR."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Backbone identity follows the committed survey (CLIP ViT-L/14); the README also references a timm ViT-B file, so the exact backbone is confirmed at pinning."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "https://github.com/Event-AHU/OpenPAR",
+        "revision": "15de98ac66e9e834029074d2375571b1bbd281b0"
+      }
+    },
+    {
+      "candidateId": "PO-3A",
+      "candidateName": "PromptPAR trained on PA-100K",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/openai/CLIP",
+        "organisation": "OpenAI",
+        "revision": "d05afc436d78f1c48dc0dbf8e5980a9d471f35f6",
+        "tag": null,
+        "files": [],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [
+          "Xiao Wang",
+          "Jiandong Jin",
+          "Chenglong Li",
+          "Jin Tang",
+          "Cheng Zhang",
+          "Wei Wang"
+        ],
+        "groups": [
+          "event-ahu"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "peer-reviewed",
+        "venue": "IEEE TCSVT (2024)",
+        "reference": "Pedestrian Attribute Recognition via CLIP based Vision-Language Fusion with Prompt Tuning",
+        "basis": null
+      },
+      "architecture": {
+        "description": "CLIP ViT-L/14 with vision-language fusion and prompt tuning",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "event-ahu",
+            "relation": "author"
+          },
+          "source": "https://github.com/Event-AHU/OpenPAR/blob/15de98ac66e9e834029074d2375571b1bbd281b0/PromptPAR/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "8a5b2db9ac4d2632c90ad6cb3e5ea460b1beb32b885fad6be2f60cb8317747bb",
+          "recordedAt": "2026-09-30",
+          "summary": "Official implementation README for PromptPAR."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Backbone identity follows the committed survey (CLIP ViT-L/14); the README also references a timm ViT-B file, so the exact backbone is confirmed at pinning."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "https://github.com/Event-AHU/OpenPAR",
+        "revision": "15de98ac66e9e834029074d2375571b1bbd281b0"
+      }
+    },
+    {
+      "candidateId": "PC-3B",
+      "candidateName": "VTB method (ViT-B/16 + text)",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://github.com/rwightman/pytorch-image-models",
+        "organisation": "timm (Ross Wightman)",
+        "revision": "7613094fb5cb960813f606a5c42e3c00c961bc8f",
+        "tag": null,
+        "files": [
+          {
+            "path": "jx_vit_base_p16_224-80ecf9dd.pth",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "third-party",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [
+          "Xinhua Cheng",
+          "Mengxi Jia",
+          "Qian Wang",
+          "Jian Zhang"
+        ],
+        "groups": [
+          "vtb-authors"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "peer-reviewed",
+        "venue": "IEEE TCSVT (2022)",
+        "reference": "VTB (per the committed survey)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "ViT-B/16 visual-textual baseline",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "vtb-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/cxh0519/VTB/blob/669153bc1dae3217e1d937e215481e18d19d8947/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "0917059930e770a1f692eb4be7f7273406121e05ebbfb3342058ca6db6131cfa",
+          "recordedAt": "2026-09-30",
+          "summary": "Author README; names the ImageNet ViT-Base backbone file."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Author group token denotes the README's cited author set; affiliation not recorded."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "https://github.com/cxh0519/VTB",
+        "revision": "669153bc1dae3217e1d937e215481e18d19d8947"
+      }
+    },
+    {
+      "candidateId": "PO-3B",
+      "candidateName": "VTB trained on PA-100K",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/rwightman/pytorch-image-models",
+        "organisation": "timm (Ross Wightman)",
+        "revision": "7613094fb5cb960813f606a5c42e3c00c961bc8f",
+        "tag": null,
+        "files": [
+          {
+            "path": "jx_vit_base_p16_224-80ecf9dd.pth",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "third-party",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [
+          "Xinhua Cheng",
+          "Mengxi Jia",
+          "Qian Wang",
+          "Jian Zhang"
+        ],
+        "groups": [
+          "vtb-authors"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "peer-reviewed",
+        "venue": "IEEE TCSVT (2022)",
+        "reference": "VTB (per the committed survey)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "ViT-B/16 visual-textual baseline",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "vtb-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/cxh0519/VTB/blob/669153bc1dae3217e1d937e215481e18d19d8947/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "0917059930e770a1f692eb4be7f7273406121e05ebbfb3342058ca6db6131cfa",
+          "recordedAt": "2026-09-30",
+          "summary": "Author README; names the ImageNet ViT-Base backbone file."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Author group token denotes the README's cited author set; affiliation not recorded."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "https://github.com/cxh0519/VTB",
+        "revision": "669153bc1dae3217e1d937e215481e18d19d8947"
+      }
+    },
+    {
+      "candidateId": "PO-3C",
+      "candidateName": "Strong baseline / Rethinking PAR recipe",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "rethinking-par-authors"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "preprint",
+        "venue": null,
+        "reference": "arXiv:2107.03576 (extension of arXiv:2005.11909)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "ResNet-50 / Swin-S strong-baseline recipe",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "rethinking-par-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/valencebond/Rethinking_of_PAR/blob/5f09ea67778ff8a3d83b2bb9a4a9b998df0c4333/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "4ea1394e35792d6b14e1522d775660d21d0988de91294f82e75db95199c6c601",
+          "recordedAt": "2026-09-30",
+          "summary": "Official implementation README."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "Backbone checkpoint source is not stated in the retrieved README, so the backbone identity stays UNKNOWN."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "https://github.com/valencebond/Rethinking_of_PAR",
+        "revision": "5f09ea67778ff8a3d83b2bb9a4a9b998df0c4333"
+      }
+    },
+    {
+      "candidateId": "PC-4A",
+      "candidateName": "UPAR-trained ConvNeXt-B baseline",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [
+          "Andreas Specker",
+          "Mickael Cormier",
+          "Jürgen Beyerer"
+        ],
+        "groups": [
+          "upar-authors"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "peer-reviewed",
+        "venue": "WACV 2023",
+        "reference": "UPAR: Unified Pedestrian Attribute Recognition and Person Retrieval (arXiv:2209.02522)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "ConvNeXt-B baseline trained on UPAR",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "upar-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/speckean/upar_challenge/blob/d79c1916a12b362433ef880900af525ecce479c1/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "d14bee08cb07d2f11fe7fcac7d8cd983fabe8ef758b0d78421ed05b841feb491",
+          "recordedAt": "2026-09-30",
+          "summary": "Author README for the UPAR dataset and challenge."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "No released checkpoint is located, so the checkpoint identity stays UNKNOWN."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PC-4B",
+      "candidateName": "C2T-Net (UPAR 2024) checkpoint",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://github.com/caodoanh2001/upar_challenge",
+        "organisation": "C2T-Net authors",
+        "revision": "fd31f39f6d7ed8175c5f876af5e3b7f863e8eab2",
+        "tag": null,
+        "files": [
+          {
+            "path": "best_model.pth",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-author",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [
+          "Doanh C. Bui",
+          "Thinh V. Le",
+          "Ba Hung Ngo"
+        ],
+        "groups": [
+          "c2t-net-authors"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "peer-reviewed",
+        "venue": "WACV 2024 Workshops",
+        "reference": "C2T-Net: Channel-Aware Cross-Fused Transformer-Style Networks for Pedestrian Attribute Recognition",
+        "basis": null
+      },
+      "architecture": {
+        "description": "Channel-aware cross-fused transformer-style network",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "c2t-net-authors",
+            "relation": "author"
+          },
+          "source": "https://github.com/caodoanh2001/upar_challenge/blob/fd31f39f6d7ed8175c5f876af5e3b7f863e8eab2/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "77020b2b0ee9469305412f69f1a43d0ec827bc68cec38a963e3011b7be8ead8e",
+          "recordedAt": "2026-09-30",
+          "summary": "Author README; checkpoint best_model.pth via a cloud-drive link without a published hash."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PC-6A",
+      "candidateName": "OpenAI CLIP tower + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://github.com/openai/CLIP",
+        "organisation": "OpenAI",
+        "revision": "d05afc436d78f1c48dc0dbf8e5980a9d471f35f6",
+        "tag": null,
+        "files": [],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "openai"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "preprint",
+        "venue": null,
+        "reference": "arXiv:2103.00020 (CLIP; per the retrieved README)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "CLIP image tower (variant not selected)",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "openai",
+            "relation": "author"
+          },
+          "source": "https://github.com/openai/CLIP/blob/d05afc436d78f1c48dc0dbf8e5980a9d471f35f6/model-card.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "7baf04f60c6234b301ec2c9ca39e67a3ca54b47c05e9509bddf732cbcbec8b7f",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher model card for the CLIP image and text encoders."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PC-6B",
+      "candidateName": "OpenCLIP tower + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://github.com/mlfoundations/open_clip",
+        "organisation": "mlfoundations",
+        "revision": "8e9b7f4c3fc7deceef098e76840804a19d4adefc",
+        "tag": null,
+        "files": [],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "mlfoundations"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "OpenCLIP image tower (variant not selected)",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "mlfoundations",
+            "relation": "author"
+          },
+          "source": "https://github.com/mlfoundations/open_clip/blob/8e9b7f4c3fc7deceef098e76840804a19d4adefc/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "1161fd4bd0a9c5588eab7fd6d62023a1c04a7d175b772fccb30711c422efefaf",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for OpenCLIP."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PC-6C",
+      "candidateName": "MobileCLIP 2 tower + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://github.com/apple/ml-mobileclip",
+        "organisation": "Apple",
+        "revision": "48faa0fea4b08d74188b3841771aca6ff2c92852",
+        "tag": null,
+        "files": [],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "apple"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "MobileCLIP image tower (variant not selected)",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "apple",
+            "relation": "author"
+          },
+          "source": "https://github.com/apple/ml-mobileclip/blob/48faa0fea4b08d74188b3841771aca6ff2c92852/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "ee6649a0fa45635dcd6a7b543dec5cc3ac64e017186e70199348f0f4a8cef62e",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for MobileCLIP."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PC-6D",
+      "candidateName": "MetaCLIP tower + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://github.com/facebookresearch/MetaCLIP",
+        "organisation": "Meta AI",
+        "revision": "f47f7841f6a91cc5676729a3d125519393d87d1e",
+        "tag": null,
+        "files": [],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "meta-ai"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "MetaCLIP image tower (variant not selected)",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "meta-ai",
+            "relation": "author"
+          },
+          "source": "https://github.com/facebookresearch/MetaCLIP/blob/f47f7841f6a91cc5676729a3d125519393d87d1e/README.md",
+          "locator": "README",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "ae5bc434c348828b6c1947e03d44751ae260db9d3f476270faa5159a048aa030",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher README for MetaCLIP."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PC-6E",
+      "candidateName": "EVA-CLIP tower + heads",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC"
+      ],
+      "identity": {
+        "repository": "https://huggingface.co/QuanSun/EVA-CLIP",
+        "organisation": "BAAI (EVA team)",
+        "revision": "11afd202f2ae80869d6cef18b1ec775e79bd8d12",
+        "tag": null,
+        "files": [],
+        "publisher": "original-author",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [
+          "Quan Sun"
+        ],
+        "groups": [
+          "baai"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "EVA-CLIP image tower (variant not selected)",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "baai",
+            "relation": "author"
+          },
+          "source": "https://huggingface.co/QuanSun/EVA-CLIP/blob/11afd202f2ae80869d6cef18b1ec775e79bd8d12/README.md",
+          "locator": "model card",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "ceed3974499d78844d627b4a127be3c88ec0edf1661c912945d668ba87ace709",
+          "recordedAt": "2026-09-30",
+          "summary": "Author hub card listing EVA-CLIP checkpoints; links the BAAI repository."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "PO-5A",
+      "candidateName": "PP-Human attribute PP-LCNet",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/PaddlePaddle/PaddleDetection",
+        "organisation": "PaddlePaddle",
+        "revision": "7a4fc2578e9542d94df12907c10ec3b449be5f1e",
+        "tag": null,
+        "files": [
+          {
+            "path": "PPLCNet_x1_0_person_attribute_945_infer.tar",
+            "sha256": "UNKNOWN"
+          }
+        ],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "paddlepaddle"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "official-model-documentation",
+        "venue": null,
+        "reference": "PaddleDetection release/2.8 pphuman_attribute_en.md",
+        "basis": null
+      },
+      "architecture": {
+        "description": "PP-LCNet person attribute classifier",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "paddlepaddle",
+            "relation": "author"
+          },
+          "source": "https://github.com/PaddlePaddle/PaddleDetection/blob/7a4fc2578e9542d94df12907c10ec3b449be5f1e/deploy/pipeline/docs/tutorials/pphuman_attribute_en.md",
+          "locator": "model table",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "4cfd83cefcadd8898e410de0d331b59e7414273d2c5e7ea48d543d918c9aee46",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher documentation for the PP-Human attribute models."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "PO-5B",
+      "candidateName": "PP-Human attribute PP-HGNet",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "https://github.com/PaddlePaddle/PaddleDetection",
+        "organisation": "PaddlePaddle",
+        "revision": "7a4fc2578e9542d94df12907c10ec3b449be5f1e",
+        "tag": null,
+        "files": [],
+        "publisher": "original-organisation",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [
+          "paddlepaddle"
+        ],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "official-model-documentation",
+        "venue": null,
+        "reference": "PaddleDetection release/2.8 pphuman_attribute_en.md",
+        "basis": null
+      },
+      "architecture": {
+        "description": "PP-HGNet person attribute classifier (small or tiny variant not selected)",
+        "documentedBy": "E1"
+      },
+      "evidence": [
+        {
+          "evidenceId": "E1",
+          "type": "first-party-claim",
+          "producer": {
+            "group": "paddlepaddle",
+            "relation": "author"
+          },
+          "source": "https://github.com/PaddlePaddle/PaddleDetection/blob/7a4fc2578e9542d94df12907c10ec3b449be5f1e/deploy/pipeline/docs/tutorials/pphuman_attribute_en.md",
+          "locator": "model table",
+          "retrievedOn": "2026-09-30",
+          "retrievedSha256": "4cfd83cefcadd8898e410de0d331b59e7414273d2c5e7ea48d543d918c9aee46",
+          "recordedAt": "2026-09-30",
+          "summary": "Publisher documentation for the PP-Human attribute models."
+        }
+      ],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30)."
+      ],
+      "classification": {
+        "class": "reference-only",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "C-SEG",
+      "candidateName": "SAM 2.1 / SAM 3 / human parsing region component",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "SAM 2.1 / SAM 3 / human parsing region component",
+        "documentedBy": null
+      },
+      "evidence": [],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). DEFERRED in the MSR (technical). Groups several alternative families (SAM 2.1, SAM 3, human parsing), so no single identity exists until it is split before selection."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "R-LLMPAR",
+      "candidateName": "LLM-PAR",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "peer-reviewed",
+        "venue": "AAAI 2025",
+        "reference": "arXiv:2408.09720 (per the committed survey)",
+        "basis": null
+      },
+      "architecture": {
+        "description": "EVA-ViT-G + Q-Former + Vicuna-7B",
+        "documentedBy": null
+      },
+      "evidence": [],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery; not prioritized for first-pass acquisition (owner direction 2026-09-30).",
+        "MSR: NOT_SHORTLISTED (technical). Code/checkpoint source and author group are not recorded in committed material."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "R-GVLM",
+      "candidateName": "Small generative VLMs (classifier role)",
+      "candidateKind": "checkpoint",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "Small generative VLMs (classifier role)",
+        "documentedBy": null
+      },
+      "evidence": [],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). MSR: NOT_SHORTLISTED (technical)."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      }
+    },
+    {
+      "candidateId": "R-OPENPAR",
+      "candidateName": "UniPAR, SequencePAR, MambaPAR, KGPAR, UAPAR",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "UniPAR, SequencePAR, MambaPAR, KGPAR, UAPAR",
+        "documentedBy": null
+      },
+      "evidence": [],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). MSR: REFERENCE_ONLY (no checkpoint located)."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "R-EVENT",
+      "candidateName": "PFM-VEPAR, EventPAR/RWKV-PAR",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "PFM-VEPAR, EventPAR/RWKV-PAR",
+        "documentedBy": null
+      },
+      "evidence": [],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). MSR: NOT_SHORTLISTED (event-camera modality)."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "R-OTHER26",
+      "candidateName": "SNN-PAR, AttackPAR, YOLOv8 + ResNet18 PAR",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "SNN-PAR, AttackPAR, YOLOv8 + ResNet18 PAR",
+        "documentedBy": null
+      },
+      "evidence": [],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). MSR dispositions retained."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    },
+    {
+      "candidateId": "R-PAR",
+      "candidateName": "Other academic PAR (Rethinking-PAR, DAFL, PARFormer, SOLIDER, HAP, ViTA-PAR, FRDL)",
+      "candidateKind": "method",
+      "subTasks": [
+        "T-PC",
+        "T-PO"
+      ],
+      "identity": {
+        "repository": "UNKNOWN",
+        "organisation": "UNKNOWN",
+        "revision": "UNKNOWN",
+        "tag": null,
+        "files": [],
+        "publisher": "unknown",
+        "derivation": null,
+        "integrityConflict": null
+      },
+      "authors": {
+        "names": [],
+        "groups": [],
+        "affiliatedGroups": []
+      },
+      "publication": {
+        "status": "none",
+        "venue": null,
+        "reference": null,
+        "basis": null
+      },
+      "architecture": {
+        "description": "Other academic PAR (Rethinking-PAR, DAFL, PARFormer, SOLIDER, HAP, ViTA-PAR, FRDL)",
+        "documentedBy": null
+      },
+      "evidence": [],
+      "claims": [],
+      "popularitySignals": [],
+      "caveats": [
+        "Retained discovery, not pursued in the first pass (owner direction 2026-09-30). MSR: decided at freeze."
+      ],
+      "classification": {
+        "class": "excluded-discovery",
+        "provenanceConfidence": "Low"
+      },
+      "classificationHistory": [],
+      "disposition": {
+        "status": "DISCOVERED",
+        "reasonClass": null,
+        "reason": null,
+        "revisitTrigger": null,
+        "decidedBy": null
+      },
+      "methodCode": {
+        "repository": "MAVI heads/training code (Slice C2; not yet written)",
+        "revision": "UNKNOWN"
+      }
+    }
+  ]
+}

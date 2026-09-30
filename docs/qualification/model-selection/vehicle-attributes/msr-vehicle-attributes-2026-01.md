@@ -9,7 +9,7 @@
 | Event id / capability | `msr-vehicle-attributes-2026-01` / `vehicle-attributes` |
 | State / outcome | `PLANNED` / — |
 | Originating stage | Stage 2 S2c (`docs/superpowers/plans/2026-09-28-stage2-s2c-learned-attribute-model-packs.md` §9, §22) |
-| Owner / independent reviewer | MAVI owner (to be named at S2c.0) / to be named at S2c.2 |
+| Owner / independent reviewer | **Aarav / Hari Om**: roles R-1 and R-2 in `../../stage2-s2c/real-qualification-execution-record.md` §2; assigned 2026-09-30 |
 | Governing documents | ADR-013, ADR-014; qualification plan `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` (with R1–R2); register `docs/reviews/2026-09-23-visual-attributes-acceptance.md` |
 | Protocol | `msr-vehicle-attributes-2026-01-protocol.md`, not yet written (S2c.2) |
 | Incumbent | **none.** The S2b fixture inferencer is a Development-only test double |
@@ -60,3 +60,7 @@ Open.
 ### S2c.2b-2 / M2 reconciliation
 
 This event remains PLANNED: no freeze, measurement or choice occurred in protocol implementation. Use the b-1 quality/statistical authority and b-2 `../s2c-operational-selection.md`, M2 ledger revision and decision-v2. Person and vehicle quality evidence remain capability-specific; final operational identity and owner implementation are one exact person×vehicle pair under event pair id `msr-attributes-2026-01`. Neither capability's independent result substitutes for joint measurement. Technical T is recorded before implementation snapshots/licence/profile outputs; a frozen fallback never rewrites F or its original quality outcome.
+
+### Real qualification Slice A preparation (2026-09-30)
+
+This event remains `PLANNED`. Slice A is accepted in `../../stage2-s2c/real-qualification-execution-record.md`: the candidate re-survey, split variants, draft unit proposals, required scope/fallback, R-5 evaluation-permission decisions, working M2 ledger and controlled acquisition evidence are recorded there. No candidate is shortlisted, run, measured or selected. R-1 Aarav and R-2 Hari Om are assigned and distinct. The approved draft ledger is retained under `../../stage2-s2c/ledger-drafts/`; R-1 recorded the initial classification history after R-2 approval, and the working ledger `msr-vehicle-attributes-2026-01-evidence-ledger.json` now exists beside this record and validates with every candidate `DISCOVERED` (record §4.3.7; SA-B1 resolved). It is not frozen. For the first-pass set, DINOv2, SigLIP 2 and OMZ 0042 artefacts are acquired and integrity-verified in the designated controlled store (record §4.3.11; SA-B2 resolved); DINOv3 remains not permitted for evaluation, and MobileNetV3-Small remains explicitly blocked/pending. Acquisition does not itself change credibility class, disposition or shortlist status. The candidate table above remains the planning proposal.
