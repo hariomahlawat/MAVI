@@ -1,6 +1,6 @@
 # Stage 2 S2c.2b-2 — Operational and Multi-objective Protocol
 
-**Status:** Revised draft implementation plan — updated after independent Astra architecture review and Claude repository-grounded cold review; not governing until final bounded review, acceptance, exact-head CI and merge.  
+**Status:** Architecture accepted and merged in PR #121 at `main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`. Implementation clarification I1 below is proposed with the implementation and requires independent review; the remaining merged architecture is governing.
 **Date:** 2026-09-29  
 **Starting baseline:** `main@7d97cca565098bf1bef9a48122e01540ec5a37db` (PR #120 merge; S2c.2b-1 governing).  
 **Scope:** planning/protocol design only. No model is selected, downloaded, trained, calibrated or benchmarked. No F/G acceptance row changes.  
@@ -801,14 +801,15 @@ S2c creates one checked cross-event artefact:
 - **canonical bytes:** the same rules as §20.2 (UTF-8, exact keys, duplicate keys refused, finite numbers only, deterministic ordering, trailing LF). Every hash in the chain, including `supersedes` and `jointOperationalDecisionSha256`, is the SHA-256 of those canonical bytes;
 - **identity:** both event ids, both **frozen-ledger** hashes, one **`mavi-s2c-quality-result-v1` hash** for each capability, b-1/b-2 contract hashes and the frozen experiment hash;
 - **`technicalStage`** (written at `TECHNICAL_DECISION_RECORDED`): `J_person`/`J_vehicle`, every evaluated joint pair with exact person/vehicle `unitId`s, operational evidence hash, `H_lo`, `H_up`, admission/constraint outcomes, `T`, technical outcome and joint evidence hash;
-- **`implementationStage`** (`null` until `QUALIFICATION_PENDING`): both events' decision-snapshot hashes, the per-unit licence status per profile, `C_r` and `T_r` per profile, `C_all`, `K_person`, `K_vehicle`, `C_impl` with the per-component credibility class used, `T_impl`, and a `supersedes` hash naming the technical-stage version it extends.
+- **`implementationStage`** (`null` until `QUALIFICATION_PENDING`): both events' decision-snapshot hashes, the per-unit licence status per profile, `C_r` and `T_r` per profile, `C_all`, `K_person`, `K_vehicle`, `C_impl` with the per-component credibility class used, `T_impl`, and a `supersedes` hash naming its immediate retained predecessor (clarification I1 below).
 
 A version with a non-null `implementationStage` is a new document, with a new hash. Its `technicalStage` must be byte-identical to that of the version it supersedes (checked), so licence and credibility can never rewrite the technical result. The supersession chain only points backwards, so it stays acyclic.
 
 **Predecessor resolution (checked).**
 - `technical-v1` has `supersedes: null`.
 - Every later version's `supersedes` must resolve to **exactly one** retained version file in the same event pair whose canonical SHA-256 equals it. That file must be the immediately preceding entry in the index, so the chain is linear with no gaps, forks or cycles.
-- A later technical version (a numbered revision of the technical stage) follows the §19 revision rules, and every implementation version after it must supersede that newer technical version.
+- A later technical version follows the §19 numbered revision rules. The first implementation version after it supersedes that newer technical version; implementation-only revisions follow clarification I1 below.
+- **Implementation clarification I1 (pending-resolution path):** the first implementation version extends the immediately preceding technical version. Later licence/snapshot determinations may create a new implementation version extending the immediately preceding implementation version, with the same frozen inputs and byte-identical technical stage. Its `implementationStage.supersedes` names that immediate predecessor. Dates cannot regress and snapshots evolve append-only from the preceding decision date. This closes the pending-to-resolved lifecycle without rerunning technical selection. After a numbered technical revision, the first implementation version extends that new technical version. The linear retention rule still applies to every version.
 - Each event decision-v2 must cite a version that is retained and resolvable, with the stage its state requires: technical at `TECHNICAL_DECISION_RECORDED`, implementation at `QUALIFICATION_PENDING`/`CLOSED`. Earlier decision versions (M1 §9 compares them) keep citing their own retained version, so the audit trail stays checkable from the repository alone, without Git history.
 
 The validator dependency is one-way and acyclic: load both event ledgers and their quality-result artefacts first; validate the joint operational document from those immutable inputs; hash the joint document (and, for an implementation-stage version, first the decision snapshots and the superseded technical-stage version); then load/validate each event decision-v2, which may cite `jointOperationalDecisionSha256`. The joint document does **not** cite full event decision hashes. Any S2c person/vehicle event still using decision-v1 is refused; decision-v1 remains accepted for non-S2c events.

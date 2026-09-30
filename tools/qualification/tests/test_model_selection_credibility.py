@@ -61,7 +61,7 @@ def entry_of(document, candidate_id):
 
 
 def full():
-    return ledger(baseline(), established(), emerging(), reference(), excluded(), method())
+    return ledger(baseline(), established(), emerging(), reference(), excluded(), method(), capability="synthetic-colour")
 
 
 # ------------------------------------------------------------------ baseline fixture
@@ -289,7 +289,7 @@ def test_peer_reviewed_requires_venue_and_established_preprint_requires_basis():
 @pytest.mark.parametrize("change", [
     {"producer": {"group": "mavi", "relation": "independent"}},
     {"producer": {"group": "mavi-bakeoff", "relation": "independent"}},
-    {"source": "docs/qualification/model-selection/vehicle-attributes/msr-vehicle-attributes-2026-01.md"},
+    {"source": "docs/qualification/model-selection/vehicle-attributes/msr-synthetic-colour-2026-01.md"},
     {"source": "evidence/bakeoff/results.json"},
     {"source": "https://github.com/hariomahlawat/MAVI/blob/main/x.md"},
     {"source": "evidence-store://sha256/abc"},
@@ -873,7 +873,7 @@ def test_person_ledger_is_separate():
     entry["evidence"][1].update(subTask="T-PC", objectClass="person")
     document = ledger(entry, object_class="person", capability="person-attributes", subtasks=("T-PC", "T-PO"))
     assert validate_ledger(document)["PC-1"]["class"] == "established"
-    document["eventId"] = "msr-vehicle-attributes-2026-01"
+    document["eventId"] = "msr-synthetic-colour-2026-01"
     refused("event_id_mismatch", validate_ledger, document)
 
 
@@ -1062,24 +1062,24 @@ def test_strongest_reported_resolves_and_is_labelled():
 
 
 def write_event(tmp_path, *, frozen=None, protocol=True, record=True, decision_doc=None, snapshot=None, current=None):
-    folder = tmp_path / "docs" / "qualification" / "model-selection" / "vehicle-attributes"
+    folder = tmp_path / "docs" / "qualification" / "model-selection" / "synthetic-colour"
     folder.mkdir(parents=True, exist_ok=True)
     document = full() if current is None else current
-    (folder / "msr-vehicle-attributes-2026-01-evidence-ledger.json").write_text(json.dumps(document))
+    (folder / "msr-synthetic-colour-2026-01-evidence-ledger.json").write_text(json.dumps(document))
     if snapshot is not None:
-        (folder / "msr-vehicle-attributes-2026-01-evidence-ledger-decided.json").write_text(json.dumps(snapshot))
+        (folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json").write_text(json.dumps(snapshot))
     if frozen is not None:
-        (folder / "msr-vehicle-attributes-2026-01-evidence-ledger-frozen.json").write_text(json.dumps(frozen))
+        (folder / "msr-synthetic-colour-2026-01-evidence-ledger-frozen.json").write_text(json.dumps(frozen))
     if protocol:
         cited = document_sha256(frozen) if frozen is not None else ""
-        protocol_path = folder / "msr-vehicle-attributes-2026-01-protocol.md"
+        protocol_path = folder / "msr-synthetic-colour-2026-01-protocol.md"
         frozen_on = frozen["frozenOn"] if frozen is not None else ""
         protocol_path.write_text(f"Frozen ledger SHA-256: {cited}\nFrozen on: {frozen_on}\n")
         if record:
-            (folder / "msr-vehicle-attributes-2026-01.md").write_text(
+            (folder / "msr-synthetic-colour-2026-01.md").write_text(
                 f"Protocol SHA-256: {lf_normalised_sha256(protocol_path)}\n")
     if decision_doc is not None:
-        (folder / "msr-vehicle-attributes-2026-01-decision.json").write_text(json.dumps(decision_doc))
+        (folder / "msr-synthetic-colour-2026-01-decision.json").write_text(json.dumps(decision_doc))
     return folder, document
 
 
@@ -1090,11 +1090,11 @@ def test_committed_ledgers_and_decisions_validate():
 def complete_event(tmp_path, current=None):
     folder, _ = write_event(tmp_path, frozen=full(), snapshot=full(), current=current)
     summary = decision(full())
-    summary["protocolSha256"] = lf_normalised_sha256(folder / "msr-vehicle-attributes-2026-01-protocol.md")
-    decision_path = folder / "msr-vehicle-attributes-2026-01-decision.json"
+    summary["protocolSha256"] = lf_normalised_sha256(folder / "msr-synthetic-colour-2026-01-protocol.md")
+    decision_path = folder / "msr-synthetic-colour-2026-01-decision.json"
     decision_path.write_text(json.dumps(summary))
-    record_path = folder / "msr-vehicle-attributes-2026-01.md"
-    snapshot_path = folder / "msr-vehicle-attributes-2026-01-evidence-ledger-decided.json"
+    record_path = folder / "msr-synthetic-colour-2026-01.md"
+    snapshot_path = folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json"
     record_path.write_text(record_path.read_text() + f"Decision SHA-256: {lf_normalised_sha256(decision_path)}\n"
                            f"Decision snapshot SHA-256: {lf_normalised_sha256(snapshot_path)}\n")
     return folder
@@ -1117,7 +1117,7 @@ def test_nothing_added_after_the_decision_is_dated_before_it(tmp_path):
 
 def test_record_carries_decision_and_snapshot_hashes(tmp_path):
     folder = complete_event(tmp_path)
-    snapshot_path = folder / "msr-vehicle-attributes-2026-01-evidence-ledger-decided.json"
+    snapshot_path = folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json"
     rewritten = json.loads(snapshot_path.read_text())
     entry_of(rewritten, "VC-EXC")["caveats"].append("rewritten after the decision")
     snapshot_path.write_text(json.dumps(rewritten))
@@ -1134,11 +1134,11 @@ def test_working_ledger_and_snapshot_need_not_carry_frozen_on(tmp_path):
     del current["frozenOn"], snapshot["frozenOn"]
     folder, _ = write_event(tmp_path, frozen=full(), snapshot=snapshot, current=current)
     summary = decision(snapshot, frozen=full())
-    summary["protocolSha256"] = lf_normalised_sha256(folder / "msr-vehicle-attributes-2026-01-protocol.md")
-    decision_path = folder / "msr-vehicle-attributes-2026-01-decision.json"
+    summary["protocolSha256"] = lf_normalised_sha256(folder / "msr-synthetic-colour-2026-01-protocol.md")
+    decision_path = folder / "msr-synthetic-colour-2026-01-decision.json"
     decision_path.write_text(json.dumps(summary))
-    record_path = folder / "msr-vehicle-attributes-2026-01.md"
-    snapshot_path = folder / "msr-vehicle-attributes-2026-01-evidence-ledger-decided.json"
+    record_path = folder / "msr-synthetic-colour-2026-01.md"
+    snapshot_path = folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json"
     record_path.write_text(record_path.read_text() + f"{lf_normalised_sha256(decision_path)}\n"
                            f"{lf_normalised_sha256(snapshot_path)}\n")
     assert len(validate_repository(tmp_path)) == 4
@@ -1146,7 +1146,7 @@ def test_working_ledger_and_snapshot_need_not_carry_frozen_on(tmp_path):
 
 def test_decision_requires_its_ledger_snapshot(tmp_path):
     folder = complete_event(tmp_path)
-    (folder / "msr-vehicle-attributes-2026-01-evidence-ledger-decided.json").unlink()
+    (folder / "msr-synthetic-colour-2026-01-evidence-ledger-decided.json").unlink()
     refused("decision_without_snapshot", validate_repository, tmp_path)
 
 
@@ -1192,7 +1192,7 @@ def test_repository_scan_binds_the_protocol_hash(tmp_path):
 
 def test_repository_scan_requires_protocol_to_cite_frozen_ledger(tmp_path):
     folder, _ = write_event(tmp_path, frozen=full())
-    (folder / "msr-vehicle-attributes-2026-01-protocol.md").write_text("no hash here\n")
+    (folder / "msr-synthetic-colour-2026-01-protocol.md").write_text("no hash here\n")
     refused("frozen_ledger_not_cited_by_protocol", validate_repository, tmp_path)
 
 
@@ -1206,16 +1206,16 @@ def test_protocol_requires_frozen_ledger_and_record_citation(tmp_path):
     refused("protocol_without_frozen_ledger", validate_repository, tmp_path)
     folder, _ = write_event(tmp_path / "b", frozen=full(), record=False)
     refused("protocol_hash_not_recorded_in_record", validate_repository, tmp_path / "b")
-    folder = tmp_path / "c" / "docs" / "qualification" / "model-selection" / "vehicle-attributes"
+    folder = tmp_path / "c" / "docs" / "qualification" / "model-selection" / "synthetic-colour"
     folder.mkdir(parents=True)
-    (folder / "msr-vehicle-attributes-2026-01-protocol.md").write_text("protocol without any ledger\n")
+    (folder / "msr-synthetic-colour-2026-01-protocol.md").write_text("protocol without any ledger\n")
     refused("protocol_without_frozen_ledger", validate_repository, tmp_path / "c")
 
 
 def test_repository_scan_refuses_misplaced_ledger(tmp_path):
     folder = tmp_path / "docs" / "qualification" / "model-selection" / "person-attributes"
     folder.mkdir(parents=True)
-    (folder / "msr-vehicle-attributes-2026-01-evidence-ledger.json").write_text(json.dumps(full()))
+    (folder / "msr-synthetic-colour-2026-01-evidence-ledger.json").write_text(json.dumps(full()))
     refused("ledger_location_mismatch", validate_repository, tmp_path)
 
 

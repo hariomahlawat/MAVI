@@ -1691,6 +1691,19 @@ def check_vision_release_metadata(
             fail(f"Model manifest {rel(manifest_path)} is bound by no capability binding.", errors)
 
 
+def check_model_selection_protocols(errors: list[str]) -> None:
+    sys.path.insert(0, str(ROOT / "tools/qualification"))
+    from model_selection import credibility, s2c_artifacts
+    try:
+        credibility.validate_repository(ROOT)
+        s2c_artifacts.validate_repository(ROOT)
+        for path in (ROOT / "tools/qualification/model_selection/schemas").glob("*.schema.json"):
+            if jsonschema is not None:
+                jsonschema.Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        fail(f"Model-selection protocol refusal: {exc}", errors)
+
+
 def main() -> int:
     errors: list[str] = []
     check_required_paths(errors)
@@ -1703,6 +1716,7 @@ def main() -> int:
     check_production_urls(errors)
     check_tracked_binaries_and_secrets(errors)
     check_vision_release_metadata(errors)
+    check_model_selection_protocols(errors)
 
     if errors:
         print("MAVI repository verification FAILED")

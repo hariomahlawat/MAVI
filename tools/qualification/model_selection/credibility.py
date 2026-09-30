@@ -171,12 +171,26 @@ def lf_normalised_sha256(path: Path) -> str:
 
 
 def read_json(path: Path) -> dict:
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise CredibilityError(f"json_duplicate_key:{key}")
+            result[key] = value
+        return result
+
+    def finite(value):
+        raise CredibilityError(f"json_nonfinite:{value}")
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        blob = path.read_bytes()
+        document = json.loads(blob.decode("utf-8"), object_pairs_hook=unique, parse_constant=finite)
     except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise CredibilityError(f"json_unreadable:{path.name}") from exc
     if not isinstance(document, dict):
         raise CredibilityError(f"json_not_object:{path.name}")
+    if document.get("schema") == "mavi-model-selection-decision-v2":
+        from .canonical import parse
+        document = parse(blob)
     return document
 
 
@@ -850,8 +864,10 @@ def validate_ledger(ledger: object) -> dict[str, dict]:
         _date(ledger["frozenOn"], "ledger.frozenOn")
     if ledger["schema"] != LEDGER_SCHEMA:
         raise _fail("schema_unsupported", "ledger.schema")
-    if ledger["methodRevision"] != METHOD_REVISION:
+    if ledger["methodRevision"] not in (METHOD_REVISION, "msr-v1-m2"):
         raise _fail("method_revision_unsupported", "ledger.methodRevision")
+    if ledger["methodRevision"] == "msr-v1-m2" and ledger["capabilityId"] not in ("person-attributes", "vehicle-attributes"):
+        raise _fail("m2_scope_unsupported", "ledger.capabilityId")
     capability = _match(ledger["capabilityId"], TOKEN_RE, "ledger.capabilityId")
     if not re.fullmatch(rf"msr-{re.escape(capability)}-\d{{4}}-\d{{2}}", str(ledger["eventId"])):
         raise _fail("event_id_mismatch", "ledger.eventId")
@@ -1004,13 +1020,25 @@ def _maximal(scores: Mapping[str, float]) -> set[str]:
     return {candidate for candidate, score in scores.items() if score == best}
 
 
-def validate_decision(decision: object, ledger: dict, frozen: dict) -> None:
+def validate_decision(decision: object, ledger: dict, frozen: dict, *, repo: Path | None = None) -> None:
     """Validate a decision summary against its decision snapshot and frozen ledger (§8).
 
     ``ledger`` is the ledger as it stood at the decision (``<event-id>-evidence-ledger-
     decided.json``); nothing it holds may postdate the decision.
     """
     validate_evolution(frozen, ledger)
+    if isinstance(decision, dict) and decision.get("schema") == "mavi-model-selection-decision-v2":
+        if repo is None:
+            raise _fail("decision_v2_requires_repository", "decision")
+        from .s2c_artifacts import validate_event_decision
+        validate_event_decision(repo, decision)
+        if decision["frozenLedgerSha256"] != document_sha256(frozen):
+            raise _fail("decision_frozen_ledger_hash_mismatch", "decision")
+        if decision["ledgerSha256"] is not None and decision["ledgerSha256"] != document_sha256(ledger):
+            raise _fail("decision_ledger_hash_mismatch", "decision")
+        return
+    if ledger["methodRevision"] == "msr-v1-m2" or ledger["eventId"] in ("msr-person-attributes-2026-01", "msr-vehicle-attributes-2026-01"):
+        raise _fail("s2c_requires_decision_v2", "decision.schema")
     entries = {entry["candidateId"]: entry for entry in ledger["candidates"]}
     _keys(
         decision,
@@ -1237,6 +1265,11 @@ def validate_repository(repo: Path) -> list[str]:
         if event not in frozen_ledgers:
             raise _fail("decision_without_frozen_ledger", relative(path))
         decision = read_json(path)
+        if decision.get("schema") == "mavi-model-selection-decision-v2":
+            from .s2c_artifacts import validate_event_decision
+            validate_event_decision(repo, decision)
+            checked.append(relative(path))
+            continue
         protocol = event.parent / f"{event.name}{PROTOCOL_SUFFIX}"
         if decision.get("protocolSha256") != lf_normalised_sha256(protocol):
             raise _fail("decision_protocol_hash_mismatch", relative(path))

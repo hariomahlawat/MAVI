@@ -1,0 +1,66 @@
+{
+  "$id": "urn:mavi:mavi-s2c-joint-index-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Shape contract; canonical bytes and recomputed semantics additionally require s2c_operational_check.py.",
+  "properties": {
+    "active": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "eventPairId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema": {
+      "const": "mavi-s2c-joint-index-v1"
+    },
+    "versions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "technical",
+              "implementation"
+            ]
+          },
+          "supersedes": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "stage",
+          "supersedes"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "active",
+    "eventPairId",
+    "schema",
+    "versions"
+  ],
+  "type": "object"
+}

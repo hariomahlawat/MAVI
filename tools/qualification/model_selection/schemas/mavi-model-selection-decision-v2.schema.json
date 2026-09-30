@@ -1,0 +1,347 @@
+{
+  "$id": "urn:mavi:mavi-model-selection-decision-v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Shape contract; canonical bytes and recomputed semantics additionally require s2c_operational_check.py.",
+  "properties": {
+    "capability": {
+      "enum": [
+        "person",
+        "vehicle"
+      ]
+    },
+    "decidedOn": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "decisionClaimsSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "decisionEvidenceHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "evaluated": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "components": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "configurationSha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "unitId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "components",
+          "configurationSha256",
+          "unitId"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "eventId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "eventState": {
+      "enum": [
+        "TECHNICAL_DECISION_RECORDED",
+        "QUALIFICATION_PENDING",
+        "CLOSED"
+      ]
+    },
+    "experimentSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "frozenLedgerSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "highestTaskQualityEvaluatedSet": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "implementationEligibleSet": {
+      "anyOf": [
+        {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "personUnitId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "vehicleUnitId": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "personUnitId",
+              "vehicleUnitId"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "implementationPair": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "personUnitId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "vehicleUnitId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "personUnitId",
+            "vehicleUnitId"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "jointOperationalDecisionSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "ledgerSha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "methodRevision": {
+      "const": "msr-v1-m2"
+    },
+    "mpidStatus": {
+      "type": "object"
+    },
+    "operationalContractHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ownerChoice": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "decidedBy": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "rationale": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "decidedBy",
+            "rationale"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pairwiseMatrixSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "profileClearedSet": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "personUnitId": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "vehicleUnitId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "personUnitId",
+                "vehicleUnitId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "minProperties": 1,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "protocolSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "qualityAcceptableSet": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "qualityContractHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "qualityOutcomeReason": {
+      "type": "object"
+    },
+    "qualityResultSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "schema": {
+      "const": "mavi-model-selection-decision-v2"
+    },
+    "technicalEligibleSet": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "technicalSelectedSet": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "personUnitId": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "vehicleUnitId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "personUnitId",
+          "vehicleUnitId"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "technicalSelectionOutcome": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "technicalWinner": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "personUnitId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "vehicleUnitId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "personUnitId",
+            "vehicleUnitId"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "capability",
+    "decidedOn",
+    "decisionClaimsSha256",
+    "decisionEvidenceHash",
+    "evaluated",
+    "eventId",
+    "eventState",
+    "experimentSha256",
+    "frozenLedgerSha256",
+    "highestTaskQualityEvaluatedSet",
+    "implementationEligibleSet",
+    "implementationPair",
+    "jointOperationalDecisionSha256",
+    "ledgerSha256",
+    "methodRevision",
+    "mpidStatus",
+    "operationalContractHash",
+    "outcome",
+    "ownerChoice",
+    "pairwiseMatrixSha256",
+    "profileClearedSet",
+    "protocolSha256",
+    "qualityAcceptableSet",
+    "qualityContractHash",
+    "qualityOutcomeReason",
+    "qualityResultSha256",
+    "schema",
+    "technicalEligibleSet",
+    "technicalSelectedSet",
+    "technicalSelectionOutcome",
+    "technicalWinner"
+  ],
+  "type": "object"
+}

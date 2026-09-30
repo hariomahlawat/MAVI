@@ -1,0 +1,134 @@
+{
+  "$id": "urn:mavi:mavi-s2c-quality-result-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Shape contract; canonical bytes and recomputed semantics additionally require s2c_operational_check.py.",
+  "properties": {
+    "capability": {
+      "enum": [
+        "person",
+        "vehicle"
+      ]
+    },
+    "decisionClaimsSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "eventId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "experimentSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "frozenLedgerSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "gateResultsSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "operationalContractHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "outputs": {
+      "additionalProperties": false,
+      "properties": {
+        "E": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "F": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "J": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fallbackOperationallyAvailable": {
+          "type": "boolean"
+        },
+        "highestTaskQualityEvaluatedSet": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mpidStatus": {
+          "type": "object"
+        },
+        "qualityOutcome": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "qualityOutcomeReason": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "E",
+        "F",
+        "J",
+        "fallbackOperationallyAvailable",
+        "highestTaskQualityEvaluatedSet",
+        "mpidStatus",
+        "qualityOutcome",
+        "qualityOutcomeReason"
+      ],
+      "type": "object"
+    },
+    "pairwiseMatrixSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "protocolSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "qualityContractHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "qualityEvidenceSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "schema": {
+      "const": "mavi-s2c-quality-result-v1"
+    }
+  },
+  "required": [
+    "capability",
+    "decisionClaimsSha256",
+    "eventId",
+    "experimentSha256",
+    "frozenLedgerSha256",
+    "gateResultsSha256",
+    "operationalContractHash",
+    "outputs",
+    "pairwiseMatrixSha256",
+    "protocolSha256",
+    "qualityContractHash",
+    "qualityEvidenceSha256",
+    "schema"
+  ],
+  "type": "object"
+}

@@ -25,11 +25,11 @@ The capability covers two sub-tasks, with vocabularies in plan §6–§7.1:
 - **T-PO:** backpack, bag and, conditionally, headwear (presence only).
 
 The capability binds one pack (ADR-014 §1). The event therefore records one ranking per sub-task, then selects a **composition** by the bounded procedure of MSR method §5.1 and plan §9.5a:
-1. T-PC and T-PO finalists, up to K = 3 each plus baselines;
-2. composition candidates by the frozen rule (winner tuple, shared-backbone pairs, up to three further pairs by rank sum);
-3. composition evaluation, including the 500-camera projection;
-4. the multi-objective decision under the S2c.2b-2 rule (a Pareto frontier only if S2c.2b-2 defines one; MSR method §8.2);
-5. implementation composition.
+1. bounded compatible component/composition enumeration fixed before selection (K=3 is an experiment budget);
+2. exact executable composition manifest, including intended shared backbones and the frozen fallback;
+3. absolute gates, MPID and direct quality protection against all original E comparators;
+4. joint person×vehicle operational evaluation over effective J sets, including the 500-camera projection;
+5. M2 implementation admissibility and recomputed joint T_impl, followed by owner choice. No result-time standalone rank or rank-sum pruning.
 
 No winner or composition is named in this planning record.
 
@@ -90,3 +90,8 @@ None.
 ## 10. Closure
 
 Open.
+
+
+### S2c.2b-2 / M2 reconciliation
+
+This event remains PLANNED: no freeze, measurement or choice occurred in protocol implementation. Use the b-1 quality/statistical authority and b-2 `../s2c-operational-selection.md`, M2 ledger revision and decision-v2. Person and vehicle quality evidence remain capability-specific; final operational identity and owner implementation are one exact person×vehicle pair under event pair id `msr-attributes-2026-01`. Neither capability's independent result substitutes for joint measurement. Technical T is recorded before implementation snapshots/licence/profile outputs; a frozen fallback never rewrites F or its original quality outcome.

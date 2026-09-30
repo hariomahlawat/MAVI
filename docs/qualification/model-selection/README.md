@@ -1,4 +1,4 @@
-# Model Selection Records — Methodology (MSR method v1)
+# Model Selection Records — Methodology (MSR method v1, revisions M1/M2)
 
 **Status:** Accepted — PR #115 merged the independently reviewed MSR method v1 at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; that merge is the acceptance event. Future learned Model Pack selections must follow the accepted ADR-014 Model Selection Records note. S2c.0 records/reconciles the accepted method into the implementation baseline; it does not create a second acceptance event. **Revision M1** (candidate credibility and admissibility, `candidate-credibility.md`, slice S2c.2a) is an additive revision of v1, merged in PR #118 at `main@db2b25a24d0f850c3841a9eabcb915f7c92eebfb` (§14).
 **Scope:** every learned component MAVI binds through a Model Pack. That includes detectors, trackers with learned parts, person and vehicle attributes, embeddings, re-identification, segmentation, OCR, VLMs, and any later capability.
@@ -264,7 +264,7 @@ A decision is reconstructed from five separate layers, recorded in this order. N
    - The licence/deployment gate is a qualification gate (§2) and never affects the ranking.
    - A weighted score can never compensate for a failed gate.
 2. **Measured metrics.** The full measurement table, with intervals and evidence classes, for every evaluated candidate including the losers. Raw per-item predictions are retained by hash.
-3. **Comparative scores (optional ordering aid).**
+3. **Comparative scores (optional ordering aid for non-S2c events only).**
    - Weights and the rule converting each measurement into a criterion score are frozen in the protocol.
    - Differences within the protocol's statistical interval score as ties **unless the capability-specific governing protocol defines explicit superiority/non-inferiority/equivalence/inconclusive states**. For S2c person/vehicle events, qualification-plan R3 + `s2c-quality-statistics.md` override this generic aid: interval overlap is not equivalence, and an inconclusive/insufficient-evidence result cannot become a tie or statistical winner.
    - Scores are reported at the precision the data supports, never more.
@@ -325,11 +325,11 @@ For the S2c person-attributes and vehicle-attributes events, qualification-plan 
 
    A failed gate stays failed. The technical ordering among candidates that passed their gates comes only from the S2c.2b-2 final technical-selection rule. An implementation choice that differs from that ordering is recorded under §9, with its reason and delta, and the statistical outcome is stated unchanged.
 4. **Frontier, dominance and ranking representation.** The Pareto axes, their directions and normalization, dominance, the treatment of disabled attributes, the non-dominated set, the sub-task finalist ordering, the final technical selection and its representation in the record are all frozen by S2c.2b-2 (contract `deferredToS2c2b2`). The §4 "dominated" disposition, the §5.1 frontier steps and the §9 "Pareto frontier" field apply only in the form S2c.2b-2 defines. Where S2c.2b-2 defines no frontier, the record uses the S2c.2b-2 decision representation instead.
-5. **Comparative scores.** The §8 layer-3 weighted comparative score is not frozen for S2c. S2c.2b-2 reconciles it, including the scalar `comparativeScore` from which the M1 decision summary derives "strongest evaluated technical" (`candidate-credibility.md` §8).
+5. **Comparative scores.** M2 retires weighted scores, Pareto dominance and rank-sum pruning as S2c selection authorities. S2c uses `s2c-operational-selection.md`: direct quality protection, exact joint identities and set-valued host uncertainty. Scalar `comparativeScore` and `taskQualityScore` fields are refused in S2c decision-v2.
 
 ## 9. Required selection output
 
-A record at `TECHNICAL_DECISION_RECORDED` or later states each of the following explicitly. They are separate fields because they may name different candidates, and the methodology never forces them to coincide.
+For non-S2c events, a record at `TECHNICAL_DECISION_RECORDED` or later states each of the following explicitly. S2c uses the M2 output and state rules below. A generic scalar output is not an S2c winner. They are separate fields because they may name different candidates, and the methodology never forces them to coincide.
 
 | Field | Meaning |
 |---|---|
@@ -447,3 +447,26 @@ Revisions are additive and numbered, and never silently rewrite an earlier rule.
 - **Gain:** no model reaches a Model Pack on self-reported or copied numbers, and every inclusion and exclusion can be reconstructed.
 - **What changes:** M1 adds a precondition to the owner's implementation choice (§4): an implementation candidate must now also be `established`. It also adds a shortlist precondition and three event files: the ledger, its frozen copy and the decision summary. The technical ranking, the licence axis, the outcomes and the qualification-record link are unchanged.
 - **What does not change:** no ADR, contract, schema of any existing record, or gate set. ADR-014's Model Selection Records note governs the method, including its revisions. The note's decision list (three separate assessments, exact bytes, reported versus measured evidence) is what M1 strengthens.
+
+
+### 14.1 M2 — S2c joint operational decisions
+
+**Status:** implemented for independent review; acceptance requires merge and exact-head CI. Architecture baseline: PR #121, `main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`. Governing method: [b-2 protocol](s2c-operational-selection.md), consumed alongside [b-1](s2c-quality-statistics.md). M1 credibility remains authoritative.
+
+M2 uses `methodRevision: msr-v1-m2` in S2c ledgers and `mavi-model-selection-decision-v2` for decisions. Ledger fields/classification rules remain M1; the revision does not confer credibility. The two planned S2c events and all M2 events refuse decision-v1. Other events retain v1 unless explicitly migrated; M2 is restricted to person/vehicle attributes.
+
+The frozen unit manifest contains exact executable compositions, configuration hashes, required attribute scope, fallback identity, Q, margins references and the complete simultaneous family. Every component of an implementable composition must independently be established or mavi-owned on the decision snapshot/history entry in force on the decision date. A deterministic packageable baseline is mavi-owned; a disabled identity has no learned components.
+
+The governing sequence is frozen experiment → label-free pre-screen → absolute/component gates → MPID → E → direct all-original-E protection F → effective fallback-aware J → joint person×vehicle evaluation → T. No weak comparator is deleted to manufacture F, and fallback never rewrites the quality outcome. From `QUALIFICATION_PENDING`, credibility and all-profile clearance produce K per capability, including its own admissible frozen fallback when needed. C_impl is K_person×K_vehicle; the same operational rule recomputes T_impl. C_r/T_r/C_all remain credibility-blind reporting over J_person×J_vehicle.
+
+| State | Machine outputs | Owner implementation |
+|---|---|---|
+| TECHNICAL_DECISION_RECORDED | immutable quality results; technical joint version; T | null; T_r/T_impl also null |
+| QUALIFICATION_PENDING | new implementation version; snapshots, licence determinations, K, C_impl, T_r and T_impl | null or an exact pair in T_impl |
+| CLOSED | final coordinate-derived outcome after required licence determinations resolve | exact pair in T_impl, or null with capability disabled |
+
+Both event decisions carry the same exact implementation pair, joint hash and state. Membership of the two coordinates in different pairs does not authorize their combination. `NO_QUALIFIABLE_CANDIDATE` is a CLOSED outcome only. Technical and implementation sets may have several members; an emerging technical winner stays visible in T and T_r.
+
+M2 retains immutable canonical content-addressed inputs under `s2c-evidence/`, per-event quality-result files, every joint version under `s2c-joint/` and numbered event decision versions beside the MSR. Active decision files and the joint index are checked lookup projections. Earlier decisions remain paired and checkable from repository files. The dependency direction is frozen inputs → quality results → joint version → event decisions; a joint document cannot cite event-decision hashes.
+
+Run `python tools/qualification/s2c_operational_check.py repository`, `python tools/qualification/model_selection_check.py repository` and `python tools/verify_repo.py`. Schema shape checking alone is insufficient: canonical byte checks, b-1 cross-validation and recomputation are required. Retention cannot authenticate an author's account or detect a coordinated rewrite of every evidence root; those remain review obligations.

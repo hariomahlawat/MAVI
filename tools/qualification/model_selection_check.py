@@ -38,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     decision.add_argument("path", type=Path)
     decision.add_argument("--ledger", type=Path, required=True)
     decision.add_argument("--frozen", type=Path, required=True)
+    decision.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     evolution = commands.add_parser("evolution")
     evolution.add_argument("frozen", type=Path)
     evolution.add_argument("ledger", type=Path)
@@ -48,14 +49,14 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "ledger":
             result: object = validate_ledger(read_json(arguments.path))
         elif arguments.command == "decision":
-            validate_decision(read_json(arguments.path), read_json(arguments.ledger), read_json(arguments.frozen))
+            validate_decision(read_json(arguments.path), read_json(arguments.ledger), read_json(arguments.frozen), repo=arguments.repo)
             result = {"decision": "valid"}
         elif arguments.command == "evolution":
             validate_evolution(read_json(arguments.frozen), read_json(arguments.ledger))
             result = {"evolution": "append-only"}
         else:
             result = {"checked": validate_repository(arguments.repo)}
-    except CredibilityError as exc:
+    except (ValueError, OSError, KeyError, TypeError) as exc:
         print(json.dumps({"refused": str(exc)}))
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
