@@ -399,22 +399,33 @@ def _run_suites() -> bool:
     return completed.returncode == 0
 
 
+def select(
+    selected: str | None = None,
+    shard_index: int | None = None,
+    shard_count: int | None = None,
+) -> list[Mutation]:
+    """The mutations one invocation runs, in catalogue order.
+
+    A shard is fixed by a mutation's position in the whole catalogue (index modulo
+    ``shard_count``), before ``--only`` filters, so every mutation belongs to exactly
+    one shard. With no shard arguments every mutation runs, as it always has.
+    """
+    return [
+        mutation
+        for index, mutation in enumerate(MUTATIONS)
+        if (selected is None or selected in mutation.label)
+        and (shard_count is None or index % shard_count == shard_index)
+    ]
+
+
 def check(
     selected: str | None = None,
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> list[Mutation]:
-    """Apply each selected mutation; return the ones the suites did not catch.
-
-    Sharding is deterministic by the catalogue order. With no shard arguments the
-    historical behaviour is unchanged and every mutation runs.
-    """
+    """Apply each selected mutation; return the ones the suites did not catch."""
     survivors: list[Mutation] = []
-    for index, mutation in enumerate(MUTATIONS):
-        if selected is not None and selected not in mutation.label:
-            continue
-        if shard_count is not None and index % shard_count != shard_index:
-            continue
+    for mutation in select(selected, shard_index, shard_count):
         path = ROOT / mutation.path
         original = path.read_text(encoding="utf-8")
         if original.count(mutation.original) != 1:
@@ -453,12 +464,12 @@ def main() -> int:
         if not 0 <= args.shard_index < args.shard_count:
             parser.error("--shard-index must be in [0, shard-count)")
 
+    chosen = select(args.only, args.shard_index, args.shard_count)
+    if not chosen:
+        # An empty selection would pass without asking the question.
+        parser.error("no mutation selected")
     survivors = check(args.only, args.shard_index, args.shard_count)
-    for index, mutation in enumerate(MUTATIONS):
-        if args.only is not None and args.only not in mutation.label:
-            continue
-        if args.shard_count is not None and index % args.shard_count != args.shard_index:
-            continue
+    for mutation in chosen:
         caught = mutation not in survivors
         print(f"{'caught  ' if caught else 'SURVIVED'}  {mutation.label}")
 
@@ -468,7 +479,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"\nall {len(MUTATIONS)} guards are pinned by at least one test.")
+    print(f"\nall {len(chosen)} selected guard(s) of {len(MUTATIONS)} are pinned by at least one test.")
     return 0
 
 

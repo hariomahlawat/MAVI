@@ -134,12 +134,15 @@ jobs:
             dotnet test "$project" --configuration Release --no-build --logger "trx;LogFileName=${name}.trx" --results-directory qualification-evidence/trx || status=1
           done
           exit "$status"
+      # The lane artifact keeps the qualification-evidence/ root, so it holds
+      # trx/<Project>.trx exactly as the canonical artifact below does.
       - name: Retain .NET results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quality-dotnet-${{ matrix.shard }}
-          path: qualification-evidence/trx/
+          name: quality-lane-dotnet-${{ matrix.shard }}
+          path: qualification-evidence/
+          include-hidden-files: false
           if-no-files-found: warn
 
   python-vision:
@@ -306,8 +309,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quality-web
+          name: quality-lane-web
           path: qualification-evidence/
+          include-hidden-files: false
           if-no-files-found: warn
 
   quality:
@@ -321,8 +325,36 @@ jobs:
       - qualification-tests
       - web-host
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
+      # S1.4 Harness A: the lanes' TRX and JUnit files are re-published as the one
+      # canonical quality-gate-test-results artifact (trx/<Project>.trx,
+      # junit/mavi-web.xml) of this run, at the exact head every lane verified.
+      - uses: actions/checkout@v4
+        if: always()
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: tests
+      - name: Verify exact checked-out source head
+        if: always()
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - name: Collect lane test results
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: quality-lane-*
+          path: qualification-evidence/
+          merge-multiple: true
+      - name: Retain test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-test-results
+          path: qualification-evidence/
+          include-hidden-files: false
+          if-no-files-found: warn
       - name: Require every quality lane
         shell: bash
         run: |
@@ -333,3 +365,16 @@ jobs:
           test '${{ needs.guard-coverage.result }}' = 'success'
           test '${{ needs.qualification-tests.result }}' = 'success'
           test '${{ needs.web-host.result }}' = 'success'
+      - name: Require one TRX per test project and the web JUnit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(find tests -mindepth 2 -maxdepth 2 -name '*.csproj' -exec basename {} .csproj \; | sort)"
+          actual="$(find qualification-evidence/trx -maxdepth 1 -name '*.trx' -exec basename {} .trx \; | sort)"
+          test -n "$expected"
+          if [ "$expected" != "$actual" ]; then
+            echo "retained TRX set differs from the test projects"
+            diff <(echo "$expected") <(echo "$actual") || true
+            exit 1
+          fi
+          test -s qualification-evidence/junit/mavi-web.xml

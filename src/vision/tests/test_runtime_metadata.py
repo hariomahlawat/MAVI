@@ -159,6 +159,7 @@ def test_task10_triggers_on_and_qualifies_the_runtime_bearing_s1_surface() -> No
             "process_memory.py",
             "tests/conftest.py",
             "tests/test_s1_*.py",
+            "tests/fixtures/**",
         ):
             assert f"- 'tools/qualification/{qualification_path}'" in trigger, qualification_path
         for suite in (

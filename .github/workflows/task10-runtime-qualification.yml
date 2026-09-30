@@ -53,6 +53,8 @@ on:
       - 'tools/qualification/process_memory.py'
       - 'tools/qualification/tests/conftest.py'
       - 'tools/qualification/tests/test_s1_*.py'
+      # The S1 evidence tests' retained TRX/settings fixtures.
+      - 'tools/qualification/tests/fixtures/**'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
@@ -116,6 +118,8 @@ on:
       - 'tools/qualification/process_memory.py'
       - 'tools/qualification/tests/conftest.py'
       - 'tools/qualification/tests/test_s1_*.py'
+      # The S1 evidence tests' retained TRX/settings fixtures.
+      - 'tools/qualification/tests/fixtures/**'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'

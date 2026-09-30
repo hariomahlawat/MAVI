@@ -100,3 +100,23 @@ def test_the_catalogue_names_each_assemblers_headline_guard():
         "C7 stops refusing a fail-closed case that reports a device",
     ):
         assert headline in labels, headline
+
+
+def test_the_default_run_selects_the_whole_catalogue():
+    assert MODULE.select() == list(MODULE.MUTATIONS)
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5])
+def test_shards_partition_the_catalogue(count):
+    """Every mutation runs in exactly one CI shard; none is lost or doubled."""
+    shards = [MODULE.select(shard_index=index, shard_count=count) for index in range(count)]
+    labels = [mutation.label for shard in shards for mutation in shard]
+    assert sorted(labels) == sorted(mutation.label for mutation in MODULE.MUTATIONS)
+    assert len(labels) == len(set(labels)) == len(MODULE.MUTATIONS)
+    assert all(shards)
+
+
+def test_only_filters_within_the_shard_fixed_by_catalogue_position():
+    first = MODULE.MUTATIONS[0]
+    assert first in MODULE.select(first.label, 0, 4)
+    assert first not in MODULE.select(first.label, 1, 4)
