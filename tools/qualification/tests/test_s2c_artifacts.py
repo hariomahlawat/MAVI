@@ -130,8 +130,8 @@ def fixture(a, root, *, event_pair_id="msr-synthetic-2026-01", horizon_us=60_000
     for c in caps:
         protocol = root/a.ROOT/(c+"-attributes")/(frozen[c]["eventId"]+"-protocol.md")
         protocol.parent.mkdir(parents=True, exist_ok=True)
-        protocol.write_text(f"Frozen {experiment['frozenOn']} {exp_hash} {experiment['ledgerHashes'][c]} "
-                            f"{experiment['qualityContractHash']} {experiment['operationalContractHash']}\n")
+        protocol.write_bytes((f"Frozen {experiment['frozenOn']} {exp_hash} {experiment['ledgerHashes'][c]} "
+                              f"{experiment['qualityContractHash']} {experiment['operationalContractHash']}\n").encode("utf-8"))
         a.retain_protocol(root, exp_hash, c, protocol.read_bytes())
         evidence = {"schema": a.QUALITY_EVIDENCE_SCHEMA, "experimentSha256": exp_hash, "capability": c,
                     "gateResults": gates(caps[c]), "pairwise": matrix(caps[c]), "partition": "selection"}
@@ -842,3 +842,19 @@ def test_mixed_unresolved_joint_cannot_name_or_implement_partial_winner(artefact
     with pytest.raises(ValueError, match="unresolved_operational_implementation"):
         artefacts.build_event_decision(tmp_path,implementation,"person","QUALIFICATION_PENDING","2026-09-01",
                                       {"personUnitId":"PC-B0","vehicleUnitId":"VC-B0"}, {"decidedBy":"owner","rationale":"partial winner"})
+
+
+def test_fixture_protocol_is_canonical_under_windows_text_newlines(artefacts, tmp_path, monkeypatch):
+    original = Path.write_text
+    def windows_text_write(path, data, *args, **kwargs):
+        if path.name.endswith("-protocol.md"):
+            kwargs["newline"] = "\r\n"
+        return original(path, data, *args, **kwargs)
+    monkeypatch.setattr(Path, "write_text", windows_text_write)
+    exp, exp_hash, _, _ = fixture(artefacts, tmp_path)
+    for c, event in exp["events"].items():
+        directory = tmp_path/artefacts.ROOT/(c+"-attributes")
+        blob = (directory/(event+"-protocol.md")).read_bytes()
+        assert blob.endswith(b"\n") and b"\r" not in blob
+        blob.decode("utf-8", errors="strict")
+        assert (directory/(event+"-protocol-"+exp_hash+".md")).read_bytes() == blob
