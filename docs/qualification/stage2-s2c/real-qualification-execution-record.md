@@ -2,7 +2,7 @@
 
 **Governing plan:** `docs/superpowers/plans/2026-09-30-stage2-s2c-real-qualification-execution.md` (merged in PR #123, `main@d0db6efff201a003b9699cde675d8069259f980e`).
 **Events:** `msr-person-attributes-2026-01`, `msr-vehicle-attributes-2026-01`; joint `eventPairId = msr-attributes-2026-01`.
-**Status:** Slice A (accountable inputs and candidate manifest preparation) prepared on 2026-09-30. Slice A is **not accepted**: roles are assigned and a 2026-09-30 continuation prepared evidence, variants, an R-5 packet and draft ledgers (§4.3), but acceptance depends on human recorder/reviewer and R-5 actions that do not yet exist (§8). Slices B–J have not started. Both MSRs remain `PLANNED`. No candidate has been acquired, run, trained, tuned, measured or selected. No selection or frozen-test label has been read, and no experiment, protocol, ledger freeze, E/F/J/T, E1/E2/E3 or Model Pack exists. F1, F3 and every other F/G row keep their state.
+**Status:** Slice A (accountable inputs and candidate manifest preparation) prepared on 2026-09-30. Slice A is **not accepted**: roles are assigned, evidence/variants/R-5 packet/draft ledgers are prepared (§4.3), and R-2 Hari Om explicitly approved the exact repaired draft-ledger bytes on 2026-09-30 (§4.3.6). Acceptance still depends on a genuine recorder action / working-ledger history and the remaining R-5/acquisition work (§8). Slices B–J have not started. Both MSRs remain `PLANNED`. No candidate has been acquired, run, trained, tuned, measured or selected. No selection or frozen-test label has been read, and no experiment, protocol, ledger freeze, E/F/J/T, E1/E2/E3 or Model Pack exists. F1, F3 and every other F/G row keep their state.
 
 This record holds the dated execution evidence and dispositions required by plan §18. It is not a registry. Candidate facts come from the committed survey (`model-candidate-survey.md`, 2026-09-28), the parent plan (§9.2) and the two MSRs. All figures there are class R (reported, not reproduced by MAVI). No source was re-fetched and no candidate byte was downloaded for this record (§4).
 
@@ -285,7 +285,17 @@ Two consequences for shortlisting:
 3. The file is committed as `docs/qualification/model-selection/<capability>/<event>-evidence-ledger.json`.
 4. `model_selection_check.py repository` must then pass.
 
-The implementation agent cannot perform or attest steps 1–2.
+The implementation agent cannot perform or attest the recorder action in step 2.
+
+#### 4.3.6 R-2 independent review approval — 2026-09-30
+
+Hari Om, acting as R-2 Independent Reviewer, explicitly approved the repaired draft ledgers after the independent delta review on exact PR head `002803fc1f3ebf56cb309e7581781fc8d0fa97c4`.
+
+The approval is bound to these exact committed draft bytes:
+- person draft: `38c9d55790027d447e7952de57e41a2d8845c8b5b36a96ff0c4076b01284a9c6`;
+- vehicle draft: `6160bdd47098c350f2f9a69599eb09ebf1159985b442e8381c5f584fed573c85`.
+
+This approval records the R-2 review action only. It does **not** create any `classificationHistory` entry, does not act as the recorder, does not make any R-5 evaluation-permission or licence determination, and does not authorize candidate acquisition. Any change to either draft after the approved hashes requires a fresh R-2 review before those changed bytes can be used to create the working ledgers.
 
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
@@ -344,10 +354,10 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 
 ## 8. Slice A blockers and acceptance
 
-**SA-B1 — draft ledgers exist; the working ledgers need a genuine human recorder/reviewer action (EXECUTION DEPENDENCY).**
-- **Done.** R-1/R-2 are named and distinct. Both draft M2 ledgers are built from dated primary evidence and pass every validator check except `history_required` (§4.3.5).
-- **Remaining.** No classification-history action exists. The implementation agent cannot truthfully record Hari Om's review or Aarav's recording, so no working `<event>-evidence-ledger.json` is committed, and `model_selection_check.py repository` still does not exercise an event ledger.
-- **Smallest resolution.** R-2 reviews the draft bytes; the recorder appends genuine dated history entries and commits the working ledgers (§4.3.5 steps 1–4).
+**SA-B1 — R-2 review complete; working ledgers still need the genuine recorder action (EXECUTION DEPENDENCY).**
+- **Done.** R-1/R-2 are named and distinct. Both draft M2 ledgers are built from dated primary evidence and pass every validator check except `history_required` (§4.3.5). R-2 Hari Om explicitly approved the exact repaired draft bytes on 2026-09-30 (§4.3.6).
+- **Remaining.** No `classificationHistory` entry exists because the recorder action has not occurred. No working `<event>-evidence-ledger.json` is committed, and `model_selection_check.py repository` therefore still does not exercise an event ledger.
+- **Smallest resolution.** The genuine recorder appends the dated history entries using the already-approved draft bytes, naming Hari Om as `reviewedBy`, then commits the working ledgers and runs `model_selection_check.py repository`. Any change to the approved draft bytes requires fresh R-2 review.
 
 **SA-B2 — no candidate bytes acquired or pinned by MAVI (EXECUTION DEPENDENCY: R-5 determinations, gated terms, store location).**
 - **Done.** Variants are resolved for every pursued family. Immutable revisions and upstream-published SHA-256 values are recorded where the publisher provides them (SigLIP 2, DINOv3, DINOv2, Awiros). An R-5 evidence packet is prepared (§4.3.2–§4.3.3).
