@@ -2,7 +2,7 @@
 
 **Governing plan:** `docs/superpowers/plans/2026-09-30-stage2-s2c-real-qualification-execution.md` (merged in PR #123, `main@d0db6efff201a003b9699cde675d8069259f980e`).
 **Events:** `msr-person-attributes-2026-01`, `msr-vehicle-attributes-2026-01`; joint `eventPairId = msr-attributes-2026-01`.
-**Status:** Slice A (accountable inputs and candidate manifest preparation) prepared on 2026-09-30. Slice A is **not accepted**: roles are assigned, evidence/variants/R-5 packet/draft ledgers are prepared (§4.3), and R-2 Hari Om explicitly approved the exact repaired draft-ledger bytes on 2026-09-30 (§4.3.6). Acceptance still depends on a genuine recorder action / working-ledger history and the remaining R-5/acquisition work (§8). Slices B–J have not started. Both MSRs remain `PLANNED`. No candidate has been acquired, run, trained, tuned, measured or selected. No selection or frozen-test label has been read, and no experiment, protocol, ledger freeze, E/F/J/T, E1/E2/E3 or Model Pack exists. F1, F3 and every other F/G row keep their state.
+**Status:** Slice A (accountable inputs and candidate manifest preparation) prepared on 2026-09-30. Slice A is **not accepted**: roles are assigned, evidence/variants/R-5 packet/draft ledgers are prepared (§4.3), and R-2 Hari Om explicitly approved the exact repaired draft-ledger bytes on 2026-09-30 (§4.3.6). R-1 Aarav then performed the recorder action, and both working M2 ledgers are committed and validate (§4.3.7; SA-B1 RESOLVED). Acceptance still depends on the remaining R-5/acquisition work (SA-B2, §8). Slices B–J have not started. Both MSRs remain `PLANNED`. No candidate has been acquired, run, trained, tuned, measured or selected. No selection or frozen-test label has been read, and no experiment, protocol, ledger freeze, E/F/J/T, E1/E2/E3 or Model Pack exists. F1, F3 and every other F/G row keep their state.
 
 This record holds the dated execution evidence and dispositions required by plan §18. It is not a registry. Candidate facts come from the committed survey (`model-candidate-survey.md`, 2026-09-28), the parent plan (§9.2) and the two MSRs. All figures there are class R (reported, not reproduced by MAVI). No source was re-fetched and no candidate byte was downloaded for this record (§4).
 
@@ -297,6 +297,32 @@ The approval is bound to these exact committed draft bytes:
 
 This approval records the R-2 review action only. It does **not** create any `classificationHistory` entry, does not act as the recorder, does not make any R-5 evaluation-permission or licence determination, and does not authorize candidate acquisition. Any change to either draft after the approved hashes requires a fresh R-2 review before those changed bytes can be used to create the working ledgers.
 
+#### 4.3.7 Recorder action and working M2 ledgers — 2026-09-30
+
+R-1 Aarav approved and performed the recorder action for the exact R-2-approved draft bytes (§4.3.6). The drafts were re-verified as `38c9d557…84a9c6` (person) and `6160bdd4…573c85` (vehicle) before use.
+
+**What was written.** One initial `classificationHistory` entry per candidate, **48 in total** (35 person, 13 vehicle), each with:
+- `at: 2026-09-30`, `from: null`;
+- `to` equal to the validator-computed class already in the approved draft;
+- `evidenceIds` naming the entry's evidence items;
+- `recordedBy: "Aarav"`, `reviewedBy: "Hari Om"`;
+- `identitySha256`, `inputsSha256` and `checkpointSha256s` computed by `credibility.py` (`document_sha256`, `classification_inputs_sha256`, `_pinned_files`; `[]` for the MAVI baselines).
+
+No candidate field, evidence item, classification or disposition differs from the approved drafts. The drafts stay unchanged as retained review evidence.
+
+**Working ledgers.**
+
+| Working ledger | File SHA-256 | Canonical document SHA-256 |
+|---|---|---|
+| `docs/qualification/model-selection/person-attributes/msr-person-attributes-2026-01-evidence-ledger.json` (35 entries) | `b69b78b9464f1d72a535853d3af60d7dc52fafb8410741073c22493349e5783e` | `76959f5352336cf5dad0571ddf3a3031e7474c207c1c35a50a5244c52c18480b` |
+| `docs/qualification/model-selection/vehicle-attributes/msr-vehicle-attributes-2026-01-evidence-ledger.json` (13 entries) | `a1ba4e04592d0f28db6b0c5c554cac8e30aca9e25baf4a9170e42a2dbba9d11f` | `a1536ef67a5d74f2060d57dc0112fee5a5e6cc7831bd253faa66ad067b7a7368` |
+
+**Validation.** `model_selection_check.py ledger` validates both ledgers in full, and `model_selection_check.py repository` now checks both. Classes are unchanged from §4.3.5:
+- person: 1 `mavi-owned`, 1 `emerging`, 24 `reference-only`, 9 `excluded-discovery`;
+- vehicle: 1 `mavi-owned`, 9 `reference-only`, 3 `excluded-discovery`.
+
+**Scope.** Every disposition stays `DISCOVERED`; nothing is shortlisted. These are working ledgers, not frozen ledgers: no `-frozen` copy exists, and no protocol cites them. This action makes no R-5 determination, authorizes no acquisition, and starts no Slice B work.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:
@@ -354,10 +380,7 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 
 ## 8. Slice A blockers and acceptance
 
-**SA-B1 — R-2 review complete; working ledgers still need the genuine recorder action (EXECUTION DEPENDENCY).**
-- **Done.** R-1/R-2 are named and distinct. Both draft M2 ledgers are built from dated primary evidence and pass every validator check except `history_required` (§4.3.5). R-2 Hari Om explicitly approved the exact repaired draft bytes on 2026-09-30 (§4.3.6).
-- **Remaining.** No `classificationHistory` entry exists because the recorder action has not occurred. No working `<event>-evidence-ledger.json` is committed, and `model_selection_check.py repository` therefore still does not exercise an event ledger.
-- **Smallest resolution.** The genuine recorder appends the dated history entries using the already-approved draft bytes, naming Hari Om as `reviewedBy`, then commits the working ledgers and runs `model_selection_check.py repository`. Any change to the approved draft bytes requires fresh R-2 review.
+**SA-B1 — RESOLVED (2026-09-30).** R-2 Hari Om approved the exact draft bytes (§4.3.6). R-1 Aarav performed the recorder action, and both working M2 ledgers are committed with genuine initial history (`recordedBy: Aarav`, `reviewedBy: Hari Om`). `model_selection_check.py repository` validates both (§4.3.7).
 
 **SA-B2 — no candidate bytes acquired or pinned by MAVI (EXECUTION DEPENDENCY: R-5 determinations, gated terms, store location).**
 - **Done.** Variants are resolved for every pursued family. Immutable revisions and upstream-published SHA-256 values are recorded where the publisher provides them (SigLIP 2, DINOv3, DINOv2, Awiros). An R-5 evidence packet is prepared (§4.3.2–§4.3.3).
@@ -379,13 +402,13 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 | Slice A acceptance item | State |
 |---|---|
 | every proposed runnable component has verifiable bytes or an explicit blocked disposition | met: nothing is acquired, and each pursued component has an exact blocked reason (§4.3.2–§4.3.4) |
-| ledger validator passes | **not met**: the drafts fail only `history_required`, and no working ledger is committed (SA-B1) |
+| ledger validator passes | **met**: both working M2 ledgers validate, including under the repository check (§4.3.7) |
 | no fixture incumbent / PO-B0 unit | met: the fixture is not a candidate; PO-B0 is in no unit, fallback or ledger entry (§4, §4.3.5, §6) |
 | required roles assigned | met (§2) |
 | candidate acquisition and identity auditable | partial: retrieved documents and upstream identities are recorded with SHA-256 and immutable revisions (§4.3.1–§4.3.2); no acquisition exists yet to audit (SA-B2) |
 | no unresolved owner input silently defaulted | met: supplied inputs are explicit and remaining inputs stay PARTIAL/MISSING (§2, §3) |
 
-Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until the SA-B1 human ledger actions and the SA-B2 R-5 determinations and controlled acquisition are completed, this record is updated, and the result is reviewed.
+Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until the SA-B2 R-5 determinations and controlled acquisition are completed, this record is updated, and the result is reviewed. SA-B1 is resolved.
 
 ## 9. Dependencies and offline policy
 
