@@ -47,7 +47,7 @@ Each item is **MISSING** unless an evidence reference is entered here. A missing
 | OI-1 | Named roles R-1…R-7 | A | **COMPLETE** | R-1 Aarav; R-2 Hari Om; R-3 Aarav; R-4 Aarav + Savita (independent); R-5 Aarav; R-6 Aarav; R-7 Hari Om (§2) |
 | OI-2 | Authorized real footage; retention/access arrangements; site/camera/day/night coverage; stable raw-evidence pin; annotation time; independently reviewable custody store | B | MISSING | footage availability is not assumed |
 | OI-3 | Pilot-rule confirmation; task/vocabulary/headwear decision; required attribute scope per capability; lawful fallback policy | A (scope/fallback, §6), B (pilot) | PARTIAL | owner fixed first-event scope and fallback direction (§3.1, §6); pilot/vocabulary confirmation remains for Slice B |
-| OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | PARTIAL | owner fixed the initial families and conditional acquisition authority (§3.1); variants resolved under the R-1 variant rule (§4.3.2); budget, R-5 evaluation determinations, DINOv3 gated-access acceptance and the controlled store location remain MISSING; no passwords or tokens in Git |
+| OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A | PARTIAL | owner fixed the initial families and conditional acquisition authority (§3.1); variants resolved under the R-1 variant rule (§4.3.2); R-5 determinations are recorded in §4.3.8; the controlled store location and acquisition remain MISSING; Awiros, MobileNetV3-Small and VTFPAR++ stay REVIEW_PENDING; DINOv3 is NOT_PERMITTED_FOR_EVALUATION and gated access is NOT APPROVED; no passwords or tokens in Git |
 | OI-5 | Every numerical quality/support/slice gate; practical/NI/equivalence/MPID margins; bootstrap seed/replicates/multiplicity/undefined-denominator rule; pilot-simulation coverage tolerance and perturbations — one executable recipe | B | MISSING | no gate threshold is supplied by this record |
 | OI-6 | Training/tuning search and compute budgets; calibration family; allowed parameter families; reproducibility tolerances; evidence storage capacity | B | MISSING | |
 | OI-7 | Host/OS/runtime variants; detector/platform co-residency; worker range and chosen topology; lease/retry/deadline settings; resource/SLA/host/reserve limits; physical measurement access | D | MISSING | no host limit is supplied |
@@ -323,6 +323,29 @@ No candidate field, evidence item, classification or disposition differs from th
 
 **Scope.** Every disposition stays `DISCOVERED`; nothing is shortlisted. These are working ledgers, not frozen ledgers: no `-frozen` copy exists, and no protocol cites them. This action makes no R-5 determination, authorizes no acquisition, and starts no Slice B work.
 
+#### 4.3.8 R-5 evaluation-permission determinations — 2026-09-30
+
+Aarav, acting as R-5 Licence Review Owner, reviewed the candidate-specific evidence packet and explicitly agreed to the following bounded Development-evaluation determinations. These decisions govern acquisition/evaluation permission only. They do not provide Production, operational-use, derivative, redistribution, Model Pack or deployment-profile clearance, and they do not alter M1 credibility or technical ranking.
+
+| Candidate family | MAVI ids | R-5 determination |
+|---|---|---|
+| SigLIP 2 base patch16-224 | PC-1, PO-1, VC-2 | `PERMITTED_FOR_EVALUATION` |
+| DINOv2 ViT-S/14 | PC-2B, PO-2B, VC-1B | `PERMITTED_FOR_EVALUATION` |
+| DINOv3 ViT-S/16 LVD-1689M | PC-2A, PO-2A, VC-1A | `NOT_PERMITTED_FOR_EVALUATION` |
+| Intel OMZ 0230 | PC-7 | `PERMITTED_FOR_EVALUATION` |
+| Intel OMZ 0234 | PO-6B | `PERMITTED_FOR_EVALUATION` |
+| Intel OMZ 0238 | PO-6C | `PERMITTED_FOR_EVALUATION` |
+| Intel OMZ 0042 | VC-5A | `PERMITTED_FOR_EVALUATION` |
+| Awiros ConvNeXt V2-Tiny | PC-5 | `REVIEW_PENDING` |
+| torchvision MobileNetV3-Small | PC-8, PO-7, VC-4A | `REVIEW_PENDING` |
+| VTFPAR++ MARS checkpoint | PC-9 | `REVIEW_PENDING` |
+
+**DINOv3 gated access:** `NOT APPROVED`. No gated terms are to be accepted and no DINOv3 model bytes are to be acquired for this event.
+
+**Permitted acquisition set:** SigLIP 2, DINOv2, OMZ 0230, OMZ 0234, OMZ 0238 and OMZ 0042. Acquisition remains blocked until R-1/R-6 identifies the controlled component/evidence store outside Git. Awiros, MobileNetV3-Small and VTFPAR++ remain on hold; no acquisition or execution is permitted while they are `REVIEW_PENDING`.
+
+No candidate is shortlisted by this action, and every ledger disposition remains `DISCOVERED`.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:
@@ -382,18 +405,17 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 
 **SA-B1 — RESOLVED (2026-09-30).** R-2 Hari Om approved the exact draft bytes (§4.3.6). R-1 Aarav performed the recorder action, and both working M2 ledgers are committed with genuine initial history (`recordedBy: Aarav`, `reviewedBy: Hari Om`). `model_selection_check.py repository` validates both (§4.3.7).
 
-**SA-B2 — no candidate bytes acquired or pinned by MAVI (EXECUTION DEPENDENCY: R-5 determinations, gated terms, store location).**
-- **Done.** Variants are resolved for every pursued family. Immutable revisions and upstream-published SHA-256 values are recorded where the publisher provides them (SigLIP 2, DINOv3, DINOv2, Awiros). An R-5 evidence packet is prepared (§4.3.2–§4.3.3).
+**SA-B2 — R-5 decisions recorded; controlled acquisition remains (EXECUTION DEPENDENCY: store location and permitted-candidate acquisition).**
+- **Done.** Variants are resolved for every pursued family. Immutable revisions and upstream-published SHA-256 values are recorded where available. Aarav's dated R-5 evaluation-permission determinations are recorded in §4.3.8: SigLIP 2, DINOv2 and OMZ 0230/0234/0238/0042 are `PERMITTED_FOR_EVALUATION`; DINOv3 is `NOT_PERMITTED_FOR_EVALUATION` with gated access `NOT APPROVED`; Awiros, MobileNetV3-Small and VTFPAR++ remain `REVIEW_PENDING`.
 - **Remaining.**
-  - Every candidate-specific R-5 evaluation-permission determination is still `REVIEW_PENDING`.
-  - DINOv3 access acceptance is still required.
-  - The controlled component-store location is unidentified.
-  - OMZ, MobileNetV3 and VTFPAR++ publish no SHA-256.
-  - VTFPAR++ has no identifiable checkpoint file.
+  - The controlled component/evidence-store location outside Git is unidentified.
+  - The six permitted candidate families have not yet been acquired into that store and locally hashed.
+  - OMZ publishes no SHA-256, so local acquisition hashes are required.
+  - Awiros, MobileNetV3-Small and VTFPAR++ remain blocked while their R-5 decisions are pending; VTFPAR++ also lacks an identifiable checkpoint file.
 - **Smallest resolution.**
-  1. R-5 records a dated determination per candidate.
-  2. R-1/R-6 name the controlled store.
-  3. For each permitted candidate, a controlled acquisition run fetches the exact file at the recorded revision into that store, computes SHA-256, compares it with any published value, and records the acquisition date.
+  1. R-1/R-6 names the controlled store.
+  2. A controlled acquisition run fetches only the permitted exact files/revisions into that store, computes SHA-256, compares with publisher hashes where available, and records acquisition date/source/file/hash.
+  3. Pending candidates remain untouched unless a later dated R-5 determination changes their status.
 
 **SA-B3 — baselines not implemented (plan sequencing).** See §5. The implementation moves to C2. This is not an execution blocker.
 
@@ -408,7 +430,7 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 | candidate acquisition and identity auditable | partial: retrieved documents and upstream identities are recorded with SHA-256 and immutable revisions (§4.3.1–§4.3.2); no acquisition exists yet to audit (SA-B2) |
 | no unresolved owner input silently defaulted | met: supplied inputs are explicit and remaining inputs stay PARTIAL/MISSING (§2, §3) |
 
-Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until the SA-B2 R-5 determinations and controlled acquisition are completed, this record is updated, and the result is reviewed. SA-B1 is resolved.
+Slice A therefore stays **OPEN**. Slice B may not start candidate corpus execution, and no later slice may start, until the remaining SA-B2 controlled-store designation and permitted-candidate acquisition are completed, this record is updated, and the result is reviewed. SA-B1 is resolved.
 
 ## 9. Dependencies and offline policy
 
