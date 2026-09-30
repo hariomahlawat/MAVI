@@ -79,3 +79,19 @@ def test_script_parses():
                f"'{SCRIPT}',[ref]$t,[ref]$e); if ($e.Count) {{ $e | % {{ $_.Message }}; exit 1 }}")
     result = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-Command", command], capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_resume_and_retry_contract_is_bounded():
+    source = text()
+    # Only the six clearly transient HTTP statuses are retried; the attempt limit is fixed at 5.
+    assert source.count("@(408, 429, 500, 502, 503, 504) -contains $code") == 1
+    assert "[int]$MaxAttempts = 5" in source and "[Math]::Pow(2, $attempt)" in source
+    # A resume sends exactly "Range: bytes=<offset>-", and bytes are appended only after the
+    # 206 Content-Range has been validated against the offset and the expected size.
+    assert 'RangeHeaderValue]::Parse("bytes=$RangeStart-")' in source
+    assert source.count("[IO.FileMode]::Append") == 1
+    sink = source[source.index("if ($StatusCode -eq 206) {"):source.index("[IO.FileMode]::Append")]
+    assert "Resolve-MaviContentRange -ContentRange $ContentRange -Offset $mviLength -ExpectedSize $mviExpected" in sink
+    # The CLI exposes no transport, sleep or catalog override.
+    param_block = source[source.index("[CmdletBinding()]"):source.index("Set-StrictMode")]
+    assert set(re.findall(r"\$([A-Za-z]+)\s*(?:=|\))", param_block)) <= {"Root", "DryRun"}

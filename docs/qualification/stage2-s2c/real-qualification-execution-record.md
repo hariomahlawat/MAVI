@@ -364,6 +364,27 @@ No candidate is shortlisted by this action, and every ledger disposition remains
 
 **Status.** Acquisition has **not** been executed, and no candidate byte is acquired or pinned by MAVI. Ledger identities are unchanged. SA-B2 stays open until the script is run on the Development machine and the returned manifest is reviewed and recorded.
 
+#### 4.3.10 First real acquisition runs and transfer repair — 2026-09-30
+
+**Real runs.** Acquisition began on the Development machine against `D:\MAVI-Controlled\Models\S2c\2026-01`. The operator reports this observed state, pending the returned manifest:
+- **OMZ 0230, 0234, 0238 and 0042:** FP32 `.xml` and `.bin` acquired and verified locally.
+- **DINOv2:** `config.json` and `preprocessor_config.json` verified; `model.safetensors` still blocked by transport failures.
+- **SigLIP 2:** `config.json` acquired; `preprocessor_config.json` and `model.safetensors` still blocked by transport failures.
+
+No hash, size or identity mismatch occurred.
+
+**Defect exposed.** Hugging Face connections are intermittently reset or fail TLS on this network. The script deleted `.partial` bytes after any failure, sent no `Range` and had no retry, so large weights restarted from byte zero on every run.
+
+**Repair (script 1.1.0).**
+- **Partials kept.** `.partial` files survive transient failures, and a rerun resumes with `Range: bytes=<length>-`.
+- **Append only on a validated 206.** Bytes are appended only to an HTTP 206 whose `Content-Range` starts exactly at that length and whose total equals the pinned size.
+- **200 and 416.** A 200 answer to a Range request never appends: its full body replaces the partial as a fresh transfer. A 416 fails closed unless the partial is already complete.
+- **Bounded retry.** Only transient transport errors (resets, TLS failures, timeouts, HTTP 408/429/500/502/503/504) are retried: at most 5 attempts, with 2/4/8/16 s back-off.
+- **No weakening.** Identity and integrity checks, promotion rules and the catalog are unchanged. An oversized, mismatching or rejected partial is kept for diagnosis and never promoted.
+- **Manifest.** The manifest adds `resumedFromBytes`, `transferAttempts` and `partialRetained` per artefact (additive; schema id unchanged).
+
+**Status.** SA-B2 stays open until the remaining permitted Hugging Face files verify in a returned manifest. No Hugging Face weight is recorded as acquired here.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:
@@ -426,7 +447,7 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 **SA-B2 — R-5 decisions recorded; controlled acquisition remains (EXECUTION DEPENDENCY: store location and permitted-candidate acquisition).**
 - **Done.** Variants are resolved for every pursued family. Immutable revisions and upstream-published SHA-256 values are recorded where available. Aarav's dated R-5 evaluation-permission determinations are recorded in §4.3.8: SigLIP 2, DINOv2 and OMZ 0230/0234/0238/0042 are `PERMITTED_FOR_EVALUATION`; DINOv3 is `NOT_PERMITTED_FOR_EVALUATION` with gated access `NOT APPROVED`; Awiros, MobileNetV3-Small and VTFPAR++ remain `REVIEW_PENDING`.
 - **Remaining.**
-  - The controlled store is designated (`D:\MAVI-Controlled\Models\S2c\2026-01`) and the acquisition tooling is prepared (§4.3.9), but the local run has not happened.
+  - The controlled store is designated (`D:\MAVI-Controlled\Models\S2c\2026-01`), and acquisition has begun. OMZ 0230/0234/0238/0042 and the DINOv2 configuration files are verified locally, and the SigLIP 2 `config.json` is acquired. The two HF weight files and the SigLIP 2 `preprocessor_config.json` remain transport-blocked, and the tooling was repaired for resume/retry (§4.3.10). A returned manifest is still required.
   - The six permitted candidate families have not yet been acquired into that store and locally hashed.
   - OMZ publishes no SHA-256, so local acquisition hashes are required.
   - Awiros, MobileNetV3-Small and VTFPAR++ remain blocked while their R-5 decisions are pending; VTFPAR++ also lacks an identifiable checkpoint file.

@@ -21,6 +21,14 @@
     - is written to "<name>.partial" and renamed only after its size and every publisher
       checksum verify (SHA-256 for the HF weights, git blob SHA-1 for the HF configuration
       files, SHA-384 for the OMZ files, plus the exact published byte size);
+    - resumes an interrupted ".partial" with "Range: bytes=<length>-": bytes are appended only
+      to an HTTP 206 whose Content-Range starts exactly at that length and whose total equals
+      the expected size; a 200 answer to a Range request never appends (its full body replaces
+      the partial as a fresh transfer); a 416 fails closed unless the partial is already
+      complete; transient transport errors (resets, TLS failures, timeouts, HTTP
+      408/429/500/502/503/504) are retried at most 5 times (2, 4, 8, 16 s back-off) and the
+      partial is kept for the next run; any other failure, and every identity or integrity
+      failure, is final and never promotes the partial;
     - gets its MAVI SHA-256 computed locally with Get-FileHash.
 
     Re-running is safe: a present file that verifies is recorded ALREADY_PRESENT_VERIFIED and not
@@ -49,7 +57,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $script:MaviAcquisitionSchema = 'mavi-s2c-candidate-acquisition-manifest-v1'
-$script:MaviAcquisitionScriptVersion = '1.0.0'
+$script:MaviAcquisitionScriptVersion = '1.1.0'
 $script:MaviAllowedHostSuffixes = @('huggingface.co', 'hf.co', 'storage.openvinotoolkit.org')
 
 function Get-MaviS2cPermittedCatalog {
@@ -263,9 +271,34 @@ function Test-MaviFileAgainstPublisher {
     [pscustomobject]@{ ok = ($problems.Count -eq 0); size = [long]$size; sha256 = $sha256; comparison = $cmp; problems = $problems.ToArray() }
 }
 
-function Invoke-MaviHttpsDownload {
-    <# Default downloader: HTTPS only, allow-listed hosts on every hop, no credentials. #>
-    param([Parameter(Mandatory)] [string]$Url, [Parameter(Mandatory)] [string]$Destination, [string]$ExpectedRevision)
+function Get-MaviTransientError {
+    <# A transfer failure the retry loop may retry: transport resets, TLS failures, timeouts,
+       and HTTP 408/429/500/502/503/504. Everything else (policy, identity, integrity) is final. #>
+    param([Parameter(Mandatory)] [string]$Message)
+    return (New-Object System.Exception("TRANSIENT: $Message"))
+}
+
+function Test-MaviTransientError {
+    param($ErrorRecord)
+    return ($ErrorRecord.Exception.Message -like 'TRANSIENT: *')
+}
+
+function New-MaviHttpRequest {
+    <# GET for one hop; a resume sends "Range: bytes=<RangeStart>-". No other header is set. #>
+    param([Parameter(Mandatory)] [Uri]$Uri, [long]$RangeStart = 0)
+    Add-Type -AssemblyName System.Net.Http
+    $request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $Uri)
+    if ($RangeStart -gt 0) { $request.Headers.Range = [System.Net.Http.Headers.RangeHeaderValue]::Parse("bytes=$RangeStart-") }
+    return $request
+}
+
+function Invoke-MaviHttpsTransport {
+    <# Default transport: HTTPS only, allow-listed hosts on every hop, no credentials.
+       RangeStart > 0 sends "Range: bytes=<RangeStart>-". For HTTP 200/206 it calls
+       OpenSink(statusCode, contentRange) BEFORE reading the body; the sink validates and returns
+       the stream to write to. Returns the final status code (416 is returned without a body). #>
+    param([Parameter(Mandatory)] [string]$Url, [long]$RangeStart = 0, [string]$ExpectedRevision,
+          [Parameter(Mandatory)] [scriptblock]$OpenSink)
     Add-Type -AssemblyName System.Net.Http
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
     $handler = New-Object System.Net.Http.HttpClientHandler
@@ -279,8 +312,10 @@ function Invoke-MaviHttpsDownload {
         for ($hop = 0; $hop -le 8; $hop++) {
             if ($uri.Scheme -ne 'https') { throw "refusing non-HTTPS hop $uri" }
             if (-not (Test-MaviAllowedHost $uri.Host)) { throw "refusing hop to non-allow-listed host $($uri.Host)" }
-            $request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $uri)
-            $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+            $request = New-MaviHttpRequest -Uri $uri -RangeStart $RangeStart
+            try {
+                $response = $client.SendAsync($request, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+            } catch { throw (Get-MaviTransientError "connection to $($uri.Host) failed: $($_.Exception.Message)") }
             try {
                 if ($hop -eq 0 -and $ExpectedRevision) {
                     $values = $null
@@ -295,15 +330,97 @@ function Invoke-MaviHttpsDownload {
                     $uri = New-Object Uri($uri, $response.Headers.Location)
                     continue
                 }
-                if ($code -ne 200) { throw "HTTP $code from $($uri.Host)" }
-                $source = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-                $target = [IO.File]::Open($Destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-                try { $source.CopyTo($target, 1048576); $target.Flush() } finally { $target.Dispose(); $source.Dispose() }
-                return
+                if ($code -eq 416) { return 416 }
+                if (@(408, 429, 500, 502, 503, 504) -contains $code) { throw (Get-MaviTransientError "HTTP $code from $($uri.Host)") }
+                if ($code -ne 200 -and $code -ne 206) { throw "HTTP $code from $($uri.Host)" }
+                $contentRange = $null
+                if ($response.Content.Headers.ContentRange) { $contentRange = $response.Content.Headers.ContentRange.ToString() }
+                $sink = & $OpenSink $code $contentRange
+                try {
+                    try {
+                        $source = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+                        try { $source.CopyTo($sink, 1048576) } finally { $source.Dispose() }
+                    } catch { throw (Get-MaviTransientError "transfer from $($uri.Host) interrupted: $($_.Exception.Message)") }
+                } finally { $sink.Flush(); $sink.Dispose() }
+                return $code
             } finally { $response.Dispose() }
         }
         throw 'too many redirects'
     } finally { $client.Dispose(); $handler.Dispose() }
+}
+
+function Resolve-MaviContentRange {
+    <# Validates a 206 "bytes <start>-<end>/<total|*>" header against the requested offset. #>
+    param([string]$ContentRange, [long]$Offset, [long]$ExpectedSize)
+    if (-not $ContentRange -or $ContentRange -notmatch '^bytes (\d+)-(\d+)/(\d+|\*)$') { throw "malformed Content-Range '$ContentRange'" }
+    $first = [long]$Matches[1]; $last = [long]$Matches[2]
+    if ($first -ne $Offset) { throw "Content-Range starts at $first, requested $Offset" }
+    if ($last -lt $first -or $last -ge $ExpectedSize) { throw "Content-Range end $last outside expected size $ExpectedSize" }
+    if ($Matches[3] -ne '*' -and [long]$Matches[3] -ne $ExpectedSize) { throw "Content-Range total $($Matches[3]) != expected size $ExpectedSize" }
+}
+
+function Invoke-MaviResumableTransfer {
+    <# Brings "<target>.partial" to its expected size, resuming from its current length.
+       Bounded retry of transient failures only; partial bytes are kept across failures. #>
+    param([Parameter(Mandatory)] [string]$Partial, [Parameter(Mandatory)] $File, [string]$ExpectedRevision,
+          [Parameter(Mandatory)] [scriptblock]$Transport, [Parameter(Mandatory)] [scriptblock]$Sleep,
+          [Parameter(Mandatory)] [hashtable]$State, [int]$MaxAttempts = 5)
+    # $State (attempts, resumedFromBytes) is owned by the caller so it survives a thrown failure.
+    $State.attempts = 0; $State.resumedFromBytes = $null
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        $length = 0L
+        if (Test-Path -LiteralPath $Partial) { $length = (Get-Item -LiteralPath $Partial).Length }
+        if ($length -gt $File.expectedSize) { throw "partial holds $length bytes, more than expected $($File.expectedSize); retained for diagnosis" }
+        if ($length -eq $File.expectedSize) { break }
+        if ($length -eq 0 -and (Test-Path -LiteralPath $Partial)) { Remove-Item -LiteralPath $Partial -Force }
+        if ($length -gt 0 -and $null -eq $State.resumedFromBytes) { $State.resumedFromBytes = $length }
+        $State.attempts = $attempt
+        # The sink runs inside the transport call; it reads these mvi* variables by dynamic scope.
+        $mviRestart = "$Partial.restart"
+        if (Test-Path -LiteralPath $mviRestart) { Remove-Item -LiteralPath $mviRestart -Force }
+        $mviExpected = $File.expectedSize; $mviLength = $length; $mviPartial = $Partial
+        $openSink = {
+            param([int]$StatusCode, [string]$ContentRange)
+            if ($StatusCode -eq 206) {
+                if ($mviLength -eq 0) { throw 'HTTP 206 to a request without Range' }
+                Resolve-MaviContentRange -ContentRange $ContentRange -Offset $mviLength -ExpectedSize $mviExpected
+                $stream = [IO.File]::Open($mviPartial, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::None)
+                if ($stream.Position -ne $mviLength) { $stream.Dispose(); throw 'partial length changed during resume' }
+                return $stream
+            }
+            if ($StatusCode -eq 200 -and $mviLength -eq 0) {
+                return [IO.File]::Open($mviPartial, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            }
+            if ($StatusCode -eq 200) {
+                # Server ignored the Range: never append a full body onto partial bytes.
+                return [IO.File]::Open($mviRestart, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            }
+            throw "unexpected HTTP $StatusCode"
+        }
+        try {
+            $code = & $Transport -Url $File.url -RangeStart $length -ExpectedRevision $ExpectedRevision -OpenSink $openSink
+            if ($code -eq 416) {
+                $now = 0L
+                if (Test-Path -LiteralPath $Partial) { $now = (Get-Item -LiteralPath $Partial).Length }
+                if ($now -ne $File.expectedSize) { throw "HTTP 416 for offset $length with partial of $now bytes (expected $($File.expectedSize))" }
+                break
+            }
+            if (Test-Path -LiteralPath $mviRestart) {
+                # A complete 200 body replaces the superseded partial as a fresh transfer.
+                Remove-Item -LiteralPath $Partial -Force
+                [IO.File]::Move($mviRestart, $Partial)
+                $State.resumedFromBytes = $null
+            }
+        } catch {
+            if (Test-Path -LiteralPath $mviRestart) { Remove-Item -LiteralPath $mviRestart -Force }
+            if (-not (Test-MaviTransientError $_)) { throw }
+            if ($attempt -ge $MaxAttempts) {
+                $kept = $(if (Test-Path -LiteralPath $Partial) { "partial of $((Get-Item -LiteralPath $Partial).Length) bytes retained for the next run" } else { 'no partial bytes received' })
+                throw "transient failure persisted after $MaxAttempts attempts: $($_.Exception.Message); $kept"
+            }
+            & $Sleep ([int][Math]::Pow(2, $attempt))
+        }
+    }
 }
 
 function Get-MaviUtcNow { [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ') }
@@ -324,7 +441,8 @@ function Invoke-MaviS2cAcquisition {
     param(
         [Parameter(Mandatory)] [string]$Root,
         [object[]]$Catalog = (Get-MaviS2cPermittedCatalog),
-        [scriptblock]$Downloader = ${function:Invoke-MaviHttpsDownload},
+        [scriptblock]$Transport = ${function:Invoke-MaviHttpsTransport},
+        [scriptblock]$Sleep = { param([int]$Seconds) Start-Sleep -Seconds $Seconds },
         [string]$ScriptPath = $PSCommandPath,
         [switch]$DryRun
     )
@@ -368,6 +486,7 @@ function Invoke-MaviS2cAcquisition {
                 localRelativePath = $rel; byteSize = $null; expectedByteSize = $f.expectedSize; localSha256 = $null
                 publisherSha256 = $f.publisherSha256; publisherSha384 = $f.publisherSha384; publisherGitBlobSha1 = $f.publisherGitBlobSha1
                 hashComparison = $null; status = 'FAILED'; acquiredAtUtc = $null; error = $null
+                resumedFromBytes = $null; transferAttempts = 0; partialRetained = $false
             }
             try {
                 [void](New-Item -ItemType Directory -Force -Path ([IO.Path]::GetDirectoryName($target)))
@@ -379,17 +498,22 @@ function Invoke-MaviS2cAcquisition {
                     $record.status = 'ALREADY_PRESENT_VERIFIED'; $record.acquiredAtUtc = Get-MaviUtcNow
                 } else {
                     $partial = "$target.partial"
-                    if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force }
                     try {
-                        & $Downloader -Url $f.url -Destination $partial -ExpectedRevision $(if ($u.revisionCheck -eq 'x-repo-commit') { $u.revision } else { $null })
-                        if (-not (Test-Path -LiteralPath $partial)) { throw 'download produced no file' }
+                        $transfer = @{ attempts = 0; resumedFromBytes = $null }
+                        try {
+                            Invoke-MaviResumableTransfer -Partial $partial -File $f -Transport $Transport -Sleep $Sleep -State $transfer `
+                                -ExpectedRevision $(if ($u.revisionCheck -eq 'x-repo-commit') { $u.revision } else { $null })
+                        } finally {
+                            $record.transferAttempts = $transfer.attempts; $record.resumedFromBytes = $transfer.resumedFromBytes
+                        }
+                        if (-not (Test-Path -LiteralPath $partial)) { throw 'transfer produced no file' }
                         $check = Test-MaviFileAgainstPublisher -Path $partial -File $f
                         $record.byteSize = $check.size; $record.localSha256 = $check.sha256; $record.hashComparison = $check.comparison
-                        if (-not $check.ok) { throw "downloaded bytes rejected ($($check.problems -join '; '))" }
+                        if (-not $check.ok) { throw "transferred bytes rejected ($($check.problems -join '; ')); partial retained for diagnosis, delete it to retry" }
                         if (Test-Path -LiteralPath $target) { throw 'target appeared during download; not overwriting' }
                         [IO.File]::Move($partial, $target)
                     } finally {
-                        if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Force }
+                        $record.partialRetained = [bool](Test-Path -LiteralPath $partial)
                     }
                     $record.status = 'ACQUIRED'; $record.acquiredAtUtc = Get-MaviUtcNow
                 }
