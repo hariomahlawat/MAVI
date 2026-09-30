@@ -796,12 +796,20 @@ The validator recomputes the stored `E_c`/`F_c` from the referenced event eviden
 S2c creates one checked cross-event artefact:
 
 - **schema:** `mavi-s2c-joint-operational-decision-v1`
-- **path:** `docs/qualification/model-selection/s2c-joint-operational-decision.json` for the active S2c event pair, or the event-pair-specific path defined by the M2 index;
+- **retention (immutable, version-addressed):** every version is its own file under `docs/qualification/model-selection/s2c-joint/`, named `<eventPairId>-joint-<stage>-v<N>.json`, where `<stage>` is `technical` or `implementation` and `N` starts at 1 and increases by one per version. For the planned events, `<eventPairId>` is `msr-attributes-2026-01`. No version file is ever rewritten or deleted. A correction or revision (§19) writes the next version, and the earlier files stay in the repository as evidence;
+- **index:** `<eventPairId>-joint-index.json` (schema `mavi-s2c-joint-index-v1`) lists every version in order, with its path, stage, canonical SHA-256 and `supersedes`, and names the single **active** version, which must be the last one listed. The index is a lookup aid, not an authority: event decisions cite the joint version's hash directly, and the validator re-derives every entry from the files;
+- **canonical bytes:** the same rules as §20.2 (UTF-8, exact keys, duplicate keys refused, finite numbers only, deterministic ordering, trailing LF). Every hash in the chain, including `supersedes` and `jointOperationalDecisionSha256`, is the SHA-256 of those canonical bytes;
 - **identity:** both event ids, both **frozen-ledger** hashes, one **`mavi-s2c-quality-result-v1` hash** for each capability, b-1/b-2 contract hashes and the frozen experiment hash;
 - **`technicalStage`** (written at `TECHNICAL_DECISION_RECORDED`): `J_person`/`J_vehicle`, every evaluated joint pair with exact person/vehicle `unitId`s, operational evidence hash, `H_lo`, `H_up`, admission/constraint outcomes, `T`, technical outcome and joint evidence hash;
 - **`implementationStage`** (`null` until `QUALIFICATION_PENDING`): both events' decision-snapshot hashes, the per-unit licence status per profile, `C_r` and `T_r` per profile, `C_all`, `K_person`, `K_vehicle`, `C_impl` with the per-component credibility class used, `T_impl`, and a `supersedes` hash naming the technical-stage version it extends.
 
 A version with a non-null `implementationStage` is a new document, with a new hash. Its `technicalStage` must be byte-identical to that of the version it supersedes (checked), so licence and credibility can never rewrite the technical result. The supersession chain only points backwards, so it stays acyclic.
+
+**Predecessor resolution (checked).**
+- `technical-v1` has `supersedes: null`.
+- Every later version's `supersedes` must resolve to **exactly one** retained version file in the same event pair whose canonical SHA-256 equals it. That file must be the immediately preceding entry in the index, so the chain is linear with no gaps, forks or cycles.
+- A later technical version (a numbered revision of the technical stage) follows the §19 revision rules, and every implementation version after it must supersede that newer technical version.
+- Each event decision-v2 must cite a version that is retained and resolvable, with the stage its state requires: technical at `TECHNICAL_DECISION_RECORDED`, implementation at `QUALIFICATION_PENDING`/`CLOSED`. Earlier decision versions (M1 §9 compares them) keep citing their own retained version, so the audit trail stays checkable from the repository alone, without Git history.
 
 The validator dependency is one-way and acyclic: load both event ledgers and their quality-result artefacts first; validate the joint operational document from those immutable inputs; hash the joint document (and, for an implementation-stage version, first the decision snapshots and the superseded technical-stage version); then load/validate each event decision-v2, which may cite `jointOperationalDecisionSha256`. The joint document does **not** cite full event decision hashes. Any S2c person/vehicle event still using decision-v1 is refused; decision-v1 remains accepted for non-S2c events.
 
@@ -856,7 +864,7 @@ The updated `credibility.py` / decision validator must recompute:
 - H*/T from H_lo/H_up;
 - profile-cleared sets;
 - `K_person`, `K_vehicle` and `C_impl` from `J_c`, licence status and each component's credibility class on its event's decision snapshot (M1 §8), including the fallback rule; and `T_impl` over `C_impl`;
-- that the implementation-stage version's `technicalStage` is byte-identical to the superseded version's;
+- that the implementation-stage version's `technicalStage` is byte-identical to the superseded version's, that every `supersedes` resolves to exactly one retained predecessor with a matching canonical SHA-256, and that the index agrees with the retained files;
 - the state rules of §20.4: no pair and no `T_r`/`T_impl` before `QUALIFICATION_PENDING`; `NO_QUALIFIABLE_CANDIDATE` only at `CLOSED`; outcome consistent with the event's coordinate;
 - that both event decision-v2 documents cite the same `jointOperationalDecisionSha256` and carry the identical `implementationPair` (or both `null`), and, when non-null, that this exact `(personUnitId, vehicleUnitId)` pair is a member of `T_impl` (per-coordinate membership alone is not sufficient).
 
@@ -956,6 +964,10 @@ Reject:
 - a non-null `implementationPair`, `T_r` or `T_impl` at `TECHNICAL_DECISION_RECORDED`;
 - `NO_QUALIFIABLE_CANDIDATE` recorded while any required licence status is still pending, or at any state other than `CLOSED`;
 - an implementation-stage joint version whose `technicalStage` differs from the version it supersedes;
+- a `supersedes` hash with no retained predecessor file, one matching more than one file, or one naming a file whose canonical SHA-256 differs;
+- a gap, fork or out-of-order entry in the version chain; an index whose active version is not the last entry, or whose listed hash, stage or path differs from the file;
+- a retained version file that was rewritten or deleted after being cited by an event decision or a later version;
+- an event decision-v2 citing a joint version that is not retained, or whose stage does not match the decision's state;
 - a per-event `CLOSED` outcome inconsistent with that event's coordinate of the pair;
 - missing/invalid quality-result artefact, non-canonical bytes, or mismatched event/ledger/contract/experiment hashes;
 - quality-result artefact whose stored E_c/F_c does not recompute from referenced evidence;
@@ -1088,7 +1100,7 @@ Complete only when:
 18. fallback operational units are frozen before selection and cannot rewrite empty-F quality outcomes;
 19. `T_impl` is derived over `C_impl = K_person × K_vehicle` (per-capability implementable, all-profile-cleared units, falling back to the frozen fallback when none; credibility applied only there), not by intersecting per-profile optima, and `C_r/C_all` are formed from the effective `J_c` sets so frozen fallbacks survive licence/implementation selection without rewriting quality outcomes;
 20. each event emits a canonical immutable `mavi-s2c-quality-result-v1` artefact whose E_c/F_c recompute from referenced evidence;
-21. the checked joint-decision artefact is staged (technical at `TECHNICAL_DECISION_RECORDED`, implementation at `QUALIFICATION_PENDING`, with a byte-identical technical stage), `implementationPair` follows the M1 state rule, and the artefact cross-links both S2c events **without hash cycles**, using event ids, ledger hashes and per-event quality-result hashes; event decision-v2 documents reference the already-hashed joint artefact;
+21. the checked joint-decision artefact is kept as immutable, version-addressed files with an index and exact-one predecessor resolution, is staged (technical at `TECHNICAL_DECISION_RECORDED`, implementation at `QUALIFICATION_PENDING`, with a byte-identical technical stage), `implementationPair` follows the M1 state rule, and the artefact cross-links both S2c events **without hash cycles**, using event ids, ledger hashes and per-event quality-result hashes; event decision-v2 documents reference the already-hashed joint artefact;
 22. b-1 repository check passes;
 23. b-2 repository check passes;
 24. `tools/verify_repo.py` passes;
@@ -1123,6 +1135,7 @@ Complete only when:
 | A M1 implementation eligibility (established/mavi-owned) not reapplied | accepted — credibility applied only at the implementation boundary: per-capability `K_c`, `C_impl = K_person × K_vehicle`, `T_impl` over `C_impl`; T/T_r stay credibility-blind §18 |
 | B implementationPair required at every state | accepted — M1 state rule for `implementationPair`; staged joint artefact (technical at TECHNICAL_DECISION_RECORDED, implementation at QUALIFICATION_PENDING, byte-identical technical stage); `NO_QUALIFIABLE_CANDIDATE` only at CLOSED §§18, 20.3–20.4 |
 | A′ credibility/licence gap in one capability would block the other through C_impl | accepted — per-capability `K_c` falls back to the frozen fallback §18 |
+| superseded joint version not retained or resolvable | accepted — immutable version-addressed files, joint index, exact-one predecessor resolution by canonical SHA-256 §20.3 |
 
 ---
 
