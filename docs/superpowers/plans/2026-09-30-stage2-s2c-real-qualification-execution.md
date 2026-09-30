@@ -363,7 +363,7 @@ For each slice: write its discriminating tests first where code is new, observe 
 
 - [ ] Create decision-date snapshots and detailed final/pending licence determinations for every frozen unit, including fallbacks, across every required profile. Derive K/C_impl and credibility-blind profile results without touching technical evidence.
 - [ ] Execute any newly required frozen fallback pairs; retain an immediate implementation successor and paired QUALIFICATION_PENDING decisions. Enforce byte-identical operational rows across later implementation versions; refuse any attempt to complete an earlier incomplete row as rescue and raise an execution blocker.
-- [ ] **Accept:** snapshot evolution and dates validate; technical bytes unchanged; `pending == false` and `unresolvedOperationalPairs == []`; all C_impl measurements exist or are explicitly unresolved; no emerging component enters an implementation.
+- [ ] **Accept:** snapshot evolution and dates validate; technical bytes unchanged; `pending == false` and `unresolvedOperationalPairs == []`; all required C_impl measurements exist and none remain unresolved; no emerging component enters an implementation.
 
 ### Slice G — implementation decision, not immutable closure
 
@@ -442,7 +442,7 @@ These are expected implementation/input prerequisites, not contradictions in the
 10. Named non-commercial deployment profiles, actual end uses, delivery route and genuine final legal determinations for every frozen unit/fallback across every required profile, covering evaluation, operational use, derivatives and redistribution; no `NOT_ASSESSED`/`REVIEW_PENDING` or invented placeholder `NOT_CLEARED`; CUDA host/restart-service decisions where applicable.
 11. At the decision stage only: exact owner implementation pair and rationale, within complete T_impl; authorization for the Development integration environment. This is not a preselected winner.
 
-**Recommended order:** A → B → C → D → E → F → G → H → I → J. Model-neutral harness/contract self-tests may proceed while real corpus work is pending, but candidate corpus execution cannot precede R1/seal controls and selection cannot precede final freeze.
+**Recommended order:** A → B → C1 → C2 → D → E → F → G → H → I → J. Model-neutral harness/contract self-tests may proceed while real corpus work is pending, but candidate corpus execution cannot precede R1/seal controls and selection cannot precede final freeze.
 
 **Architecture closure is preserved.** This plan instantiates accepted event policy and implements missing execution paths; it adds no selection layer or statistical method. The method, numerical choices and evidence must be approved/frozen before use. Architecture redesign, new scores/ranks, adaptive composition expansion, frozen-test rescue, new attributes, unrelated UI/search work, speculative optimization and Production rollout are out of scope. Submit this plan for review before implementation; do not open a PR or execute a real run as part of producing it.
 
