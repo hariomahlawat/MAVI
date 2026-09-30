@@ -346,6 +346,24 @@ Aarav, acting as R-5 Licence Review Owner, reviewed the candidate-specific evide
 
 No candidate is shortlisted by this action, and every ledger disposition remains `DISCOVERED`.
 
+#### 4.3.9 Controlled store and acquisition tooling — 2026-09-30
+
+**Controlled store.** R-1/R-6 designated `D:\MAVI-Controlled\Models\S2c\2026-01` as the controlled component/evidence store for this event. It lies outside Git and is the only permitted destination for this acquisition.
+
+**Tooling.** The acquisition script is prepared at `tools/qualification/model_selection/acquire_s2c_candidates.ps1` and is compatible with Windows PowerShell 5.1 and PowerShell 7.
+- **What it fetches.** Only the six R-5-permitted families (§4.3.8), from a fixed in-script catalog at immutable revisions:
+  - SigLIP 2 @ `75de2d55…` and DINOv2 @ `ed25f3a3…`: `model.safetensors`, plus that revision's `config.json` and `preprocessor_config.json`, which are needed to load and preprocess the weights;
+  - OMZ 0230/0234/0238/0042: the FP32 `.xml` and `.bin` pair each, from the `2023.0/models_bin/1` storage paths named by `model.yml` at OMZ `a6946b6d…`.
+- **Checks on every file.** HTTPS only, with allow-listed hosts on every redirect hop and no credentials. The file is written as `.partial` and renamed only after the published size and the publisher checksum verify:
+  - SHA-256 for the HF weights;
+  - git blob SHA-1 for the HF configuration files;
+  - SHA-384 for OMZ.
+- **Hashes and records.** The MAVI SHA-256 is computed locally. No publisher SHA-256 is invented for OMZ. Output goes to `acquisition-manifest.json` and `acquisition-summary.txt` under the store.
+- **What it never fetches.** DINOv3, Awiros, MobileNetV3-Small and VTFPAR++ have no source in the script and appear in the manifest only as `BLOCKED`.
+- **Tests.** `tools/qualification/tests/test_s2c_acquisition_script.py` checks the catalog and runs PowerShell behaviour tests with a fake downloader; no network is used.
+
+**Status.** Acquisition has **not** been executed, and no candidate byte is acquired or pinned by MAVI. Ledger identities are unchanged. SA-B2 stays open until the script is run on the Development machine and the returned manifest is reviewed and recorded.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:
@@ -408,13 +426,13 @@ These are the required first-event capabilities. The vocabulary/pilot details ar
 **SA-B2 — R-5 decisions recorded; controlled acquisition remains (EXECUTION DEPENDENCY: store location and permitted-candidate acquisition).**
 - **Done.** Variants are resolved for every pursued family. Immutable revisions and upstream-published SHA-256 values are recorded where available. Aarav's dated R-5 evaluation-permission determinations are recorded in §4.3.8: SigLIP 2, DINOv2 and OMZ 0230/0234/0238/0042 are `PERMITTED_FOR_EVALUATION`; DINOv3 is `NOT_PERMITTED_FOR_EVALUATION` with gated access `NOT APPROVED`; Awiros, MobileNetV3-Small and VTFPAR++ remain `REVIEW_PENDING`.
 - **Remaining.**
-  - The controlled component/evidence-store location outside Git is unidentified.
+  - The controlled store is designated (`D:\MAVI-Controlled\Models\S2c\2026-01`) and the acquisition tooling is prepared (§4.3.9), but the local run has not happened.
   - The six permitted candidate families have not yet been acquired into that store and locally hashed.
   - OMZ publishes no SHA-256, so local acquisition hashes are required.
   - Awiros, MobileNetV3-Small and VTFPAR++ remain blocked while their R-5 decisions are pending; VTFPAR++ also lacks an identifiable checkpoint file.
 - **Smallest resolution.**
-  1. R-1/R-6 names the controlled store.
-  2. A controlled acquisition run fetches only the permitted exact files/revisions into that store, computes SHA-256, compares with publisher hashes where available, and records acquisition date/source/file/hash.
+  1. R-1/R-6 names the controlled store (done 2026-09-30, §4.3.9).
+  2. A controlled acquisition run (`acquire_s2c_candidates.ps1`, §4.3.9) fetches only the permitted exact files/revisions into that store, computes SHA-256, compares with publisher hashes where available, and records acquisition date/source/file/hash.
   3. Pending candidates remain untouched unless a later dated R-5 determination changes their status.
 
 **SA-B3 — baselines not implemented (plan sequencing).** See §5. The implementation moves to C2. This is not an execution blocker.
