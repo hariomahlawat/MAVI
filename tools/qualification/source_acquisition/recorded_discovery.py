@@ -35,6 +35,7 @@ import io
 import json
 import os
 import platform
+import subprocess
 import sys
 import tarfile
 import threading
@@ -87,6 +88,8 @@ LIMITS = {
 }
 STOP_RULES = (
     "a refused URL (anything but the Commons Action API endpoint) latches the run before any socket opens",
+    "a refusal raised inside the helper's Transport (redirect to a host that is not allow-listed, a non-HTTPS hop, a redirect without a location, too many redirects, an over-limit body) latches the run before any further request",
+    "a local capture failure (writing or renaming a captured body) latches the run",
     "any HTTP status other than 200 or a redirect, including 429 and 503, latches the run; the helper's back-off sleep is refused, so it never retries",
     "an API body with an 'error' member latches the run",
     "a network failure, read failure, read-limit overrun or over-limit body latches the run",
@@ -99,7 +102,8 @@ STOP_RULES = (
     "secondary scopes run only if primary scopes described fewer files without error than the threshold",
     "no scope starts once the candidate cap of files described without error is reached",
 )
-RECORDED_HEADER_NAMES = ("retry-after", "date", "content-type", "content-length", "age", "server", "x-cache", "x-cache-status")
+RECORDED_HEADER_NAMES = ("retry-after", "date", "content-type", "content-length", "age", "server", "x-cache", "x-cache-status",
+                         "location")
 RECORDED_HEADER_PREFIXES = ("x-ratelimit-", "ratelimit")
 REDIRECTS = (301, 302, 303, 307, 308)
 CHUNK = 64 * 1024
@@ -118,11 +122,26 @@ def _seconds(value: float) -> str:
 
 
 def is_discovery_url(url: str) -> bool:
-    """Only an HTTPS GET of the Commons Action API endpoint itself is a discovery request."""
-    parts = urllib.parse.urlsplit(url)
-    return (parts.scheme == "https" and parts.hostname == "commons.wikimedia.org" and parts.port in (None, 443)
-            and parts.path == "/w/api.php" and not parts.fragment and parts.username is None and parts.password is None
-            and "action=query" in parts.query.split("&"))
+    """Only an HTTPS GET of the Commons Action API endpoint itself, with exactly one
+    ``action=query`` and no array-style or encoded parameter keys, is a discovery request."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return False
+    if not (parts.scheme == "https" and parts.netloc in ("commons.wikimedia.org", "commons.wikimedia.org:443")
+            and port in (None, 443) and parts.path == "/w/api.php" and not parts.fragment):
+        return False
+    if "%" in "".join(segment.split("=", 1)[0] for segment in parts.query.split("&")):
+        return False  # an encoded key (e.g. %61ction) could smuggle a second action past the check
+    try:
+        pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        return False
+    keys = [key for key, _ in pairs]
+    if any("[" in key or "]" in key for key in keys) or len(keys) != len(set(keys)):
+        return False
+    return dict(pairs).get("action") == "query"
 
 
 def _request_kind(url: str) -> dict:
@@ -214,6 +233,7 @@ class Recorder:
     def fetch(self, url: str, headers: dict):
         self.guard()
         if not is_discovery_url(url):
+            self.events.write("refused-url", url=url)
             self.latch(f"refused-url:{urllib.parse.urlsplit(url).hostname}")
             self.guard()
         if self.attempts >= self.attempt_budget:
@@ -248,10 +268,17 @@ class Recorder:
         selected = _selected_headers(response_headers)
         try:
             body, complete, outcome = self._read(stream, part, state)
+            if complete:
+                os.replace(part, self.bodies / f"attempt-{attempt:06d}.body")
         except KeyboardInterrupt:
             self._end(attempt, outcome="interrupted", status=status, headers=selected, state=state, complete=False)
             self.latch("interrupted")
             raise
+        except OSError as exc:  # a local capture failure: nothing more may be fetched without capture
+            self._end(attempt, outcome=f"local-io-error:{type(exc).__name__}", status=status, headers=selected, state=state,
+                      complete=False, error=str(exc)[:500])
+            self.latch(f"local-io-error:{type(exc).__name__}")
+            raise RunStopped(f"local capture failure: {type(exc).__name__}") from exc
         finally:
             close = getattr(stream, "close", None)
             if close is not None:
@@ -262,7 +289,6 @@ class Recorder:
         api_error = None
         warnings = False
         if complete:
-            os.replace(part, self.bodies / f"attempt-{attempt:06d}.body")
             if status == 200:
                 try:
                     document = json.loads(body.decode("utf-8"))
@@ -342,9 +368,67 @@ class Recorder:
                           elapsedSeconds=_seconds(self._monotonic() - self.started), **extra)
 
 
+class RecordedTransport(Transport):
+    """The helper's ``Transport``, unchanged, except that every refusal it raises latches the run.
+
+    ``Transport.open`` refuses some things before or after calling ``fetch`` (a redirect to a
+    host that is not allow-listed, a non-HTTPS hop, a redirect without a location, too many
+    redirects), and ``get_bytes`` refuses an over-limit body. ``discover`` would otherwise
+    catch those as per-item errors and continue with the next title. Here they latch first.
+    ``download`` is refused outright: this transport is for discovery only.
+    """
+
+    def __init__(self, recorder: Recorder, allowed_hosts, user_agent: str):
+        super().__init__(allowed_hosts, user_agent, fetch=recorder.fetch, sleep=recorder.sleep)
+        self.recorder = recorder
+
+    def _refused(self, exc: TransportError) -> RunStopped:
+        if not isinstance(exc, RunStopped):
+            self.recorder.events.write("transport-refused", error=str(exc)[:500])
+            self.recorder.latch(f"transport-refused:{str(exc)[:160]}")
+        return exc if isinstance(exc, RunStopped) else RunStopped(f"run stopped: {self.recorder.stop_reason}")
+
+    def open(self, url: str):
+        self.recorder.guard()
+        try:
+            return super().open(url)
+        except TransportError as exc:
+            raise self._refused(exc) from exc
+
+    def get_bytes(self, url: str, limit: int = 16 * 1024 * 1024) -> bytes:
+        self.recorder.guard()
+        try:
+            return super().get_bytes(url, limit)
+        except TransportError as exc:
+            raise self._refused(exc) from exc
+
+    def download(self, url, target, expected_size, expected_sha1):  # noqa: D401 - signature of the helper
+        self.recorder.latch("refused-download")
+        raise RunStopped("recorded discovery never downloads media")
+
+
 def _source_hashes() -> dict:
     package = Path(__file__).resolve().parent
-    return {p.name: sha256_hex(p.read_bytes()) for p in sorted(package.glob("*.py"))}
+    qualification = package.parent
+    files = sorted(package.glob("*.py")) + [
+        qualification / "source_discovery_recorded_cli.py",
+        qualification / "source_acquisition_cli.py",
+        qualification / "attributes" / "corpus" / "canonical.py",
+    ]
+    return {p.relative_to(qualification).as_posix(): sha256_hex(p.read_bytes()) for p in files if p.exists()}
+
+
+def _source_revision() -> dict:
+    """The checkout's commit and whether it had local changes; null when Git is unavailable."""
+    qualification = Path(__file__).resolve().parent.parent
+    try:
+        commit = subprocess.run(["git", "-C", str(qualification), "rev-parse", "HEAD"], capture_output=True, text=True,
+                                timeout=30, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", str(qualification), "status", "--porcelain"], capture_output=True, text=True,
+                               timeout=30, check=True).stdout.strip() != ""
+    except (OSError, subprocess.SubprocessError):
+        return {"commit": None, "localChanges": None}
+    return {"commit": commit or None, "localChanges": dirty}
 
 
 def _validate_contact(contact: str) -> str:
@@ -353,8 +437,18 @@ def _validate_contact(contact: str) -> str:
     return contact
 
 
+def _validate_limits(limits: dict) -> dict:
+    if set(limits) != set(LIMITS):
+        raise StoreError("limits must name exactly the documented keys")
+    for key, value in limits.items():
+        minimum = 0 if key in ("minIntervalSeconds", "scopeGapSeconds") else 1
+        if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+            raise StoreError(f"limit {key} must be an integer of at least {minimum}")
+    return dict(limits)
+
+
 def build_config(contact: str, scopes=PILOT_RETRY_SCOPES, limits: dict | None = None) -> dict:
-    limits = dict(LIMITS if limits is None else limits)
+    limits = _validate_limits(dict(LIMITS if limits is None else limits))
     user_agent = USER_AGENT.format(contact=_validate_contact(contact))
     return {
         "schema": CONFIG_SCHEMA,
@@ -369,9 +463,18 @@ def build_config(contact: str, scopes=PILOT_RETRY_SCOPES, limits: dict | None = 
         "requestHeaders": {"Accept": "*/*", "User-Agent": user_agent},
         "recordedResponseHeaders": {"names": list(RECORDED_HEADER_NAMES), "prefixes": list(RECORDED_HEADER_PREFIXES)},
         "helperSourceSha256": _source_hashes(),
+        "sourceRevision": _source_revision(),
         "python": platform.python_version(),
         "host": platform.node(),
     }
+
+
+def make_hard_stop(recorder: Recorder, exit_process: Callable[[int], None] = os._exit) -> Callable[[], None]:
+    """The hard-deadline action: one durable event, then the process ends with exit code 124."""
+    def _hard_stop() -> None:
+        recorder.events.write("hard-deadline", attempts=recorder.attempts)
+        exit_process(124)
+    return _hard_stop
 
 
 def run_discovery(run_root: Path, contact: str, *, stamp: str | None = None, scopes=PILOT_RETRY_SCOPES,
@@ -379,13 +482,13 @@ def run_discovery(run_root: Path, contact: str, *, stamp: str | None = None, sco
                   monotonic: Callable[[], float] = time.monotonic, utc: Callable[[], str] = _utc_now,
                   hard_deadline: bool = True) -> tuple[Path, dict]:
     """One recorded run in a new directory under ``run_root``; returns (run directory, status)."""
-    limits = dict(LIMITS if limits is None else limits)
     root = assert_controlled_store(run_root)
     if not root.is_dir():
         raise StoreError("run root must be an existing directory")
+    config = build_config(contact, scopes, limits)
+    limits = config["limits"]
     stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = root / f"commons-discovery-retry-{stamp}"
-    config = build_config(contact, scopes, limits)
     run_dir.mkdir(exist_ok=False)
     (run_dir / "config").mkdir()
     config_bytes = canonical_json(config)
@@ -402,13 +505,10 @@ def run_discovery(run_root: Path, contact: str, *, stamp: str | None = None, sco
     recorder.events.write("run-start", configSha256=config_sha)
     timer = None
     if hard_deadline:
-        def _hard_stop() -> None:
-            recorder.events.write("hard-deadline", attempts=recorder.attempts)
-            os._exit(124)
-        timer = threading.Timer(limits["hardDeadlineSeconds"], _hard_stop)
+        timer = threading.Timer(limits["hardDeadlineSeconds"], make_hard_stop(recorder))
         timer.daemon = True
         timer.start()
-    transport = Transport(commons.ALLOWED_HOSTS, config["userAgent"], fetch=recorder.fetch, sleep=recorder.sleep)
+    transport = RecordedTransport(recorder, commons.ALLOWED_HOSTS, config["userAgent"])
     store = run_dir / "store"
     interrupted = False
     try:
@@ -431,7 +531,7 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
         raw = transport.get_bytes(PREFLIGHT_URL)
         json.loads(raw.decode("utf-8"))
         log.write("preflight", status="OK" if recorder.stop_reason is None else "STOPPED", reason=recorder.stop_reason)
-    except (TransportError, ValueError) as exc:
+    except (TransportError, ValueError, OSError) as exc:
         recorder.latch(f"preflight-failed:{type(exc).__name__}")
         log.write("preflight", status="STOPPED", reason=recorder.stop_reason)
     described: set[str] = set()
@@ -464,7 +564,7 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
         try:
             raw = transport.get_bytes(url)
             response = json.loads(raw.decode("utf-8"))
-        except (TransportError, ValueError) as exc:
+        except (TransportError, ValueError, OSError) as exc:
             recorder.latch(f"list-failed:{type(exc).__name__}")
             log.write("scope", scope=sid, status="LIST_FAILED", reason=recorder.stop_reason, listAttempt=recorder.last_list_attempt,
                       categoryCaveat=caveat)
@@ -498,39 +598,64 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
 
 
 def _write_new(path: Path, data: bytes) -> None:
-    with open(path, "xb") as out:
+    """Create ``path`` atomically and never overwrite it: write a partial, fsync, then hard-link."""
+    partial = path.with_name(path.name + ".partial")
+    if partial.exists():
+        partial.unlink()  # our own incomplete write from an earlier crash; the target was never created
+    with open(partial, "xb") as out:
         out.write(data)
         out.flush()
         os.fsync(out.fileno())
+    try:
+        os.link(partial, path)
+    finally:
+        partial.unlink()
 
 
-def _read_jsonl(path: Path) -> list[dict]:
+def _read_jsonl(path: Path) -> tuple[list[dict], int]:
     if not path.exists():
-        return []
-    records = []
+        return [], 0
+    records, unreadable = [], 0
     for line in path.read_bytes().splitlines():
         try:
-            records.append(json.loads(line))
+            record = json.loads(line)
         except ValueError:
-            records.append({"event": "unreadable-line"})
-    return records
+            unreadable += 1
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+        else:
+            unreadable += 1
+    return records, unreadable
 
 
 def finalize(run_dir: Path, *, interrupted: bool = False) -> dict:
     """Local only: derive run-status.json from the durable records. Never overwrites."""
+    run_dir = Path(run_dir)
     target = run_dir / "run-status.json"
     if target.exists():
         raise StoreError("run-status.json already exists; refusing to overwrite")
-    events = _read_jsonl(run_dir / "capture" / "events.jsonl")
-    scopes = _read_jsonl(run_dir / "capture" / "scopes.jsonl")
+    events, bad_events = _read_jsonl(run_dir / "capture" / "events.jsonl")
+    scope_events, bad_scopes = _read_jsonl(run_dir / "capture" / "scopes.jsonl")
+    try:
+        declared = [s["id"] for s in json.loads((run_dir / "config" / "run-config.json").read_bytes())["scopes"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        declared = []
     starts = {e["attempt"] for e in events if e.get("event") == "attempt-start"}
     ends = {e["attempt"]: e for e in events if e.get("event") == "attempt-end"}
-    latched = [e["reason"] for e in events if e.get("event") == "latched"]
+    latched = [e.get("reason") for e in events if e.get("event") == "latched"]
     hard = any(e.get("event") == "hard-deadline" for e in events)
     run_ended = any(e.get("event") == "run-end" for e in events)
     unfinished = sorted(starts - set(ends))
-    incomplete = sorted(p.name for p in (run_dir / "capture" / "bodies").glob("*.part")) if (run_dir / "capture" / "bodies").exists() else []
-    if interrupted or hard or not run_ended or unfinished:
+    bodies = run_dir / "capture" / "bodies"
+    incomplete = sorted(p.name for p in bodies.glob("*.part")) if bodies.exists() else []
+    finished_scopes = {s["scope"]: s for s in scope_events if s.get("event") == "scope"}
+    started_scopes = [s["scope"] for s in scope_events if s.get("event") == "scope-start"]
+    interrupted_scopes = [sid for sid in started_scopes if sid not in finished_scopes]
+    scope_status = [finished_scopes.get(sid) or {"scope": sid, "status": "INTERRUPTED" if sid in interrupted_scopes else "NO_RECORD"}
+                    for sid in declared]
+    if (interrupted or hard or not run_ended or unfinished or interrupted_scopes or bad_events or bad_scopes
+            or (latched and latched[0] == "interrupted")):
         state = "INTERRUPTED"
     elif latched:
         state = "STOPPED"
@@ -540,12 +665,16 @@ def finalize(run_dir: Path, *, interrupted: bool = False) -> dict:
         "schema": STATUS_SCHEMA,
         "status": state,
         "stopReason": latched[0] if latched else ("hard-deadline" if hard else None),
+        "hardDeadline": hard,
         "attemptsStarted": len(starts),
         "attemptsCompleted": sum(1 for e in ends.values() if e.get("complete")),
         "attemptsWithoutEndRecord": unfinished,
         "incompleteBodies": incomplete,
-        "scopes": [s for s in scopes if s.get("event") in ("scope", "preflight")],
-        "describedWithoutError": sum(int(s.get("describedWithoutError") or 0) for s in scopes if s.get("event") == "scope"),
+        "unreadableLines": bad_events + bad_scopes,
+        "preflight": next((s for s in scope_events if s.get("event") == "preflight"), None),
+        "scopes": scope_status,
+        "interruptedScopes": interrupted_scopes,
+        "describedWithoutError": sum(int(s.get("describedWithoutError") or 0) for s in finished_scopes.values()),
         "categoryCaveat": CATEGORY_CAVEAT,
         "finalizedUtc": _utc_now(),
     }
@@ -569,7 +698,7 @@ def _role(relative: str) -> str:
 
 def bundle(run_dir: Path, evidence_root: Path, name: str) -> Path:
     """MANIFEST.json + .tar.gz of a finalised run in a new evidence directory, re-verified."""
-    run_dir = Path(run_dir)
+    run_dir = assert_controlled_store(run_dir)
     if not (run_dir / "run-status.json").exists():
         raise StoreError("run is not finalised (run-status.json missing)")
     destination = assert_controlled_store(evidence_root) / name
@@ -578,29 +707,47 @@ def bundle(run_dir: Path, evidence_root: Path, name: str) -> Path:
     for path in sorted(p for p in run_dir.rglob("*") if p.is_file()):
         relative = path.relative_to(run_dir).as_posix()
         data = path.read_bytes()
-        files.append({"path": relative, "bytes": len(data), "sha256": sha256_hex(data), "role": _role(relative)})
+        modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        files.append({"path": relative, "bytes": len(data), "sha256": sha256_hex(data), "role": _role(relative),
+                      "modifiedUtc": modified})
     manifest = {"schema": MANIFEST_SCHEMA, "run": run_dir.name, "files": files,
                 "runStatus": json.loads((run_dir / "run-status.json").read_bytes()),
                 "createdUtc": _utc_now()}
-    manifest_bytes = canonical_json(manifest)
-    _write_new(destination / "MANIFEST.json", manifest_bytes)
+    _write_new(destination / "MANIFEST.json", canonical_json(manifest))
     archive = destination / f"{name}.tar.gz"
     with tarfile.open(archive, "x:gz") as tar:
         for entry in files:
             tar.add(run_dir / entry["path"], arcname=f"{name}/{entry['path']}", recursive=False)
         tar.add(destination / "MANIFEST.json", arcname=f"{name}/MANIFEST.json", recursive=False)
+    verify_bundle(destination, name, require_checksum=False)
+    _write_new(destination / f"{name}.tar.gz.sha256", f"{sha256_hex(archive.read_bytes())}  {archive.name}\n".encode("ascii"))
+    return destination
+
+
+def verify_bundle(destination: Path, name: str, *, require_checksum: bool = True) -> None:
+    """Every archive member matches MANIFEST.json, nothing is missing or extra, and the archive hash matches."""
+    destination = Path(destination)
+    manifest_bytes = (destination / "MANIFEST.json").read_bytes()
+    manifest = json.loads(manifest_bytes)
+    archive = destination / f"{name}.tar.gz"
+    if require_checksum:
+        recorded = (destination / f"{name}.tar.gz.sha256").read_text(encoding="ascii").split()[0]
+        if sha256_hex(archive.read_bytes()) != recorded:
+            raise StoreError("bundle verification failed: archive SHA-256 differs")
+    expected = {e["path"]: e["sha256"] for e in manifest["files"]}
+    expected["MANIFEST.json"] = sha256_hex(manifest_bytes)
     with tarfile.open(archive, "r:gz") as tar:
-        members = {m.name[len(name) + 1:]: m for m in tar.getmembers() if m.isfile()}
-        expected = {e["path"]: e["sha256"] for e in files}
-        expected["MANIFEST.json"] = sha256_hex(manifest_bytes)
+        members = {}
+        for member in tar.getmembers():
+            if not member.isfile() or not member.name.startswith(f"{name}/"):
+                raise StoreError(f"bundle verification failed: unexpected member {member.name}")
+            members[member.name[len(name) + 1:]] = member
         if set(members) != set(expected):
             raise StoreError("bundle verification failed: member set differs")
         for relative, digest in expected.items():
             handle = tar.extractfile(members[relative])
             if handle is None or sha256_hex(handle.read()) != digest:
                 raise StoreError(f"bundle verification failed: {relative}")
-    _write_new(destination / f"{name}.tar.gz.sha256", f"{sha256_hex(archive.read_bytes())}  {archive.name}\n".encode("ascii"))
-    return destination
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -615,6 +762,9 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--run-dir", required=True, type=Path)
     b.add_argument("--evidence-root", required=True, type=Path)
     b.add_argument("--name", required=True)
+    v = sub.add_parser("verify-bundle", help="local only: re-verify a bundle against its manifest and checksum")
+    v.add_argument("--evidence-dir", required=True, type=Path)
+    v.add_argument("--name", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "run":
@@ -626,9 +776,13 @@ def main(argv: list[str] | None = None) -> int:
             status = finalize(args.run_dir)
             print(json.dumps({"status": status["status"], "stopReason": status["stopReason"]}, indent=2))
             return 0
+        if args.command == "verify-bundle":
+            verify_bundle(args.evidence_dir, args.name)
+            print(json.dumps({"verified": True}, indent=2))
+            return 0
         destination = bundle(args.run_dir, args.evidence_root, args.name)
         print(json.dumps({"evidenceDir": destination.name}, indent=2))
         return 0
-    except (StoreError, OSError, ValueError) as exc:
+    except (StoreError, OSError, ValueError, KeyError, tarfile.TarError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2

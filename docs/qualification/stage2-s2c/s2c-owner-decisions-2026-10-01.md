@@ -262,4 +262,19 @@ After this record was merged (PR #132, `main@a0d235456e255b8a8fef8d90bd5c4524599
 - public-source eligibility (§6.2);
 - the independent reviews listed in §2. Owner approval does not replace them.
 
-**Retry tooling.** The recorded-discovery wrapper (`tools/qualification/source_acquisition/recorded_discovery.py`) records the actual User-Agent in its controlled run configuration. The owner approved its contact as the public repository URL, `https://github.com/hariomahlawat/MAVI`. The wrapper keeps the seven original scopes (§6.3). Direct-category queries exclude subcategory members, so an empty category result does not establish that the category contains no relevant footage. No retry has been run.
+**Retry tooling.** The recorded-discovery wrapper (`tools/qualification/source_acquisition/recorded_discovery.py`) records the actual User-Agent in its controlled run configuration. The owner approved its contact as the public repository URL, `https://github.com/hariomahlawat/MAVI`. The wrapper keeps the seven original scopes, P1–P5 then S1–S2, at 20 results each (§6.3). Direct-category queries exclude subcategory members, so an empty category result does not establish that the category contains no relevant footage. No retry has been run.
+
+**Where the wrapper departs from the §6.3 proposal.** §6.3 stays as recorded. The wrapper implements stricter, enforceable limits; the owner instructed this implementation, but the limits are not adopted by any run until R-3 approves a predeclaration:
+
+| §6.3 proposal | Wrapper (fixed in code and recorded in each run configuration) |
+|---|---|
+| at least 5 min between scopes | 60 s between scopes, plus at least 5 s between any two attempt starts |
+| at most 147 logical requests; no attempt budget | at most 148 logical requests (a preflight, then at most 21 per scope); a hard budget of 160 **actual** attempts, counting every redirect hop and retry |
+| a 2-hour limit checked between scopes; no outer kill timer | a 40-minute soft deadline, checked before every attempt, read chunk and wait; a 45-minute hard deadline that records an event and ends the process |
+| stop after a nonzero exit or per-file error | a global latch on any refusal, non-success status, API error, network or capture failure, budget, deadline or interruption: no further network attempt starts |
+| raw list responses not retained | every response body is retained (complete as `.body`, partial as `.part`), with fsynced attempt start and end records and selected rate-limit headers |
+| a manifest with path, size, SHA-256, role and modification time | the same fields, in a bundle verified on creation and again by `verify-bundle` |
+
+**Hard-kill trade-off.** §6.3 advised against an outer kill timer because the first pilot's kill lost P2's report. The wrapper's hard deadline is a last resort, 5 minutes after the soft deadline. It loses only the in-flight scope's discovery report. Attempt records, response bodies and per-item evidence are already on disk, and `finalize` reconstructs the run status from them.
+
+**Stale statements in §6.3.** §6.3's notes that "none of the scripts or helper changes it mentions exist" and that the raw list responses "are still not retained" are superseded by this wrapper. The `siteinfo` preflight is now built into the wrapper instead of being a separate script.

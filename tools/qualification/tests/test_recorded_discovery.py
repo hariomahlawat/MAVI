@@ -125,7 +125,7 @@ class Net:
 
 def run(tmp_path: Path, net: Net, clock: Clock, scopes=SCOPES, **limits):
     root = tmp_path / "acquisition"
-    root.mkdir(exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True)
     return rd.run_discovery(root, CONTACT, stamp=STAMP, scopes=scopes, limits={**rd.LIMITS, **limits}, fetch=net,
                             sleep=clock.sleep, monotonic=clock.monotonic, utc=lambda: UTC, hard_deadline=False)
 
@@ -248,12 +248,13 @@ def test_http_429_latches_at_once_and_the_helper_never_retries(tmp_path):
     assert scope_records(run_dir)["P1"]["status"] == "LIST_FAILED"
 
 
-def test_soft_deadline_stops_before_the_next_attempt(tmp_path):
+def test_soft_deadline_reached_during_a_read_stops_at_the_next_chunk(tmp_path):
     clock = Clock(step_per_fetch=100.0)
     net = Net(clock=clock)
     run_dir, status = run(tmp_path, net, clock, softDeadlineSeconds=250, minIntervalSeconds=0)
     assert status["stopReason"] == "soft-deadline"
-    assert len(net.calls) == 3 and clock.t <= 1000 + 300  # no attempt started past the deadline
+    assert len(net.calls) == 3 and clock.t <= 1000 + 300  # attempt 3 started before the deadline; its read was cut off
+    assert status["incompleteBodies"] == ["attempt-000003.part"]
 
 
 def test_network_failure_latches_and_the_partial_report_survives(tmp_path):
@@ -381,6 +382,8 @@ def test_run_directory_is_never_reused_and_must_be_outside_git(tmp_path):
         run(tmp_path, Net(clock=clock), clock)
     with pytest.raises(StoreError):
         rd.run_discovery(REPO / "docs", CONTACT, stamp=STAMP, fetch=Net(), hard_deadline=False)
+    with pytest.raises(StoreError):
+        rd.build_config(CONTACT, limits={**rd.LIMITS, "minIntervalSeconds": 0.5})  # no floats reach canonical JSON
 
 
 def test_bundle_writes_a_verified_manifest_and_archive_in_a_new_directory(tmp_path):
@@ -403,3 +406,195 @@ def test_bundle_writes_a_verified_manifest_and_archive_in_a_new_directory(tmp_pa
     assert "retry-test/MANIFEST.json" in names and "retry-test/run-status.json" in names
     with pytest.raises(FileExistsError):
         rd.bundle(run_dir, evidence, "retry-test")
+
+
+class ClosingChunks(Chunks):
+    """Completes normally; closing it advances the clock (time passes after the read)."""
+
+    def __init__(self, body: bytes, clock: Clock, advance: float):
+        super().__init__([body])
+        self.clock = clock
+        self.advance = advance
+
+    def close(self) -> None:
+        super().close()
+        self.clock.t += self.advance
+
+
+class SlowChunks(Chunks):
+    """Each read advances the clock, so the per-attempt read-time limit can fire."""
+
+    def __init__(self, chunks: list[bytes], clock: Clock, per_read: float):
+        super().__init__(chunks)
+        self.clock = clock
+        self.per_read = per_read
+
+    def read(self, n: int = -1) -> bytes:
+        self.clock.t += self.per_read
+        return super().read(n)
+
+
+def test_transport_refusals_inside_the_helper_latch_before_any_further_request(tmp_path):
+    cases = {
+        "off-allow-list redirect": (302, {"Location": "https://evil.example/x"}),
+        "non-https redirect": (302, {"Location": "http://commons.wikimedia.org/w/api.php?action=query"}),
+        "redirect without location": (302, {}),
+    }
+    for name, (code, headers) in cases.items():
+        clock = Clock()
+        net = Net(clock=clock, meta_route=lambda title, c=code, h=headers: (c, dict(h), io.BytesIO(b"")))
+        run_dir, status = run(tmp_path / name.replace(" ", "-"), net, clock)
+        assert len(net.calls) == 3, name  # preflight, list, first metadata; the second title never starts
+        assert status["stopReason"].startswith("transport-refused:"), (name, status["stopReason"])
+        assert not any("evil.example" in u or u.startswith("http://") for u in net.calls), name
+        assert scope_records(run_dir)["P4"]["status"] == "NOT_STARTED", name
+    end = [e for e in events(run_dir) if e["event"] == "attempt-end"][-1]
+    assert end["status"] == 302
+
+
+def test_endless_api_redirects_count_every_hop_and_stop_at_too_many(tmp_path):
+    clock = Clock()
+
+    def meta_route(title):
+        return 302, {"Location": commons.metadata_query_url(title) + "&again=1"}, io.BytesIO(b"")
+
+    net = Net(clock=clock, meta_route=meta_route)
+    run_dir, status = run(tmp_path, net, clock)
+    metadata_calls = [u for u in net.calls if "titles=" in u]
+    assert len(metadata_calls) == 6 and all("Crossing+A" in u for u in metadata_calls)  # 1 + MAX_REDIRECTS hops, title B never
+    assert status["attemptsStarted"] == 8 and status["stopReason"].startswith("transport-refused:too many redirects")
+    locations = [e["headers"].get("location") for e in events(run_dir) if e["event"] == "attempt-end" and e["status"] == 302]
+    assert len(locations) == 6 and all(locations)  # every redirect target is recorded
+
+
+def test_discovery_url_check_refuses_duplicate_encoded_and_array_action_keys():
+    base = "https://commons.wikimedia.org/w/api.php?"
+    for query in ("action=query&action=edit", "action=query&%61ction=edit", "action=query&action[]=edit",
+                  "action=edit", "format=json"):
+        assert not rd.is_discovery_url(base + query), query
+    assert not rd.is_discovery_url("https://user@commons.wikimedia.org/w/api.php?action=query")
+    assert not rd.is_discovery_url("https://COMMONS.wikimedia.org/w/api.php?action=query")
+    assert not rd.is_discovery_url("https://commons.wikimedia.org./w/api.php?action=query")
+    assert rd.is_discovery_url(commons.category_query_url("Category:X", 20))
+
+
+def test_soft_deadline_between_attempts_stops_before_the_next_attempt_starts(tmp_path):
+    clock = Clock()
+    net = Net(clock=clock, list_route=lambda url: (200, {}, ClosingChunks(json.dumps({"query": {"search": [{"title": TITLES[0]}]}}).encode(),
+                                                                         clock, 500.0)))
+    run_dir, status = run(tmp_path, net, clock, softDeadlineSeconds=300, minIntervalSeconds=1)
+    assert len(net.calls) == 2 and status["stopReason"] == "soft-deadline"
+    ends = [e for e in events(run_dir) if e["event"] == "attempt-end"]
+    assert ends[-1]["attempt"] == 2 and ends[-1]["complete"] is True  # the list itself completed
+    assert max(e["attempt"] for e in events(run_dir) if e["event"] == "attempt-start") == 2
+
+
+def test_a_pacing_wait_that_would_cross_the_deadline_is_refused(tmp_path):
+    clock = Clock()
+    net = Net(clock=clock)
+    run_dir, status = run(tmp_path, net, clock, softDeadlineSeconds=150, minIntervalSeconds=100)
+    assert status["stopReason"] == "soft-deadline" and len(net.calls) == 2
+    assert clock.sleeps == [100.0]  # the second wait (to t=1200 > 1150) was refused, not slept
+
+
+def test_the_per_attempt_read_time_limit_keeps_a_partial_body(tmp_path):
+    clock = Clock()
+    net = Net(clock=clock, list_route=lambda url: (200, {}, SlowChunks([b'{"a', b'"b', b'"c'], clock, 50.0)))
+    run_dir, status = run(tmp_path, net, clock, attemptReadSeconds=60)
+    assert status["stopReason"] == "read-time-limit" and status["incompleteBodies"] == ["attempt-000002.part"]
+    assert (run_dir / "capture" / "bodies" / "attempt-000002.part").read_bytes() == b'{"a"b'
+
+
+def test_a_body_of_exactly_the_limit_is_complete_and_one_byte_more_is_not(tmp_path):
+    for size, complete in ((100, True), (101, False)):
+        clock = Clock()
+        net = Net(clock=clock, list_route=lambda url, n=size: (200, {}, Chunks([b"x" * n])))
+        run_dir, status = run(tmp_path / str(size), net, clock, bodyLimitBytes=100)
+        end = [e for e in events(run_dir) if e["event"] == "attempt-end" and e["attempt"] == 2][0]
+        assert end["complete"] is complete and end["bytes"] == size
+        assert (run_dir / "capture" / "bodies" / f"attempt-000002.{'body' if complete else 'part'}").exists()
+
+
+def test_candidate_cap_stops_further_scopes_without_latching(tmp_path):
+    clock = Clock()
+    net = Net(clock=clock)
+    run_dir, status = run(tmp_path, net, clock, candidateCap=2)
+    scopes = scope_records(run_dir)
+    assert scopes["P1"]["status"] == "COMPLETE" and scopes["P4"]["status"] == "NOT_STARTED"
+    assert scopes["P4"]["reason"] == "candidate-cap" and status["status"] == "COMPLETE"
+
+
+def test_a_local_capture_failure_latches_the_run(tmp_path, monkeypatch):
+    clock = Clock()
+    net = Net(clock=clock)
+    real_replace = rd.os.replace
+    calls = {"n": 0}
+
+    def failing_replace(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError("disk full")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(rd.os, "replace", failing_replace)
+    run_dir, status = run(tmp_path, net, clock)
+    assert status["stopReason"] == "local-io-error:OSError" and len(net.calls) == 2
+    assert status["incompleteBodies"] == ["attempt-000002.part"]
+
+
+def test_the_recorded_transport_never_downloads(tmp_path):
+    recorder = rd.Recorder(tmp_path / "capture", attempt_budget=5, min_interval=0, soft_deadline=100, attempt_read_seconds=10,
+                           body_limit=100, fetch=lambda u, h: pytest.fail("no fetch"), sleep=lambda s: None,
+                           monotonic=lambda: 0.0, utc=lambda: UTC)
+    transport = rd.RecordedTransport(recorder, commons.ALLOWED_HOSTS, "MAVI-test/1.0")
+    with pytest.raises(rd.RunStopped):
+        transport.download("https://upload.wikimedia.org/wikipedia/commons/a/ab/x.webm", tmp_path / "x.webm", 1, "0" * 40)
+    assert recorder.stop_reason == "refused-download" and not (tmp_path / "x.webm").exists()
+
+
+def test_the_hard_stop_records_an_event_then_exits_124(tmp_path):
+    recorder = rd.Recorder(tmp_path / "capture", attempt_budget=5, min_interval=0, soft_deadline=100, attempt_read_seconds=10,
+                           body_limit=100, fetch=None, sleep=lambda s: None, monotonic=lambda: 0.0, utc=lambda: UTC)
+    codes = []
+    rd.make_hard_stop(recorder, codes.append)()
+    recorder.events.close()
+    assert codes == [124]
+    assert json.loads((tmp_path / "capture" / "events.jsonl").read_bytes().splitlines()[-1])["event"] == "hard-deadline"
+
+
+def test_finalize_after_a_crash_reports_interruption_and_unreadable_lines(tmp_path):
+    clock = Clock()
+    net = Net(clock=clock, list_route=lambda url: (200, {}, Chunks([b"{"], raise_after=KeyboardInterrupt())))
+    run_dir, _status = run(tmp_path, net, clock)
+    (run_dir / "run-status.json").unlink()  # as if finalize itself had crashed before writing
+    status = rd.finalize(run_dir)
+    assert status["status"] == "INTERRUPTED" and status["interruptedScopes"] == ["P1"]
+    assert [s["status"] for s in status["scopes"]] == ["INTERRUPTED", "NO_RECORD", "NO_RECORD"]
+    (run_dir / "run-status.json").unlink()
+    with open(run_dir / "capture" / "events.jsonl", "ab") as handle:
+        handle.write(b'{"event": "attempt-st')
+    assert rd.finalize(run_dir)["unreadableLines"] == 1
+
+
+def test_a_tampered_bundle_fails_verification(tmp_path):
+    clock = Clock()
+    run_dir, _status = run(tmp_path, Net(clock=clock), clock)
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    destination = rd.bundle(run_dir, evidence, "retry-tamper")
+    rd.verify_bundle(destination, "retry-tamper")
+    archive = destination / "retry-tamper.tar.gz"
+    with tarfile.open(archive) as tar:
+        members = [(m, tar.extractfile(m).read()) for m in tar.getmembers() if m.isfile()]
+    tampered = tmp_path / "tampered.tar.gz"
+    with tarfile.open(tampered, "w:gz") as out:
+        for member, data in members:
+            if member.name.endswith("run-config.json"):
+                data = data.replace(b"traffic", b"TRAFFIC")
+                member.size = len(data)
+            out.addfile(member, io.BytesIO(data))
+    archive.write_bytes(tampered.read_bytes())
+    with pytest.raises(StoreError):
+        rd.verify_bundle(destination, "retry-tamper", require_checksum=False)
+    with pytest.raises(StoreError):
+        rd.verify_bundle(destination, "retry-tamper")
