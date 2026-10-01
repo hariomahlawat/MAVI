@@ -603,11 +603,15 @@ def test_the_s1_harness_runs_concurrently_on_a_pinned_subset_of_the_candidate_gr
         _job_step(candidate, "Install compatible build tooling"),
         _job_step(candidate, "Install remaining candidate graph"),
     ]
-    # Both jobs pin pip and resolve PyPI with the same cutoff: the head's commit time.
+    # Both jobs pin pip and resolve PyPI with the same cutoff: GitHub's workflow-run creation time.
     pin = _job_step(candidate, "Pin pip and the PyPI resolution cutoff")
     assert pin == _job_step(harness, "Pin pip and the PyPI resolution cutoff")
     assert 'python -m pip install "pip==26.2.1"' in pin
-    assert 'echo "MAVI_PIP_CUTOFF=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"' in pin
+    assert 'cutoff="$(python tools/vision/task10_environment.py cutoff)"' in pin
+    assert 'echo "MAVI_PIP_CUTOFF=$cutoff" >> "$GITHUB_ENV"' in pin
+    assert 'actions: read' in candidate and 'actions: read' in harness
+    assert 'GITHUB_TOKEN: ${{ github.token }}' in pin
+    assert '%cI' not in pin
     for step in installs:
         assert "--uploaded-prior-to ${{ env.MAVI_PIP_CUTOFF }}" in step
     assert "--uploaded-prior-to" not in _job_step(candidate, "Install candidate PyTorch CPU build")

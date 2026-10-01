@@ -173,15 +173,18 @@ jobs:
 
       # One PyPI resolution for every Task 10 job of this head: the candidate and the
       # S1 harness install at different times (and failed jobs can be re-run later), so
-      # both consider only distributions uploaded before the head's commit time. The
+      # both consider only distributions uploaded before GitHub created this workflow run. The
       # final gate requires the harness closure to match the candidate version for
       # version. pip is pinned first because --uploaded-prior-to needs pip >= 26.
       - name: Pin pip and the PyPI resolution cutoff
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python -m pip install "pip==26.2.1"
-          echo "MAVI_PIP_CUTOFF=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"
+          cutoff="$(python tools/vision/task10_environment.py cutoff)"
+          echo "MAVI_PIP_CUTOFF=$cutoff" >> "$GITHUB_ENV"
 
       - name: Install compatible build tooling
         run: >-
@@ -1022,6 +1025,9 @@ jobs:
   # final job requires every distribution here to match the candidate's version
   # (docs/qualification/stage2-s1/2026-10-01-task10-harness-separation-and-mmcv-wheel-reuse.md).
   s1-harness:
+    permissions:
+      contents: read
+      actions: read
     name: S1 harness ${{ matrix.os }} Python ${{ matrix.python-version }}
     needs: scope
     if: needs.scope.outputs.applicable == 'true'
@@ -1058,15 +1064,18 @@ jobs:
 
       # One PyPI resolution for every Task 10 job of this head: the candidate and the
       # S1 harness install at different times (and failed jobs can be re-run later), so
-      # both consider only distributions uploaded before the head's commit time. The
+      # both consider only distributions uploaded before GitHub created this workflow run. The
       # final gate requires the harness closure to match the candidate version for
       # version. pip is pinned first because --uploaded-prior-to needs pip >= 26.
       - name: Pin pip and the PyPI resolution cutoff
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python -m pip install "pip==26.2.1"
-          echo "MAVI_PIP_CUTOFF=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"
+          cutoff="$(python tools/vision/task10_environment.py cutoff)"
+          echo "MAVI_PIP_CUTOFF=$cutoff" >> "$GITHUB_ENV"
 
       - name: Install S1 harness subset of the candidate graph
         run: python -m pip install --upgrade --uploaded-prior-to ${{ env.MAVI_PIP_CUTOFF }} -r tools/vision/task10-s1-harness-requirements.txt

@@ -158,9 +158,9 @@ The harness and the candidate install at different times: the candidate installs
 
 Both jobs therefore do two things:
 - pin `pip==26.2.1`;
-- resolve every PyPI install with `--uploaded-prior-to <the head's committer time>`.
+- resolve every PyPI install with `--uploaded-prior-to <GitHub's workflow-run creation time>`.
 
-That cutoff is identical in both jobs and across re-runs, reducing differences caused by newly published packages. Each environment record carries the cutoff, and `compare` requires it to be equal.
+Both jobs read `created_at` for their `GITHUB_RUN_ID` from GitHub's Actions API, verify the run ID and repository, and require a valid UTC timestamp. That cutoff is identical in both jobs and across re-runs, reducing differences caused by newly published packages. Git committer dates are caller-controlled and are not used: a backdated commit must not exclude valid pinned releases. API or validation failures fail the job; there is no local-clock or commit-date fallback. Each environment record carries the cutoff, and `compare` requires it to be equal.
 
 **The cutoff reduces drift; it is not a lock.** It does not cover:
 - a release yanked between the two installs;

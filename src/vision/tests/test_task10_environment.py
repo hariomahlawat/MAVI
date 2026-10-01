@@ -227,3 +227,45 @@ def test_a_missing_or_unreadable_wheel_record_fails(tmp_path: Path) -> None:
 def test_the_record_carries_the_shared_pypi_cutoff(monkeypatch) -> None:
     monkeypatch.setenv("MAVI_PIP_CUTOFF", "2026-10-01T05:25:58+00:00")
     assert env.environment_record()["pipUploadedPriorTo"] == "2026-10-01T05:25:58+00:00"
+
+
+def test_cutoff_uses_trusted_run_creation_time_even_for_a_backdated_commit(monkeypatch) -> None:
+    import io
+    import json
+    import urllib.request
+
+    monkeypatch.setenv('GITHUB_REPOSITORY', 'owner/repo')
+    monkeypatch.setenv('GITHUB_RUN_ID', '123')
+    monkeypatch.setenv('GITHUB_TOKEN', 'test-token')
+    monkeypatch.setenv('GIT_COMMITTER_DATE', '2000-01-01T00:00:00Z')
+    seen = []
+
+    def response(request, timeout):
+        seen.append(request.full_url)
+        return io.BytesIO(json.dumps({'id': 123, 'repository': {'full_name': 'owner/repo'},
+                                    'created_at': '2026-10-01T08:42:00Z'}).encode())
+
+    monkeypatch.setattr(urllib.request, 'urlopen', response)
+    assert env.run_creation_cutoff() == '2026-10-01T08:42:00Z'
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT', '2')
+    assert env.run_creation_cutoff() == '2026-10-01T08:42:00Z'
+    assert seen == ['https://api.github.com/repos/owner/repo/actions/runs/123'] * 2
+
+
+def test_cutoff_refuses_wrong_run_or_repository_and_invalid_timestamp(monkeypatch) -> None:
+    import io
+    import json
+    import pytest
+    import urllib.request
+
+    monkeypatch.setenv('GITHUB_REPOSITORY', 'owner/repo')
+    monkeypatch.setenv('GITHUB_RUN_ID', '123')
+    monkeypatch.setenv('GITHUB_TOKEN', 'test-token')
+    good = {'id': 123, 'repository': {'full_name': 'owner/repo'}, 'created_at': '2026-10-01T08:42:00Z'}
+    for change in ({'id': 456}, {'repository': {'full_name': 'other/repo'}},
+                   {'created_at': None}, {'created_at': '2026-99-01T08:42:00Z'},
+                   {'created_at': '2026-10-01T08:42:00Z\nMAVI_PIP_CUTOFF=bad'}):
+        record = {**good, **change}
+        monkeypatch.setattr(urllib.request, 'urlopen', lambda *_a, **_k: io.BytesIO(json.dumps(record).encode()))
+        with pytest.raises(ValueError):
+            env.run_creation_cutoff()

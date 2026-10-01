@@ -38,6 +38,7 @@ import platform
 import re
 import sys
 import sysconfig
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
@@ -48,6 +49,35 @@ HARNESS_STEP = "task10:s1-qualification-harness"
 # harness ever imported one of these it would fail in its own job rather than
 # silently run outside the environment it is qualified against.
 CANDIDATE_ONLY = frozenset({"torch", "torchvision", "mmcv", "mmengine", "mmdet"})
+
+
+def run_creation_cutoff() -> str:
+    """GitHub's run creation time is shared by both jobs and survives reruns.
+
+    Commit dates are caller-controlled; neither they nor a rerun's start time
+    may define the shared package cutoff. An unavailable API fails the job.
+    """
+    import urllib.request  # noqa: PLC0415 - CI-only metadata lookup
+
+    repository = os.environ["GITHUB_REPOSITORY"]
+    run_id = os.environ["GITHUB_RUN_ID"]
+    if not run_id.isdigit():
+        raise ValueError("invalid_workflow_run_id")
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    request = urllib.request.Request(
+        f"{api}/repos/{repository}/actions/runs/{run_id}",
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    request.add_unredirected_header("Authorization", f"Bearer {os.environ['GITHUB_TOKEN']}")
+    with urllib.request.urlopen(request, timeout=60) as response:
+        run = json.load(response)
+    if str(run.get("id")) != run_id or (run.get("repository") or {}).get("full_name") != repository:
+        raise ValueError("workflow_run_identity_mismatch")
+    cutoff = run.get("created_at")
+    if not isinstance(cutoff, str) or re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", cutoff) is None:
+        raise ValueError("workflow_run_creation_time_invalid")
+    datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+    return cutoff
 
 
 def _normalize(name: str) -> str:
@@ -220,6 +250,7 @@ def check_mmcv(record: dict[str, Any], variant: str, head: str, run_id: str) -> 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("cutoff", help="trusted workflow-run creation time for PyPI resolution")
     rec = sub.add_parser("record")
     rec.add_argument("--out", required=True, type=Path)
     rec.add_argument("--closure-roots", type=Path, help="requirements file whose dependency closure is compared")
@@ -236,6 +267,9 @@ def main(argv: list[str] | None = None) -> int:
     cmp_.add_argument("--harness", required=True, type=Path)
     args = parser.parse_args(argv)
 
+    if args.command == "cutoff":
+        print(run_creation_cutoff())
+        return 0
     if args.command == "record":
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(environment_record(args.closure_roots), sort_keys=True, indent=1) + "\n", encoding="utf-8")
