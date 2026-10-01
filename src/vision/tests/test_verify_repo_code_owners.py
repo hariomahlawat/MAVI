@@ -30,8 +30,25 @@ def test_the_committed_code_owners_pass() -> None:
 
 
 def test_overrides_that_keep_the_owner_pass() -> None:
-    text = "# comment\n* @hariomahlawat\n/docs/ @hariomahlawat @someone   # inline comment\n"
+    text = "# comment\n   # indented comment\n* @hariomahlawat\n/docs/ @hariomahlawat @someone\n"
     assert verifier.code_owner_problems(text) == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "* @hariomahlawat # reason",
+        "/docs/ @hariomahlawat @someone   # inline comment",
+        "/docs/ @someone # was @hariomahlawat",
+        "/docs/ @someone\t# was @hariomahlawat",
+        "/docs/ @someone #@hariomahlawat",
+        "/docs/#notes @hariomahlawat",
+    ],
+)
+def test_a_hash_on_a_rule_line_is_refused(line: str) -> None:
+    """GitHub has no inline comments, so such a line may be skipped or misread."""
+    text = "* @hariomahlawat\n" + line + "\n"
+    assert any("no inline comments" in problem for problem in verifier.code_owner_problems(text))
 
 
 @pytest.mark.parametrize(
@@ -43,10 +60,6 @@ def test_overrides_that_keep_the_owner_pass() -> None:
         ("/src/ @hariomahlawat\n* @hariomahlawat\n", "first rule must be exactly '* @hariomahlawat'"),
         ("# only comments\n\n", "has no rules"),
         ("* @hariomahlawat-other\n", "replaces the owners without @hariomahlawat"),
-        # He appears only inside a comment, after a space or a tab.
-        ("* @hariomahlawat\n/docs/ @someone # was @hariomahlawat\n", "replaces the owners without @hariomahlawat"),
-        ("* @hariomahlawat\n/docs/ @someone\t# was @hariomahlawat\n", "replaces the owners without @hariomahlawat"),
-        ("* @hariomahlawat\n/docs/ @someone #@hariomahlawat\n", "replaces the owners without @hariomahlawat"),
         # An escaped space keeps his handle inside the pattern.
         ("* @hariomahlawat\ndocs/x\\ @hariomahlawat @someone\n", "replaces the owners without @hariomahlawat"),
         # The default rule is owned by exactly him.

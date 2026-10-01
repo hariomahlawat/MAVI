@@ -178,7 +178,8 @@ REQUIRED_CHECK_NAMES = ("quality", "Task 10 qualification")
 
 def _code_owner_tokens(line: str) -> list[str]:
     """Split a CODEOWNERS line as GitHub does: whitespace separates tokens unless
-    escaped with a backslash, and a token starting with '#' begins a comment."""
+    escaped with a backslash. Only a whole line starting with '#' is a comment;
+    rule lines containing '#' are refused by ``code_owner_problems``."""
     tokens: list[str] = []
     current = ""
     escaped = False
@@ -197,9 +198,6 @@ def _code_owner_tokens(line: str) -> list[str]:
             current += char
     if current:
         tokens.append(current)
-    for index, token in enumerate(tokens):
-        if token.startswith("#"):
-            return tokens[:index]
     return tokens
 
 
@@ -210,9 +208,16 @@ def code_owner_problems(text: str) -> list[str]:
     problems: list[str] = []
     rules = []
     for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue  # a comment line
         tokens = _code_owner_tokens(raw)
         if not tokens:
             continue
+        if "#" in raw:
+            # GitHub has no inline comments: it may skip such a line as invalid
+            # (leaving its paths to an earlier rule, or unowned) or read the text
+            # as owners. Either way the line does not say what it appears to.
+            problems.append(f"{CODE_OWNERS_PATH}:{number}: '#' on a rule line; CODEOWNERS has no inline comments")
         pattern, *owners = tokens
         rules.append((number, pattern, owners))
         if not owners:

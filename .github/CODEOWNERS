@@ -2,7 +2,9 @@
 #
 # GitHub applies the LAST matching pattern for a path, so a later rule
 # replaces the owners of an earlier one rather than adding to them. Every
-# rule in this file must therefore list @hariomahlawat, outside any comment.
+# rule in this file must therefore list @hariomahlawat. CODEOWNERS has no inline
+# comments: only whole lines starting with '#' are comments, and a rule line
+# containing '#' is refused.
 # tools/verify_repo.py (check_code_owners) fails the repository contracts lane
 # when a rule omits him, when a pattern has no owners (leaving paths unowned),
 # when the first rule is not exactly "* @hariomahlawat", or when a second
