@@ -43,7 +43,7 @@ The states come from the B0 brief. There is no new state machine: the effective 
 Rules that apply to every item:
 - The licence is taken from the **file's own** description page (`extmetadata`). It is never taken from the site's text licence or from a category.
 - The licence class (`OPEN`/`RESTRICTED`/`UNKNOWN`) is a machine pre-classification. It is not a legal determination.
-- Continuous video needs Commons `mediatype` `VIDEO` **and** either a video MIME (`video/webm`, `video/ogg`, `video/mpeg`, `video/mp4`) or the Ogg container MIME `application/ogg` on a `.ogv`/`.ogg` file with a positive width and height. Commons labels every Ogg container `application/ogg`, whether it holds Theora video or only Vorbis/Opus audio, so that MIME alone proves nothing either way. No other `application/*` MIME is accepted.
+- Continuous video needs Commons `mediatype` `VIDEO` **and** either a video MIME (`video/webm`, `video/ogg`, `video/mpeg`, `video/mp4`) or the Ogg container MIME `application/ogg` on a `.ogv`/`.ogg` file (any letter case) with a positive integer width and height. Commons labels every Ogg container `application/ogg`, whether it holds Theora video or only Vorbis/Opus audio, so that MIME alone proves nothing either way. No other `application/*` MIME is accepted.
 
 ## Time fields are separate
 

@@ -193,8 +193,9 @@ def test_commons_ogv_reported_as_application_ogg_is_continuous_video():
     assert admission.is_continuous_video(ogv)
     assert admission.derive_state(ogv, None) == ("DISCOVERED", [])
     assert admission.derive_state(ogv, admitted(fileTitle=OGV_TITLE)) == ("ADMITTED_FOR_PILOT", [])
-    # An .ogg extension holding Theora video is the same case.
+    # An .ogg extension holding Theora video is the same case, and the extension check ignores case.
     assert admission.is_continuous_video(meta(title="File:Street crossing Pune 2026.ogg", mime="application/ogg"))
+    assert admission.is_continuous_video(meta(title="File:Street crossing Pune 2026.OGV", mime="application/ogg"))
 
 
 def test_admitted_commons_ogv_is_acquired_and_verified(store):
@@ -213,6 +214,10 @@ def test_admitted_commons_ogv_is_acquired_and_verified(store):
     {"title": OGV_TITLE, "mediatype": "VIDEO", "width": 0, "height": 0},                              # no frame size
     {"title": OGV_TITLE, "mediatype": "VIDEO", "width": 1280, "height": None},
     {"title": OGV_TITLE, "mediatype": "VIDEO", "width": True, "height": True},                        # bool is not a size
+    {"title": OGV_TITLE, "mediatype": "VIDEO", "width": 0, "height": 720},                            # width checked on its own
+    {"title": OGV_TITLE, "mediatype": "VIDEO", "width": None, "height": 720},
+    {"title": OGV_TITLE, "mediatype": "VIDEO", "width": -1, "height": 720},
+    {"title": OGV_TITLE, "mediatype": "VIDEO", "width": "1280", "height": "720"},                    # strings are not sizes
     {"title": TITLE, "mediatype": "VIDEO"},                                                           # application/ogg on .webm
     {"title": OGV_TITLE, "mediatype": "BITMAP"},
 ])
