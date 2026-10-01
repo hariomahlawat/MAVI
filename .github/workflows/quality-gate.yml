@@ -19,11 +19,46 @@ concurrency:
   group: mavi-quality-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  quality:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+env:
+  MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
+jobs:
+  repo-contracts:
+    name: repo contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            src/vision/pyproject.toml
+            tools/requirements.txt
+      - name: Install verification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+      - name: Verify repository
+        run: python tools/verify_repo.py
+      - name: Test Task 17 acceptance tooling
+        run: python -m pytest -q tools/phase1/tests
+
+  dotnet-tests:
+    name: dotnet shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
     services:
       postgres:
         image: pgvector/pgvector:pg18
@@ -35,135 +70,219 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd="pg_isready -U postgres -d mavi_test"
-          --health-interval=10s
+          --health-interval=5s
           --health-timeout=5s
-          --health-retries=10
-
+          --health-retries=12
     env:
       MAVI_TEST_DB_CONNECTION: Host=localhost;Port=5432;Database=mavi_test;Username=postgres;Password=postgres
-      MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
           fetch-depth: 1
           persist-credentials: false
-
       - name: Verify exact checked-out source head
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
-
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: src/vision/pyproject.toml
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: src/web/mavi-web/package-lock.json
-
       - name: Ensure FFmpeg
+        shell: bash
         run: |
+          set -euo pipefail
           if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
             ffmpeg -version | head -n 1
+            exit 0
+          fi
+          if sudo apt-get install -y ffmpeg; then
             exit 0
           fi
           sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
           sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
           sudo apt-get update -o Acquire::Retries=3
           sudo apt-get install -y ffmpeg
-
-      - name: Install Python verification dependencies
+      - name: Install Python worker dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
-
-      - name: Verify toolchain
-        run: |
-          dotnet --info
-          python --version
-          node --version
-          npm --version
-          ffmpeg -version | head -n 1
-          psql --version
-          pg_isready -h localhost -p 5432 -U postgres -d mavi_test
-
+          python -m pip install -e './src/vision[dev]'
       - name: Build .NET
         run: dotnet build MAVI.sln --configuration Release
-
-      # One TRX per test project (the SDK's built-in logger), retained below so an
-      # S1.4 evidence record's .NET suite counts come from the results
-      # themselves. Every project runs; the step fails if any failed.
-      - name: Test .NET
+      - name: Test .NET shard
         shell: bash
         env:
-          # The S2b fixture end-to-end test runs the real attributes worker process
-          # (installed above); without this it reports skipped, never passed.
           MAVI_S2B_WORKER_PYTHON: python
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_COUNT: '3'
         run: |
           set -euo pipefail
+          mapfile -t projects < <(dotnet sln MAVI.sln list | grep '^tests/' | sort)
+          selected=()
+          for i in "${!projects[@]}"; do
+            if (( i % SHARD_COUNT == SHARD_INDEX )); then
+              selected+=("${projects[$i]}")
+            fi
+          done
+          test "${#selected[@]}" -gt 0
           status=0
-          for project in $(dotnet sln MAVI.sln list | grep '^tests/'); do
+          for project in "${selected[@]}"; do
             name="$(basename "$project" .csproj)"
-            dotnet test "$project" --configuration Release --no-build \
-              --logger "trx;LogFileName=${name}.trx" --results-directory qualification-evidence/trx || status=1
+            dotnet test "$project" --configuration Release --no-build --logger "trx;LogFileName=${name}.trx" --results-directory qualification-evidence/trx || status=1
           done
           exit "$status"
-
-      - name: Verify repository
-        run: python tools/verify_repo.py
-
-      - name: Test Python contracts
-        working-directory: src/vision
-        run: python -m pytest -q
-
-      - name: Check evidence-assembler guard coverage
-        working-directory: ${{ github.workspace }}
-        run: python tools/vision/check_guard_coverage.py
-
-      - name: Test Task 17 acceptance tooling
-        run: python -m pytest -q tools/phase1/tests
-
-      # S1.4 Harness A: the evidence checker and measurement harnesses. The
-      # native-ByteTrack cases run in Task 10's qualified job, not here.
-      - name: Test S1.4 qualification tooling
-        run: python -m pytest -q -rs tools/qualification/tests
-
-      - name: Install frontend dependencies
-        working-directory: src/web/mavi-web
-        run: npm ci
-
-      - name: Test frontend
-        working-directory: src/web/mavi-web
-        run: npm test -- --reporter=default --reporter=junit --outputFile.junit=../../../qualification-evidence/junit/mavi-web.xml
-
-      - name: Retain test results
+      # The lane artifact keeps the qualification-evidence/ root, so it holds
+      # trx/<Project>.trx exactly as the canonical artifact below does.
+      - name: Retain .NET results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quality-gate-test-results
+          name: quality-lane-dotnet-${{ matrix.shard }}
           path: qualification-evidence/
           include-hidden-files: false
           if-no-files-found: warn
 
+  python-vision:
+    name: python vision
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            src/vision/pyproject.toml
+            tools/requirements.txt
+      - name: Install vision dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+      - name: Test Python contracts
+        working-directory: src/vision
+        run: python -m pytest -q
+
+  guard-coverage:
+    name: guard coverage shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            src/vision/pyproject.toml
+            tools/requirements.txt
+      - name: Install vision dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+      - name: Check evidence-assembler guard coverage shard
+        run: >-
+          python tools/vision/check_guard_coverage.py
+          --shard-index ${{ matrix.shard }}
+          --shard-count 4
+
+  qualification-tests:
+    name: qualification shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            src/vision/pyproject.toml
+            tools/requirements.txt
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+      - name: Test qualification shard
+        shell: bash
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_COUNT: '3'
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find tools/qualification/tests -maxdepth 1 -type f -name 'test_*.py' | sort)
+          selected=()
+          for i in "${!files[@]}"; do
+            if (( i % SHARD_COUNT == SHARD_INDEX )); then
+              selected+=("${files[$i]}")
+            fi
+          done
+          test "${#selected[@]}" -gt 0
+          python -m pytest -q -rs "${selected[@]}"
+
+  web-host:
+    name: web and production host
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/web/mavi-web/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install frontend dependencies
+        working-directory: src/web/mavi-web
+        run: npm ci
+      - name: Test frontend
+        working-directory: src/web/mavi-web
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit=../../../qualification-evidence/junit/mavi-web.xml
       - name: Typecheck frontend
         working-directory: src/web/mavi-web
         run: npm run typecheck
-
       - name: Build frontend
         working-directory: src/web/mavi-web
         run: npm run build
-
+      - name: Restore production web host
+        run: dotnet restore src/platform/Mavi.Api/Mavi.Api.csproj
       - name: Publish production web host
         run: >-
           dotnet publish src/platform/Mavi.Api/Mavi.Api.csproj
@@ -171,9 +290,8 @@ jobs:
           --no-restore
           -p:RequireMaviBundledMediaTools=false
           -p:MaviBuild=github-${{ github.run_id }}-${{ github.run_attempt }}
-          -p:MaviCommit=${{ github.event.pull_request.head.sha || github.sha }}
+          -p:MaviCommit=${{ env.MAVI_EXPECTED_SOURCE_SHA }}
           --output .artifacts/task15-host
-
       - name: Verify production web host composition
         shell: bash
         run: |
@@ -187,3 +305,76 @@ jobs:
             echo "Runtime Internet dependency found in published index.html."
             exit 1
           fi
+      - name: Retain web results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-lane-web
+          path: qualification-evidence/
+          include-hidden-files: false
+          if-no-files-found: warn
+
+  quality:
+    name: quality
+    if: always()
+    needs:
+      - repo-contracts
+      - dotnet-tests
+      - python-vision
+      - guard-coverage
+      - qualification-tests
+      - web-host
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # S1.4 Harness A: the lanes' TRX and JUnit files are re-published as the one
+      # canonical quality-gate-test-results artifact (trx/<Project>.trx,
+      # junit/mavi-web.xml) of this run, at the exact head every lane verified.
+      - uses: actions/checkout@v4
+        if: always()
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: tests
+      - name: Verify exact checked-out source head
+        if: always()
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - name: Collect lane test results
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: quality-lane-*
+          path: qualification-evidence/
+          merge-multiple: true
+      - name: Retain test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-gate-test-results
+          path: qualification-evidence/
+          include-hidden-files: false
+          if-no-files-found: warn
+      - name: Require every quality lane
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ needs.repo-contracts.result }}' = 'success'
+          test '${{ needs.dotnet-tests.result }}' = 'success'
+          test '${{ needs.python-vision.result }}' = 'success'
+          test '${{ needs.guard-coverage.result }}' = 'success'
+          test '${{ needs.qualification-tests.result }}' = 'success'
+          test '${{ needs.web-host.result }}' = 'success'
+      - name: Require one TRX per test project and the web JUnit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(find tests -mindepth 2 -maxdepth 2 -name '*.csproj' -exec basename {} .csproj \; | sort)"
+          actual="$(find qualification-evidence/trx -maxdepth 1 -name '*.trx' -exec basename {} .trx \; | sort)"
+          test -n "$expected"
+          if [ "$expected" != "$actual" ]; then
+            echo "retained TRX set differs from the test projects"
+            diff <(echo "$expected") <(echo "$actual") || true
+            exit 1
+          fi
+          test -s qualification-evidence/junit/mavi-web.xml

@@ -2507,8 +2507,25 @@ def test_the_quality_gate_retains_a_trx_per_test_project_and_the_web_junit() -> 
     assert 'dotnet sln MAVI.sln list' in workflow and "grep '^tests/'" in workflow
     assert '--logger "trx;LogFileName=${name}.trx" --results-directory qualification-evidence/trx' in workflow
     assert "--reporter=junit --outputFile.junit=../../../qualification-evidence/junit/mavi-web.xml" in workflow
-    upload = workflow[workflow.index("actions/upload-artifact"):]
-    assert "path: qualification-evidence/" in upload and "if: always()" in workflow[workflow.index("Retain test results"):]
+    # Parallel lanes: each lane retains its files under the qualification-evidence/
+    # root (so trx/ and junit/ survive), always, and the final quality job
+    # re-publishes them as the one canonical artifact of the run.
+    uploads = workflow.split("uses: actions/upload-artifact@v4")[1:]
+    assert len(uploads) == 3
+    for upload in uploads:
+        step = upload.split("\n      - ", 1)[0]
+        assert "path: qualification-evidence/\n" in step, step
+    for lane in ("Retain .NET results", "Retain web results", "Retain test results"):
+        assert f"- name: {lane}\n        if: always()\n        uses: actions/upload-artifact@v4" in workflow, lane
+    quality = workflow[workflow.index("\n  quality:\n"):]
+    assert "      - dotnet-tests\n" in quality and "      - web-host\n" in quality
+    assert "pattern: quality-lane-*\n          path: qualification-evidence/\n          merge-multiple: true" in quality
+    assert "name: quality-gate-test-results\n          path: qualification-evidence/\n" in quality
+    assert "name: quality-lane-dotnet-${{ matrix.shard }}" in workflow and "name: quality-lane-web" in workflow
+    # The run fails unless exactly one TRX per test project and the web JUnit were retained.
+    assert "- name: Require one TRX per test project and the web JUnit" in quality
+    assert "find tests -mindepth 2 -maxdepth 2 -name '*.csproj'" in quality
+    assert "test -s qualification-evidence/junit/mavi-web.xml" in quality
     assert s1_evidence.quality_gate_result_path("tests/Mavi.Domain.Tests/X") == "trx/Mavi.Domain.Tests.trx"
     assert s1_evidence.quality_gate_result_path("src/web/mavi-web") == "junit/mavi-web.xml"
     projects = sorted(path.parent.name for path in (REPO_ROOT / "tests").glob("*/*.csproj"))

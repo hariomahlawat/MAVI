@@ -1,0 +1,106 @@
+name: Qualification Tooling Windows
+
+# Windows portability CI for the qualification tooling (Python and PowerShell):
+# paths, line endings, filesystem semantics, subprocesses and pwsh behaviour.
+# It installs no runtime graph (no Torch, MMCV or RTMDet) and records no
+# qualification evidence; S1/runtime qualification stays in Task 10, whose
+# narrowed trigger no longer covers generic tools/qualification changes.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/visual-intelligence-memory
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/qualification/**'
+      - 'docs/qualification/**'
+      - 'tests/fixtures/visual-attributes/**'
+      - 'tools/requirements.txt'
+      - '.github/workflows/qualification-tooling-windows.yml'
+  push:
+    branches:
+      - main
+      - feature/visual-intelligence-memory
+      - feature/task-10-rtmdet-bytetrack
+    paths:
+      - 'tools/qualification/**'
+      - 'docs/qualification/**'
+      - 'tests/fixtures/visual-attributes/**'
+      - 'tools/requirements.txt'
+      - '.github/workflows/qualification-tooling-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mavi-qualification-windows-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  qualification-tests:
+    name: windows qualification shard ${{ matrix.shard }}
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        shell: pwsh
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:MAVI_EXPECTED_SOURCE_SHA) {
+            throw "checked-out $head is not the expected source $env:MAVI_EXPECTED_SOURCE_SHA"
+          }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            src/vision/pyproject.toml
+            tools/requirements.txt
+      - name: Install qualification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+      # Test-level sharding: the suite's cost sits in a few files, so files are
+      # too coarse to balance. Every collected test runs in exactly one shard
+      # (collection order, index modulo shard count); collection errors fail.
+      - name: Test qualification shard
+        shell: bash
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          SHARD_COUNT: '4'
+        run: |
+          set -euo pipefail
+          python -m pytest --collect-only -q -p no:cacheprovider tools/qualification/tests > collected.txt
+          grep '::' collected.txt > all-tests.txt
+          total="$(wc -l < all-tests.txt)"
+          test "$total" -gt 0
+          awk -v n="$SHARD_COUNT" -v i="$SHARD_INDEX" '(NR - 1) % n == i' all-tests.txt > shard-tests.txt
+          selected="$(wc -l < shard-tests.txt)"
+          test "$selected" -gt 0
+          echo "shard $SHARD_INDEX/$SHARD_COUNT runs $selected of $total collected tests"
+          python -m pytest -q -rs -p no:cacheprovider @shard-tests.txt
+
+  qualification-tooling-windows:
+    name: qualification tooling windows
+    if: always()
+    needs:
+      - qualification-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every Windows qualification shard
+        run: test '${{ needs.qualification-tests.result }}' = 'success'
