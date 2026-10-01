@@ -1,15 +1,15 @@
 # Task 10: S1 harness separation and verified MMCV wheel reuse
 
 - **Date:** 2026-10-01
-- **Status:** Proposed; draft PR, not merged. Owner decisions of 2026-10-01:
-  - Harness separation and verified wheel reuse are **accepted in principle**.
-  - The ADR-005 §17 amendment is **formally accepted only after the implementation review**. Because this branch already runs the amended layout, **it must not merge before that formal acceptance**.
+- **Status:** Accepted on 2026-10-01 following implementation review and the owner's instruction to fix the closure wording and merge PR #129. Merge remains conditional on successful final-head CI. Owner decisions of 2026-10-01:
+  - Harness separation and verified wheel reuse are **accepted**.
+  - The ADR-005 §17 amendment is **formally accepted following implementation review**. The comparison guarantee covers the declared harness requirements' dependency closure; unrelated runner-preinstalled distributions outside it are recorded but not compared.
   - **Strict compiler identity stays.** Cache misses caused by runner-image changes are accepted as legitimate.
   - The PyPI cutoff is **drift reduction, not a lock**. The version-comparison gate remains essential.
   - "Task 10 qualification" must block merges when Task 10 applies, without leaving unrelated PRs waiting for a check that never runs (see "Required check").
 - **Scope:** how the Task 10 workflow (`task10-runtime-qualification.yml`) is split into jobs, what evidence each job contributes, and when Task 10 may install an MMCV wheel it compiled in an earlier run.
 - **Governing documents:**
-  - ADR-005 §17, which this note proposes to amend; see "Amendment".
+  - ADR-005 §17, amended by this accepted note; see "Amendment".
   - S1.4 plan §2.2 / §3 / §10.1.
   - `2026-10-01-s1-qualification-harness-surface.md` (#127).
   - Task 10 plan, "Freeze sequence".
@@ -141,16 +141,16 @@ None of those three is in the harness closure, so comparing every installed dist
 
 The same run shows the candidate resolving `torch`'s `filelock` and `yapf`'s `platformdirs` from that preinstalled tool cache. This behaviour predates this change: the qualified candidate graph is partly defined by the runner image. It is recorded here as an unresolved question, not changed.
 
-## Amendment to ADR-005 §17 (proposed; formal acceptance after implementation review)
+## Accepted amendment to ADR-005 §17
 
 ADR-005 §17 says a runtime qualifies only as one complete environment. That rule continues to govern **runtime qualification**: every probe, native binary check, ByteTrack and RTMDet check, and B6 record.
 
-It is amended for the **S1 qualification-harness suite** (`task10:s1-qualification-harness`), which B2 cites. That suite may run in a separate job on the same head, variant, Python build and platform, in an environment that is a verified subset of the candidate environment. The final gate enforces the subset; it is not merely asserted.
+It is amended for the **S1 qualification-harness suite** (`task10:s1-qualification-harness`), which B2 cites. That suite may run in a separate job on the same head, variant, Python build and platform, with the declared harness requirements' dependency closure as a verified subset of the candidate environment. The final gate compares every distribution in that closure at the same version; unrelated runner-preinstalled distributions outside it are recorded but not compared. The runtime-graph exclusion applies to all installed harness distributions.
 
 - **Rationale.** The harness tests measurement tooling and the native tracker stack. They import none of the runtime graph that the complete-environment rule protects, as the audit above shows. Running them in the full environment added 5–6 min to the critical path on Windows and proved nothing additional.
 - **Trade-off accepted.** The harness no longer shares a single interpreter process tree with PyTorch and the MM stack. A process-level interaction between them (for example, a shared native library loaded by both) would not be observed by the harness suite. Two things bound this risk:
   - such interactions are what the full-graph steps (`bytetrack-runtime`, `real-clip-harness`, `production-processor-runtime`) exercise, in the complete environment;
-  - `compare` refuses any version divergence between the two environments.
+  - `compare` refuses any version divergence within the declared harness requirements' dependency closure.
 
 ## One PyPI resolution for both jobs
 
@@ -160,7 +160,7 @@ Both jobs therefore do two things:
 - pin `pip==26.2.1`;
 - resolve every PyPI install with `--uploaded-prior-to <the head's committer time>`.
 
-That cutoff is identical in both jobs and across re-runs, so both resolve the same versions whenever they install. Each environment record carries the cutoff, and `compare` requires it to be equal.
+That cutoff is identical in both jobs and across re-runs, reducing differences caused by newly published packages. Each environment record carries the cutoff, and `compare` requires it to be equal.
 
 **The cutoff reduces drift; it is not a lock.** It does not cover:
 - a release yanked between the two installs;
@@ -244,7 +244,7 @@ Pull-request runs never save, so a PR run is cold until `main` holds an entry fo
 ## Unresolved questions
 
 1. **Divergence the cutoff does not cover** (the comparison gate catches it). A release yanked between the two installs, or a runner-image preinstalled package inside the closure, can still make `compare` fail. On Windows that is `colorama`, which `pytest` requires and the tool cache preinstalls. The gate fails closed. A committed constraints file for the closure would close this too, at the cost of maintaining it.
-2. **Does B2 require the harness and the runtime to share a process environment?** This note says no and proposes amending ADR-005 accordingly. The owner has accepted it in principle; formal acceptance is pending the implementation review, and this PR must not merge before it.
+2. **Does B2 require the harness and the runtime to share a process environment?** Resolved: the accepted ADR-005 amendment permits separate jobs, with the declared harness requirements' dependency closure verified against the candidate and the full-graph checks retained in the candidate environment.
 3. **Runner-image migrations.** Both jobs use `windows-latest`/`ubuntu-latest`, and `compare` checks `ImageOS`. During a gradual GitHub image migration, the two jobs of one variant can land on different images and fail with `platform_differs`. That fails closed. Pinning `windows-2025`/`ubuntu-24.04` would remove the risk, but it changes the matrix names and the artifact names they feed; it is left for owners to decide.
 4. **Runner-image preinstalled packages in the candidate graph.** The candidate takes `filelock` (from `torch`) and `platformdirs` (from `yapf`) from the image's preinstalled tool cache rather than from a pin. This is a pre-existing gap in the "exact hashed locks" goal of ADR-005 §17. It concerns the candidate graph, not this change.
 5. **Runner-image version in the identity.** *Owner decision: keep strict compiler identity, and accept the cache misses runner-image changes cause.* For example, `cl` 19.51.36257 and 19.51.36260 landed on consecutive Windows runs (36824236111, 36825497153) and forced a legitimate rebuild. Excluding `ImageVersion` lets a wheel be reused across weekly image updates that keep the same toolchain. If owners want a rebuild on every image update, adding it is a one-line change. The cost is roughly one cold build per variant per week.
