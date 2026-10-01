@@ -3,7 +3,7 @@
 - **Date:** 2026-10-01
 - **Status:** Proposed; draft PR, not merged. Owner decisions of 2026-10-01:
   - Harness separation and verified wheel reuse are **accepted in principle**.
-  - The ADR-005 §17 amendment is **formally accepted only after the implementation review**.
+  - The ADR-005 §17 amendment is **formally accepted only after the implementation review**. Because this branch already runs the amended layout, **it must not merge before that formal acceptance**.
   - **Strict compiler identity stays.** Cache misses caused by runner-image changes are accepted as legitimate.
   - The PyPI cutoff is **drift reduction, not a lock**. The version-comparison gate remains essential.
   - "Task 10 qualification" must block merges when Task 10 applies, without leaving unrelated PRs waiting for a check that never runs (see "Required check").
@@ -212,10 +212,12 @@ A path filter on the workflow's `pull_request` trigger cannot do both. GitHub do
 
 The workflow therefore runs on **every** pull request into `main` and `feature/task-10-rtmdet-bytetrack`:
 
-1. **`scope` (seconds).** It reads the pull request's changed files, renames' old paths included, from the GitHub API. It matches them against `tools/vision/task10-scope-paths.txt`, which holds the same globs as the `push` trigger (a test holds the two equal), using `tools/vision/task10_scope.py`.
-   - The matching is never narrower than GitHub's, so `**/` also matches zero directories.
+1. **`scope` (seconds).** It runs on the pull request's **merge commit** (`github.sha`), the commit GitHub runs the workflow from and used to read the path filter from. Its scope list, its tool and its diff therefore all describe the commit being qualified, including any glob `main` added after the PR branched.
+   - It lists the changed paths with `git diff --no-renames --name-only -z HEAD^1 HEAD`. The first parent is the base branch, `--no-renames` lists both paths of a rename, and `-z` keeps unusual file names intact. No API and no file-count limit are involved.
+   - It matches them against `tools/vision/task10-scope-paths.txt` with `tools/vision/task10_scope.py`. The list holds the same globs as the `push` trigger, and a test holds the two equal.
+   - Only `*` and `**` are supported. The tool refuses a list using any other GitHub glob syntax (`?`, `+`, `[...]`, `{...}`, `!`). On the supported subset its matching is never narrower than GitHub's: `**/` also spans zero directories, and newlines inside paths are matched.
    - Changes to the scope list, the tool or the workflow always apply.
-   - Any doubt answers *applies*: an API error, a file list that may be truncated at GitHub's 3,000-file limit, an empty list, or an unreadable scope list.
+   - Any doubt answers *applies*: the checked-out commit is not `github.sha` or has no second parent, the diff fails, the list is unreadable or uses unsupported syntax, the file list is empty, or any other error occurs.
    - On `push` and `workflow_dispatch` the answer is always *applies*. Push keeps its path filter.
 2. **`cpu-candidate` and `s1-harness`** run only when Task 10 applies.
 3. **`task10-qualification` always reports:**
@@ -227,6 +229,12 @@ With this in place, "Task 10 qualification" can be a **required status check for
 
 The trade-off: every pull request now runs a short `scope` job, and an applicable pull request waits for it, about 10–20 s, before its matrix starts.
 
+**Trust boundary.** A pull request controls the workflow, the tool and the list it runs with, exactly as it controlled its own `paths:` filter before. A hostile edit could make Task 10 report "not applicable". The rule that edits to the scope machinery always apply guards against accidental narrowing only.
+- **Difference from before:** a hostile edit used to leave a required check pending; now it can turn green.
+- **The control is review.** Add a `CODEOWNERS` entry for `.github/workflows/task10-runtime-qualification.yml`, `tools/vision/task10_scope.py` and `tools/vision/task10-scope-paths.txt`, and require code-owner review. That is a repository change outside this PR.
+
+**Merge queue.** The workflow has no `merge_group` trigger. If the repository enables a merge queue with this check required, the check will not report there until `merge_group` is added.
+
 ## Measured results
 
 The measurements come from GitHub Actions runs on this change and are listed in the PR description, which separates measurements from estimates.
@@ -236,7 +244,7 @@ Pull-request runs never save, so a PR run is cold until `main` holds an entry fo
 ## Unresolved questions
 
 1. **Divergence the cutoff does not cover** (the comparison gate catches it). A release yanked between the two installs, or a runner-image preinstalled package inside the closure, can still make `compare` fail. On Windows that is `colorama`, which `pytest` requires and the tool cache preinstalls. The gate fails closed. A committed constraints file for the closure would close this too, at the cost of maintaining it.
-2. **Does B2 require the harness and the runtime to share a process environment?** This note says no and amends ADR-005 accordingly. The amendment needs owner acceptance.
+2. **Does B2 require the harness and the runtime to share a process environment?** This note says no and proposes amending ADR-005 accordingly. The owner has accepted it in principle; formal acceptance is pending the implementation review, and this PR must not merge before it.
 3. **Runner-image migrations.** Both jobs use `windows-latest`/`ubuntu-latest`, and `compare` checks `ImageOS`. During a gradual GitHub image migration, the two jobs of one variant can land on different images and fail with `platform_differs`. That fails closed. Pinning `windows-2025`/`ubuntu-24.04` would remove the risk, but it changes the matrix names and the artifact names they feed; it is left for owners to decide.
 4. **Runner-image preinstalled packages in the candidate graph.** The candidate takes `filelock` (from `torch`) and `platformdirs` (from `yapf`) from the image's preinstalled tool cache rather than from a pin. This is a pre-existing gap in the "exact hashed locks" goal of ADR-005 §17. It concerns the candidate graph, not this change.
 5. **Runner-image version in the identity.** *Owner decision: keep strict compiler identity, and accept the cache misses runner-image changes cause.* For example, `cl` 19.51.36257 and 19.51.36260 landed on consecutive Windows runs (36824236111, 36825497153) and forced a legitimate rebuild. Excluding `ImageVersion` lets a wheel be reused across weekly image updates that keep the same toolchain. If owners want a rebuild on every image update, adding it is a one-line change. The cost is roughly one cold build per variant per week.

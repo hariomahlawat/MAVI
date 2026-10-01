@@ -66,7 +66,6 @@ def test_glob_semantics_never_narrower_than_github() -> None:
     assert scope.glob_regex("a/**/*.json").fullmatch("a/b/c/x.json")
     assert scope.glob_regex("a/**").fullmatch("a/b/c")
     assert not scope.glob_regex("a/*.py").fullmatch("a/b/c.py")
-    assert scope.glob_regex("a/?.py").fullmatch("a/b.py")
     assert not scope.glob_regex("a.py").fullmatch("aXpy")
 
 
@@ -96,40 +95,133 @@ def test_the_cli_answers_from_a_file_list(tmp_path: Path, capsys: pytest.Capture
     assert capsys.readouterr().out.strip() == "applicable=true"
 
 
-def test_api_failure_or_truncation_means_task10_applies(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    import urllib.error
-
-    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
-    monkeypatch.setenv("GITHUB_TOKEN", "t")
-
-    def down(*_):
-        raise urllib.error.URLError("down")
-
-    monkeypatch.setattr(scope, "_get", down)
-    scope.main(["applicable", "--pull-request", "1"])
+def test_a_nul_separated_path_with_a_newline_is_one_path(tmp_path: Path, capsys) -> None:
+    files = tmp_path / "files.z"
+    files.write_bytes(b"README.md\0src/vision/mavi_vision/a\nb.py\0")
+    scope.main(["applicable", "--files", str(files)])
     assert capsys.readouterr().out.strip() == "applicable=true"
-    monkeypatch.setattr(scope, "_get", lambda url, token: [{"filename": f"docs/{i}.md"} for i in range(100)])
-    assert scope.pull_request_files("o/r", 1, "t", "https://api") is None
-    scope.main(["applicable", "--pull-request", "1"])
+    assert scope.glob_regex("src/vision/mavi_vision/**").fullmatch("src/vision/mavi_vision/a\nb.py")
+
+
+@pytest.mark.parametrize("glob", ["src/a?.py", "src/a+.py", "src/[ab].py", "src/{a,b}.py", "src/a!.py", "!src/**"])
+def test_glob_syntax_the_tool_does_not_model_is_refused(tmp_path: Path, glob: str) -> None:
+    listed = tmp_path / "scope.txt"
+    listed.write_text(glob + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="unsupported glob syntax"):
+        scope.read_globs(listed)
+
+
+def test_any_error_means_task10_applies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    scope.main(["applicable", "--files", str(tmp_path / "absent")])
     assert capsys.readouterr().out.strip() == "applicable=true"
-    monkeypatch.delenv("GITHUB_TOKEN")
-    scope.main(["applicable", "--pull-request", "1"])
+    files = tmp_path / "files.txt"
+    files.write_text("README.md\n", encoding="utf-8")
+
+    def boom(*_):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(scope, "read_globs", boom)
+    scope.main(["applicable", "--files", str(files)])
+    assert capsys.readouterr().out.strip() == "applicable=true"
+    files.write_bytes(b"\xff\xfe")
+    monkeypatch.undo()
+    scope.main(["applicable", "--files", str(files)])
     assert capsys.readouterr().out.strip() == "applicable=true"
 
 
-def test_pages_and_renamed_paths_are_all_considered(monkeypatch: pytest.MonkeyPatch) -> None:
-    pages = {
-        1: [{"filename": f"docs/{i}.md"} for i in range(100)],
-        2: [{"filename": "docs/new.py", "previous_filename": "src/vision/mavi_vision/old.py"}],
-    }
-    seen = []
+def _scope_step_body() -> str:
+    workflow = (TOOL.parents[2] / ".github" / "workflows" / "task10-runtime-qualification.yml").read_text(encoding="utf-8")
+    step = workflow.split("- name: Decide whether Task 10 applies\n", 1)[1].split("\n\n", 1)[0]
+    return "\n".join(line[10:] for line in step.split("        run: |\n", 1)[1].splitlines())
 
-    def get(url, token):
-        page = int(url.rsplit("page=", 1)[1])
-        seen.append(page)
-        return pages.get(page, [])
 
-    monkeypatch.setattr(scope, "_get", get)
-    files = scope.pull_request_files("o/r", 7, "t", "https://api")
-    assert seen == [1, 2] and len(files) == 102
-    assert scope.applicable(files, GLOBS)  # moving a runtime file away still applies
+def _git(repo: Path, *args: str) -> str:
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+                          env={**__import__("os").environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}).stdout.strip()
+
+
+def _commit(repo: Path, files: dict[str, str], message: str) -> None:
+    for name, text in files.items():
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+
+
+def _run_scope_step(repo: Path, tmp_path: Path, event: str = "pull_request", sha: str | None = None) -> tuple[int, str]:
+    import subprocess
+
+    sys.path.insert(0, str(TOOL.parents[2] / "src" / "vision" / "tests"))
+    from test_runtime_metadata import _git_bash
+
+    output = tmp_path / "out"
+    output.write_text("", encoding="utf-8")
+    body = _scope_step_body().replace("${{ github.event_name }}", event)
+    completed = subprocess.run(
+        [_git_bash(), "--noprofile", "--norc", "-eo", "pipefail", "-s"], input=body, text=True, cwd=repo,
+        capture_output=True,
+        env={**__import__("os").environ, "GITHUB_OUTPUT": output.as_posix(), "RUNNER_TEMP": tmp_path.as_posix(),
+             "GITHUB_SHA": sha or _git(repo, "rev-parse", "HEAD")},
+    )
+    return completed.returncode, output.read_text(encoding="utf-8").strip()
+
+
+def _repo(tmp_path: Path) -> Path:
+    import shutil
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "tools" / "vision").mkdir(parents=True)
+    shutil.copy(TOOL, repo / "tools" / "vision" / "task10_scope.py")
+    shutil.copy(scope.SCOPE_FILE, repo / "tools" / "vision" / "task10-scope-paths.txt")
+    _commit(repo, {"README.md": "base\n"}, "base")
+    return repo
+
+
+def _merge(repo: Path) -> str:
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "pr")
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def test_the_workflow_scope_step_decides_from_the_merge_commit(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "pr")
+    _commit(repo, {"docs/notes.md": "x\n"}, "docs only")
+    _merge(repo)
+    assert _run_scope_step(repo, tmp_path) == (0, "applicable=false")
+
+    _git(repo, "checkout", "-q", "pr")
+    # A rename out of or into the runtime tree lists both paths (--no-renames).
+    (repo / "src/vision/mavi_vision").mkdir(parents=True)
+    _git(repo, "mv", "README.md", "src/vision/mavi_vision/moved.md")
+    _git(repo, "commit", "-q", "-m", "move into runtime")
+    _merge(repo)
+    assert _run_scope_step(repo, tmp_path) == (0, "applicable=true")
+
+
+def test_a_glob_main_added_after_the_branch_point_still_applies(tmp_path: Path) -> None:
+    """Review P2-1: the list comes from the merge commit, not the stale PR head."""
+    repo = _repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "pr")
+    _commit(repo, {"src/vision/newdir/model.py": "x\n"}, "change a path only main's list covers")
+    _git(repo, "checkout", "-q", "main")
+    listed = repo / "tools" / "vision" / "task10-scope-paths.txt"
+    listed.write_text(listed.read_text(encoding="utf-8") + "src/vision/newdir/**\n", encoding="utf-8")
+    _git(repo, "commit", "-q", "-am", "main extends the scope")
+    _merge(repo)
+    assert _run_scope_step(repo, tmp_path) == (0, "applicable=true")
+
+
+def test_without_a_merge_commit_or_on_other_events_task10_applies(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _commit(repo, {"docs/notes.md": "x\n"}, "linear commit, no second parent")
+    assert _run_scope_step(repo, tmp_path) == (0, "applicable=true")
+    assert _run_scope_step(repo, tmp_path, sha="0" * 40) == (0, "applicable=true")
+    assert _run_scope_step(repo, tmp_path, event="push") == (0, "applicable=true")
+    assert _run_scope_step(repo, tmp_path, event="workflow_dispatch") == (0, "applicable=true")

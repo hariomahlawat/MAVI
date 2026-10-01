@@ -769,12 +769,13 @@ def test_task10_reports_on_every_pull_request_so_its_gate_can_be_required() -> N
     assert len(push_globs) == len(set(push_globs))
 
     scope = _task10_job("scope")
-    assert "pull-requests: read" in scope
-    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in scope
+    # The merge commit: the commit GitHub runs this workflow (and read the old filter) from.
+    assert "ref: ${{ github.sha }}\n          fetch-depth: 2\n" in scope
     step = _job_step(scope, "Decide whether Task 10 applies")
     assert 'if [ "${{ github.event_name }}" != "pull_request" ]; then' in step
     assert 'echo "applicable=true" | tee -a "$GITHUB_OUTPUT"' in step
-    assert 'python3 tools/vision/task10_scope.py applicable --pull-request "$PULL_REQUEST" | tee -a "$GITHUB_OUTPUT"' in step
+    assert "git diff --no-renames --name-only -z 'HEAD^1' HEAD" in step
+    assert 'python3 tools/vision/task10_scope.py applicable --files "$changed" | tee -a "$GITHUB_OUTPUT"' in step
     for name in ("cpu-candidate", "s1-harness"):
         job = _task10_job(name).split("    steps:", 1)[0]
         assert "    needs: scope\n    if: needs.scope.outputs.applicable == 'true'\n" in job, name

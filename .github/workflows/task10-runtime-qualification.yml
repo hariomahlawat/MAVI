@@ -87,38 +87,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Does Task 10 apply? On a pull request, only when it touches a path in
-  # tools/vision/task10-scope-paths.txt; on push and dispatch, always (push keeps
-  # its path filter). Any doubt answers "applicable".
+  # Does Task 10 apply? On a pull request, only when its merge commit changes a path
+  # in tools/vision/task10-scope-paths.txt; on push and dispatch, always (push keeps
+  # its path filter). The scope list, the tool and the diff all come from the merge
+  # commit (github.sha), the commit GitHub runs this workflow from. Any doubt
+  # answers "applicable".
   scope:
     name: Task 10 scope
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
     outputs:
       applicable: ${{ steps.scope.outputs.applicable }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+          ref: ${{ github.sha }}
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Decide whether Task 10 applies
         id: scope
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          PULL_REQUEST: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
             echo "applicable=true" | tee -a "$GITHUB_OUTPUT"
             exit 0
           fi
-          python3 tools/vision/task10_scope.py applicable --pull-request "$PULL_REQUEST" | tee -a "$GITHUB_OUTPUT"
+          changed="$RUNNER_TEMP/task10-changed-paths"
+          # The merge commit's first parent is the base branch, so this is exactly what
+          # merging changes. --no-renames lists both paths of a rename.
+          if test "$(git rev-parse HEAD)" = "$GITHUB_SHA" \
+              && git rev-parse --verify --quiet 'HEAD^2' >/dev/null \
+              && git diff --no-renames --name-only -z 'HEAD^1' HEAD > "$changed"; then
+            python3 tools/vision/task10_scope.py applicable --files "$changed" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "task10-scope: merge commit diff unavailable; running Task 10" >&2
+            echo "applicable=true" | tee -a "$GITHUB_OUTPUT"
+          fi
 
   cpu-candidate:
     name: CPU ${{ matrix.os }} Python ${{ matrix.python-version }} Torch 2.6.0

@@ -6,27 +6,31 @@ A path-filtered workflow does not run at all for an unrelated pull request, so
 its checks never report, and a required check would wait forever. Pull requests
 therefore run the workflow unconditionally, and its first job calls this tool.
 
-* ``applicable`` -- prints ``applicable=true`` or ``applicable=false`` for the
-  changed files of a pull request, read from GitHub or from ``--files``.
+* ``applicable --files F`` -- prints ``applicable=true`` or ``applicable=false``
+  for the changed paths in ``F``, NUL-separated as ``git diff -z`` writes them
+  (or newline-separated).
+
+The scope job runs on the pull request's merge commit, the commit GitHub runs
+the workflow from and reads the old path filter from. It lists the changed
+paths with ``git diff --no-renames --name-only -z HEAD^1 HEAD``, which reports
+both the old and the new path of a rename. So the list, this tool and the diff
+all describe the commit being qualified.
 
 The globs live in ``tools/vision/task10-scope-paths.txt``. The workflow's push
 trigger lists the same globs, and a test holds the two equal.
 
-Every error answers ``true``: an unreachable API, an unreadable list, an empty
-or truncated file list. Changes to the scope list, this tool or the workflow
-are always in scope, whatever the list says. The tool may over-match a glob,
-which only runs Task 10 unnecessarily, but never under-match one.
+Every error answers ``true``, as does an empty file list. Changes to the scope
+list, this tool or the workflow are always in scope, whatever the list says.
+Only a subset of GitHub's glob syntax is supported: ``*`` and ``**``. A list
+using anything else is refused, which also answers ``true``. On that subset,
+matching is never narrower than GitHub's.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import re
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 SCOPE_FILE = Path(__file__).resolve().parent / "task10-scope-paths.txt"
@@ -35,8 +39,9 @@ ALWAYS_IN_SCOPE = frozenset({
     "tools/vision/task10_scope.py",
     ".github/workflows/task10-runtime-qualification.yml",
 })
-# GitHub's pull request files API lists at most 3000 files.
-API_FILE_LIMIT = 3000
+# GitHub path-filter syntax this tool does not model. "?" means "zero or one of
+# the preceding character" there, so treating it as one character would be narrower.
+UNSUPPORTED_GLOB_CHARACTERS = frozenset("?+[]{}!")
 
 
 def read_globs(path: Path = SCOPE_FILE) -> list[str]:
@@ -44,8 +49,9 @@ def read_globs(path: Path = SCOPE_FILE) -> list[str]:
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
-            if line.startswith("!"):
-                raise ValueError("negated globs are not supported")
+            unsupported = UNSUPPORTED_GLOB_CHARACTERS & set(line)
+            if unsupported:
+                raise ValueError(f"unsupported glob syntax {sorted(unsupported)} in {line!r}")
             globs.append(line)
     if not globs:
         raise ValueError("empty scope")
@@ -70,13 +76,11 @@ def glob_regex(glob: str) -> re.Pattern[str]:
         elif glob[index] == "*":
             out.append("[^/]*")
             index += 1
-        elif glob[index] == "?":
-            out.append("[^/]")
-            index += 1
         else:
             out.append(re.escape(glob[index]))
             index += 1
-    return re.compile("".join(out))
+    # DOTALL: Git allows a newline inside a path, and "**" must span it too.
+    return re.compile("".join(out), re.DOTALL)
 
 
 def applicable(changed: list[str], globs: list[str]) -> bool:
@@ -89,55 +93,22 @@ def applicable(changed: list[str], globs: list[str]) -> bool:
     )
 
 
-def _get(url: str, token: str) -> object:
-    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
-    request.add_unredirected_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.load(response)
-
-
-def pull_request_files(repository: str, number: int, token: str, api: str) -> list[str] | None:
-    """Every path a pull request touches, renames' old paths included, or ``None``
-    when the list may be incomplete."""
-    files: list[str] = []
-    for page in range(1, API_FILE_LIMIT // 100 + 1):
-        batch = _get(f"{api}/repos/{repository}/pulls/{number}/files?per_page=100&page={page}", token)
-        if not isinstance(batch, list):
-            return None
-        for entry in batch:
-            files.append(entry["filename"])
-            if entry.get("previous_filename"):
-                files.append(entry["previous_filename"])
-        if len(batch) < 100:
-            return files
-    return None  # at the API limit: possibly truncated
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     app = sub.add_parser("applicable")
-    app.add_argument("--files", type=Path, help="newline-separated changed paths instead of the GitHub API")
-    app.add_argument("--pull-request", type=int)
+    app.add_argument("--files", type=Path, required=True, help="changed paths, NUL- or newline-separated")
     args = parser.parse_args(argv)
 
-    reason = "matched"
     try:
         globs = read_globs()
-        if args.files is not None:
-            changed: list[str] | None = [p for p in args.files.read_text(encoding="utf-8").splitlines() if p]
-        else:
-            changed = pull_request_files(
-                os.environ["GITHUB_REPOSITORY"], args.pull_request, os.environ["GITHUB_TOKEN"],
-                os.environ.get("GITHUB_API_URL", "https://api.github.com"),
-            )
-        if changed is None:
-            result, reason = True, "file list possibly truncated"
-        else:
-            result = applicable(changed, globs)
-            reason = f"{len(changed)} changed path(s)"
-    except (OSError, ValueError, KeyError, TypeError, urllib.error.URLError) as exc:
-        result, reason = True, f"scope undetermined ({exc}); running Task 10"
+        data = args.files.read_bytes().decode("utf-8")
+        # NUL-separated (git diff -z) keeps a newline inside a path intact.
+        changed = [p for p in data.split("\0" if "\0" in data else "\n") if p]
+        result = applicable(changed, globs)
+        reason = f"{len(changed)} changed path(s)"
+    except Exception as exc:  # noqa: BLE001 - any doubt means Task 10 applies
+        result, reason = True, f"scope undetermined ({type(exc).__name__}: {exc}); running Task 10"
     print(f"task10-scope: {reason}", file=sys.stderr)
     print(f"applicable={'true' if result else 'false'}")
     return 0
