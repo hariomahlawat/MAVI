@@ -122,7 +122,7 @@ A category or search is only a **discovery scope**. Every decision names one exa
 - **Durable capture.** An `attempt-start` event is fsynced before each attempt, and an `attempt-end` event after it. Bodies stream to `capture/bodies/attempt-NNNNNN.part` and become `.body` only when read completely. Selected response headers are recorded (`retry-after`, `date`, `content-type`, `content-length`, `age`, `server`, `x-cache*`, `location`, `x-ratelimit-*`, `ratelimit*`). Cookies and request headers other than those in the run configuration are never logged.
 - **Scopes.** The seven original scopes, P1–P5 then S1–S2, at 20 results each. S1–S2 run only if P1–P5 describe fewer than 40 unique files without error. The candidate cap of 60 unique files is enforced inside each scope: titles already described are not requested again, and only the remaining allowance is requested. Direct-category queries exclude subcategory members, so an empty result does not establish that a category contains no relevant footage.
 
-**Run directory.** Each run creates a new directory, `<run-root>/commons-discovery-retry-<UTC stamp>/`, and never reuses one:
+**Run directory.** Each run creates a new directory, `<run-root>/commons-discovery-retry-<UTC stamp>/` (or `commons-discovery-completion-<UTC stamp>/` for the completion pass), and never reuses one:
 
 ```
 config/run-config.json, run-config.sha256   written and fsynced before the first request
@@ -139,6 +139,20 @@ python tools/qualification/source_discovery_recorded_cli.py run      --run-root 
 python tools/qualification/source_discovery_recorded_cli.py finalize --run-dir <run dir>        # after a hard stop; local only
 python tools/qualification/source_discovery_recorded_cli.py bundle   --run-dir <run dir> --evidence-root <Evidence dir> --name <new name>
 python tools/qualification/source_discovery_recorded_cli.py verify-bundle --evidence-dir <Evidence dir>/<name> --name <name>
+```
+
+**P2 completion pass (predeclared; needs a fresh R-3 approval before any run).** `run-completion` runs exactly `P2_COMPLETION_SCOPES`, which is the P2 search `street India 2026` at the frozen offsets 0, 20, 40 and 60 with a page size of 20, under `P2_COMPLETION_LIMITS`:
+- at most 20 **new** unique files;
+- 30 actual attempts, against a worst case of 25 logical requests;
+- 5 s pacing and 15 s between pages;
+- 10/12-minute soft and hard deadlines.
+
+Before the first request, it verifies the prior run's bundle and writes that run's described file identities (page id, title, revision, SHA-1) into `priorRuns` in the configuration. Those files are never re-described and never consume the budget. `run-completion` accepts only the pinned prior bundle (`P2_COMPLETION_PRIOR`: the recorded retry, by bundle name and archive, manifest and configuration SHA-256). Any other bundle, even one that verifies, is refused before a run directory or any request exists. All pages come from one run, so the ranking is a single snapshot. A title that appears again on a later page is described once. Paging stops at the first page without a continuation, or when the new-file cap is reached. Category continuation and subcategories are not supported. The run directory is `commons-discovery-completion-<UTC stamp>`.
+
+**The prior run's automatic states are superseded.** The retry ran on the helper before the Ogg fix, so its discovery report marks 16 `.ogv` VIDEO files `REJECTED` (`not-continuous-video`). The completion pass excludes those files by identity and does not re-describe them. At review time, recompute their states locally from the retained metadata in the prior bundle with the current `admission.build_receipt`. Do not rely on the historical report's states. The historical bundle itself is never rewritten.
+
+```
+python tools/qualification/source_discovery_recorded_cli.py run-completion --run-root <Acquisition dir> --contact <url> --prior-evidence-dir <Evidence dir>/<prior name> --prior-name <prior name>
 ```
 
 `bundle` writes `MANIFEST.json` (path, bytes, SHA-256, role and modification time per file), a `.tar.gz` and its SHA-256 into a new directory, and re-verifies every member. `verify-bundle` repeats that check later. The run configuration, its hash, `run-status.json` and the bundle files are created atomically and never overwritten. The event logs are append-only, and the helper's own store records are written as the helper writes them.

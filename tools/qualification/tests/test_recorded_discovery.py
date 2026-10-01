@@ -806,3 +806,250 @@ def test_verify_bundle_rejects_duplicate_archive_members_and_manifest_paths(tmp_
     (two / "MANIFEST.json").write_bytes(json.dumps(manifest).encode())
     with pytest.raises(StoreError, match="duplicate manifest path"):
         rd.verify_bundle(two, "b-dup-manifest", require_checksum=False)
+
+
+# ---------------------------------------------------------------- P2 completion pass
+
+NEW = ["File:Lane C 2026.webm", "File:Lane D 2026.webm", "File:Lane E 2026.webm"]
+
+
+def _search_route(pages: dict[int, tuple[list[tuple[str, int]], bool]], seen: list[int]):
+    """Serve search pages by sroffset: {offset: ([(title, pageid)], has_continuation)}."""
+    def route(url):
+        params = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+        offset = int(params.get("sroffset", "0"))
+        seen.append(offset)
+        rows, more = pages[offset]
+        body = {"query": {"searchinfo": {"totalhits": 90}, "search": [{"title": t, "pageid": p} for t, p in rows]}}
+        if more:
+            body["continue"] = {"sroffset": offset + 20, "continue": "-||"}
+        return 200, {}, io.BytesIO(json.dumps(body).encode())
+    return route
+
+
+def _prior_bundle(tmp_path: Path) -> tuple[Path, str]:
+    clock = Clock()
+    run_dir, _ = run(tmp_path / "prior", Net(clock=clock), clock, scopes=SCOPES[:1])
+    evidence = tmp_path / "evidence"
+    evidence.mkdir(exist_ok=True)
+    return rd.bundle(run_dir, evidence, "prior-run"), "prior-run"
+
+
+def _completion(tmp_path: Path, net: Net, clock: Clock, prior: dict, **limits):
+    root = tmp_path / "completion-root"
+    root.mkdir(parents=True, exist_ok=True)
+    return rd.run_discovery(root, CONTACT, stamp=STAMP, scopes=rd.P2_COMPLETION_SCOPES,
+                            limits={**rd.P2_COMPLETION_LIMITS, **limits}, fetch=net, sleep=clock.sleep,
+                            monotonic=clock.monotonic, utc=lambda: UTC, hard_deadline=False,
+                            pass_id=rd.P2_COMPLETION_PASS_ID, prior_runs=[prior], run_prefix="commons-discovery-completion")
+
+
+def test_the_p2_completion_pass_is_predeclared_exactly():
+    assert [(s["id"], s["kind"], s["query"], s["pool"], s["offset"]) for s in rd.P2_COMPLETION_SCOPES] == [
+        ("P2-o0", "search", "street India 2026", "primary", 0), ("P2-o20", "search", "street India 2026", "primary", 20),
+        ("P2-o40", "search", "street India 2026", "primary", 40), ("P2-o60", "search", "street India 2026", "primary", 60)]
+    limits = rd.P2_COMPLETION_LIMITS
+    worst_case_logical = 1 + len(rd.P2_COMPLETION_SCOPES) + limits["candidateCap"]  # preflight + pages + new metadata
+    assert (worst_case_logical, limits["attemptBudget"], limits["scopeLimit"], limits["candidateCap"]) == (25, 30, 20, 20)
+    assert limits["softDeadlineSeconds"] < limits["hardDeadlineSeconds"]
+    assert limits == {"scopeLimit": 20, "secondaryOnlyIfPrimaryDescribedBelow": 1, "candidateCap": 20, "attemptBudget": 30,
+                      "minIntervalSeconds": 5, "scopeGapSeconds": 15, "softDeadlineSeconds": 600, "hardDeadlineSeconds": 720,
+                      "attemptReadSeconds": 120, "bodyLimitBytes": 16 * 1024 * 1024}
+    assert rd.P2_COMPLETION_PRIOR == {
+        "bundleName": "2026-10-01-source-pilot-retry-20261001T161421Z",
+        "archiveSha256": "710486a2300ce1282acc447e422f423379fa354727d271c1dca84ef7d8b24ccc",
+        "manifestSha256": "dd9a6e41cdc406fa4ae73d8ca977305c443ec07cb405e7c6484607a3aeb8f11f",
+        "configSha256": "e6a4820bd7a09b1a19bf2b5a8370d7ca5c078b6a60eac65f5bd24400b403a7e6"}
+
+
+def test_scope_validation_freezes_offsets_and_page_order():
+    page = {"id": "P", "kind": "search", "query": "q", "pool": "primary"}
+    for scopes in ([dict(page, offset=10)],                                              # not a page boundary
+                   [dict(page, id="a", offset=20), dict(page, id="b", offset=0)],        # descending pages
+                   [dict(page, kind="category", query="Category:X", offset=0)],          # no offsets on categories
+                   [dict(page, offset=True)], [dict(page, extra=1)], [page, dict(page)],   # bool, unknown key, duplicate id
+                   [dict(page, offset=False)],                                            # False is not offset 0
+                   [dict(page, id="a", offset=20), dict(page, id="b", offset=20)],        # the same page twice
+                   [dict(page, id="a"), dict(page, id="b", offset=0)],                    # no offset is page 1
+                   [dict(page, id="a"), dict(page, id="a", query="other")]):               # duplicate id, distinct pages
+        with pytest.raises(StoreError):
+            rd.build_config(CONTACT, scopes, rd.P2_COMPLETION_LIMITS)
+
+
+def test_completion_pages_use_frozen_offsets_and_stop_when_the_search_is_exhausted(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    pages = {0: ([(TITLES[0], 100), (TITLES[1], 101), (NEW[0], 300)], True), 20: ([(NEW[1], 301)], False)}
+    net = Net(titles=TITLES + NEW, clock=clock, list_route=_search_route(pages, seen))
+    run_dir, status = _completion(tmp_path, net, clock, prior)
+    list_urls = [u for u in net.calls if "list=search" in u]
+    assert seen == [0, 20] and "sroffset" not in list_urls[0] and list_urls[1].endswith("&sroffset=20")
+    scopes = scope_records(run_dir)
+    assert scopes["P2-o0"]["priorRunTitles"] == TITLES and scopes["P2-o0"]["requestedTitles"] == [NEW[0]]
+    assert scopes["P2-o20"]["serverContinuation"] is None and scopes["P2-o40"]["status"] == "NOT_NEEDED"
+    assert scopes["P2-o60"]["status"] == "NOT_NEEDED" and status["status"] == "COMPLETE"
+    assert not any(t.replace(" ", "+") in u for t in TITLES for u in net.calls if "titles=" in u)  # prior files never re-described
+    assert status["describedWithoutError"] == 2
+    config = json.loads((run_dir / "config" / "run-config.json").read_bytes())
+    assert config["passId"] == rd.P2_COMPLETION_PASS_ID and config["priorRuns"][0]["archiveSha256"] == prior["archiveSha256"]
+    assert [i["title"] for i in config["priorRuns"][0]["describedIdentities"]] == TITLES
+
+
+def test_a_renamed_prior_file_is_excluded_by_page_id_and_drift_duplicates_count_once(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    renamed = "File:Crossing A renamed 2026.webm"  # same page id 100 as a prior file
+    pages = {0: ([(renamed, 100), (NEW[0], 300)], True), 20: ([(NEW[0], 300), (NEW[1], 301)], True),
+             40: ([(NEW[2], 302)], False)}
+    net = Net(titles=TITLES + NEW + [renamed], clock=clock, list_route=_search_route(pages, seen))
+    run_dir, status = _completion(tmp_path, net, clock, prior)
+    scopes = scope_records(run_dir)
+    assert scopes["P2-o0"]["priorRunTitles"] == [renamed] and scopes["P2-o0"]["requestedTitles"] == [NEW[0]]
+    assert scopes["P2-o0"]["priorRunMatches"] == [{"title": renamed, "byTitle": False, "byPageId": True}]
+    assert scopes["P2-o20"]["alreadyDescribedTitles"] == [NEW[0]] and scopes["P2-o20"]["requestedTitles"] == [NEW[1]]
+    assert status["describedWithoutError"] == 3 and len([u for u in net.calls if "titles=" in u]) == 3
+
+
+def test_the_new_candidate_cap_stops_paging(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    pages = {0: ([(NEW[0], 300), (NEW[1], 301), (NEW[2], 302)], True), 20: ([("File:Never 2026.webm", 400)], True)}
+    net = Net(titles=NEW + ["File:Never 2026.webm"], clock=clock, list_route=_search_route(pages, seen))
+    run_dir, status = _completion(tmp_path, net, clock, prior, candidateCap=2)
+    scopes = scope_records(run_dir)
+    assert seen == [0] and scopes["P2-o0"]["overCandidateCapTitles"] == [NEW[2]]
+    assert {scopes[s]["reason"] for s in ("P2-o20", "P2-o40", "P2-o60")} == {"candidate-cap"} and status["describedWithoutError"] == 2
+
+
+def test_a_tampered_prior_bundle_is_refused_before_any_request(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    (destination / f"{name}.tar.gz.sha256").write_text("0" * 64 + f"  {name}.tar.gz\n", encoding="ascii")
+    with pytest.raises(StoreError):
+        rd.prior_run_identities(destination, name)
+    root = tmp_path / "cli-root"
+    root.mkdir()
+    clock = Clock()
+    net = Net(clock=clock)
+    code = rd.main(["run-completion", "--run-root", str(root), "--contact", CONTACT,
+                    "--prior-evidence-dir", str(destination), "--prior-name", name],
+                   fetch=net, sleep=clock.sleep, monotonic=clock.monotonic, hard_deadline=False)
+    assert code == 2 and list(root.iterdir()) == [] and net.calls == []  # refused before a run directory or any request
+
+
+def test_a_prior_title_without_a_page_id_is_still_excluded(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    pages = {0: ([(TITLES[0], None), (NEW[0], 300)], False)}
+    net = Net(titles=TITLES + NEW, clock=clock, list_route=_search_route(pages, seen))
+    run_dir, status = _completion(tmp_path, net, clock, prior)
+    assert scope_records(run_dir)["P2-o0"]["priorRunTitles"] == [TITLES[0]]
+    assert scope_records(run_dir)["P2-o0"]["priorRunMatches"] == [{"title": TITLES[0], "byTitle": True, "byPageId": False}]
+    assert len([u for u in net.calls if "titles=" in u]) == 1 and status["describedWithoutError"] == 1
+
+
+def _cli_completion(tmp_path: Path, destination: Path, name: str, net: Net, clock: Clock, pinned: dict) -> tuple[int, Path]:
+    root = tmp_path / "cli-run-root"
+    root.mkdir(exist_ok=True)
+    code = rd.main(["run-completion", "--run-root", str(root), "--contact", CONTACT,
+                    "--prior-evidence-dir", str(destination), "--prior-name", name],
+                   fetch=net, sleep=clock.sleep, monotonic=clock.monotonic, hard_deadline=False, pinned_prior=pinned)
+    return code, root
+
+
+def test_the_run_completion_command_runs_exactly_the_predeclared_pass(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    pinned = {k: prior[k] for k in ("bundleName", "archiveSha256", "manifestSha256", "configSha256")}
+    clock, seen = Clock(), []
+    net = Net(titles=TITLES + NEW, clock=clock, list_route=_search_route({0: ([(NEW[0], 300)], False)}, seen))
+    code, root = _cli_completion(tmp_path, destination, name, net, clock, pinned)
+    run_dir = next(root.iterdir())
+    config = json.loads((run_dir / "config" / "run-config.json").read_bytes())
+    assert code == 0 and run_dir.name.startswith("commons-discovery-completion-")
+    assert config["limits"] == rd.P2_COMPLETION_LIMITS and config["scopes"] == [dict(s) for s in rd.P2_COMPLETION_SCOPES]
+    assert config["passId"] == rd.P2_COMPLETION_PASS_ID and config["priorRuns"] == [prior]
+    assert prior["manifestSha256"] == hashlib.sha256((destination / "MANIFEST.json").read_bytes()).hexdigest()
+    assert prior["configSha256"] == hashlib.sha256((tmp_path / "prior" / "acquisition" / f"commons-discovery-retry-{STAMP}"
+                                                    / "config" / "run-config.json").read_bytes()).hexdigest()
+
+
+def test_run_completion_refuses_any_prior_bundle_but_the_pinned_one_before_any_request(tmp_path):
+    destination, name = _prior_bundle(tmp_path)  # verifies, but is not the pinned retry bundle
+    clock = Clock()
+    net = Net(clock=clock)
+    code, root = _cli_completion(tmp_path, destination, name, net, clock, rd.P2_COMPLETION_PRIOR)
+    assert code == 2 and list(root.iterdir()) == [] and net.calls == []
+
+
+def test_prior_files_never_reduce_the_new_file_allowance(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    pages = {0: ([(TITLES[0], 100), (TITLES[1], 101), (NEW[0], 300), (NEW[1], 301)], True), 20: ([(NEW[2], 302)], False)}
+    net = Net(titles=TITLES + NEW, clock=clock, list_route=_search_route(pages, seen))
+    run_dir, _status = _completion(tmp_path, net, clock, prior, candidateCap=2)
+    p0 = scope_records(run_dir)["P2-o0"]
+    assert p0["requestedTitles"] == [NEW[0], NEW[1]] and p0["overCandidateCapTitles"] == []
+    assert p0["priorRunMatches"] == [{"title": TITLES[0], "byTitle": True, "byPageId": True},
+                                     {"title": TITLES[1], "byTitle": True, "byPageId": True}]
+
+
+def test_an_empty_continuation_ends_paging_and_is_recorded_consistently(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock = Clock()
+
+    def route(url):
+        return ok({"query": {"searchinfo": {"totalhits": 1}, "search": [{"title": NEW[0], "pageid": 300}]}, "continue": {}})
+
+    run_dir, _status = _completion(tmp_path, Net(titles=NEW, clock=clock, list_route=route), clock, prior)
+    scopes = scope_records(run_dir)
+    assert scopes["P2-o0"]["listContinues"] is False and scopes["P2-o0"]["serverContinuation"] is None
+    assert scopes["P2-o20"]["status"] == "NOT_NEEDED"
+
+
+def test_a_prior_bundle_without_described_files_is_refused(tmp_path):
+    clock = Clock()
+    empty = Net(clock=clock, list_route=lambda url: ok({"query": {"search": []}}))
+    run_dir, _ = run(tmp_path / "prior", empty, clock, scopes=SCOPES[:1])
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    destination = rd.bundle(run_dir, evidence, "empty-prior")
+    with pytest.raises(StoreError, match="no described files"):
+        rd.prior_run_identities(destination, "empty-prior")
+
+
+def test_an_unknown_run_prefix_is_refused_before_any_directory_exists(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    with pytest.raises(StoreError):
+        clock = Clock()
+        rd.run_discovery(root, CONTACT, stamp=STAMP, fetch=Net(clock=clock), sleep=clock.sleep, monotonic=clock.monotonic,
+                         hard_deadline=False, run_prefix="commons-crawl")
+    assert list(root.iterdir()) == []
+
+
+def test_the_pin_checks_every_key_on_its_own():
+    real = dict(rd.P2_COMPLETION_PRIOR)
+    rd.check_pinned_prior(dict(real, describedIdentities=[]), rd.P2_COMPLETION_PRIOR)
+    for key in ("bundleName", "archiveSha256", "manifestSha256", "configSha256"):
+        with pytest.raises(StoreError, match=key):
+            rd.check_pinned_prior(dict(real, **{key: "different"}), rd.P2_COMPLETION_PRIOR)
+
+
+def test_prior_identities_come_only_from_a_member_verified_archive(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+
+    def add_extra(ms):
+        return ms + [(tarfile.TarInfo(f"{name}/store/evidence/{'f' * 64}.json"), json.dumps(metadata(NEW[0], 300)).encode())]
+
+    _rewrite_archive(destination, name, add_extra)
+    archive = destination / f"{name}.tar.gz"
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    (destination / f"{name}.tar.gz.sha256").write_text(f"{digest}  {archive.name}\n", encoding="ascii")  # checksum now agrees
+    with pytest.raises(StoreError, match="member set"):
+        rd.prior_run_identities(destination, name)  # the unlisted member is refused, never read as an identity
