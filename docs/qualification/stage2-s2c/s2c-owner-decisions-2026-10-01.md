@@ -237,3 +237,45 @@ This is a proposal for R-3 Hari Om to approve or change. It is not authorized by
   4. Build a `MANIFEST.json` (path, size, SHA-256, role, modification time), a `.tar.gz` and its SHA-256. Copy the bundle into a new `E:\MAVI-Controlled\Evidence\S2c\<date>-source-pilot-retry\` and re-verify it there.
   5. The ordered raw list responses, per-attempt timings and 429 headers are still not retained, because the helper does not record them. Either accept and record that limitation, or first make a separately reviewed, tested helper change that retains them. That change is outside this documentation-only record and is not implemented.
 - **After the run.** Hari Om, as the named footage reviewers, completes the decisions template only for files actually reviewed, recording per-file rights evidence (with R-5's determination first for share-alike files; §1) and a privacy basis. Admission, the media-placement method (§3) and any `acquire` are separate, later authorizations.
+
+## 7. Amendment: acquisition layout A (owner decision, 2026-10-01, prospective)
+
+After this record was merged (PR #132, `main@a0d235456e255b8a8fef8d90bd5c45245993cc23`), the owner selected layout A for acquired media. It applies from that decision onward. §3 above stays as recorded, and this section amends it prospectively.
+
+| Purpose | Path or rule from this amendment |
+|---|---|
+| Persistent acquisition store (the helper's `--store` for `acquire` and `verify`) | `E:\MAVI-Controlled\SourceMedia\S2c\2026-01\commons-store` |
+| What that store holds | the helper's `media/commons/…` (admitted originals), `receipts/`, the `evidence/` metadata responses that `acquire` re-fetches, and `source-acquisition-summary.json` |
+| Acquisition directory (`E:\MAVI-Controlled\Acquisition\S2c\2026-01`) | discovery records (one run directory per discovery run, each its own store root), reviewed decisions files, and run evidence |
+
+**Why this works with the helper as it is.**
+- `acquire` keeps every media path inside its store root, so admitted originals land in the SourceMedia location with no link and no move.
+- A decisions file only names exact file revisions, so it can come from a discovery store other than the acquisition store.
+- No helper change is needed.
+
+**What this changes in §3.** The "Acquisition receipts" row of the §3 table no longer applies to receipts: from this amendment, receipts live with the media they bind, in the SourceMedia store.
+
+**What it does not do.** This amendment authorizes no `acquire` run, and it admits nothing. Every file still needs its own per-file rights review (with R-5's determination first for share-alike files; §1) and its own privacy review before admission.
+
+**Still unresolved:**
+- `freshnessReferenceDate` (§6.1);
+- public-source eligibility (§6.2);
+- the independent reviews listed in §2. Owner approval does not replace them.
+
+**Retry tooling.** The recorded-discovery wrapper (`tools/qualification/source_acquisition/recorded_discovery.py`) records the actual User-Agent in its controlled run configuration. The owner approved its contact as the public repository URL, `https://github.com/hariomahlawat/MAVI`. The wrapper keeps the seven original scopes, P1–P5 then S1–S2, at 20 results each (§6.3). Direct-category queries exclude subcategory members, so an empty category result does not establish that the category contains no relevant footage. No retry has been run.
+
+**Where the wrapper departs from the §6.3 proposal.** §6.3 stays as recorded. The wrapper implements stricter, enforceable limits; the owner instructed this implementation, but the limits are not adopted by any run until R-3 approves a predeclaration:
+
+| §6.3 proposal | Wrapper (fixed in code and recorded in each run configuration) |
+|---|---|
+| a candidate limit of 60 | 60 **unique** files, enforced inside each scope; titles already described are not requested again |
+| at least 5 min between scopes | 60 s between scopes, plus at least 5 s between any two attempt starts |
+| at most 147 logical requests; no attempt budget | at most 148 logical requests (a preflight, then at most 21 per scope); a hard budget of 160 **actual** attempts, counting every redirect hop and retry |
+| a 2-hour limit checked between scopes; no outer kill timer | a 40-minute soft deadline, checked before every attempt, read chunk and wait; a 45-minute hard deadline that records an event and ends the process |
+| stop after a nonzero exit or per-file error | a global latch on any refusal, non-success status, API error, metadata response the helper would reject, network or capture failure, budget, deadline or interruption: no further network attempt starts |
+| raw list responses not retained | every response body is retained (complete as `.body`, partial as `.part`), with fsynced attempt start and end records and selected rate-limit headers |
+| a manifest with path, size, SHA-256, role and modification time | the same fields, in a bundle verified on creation and again by `verify-bundle` |
+
+**Hard-kill trade-off.** §6.3 advised against an outer kill timer because the first pilot's kill lost P2's report. The wrapper's hard deadline is a last resort, 5 minutes after the soft deadline. It loses only the in-flight scope's discovery report. Attempt records, response bodies and per-item evidence are already on disk, and `finalize` reconstructs the run status from them.
+
+**Stale statements in §6.3.** §6.3's notes that "none of the scripts or helper changes it mentions exist" and that the raw list responses "are still not retained" are superseded by this wrapper. The `siteinfo` preflight is now built into the wrapper instead of being a separate script.
