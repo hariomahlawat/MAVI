@@ -38,16 +38,25 @@ Owner assignments supplied on 2026-09-30 are recorded below. All R-1…R-7 roles
 
 The ledger's `classificationHistory` needs a named `recordedBy` and a different named `reviewedBy` for every entry (`tools/qualification/model_selection/credibility.py`, `history_reviewer_not_independent`). R-1 Aarav and R-2 Hari Om satisfy the identity/independence prerequisite. Their assignment does **not** itself create a classification-history action: the working ledgers still need actual dated evidence items and explicit recorder/reviewer actions (§8).
 
-### 2.1 Reassignment from 2026-10-01 (prospective)
+### 2.1 Reassignment by the owner's decision of 2026-10-01 (prospective)
 
-The table above is the historical record of the 2026-09-30 assignments. Actions taken under it stay attributed as recorded. On 2026-10-01 the owner changed two roles and made two new appointments; the record is `s2c-owner-decisions-2026-10-01.md` §1:
-- R-1 is **Hari Om** from 2026-10-01 (Aarav until 2026-09-30).
-- R-3 is **Hari Om** from 2026-10-01 (Aarav until 2026-09-30).
-- Hari Om is appointed **footage rights reviewer** and **footage privacy reviewer**. These appointments are not a blanket permission or admission: per-file determinations are still required.
+The table above is the historical record of the 2026-09-30 assignments. Actions taken under it stay attributed as recorded.
+
+On 2026-10-01 the owner changed two roles and made two new appointments; the record is `s2c-owner-decisions-2026-10-01.md` §1. The changes take effect **from that decision**. It was made after the 2026-10-01 pilot run and after the pilot archive was placed on the Development host (13:33:03.718Z). Its exact time is not recorded; it was first recorded at 13:54:38Z. The pilot run therefore falls under the earlier assignments.
+- R-1 is **Hari Om** from the decision. It was Aarav before it, including during the pilot run.
+- R-3 is **Hari Om** from the decision. It was Aarav before it, including during the pilot run.
+- Hari Om is appointed **footage rights reviewer** and **footage privacy reviewer**. These appointments are not a blanket permission or admission: per-file determinations are still required, and share-alike or other licence-interpretation questions go to R-5 first.
 
 R-2, R-4, R-5, R-6, R-7 and every R-5 model-licence determination (§4.3.8) are unchanged.
 
-**Independence.** R-2 "cannot be R-1", and from 2026-10-01 Hari Om holds both. R-2 and R-7 are therefore conflicted for freeze, protocol and closure review, for recipe review, for review of new ledger history or shortlist decisions that Hari Om records or decides, and for review of the custodian's seal and access log. The owner must assign a separate independent reviewer before any of those actions. No reviewer is named here. Hari Om's R-2 review of 2026-09-30 (§4.3.6) remains valid. See `s2c-owner-decisions-2026-10-01.md` §2.
+**Independence.** R-2 "cannot be R-1", and from the decision Hari Om holds both. The conflicts are:
+- **recipe review:** unconditional while Hari Om holds R-1 and R-7;
+- **review of the custodian's seal and access log:** an inference from the freeze binding the seal;
+- **review of new ledger history or shortlist decisions** that Hari Om records or decides;
+- **freeze and protocol review;**
+- **closure review.**
+
+The owner must assign a separate independent reviewer before any of those actions. No reviewer is named here. Hari Om's R-2 review of 2026-09-30 (§4.3.6) remains valid. See `s2c-owner-decisions-2026-10-01.md` §2.
 
 ## 3. Owner-input checklist (plan §19)
 
@@ -55,7 +64,7 @@ Each item is **MISSING** unless an evidence reference is entered here. `Blocks f
 
 | Id | Input (plan §19 item) | Blocks from | Status | Notes |
 |---|---|---|---|---|
-| OI-1 | Named roles R-1…R-7 | A; independent review from B (recipe) and D (freeze) | **COMPLETE** for Slice A (2026-09-30); **PARTIAL** from 2026-10-01 | 2026-09-30: R-1 Aarav; R-2 Hari Om; R-3 Aarav; R-4 Aarav + Savita (independent); R-5 Aarav; R-6 Aarav; R-7 Hari Om (§2). From 2026-10-01: R-1 and R-3 Hari Om, and an independent reviewer separate from Hari Om is MISSING for the actions listed in §2.1 |
+| OI-1 | Named roles R-1…R-7 | A; independent review from B (recipe, seal), C2 (new ledger history/shortlist), D (freeze, protocol) and J (closure) | **COMPLETE** for Slice A (2026-09-30); **PARTIAL** from the owner's decision of 2026-10-01 | 2026-09-30: R-1 Aarav; R-2 Hari Om; R-3 Aarav; R-4 Aarav + Savita (independent); R-5 Aarav; R-6 Aarav; R-7 Hari Om (§2). From the decision (§2.1): R-1 and R-3 Hari Om, and an independent reviewer separate from Hari Om is MISSING for the actions listed in §2.1 |
 | OI-2 | Authorized real footage; retention/access arrangements; site/camera/day/night coverage; stable raw-evidence pin; annotation time; independently reviewable custody store | B | MISSING | footage availability is not assumed |
 | OI-3 | Pilot-rule confirmation; task/vocabulary/headwear decision; required attribute scope per capability; lawful fallback policy | A (scope/fallback, §6), B (pilot) | PARTIAL | owner fixed first-event scope and fallback direction (§3.1, §6); pilot/vocabulary confirmation remains for Slice B |
 | OI-4 | Candidate evaluation budget; source/acquisition access (including gated terms); evaluation/fitting permissions; which committed proposals are pursued; exact checkpoint variant per family | A (scope/access/permissions), C2 (evaluation budget) | PARTIAL | the A-stage portion is complete: owner fixed the initial families and conditional acquisition authority (§3.1); variants are resolved (§4.3.2); R-5 determinations are recorded (§4.3.8); the controlled store is designated and every permitted first-pass artefact is acquired/verified (§4.3.11). Awiros, MobileNetV3-Small and VTFPAR++ stay REVIEW_PENDING; DINOv3 is NOT_PERMITTED_FOR_EVALUATION and gated access is NOT APPROVED. Candidate evaluation budget remains explicitly unspecified for C2; no password/token/model byte is stored in Git |
@@ -441,9 +450,9 @@ Public-source sufficiency is UNRESOLVED. The available evidence is exported to a
 **Later on 2026-10-01** (`s2c-owner-decisions-2026-10-01.md`):
 - Local custody of the bundle on the Development host is recorded and re-verified: archive SHA-256 `82fe15b7…0331`, manifest `60e4edc8…d599`, all 24 payload files matching.
 - The controlled directories are designated.
-- R-1/R-3 are reassigned prospectively (§2.1).
+- R-1/R-3 are reassigned prospectively, from the owner's decision made after the run (§2.1).
 
-The run itself is not re-attributed, and R-3's confirmation of it stays pending.
+The run itself is not re-attributed. R-3's confirmation of it stays pending; if given, it is a later ratification, not a delegation.
 
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 

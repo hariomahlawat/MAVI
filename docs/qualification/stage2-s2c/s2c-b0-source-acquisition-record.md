@@ -236,8 +236,8 @@ The mutation results are in the PR.
 | Decision on commissioned India capture if the result is "public sources insufficient" | Owner |
 
 **Update 2026-10-01** (`s2c-owner-decisions-2026-10-01.md`):
-- The controlled store for source media and acquisition records is designated (§3 of that record).
-- Hari Om is named footage rights reviewer and footage privacy reviewer. Per-file reviews are still required.
+- The controlled locations for source media and acquisition records are designated (§3 of that record). How acquired media reaches the source-media location, given the helper's single store root, must be decided before any `acquire`.
+- Hari Om is named footage rights reviewer and footage privacy reviewer. Per-file reviews are still required, and share-alike or other licence-interpretation questions go to R-5 first.
 - `freshnessReferenceDate`, acceptance of the §1 interpretation, the operator contact and the commissioned-capture decision remain open. Proposals for the first two are in §6 of that record.
 
 ## 11. Dependencies
