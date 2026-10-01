@@ -3534,10 +3534,11 @@ def _trigger_globs(workflow: str, event: str) -> list[str]:
 
 
 def _glob(pattern: str, path: str) -> bool:
-    """GitHub path-filter semantics: ``**`` crosses ``/``; ``*`` does not."""
+    """GitHub path-filter semantics: ``**`` crosses ``/`` and ``**/`` also
+    matches zero directories; ``*`` does not cross ``/``."""
     regex = "".join(
-        ".*" if token == "**" else "[^/]*" if token == "*" else re.escape(token)
-        for token in re.split(r"(\*\*|\*)", pattern)
+        "(?:.*/)?" if token == "**/" else ".*" if token == "**" else "[^/]*" if token == "*" else re.escape(token)
+        for token in re.split(r"(\*\*/|\*\*|\*)", pattern)
     )
     return re.fullmatch(regex, path) is not None
 

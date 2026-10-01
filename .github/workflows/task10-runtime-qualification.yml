@@ -148,7 +148,11 @@ jobs:
     timeout-minutes: 60
     env:
       MMCV_WITH_OPS: '1'
-      MAX_JOBS: '2'
+      # Compile parallelism only (4-vCPU runners); not correctness-bearing
+      # (tools/vision/verify_windows_cuda_toolchain.py) and deliberately not part of
+      # the MMCV reuse identity. Byte reproducibility of the MMCV wheel is Task 12's
+      # contract, which keeps its own MAX_JOBS=1.
+      MAX_JOBS: '4'
       # The MMCV build inputs that enter the reuse identity (tools/vision/mmcv_wheel_cache.py).
       # The build step below runs exactly MMCV_BUILD_COMMAND (a test holds them equal).
       MMCV_SOURCE_COMMIT: 57c4e25e06e2d4f8a9357c84bcd24089a284dc88

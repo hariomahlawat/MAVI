@@ -212,7 +212,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2]
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -232,22 +232,26 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
+      # Test-level sharding (as in Qualification Tooling Windows): the suite's
+      # cost sits in a few files, so whole files cannot balance. Every collected
+      # test runs in exactly one shard (collection order, index modulo shard
+      # count); a collection error, an empty collection or an empty shard fails.
       - name: Test qualification shard
         shell: bash
         env:
           SHARD_INDEX: ${{ matrix.shard }}
-          SHARD_COUNT: '3'
+          SHARD_COUNT: '4'
         run: |
           set -euo pipefail
-          mapfile -t files < <(find tools/qualification/tests -maxdepth 1 -type f -name 'test_*.py' | sort)
-          selected=()
-          for i in "${!files[@]}"; do
-            if (( i % SHARD_COUNT == SHARD_INDEX )); then
-              selected+=("${files[$i]}")
-            fi
-          done
-          test "${#selected[@]}" -gt 0
-          python -m pytest -q -rs "${selected[@]}"
+          python -m pytest --collect-only -q -p no:cacheprovider tools/qualification/tests > collected.txt
+          grep '::' collected.txt > all-tests.txt
+          total="$(wc -l < all-tests.txt)"
+          test "$total" -gt 0
+          awk -v n="$SHARD_COUNT" -v i="$SHARD_INDEX" '(NR - 1) % n == i' all-tests.txt > shard-tests.txt
+          selected="$(wc -l < shard-tests.txt)"
+          test "$selected" -gt 0
+          echo "shard $SHARD_INDEX/$SHARD_COUNT runs $selected of $total collected tests"
+          python -m pytest -q -rs -p no:cacheprovider @shard-tests.txt
 
   web-host:
     name: web and production host
