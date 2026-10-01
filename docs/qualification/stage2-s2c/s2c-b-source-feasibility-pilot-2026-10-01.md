@@ -60,7 +60,7 @@ Every discovered item is therefore at most `DISCOVERED` or pending. **No rights 
 | Id | Scope | Result | Discovery report SHA-256 |
 |---|---|---|---|
 | P1 | search `traffic India 2026` | 3 video files | `3d40f18508266c2fa85639bf98566205f2ebaefea2682b84b51d041d44301ef5` |
-| P2 | search `street India 2026` | 12 files' metadata retained; the run hit the operator's 900 s wall-clock limit during rate-limit back-off, before its report was written | — (per-file evidence in §4) |
+| P2 | search `street India 2026` | 12 files' metadata retained; the run hit the operator's 900 s wall-clock limit before its report was written (the console log shows only `Terminated`, `exit=124`; the session observed HTTP 429 back-off, which the helper does not log) | — (per-file evidence in §4) |
 | P3 | search `pedestrians market India` | HTTP 429; the helper failed closed after its 30 s and 60 s back-offs | — |
 | P4 | category `Category:Videos of streets in India` | 0 video-file titles. The query (`list=categorymembers`, `cmtype=file`) lists only files *directly* in the category, at most 20, and the helper keeps only video-file titles. It is unverified whether the category's videos sit in subcategories or whether its first 20 direct files are non-video, because the helper does not retain the raw list response. | `83be97152d4d033344c6100af64f5b7e3004a39f408fb7c74f92748ad7fb569a` |
 | P5 | category `Category:Videos of road traffic in India` | HTTP 429; failed closed | — |
@@ -91,7 +91,7 @@ It also records each scope's completion status and the evidence already lost.
 | Scope | Status | Items described | Discovery report |
 |---|---|---|---|
 | P1 | complete | 3 | `3d40f185…01ef5` |
-| P2 | **partial**: terminated by the operator's 900 s wall-clock limit during HTTP 429 back-off | 12. The scope is attributed by file modification time, because the helper does not record scope per evidence file. | none written |
+| P2 | **partial**: terminated by the operator's 900 s wall-clock limit (the retained log shows only `Terminated`, `exit=124`; HTTP 429 back-off was observed in the session but not logged) | 12. The scope is attributed by file modification time, because the helper does not record scope per evidence file. | none written |
 | P3 | not completed: HTTP 429 on the search request | 0 | none |
 | P4 | complete: 0 video-file titles among direct file members | 0 | `83be9715…b569a` |
 | P5 | not completed: HTTP 429 | 0 | none |
@@ -104,12 +104,12 @@ It also records each scope's completion status and the evidence already lost.
 - P2's discovery report and decisions template, which were never written;
 - exact per-scope start and end times for P2–P5, of which only file and log modification times remain;
 - full HTTP 429 headers and bodies, because the helper reports only "HTTP 429" and the probe log keeps the first 200 bytes of each body;
-- the helper's internal back-off timings, which are not logged.
+- the helper's internal back-off timings, which are not logged;
 - the original P1 console output, which was not written to a file. `logs/discovery-p1-console.txt` is a transcription from the session transcript, not the original capture.
 
-**Integrity re-verification (2026-10-01).** The archive delivered to the owner (session download `7eefcd11-7a1e-44f8-8081-9c1f2090b5d8`) was re-checked in the session after delivery:
+**Integrity re-verification (2026-10-01).** The archive delivered to the owner (session download `7eefcd11-7a1e-44f8-8081-9c1f2090b5d8`) was re-checked in the session after delivery. The download ID, the delivery time and the build-time hash output are session observations, not bundle evidence:
 - It is the same file that was delivered: 21,782 bytes, unchanged since it was built at 12:32:54 UTC, eight seconds before delivery. It was not rebuilt.
-- Its SHA-256 is the full 64-hexadecimal digest above, which matches the value printed when it was built.
+- Its SHA-256 is the full 64-hex-digit digest above, which matches the value printed when it was built.
 - A fresh extraction contains 24 payload files plus `MANIFEST.json`. Every file the manifest lists exists and matches its recorded size and SHA-256, and every payload file is listed.
 - The manifest's own SHA-256 matches the value above.
 - All 15 evidence-file references in the scopes resolve to files in the bundle.
