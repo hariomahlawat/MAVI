@@ -40,9 +40,17 @@ def test_overrides_that_keep_the_owner_pass() -> None:
         ("* @hariomahlawat\n/docs/ @someone\n", "replaces the owners without @hariomahlawat"),
         ("* @hariomahlawat\n/docs/\n", "has no owners"),
         ("* @someone\n", "replaces the owners without @hariomahlawat"),
-        ("/src/ @hariomahlawat\n* @hariomahlawat\n", "first rule must be the '*' default"),
+        ("/src/ @hariomahlawat\n* @hariomahlawat\n", "first rule must be exactly '* @hariomahlawat'"),
         ("# only comments\n\n", "has no rules"),
         ("* @hariomahlawat-other\n", "replaces the owners without @hariomahlawat"),
+        # He appears only inside a comment, after a space or a tab.
+        ("* @hariomahlawat\n/docs/ @someone # was @hariomahlawat\n", "replaces the owners without @hariomahlawat"),
+        ("* @hariomahlawat\n/docs/ @someone\t# was @hariomahlawat\n", "replaces the owners without @hariomahlawat"),
+        ("* @hariomahlawat\n/docs/ @someone #@hariomahlawat\n", "replaces the owners without @hariomahlawat"),
+        # An escaped space keeps his handle inside the pattern.
+        ("* @hariomahlawat\ndocs/x\\ @hariomahlawat @someone\n", "replaces the owners without @hariomahlawat"),
+        # The default rule is owned by exactly him.
+        ("* @hariomahlawat @nonexistent\n", "first rule must be exactly '* @hariomahlawat'"),
     ],
 )
 def test_a_rule_that_drops_the_owner_is_refused(text: str, fragment: str) -> None:
@@ -54,3 +62,38 @@ def test_a_missing_file_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     errors: list[str] = []
     verifier.check_code_owners(errors)
     assert errors == ["Missing .github/CODEOWNERS"]
+
+
+def test_an_ignored_second_code_owners_file_or_an_oversized_file_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(verifier, "ROOT", tmp_path)
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "CODEOWNERS").write_text("* @hariomahlawat\n", encoding="utf-8")
+    errors: list[str] = []
+    verifier.check_code_owners(errors)
+    assert errors == []
+    for ignored in ("CODEOWNERS", "docs/CODEOWNERS"):
+        target = tmp_path / ignored
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("* @someone\n", encoding="utf-8")
+        errors = []
+        verifier.check_code_owners(errors)
+        assert any(error.startswith(f"{ignored} is ignored by GitHub") for error in errors), ignored
+        target.unlink()
+    monkeypatch.setattr(verifier, "CODE_OWNERS_MAX_BYTES", 10)
+    errors = []
+    verifier.check_code_owners(errors)
+    assert any("3 MB" in error for error in errors)
+
+
+def test_the_required_checks_each_come_from_exactly_one_job() -> None:
+    errors: list[str] = []
+    verifier.check_required_check_names(errors)
+    assert errors == []
+    one = "jobs:\n  quality:\n    name: quality\n  gate:\n    name: Task 10 qualification\n"
+    assert verifier.required_check_name_problems({"a.yml": one}) == []
+    duplicated = {"a.yml": one, "b.yml": "jobs:\n  impostor:\n    name: 'quality'\n"}
+    assert any("'quality' is produced by 2" in p for p in verifier.required_check_name_problems(duplicated))
+    missing = {"a.yml": "jobs:\n  quality:\n    name: quality\n"}
+    assert any("'Task 10 qualification' is produced by 0" in p for p in verifier.required_check_name_problems(missing))
