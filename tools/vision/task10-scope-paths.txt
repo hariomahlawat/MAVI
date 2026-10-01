@@ -1,0 +1,63 @@
+# Task 10 scope: a change to any path matching one of these GitHub path globs
+# makes Task 10 apply to a pull request.
+#
+# The workflow's push trigger lists exactly these globs (a test holds them
+# equal). Pull requests run the workflow unconditionally, and its first job
+# evaluates this list (tools/vision/task10_scope.py), so that "Task 10
+# qualification" always reports and can be a required check.
+tools/vision/probe_runtime.py
+tools/vision/resolve_mmdet_config.py
+tools/vision/mmcv_wheel_cache.py
+tools/vision/task10_environment.py
+tools/vision/compare_wheel_reproducibility.py
+tools/vision/task10-s1-harness-requirements.txt
+tools/vision/task10-scope-paths.txt
+tools/vision/task10_scope.py
+src/vision/tests/test_runtime_probe.py
+src/vision/tests/test_resolve_mmdet_config.py
+src/vision/tests/test_runtime_metadata.py
+src/vision/tests/test_rtmdet_colour_space.py
+src/vision/tests/test_mmdetection_runtime.py
+src/vision/tests/test_production_processor*.py
+src/vision/tests/test_process_video.py
+src/vision/tests/test_track_lifecycle.py
+src/vision/tests/test_trajectory_spool.py
+src/vision/tests/test_evidence_*.py
+src/vision/tests/evidence_fixtures.py
+src/vision/tests/profile_fixtures.py
+tools/vision/dev/scripted_corpus.py
+tools/vision/dev/measure_evidence_real_clips.py
+src/vision/tests/test_measure_evidence_real_clips.py
+tests/fixtures/scene-analytics/scripted-corpus-v1.json
+src/vision/mavi_vision/**
+src/vision/tests/test_bytetrack_*.py
+src/vision/tests/test_worker_completion_v3.py
+src/vision/tests/test_worker_client.py
+src/vision/tests/test_worker_runner.py
+src/vision/tests/test_completion_contract_*.py
+src/vision/tests/test_tracker_update.py
+src/vision/tests/test_track_finalization.py
+src/vision/tests/test_artifact_store*.py
+src/vision/tests/test_artifact_publisher.py
+src/vision/tests/test_analytical_models.py
+src/vision/tests/test_s1_bound_agreement.py
+src/vision/tests/test_runtime_errors.py
+contracts/schemas/vision-job-complete-v3.schema.json
+contracts/examples/vision-job-complete-v3.example.json
+tools/qualification/s1_*
+tools/qualification/s1-*
+tools/qualification/process_memory.py
+tools/qualification/tests/conftest.py
+tools/qualification/tests/fixtures/**
+tools/qualification/tests/test_s1_*
+src/vision/pyproject.toml
+src/vision/runtime/**/*.json
+src/vision/config/pipelines/**/*.json
+src/vision/config/components/**/*.json
+config/acceptance/capability-gate-sets-v1.json
+models/manifests/**/*.json
+models/qualifications/**/*.json
+.github/workflows/task10-runtime-qualification.yml
+docs/decisions/ADR-005-qualified-vision-runtime.md
+docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md
+docs/superpowers/plans/2026-09-11-task-10-rtmdet-bytetrack.md
