@@ -165,6 +165,41 @@ def check_required_paths(errors: list[str]) -> None:
             fail(f"Missing required path: {relative}", errors)
 
 
+CODE_OWNERS_PATH = ".github/CODEOWNERS"
+REQUIRED_CODE_OWNER = "@hariomahlawat"
+
+
+def code_owner_problems(text: str) -> list[str]:
+    """GitHub applies the last matching CODEOWNERS rule, so every rule must keep
+    the required owner, and the first rule must be the catch-all default."""
+    problems: list[str] = []
+    rules = []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.split(" #", 1)[0].strip() if not raw.lstrip().startswith("#") else ""
+        if not line:
+            continue
+        pattern, *owners = line.split()
+        rules.append((number, pattern, owners))
+        if not owners:
+            problems.append(f"{CODE_OWNERS_PATH}:{number}: '{pattern}' has no owners, leaving matching paths unowned")
+        elif REQUIRED_CODE_OWNER not in owners:
+            problems.append(f"{CODE_OWNERS_PATH}:{number}: '{pattern}' replaces the owners without {REQUIRED_CODE_OWNER}")
+    if not rules:
+        problems.append(f"{CODE_OWNERS_PATH} has no rules")
+    elif rules[0][1] != "*":
+        problems.append(f"{CODE_OWNERS_PATH}: the first rule must be the '*' default, not '{rules[0][1]}'")
+    return problems
+
+
+def check_code_owners(errors: list[str]) -> None:
+    path = ROOT / CODE_OWNERS_PATH
+    if not path.is_file():
+        fail(f"Missing {CODE_OWNERS_PATH}", errors)
+        return
+    for problem in code_owner_problems(path.read_text(encoding="utf-8")):
+        fail(problem, errors)
+
+
 def check_project_references(errors: list[str]) -> None:
     platform = ROOT / "src/platform"
     for project, expected in ALLOWED_REFERENCES.items():
@@ -1708,6 +1743,7 @@ def check_model_selection_protocols(errors: list[str]) -> None:
 def main() -> int:
     errors: list[str] = []
     check_required_paths(errors)
+    check_code_owners(errors)
     check_project_references(errors)
     check_dependency_policy(errors)
     check_offline_binary_catalog(errors)
@@ -1728,6 +1764,7 @@ def main() -> int:
     print("MAVI repository verification PASSED")
     print(f" - required paths: {len(REQUIRED_PATHS)}")
     print(f" - project boundaries: {len(ALLOWED_REFERENCES)}")
+    print(f" - code owners: every rule keeps {REQUIRED_CODE_OWNER}")
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")

@@ -1,0 +1,13 @@
+# MAVI code owners.
+#
+# GitHub applies the LAST matching pattern for a path, so a later rule
+# replaces the owners of an earlier one rather than adding to them. Every
+# rule in this file must therefore list @hariomahlawat. tools/verify_repo.py
+# (check_code_owners) fails the repository contracts lane on a rule that omits
+# him, or on a pattern with no owners, which would leave a path unowned.
+#
+# Ownership is separate from approval: branch rules on main do not require a
+# code-owner review while @hariomahlawat is the only eligible reviewer,
+# because GitHub does not let a pull request's author approve it.
+
+*       @hariomahlawat
