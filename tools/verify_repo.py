@@ -165,6 +165,111 @@ def check_required_paths(errors: list[str]) -> None:
             fail(f"Missing required path: {relative}", errors)
 
 
+CODE_OWNERS_PATH = ".github/CODEOWNERS"
+REQUIRED_CODE_OWNER = "@hariomahlawat"
+# GitHub uses the first CODEOWNERS file it finds in .github/, the root, docs/,
+# and ignores a file larger than 3 MB.
+IGNORED_CODE_OWNERS_PATHS = ("CODEOWNERS", "docs/CODEOWNERS")
+CODE_OWNERS_MAX_BYTES = 3 * 1024 * 1024
+# The aggregate checks required on main. Each must be produced by exactly one
+# workflow job, or another job of the same name could satisfy the requirement.
+REQUIRED_CHECK_NAMES = ("quality", "Task 10 qualification")
+
+
+def _code_owner_tokens(line: str) -> list[str]:
+    """Split a CODEOWNERS line as GitHub does: whitespace separates tokens unless
+    escaped with a backslash. Only a whole line starting with '#' is a comment;
+    rule lines containing '#' are refused by ``code_owner_problems``."""
+    tokens: list[str] = []
+    current = ""
+    escaped = False
+    for char in line:
+        if escaped:
+            current += char
+            escaped = False
+        elif char == "\\":
+            current += char
+            escaped = True
+        elif char.isspace():
+            if current:
+                tokens.append(current)
+            current = ""
+        else:
+            current += char
+    if current:
+        tokens.append(current)
+    return tokens
+
+
+def code_owner_problems(text: str) -> list[str]:
+    """GitHub applies the last matching CODEOWNERS rule, so every rule must keep
+    the required owner, and the first rule must be the catch-all default owned by
+    exactly that owner."""
+    problems: list[str] = []
+    rules = []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if raw.lstrip().startswith("#"):
+            continue  # a comment line
+        tokens = _code_owner_tokens(raw)
+        if not tokens:
+            continue
+        if "#" in raw:
+            # GitHub has no inline comments: it may skip such a line as invalid
+            # (leaving its paths to an earlier rule, or unowned) or read the text
+            # as owners. Either way the line does not say what it appears to.
+            problems.append(f"{CODE_OWNERS_PATH}:{number}: '#' on a rule line; CODEOWNERS has no inline comments")
+        pattern, *owners = tokens
+        rules.append((number, pattern, owners))
+        if not owners:
+            problems.append(f"{CODE_OWNERS_PATH}:{number}: '{pattern}' has no owners, leaving matching paths unowned")
+        elif REQUIRED_CODE_OWNER not in owners:
+            problems.append(f"{CODE_OWNERS_PATH}:{number}: '{pattern}' replaces the owners without {REQUIRED_CODE_OWNER}")
+    if not rules:
+        problems.append(f"{CODE_OWNERS_PATH} has no rules")
+    elif rules[0][1:] != ("*", [REQUIRED_CODE_OWNER]):
+        problems.append(f"{CODE_OWNERS_PATH}: the first rule must be exactly '* {REQUIRED_CODE_OWNER}'")
+    return problems
+
+
+def check_code_owners(errors: list[str]) -> None:
+    path = ROOT / CODE_OWNERS_PATH
+    for ignored in IGNORED_CODE_OWNERS_PATHS:
+        if (ROOT / ignored).exists():
+            fail(f"{ignored} is ignored by GitHub while {CODE_OWNERS_PATH} exists; keep a single CODEOWNERS file", errors)
+    if not path.is_file():
+        fail(f"Missing {CODE_OWNERS_PATH}", errors)
+        return
+    data = path.read_bytes()
+    if len(data) > CODE_OWNERS_MAX_BYTES:
+        fail(f"{CODE_OWNERS_PATH} exceeds GitHub's 3 MB limit and would be ignored", errors)
+    for problem in code_owner_problems(data.decode("utf-8")):
+        fail(problem, errors)
+
+
+def required_check_name_problems(workflows: dict[str, str]) -> list[str]:
+    """Each required check name is the ``name:`` of exactly one job across all workflows."""
+    seen: dict[str, list[str]] = {name: [] for name in REQUIRED_CHECK_NAMES}
+    for workflow, text in sorted(workflows.items()):
+        for match in re.finditer(r"^    name: (.+?)\s*$", text, re.M):
+            name = match.group(1).strip().strip("'\"")
+            if name in seen:
+                seen[name].append(workflow)
+    return [
+        f"required check '{name}' is produced by {len(found)} workflow jobs ({', '.join(found) or 'none'}), not exactly one"
+        for name, found in seen.items()
+        if len(found) != 1
+    ]
+
+
+def check_required_check_names(errors: list[str]) -> None:
+    workflows = {
+        path.name: path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+    }
+    for problem in required_check_name_problems(workflows):
+        fail(problem, errors)
+
+
 def check_project_references(errors: list[str]) -> None:
     platform = ROOT / "src/platform"
     for project, expected in ALLOWED_REFERENCES.items():
@@ -1708,6 +1813,8 @@ def check_model_selection_protocols(errors: list[str]) -> None:
 def main() -> int:
     errors: list[str] = []
     check_required_paths(errors)
+    check_code_owners(errors)
+    check_required_check_names(errors)
     check_project_references(errors)
     check_dependency_policy(errors)
     check_offline_binary_catalog(errors)
@@ -1728,6 +1835,8 @@ def main() -> int:
     print("MAVI repository verification PASSED")
     print(f" - required paths: {len(REQUIRED_PATHS)}")
     print(f" - project boundaries: {len(ALLOWED_REFERENCES)}")
+    print(f" - code owners: every rule keeps {REQUIRED_CODE_OWNER}")
+    print(f" - required checks: {', '.join(REQUIRED_CHECK_NAMES)} each from exactly one job")
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")
