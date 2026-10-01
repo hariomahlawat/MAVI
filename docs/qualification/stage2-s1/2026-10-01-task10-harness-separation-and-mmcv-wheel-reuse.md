@@ -147,33 +147,49 @@ It is amended for the **S1 qualification-harness suite** (`task10:s1-qualificati
   - such interactions are what the full-graph steps (`bytetrack-runtime`, `real-clip-harness`, `production-processor-runtime`) exercise, in the complete environment;
   - `compare` refuses any version divergence between the two environments.
 
+## One PyPI resolution for both jobs
+
+The harness and the candidate install at different times: the candidate installs its shared packages several minutes later on a cold run, and a re-run of failed jobs can be hours later. An unpinned or range-pinned package released in between made the gate fail on run 36819745957: `python-dotenv` 1.2.4 was published between the harness install at 05:26 and the re-run candidate install at 05:41.
+
+Both jobs therefore do two things:
+- pin `pip==26.2.1`;
+- resolve every PyPI install with `--uploaded-prior-to <the head's committer time>`.
+
+That cutoff is identical in both jobs and across re-runs, so both resolve the same versions whenever they install. Each environment record carries the cutoff, and `compare` requires it to be equal.
+
+Under the cutoff of `a949a06`, a local dry run resolves the harness requirements completely for Python 3.12 on Linux and Windows (54 distributions, `python-dotenv` 1.2.3), and the candidate's PyPI pins too.
+
+The PyTorch install uses the PyTorch index, which does not publish upload times. It is left without a cutoff; none of the packages it brings in is in the harness closure.
+
 ## MMCV wheel reuse: trust model
 
-- **Key.** The key is `task10-mmcv-wheel-v1-<variant>-<sha256 of the canonical identity>`. Restore uses that exact key. There are no `restore-keys`, so no prefix fallback ever restores a wheel built for a different identity.
-  - `ImageOS`, such as `win25` or `ubuntu24`, is part of the key.
-  - The runner image *version* is recorded in the provenance but is not part of the key. Two things stand behind that choice:
-    - every input the image version could change that matters for a compile is already in the key: MSVC tools, SDK, `cl`, `c++` and libc;
+- **Key.** The key is `task10-mmcv-wheel-v1-<variant>-<sha256 of the canonical identity>-<UTC year and month>`. Restore uses that exact key. There are no `restore-keys`, so no prefix fallback ever restores a wheel built for a different identity.
+  - `ImageOS`, such as `win25` or `ubuntu24`, is part of the identity.
+  - The runner image *version* is recorded in the provenance but is not part of the identity. Two things stand behind that choice:
+    - every input the image version could change that matters for a compile is already in the identity: the MSVC tools, SDK and `cl` banner, `c++` and libc;
     - the installed binary is probed in every run anyway.
+  - The PyTorch configuration enters the identity **without** its `CPU capability usage` line. That line describes the runner's CPU, not the PyTorch build. On runs 36819776216 and 36820941092 the same PyTorch wheel reported AVX2 on one Ubuntu runner and AVX512 on the other, which changed the key, so the second run rebuilt.
+  - **The month bucket.** An entry's whole life fits well inside the retention of the producer's evidence artifact (90 days by default), so an entry is never unattestable merely because that artifact has expired. An entry that does become unverifiable is replaced the next month instead of blocking reuse for good. The cost is one cold build per variant per month on the default branch.
 - **On restore:**
-  - `verify` exit 0 means the wheel is reused;
-  - exit 3 (unverifiable: provenance missing, unreadable, of an unknown schema, or not exactly one wheel) means the entry is discarded and MMCV is rebuilt;
-  - exit 2 or any other failure (integrity: identity mismatch, identity-hash mismatch, wheel name, hash or size mismatch, wrong distribution or tag, RECORD inconsistency) fails the job. It never falls back to a rebuild.
+  - `verify` exit 0 means the wheel is reused.
+  - Exit 3 means the entry is unverifiable: provenance missing, unreadable or of an unknown schema; not exactly one wheel; an unknown, untrusted or unreachable producer; or a missing producer record. MMCV is rebuilt in this job, and a `::warning::` annotation says so.
+  - Exit 2 or any other failure is an integrity violation: identity mismatch, identity-hash mismatch, wheel name, hash or size mismatch, wrong distribution or tag, RECORD inconsistency, or a trusted producer whose records all disagree. The job fails; it never falls back to a rebuild.
 
   The install step verifies again immediately before `pip install`.
 - **Provenance is not trust.** A cache entry, provenance included, is written by whoever saved it. Any run on a ref can save any key in that ref's scope. A pull-request head runs the PR's own workflow, so an earlier, unreviewed head of a PR could patch the source or swap the wheel and record consistent provenance. Inside the entry, nothing can tell those bytes apart from honest ones.
 - **Attestation.** On restore, `verify --attest` asks GitHub, not the entry, about the run the provenance names. The run must be all of the following:
   - a run of `task10-runtime-qualification.yml`;
   - in this repository (`repository` and `head_repository`, so not a fork);
-  - **either** a `push` or `workflow_dispatch` run on the default branch, which runs reviewed code, **or** a run on exactly the head being qualified, which runs the same code as this run.
+  - **either** a `push` or `workflow_dispatch` run whose `head_branch` is the default branch **and** whose head commit GitHub reports as contained in the default branch (`compare/<default>...<sha>` is `behind` or `identical`), so a tag named after the branch does not count; **or** a run on exactly the head being qualified, which runs the same code as this run.
 
-  The producer's own `mmcv-wheel.json` is then downloaded from its `runtime-probe-<os>-…` artifact. It must say `state: build`, name the same variant, its own head, and the same identity hash and wheel SHA-256.
-  - An unknown, untrusted or unreachable producer, or a missing record, makes the entry **unverifiable**, so MMCV is rebuilt.
-  - A trusted producer whose record disagrees is an **integrity violation**, so the job fails.
+  The producer's `mmcv-wheel.json` records are then downloaded from its `runtime-probe-<os>-…` artifacts. A re-run uploads one artifact per attempt. At least one record must say `state: build`, the same variant, its own head, and the same identity hash and wheel SHA-256.
 
-  The token is sent to the API only and is never forwarded on the artifact download redirect.
-- **Pull-request runs never save.** A PR-scope entry would shadow `main`'s entry under the same key, and later heads could not trust it, so a PR save could only ever force rebuilds. PR runs therefore reuse only default-branch entries, and are cold otherwise.
-- **Who writes entries that other refs read.** Only runs on the default branch: `push`, or `workflow_dispatch` on `main`. PRs into `feature/task-10-rtmdet-bytetrack` can also read that branch's scope, but the attestation trusts only default-branch producers or the same head.
-- **Save.** The wheel is saved only when this run built it, after provenance is recorded, and never on `pull_request`. A reused entry is never re-saved.
+  The token is sent to the API only, and is never forwarded on the artifact download redirect.
+- **Who saves.** A run saves only when it built the wheel, after provenance is recorded, and only on:
+  - a `push` to the default branch. These are the entries every ref can read.
+  - a `workflow_dispatch`. Its entry stays in its own ref's scope, and only a run on the same head can attest it there. On the default branch it is a default-branch entry like a push's.
+
+  Pull requests, and pushes to other branches such as `feature/task-10-rtmdet-bytetrack`, never save. Their entry would shadow the default branch's under the same key in their scope, and later heads could not attest it, so it could only ever force rebuilds. Those runs reuse default-branch entries and are cold otherwise.
 - **Qualifying evidence.** S1 evidence is measured on a `main` SHA. Those push runs can read only `main`-scope entries, which only `main` writes.
 
 ## Branch protection
@@ -182,14 +198,15 @@ The required status check for Task 10 should be **Task 10 qualification**, the g
 
 ## Measured results
 
-Measured results come from GitHub Actions runs on this PR's heads and are recorded in the PR description. Expectations stated before measuring are labelled as estimates there.
+The measurements come from GitHub Actions runs on this change and are listed in the PR description, which separates measurements from estimates.
 
-Because PR runs never save, a PR run is cold until `main` holds an entry for its identity. To measure warm reuse before merge, this change runs `workflow_dispatch` twice on its branch at the same head. The first run builds and saves in the branch scope; the second restores the entry, and the same-head attestation lets it reuse the wheel.
+Pull-request runs never save, so a PR run is cold until `main` holds an entry for its identity. To measure warm reuse before merge, this change runs `workflow_dispatch` twice on its branch at the same head: the first run builds and saves in the branch scope, and the second restores the entry and, through the same-head attestation, reuses the wheel.
 
 ## Unresolved questions
 
-1. **Transitive version divergence between the two jobs.** Each job resolves its unpinned and range-pinned packages independently (`pytest`, `psutil`, `pydantic`…). A release published between the two installs, or a preinstalled tool-cache version that lands inside the closure, would make `compare` fail. The gate fails closed rather than accepting the divergence. If this recurs, the fix is a shared constraints file, not a relaxed comparison.
+1. **Divergence the cutoff does not cover.** A release yanked between the two installs, or a runner-image preinstalled package inside the closure, can still make `compare` fail. On Windows that is `colorama`, which `pytest` requires and the tool cache preinstalls. The gate fails closed. A committed constraints file for the closure would close this too, at the cost of maintaining it.
 2. **Does B2 require the harness and the runtime to share a process environment?** This note says no and amends ADR-005 accordingly. The amendment needs owner acceptance.
 3. **Runner-image migrations.** Both jobs use `windows-latest`/`ubuntu-latest`, and `compare` checks `ImageOS`. During a gradual GitHub image migration, the two jobs of one variant can land on different images and fail with `platform_differs`. That fails closed. Pinning `windows-2025`/`ubuntu-24.04` would remove the risk, but it changes the matrix names and the artifact names they feed; it is left for owners to decide.
 4. **Runner-image preinstalled packages in the candidate graph.** The candidate takes `filelock` (from `torch`) and `platformdirs` (from `yapf`) from the image's preinstalled tool cache rather than from a pin. This is a pre-existing gap in the "exact hashed locks" goal of ADR-005 §17. It concerns the candidate graph, not this change.
-5. **Runner-image version in the key.** Excluding `ImageVersion` from the key lets a wheel be reused across weekly image updates that keep the same toolchain. If owners want a rebuild on every image update, adding it to the key is a one-line change. The cost is roughly one cold build per variant per week.
+5. **Runner-image version in the identity.** Excluding `ImageVersion` lets a wheel be reused across weekly image updates that keep the same toolchain. If owners want a rebuild on every image update, adding it is a one-line change. The cost is roughly one cold build per variant per week.
+6. **Repository artifact retention.** The month bucket assumes the repository's artifact retention is at least about 32 days. With a shorter setting, reuse late in a month becomes unverifiable and rebuilds. That fails safe.

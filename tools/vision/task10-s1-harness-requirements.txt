@@ -3,7 +3,7 @@
 # uses them as the roots of the dependency closure that the final gate requires
 # to match the candidate environment version for version. Every line must also
 # be a candidate install pin (src/vision/tests/test_runtime_metadata.py).
-pip
+pip==26.2.1
 setuptools==80.9.0
 wheel
 ninja

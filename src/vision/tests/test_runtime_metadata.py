@@ -498,7 +498,7 @@ def test_task10_reuses_only_a_verified_wheel_it_built_for_this_exact_identity() 
 
     identity = _job_step(candidate, "Compute MMCV build identity")
     assert 'identity --mmcv-commit "$MMCV_SOURCE_COMMIT" --recipe "$MMCV_BUILD_COMMAND|MMCV_WITH_OPS=$MMCV_WITH_OPS"' in identity
-    assert 'echo "key=task10-mmcv-wheel-v1-${MAVI_RUNTIME_VARIANT}-${digest}"' in identity
+    assert 'echo "key=task10-mmcv-wheel-v1-${MAVI_RUNTIME_VARIANT}-${digest}-$(date -u +%Y%m)"' in identity
 
     restore = _job_step(candidate, "Restore Task 10 MMCV wheel")
     assert "uses: actions/cache/restore@v4" in restore
@@ -509,7 +509,8 @@ def test_task10_reuses_only_a_verified_wheel_it_built_for_this_exact_identity() 
     verify = _job_step(candidate, "Verify restored MMCV wheel")
     assert 'if [ "$CACHE_HIT" != "true" ]; then' in verify
     assert '0) echo "state=reuse" >> "$GITHUB_OUTPUT" ;;' in verify
-    assert '3) rm -rf .mmcv-wheel .mmcv-attestation.json; echo "state=build" >> "$GITHUB_OUTPUT" ;;' in verify
+    assert 'rm -rf .mmcv-wheel .mmcv-attestation.json; echo "state=build" >> "$GITHUB_OUTPUT" ;;' in verify
+    assert '3) echo "::warning title=MMCV wheel not reused::' in verify
     assert '*) exit "$code" ;;' in verify
 
     build_only = "if: steps.mmcv-verify.outputs.state == 'build'"
@@ -517,7 +518,6 @@ def test_task10_reuses_only_a_verified_wheel_it_built_for_this_exact_identity() 
         "Checkout immutable MMCV 2.1.0 source",
         "Build MMCV 2.1.0 wheel against installed PyTorch",
         "Record MMCV wheel provenance",
-        "Save Task 10 MMCV wheel",
     ):
         assert build_only in _job_step(candidate, name), name
     source = _job_step(candidate, "Checkout immutable MMCV 2.1.0 source")
@@ -549,10 +549,13 @@ def test_task10_reuses_only_a_verified_wheel_it_built_for_this_exact_identity() 
 
 
 def _pins(install_step: str) -> set[str]:
+    text = install_step.split("run: ", 1)[1].replace("${{ env.MAVI_PIP_CUTOFF }}", "")
     return {
         token.strip('"')
-        for token in install_step.split("run: >-", 1)[1].split()
-        if token not in {"python", "-m", "pip", "install", "--upgrade"}
+        for token in text.split()
+        if token not in {">-", "|", "python", "-m", "pip", "install", "--upgrade", "--uploaded-prior-to",
+                         "set", "-euo", "pipefail"}
+        and not token.startswith(("echo", "\"MAVI_PIP_CUTOFF", ">>", "$("))
     }
 
 
@@ -581,6 +584,19 @@ def test_the_s1_harness_runs_concurrently_on_a_pinned_subset_of_the_candidate_gr
         _job_step(candidate, "Install compatible build tooling"),
         _job_step(candidate, "Install remaining candidate graph"),
     ]
+    # Both jobs pin pip and resolve PyPI with the same cutoff: the head's commit time.
+    pin = _job_step(candidate, "Pin pip and the PyPI resolution cutoff")
+    assert pin == _job_step(harness, "Pin pip and the PyPI resolution cutoff")
+    assert 'python -m pip install "pip==26.2.1"' in pin
+    assert 'echo "MAVI_PIP_CUTOFF=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"' in pin
+    for step in installs:
+        assert "--uploaded-prior-to ${{ env.MAVI_PIP_CUTOFF }}" in step
+    assert "--uploaded-prior-to" not in _job_step(candidate, "Install candidate PyTorch CPU build")
+    for job in (candidate, harness):
+        assert job.index("- name: Pin pip and the PyPI resolution cutoff") < min(
+            job.index(f"- name: {name}") for name in (
+                "Install compatible build tooling", "Install S1 harness subset of the candidate graph"
+            ) if f"- name: {name}" in job)
     candidate_pins = set().union(*(_pins(step) for step in installs))
     requirements = Path(__file__).parents[3] / "tools" / "vision" / "task10-s1-harness-requirements.txt"
     harness_pins = {
@@ -588,9 +604,13 @@ def test_the_s1_harness_runs_concurrently_on_a_pinned_subset_of_the_candidate_gr
         for line in requirements.read_text(encoding="utf-8").splitlines()
         if line.split("#", 1)[0].strip()
     }
-    assert harness_pins and harness_pins <= candidate_pins | {"pip"}, sorted(harness_pins - candidate_pins)
+    candidate_pins |= {"pip==26.2.1"} if 'install "pip==26.2.1"' in pin else set()
+    assert harness_pins and harness_pins <= candidate_pins, sorted(harness_pins - candidate_pins)
     install = _job_step(harness, "Install S1 harness subset of the candidate graph")
-    assert install.split("run: ", 1)[1].strip() == "python -m pip install --upgrade -r tools/vision/task10-s1-harness-requirements.txt"
+    assert install.split("run: ", 1)[1].strip() == (
+        "python -m pip install --upgrade --uploaded-prior-to ${{ env.MAVI_PIP_CUTOFF }} "
+        "-r tools/vision/task10-s1-harness-requirements.txt"
+    )
     for forbidden in ("torch", "mmcv", "mmengine", "mmdet"):
         assert forbidden not in harness.lower(), forbidden
         assert forbidden not in requirements.read_text(encoding="utf-8").lower(), forbidden
@@ -702,7 +722,11 @@ def test_the_verify_step_rebuilds_unverifiable_entries_under_github_s_bash_flags
 def test_pull_request_runs_never_save_and_reuse_is_attested() -> None:
     candidate = _task10_job("cpu-candidate")
     save = _job_step(candidate, "Save Task 10 MMCV wheel")
-    assert "if: steps.mmcv-verify.outputs.state == 'build' && github.event_name != 'pull_request'" in save
+    condition = " ".join(save.split("if: >-", 1)[1].split("uses:", 1)[0].split())
+    assert condition == (
+        "steps.mmcv-verify.outputs.state == 'build' && (github.event_name == 'workflow_dispatch' "
+        "|| (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))"
+    )
     verify = _job_step(candidate, "Verify restored MMCV wheel")
     assert "--attest --artifact-name \"$MMCV_PRODUCER_ARTIFACT\" --attestation-out .mmcv-attestation.json" in verify
     assert "MMCV_PRODUCER_ARTIFACT: runtime-probe-${{ matrix.os }}-py3.12-torch2.6.0" in verify

@@ -25,6 +25,7 @@ COMMON = {
     "schema": env.SCHEMA,
     "headSha": "a" * 40,
     "runtimeVariant": "windows-x86_64-cpu",
+    "pipUploadedPriorTo": "2026-10-01T05:25:58+00:00",
     "python": {"version": "3.12.10", "implementation": "CPython", "build": ["tags/v3.12.10", "x"], "compiler": "MSC"},
     "platform": {"system": "Windows", "machine": "AMD64", "sysconfigPlatform": "win-amd64", "runnerImage": "win25"},
 }
@@ -102,6 +103,7 @@ def test_the_harness_requirements_file_parses() -> None:
 
 def test_another_head_variant_python_or_platform_is_refused() -> None:
     for field, value in (("headSha", "b" * 40), ("runtimeVariant", "linux-x86_64-cpu"),
+                         ("pipUploadedPriorTo", "2026-10-01T05:45:00+00:00"),
                          ("python", {**COMMON["python"], "version": "3.12.11"}),
                          ("platform", {**COMMON["platform"], "runnerImage": "win22"})):
         harness = {**copy.deepcopy(HARNESS), field: value}
@@ -220,3 +222,8 @@ def test_a_missing_or_unreadable_wheel_record_fails(tmp_path: Path) -> None:
     assert env.main(["check-mmcv", "--record", str(tmp_path / "bad.json"), *args]) == 1
     (tmp_path / "list.json").write_text("[]", encoding="utf-8")
     assert env.main(["check-mmcv", "--record", str(tmp_path / "list.json"), *args]) == 1
+
+
+def test_the_record_carries_the_shared_pypi_cutoff(monkeypatch) -> None:
+    monkeypatch.setenv("MAVI_PIP_CUTOFF", "2026-10-01T05:25:58+00:00")
+    assert env.environment_record()["pipUploadedPriorTo"] == "2026-10-01T05:25:58+00:00"

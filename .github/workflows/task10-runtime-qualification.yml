@@ -188,9 +188,21 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # One PyPI resolution for every Task 10 job of this head: the candidate and the
+      # S1 harness install at different times (and failed jobs can be re-run later), so
+      # both consider only distributions uploaded before the head's commit time. The
+      # final gate requires the harness closure to match the candidate version for
+      # version. pip is pinned first because --uploaded-prior-to needs pip >= 26.
+      - name: Pin pip and the PyPI resolution cutoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "pip==26.2.1"
+          echo "MAVI_PIP_CUTOFF=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"
+
       - name: Install compatible build tooling
         run: >-
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade --uploaded-prior-to ${{ env.MAVI_PIP_CUTOFF }}
           "setuptools==80.9.0"
           wheel
           ninja
@@ -298,7 +310,10 @@ jobs:
           set -euo pipefail
           digest="$(python tools/vision/mmcv_wheel_cache.py identity --mmcv-commit "$MMCV_SOURCE_COMMIT" --recipe "$MMCV_BUILD_COMMAND|MMCV_WITH_OPS=$MMCV_WITH_OPS" --out .mmcv-identity.json)"
           cat .mmcv-identity.json
-          echo "key=task10-mmcv-wheel-v1-${MAVI_RUNTIME_VARIANT}-${digest}" >> "$GITHUB_OUTPUT"
+          # The month bucket bounds an entry's life well inside the producer's evidence
+          # artifact retention (90 days by default), so an entry can always be attested
+          # and an unverifiable one is replaced within a month rather than never.
+          echo "key=task10-mmcv-wheel-v1-${MAVI_RUNTIME_VARIANT}-${digest}-$(date -u +%Y%m)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Task 10 MMCV wheel
         id: mmcv-restore
@@ -326,7 +341,8 @@ jobs:
           python tools/vision/mmcv_wheel_cache.py verify --dir .mmcv-wheel --identity .mmcv-identity.json --attest --artifact-name "$MMCV_PRODUCER_ARTIFACT" --attestation-out .mmcv-attestation.json || code=$?
           case "$code" in
             0) echo "state=reuse" >> "$GITHUB_OUTPUT" ;;
-            3) rm -rf .mmcv-wheel .mmcv-attestation.json; echo "state=build" >> "$GITHUB_OUTPUT" ;;
+            3) echo "::warning title=MMCV wheel not reused::the restored entry is unverifiable; rebuilding (see the verify output above)"
+               rm -rf .mmcv-wheel .mmcv-attestation.json; echo "state=build" >> "$GITHUB_OUTPUT" ;;
             *) exit "$code" ;;
           esac
 
@@ -352,7 +368,12 @@ jobs:
         run: python tools/vision/mmcv_wheel_cache.py record --dir .mmcv-wheel --identity .mmcv-identity.json
 
       - name: Save Task 10 MMCV wheel
-        if: steps.mmcv-verify.outputs.state == 'build' && github.event_name != 'pull_request'
+        # Only the default branch writes entries other refs read. A dispatch run may save
+        # into its own ref scope, where only a run on the same head can attest it.
+        if: >-
+          steps.mmcv-verify.outputs.state == 'build'
+          && (github.event_name == 'workflow_dispatch'
+              || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
         uses: actions/cache/save@v4
         with:
           path: .mmcv-wheel
@@ -393,7 +414,7 @@ jobs:
 
       - name: Install remaining candidate graph
         run: >-
-          python -m pip install
+          python -m pip install --uploaded-prior-to ${{ env.MAVI_PIP_CUTOFF }}
           mmengine==0.10.7
           mmdet==3.3.0
           trackers==2.6.0
@@ -1050,8 +1071,20 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      # One PyPI resolution for every Task 10 job of this head: the candidate and the
+      # S1 harness install at different times (and failed jobs can be re-run later), so
+      # both consider only distributions uploaded before the head's commit time. The
+      # final gate requires the harness closure to match the candidate version for
+      # version. pip is pinned first because --uploaded-prior-to needs pip >= 26.
+      - name: Pin pip and the PyPI resolution cutoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install "pip==26.2.1"
+          echo "MAVI_PIP_CUTOFF=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"
+
       - name: Install S1 harness subset of the candidate graph
-        run: python -m pip install --upgrade -r tools/vision/task10-s1-harness-requirements.txt
+        run: python -m pip install --upgrade --uploaded-prior-to ${{ env.MAVI_PIP_CUTOFF }} -r tools/vision/task10-s1-harness-requirements.txt
 
       - name: Run S1.4 qualification harness tests with the native ByteTrack backend
         shell: bash

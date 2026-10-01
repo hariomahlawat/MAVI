@@ -4,7 +4,7 @@
 Task 10 runs the S1 qualification harness in its own job, concurrently with the
 full-runtime candidate job. The harness imports none of PyTorch, MMCV, MMEngine
 or MMDetection, so it does not wait for them. It must, however, run on exactly
-what the qualified candidate environment contains. This tool provides three
+what the qualified candidate environment contains. This tool provides four
 subcommands:
 
 * ``record``        -- write the Python, platform, distribution and head identity of this job.
@@ -118,6 +118,7 @@ def environment_record(roots: Path | None = None) -> dict[str, Any]:
             "sysconfigPlatform": sysconfig.get_platform(),
             "runnerImage": os.environ.get("ImageOS"),
         },
+        "pipUploadedPriorTo": os.environ.get("MAVI_PIP_CUTOFF"),
         "distributions": dict(sorted(distributions.items())),
         **({"closure": dependency_closure(_requirement_names(roots))} if roots else {}),
     }
@@ -128,7 +129,7 @@ def compare(candidate: dict[str, Any], harness: dict[str, Any]) -> list[str]:
     for record, role in ((candidate, "candidate"), (harness, "harness")):
         if record.get("schema") != SCHEMA:
             problems.append(f"{role}_schema_unknown")
-    for field in ("headSha", "runtimeVariant", "python", "platform"):
+    for field in ("headSha", "runtimeVariant", "pipUploadedPriorTo", "python", "platform"):
         if not candidate.get(field) or candidate.get(field) != harness.get(field):
             problems.append(f"{field}_differs")
     have = candidate.get("distributions") or {}

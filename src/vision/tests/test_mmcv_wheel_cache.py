@@ -248,9 +248,11 @@ def _producer(**overrides):
     return run
 
 
-def _attest(provenance, run, record):
-    return cache.attest(provenance, run, record, expected_head=HEAD, repository=REPO,
-                        default_branch="main", variant="windows-x86_64-cpu")
+def _attest(provenance, run, record, *, on_default=True):
+    records = record if isinstance(record, list) else ([] if record is None else [record])
+    return cache.attest(provenance, run, records, expected_head=HEAD, repository=REPO,
+                        default_branch="main", variant="windows-x86_64-cpu",
+                        producer_on_default_branch=on_default)
 
 
 def _record_for(provenance, run, **overrides):
@@ -318,12 +320,94 @@ def test_a_trusted_producer_that_disagrees_is_an_integrity_violation(tmp_path: P
         _attest(provenance, run, record)
 
 
+def test_a_default_branch_name_without_a_default_branch_commit_is_not_trusted(tmp_path: Path) -> None:
+    # A tag literally named "main" reports head_branch == "main" too.
+    provenance = _provenance(tmp_path)
+    run = _producer(event="workflow_dispatch")
+    with pytest.raises(cache.Unverifiable, match="producer_not_trusted"):
+        _attest(provenance, run, _record_for(provenance, run), on_default=False)
+
+
+def test_a_rerun_producer_with_several_records_is_attested_by_the_matching_build(tmp_path: Path) -> None:
+    provenance = _provenance(tmp_path)
+    run = _producer()
+    reused = _record_for(provenance, run, state="reuse")
+    built_record = _record_for(provenance, run)
+    assert _attest(provenance, run, [reused, built_record])["trust"] == "default-branch"
+    other = copy.deepcopy(built_record)
+    other["provenance"]["wheel"]["sha256"] = "0" * 64
+    with pytest.raises(cache.IntegrityError, match="producer_records_disagree"):
+        _attest(provenance, run, [reused, other])
+
+
+def test_the_torch_key_ignores_the_runner_cpu_but_not_the_build() -> None:
+    # Measured: runs 36819776216 / 36820941092 had the same PyTorch wheel and
+    # different runner CPUs, and their raw configs hashed differently.
+    avx2 = "PyTorch built with:\n  - GCC 11.2\n  - CPU capability usage: AVX2\n  - Build settings: BLAS_INFO=mkl\n"
+    avx512 = avx2.replace("AVX2", "AVX512")
+    assert cache.torch_build_config(avx2) == cache.torch_build_config(avx512)
+    assert cache.torch_build_config(avx2) != cache.torch_build_config(avx2.replace("GCC 11.2", "GCC 12.1"))
+    assert "Build settings" in cache.torch_build_config(avx2)
+
+
+def test_the_compiler_banner_is_read_from_stderr_when_asked() -> None:
+    import sys as _sys
+
+    command = [_sys.executable, "-c", "import sys; print('usage: cl'); print('Compiler 19.44', file=sys.stderr)"]
+    assert cache._first_line(command, stderr_first=True) == "Compiler 19.44"
+    assert cache._first_line(command) == "usage: cl"
+
+
 def test_a_non_numeric_producer_run_is_never_fetched(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
     monkeypatch.setenv("GITHUB_TOKEN", "unused")
     monkeypatch.setattr(cache, "_api", lambda *a: (_ for _ in ()).throw(AssertionError("fetched")))
-    assert cache.fetch_producer("../../evil", "a") == (None, None)
-    assert cache.fetch_producer(None, "a") == (None, None)
+    assert cache.fetch_producer("../../evil", "a", "main") == (None, [], False)
+    assert cache.fetch_producer(None, "a", "main") == (None, [], False)
+
+
+def _fake_github(monkeypatch: pytest.MonkeyPatch, run: dict, artifacts: list[tuple[str, dict | None]], status: str):
+    import io as _io
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+    monkeypatch.setenv("GITHUB_TOKEN", "unused")
+    archives = {}
+    listing = []
+    for index, (name, record) in enumerate(artifacts):
+        buffer = _io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("junit/x.xml", "<x/>")
+            if record is not None:
+                archive.writestr(cache.WHEEL_RECORD_NAME, json.dumps(record))
+        archives[f"https://dl/{index}"] = buffer.getvalue()
+        listing.append({"name": name, "expired": False, "archive_download_url": f"https://dl/{index}"})
+    calls = []
+
+    def api(url, token):
+        calls.append(url)
+        if url in archives:
+            return archives[url]
+        if "/compare/" in url:
+            return json.dumps({"status": status}).encode()
+        if url.endswith("/artifacts?name=a&per_page=100"):
+            return json.dumps({"artifacts": listing}).encode()
+        return json.dumps(run).encode()
+
+    monkeypatch.setattr(cache, "_api", api)
+    return calls
+
+
+def test_fetch_collects_every_attempt_s_record_and_branch_containment(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = _producer()
+    calls = _fake_github(monkeypatch, run, [("a", {"state": "reuse"}), ("a", {"state": "build"}), ("b", {"state": "x"}),
+                                            ("a", None)], "behind")
+    fetched, records, on_default = cache.fetch_producer("7", "a", "main")
+    assert fetched == run and on_default is True
+    assert records == [{"state": "reuse"}, {"state": "build"}]
+    assert any(f"/compare/main...{run['head_sha']}" in url for url in calls)
+    for status, expected in (("identical", True), ("ahead", False), ("diverged", False)):
+        _fake_github(monkeypatch, run, [], status)
+        assert cache.fetch_producer("7", "a", "main")[2] is expected
 
 
 def test_an_unreachable_producer_is_unverifiable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -337,7 +421,7 @@ def test_an_unreachable_producer_is_unverifiable(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(cache, "_api", fail)
     with pytest.raises(cache.Unverifiable, match="producer_unreachable"):
-        cache.fetch_producer("7", "a")
+        cache.fetch_producer("7", "a", "main")
 
 
 def test_the_token_is_not_forwarded_on_redirect() -> None:
@@ -363,3 +447,29 @@ def test_the_token_is_not_forwarded_on_redirect() -> None:
         urllib.request.urlopen = original
     assert "Authorization" not in seen["redirected"]
     assert seen["unredirected"]["Authorization"] == "Bearer secret"
+
+
+def test_torch_identity_keys_the_build_config_not_the_runner_cpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    def fake_torch(capability: str):
+        module = types.ModuleType("torch")
+        module.__version__ = "2.6.0+cpu"
+        module.version = types.SimpleNamespace(git_version="g")
+        module.__config__ = types.SimpleNamespace(show=lambda: f"PyTorch built with:\n  - CPU capability usage: {capability}\n")
+        module._C = types.SimpleNamespace(_GLIBCXX_USE_CXX11_ABI=True)
+        return module
+
+    monkeypatch.setitem(sys.modules, "torch", fake_torch("AVX2"))
+    avx2 = cache.torch_identity()
+    monkeypatch.setitem(sys.modules, "torch", fake_torch("AVX512"))
+    assert cache.torch_identity() == avx2
+    assert avx2["configSha256"] == cache.sha256_bytes(b"PyTorch built with:")
+
+
+def test_the_windows_toolchain_reads_the_cl_banner_from_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    monkeypatch.setattr(cache.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(cache, "_first_line", lambda command, **kwargs: calls.append((command, kwargs)) or "banner")
+    assert cache.toolchain_identity()["cl"] == "banner"
+    assert calls == [(["cl"], {"stderr_first": True})]

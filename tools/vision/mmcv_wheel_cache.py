@@ -101,12 +101,13 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _first_line(command: list[str]) -> str | None:
+def _first_line(command: list[str], *, stderr_first: bool = False) -> str | None:
     try:
         completed = subprocess.run(command, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
-    text = (completed.stdout or "") + (completed.stderr or "")
+    streams = [completed.stdout or "", completed.stderr or ""]
+    text = "\n".join(reversed(streams) if stderr_first else streams)
     for line in text.splitlines():
         if line.strip():
             return line.strip()
@@ -120,12 +121,23 @@ def toolchain_identity() -> dict[str, Any]:
             "msvcToolsVersion": os.environ.get("VCToolsVersion"),
             "windowsSdkVersion": os.environ.get("WindowsSDKVersion"),
             "vsCmdVersion": os.environ.get("VSCMD_VER"),
-            "cl": _first_line(["cl"]),
+            # cl prints its version banner to stderr and a usage line to stdout.
+            "cl": _first_line(["cl"], stderr_first=True),
         }
     return {
         "cxx": _first_line([os.environ.get("CXX", "c++"), "--version"]),
         "libc": list(platform.libc_ver()),
     }
+
+
+# Lines of torch.__config__.show() that describe the machine it runs on, not
+# how PyTorch was built. Measured on Task 10: two Ubuntu runners with the same
+# PyTorch wheel reported different "CPU capability usage" (AVX2 / AVX512).
+RUNTIME_CONFIG_MARKERS = ("CPU capability usage",)
+
+
+def torch_build_config(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not any(m in line for m in RUNTIME_CONFIG_MARKERS))
 
 
 def torch_identity() -> dict[str, Any]:
@@ -134,7 +146,7 @@ def torch_identity() -> dict[str, Any]:
     return {
         "version": torch.__version__,
         "gitVersion": torch.version.git_version,
-        "configSha256": sha256_bytes(torch.__config__.show().encode("utf-8")),
+        "configSha256": sha256_bytes(torch_build_config(torch.__config__.show()).encode("utf-8")),
         "cxx11Abi": bool(getattr(torch._C, "_GLIBCXX_USE_CXX11_ABI", False)),
     }
 
@@ -277,20 +289,29 @@ def verify(directory: Path, identity: dict[str, Any], expected_sha256: str | Non
 def attest(
     provenance: dict[str, Any],
     run: dict[str, Any] | None,
-    producer_record: dict[str, Any] | None,
+    producer_records: list[dict[str, Any]],
     *,
     expected_head: str,
     repository: str,
     default_branch: str,
     variant: str,
+    producer_on_default_branch: bool = False,
 ) -> dict[str, Any]:
     """Bind a verified entry to a producing run that GitHub, not the entry, describes.
 
-    ``run`` is GitHub's record of the run the provenance names, and
-    ``producer_record`` is that run's own uploaded ``mmcv-wheel.json``. A
-    producer that is unknown or untrusted makes the entry unverifiable, so the
-    job rebuilds; an earlier head of a pull request is the common case. A
-    trusted producer that disagrees about the bytes is an integrity violation.
+    ``run`` is GitHub's record of the run the provenance names.
+    ``producer_records`` are that run's own uploaded ``mmcv-wheel.json``
+    records, one per attempt that uploaded its evidence artifact. A rerun
+    uploads a second artifact under the same name.
+
+    ``producer_on_default_branch`` says whether GitHub reports the run's head
+    commit as contained in the default branch. Without that, a tag named after
+    the default branch would also report ``head_branch == default``.
+
+    A producer that is unknown or untrusted makes the entry unverifiable, so
+    the job rebuilds; an earlier head of a pull request is the common case. A
+    trusted producer whose build records all disagree about the bytes is an
+    integrity violation.
     """
     if run is None:
         raise Unverifiable("producer_run_unknown")
@@ -299,26 +320,27 @@ def attest(
     for field in ("repository", "head_repository"):
         if (run.get(field) or {}).get("full_name") != repository:
             raise Unverifiable(f"producer_{field}_untrusted")
-    if run.get("event") in TRUSTED_REF_EVENTS and run.get("head_branch") == default_branch:
+    if (
+        run.get("event") in TRUSTED_REF_EVENTS
+        and run.get("head_branch") == default_branch
+        and producer_on_default_branch
+    ):
         trust = "default-branch"
     elif run.get("head_sha") == expected_head:
         trust = "same-head"
     else:
         raise Unverifiable(f"producer_not_trusted:{run.get('event')}:{run.get('head_branch')}")
-    if producer_record is None:
+    if not producer_records:
         raise Unverifiable("producer_record_missing")
 
-    produced = producer_record.get("provenance") or {}
-    if producer_record.get("state") != "build":
-        raise IntegrityError(f"producer_did_not_build:{producer_record.get('state')}")
-    if producer_record.get("runtimeVariant") != variant:
-        raise IntegrityError("producer_variant_mismatch")
-    if producer_record.get("headSha") != run.get("head_sha"):
-        raise IntegrityError("producer_head_mismatch")
-    if produced.get("identitySha256") != provenance.get("identitySha256"):
-        raise IntegrityError("producer_identity_mismatch")
-    if (produced.get("wheel") or {}).get("sha256") != (provenance.get("wheel") or {}).get("sha256"):
-        raise IntegrityError("producer_wheel_mismatch")
+    reasons = []
+    for producer_record in producer_records:
+        reason = _producer_disagreement(provenance, run, producer_record, variant)
+        if reason is None:
+            break
+        reasons.append(reason)
+    else:
+        raise IntegrityError(reasons[0] if len(set(reasons)) == 1 else f"producer_records_disagree:{sorted(set(reasons))}")
     return {
         "trust": trust,
         "runId": run.get("id"),
@@ -326,6 +348,23 @@ def attest(
         "headBranch": run.get("head_branch"),
         "headSha": run.get("head_sha"),
     }
+
+
+def _producer_disagreement(
+    provenance: dict[str, Any], run: dict[str, Any], record: dict[str, Any], variant: str
+) -> str | None:
+    produced = record.get("provenance") or {}
+    if record.get("state") != "build":
+        return f"producer_did_not_build:{record.get('state')}"
+    if record.get("runtimeVariant") != variant:
+        return "producer_variant_mismatch"
+    if record.get("headSha") != run.get("head_sha"):
+        return "producer_head_mismatch"
+    if produced.get("identitySha256") != provenance.get("identitySha256"):
+        return "producer_identity_mismatch"
+    if (produced.get("wheel") or {}).get("sha256") != (provenance.get("wheel") or {}).get("sha256"):
+        return "producer_wheel_mismatch"
+    return None
 
 
 def _api(url: str, token: str) -> bytes:
@@ -337,24 +376,34 @@ def _api(url: str, token: str) -> bytes:
         return response.read()
 
 
-def fetch_producer(run_id: Any, artifact_name: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """GitHub's record of ``run_id`` and that run's own ``mmcv-wheel.json``, if any."""
+def fetch_producer(
+    run_id: Any, artifact_name: str, default_branch: str
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], bool]:
+    """Return GitHub's record of ``run_id``, every ``mmcv-wheel.json`` it uploaded, and
+    whether its head commit is contained in ``default_branch``."""
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     repository = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GITHUB_TOKEN"]
     if not str(run_id or "").isdigit():
-        return None, None
+        return None, [], False
     base = f"{api}/repos/{repository}/actions/runs/{run_id}"
     try:
         run = json.loads(_api(base, token))
         listing = json.loads(_api(f"{base}/artifacts?name={artifact_name}&per_page=100", token))
-        artifacts = [a for a in listing.get("artifacts", []) if a.get("name") == artifact_name and not a.get("expired")]
-        if len(artifacts) != 1:
-            return run, None
-        with zipfile.ZipFile(io.BytesIO(_api(artifacts[0]["archive_download_url"], token))) as archive:
-            if WHEEL_RECORD_NAME not in archive.namelist():
-                return run, None
-            return run, json.loads(archive.read(WHEEL_RECORD_NAME))
+        records = []
+        for artifact in listing.get("artifacts", []):
+            if artifact.get("name") != artifact_name or artifact.get("expired"):
+                continue
+            with zipfile.ZipFile(io.BytesIO(_api(artifact["archive_download_url"], token))) as archive:
+                if WHEEL_RECORD_NAME in archive.namelist():
+                    records.append(json.loads(archive.read(WHEEL_RECORD_NAME)))
+        on_default = False
+        head_sha = str(run.get("head_sha") or "")
+        if len(head_sha) == 40 and all(c in "0123456789abcdef" for c in head_sha):
+            # "behind" or "identical": every commit of head_sha is in the default branch.
+            comparison = json.loads(_api(f"{api}/repos/{repository}/compare/{default_branch}...{head_sha}", token))
+            on_default = comparison.get("status") in ("behind", "identical")
+        return run, records, on_default
     except (urllib.error.URLError, OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
         raise Unverifiable(f"producer_unreachable:{exc}") from exc
 
@@ -400,15 +449,19 @@ def main(argv: list[str] | None = None) -> int:
     try:
         provenance = verify(args.dir, identity, args.expected_sha256)
         if args.attest:
-            run, record = fetch_producer((provenance.get("build") or {}).get("runId"), args.artifact_name)
+            default_branch = os.environ["MAVI_DEFAULT_BRANCH"]
+            run, records, on_default = fetch_producer(
+                (provenance.get("build") or {}).get("runId"), args.artifact_name, default_branch
+            )
             attestation = attest(
                 provenance,
                 run,
-                record,
+                records,
                 expected_head=os.environ["MAVI_EXPECTED_SOURCE_SHA"],
                 repository=os.environ["GITHUB_REPOSITORY"],
-                default_branch=os.environ["MAVI_DEFAULT_BRANCH"],
+                default_branch=default_branch,
                 variant=os.environ["MAVI_RUNTIME_VARIANT"],
+                producer_on_default_branch=on_default,
             )
             if args.attestation_out:
                 args.attestation_out.write_bytes(canonical(attestation) + b"\n")
