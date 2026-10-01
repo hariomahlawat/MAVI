@@ -55,6 +55,13 @@ def test_wheels_are_prohibited_from_git_tracking() -> None:
     assert ".whl" in verifier.PROHIBITED_TRACKED_SUFFIXES
 
 
+def test_public_source_video_formats_are_prohibited_from_git_tracking() -> None:
+    verifier = _load_verify_repo()
+
+    assert {".webm", ".ogv", ".ogg", ".mpg", ".mpeg", ".mp4"} <= verifier.PROHIBITED_TRACKED_SUFFIXES
+    assert "tools/qualification/source_acquisition" in verifier.PRIVATE_EVIDENCE_AREAS
+
+
 def test_tracked_runtime_lock_must_parse_canonically(tmp_path: Path) -> None:
     verifier = _load_verify_repo()
     lock = tmp_path / "runtime.lock"
