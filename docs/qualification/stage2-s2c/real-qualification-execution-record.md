@@ -438,6 +438,13 @@ A bounded metadata-only run of the B0 pilot is recorded in `s2c-b-source-feasibi
 
 Public-source sufficiency is UNRESOLVED. The available evidence is exported to a hashed bundle delivered to the owner for retention (durable custody not yet confirmed); the record lists its manifest and the evidence already lost. The record separates the corpus tooling's hard requirements from a recommended capture brief for commissioned or owner capture, and proposes the next bounded step. Slice B corpus execution has not started. F1, both MSRs and S1.4 are unchanged.
 
+**Later on 2026-10-01** (`s2c-owner-decisions-2026-10-01.md`):
+- Local custody of the bundle on the Development host is recorded and re-verified: archive SHA-256 `82fe15b7…0331`, manifest `60e4edc8…d599`, all 24 payload files matching.
+- The controlled directories are designated.
+- R-1/R-3 are reassigned prospectively (§2.1).
+
+The run itself is not re-attributed, and R-3's confirmation of it stays pending.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:

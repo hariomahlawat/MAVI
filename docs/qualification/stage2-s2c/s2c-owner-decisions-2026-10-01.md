@@ -6,6 +6,7 @@
 - execution plan `docs/superpowers/plans/2026-09-30-stage2-s2c-real-qualification-execution.md` §5, §17 (Slice B) and §19;
 - execution record `real-qualification-execution-record.md` §2–§3 and §4.3.9–§4.3.12;
 - B0 record `s2c-b0-source-acquisition-record.md` §1, §4, §6, §7 and §10;
+- pilot record `s2c-b-source-feasibility-pilot-2026-10-01.md` (the "pilot record"), whose as-of-run statements this record does not rewrite;
 - `tools/qualification/source_acquisition/README.md`.
 
 **Scope.** This record changes role assignments **from 2026-10-01 onwards**, designates controlled directories, and records local custody of the 2026-10-01 pilot evidence bundle. It does not:

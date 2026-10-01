@@ -25,6 +25,15 @@ The following are unchanged:
 - **S1.4** B1–B6 stay OPEN and separately governed.
 - **Accountable roles** are as recorded in execution record §2: R-1/R-3/R-4/R-5/R-6 Aarav; R-2/R-7 Hari Om; Savita as independent annotator. Hari Om remains repository owner.
 
+**Later owner decisions (2026-10-01, after this run).** `s2c-owner-decisions-2026-10-01.md` records decisions made after the run. This record keeps its as-of-run statements; the decisions apply from 2026-10-01 onward and do not re-attribute the run:
+- R-1 and R-3 pass to Hari Om. The role statement above stays the as-of-run historical record.
+- Hari Om is named footage rights reviewer and footage privacy reviewer. Per-file determinations are still required, and no file is reviewed or admitted.
+- The controlled source-media and acquisition directories are designated. This resolves the §2 "Controlled source-media store" row.
+- Local custody of the bundle (§4a) is recorded, with a fresh re-verification on the Development host.
+- No delegation or approval of this run is claimed. R-3's confirmation stays pending, now for R-3 Hari Om.
+- From 2026-10-01 the same person holds R-1, R-2, R-3 and R-7. The resulting independent-review conflicts are recorded there (§2) and remain open.
+- `freshnessReferenceDate` remains MISSING, with a provisional proposal only, and public-source eligibility (B0 §1) remains PENDING.
+
 ## 1. Inventory of existing source material
 
 | Item | Finding | Kind |
