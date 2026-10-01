@@ -235,6 +235,11 @@ The mutation results are in the PR.
 | Acceptance of the §1 interpretation | R-2 / owner |
 | Decision on commissioned India capture if the result is "public sources insufficient" | Owner |
 
+**Update 2026-10-01** (`s2c-owner-decisions-2026-10-01.md`):
+- The controlled store for source media and acquisition records is designated (§3 of that record).
+- Hari Om is named footage rights reviewer and footage privacy reviewer. Per-file reviews are still required.
+- `freshnessReferenceDate`, acceptance of the §1 interpretation, the operator contact and the commissioned-capture decision remain open. Proposals for the first two are in §6 of that record.
+
 ## 11. Dependencies
 
 There are none. The helper uses the Python standard library and the in-repo corpus canonicaliser. `config/dependencies/offline-dependency-policy-v1.json` is unchanged. The helper is Development tooling with network access, run by an operator, and is not part of the Internet-independent production runtime. `tools/verify_repo.py` now also refuses tracked `.webm`, `.ogv`, `.ogg`, `.mpg` and `.mpeg` files, and treats `tools/qualification/source_acquisition` as a private-evidence area, so no image may be tracked there.
