@@ -3516,7 +3516,12 @@ LATER_STAGE_QUALIFICATION_FILES = (
 
 
 def _trigger_globs(workflow: str, event: str) -> list[str]:
-    block = workflow.split(f"\n  {event}:\n", 1)[1].split("\n    paths:\n", 1)[1]
+    block = re.split(r"\n  [a-z_]+:\n|\n[a-z]", workflow.split(f"\n  {event}:\n", 1)[1], maxsplit=1)[0]
+    if "\n    paths:\n" not in block and event == "pull_request" and "name: Task 10 Runtime Qualification" in workflow:
+        # Task 10 pull requests run unfiltered; its scope job applies this list.
+        scope = (REPO_ROOT / "tools" / "vision" / "task10-scope-paths.txt").read_text(encoding="utf-8")
+        return [line.strip() for line in scope.splitlines() if line.strip() and not line.strip().startswith("#")]
+    block = block.split("\n    paths:\n", 1)[1]
     globs = []
     for line in block.splitlines():
         stripped = line.strip()
