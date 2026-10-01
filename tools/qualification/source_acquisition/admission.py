@@ -30,6 +30,12 @@ ROLES = ("operational-candidate", "training-only", "development-reference")
 CAPTURE_EVIDENCE_KINDS = ("embedded-container-metadata", "uploader-statement", "visible-in-frame", "corroborating-source")
 CAPTURE_CONFIDENCE = ("high", "medium", "low", "unknown")
 VIDEO_MIME = ("video/webm", "video/ogg", "video/mpeg", "video/mp4")
+# Commons labels every Ogg container ``application/ogg`` whatever it holds (Theora video, or
+# Vorbis/Opus audio only). The container MIME alone is therefore not evidence either way; the
+# content classification is Commons' own ``mediatype``. Only this one container MIME gets that
+# treatment, and only with an Ogg file extension and a real frame size.
+OGG_CONTAINER_MIME = "application/ogg"
+_OGG_EXTENSIONS = (".ogv", ".ogg")
 
 # Machine pre-classification of the file's own licence code, never a legal determination:
 # an admitted item also needs a named rights review. Anything unlisted stays RIGHTS_PENDING.
@@ -110,6 +116,23 @@ def freshness(decision: dict) -> str:
     return "UNDETERMINED"
 
 
+def _positive_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def is_continuous_video(meta: dict) -> bool:
+    """Provider metadata describes continuous video: Commons ``mediatype`` VIDEO and either a
+    video MIME, or the Ogg container MIME on an Ogg file with a positive frame size."""
+    if meta.get("mediaType") != "VIDEO":
+        return False
+    mime = meta.get("mime")
+    if mime in VIDEO_MIME:
+        return True
+    title = meta.get("fileTitle")
+    return (mime == OGG_CONTAINER_MIME and isinstance(title, str) and title.lower().endswith(_OGG_EXTENSIONS)
+            and _positive_int(meta.get("width")) and _positive_int(meta.get("height")))
+
+
 def derive_state(meta: dict, decision: dict | None) -> tuple[str, list[str]]:
     """Effective admission state and the blockers that stop a stronger state.
 
@@ -119,7 +142,7 @@ def derive_state(meta: dict, decision: dict | None) -> tuple[str, list[str]]:
     """
     blockers: list[str] = []
     lic = licence_class(meta.get("licenceCode"))
-    if meta.get("mediaType") != "VIDEO" or meta.get("mime") not in VIDEO_MIME:
+    if not is_continuous_video(meta):
         blockers.append("not-continuous-video")
     if not meta.get("originalFileUrl") or not meta.get("fileSha1") or not meta.get("declaredByteSize"):
         blockers.append("original-file-identity-missing")
