@@ -153,7 +153,10 @@ jobs:
     timeout-minutes: 60
     env:
       MMCV_WITH_OPS: '1'
-      MAX_JOBS: '2'
+      # Compile parallelism only (4-vCPU runners); not correctness-bearing
+      # (tools/vision/verify_windows_cuda_toolchain.py). Byte reproducibility of
+      # the MMCV wheel is Task 12's contract, which keeps its own MAX_JOBS=1.
+      MAX_JOBS: '4'
       RTMDET_CHECKPOINT_URL: https://download.openmmlab.com/mmdetection/v3.0/rtmdet/rtmdet_m_8xb32-300e_coco/rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth
       RTMDET_CHECKPOINT_SHA256: 229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b
       MAVI_EVENT_SHA: ${{ github.sha }}

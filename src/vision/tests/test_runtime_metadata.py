@@ -389,12 +389,13 @@ def _trigger_paths(workflow: str, event: str) -> list[str]:
 
 
 def _glob_matches(glob: str, path: str) -> bool:
-    """GitHub path-filter semantics: ``**`` crosses ``/``; ``*`` does not."""
+    """GitHub path-filter semantics: ``**`` crosses ``/`` and ``**/`` also
+    matches zero directories; ``*`` does not cross ``/``."""
     import re
 
     pattern = "".join(
-        ".*" if token == "**" else "[^/]*" if token == "*" else re.escape(token)
-        for token in re.split(r"(\*\*|\*)", glob)
+        "(?:.*/)?" if token == "**/" else ".*" if token == "**" else "[^/]*" if token == "*" else re.escape(token)
+        for token in re.split(r"(\*\*/|\*\*|\*)", glob)
     )
     return re.fullmatch(pattern, path) is not None
 
@@ -469,3 +470,79 @@ def test_windows_qualification_lane_is_exact_head_and_runtime_free() -> None:
         "probe_runtime", "mavi_run_qualified", "upload-artifact", "qualification-evidence",
     ):
         assert forbidden not in lowered, forbidden
+
+
+def test_github_glob_semantics_used_by_the_trigger_tests() -> None:
+    # ``**/`` matches zero or more directories, as GitHub path filters do.
+    assert _glob_matches("models/manifests/**/*.json", "models/manifests/a.json")
+    assert _glob_matches("models/manifests/**/*.json", "models/manifests/x/y/a.json")
+    assert _glob_matches("tools/qualification/**", "tools/qualification/a/b.py")
+    assert not _glob_matches("tools/qualification/s1_*", "tools/qualification/x/s1_a.py")
+    assert not _glob_matches("src/vision/tests/test_*.py", "src/vision/tests/sub/test_a.py")
+
+
+def _job_blocks(workflow: str) -> dict[str, str]:
+    import re
+
+    jobs = workflow.split("\njobs:\n", 1)[1]
+    parts = re.split(r"^  ([A-Za-z0-9_-]+):\n", jobs, flags=re.M)
+    return dict(zip(parts[1::2], parts[2::2]))
+
+
+SHARDED_JOBS = {
+    ("quality-gate.yml", "dotnet-tests"),
+    ("quality-gate.yml", "guard-coverage"),
+    ("quality-gate.yml", "qualification-tests"),
+    ("qualification-tooling-windows.yml", "qualification-tests"),
+}
+
+
+def test_every_sharded_job_runs_every_shard_index_exactly_once() -> None:
+    """A matrix that omits a shard index (or a shard count larger than the
+    matrix) would silently drop that slice of the suite."""
+    import re
+
+    found = set()
+    for workflow_file in sorted(p.name for p in _WORKFLOWS.glob("*.yml")):
+        for job, block in _job_blocks((_WORKFLOWS / workflow_file).read_text(encoding="utf-8")).items():
+            matrix = re.search(r"^        shard: \[([0-9, ]+)\]$", block, re.M)
+            if matrix is None:
+                continue
+            found.add((workflow_file, job))
+            shards = [int(x) for x in matrix.group(1).split(",")]
+            counts = set(re.findall(r"SHARD_COUNT: '(\d+)'", block)) | set(re.findall(r"--shard-count (\d+)", block))
+            assert len(counts) == 1, (workflow_file, job, counts)
+            assert shards == list(range(int(counts.pop()))), (workflow_file, job, shards)
+            assert "${{ matrix.shard }}" in block, (workflow_file, job)
+    assert found == SHARDED_JOBS
+
+
+def test_qualification_lanes_shard_by_test_and_never_vacuously() -> None:
+    for workflow_file in ("quality-gate.yml", "qualification-tooling-windows.yml"):
+        block = _job_blocks((_WORKFLOWS / workflow_file).read_text(encoding="utf-8"))["qualification-tests"]
+        assert "python -m pytest --collect-only -q -p no:cacheprovider tools/qualification/tests > collected.txt" in block
+        assert "awk -v n=\"$SHARD_COUNT\" -v i=\"$SHARD_INDEX\" '(NR - 1) % n == i' all-tests.txt > shard-tests.txt" in block
+        assert 'test "$total" -gt 0' in block and 'test "$selected" -gt 0' in block
+        assert "@shard-tests.txt" in block and "set -euo pipefail" in block
+
+
+def test_the_quality_aggregate_requires_success_from_every_lane() -> None:
+    import re
+
+    blocks = _job_blocks((_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8"))
+    quality = blocks["quality"]
+    needs = re.search(r"needs:\n((?:      - [a-z-]+\n)+)", quality).group(1).split()
+    needs = [n for n in needs if n != "-"]
+    assert set(needs) == set(blocks) - {"quality"}
+    assert "if: always()" in quality
+    for lane in needs:
+        assert f"test '${{{{ needs.{lane}.result }}}}' = 'success'" in quality, lane
+    for block in blocks.values():
+        assert "continue-on-error" not in block
+
+
+def test_task12_keeps_its_byte_reproducibility_build_serial() -> None:
+    """Task 10 compiles MMCV in parallel (a tuning knob); Task 12's wheel
+    reproducibility proof keeps MAX_JOBS=1."""
+    task12 = (_WORKFLOWS / "task12-offline-bundle.yml").read_text(encoding="utf-8")
+    assert 'echo "MAX_JOBS=1"' in task12
