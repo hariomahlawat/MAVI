@@ -417,6 +417,16 @@ The interpretation of "MAVI-acquired operational footage" is in `s2c-b0-source-a
 
 No footage was discovered or acquired in this pass; the pilot has not run. Slice B has not started, and F1 is unchanged. Both MSRs remain `PLANNED`, and no candidate gains any standing from source acquisition.
 
+#### 4.3.13 Slice B preparation — public-source feasibility pilot, first run, 2026-10-01
+
+A bounded metadata-only run of the B0 pilot is recorded in `s2c-b-source-feasibility-pilot-2026-10-01.md`.
+
+- **Scopes:** predeclared.
+- **Run:** 15 candidates were described, and live Commons parsing was validated. Shared-egress rate limiting then stopped it (stop condition S4).
+- **Acquisition:** nothing was admitted or acquired. No rights or privacy review exists, and `freshnessReferenceDate` is missing.
+
+Preliminary evidence indicates that public Commons video is insufficient. The record specifies the minimum structural footage set for commissioned or owner capture, and the next bounded step. Slice B corpus execution has not started. F1, both MSRs and S1.4 are unchanged.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:
