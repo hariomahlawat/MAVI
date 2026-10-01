@@ -213,3 +213,153 @@ def test_the_identity_covers_every_declared_build_input(monkeypatch: pytest.Monk
     assert identity["platform"]["runnerImage"] == "image-sentinel"
     assert {"version", "implementation", "build", "compiler", "soabi", "cacheTag"} <= set(identity["python"])
     assert identity["numpy"]
+    assert identity["verifierSha256"] == cache.sha256_file(TOOL.parent / "compare_wheel_reproducibility.py")
+    assert set(identity["buildTools"]) == {"setuptools", "wheel", "ninja", "pip"}
+
+
+def test_build_environment_and_tool_versions_enter_the_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cache, "torch_identity", lambda: {})
+    monkeypatch.setattr(cache, "toolchain_identity", lambda: {})
+    for name in [n for n in __import__("os").environ if n in cache.BUILD_ENVIRONMENT or n.startswith("MMCV_")]:
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("MAX_JOBS", "2")
+    base = cache.environment_identity("c" * 40, "r")
+    assert base["buildEnvironment"] == {}
+    monkeypatch.setenv("MAX_JOBS", "1")  # parallelism only: same identity
+    assert cache.identity_key(cache.environment_identity("c" * 40, "r")) == cache.identity_key(base)
+    for name, value in (("CXXFLAGS", "-O0"), ("MMCV_WITH_OPS", "1"), ("DISTUTILS_USE_SDK", "1")):
+        monkeypatch.setenv(name, value)
+        changed = cache.environment_identity("c" * 40, "r")
+        assert changed["buildEnvironment"][name] == value
+        assert cache.identity_key(changed) != cache.identity_key(base)
+        monkeypatch.delenv(name)
+    monkeypatch.setattr(cache, "build_tools_identity", lambda: {"setuptools": "81.0.0"})
+    assert cache.identity_key(cache.environment_identity("c" * 40, "r")) != cache.identity_key(base)
+
+
+HEAD = "d" * 40
+REPO = "owner/MAVI"
+
+
+def _producer(**overrides):
+    run = {"id": 7, "path": cache.TASK10_WORKFLOW_PATH, "event": "push", "head_branch": "main",
+           "head_sha": "e" * 40, "repository": {"full_name": REPO}, "head_repository": {"full_name": REPO}}
+    run.update(overrides)
+    return run
+
+
+def _attest(provenance, run, record):
+    return cache.attest(provenance, run, record, expected_head=HEAD, repository=REPO,
+                        default_branch="main", variant="windows-x86_64-cpu")
+
+
+def _record_for(provenance, run, **overrides):
+    record = {"state": "build", "runtimeVariant": "windows-x86_64-cpu", "headSha": run["head_sha"],
+              "provenance": provenance}
+    record.update(overrides)
+    return record
+
+
+def _provenance(tmp_path: Path):
+    entry = built(tmp_path / "w")
+    return json.loads((entry / cache.PROVENANCE_NAME).read_text(encoding="utf-8"))
+
+
+def test_a_wheel_produced_on_the_default_branch_or_this_head_is_attested(tmp_path: Path) -> None:
+    provenance = _provenance(tmp_path)
+    for run, trust in ((_producer(), "default-branch"), (_producer(event="workflow_dispatch"), "default-branch"),
+                       (_producer(event="pull_request", head_branch="feature", head_sha=HEAD), "same-head")):
+        assert _attest(provenance, run, _record_for(provenance, run))["trust"] == trust
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        None,
+        # An earlier, unreviewed head of the same pull request.
+        _producer(event="pull_request", head_branch="feature"),
+        # A pull request from a branch merely named after the default branch.
+        _producer(event="pull_request"),
+        _producer(head_repository={"full_name": "fork/MAVI"}),
+        _producer(repository={"full_name": "other/MAVI"}),
+        _producer(head_branch="feature"),
+        _producer(path=".github/workflows/other.yml"),
+    ],
+)
+def test_an_untrusted_or_unknown_producer_is_unverifiable_and_rebuilt(tmp_path: Path, run) -> None:
+    provenance = _provenance(tmp_path)
+    record = _record_for(provenance, run or _producer())
+    with pytest.raises(cache.Unverifiable):
+        _attest(provenance, run, record)
+
+
+def test_a_trusted_producer_without_its_record_is_unverifiable(tmp_path: Path) -> None:
+    provenance = _provenance(tmp_path)
+    with pytest.raises(cache.Unverifiable, match="producer_record_missing"):
+        _attest(provenance, _producer(), None)
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (lambda r: r["provenance"]["wheel"].update(sha256="0" * 64), "producer_wheel_mismatch"),
+        (lambda r: r["provenance"].update(identitySha256="0" * 64), "producer_identity_mismatch"),
+        (lambda r: r.update(state="reuse"), "producer_did_not_build"),
+        (lambda r: r.update(runtimeVariant="linux-x86_64-cpu"), "producer_variant_mismatch"),
+        (lambda r: r.update(headSha="f" * 40), "producer_head_mismatch"),
+    ],
+)
+def test_a_trusted_producer_that_disagrees_is_an_integrity_violation(tmp_path: Path, change, reason) -> None:
+    provenance = _provenance(tmp_path)
+    run = _producer()
+    record = copy.deepcopy(_record_for(provenance, run))
+    change(record)
+    with pytest.raises(cache.IntegrityError, match=reason):
+        _attest(provenance, run, record)
+
+
+def test_a_non_numeric_producer_run_is_never_fetched(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+    monkeypatch.setenv("GITHUB_TOKEN", "unused")
+    monkeypatch.setattr(cache, "_api", lambda *a: (_ for _ in ()).throw(AssertionError("fetched")))
+    assert cache.fetch_producer("../../evil", "a") == (None, None)
+    assert cache.fetch_producer(None, "a") == (None, None)
+
+
+def test_an_unreachable_producer_is_unverifiable(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+    monkeypatch.setenv("GITHUB_TOKEN", "unused")
+
+    def fail(*_):
+        raise urllib.error.URLError("down")
+
+    monkeypatch.setattr(cache, "_api", fail)
+    with pytest.raises(cache.Unverifiable, match="producer_unreachable"):
+        cache.fetch_producer("7", "a")
+
+
+def test_the_token_is_not_forwarded_on_redirect() -> None:
+    import urllib.request
+
+    seen = {}
+
+    class Capture(urllib.request.BaseHandler):
+        def default_open(self, request):
+            seen["redirected"] = request.headers
+            seen["unredirected"] = request.unredirected_hdrs
+            raise urllib.error.URLError("stop")
+
+    import urllib.error
+
+    opener = urllib.request.build_opener(Capture)
+    original = urllib.request.urlopen
+    urllib.request.urlopen = lambda request, timeout=None: opener.open(request, timeout=timeout)
+    try:
+        with pytest.raises(urllib.error.URLError):
+            cache._api("https://api.example/x", "secret")
+    finally:
+        urllib.request.urlopen = original
+    assert "Authorization" not in seen["redirected"]
+    assert seen["unredirected"]["Authorization"] == "Bearer secret"

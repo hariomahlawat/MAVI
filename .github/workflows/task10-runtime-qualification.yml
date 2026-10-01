@@ -11,6 +11,7 @@ on:
       - 'tools/vision/mmcv_wheel_cache.py'
       - 'tools/vision/task10_environment.py'
       - 'tools/vision/compare_wheel_reproducibility.py'
+      - 'tools/vision/task10-s1-harness-requirements.txt'
       - 'src/vision/tests/test_runtime_probe.py'
       - 'src/vision/tests/test_resolve_mmdet_config.py'
       - 'src/vision/tests/test_runtime_metadata.py'
@@ -77,6 +78,7 @@ on:
       - 'tools/vision/mmcv_wheel_cache.py'
       - 'tools/vision/task10_environment.py'
       - 'tools/vision/compare_wheel_reproducibility.py'
+      - 'tools/vision/task10-s1-harness-requirements.txt'
       - 'src/vision/tests/test_runtime_probe.py'
       - 'src/vision/tests/test_resolve_mmdet_config.py'
       - 'src/vision/tests/test_runtime_metadata.py'
@@ -145,6 +147,10 @@ concurrency:
 jobs:
   cpu-candidate:
     name: CPU ${{ matrix.os }} Python ${{ matrix.python-version }} Torch 2.6.0
+    permissions:
+      contents: read
+      # Read a producing run and its evidence artifact to attest a reused MMCV wheel.
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -276,10 +282,15 @@ jobs:
           "MSSdk=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # MMCV is compiled by Task 10 from the immutable source against the installed
-      # PyTorch, or a wheel Task 10 compiled earlier for exactly this build identity
-      # (source commit, recipe, Python ABI, PyTorch build, NumPy, platform, runner
-      # image, compiler/SDK) is reused after verification. Exact key, no restore-keys;
-      # an unverifiable entry is rebuilt, an integrity violation fails the job.
+      # PyTorch. Alternatively, a wheel that Task 10 compiled earlier for exactly
+      # this build identity is reused after verification. The identity covers the
+      # source commit, recipe, Python ABI, PyTorch build, NumPy, build tools and
+      # environment, platform, runner image and compiler/SDK. Reuse also requires
+      # GitHub to attest that the producer was a trusted Task 10 run: a push or
+      # dispatch on the default branch, or a run on this exact head. The key is
+      # exact, with no restore-keys. An unverifiable entry is rebuilt; an integrity
+      # violation fails the job. Pull-request runs never save, so a PR can neither
+      # publish nor shadow an entry.
       - name: Compute MMCV build identity
         id: mmcv-identity
         shell: bash
@@ -301,17 +312,21 @@ jobs:
         shell: bash
         env:
           CACHE_HIT: ${{ steps.mmcv-restore.outputs.cache-hit }}
+          GITHUB_TOKEN: ${{ github.token }}
+          MAVI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MMCV_PRODUCER_ARTIFACT: runtime-probe-${{ matrix.os }}-py3.12-torch2.6.0
         run: |
           set -uo pipefail
           if [ "$CACHE_HIT" != "true" ]; then
             echo "state=build" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          python tools/vision/mmcv_wheel_cache.py verify --dir .mmcv-wheel --identity .mmcv-identity.json
-          code=$?
+          # The step shell runs with -e; capture the exit code instead of exiting on it.
+          code=0
+          python tools/vision/mmcv_wheel_cache.py verify --dir .mmcv-wheel --identity .mmcv-identity.json --attest --artifact-name "$MMCV_PRODUCER_ARTIFACT" --attestation-out .mmcv-attestation.json || code=$?
           case "$code" in
             0) echo "state=reuse" >> "$GITHUB_OUTPUT" ;;
-            3) rm -rf .mmcv-wheel; echo "state=build" >> "$GITHUB_OUTPUT" ;;
+            3) rm -rf .mmcv-wheel .mmcv-attestation.json; echo "state=build" >> "$GITHUB_OUTPUT" ;;
             *) exit "$code" ;;
           esac
 
@@ -337,7 +352,7 @@ jobs:
         run: python tools/vision/mmcv_wheel_cache.py record --dir .mmcv-wheel --identity .mmcv-identity.json
 
       - name: Save Task 10 MMCV wheel
-        if: steps.mmcv-verify.outputs.state == 'build'
+        if: steps.mmcv-verify.outputs.state == 'build' && github.event_name != 'pull_request'
         uses: actions/cache/save@v4
         with:
           path: .mmcv-wheel
@@ -350,6 +365,7 @@ jobs:
           MMCV_WHEEL_KEY: ${{ steps.mmcv-identity.outputs.key }}
         run: |
           set -euo pipefail
+          case "$MMCV_WHEEL_STATE" in build|reuse) ;; *) exit 1 ;; esac
           python tools/vision/mmcv_wheel_cache.py verify --dir .mmcv-wheel --identity .mmcv-identity.json
           python -m pip install .mmcv-wheel/*.whl
           mkdir -p qualification-evidence
@@ -357,11 +373,18 @@ jobs:
           import json, os
           from pathlib import Path
           provenance = json.loads(Path(".mmcv-wheel/provenance.json").read_text(encoding="utf-8"))
+          state = os.environ["MMCV_WHEEL_STATE"]
+          if state == "reuse":
+              attestation = json.loads(Path(".mmcv-attestation.json").read_text(encoding="utf-8"))
+          else:
+              attestation = {"trust": "built-in-this-run", "runId": os.environ["GITHUB_RUN_ID"]}
           record = {
-              "state": os.environ["MMCV_WHEEL_STATE"],
+              "state": state,
               "cacheKey": os.environ["MMCV_WHEEL_KEY"],
               "headSha": os.environ["MAVI_EXPECTED_SOURCE_SHA"],
               "runtimeVariant": os.environ["MAVI_RUNTIME_VARIANT"],
+              "runId": os.environ["GITHUB_RUN_ID"],
+              "attestation": attestation,
               "provenance": provenance,
           }
           Path("qualification-evidence/mmcv-wheel.json").write_text(json.dumps(record, sort_keys=True, indent=1) + "\n", encoding="utf-8")
@@ -1028,26 +1051,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install S1 harness subset of the candidate graph
-        run: >-
-          python -m pip install --upgrade pip
-          "setuptools==80.9.0"
-          wheel
-          ninja
-          psutil
-          pytest
-          "numpy==2.5.3"
-          "av==16.1.0"
-          "Pillow==11.3.0"
-          "msgpack>=1.1,<2"
-          "pydantic>=2.11,<3"
-          "pydantic-settings>=2.10,<3"
-          "httpx>=0.28,<0.29"
-          "packaging>=26,<27"
-          "jsonschema>=4.23,<5"
-          trackers==2.6.0
-          supervision==0.30.2
-          scipy==1.18.1
-          opencv-python==5.0.0.93
+        run: python -m pip install --upgrade -r tools/vision/task10-s1-harness-requirements.txt
 
       - name: Run S1.4 qualification harness tests with the native ByteTrack backend
         shell: bash
@@ -1063,7 +1067,7 @@ jobs:
       - name: Record harness environment
         if: always()
         shell: bash
-        run: python tools/vision/task10_environment.py record --out qualification-evidence/s1-harness-environment.json
+        run: python tools/vision/task10_environment.py record --closure-roots tools/vision/task10-s1-harness-requirements.txt --out qualification-evidence/s1-harness-environment.json
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -1122,7 +1126,7 @@ jobs:
             harness="task10-evidence/s1-harness-${os}-py3.12"
             python tools/vision/task10_environment.py check-harness --junit "$harness/junit/s1-qualification-harness.xml" --variant "$variant"
             python tools/vision/task10_environment.py compare --candidate "$candidate/candidate-environment.json" --harness "$harness/s1-harness-environment.json"
-            test -s "$candidate/mmcv-wheel.json"
+            python tools/vision/task10_environment.py check-mmcv --record "$candidate/mmcv-wheel.json" --variant "$variant" --head "$MAVI_EXPECTED_SOURCE_SHA" --run-id "$GITHUB_RUN_ID"
             for step in runtime-tooling s1-boundary runtime-probe-real-torch bytetrack-runtime real-clip-harness production-processor-runtime; do
               test -s "$candidate/junit/$step.xml"
             done

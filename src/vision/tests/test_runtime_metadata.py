@@ -509,7 +509,7 @@ def test_task10_reuses_only_a_verified_wheel_it_built_for_this_exact_identity() 
     verify = _job_step(candidate, "Verify restored MMCV wheel")
     assert 'if [ "$CACHE_HIT" != "true" ]; then' in verify
     assert '0) echo "state=reuse" >> "$GITHUB_OUTPUT" ;;' in verify
-    assert '3) rm -rf .mmcv-wheel; echo "state=build" >> "$GITHUB_OUTPUT" ;;' in verify
+    assert '3) rm -rf .mmcv-wheel .mmcv-attestation.json; echo "state=build" >> "$GITHUB_OUTPUT" ;;' in verify
     assert '*) exit "$code" ;;' in verify
 
     build_only = "if: steps.mmcv-verify.outputs.state == 'build'"
@@ -582,16 +582,25 @@ def test_the_s1_harness_runs_concurrently_on_a_pinned_subset_of_the_candidate_gr
         _job_step(candidate, "Install remaining candidate graph"),
     ]
     candidate_pins = set().union(*(_pins(step) for step in installs))
-    harness_pins = _pins(_job_step(harness, "Install S1 harness subset of the candidate graph"))
-    assert harness_pins <= candidate_pins, sorted(harness_pins - candidate_pins)
+    requirements = Path(__file__).parents[3] / "tools" / "vision" / "task10-s1-harness-requirements.txt"
+    harness_pins = {
+        line.split("#", 1)[0].strip()
+        for line in requirements.read_text(encoding="utf-8").splitlines()
+        if line.split("#", 1)[0].strip()
+    }
+    assert harness_pins and harness_pins <= candidate_pins | {"pip"}, sorted(harness_pins - candidate_pins)
+    install = _job_step(harness, "Install S1 harness subset of the candidate graph")
+    assert install.split("run: ", 1)[1].strip() == "python -m pip install --upgrade -r tools/vision/task10-s1-harness-requirements.txt"
     for forbidden in ("torch", "mmcv", "mmengine", "mmdet"):
         assert forbidden not in harness.lower(), forbidden
+        assert forbidden not in requirements.read_text(encoding="utf-8").lower(), forbidden
 
     # Harness evidence is checked in the job and always retained.
     check = _job_step(harness, "Check retained harness evidence and skips")
     assert "task10_environment.py check-harness --junit qualification-evidence/junit/s1-qualification-harness.xml" in check
     record = _job_step(harness, "Record harness environment")
     assert "if: always()" in record and "s1-harness-environment.json" in record
+    assert "--closure-roots tools/vision/task10-s1-harness-requirements.txt" in record
     upload = harness.split("uses: actions/upload-artifact@v4", 1)[1]
     assert "if: always()" in harness.split("uses: actions/upload-artifact@v4", 1)[1][:40]
     assert "name: s1-harness-${{ matrix.os }}-py3.12" in upload
@@ -613,7 +622,6 @@ def test_task10_passes_only_when_every_split_job_and_its_evidence_does() -> None
     assert "ubuntu-latest:linux-x86_64-cpu windows-latest:windows-x86_64-cpu" in evidence
     assert 'check-harness --junit "$harness/junit/s1-qualification-harness.xml" --variant "$variant"' in evidence
     assert 'compare --candidate "$candidate/candidate-environment.json" --harness "$harness/s1-harness-environment.json"' in evidence
-    assert 'test -s "$candidate/mmcv-wheel.json"' in evidence
     import re
 
     candidate_steps = set(re.findall(r"--junitxml=(?:\.\./\.\./)?qualification-evidence/junit/([a-z0-9-]+)\.xml", _task10_job("cpu-candidate")))
@@ -637,5 +645,70 @@ def _s1_task10_steps() -> tuple[str, ...]:
 def test_the_split_job_tools_trigger_task10() -> None:
     task10 = (_WORKFLOWS / "task10-runtime-qualification.yml").read_text(encoding="utf-8")
     for path in ("tools/vision/mmcv_wheel_cache.py", "tools/vision/task10_environment.py",
-                 "tools/vision/compare_wheel_reproducibility.py"):
+                 "tools/vision/compare_wheel_reproducibility.py", "tools/vision/task10-s1-harness-requirements.txt"):
         assert _triggers(task10, path), path
+
+
+def _git_bash() -> str:
+    """The bash GitHub's ``shell: bash`` uses: Git's on Windows, never WSL's."""
+    import os
+    import shutil
+
+    if os.name == "nt":
+        git = shutil.which("git")
+        assert git, "git is required"
+        for candidate in (Path(git).parents[1] / "bin" / "bash.exe", Path(git).parents[1] / "usr" / "bin" / "bash.exe"):
+            if candidate.is_file():
+                return str(candidate)
+    bash = shutil.which("bash")
+    assert bash, "bash is required"
+    return bash
+
+
+def test_the_verify_step_rebuilds_unverifiable_entries_under_github_s_bash_flags(tmp_path: Path) -> None:
+    """GitHub runs ``shell: bash`` as ``bash --noprofile --norc -eo pipefail``; the
+    step must still reach its exit-code dispatch rather than exit on the code."""
+    import subprocess
+
+    step = _job_step(_task10_job("cpu-candidate"), "Verify restored MMCV wheel")
+    body = "\n".join(line[10:] for line in step.split("        run: |\n", 1)[1].splitlines())
+    import re
+
+    # Replace only the verifier invocation; keep whatever surrounds it.
+    body, replaced = re.subn(r"python tools/vision/mmcv_wheel_cache\.py verify[^|\n]*?(?= \|\||\n)",
+                             '( exit "$FAKE_VERIFY_CODE" )', body)
+    assert replaced == 1
+
+    def run(code: int, hit: str = "true") -> tuple[int, str]:
+        output = tmp_path / f"out-{code}-{hit}"
+        output.write_text("", encoding="utf-8")
+        completed = subprocess.run(
+            [_git_bash(), "--noprofile", "--norc", "-eo", "pipefail", "-s"],
+            input=body, text=True, cwd=tmp_path, capture_output=True,
+            env={**__import__("os").environ, "FAKE_VERIFY_CODE": str(code), "CACHE_HIT": hit,
+                 "GITHUB_OUTPUT": output.as_posix(), "MMCV_PRODUCER_ARTIFACT": "a"},
+        )
+        return completed.returncode, output.read_text(encoding="utf-8").strip()
+
+    (tmp_path / ".mmcv-wheel").mkdir()
+    assert run(0) == (0, "state=reuse")
+    assert run(3) == (0, "state=build")
+    assert not (tmp_path / ".mmcv-wheel").exists()
+    assert run(2) == (2, "")
+    assert run(1) == (1, "")
+    assert run(0, hit="false") == (0, "state=build")
+
+
+def test_pull_request_runs_never_save_and_reuse_is_attested() -> None:
+    candidate = _task10_job("cpu-candidate")
+    save = _job_step(candidate, "Save Task 10 MMCV wheel")
+    assert "if: steps.mmcv-verify.outputs.state == 'build' && github.event_name != 'pull_request'" in save
+    verify = _job_step(candidate, "Verify restored MMCV wheel")
+    assert "--attest --artifact-name \"$MMCV_PRODUCER_ARTIFACT\" --attestation-out .mmcv-attestation.json" in verify
+    assert "MMCV_PRODUCER_ARTIFACT: runtime-probe-${{ matrix.os }}-py3.12-torch2.6.0" in verify
+    assert "name: runtime-probe-${{ matrix.os }}-py3.12-torch2.6.0" in candidate
+    assert "MAVI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}" in verify
+    assert "      actions: read\n" in candidate.split("    steps:", 1)[0]
+    gate = _job_step(_task10_job("task10-qualification"), "Require harness evidence bound to each candidate environment")
+    assert ('check-mmcv --record "$candidate/mmcv-wheel.json" --variant "$variant" '
+            '--head "$MAVI_EXPECTED_SOURCE_SHA" --run-id "$GITHUB_RUN_ID"') in gate

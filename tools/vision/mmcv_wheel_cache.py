@@ -8,7 +8,8 @@ provenance after a build, and verifies a restored wheel before it is installed.
 
 * ``identity``  -- compute this job's build identity and its cache key.
 * ``record``    -- after a build, write provenance binding the wheel to the identity.
-* ``verify``    -- check a restored wheel against this job's identity.
+* ``verify``    -- check a restored wheel against this job's identity and, with
+                   ``--attest``, that GitHub attests a trusted Task 10 run produced it.
 
 ``verify`` exits 0 when the wheel is verified. It exits 3 when the entry is
 unverifiable, meaning provenance is absent, unreadable, or of an unknown
@@ -16,6 +17,18 @@ schema; the job then rebuilds. It exits 2 on an integrity violation, meaning
 provenance for a different identity, a changed wheel, a wrong distribution or
 tag, or a RECORD that disagrees with the wheel's members; the job then fails
 and never falls back to a rebuild.
+
+Provenance inside a cache entry is written by whoever saved the entry, so on
+its own it proves nothing about who built the wheel. ``--attest`` therefore
+asks GitHub, not the entry, about the producing run. That run must be a
+Task 10 run of this repository, and one of the following:
+
+* a ``push`` or ``workflow_dispatch`` run on the default branch; or
+* a run on exactly the head being qualified.
+
+The producer's own uploaded ``mmcv-wheel.json`` must also name this wheel's
+SHA-256 and identity. An entry that fails these checks is either unverifiable
+or an integrity violation, as for ``verify``.
 
 Byte reproducibility of the MMCV wheel is Task 12's proof, not this tool's;
 see docs/qualification/stage2-s1/2026-10-01-task10-harness-separation-and-mmcv-wheel-reuse.md.
@@ -26,12 +39,17 @@ from __future__ import annotations
 import argparse
 import email.parser
 import hashlib
+import importlib.metadata
+import io
 import json
 import os
 import platform
 import subprocess
 import sys
 import sysconfig
+import urllib.error
+import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +65,16 @@ PROVENANCE_SCHEMA = "mavi-task10-mmcv-wheel-provenance-v1"
 PROVENANCE_NAME = "provenance.json"
 EXPECTED_DISTRIBUTION = ("mmcv", "2.1.0")
 EXIT_VERIFIED, EXIT_INTEGRITY, EXIT_UNVERIFIABLE = 0, 2, 3
+TASK10_WORKFLOW_PATH = ".github/workflows/task10-runtime-qualification.yml"
+TRUSTED_REF_EVENTS = frozenset({"push", "workflow_dispatch"})
+WHEEL_RECORD_NAME = "mmcv-wheel.json"
+# Build tools whose version can change the compiled wheel.
+BUILD_DISTRIBUTIONS = ("setuptools", "wheel", "ninja", "pip")
+# Environment that the MMCV / PyTorch extension build reads. MAX_JOBS only
+# changes parallelism, not the output, and is deliberately excluded.
+BUILD_ENVIRONMENT = ("CC", "CXX", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "DISTUTILS_USE_SDK", "MSSdk",
+                     "TORCH_CUDA_ARCH_LIST", "CUDA_HOME", "FORCE_CUDA")
+BUILD_ENVIRONMENT_PREFIXES = ("MMCV_",)
 
 
 class IntegrityError(Exception):
@@ -111,14 +139,36 @@ def torch_identity() -> dict[str, Any]:
     }
 
 
+def build_tools_identity() -> dict[str, str | None]:
+    versions: dict[str, str | None] = {}
+    for name in BUILD_DISTRIBUTIONS:
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    return versions
+
+
+def build_environment_identity() -> dict[str, str]:
+    return {
+        name: value
+        for name, value in sorted(os.environ.items())
+        if name in BUILD_ENVIRONMENT or name.startswith(BUILD_ENVIRONMENT_PREFIXES)
+    }
+
+
 def environment_identity(mmcv_commit: str, recipe: str) -> dict[str, Any]:
     import numpy  # noqa: PLC0415
 
+    here = Path(__file__).resolve().parent
     return {
         "schema": IDENTITY_SCHEMA,
         "mmcvSourceCommit": mmcv_commit,
         "buildRecipe": recipe,
         "toolSha256": sha256_file(Path(__file__)),
+        "verifierSha256": sha256_file(here / "compare_wheel_reproducibility.py"),
+        "buildTools": build_tools_identity(),
+        "buildEnvironment": build_environment_identity(),
         "python": {
             "version": platform.python_version(),
             "implementation": platform.python_implementation(),
@@ -224,6 +274,91 @@ def verify(directory: Path, identity: dict[str, Any], expected_sha256: str | Non
     return provenance
 
 
+def attest(
+    provenance: dict[str, Any],
+    run: dict[str, Any] | None,
+    producer_record: dict[str, Any] | None,
+    *,
+    expected_head: str,
+    repository: str,
+    default_branch: str,
+    variant: str,
+) -> dict[str, Any]:
+    """Bind a verified entry to a producing run that GitHub, not the entry, describes.
+
+    ``run`` is GitHub's record of the run the provenance names, and
+    ``producer_record`` is that run's own uploaded ``mmcv-wheel.json``. A
+    producer that is unknown or untrusted makes the entry unverifiable, so the
+    job rebuilds; an earlier head of a pull request is the common case. A
+    trusted producer that disagrees about the bytes is an integrity violation.
+    """
+    if run is None:
+        raise Unverifiable("producer_run_unknown")
+    if run.get("path") != TASK10_WORKFLOW_PATH:
+        raise Unverifiable(f"producer_not_task10:{run.get('path')}")
+    for field in ("repository", "head_repository"):
+        if (run.get(field) or {}).get("full_name") != repository:
+            raise Unverifiable(f"producer_{field}_untrusted")
+    if run.get("event") in TRUSTED_REF_EVENTS and run.get("head_branch") == default_branch:
+        trust = "default-branch"
+    elif run.get("head_sha") == expected_head:
+        trust = "same-head"
+    else:
+        raise Unverifiable(f"producer_not_trusted:{run.get('event')}:{run.get('head_branch')}")
+    if producer_record is None:
+        raise Unverifiable("producer_record_missing")
+
+    produced = producer_record.get("provenance") or {}
+    if producer_record.get("state") != "build":
+        raise IntegrityError(f"producer_did_not_build:{producer_record.get('state')}")
+    if producer_record.get("runtimeVariant") != variant:
+        raise IntegrityError("producer_variant_mismatch")
+    if producer_record.get("headSha") != run.get("head_sha"):
+        raise IntegrityError("producer_head_mismatch")
+    if produced.get("identitySha256") != provenance.get("identitySha256"):
+        raise IntegrityError("producer_identity_mismatch")
+    if (produced.get("wheel") or {}).get("sha256") != (provenance.get("wheel") or {}).get("sha256"):
+        raise IntegrityError("producer_wheel_mismatch")
+    return {
+        "trust": trust,
+        "runId": run.get("id"),
+        "event": run.get("event"),
+        "headBranch": run.get("head_branch"),
+        "headSha": run.get("head_sha"),
+    }
+
+
+def _api(url: str, token: str) -> bytes:
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+    # Unredirected: the artifact download redirects to blob storage, which must
+    # not receive the token.
+    request.add_unredirected_header("Authorization", f"Bearer {token}")
+    with urllib.request.urlopen(request, timeout=120) as response:
+        return response.read()
+
+
+def fetch_producer(run_id: Any, artifact_name: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """GitHub's record of ``run_id`` and that run's own ``mmcv-wheel.json``, if any."""
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    repository = os.environ["GITHUB_REPOSITORY"]
+    token = os.environ["GITHUB_TOKEN"]
+    if not str(run_id or "").isdigit():
+        return None, None
+    base = f"{api}/repos/{repository}/actions/runs/{run_id}"
+    try:
+        run = json.loads(_api(base, token))
+        listing = json.loads(_api(f"{base}/artifacts?name={artifact_name}&per_page=100", token))
+        artifacts = [a for a in listing.get("artifacts", []) if a.get("name") == artifact_name and not a.get("expired")]
+        if len(artifacts) != 1:
+            return run, None
+        with zipfile.ZipFile(io.BytesIO(_api(artifacts[0]["archive_download_url"], token))) as archive:
+            if WHEEL_RECORD_NAME not in archive.namelist():
+                return run, None
+            return run, json.loads(archive.read(WHEEL_RECORD_NAME))
+    except (urllib.error.URLError, OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+        raise Unverifiable(f"producer_unreachable:{exc}") from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -238,6 +373,9 @@ def main(argv: list[str] | None = None) -> int:
     ver.add_argument("--dir", required=True, type=Path)
     ver.add_argument("--identity", required=True, type=Path)
     ver.add_argument("--expected-sha256")
+    ver.add_argument("--attest", action="store_true", help="also require a GitHub-attested trusted producer")
+    ver.add_argument("--attestation-out", type=Path)
+    ver.add_argument("--artifact-name", help="the producer's evidence artifact holding mmcv-wheel.json")
     args = parser.parse_args(argv)
 
     if args.command == "identity":
@@ -261,6 +399,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         provenance = verify(args.dir, identity, args.expected_sha256)
+        if args.attest:
+            run, record = fetch_producer((provenance.get("build") or {}).get("runId"), args.artifact_name)
+            attestation = attest(
+                provenance,
+                run,
+                record,
+                expected_head=os.environ["MAVI_EXPECTED_SOURCE_SHA"],
+                repository=os.environ["GITHUB_REPOSITORY"],
+                default_branch=os.environ["MAVI_DEFAULT_BRANCH"],
+                variant=os.environ["MAVI_RUNTIME_VARIANT"],
+            )
+            if args.attestation_out:
+                args.attestation_out.write_bytes(canonical(attestation) + b"\n")
     except Unverifiable as exc:
         print(f"mmcv-wheel-unverifiable: {exc}", file=sys.stderr)
         return EXIT_UNVERIFIABLE

@@ -1,0 +1,24 @@
+# The S1 qualification harness's subset of the Task 10 candidate graph.
+# Task 10's s1-harness job installs exactly these, and its environment record
+# uses them as the roots of the dependency closure that the final gate requires
+# to match the candidate environment version for version. Every line must also
+# be a candidate install pin (src/vision/tests/test_runtime_metadata.py).
+pip
+setuptools==80.9.0
+wheel
+ninja
+psutil
+pytest
+numpy==2.5.3
+av==16.1.0
+Pillow==11.3.0
+msgpack>=1.1,<2
+pydantic>=2.11,<3
+pydantic-settings>=2.10,<3
+httpx>=0.28,<0.29
+packaging>=26,<27
+jsonschema>=4.23,<5
+trackers==2.6.0
+supervision==0.30.2
+scipy==1.18.1
+opencv-python==5.0.0.93
