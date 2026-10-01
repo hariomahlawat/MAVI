@@ -146,8 +146,8 @@ def test_task10_triggers_on_and_qualifies_the_runtime_bearing_s1_surface() -> No
     workflow = (
         Path(__file__).parents[3] / ".github" / "workflows" / "task10-runtime-qualification.yml"
     ).read_text(encoding="utf-8")
-    pull_request, push = workflow.split("\n  push:\n", 1)
-    push = push.split("\n  workflow_dispatch:", 1)[0]
+    push = workflow.split("\n  push:\n", 1)[1].split("\n  workflow_dispatch:", 1)[0]
+    pull_request = "\n".join(f"      - '{glob}'" for glob in _task10_scope_globs())
     for trigger in (pull_request, push):
         assert "- 'src/vision/mavi_vision/**'" in trigger
         assert "- 'tools/qualification/**'" not in trigger
@@ -373,9 +373,19 @@ def test_development_qualification_does_not_satisfy_a_release_gate() -> None:
 _WORKFLOWS = Path(__file__).parents[3] / ".github" / "workflows"
 
 
-def _trigger_paths(workflow: str, event: str) -> list[str]:
-    """The ``paths:`` globs of one ``on:`` event, read line by line."""
+def _event_block(workflow: str, event: str) -> str:
     block = workflow.split(f"\n  {event}:\n", 1)[1]
+    import re
+
+    return re.split(r"\n  [a-z_]+:\n|\n[a-z]", block, maxsplit=1)[0]
+
+
+def _trigger_paths(workflow: str, event: str) -> list[str]:
+    """The ``paths:`` globs of one ``on:`` event, read line by line. Task 10's pull
+    requests have no path filter: its scope job applies the scope list instead."""
+    block = _event_block(workflow, event)
+    if "\n    paths:\n" not in block and "name: Task 10 Runtime Qualification" in workflow and event == "pull_request":
+        return _task10_scope_globs()
     lines = block.split("\n    paths:\n", 1)[1].splitlines()
     globs = []
     for line in lines:
@@ -386,6 +396,14 @@ def _trigger_paths(workflow: str, event: str) -> list[str]:
             break
         globs.append(stripped[3:-1])
     return globs
+
+
+def _task10_scope_globs() -> list[str]:
+    scope = Path(__file__).parents[3] / "tools" / "vision" / "task10-scope-paths.txt"
+    return [
+        line.strip() for line in scope.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
 
 
 def _glob_matches(glob: str, path: str) -> bool:
@@ -566,7 +584,8 @@ def test_the_s1_harness_runs_concurrently_on_a_pinned_subset_of_the_candidate_gr
 
     # The harness runs only in its own job, which needs nothing and so starts at once.
     assert f"- name: {harness_step_name}\n" not in candidate
-    assert "needs:" not in harness
+    # Its only dependency is the scope decision, which takes seconds.
+    assert harness.count("needs:") == 1 and "    needs: scope\n" in harness
     step = _job_step(harness, harness_step_name)
     assert "MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1" in step
     assert "tools/qualification/tests/test_s1_*.py" in step
@@ -736,3 +755,68 @@ def test_pull_request_runs_never_save_and_reuse_is_attested() -> None:
     gate = _job_step(_task10_job("task10-qualification"), "Require harness evidence bound to each candidate environment")
     assert ('check-mmcv --record "$candidate/mmcv-wheel.json" --variant "$variant" '
             '--head "$MAVI_EXPECTED_SOURCE_SHA" --run-id "$GITHUB_RUN_ID"') in gate
+
+
+def test_task10_reports_on_every_pull_request_so_its_gate_can_be_required() -> None:
+    """A path-filtered workflow never reports on an unrelated pull request; a
+    required "Task 10 qualification" would then wait forever. Pull requests run
+    unfiltered, and the scope job applies the same globs as push."""
+    workflow = (_WORKFLOWS / "task10-runtime-qualification.yml").read_text(encoding="utf-8")
+    assert "\n    paths:\n" not in _event_block(workflow, "pull_request")
+    assert "paths-ignore" not in workflow
+    push_globs = _trigger_paths(workflow, "push")
+    assert push_globs == _task10_scope_globs()
+    assert len(push_globs) == len(set(push_globs))
+
+    scope = _task10_job("scope")
+    assert "pull-requests: read" in scope
+    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in scope
+    step = _job_step(scope, "Decide whether Task 10 applies")
+    assert 'if [ "${{ github.event_name }}" != "pull_request" ]; then' in step
+    assert 'echo "applicable=true" | tee -a "$GITHUB_OUTPUT"' in step
+    assert 'python3 tools/vision/task10_scope.py applicable --pull-request "$PULL_REQUEST" | tee -a "$GITHUB_OUTPUT"' in step
+    for name in ("cpu-candidate", "s1-harness"):
+        job = _task10_job(name).split("    steps:", 1)[0]
+        assert "    needs: scope\n    if: needs.scope.outputs.applicable == 'true'\n" in job, name
+
+    gate = _task10_job("task10-qualification")
+    assert "      - scope\n" in gate
+    require = _job_step(gate, "Require every Task 10 job")
+    assert "test '${{ needs.scope.result }}' = 'success'" in require
+    # Every later gate step runs only when Task 10 applied.
+    after = gate.split("- name: Require every Task 10 job", 1)[1].split("\n      - ")[1:]
+    assert after and all("if: steps.require.outputs.applicable == 'true'" in step for step in after)
+
+
+def test_the_gate_passes_unrelated_pull_requests_and_nothing_else(tmp_path: Path) -> None:
+    """Run the gate's decision under GitHub's bash flags for every combination."""
+    import itertools
+    import subprocess
+
+    require = _job_step(_task10_job("task10-qualification"), "Require every Task 10 job")
+    template = "\n".join(line[10:] for line in require.split("        run: |\n", 1)[1].splitlines())
+
+    def gate(scope_result: str, applicable: str, candidate: str, harness: str) -> tuple[int, str]:
+        body = (template.replace("${{ needs.scope.result }}", scope_result)
+                .replace("${{ needs.scope.outputs.applicable }}", applicable)
+                .replace("${{ needs.cpu-candidate.result }}", candidate)
+                .replace("${{ needs.s1-harness.result }}", harness))
+        output = tmp_path / "out"
+        output.write_text("", encoding="utf-8")
+        completed = subprocess.run(
+            [_git_bash(), "--noprofile", "--norc", "-eo", "pipefail", "-s"], input=body, text=True,
+            capture_output=True, env={**__import__("os").environ, "GITHUB_OUTPUT": output.as_posix()},
+        )
+        return completed.returncode, output.read_text(encoding="utf-8").strip()
+
+    results = ("success", "failure", "cancelled", "skipped")
+    for scope_result, applicable, candidate, harness in itertools.product(results, ("true", "false", ""), results, results):
+        code, out = gate(scope_result, applicable, candidate, harness)
+        not_applicable = (scope_result, applicable, candidate, harness) == ("success", "false", "skipped", "skipped")
+        applied = (scope_result, applicable, candidate, harness) == ("success", "true", "success", "success")
+        if not_applicable:
+            assert (code, out) == (0, "applicable=false")
+        elif applied:
+            assert (code, out) == (0, "applicable=true")
+        else:
+            assert code != 0, (scope_result, applicable, candidate, harness)

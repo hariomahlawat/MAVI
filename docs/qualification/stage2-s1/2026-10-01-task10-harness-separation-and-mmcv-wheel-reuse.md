@@ -1,10 +1,15 @@
 # Task 10: S1 harness separation and verified MMCV wheel reuse
 
 - **Date:** 2026-10-01
-- **Status:** Proposed. Draft PR; not merged.
+- **Status:** Proposed; draft PR, not merged. Owner decisions of 2026-10-01:
+  - Harness separation and verified wheel reuse are **accepted in principle**.
+  - The ADR-005 §17 amendment is **formally accepted only after the implementation review**.
+  - **Strict compiler identity stays.** Cache misses caused by runner-image changes are accepted as legitimate.
+  - The PyPI cutoff is **drift reduction, not a lock**. The version-comparison gate remains essential.
+  - "Task 10 qualification" must block merges when Task 10 applies, without leaving unrelated PRs waiting for a check that never runs (see "Required check").
 - **Scope:** how the Task 10 workflow (`task10-runtime-qualification.yml`) is split into jobs, what evidence each job contributes, and when Task 10 may install an MMCV wheel it compiled in an earlier run.
 - **Governing documents:**
-  - ADR-005 §17, which this note amends; see "Amendment".
+  - ADR-005 §17, which this note proposes to amend; see "Amendment".
   - S1.4 plan §2.2 / §3 / §10.1.
   - `2026-10-01-s1-qualification-harness-surface.md` (#127).
   - Task 10 plan, "Freeze sequence".
@@ -136,7 +141,7 @@ None of those three is in the harness closure, so comparing every installed dist
 
 The same run shows the candidate resolving `torch`'s `filelock` and `yapf`'s `platformdirs` from that preinstalled tool cache. This behaviour predates this change: the qualified candidate graph is partly defined by the runner image. It is recorded here as an unresolved question, not changed.
 
-## Amendment to ADR-005 §17
+## Amendment to ADR-005 §17 (proposed; formal acceptance after implementation review)
 
 ADR-005 §17 says a runtime qualifies only as one complete environment. That rule continues to govern **runtime qualification**: every probe, native binary check, ByteTrack and RTMDet check, and B6 record.
 
@@ -156,6 +161,13 @@ Both jobs therefore do two things:
 - resolve every PyPI install with `--uploaded-prior-to <the head's committer time>`.
 
 That cutoff is identical in both jobs and across re-runs, so both resolve the same versions whenever they install. Each environment record carries the cutoff, and `compare` requires it to be equal.
+
+**The cutoff reduces drift; it is not a lock.** It does not cover:
+- a release yanked between the two installs;
+- a package already present in the runner's tool cache, which pip leaves in place when it satisfies the requirement;
+- the PyTorch index, which publishes no upload times.
+
+The **version comparison in the final gate remains the control**: it fails closed on any difference inside the harness closure, whatever the cause.
 
 Under the cutoff of `a949a06`, a local dry run resolves the harness requirements completely for Python 3.12 on Linux and Windows (54 distributions, `python-dotenv` 1.2.3), and the candidate's PyPI pins too.
 
@@ -192,9 +204,28 @@ The PyTorch install uses the PyTorch index, which does not publish upload times.
   Pull requests, and pushes to other branches such as `feature/task-10-rtmdet-bytetrack`, never save. Their entry would shadow the default branch's under the same key in their scope, and later heads could not attest it, so it could only ever force rebuilds. Those runs reuse default-branch entries and are cold otherwise.
 - **Qualifying evidence.** S1 evidence is measured on a `main` SHA. Those push runs can read only `main`-scope entries, which only `main` writes.
 
-## Branch protection
+## Required check
 
-The required status check for Task 10 should be **Task 10 qualification**, the gate job, not the `CPU …` or `S1 harness …` matrix jobs. Otherwise a red harness job would not block a merge. This is a repository setting outside this change.
+"Task 10 qualification" must block a merge when Task 10 applies to the pull request. It must not hold up a pull request that Task 10 does not apply to.
+
+A path filter on the workflow's `pull_request` trigger cannot do both. GitHub does not start a path-filtered workflow for an unrelated pull request, so its checks never report, and a required check would stay pending forever.
+
+The workflow therefore runs on **every** pull request into `main` and `feature/task-10-rtmdet-bytetrack`:
+
+1. **`scope` (seconds).** It reads the pull request's changed files, renames' old paths included, from the GitHub API. It matches them against `tools/vision/task10-scope-paths.txt`, which holds the same globs as the `push` trigger (a test holds the two equal), using `tools/vision/task10_scope.py`.
+   - The matching is never narrower than GitHub's, so `**/` also matches zero directories.
+   - Changes to the scope list, the tool or the workflow always apply.
+   - Any doubt answers *applies*: an API error, a file list that may be truncated at GitHub's 3,000-file limit, an empty list, or an unreadable scope list.
+   - On `push` and `workflow_dispatch` the answer is always *applies*. Push keeps its path filter.
+2. **`cpu-candidate` and `s1-harness`** run only when Task 10 applies.
+3. **`task10-qualification` always reports:**
+   - **Not applicable:** it passes only if `scope` succeeded and said so, *and* both Task 10 jobs were skipped.
+   - **Applicable:** it requires `scope`, `cpu-candidate` and `s1-harness` to succeed, plus all the evidence checks.
+   - Any other combination fails. A test runs the gate's decision under GitHub's bash flags for every combination of job results.
+
+With this in place, "Task 10 qualification" can be a **required status check for every pull request into `main`**. Making it required is a repository setting outside this change. The `CPU …` and `S1 harness …` matrix checks should not be required: they are skipped on unrelated pull requests, and the gate already depends on them.
+
+The trade-off: every pull request now runs a short `scope` job, and an applicable pull request waits for it, about 10–20 s, before its matrix starts.
 
 ## Measured results
 
@@ -204,9 +235,9 @@ Pull-request runs never save, so a PR run is cold until `main` holds an entry fo
 
 ## Unresolved questions
 
-1. **Divergence the cutoff does not cover.** A release yanked between the two installs, or a runner-image preinstalled package inside the closure, can still make `compare` fail. On Windows that is `colorama`, which `pytest` requires and the tool cache preinstalls. The gate fails closed. A committed constraints file for the closure would close this too, at the cost of maintaining it.
+1. **Divergence the cutoff does not cover** (the comparison gate catches it). A release yanked between the two installs, or a runner-image preinstalled package inside the closure, can still make `compare` fail. On Windows that is `colorama`, which `pytest` requires and the tool cache preinstalls. The gate fails closed. A committed constraints file for the closure would close this too, at the cost of maintaining it.
 2. **Does B2 require the harness and the runtime to share a process environment?** This note says no and amends ADR-005 accordingly. The amendment needs owner acceptance.
 3. **Runner-image migrations.** Both jobs use `windows-latest`/`ubuntu-latest`, and `compare` checks `ImageOS`. During a gradual GitHub image migration, the two jobs of one variant can land on different images and fail with `platform_differs`. That fails closed. Pinning `windows-2025`/`ubuntu-24.04` would remove the risk, but it changes the matrix names and the artifact names they feed; it is left for owners to decide.
 4. **Runner-image preinstalled packages in the candidate graph.** The candidate takes `filelock` (from `torch`) and `platformdirs` (from `yapf`) from the image's preinstalled tool cache rather than from a pin. This is a pre-existing gap in the "exact hashed locks" goal of ADR-005 §17. It concerns the candidate graph, not this change.
-5. **Runner-image version in the identity.** Excluding `ImageVersion` lets a wheel be reused across weekly image updates that keep the same toolchain. If owners want a rebuild on every image update, adding it is a one-line change. The cost is roughly one cold build per variant per week.
+5. **Runner-image version in the identity.** *Owner decision: keep strict compiler identity, and accept the cache misses runner-image changes cause.* For example, `cl` 19.51.36257 and 19.51.36260 landed on consecutive Windows runs (36824236111, 36825497153) and forced a legitimate rebuild. Excluding `ImageVersion` lets a wheel be reused across weekly image updates that keep the same toolchain. If owners want a rebuild on every image update, adding it is a one-line change. The cost is roughly one cold build per variant per week.
 6. **Repository artifact retention.** The month bucket assumes the repository's artifact retention is at least about 32 days. With a shorter setting, reuse late in a month becomes unverifiable and rebuilds. That fails safe.
