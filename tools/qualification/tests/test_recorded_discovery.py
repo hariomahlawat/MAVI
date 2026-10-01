@@ -179,14 +179,14 @@ def test_complete_run_retains_raw_lists_paired_attempt_records_and_reports(tmp_p
     net = Net(clock=clock)
     run_dir, status = run(tmp_path, net, clock, secondaryOnlyIfPrimaryDescribedBelow=1)
     assert status["status"] == "COMPLETE" and status["stopReason"] is None
-    # preflight + (list + 2 metadata) for P1 and P4; S1 is not needed.
-    assert len(net.calls) == 7 and status["attemptsStarted"] == 7 and status["attemptsCompleted"] == 7
+    # preflight + (list + 2 metadata) for P1 + list for P4, whose titles were already described; S1 is not needed.
+    assert len(net.calls) == 5 and status["attemptsStarted"] == 5 and status["attemptsCompleted"] == 5
     log = events(run_dir)
     starts = [e["attempt"] for e in log if e["event"] == "attempt-start"]
     ends = [e["attempt"] for e in log if e["event"] == "attempt-end"]
-    assert starts == ends == list(range(1, 8))
+    assert starts == ends == list(range(1, 6))
     bodies = sorted((run_dir / "capture" / "bodies").iterdir())
-    assert [p.suffix for p in bodies] == [".body"] * 7
+    assert [p.suffix for p in bodies] == [".body"] * 5
     list_url = next(u for u in net.calls if "list=search" in u)
     list_attempt = net.calls.index(list_url) + 1
     assert (run_dir / "capture" / "bodies" / f"attempt-{list_attempt:06d}.body").read_bytes() == net.bodies[list_url]
@@ -194,12 +194,14 @@ def test_complete_run_retains_raw_lists_paired_attempt_records_and_reports(tmp_p
     assert scopes["P1"]["status"] == "COMPLETE" and scopes["P1"]["categoryCaveat"] is None
     assert scopes["P1"]["listRows"] == 3 and scopes["P1"]["videoTitles"] == TITLES
     assert scopes["P4"]["categoryCaveat"] == rd.CATEGORY_CAVEAT
+    assert scopes["P4"]["alreadyDescribedTitles"] == TITLES and scopes["P4"]["requestedTitles"] == []
+    assert status["describedWithoutError"] == 2  # unique titles, not a per-scope sum
     assert scopes["S1"]["status"] == "NOT_NEEDED"
     store = run_dir / "store"
     assert len(list((store / "evidence").glob("*.json"))) == 2
     assert not (store / "receipts").exists() and not (store / "media").exists()
     # pacing: attempts within a scope waited the minimum interval; the scope gap already exceeds it.
-    assert clock.sleeps == [5.0, 5.0, 5.0, 60, 5.0, 5.0]
+    assert clock.sleeps == [5.0, 5.0, 5.0, 60]
     assert CONTACT not in b"".join(p.read_bytes() for p in store.rglob("*.json")).decode()
 
 
@@ -340,7 +342,7 @@ def test_preflight_refusal_stops_before_any_scope(tmp_path):
     assert {s["status"] for s in scope_records(run_dir).values()} == {"NOT_STARTED"}
 
 
-def test_per_file_error_completes_the_scope_then_stops_the_run(tmp_path):
+def test_a_semantically_invalid_metadata_response_latches_before_the_next_title(tmp_path):
     clock = Clock()
 
     def meta_route(title):
@@ -350,10 +352,20 @@ def test_per_file_error_completes_the_scope_then_stops_the_run(tmp_path):
 
     net = Net(clock=clock, meta_route=meta_route)
     run_dir, status = run(tmp_path, net, clock)
+    assert len(net.calls) == 3 and not any("Crossing+B" in u for u in net.calls)  # the second title never starts
+    assert status["stopReason"] == "metadata-invalid:ValueError"
     scopes = scope_records(run_dir)
-    assert scopes["P1"]["status"] == "PER_FILE_ERRORS" and scopes["P1"]["describedWithoutError"] == 1
-    assert scopes["P4"]["status"] == "NOT_STARTED" and status["stopReason"] == "per-file-error"
-    assert len(net.calls) == 4  # both metadata requests of P1 ran; nothing after the scope
+    assert scopes["P1"]["status"] == "PER_FILE_ERRORS" and scopes["P1"]["describedWithoutError"] == 0
+    assert scopes["P4"]["status"] == "NOT_STARTED"
+    report = json.loads((run_dir / "store" / "discovery" / f"{scopes['P1']['discoveryReportSha256']}.json").read_bytes())
+    assert [bool(i["error"]) for i in report["items"]] == [True, True]  # the helper still recorded both items
+
+
+def test_an_unparseable_metadata_body_latches_before_the_next_title(tmp_path):
+    clock = Clock()
+    net = Net(clock=clock, meta_route=lambda title: (200, {}, io.BytesIO(b"<html>not json</html>")) if title == TITLES[0] else None)
+    _run_dir, status = run(tmp_path, net, clock)
+    assert len(net.calls) == 3 and status["stopReason"].startswith("metadata-invalid:")
 
 
 def test_discovery_only_refuses_media_and_non_api_urls_before_any_socket(tmp_path):
@@ -598,3 +610,161 @@ def test_a_tampered_bundle_fails_verification(tmp_path):
         rd.verify_bundle(destination, "retry-tamper", require_checksum=False)
     with pytest.raises(StoreError):
         rd.verify_bundle(destination, "retry-tamper")
+
+
+def test_a_malformed_redirect_location_or_port_latches_before_the_next_title(tmp_path):
+    for name, location in (("bracket", "https://[commons/x"),
+                           ("port", "https://commons.wikimedia.org:99999/w/api.php?action=query")):
+        clock = Clock()
+        net = Net(clock=clock, meta_route=lambda title, loc=location: (302, {"Location": loc}, io.BytesIO(b"")))
+        run_dir, status = run(tmp_path / name, net, clock)
+        assert len(net.calls) == 3, name  # the second title never starts
+        assert status["stopReason"].startswith("transport-refused:ValueError"), (name, status["stopReason"])
+
+
+def _synthetic_run(tmp_path: Path, name: str, events_lines: list[str], scope_lines: list[str] = ()) -> Path:
+    run_dir = tmp_path / name
+    (run_dir / "capture" / "bodies").mkdir(parents=True)
+    (run_dir / "capture" / "events.jsonl").write_bytes(("\n".join(events_lines) + "\n").encode())
+    (run_dir / "capture" / "scopes.jsonl").write_bytes(("\n".join(scope_lines) + "\n").encode() if scope_lines else b"")
+    return run_dir
+
+
+START = '{"event": "run-start", "utc": "x"}'
+END = '{"event": "run-end", "utc": "x"}'
+
+
+def test_finalize_marks_each_interruption_signal_on_its_own(tmp_path):
+    assert rd.finalize(_synthetic_run(tmp_path, "control", [START, END]))["status"] == "COMPLETE"
+    cases = {
+        "unfinished-attempt": ([START, '{"event": "attempt-start", "attempt": 1, "utc": "x"}', END], []),
+        "interrupted-scope": ([START, END], ['{"event": "scope-start", "scope": "P1", "utc": "x"}']),
+        "unreadable-line": ([START, '{"event": "attem', END], []),
+        "latched-interrupt": ([START, '{"event": "latched", "reason": "interrupted", "utc": "x"}', END], []),
+        "no-run-end": ([START], []),
+    }
+    for name, (event_lines, scope_lines) in cases.items():
+        assert rd.finalize(_synthetic_run(tmp_path, name, event_lines, scope_lines))["status"] == "INTERRUPTED", name
+    stopped = _synthetic_run(tmp_path, "stopped", [START, '{"event": "latched", "reason": "http-429", "utc": "x"}', END])
+    assert rd.finalize(stopped)["status"] == "STOPPED"
+
+
+def _rewrite_archive(destination: Path, name: str, transform) -> None:
+    archive = destination / f"{name}.tar.gz"
+    with tarfile.open(archive) as tar:
+        members = [(m, tar.extractfile(m).read()) for m in tar.getmembers() if m.isfile()]
+    rebuilt = destination.parent / f"{name}-rebuilt.tar.gz"
+    with tarfile.open(rebuilt, "w:gz") as out:
+        for member, data in transform(members):
+            member.size = len(data)
+            out.addfile(member, io.BytesIO(data))
+    archive.write_bytes(rebuilt.read_bytes())
+
+
+def test_verify_bundle_isolates_checksum_member_set_and_prefix_checks(tmp_path):
+    clock = Clock()
+    run_dir, _status = run(tmp_path, Net(clock=clock), clock)
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+
+    def fresh(label: str) -> Path:
+        return rd.bundle(run_dir, evidence, label)
+
+    # checksum only: the archive is intact, the recorded checksum is wrong.
+    one = fresh("b-checksum")
+    rd.verify_bundle(one, "b-checksum")
+    (one / "b-checksum.tar.gz.sha256").write_text("0" * 64 + "  b-checksum.tar.gz\n", encoding="ascii")
+    with pytest.raises(StoreError, match="archive SHA-256"):
+        rd.verify_bundle(one, "b-checksum")
+    rd.verify_bundle(one, "b-checksum", require_checksum=False)
+
+    # member set only: an extra file inside the prefix, every listed member intact.
+    two = fresh("b-extra")
+    _rewrite_archive(two, "b-extra", lambda ms: ms + [(tarfile.TarInfo("b-extra/extra.txt"), b"extra")])
+    with pytest.raises(StoreError, match="member set"):
+        rd.verify_bundle(two, "b-extra", require_checksum=False)
+
+    # prefix only: a member under another top-level name of the same length, same suffix and bytes.
+    three = fresh("b-prefix")
+
+    def reprefix(ms):
+        out = []
+        for member, data in ms:
+            if member.name.endswith("config/run-config.json"):
+                member.name = "X-prefix/config/run-config.json"
+            out.append((member, data))
+        return out
+
+    _rewrite_archive(three, "b-prefix", reprefix)
+    with pytest.raises(StoreError, match="unexpected member"):
+        rd.verify_bundle(three, "b-prefix", require_checksum=False)
+
+
+def test_limits_require_the_soft_deadline_before_the_hard_deadline():
+    with pytest.raises(StoreError):
+        rd.build_config(CONTACT, limits={**rd.LIMITS, "softDeadlineSeconds": 45 * 60})
+
+
+def test_the_candidate_cap_is_enforced_inside_a_scope(tmp_path):
+    clock = Clock()
+    net = Net(clock=clock)
+    run_dir, status = run(tmp_path, net, clock, candidateCap=1)
+    assert len(net.calls) == 3 and not any("Crossing+B" in u for u in net.calls)  # only the allowance is requested
+    p1 = scope_records(run_dir)["P1"]
+    assert p1["requestedTitles"] == [TITLES[0]] and p1["overCandidateCapTitles"] == [TITLES[1]]
+    assert p1["uniqueDescribedSoFar"] == 1 and status["describedWithoutError"] == 1
+    assert scope_records(run_dir)["P4"]["reason"] == "candidate-cap" and status["status"] == "COMPLETE"
+
+
+def test_the_hard_stop_exits_even_if_logging_fails_or_blocks(tmp_path):
+    import threading as _threading
+
+    recorder = rd.Recorder(tmp_path / "capture", attempt_budget=5, min_interval=0, soft_deadline=100, attempt_read_seconds=10,
+                           body_limit=100, fetch=None, sleep=lambda s: None, monotonic=lambda: 0.0, utc=lambda: UTC)
+
+    def failing_write(*_a, **_k):
+        raise OSError("disk gone")
+
+    codes = []
+    recorder.events.write = failing_write
+    rd.make_hard_stop(recorder, codes.append, log_timeout=1.0)()
+    assert codes == [124]
+
+    release = _threading.Event()
+
+    def blocking_write(*_a, **_k):
+        release.wait(30)
+
+    recorder.events.write = blocking_write
+    codes.clear()
+    rd.make_hard_stop(recorder, codes.append, log_timeout=0.2)()
+    assert codes == [124]  # the exit did not wait for the blocked write
+    release.set()
+
+
+def test_verify_bundle_rejects_duplicate_archive_members_and_manifest_paths(tmp_path):
+    clock = Clock()
+    run_dir, _status = run(tmp_path, Net(clock=clock), clock)
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+
+    one = rd.bundle(run_dir, evidence, "b-dup")
+
+    def duplicate(ms):
+        out = list(ms)
+        for member, data in ms:
+            if member.name.endswith("config/run-config.json"):
+                copy = tarfile.TarInfo(member.name)
+                out.append((copy, data.replace(b"traffic", b"TRAFFIC")))  # a conflicting second copy
+        return out
+
+    _rewrite_archive(one, "b-dup", duplicate)
+    with pytest.raises(StoreError, match="duplicate archive member"):
+        rd.verify_bundle(one, "b-dup", require_checksum=False)
+
+    two = rd.bundle(run_dir, evidence, "b-dup-manifest")
+    manifest = json.loads((two / "MANIFEST.json").read_bytes())
+    manifest["files"].append(dict(manifest["files"][0]))
+    (two / "MANIFEST.json").write_bytes(json.dumps(manifest).encode())
+    with pytest.raises(StoreError, match="duplicate manifest path"):
+        rd.verify_bundle(two, "b-dup-manifest", require_checksum=False)

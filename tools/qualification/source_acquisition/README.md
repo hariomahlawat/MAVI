@@ -105,7 +105,7 @@ A category or search is only a **discovery scope**. Every decision names one exa
 **What it adds:**
 - **Discovery only.** Every network attempt must be an HTTPS GET of `commons.wikimedia.org/w/api.php` with exactly one `action=query`. Duplicate, encoded or array-style parameter keys are refused. Media and every other URL are refused before a socket opens, and the wrapper's transport refuses `download` outright.
 - **Global stop latch.** The run latches on the first of these:
-  - a refused URL, or a refusal raised inside the helper's `Transport` (a redirect to a host that is not allow-listed, a non-HTTPS hop, a redirect without a location, too many redirects, an over-limit body);
+  - a refused URL, or a refusal raised inside the helper's `Transport` (a redirect to a host that is not allow-listed, a non-HTTPS hop, a malformed URL or redirect location, a redirect without a location, too many redirects, an over-limit body);
   - a non-200, non-redirect status, including 429 and 503;
   - an API `error` body;
   - a network or read failure, or a local capture failure (writing or renaming a body);
@@ -113,12 +113,13 @@ A category or search is only a **discovery scope**. Every decision names one exa
   - an exhausted attempt budget;
   - the soft deadline;
   - an interruption;
-  - a per-file error that the helper records (the run stops after that scope).
+  - a metadata response that the helper's own parser would reject (missing page, wrong shape, unparseable body), before the next title is requested;
+  - any other per-file error that the helper records (the run stops after that scope).
 
   Once it has latched, no network attempt starts, including redirect hops and the helper's own back-off retries. Local finalisation continues.
-- **Limits.** The attempt budget counts every fetch, including each redirect hop. Attempt starts are paced, and scopes are separated by a gap. The soft deadline is checked before every attempt, read chunk and wait. Each attempt has a read-time limit. A hard deadline records an event and ends the process with exit code 124. Bodies and per-item evidence already written survive; the in-flight scope's discovery report does not, and `finalize` reconstructs the status.
+- **Limits.** The attempt budget counts every fetch, including each redirect hop. Attempt starts are paced, and scopes are separated by a gap. The soft deadline is checked before every attempt, read chunk and wait. Each attempt has a read-time limit. A hard deadline tries to record an event on a separate thread for at most 5 s, then always ends the process with exit code 124, even if logging fails or blocks. Bodies and per-item evidence already written survive; the in-flight scope's discovery report does not, and `finalize` reconstructs the status.
 - **Durable capture.** An `attempt-start` event is fsynced before each attempt, and an `attempt-end` event after it. Bodies stream to `capture/bodies/attempt-NNNNNN.part` and become `.body` only when read completely. Selected response headers are recorded (`retry-after`, `date`, `content-type`, `content-length`, `age`, `server`, `x-cache*`, `location`, `x-ratelimit-*`, `ratelimit*`). Cookies and request headers other than those in the run configuration are never logged.
-- **Scopes.** The seven original scopes, P1–P5 then S1–S2, at 20 results each. S1–S2 run only if P1–P5 describe fewer than 40 files without error. Direct-category queries exclude subcategory members, so an empty result does not establish that a category contains no relevant footage.
+- **Scopes.** The seven original scopes, P1–P5 then S1–S2, at 20 results each. S1–S2 run only if P1–P5 describe fewer than 40 unique files without error. The candidate cap of 60 unique files is enforced inside each scope: titles already described are not requested again, and only the remaining allowance is requested. Direct-category queries exclude subcategory members, so an empty result does not establish that a category contains no relevant footage.
 
 **Run directory.** Each run creates a new directory, `<run-root>/commons-discovery-retry-<UTC stamp>/`, and never reuses one:
 
@@ -139,7 +140,7 @@ python tools/qualification/source_discovery_recorded_cli.py bundle   --run-dir <
 python tools/qualification/source_discovery_recorded_cli.py verify-bundle --evidence-dir <Evidence dir>/<name> --name <name>
 ```
 
-`bundle` writes `MANIFEST.json` (path, bytes, SHA-256, role and modification time per file), a `.tar.gz` and its SHA-256 into a new directory, and re-verifies every member. `verify-bundle` repeats that check later. Every record file is created atomically and never overwritten.
+`bundle` writes `MANIFEST.json` (path, bytes, SHA-256, role and modification time per file), a `.tar.gz` and its SHA-256 into a new directory, and re-verifies every member. `verify-bundle` repeats that check later. The run configuration, its hash, `run-status.json` and the bundle files are created atomically and never overwritten. The event logs are append-only, and the helper's own store records are written as the helper writes them.
 
 **Exit codes.** `run` exits `0` complete, `1` stopped, `130` interrupted and `124` at the hard deadline. Any command exits `2` on a refusal.
 

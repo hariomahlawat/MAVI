@@ -268,10 +268,11 @@ After this record was merged (PR #132, `main@a0d235456e255b8a8fef8d90bd5c4524599
 
 | §6.3 proposal | Wrapper (fixed in code and recorded in each run configuration) |
 |---|---|
+| a candidate limit of 60 | 60 **unique** files, enforced inside each scope; titles already described are not requested again |
 | at least 5 min between scopes | 60 s between scopes, plus at least 5 s between any two attempt starts |
 | at most 147 logical requests; no attempt budget | at most 148 logical requests (a preflight, then at most 21 per scope); a hard budget of 160 **actual** attempts, counting every redirect hop and retry |
 | a 2-hour limit checked between scopes; no outer kill timer | a 40-minute soft deadline, checked before every attempt, read chunk and wait; a 45-minute hard deadline that records an event and ends the process |
-| stop after a nonzero exit or per-file error | a global latch on any refusal, non-success status, API error, network or capture failure, budget, deadline or interruption: no further network attempt starts |
+| stop after a nonzero exit or per-file error | a global latch on any refusal, non-success status, API error, metadata response the helper would reject, network or capture failure, budget, deadline or interruption: no further network attempt starts |
 | raw list responses not retained | every response body is retained (complete as `.body`, partial as `.part`), with fsynced attempt start and end records and selected rate-limit headers |
 | a manifest with path, size, SHA-256, role and modification time | the same fields, in a bundle verified on creation and again by `verify-bundle` |
 

@@ -88,19 +88,19 @@ LIMITS = {
 }
 STOP_RULES = (
     "a refused URL (anything but the Commons Action API endpoint) latches the run before any socket opens",
-    "a refusal raised inside the helper's Transport (redirect to a host that is not allow-listed, a non-HTTPS hop, a redirect without a location, too many redirects, an over-limit body) latches the run before any further request",
+    "a refusal raised inside the helper's Transport (redirect to a host that is not allow-listed, a non-HTTPS hop, a malformed URL or redirect location, a redirect without a location, too many redirects, an over-limit body) latches the run before any further request",
     "a local capture failure (writing or renaming a captured body) latches the run",
     "any HTTP status other than 200 or a redirect, including 429 and 503, latches the run; the helper's back-off sleep is refused, so it never retries",
     "an API body with an 'error' member latches the run",
     "a network failure, read failure, read-limit overrun or over-limit body latches the run",
     "the attempt budget counts every fetch, including each redirect hop; reaching it latches the run",
     "the soft deadline is checked before every attempt, every read chunk, every pacing wait and every sleep; passing it latches the run",
-    "the hard deadline records an event and ends the process; everything already captured survives",
-    "a per-file metadata error that the helper records as an item error latches the run after that scope",
+    "the hard deadline tries to record an event on a separate thread for at most 5 s, then always ends the process with exit code 124; everything already captured survives",
+    "a metadata response the helper's own parser would reject (missing page, wrong shape, transcode URL, unparseable body) latches the run before the next title is requested; any other item error the helper records latches the run after that scope",
     "an interruption latches the run and finalises locally",
     "after the latch, no network attempt starts; remaining scopes are recorded NOT_STARTED",
     "secondary scopes run only if primary scopes described fewer files without error than the threshold",
-    "no scope starts once the candidate cap of files described without error is reached",
+    "no scope starts once the candidate cap of unique files described without error is reached; within a scope, only titles not already described are requested, and only up to the remaining allowance",
 )
 RECORDED_HEADER_NAMES = ("retry-after", "date", "content-type", "content-length", "age", "server", "x-cache", "x-cache-status",
                          "location")
@@ -234,7 +234,11 @@ class Recorder:
         self.guard()
         if not is_discovery_url(url):
             self.events.write("refused-url", url=url)
-            self.latch(f"refused-url:{urllib.parse.urlsplit(url).hostname}")
+            try:
+                host = urllib.parse.urlsplit(url).hostname
+            except ValueError:
+                host = "unparseable"
+            self.latch(f"refused-url:{host}")
             self.guard()
         if self.attempts >= self.attempt_budget:
             self.latch("attempt-budget-exhausted")
@@ -382,25 +386,43 @@ class RecordedTransport(Transport):
         super().__init__(allowed_hosts, user_agent, fetch=recorder.fetch, sleep=recorder.sleep)
         self.recorder = recorder
 
-    def _refused(self, exc: TransportError) -> RunStopped:
-        if not isinstance(exc, RunStopped):
-            self.recorder.events.write("transport-refused", error=str(exc)[:500])
-            self.recorder.latch(f"transport-refused:{str(exc)[:160]}")
-        return exc if isinstance(exc, RunStopped) else RunStopped(f"run stopped: {self.recorder.stop_reason}")
+    def _refused(self, exc: Exception) -> RunStopped:
+        if isinstance(exc, RunStopped):
+            return exc
+        # A ValueError here comes from parsing a malformed URL or redirect location (urljoin, port).
+        label = str(exc)[:160] if isinstance(exc, TransportError) else f"{type(exc).__name__}:{str(exc)[:120]}"
+        self.recorder.events.write("transport-refused", error=f"{type(exc).__name__}: {str(exc)[:500]}")
+        self.recorder.latch(f"transport-refused:{label}")
+        return RunStopped(f"run stopped: {self.recorder.stop_reason}")
 
     def open(self, url: str):
         self.recorder.guard()
         try:
             return super().open(url)
-        except TransportError as exc:
+        except (TransportError, ValueError) as exc:
             raise self._refused(exc) from exc
 
     def get_bytes(self, url: str, limit: int = 16 * 1024 * 1024) -> bytes:
         self.recorder.guard()
         try:
-            return super().get_bytes(url, limit)
-        except TransportError as exc:
+            raw = super().get_bytes(url, limit)
+        except (TransportError, ValueError) as exc:
             raise self._refused(exc) from exc
+        if _request_kind(url)["kind"] == "file-metadata":
+            self._validate_metadata(raw)
+        return raw
+
+    def _validate_metadata(self, raw: bytes) -> None:
+        """Run the helper's own parser on the bytes it is about to parse. A response it would
+        reject (missing page, wrong shape, transcode URL, unparseable JSON) latches the run now,
+        so the next title's request never starts. The bytes are still returned unchanged, so the
+        helper records the item error exactly as it would have."""
+        try:
+            commons.parse_file_metadata(json.loads(raw.decode("utf-8")))
+        except (ValueError, UnicodeDecodeError, TypeError, KeyError, AttributeError) as exc:
+            self.recorder.events.write("metadata-invalid", attempt=self.recorder.attempts,
+                                       error=f"{type(exc).__name__}: {str(exc)[:300]}")
+            self.recorder.latch(f"metadata-invalid:{type(exc).__name__}")
 
     def download(self, url, target, expected_size, expected_sha1):  # noqa: D401 - signature of the helper
         self.recorder.latch("refused-download")
@@ -444,6 +466,8 @@ def _validate_limits(limits: dict) -> dict:
         minimum = 0 if key in ("minIntervalSeconds", "scopeGapSeconds") else 1
         if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
             raise StoreError(f"limit {key} must be an integer of at least {minimum}")
+    if limits["softDeadlineSeconds"] >= limits["hardDeadlineSeconds"]:
+        raise StoreError("the soft deadline must come before the hard deadline")
     return dict(limits)
 
 
@@ -469,11 +493,25 @@ def build_config(contact: str, scopes=PILOT_RETRY_SCOPES, limits: dict | None = 
     }
 
 
-def make_hard_stop(recorder: Recorder, exit_process: Callable[[int], None] = os._exit) -> Callable[[], None]:
-    """The hard-deadline action: one durable event, then the process ends with exit code 124."""
+def make_hard_stop(recorder: Recorder, exit_process: Callable[[int], None] = os._exit,
+                   log_timeout: float = 5.0) -> Callable[[], None]:
+    """The hard-deadline action: try to record one event, then always end the process with 124.
+
+    The event is written on a separate daemon thread joined with a timeout, so a failing or
+    blocked write (a held log lock, a hung disk) can never delay or prevent the exit."""
+    def _log() -> None:
+        try:
+            recorder.events.write("hard-deadline", attempts=recorder.attempts)
+        except BaseException:  # noqa: BLE001 - logging is best effort; the exit is not
+            pass
+
     def _hard_stop() -> None:
-        recorder.events.write("hard-deadline", attempts=recorder.attempts)
-        exit_process(124)
+        try:
+            writer = threading.Thread(target=_log, daemon=True)
+            writer.start()
+            writer.join(log_timeout)
+        finally:
+            exit_process(124)
     return _hard_stop
 
 
@@ -576,21 +614,29 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
         query = response.get("query") if isinstance(response, dict) else None
         rows = (query or {}).get("search") or (query or {}).get("categorymembers") or []
         titles = commons.discovered_titles(response if isinstance(response, dict) else {})
+        # Only titles not already described count, and only up to the remaining unique allowance;
+        # the helper sorts titles, so the cut is deterministic and independent of results.
+        already = [title for title in titles if title in described]
+        new_titles = [title for title in titles if title not in described]
+        allowance = limits["candidateCap"] - len(described)
+        requested, over_cap = new_titles[:allowance], new_titles[allowance:]
         try:
-            result = discover(store, titles, transport)
+            result = discover(store, requested, transport)
         except Exception as exc:  # noqa: BLE001 - a crash inside the helper keeps its partial evidence
             recorder.latch(f"discover-failed:{type(exc).__name__}")
             log.write("scope", scope=sid, status="DISCOVER_FAILED", reason=recorder.stop_reason, listAttempt=recorder.last_list_attempt,
                       listRows=len(rows), videoTitles=titles, categoryCaveat=caveat)
             continue
         errors = [item for item in result["items"] if item.get("error")]
-        ok = [item["fileTitle"] for item in result["items"] if not item.get("error")]
+        ok = sorted(item["fileTitle"] for item in result["items"] if not item.get("error"))
         described.update(ok)
         if scope["pool"] == "primary":
             primary_described = len(described)
         log.write("scope", scope=sid, status="PER_FILE_ERRORS" if errors else "COMPLETE", reason=recorder.stop_reason,
                   listAttempt=recorder.last_list_attempt, listRows=len(rows), listContinues=bool(isinstance(response, dict) and "continue" in response),
-                  videoTitles=titles, describedWithoutError=len(ok), itemErrors=len(errors),
+                  videoTitles=titles, alreadyDescribedTitles=already, overCandidateCapTitles=over_cap,
+                  requestedTitles=requested, describedTitles=ok, describedWithoutError=len(ok), itemErrors=len(errors),
+                  uniqueDescribedSoFar=len(described),
                   discoveryReportSha256=result["discoveryReportSha256"], decisionsTemplate=result["decisionsTemplate"],
                   categoryCaveat=caveat)
         if errors:
@@ -609,7 +655,10 @@ def _write_new(path: Path, data: bytes) -> None:
     try:
         os.link(partial, path)
     finally:
-        partial.unlink()
+        try:
+            partial.unlink()
+        except OSError:
+            pass  # the target is complete; a leftover partial is replaced by the next write
 
 
 def _read_jsonl(path: Path) -> tuple[list[dict], int]:
@@ -674,7 +723,7 @@ def finalize(run_dir: Path, *, interrupted: bool = False) -> dict:
         "preflight": next((s for s in scope_events if s.get("event") == "preflight"), None),
         "scopes": scope_status,
         "interruptedScopes": interrupted_scopes,
-        "describedWithoutError": sum(int(s.get("describedWithoutError") or 0) for s in finished_scopes.values()),
+        "describedWithoutError": len({title for s in finished_scopes.values() for title in (s.get("describedTitles") or [])}),
         "categoryCaveat": CATEGORY_CAVEAT,
         "finalizedUtc": _utc_now(),
     }
@@ -734,6 +783,9 @@ def verify_bundle(destination: Path, name: str, *, require_checksum: bool = True
         recorded = (destination / f"{name}.tar.gz.sha256").read_text(encoding="ascii").split()[0]
         if sha256_hex(archive.read_bytes()) != recorded:
             raise StoreError("bundle verification failed: archive SHA-256 differs")
+    paths = [e["path"] for e in manifest["files"]]
+    if len(paths) != len(set(paths)) or "MANIFEST.json" in paths:
+        raise StoreError("bundle verification failed: duplicate manifest path")
     expected = {e["path"]: e["sha256"] for e in manifest["files"]}
     expected["MANIFEST.json"] = sha256_hex(manifest_bytes)
     with tarfile.open(archive, "r:gz") as tar:
@@ -741,7 +793,10 @@ def verify_bundle(destination: Path, name: str, *, require_checksum: bool = True
         for member in tar.getmembers():
             if not member.isfile() or not member.name.startswith(f"{name}/"):
                 raise StoreError(f"bundle verification failed: unexpected member {member.name}")
-            members[member.name[len(name) + 1:]] = member
+            relative = member.name[len(name) + 1:]
+            if relative in members:
+                raise StoreError(f"bundle verification failed: duplicate archive member {member.name}")
+            members[relative] = member
         if set(members) != set(expected):
             raise StoreError("bundle verification failed: member set differs")
         for relative, digest in expected.items():
