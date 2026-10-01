@@ -114,7 +114,7 @@ A category or search is only a **discovery scope**. Every decision names one exa
   - the soft deadline;
   - an interruption;
   - a metadata response that the helper's own parser would reject (missing page, wrong shape, unparseable body), before the next title is requested;
-  - any other per-file error that the helper records (the run stops after that scope).
+  - any other per-file error that the helper records; the run stops after that scope. This is a fallback, since transport and parse errors already latch immediately.
 
   Once it has latched, no network attempt starts, including redirect hops and the helper's own back-off retries. Local finalisation continues.
 - **Limits.** The attempt budget counts every fetch, including each redirect hop. Attempt starts are paced, and scopes are separated by a gap. The soft deadline is checked before every attempt, read chunk and wait. Each attempt has a read-time limit. A hard deadline tries to record an event on a separate thread for at most 5 s, then always ends the process with exit code 124, even if logging fails or blocks. Bodies and per-item evidence already written survive; the in-flight scope's discovery report does not, and `finalize` reconstructs the status.

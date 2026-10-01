@@ -96,7 +96,7 @@ STOP_RULES = (
     "the attempt budget counts every fetch, including each redirect hop; reaching it latches the run",
     "the soft deadline is checked before every attempt, every read chunk, every pacing wait and every sleep; passing it latches the run",
     "the hard deadline tries to record an event on a separate thread for at most 5 s, then always ends the process with exit code 124; everything already captured survives",
-    "a metadata response the helper's own parser would reject (missing page, wrong shape, transcode URL, unparseable body) latches the run before the next title is requested; any other item error the helper records latches the run after that scope",
+    "a metadata response the helper's own parser would reject (missing page, wrong shape, transcode URL, unparseable body) latches the run before the next title is requested; any other item error the helper records latches the run after that scope (a fallback: transport and parse errors already latch immediately)",
     "an interruption latches the run and finalises locally",
     "after the latch, no network attempt starts; remaining scopes are recorded NOT_STARTED",
     "secondary scopes run only if primary scopes described fewer files without error than the threshold",

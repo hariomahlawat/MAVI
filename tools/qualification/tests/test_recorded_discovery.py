@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import tarfile
+import time
 import urllib.error
 import urllib.parse
 from pathlib import Path
@@ -737,9 +738,46 @@ def test_the_hard_stop_exits_even_if_logging_fails_or_blocks(tmp_path):
 
     recorder.events.write = blocking_write
     codes.clear()
+    started = time.monotonic()
     rd.make_hard_stop(recorder, codes.append, log_timeout=0.2)()
-    assert codes == [124]  # the exit did not wait for the blocked write
+    assert codes == [124] and time.monotonic() - started < 2.0  # the exit did not wait for the blocked write
     release.set()
+
+
+def test_the_hard_stop_exits_even_if_the_logging_thread_cannot_start(tmp_path, monkeypatch):
+    recorder = rd.Recorder(tmp_path / "capture", attempt_budget=5, min_interval=0, soft_deadline=100, attempt_read_seconds=10,
+                           body_limit=100, fetch=None, sleep=lambda s: None, monotonic=lambda: 0.0, utc=lambda: UTC)
+
+    class NoThread:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(rd.threading, "Thread", NoThread)
+    codes = []
+    with pytest.raises(RuntimeError):
+        rd.make_hard_stop(recorder, codes.append)()
+    assert codes == [124]
+
+
+def test_an_atomic_write_survives_a_failed_partial_cleanup(tmp_path, monkeypatch):
+    real_unlink = Path.unlink
+
+    def stubborn_unlink(self, *a, **k):
+        if self.name.endswith(".partial") and self.with_name(self.name[:-len(".partial")]).exists():
+            raise PermissionError("held by another process")
+        return real_unlink(self, *a, **k)
+
+    monkeypatch.setattr(Path, "unlink", stubborn_unlink)
+    target = tmp_path / "record.json"
+    rd._write_new(target, b"{}\n")
+    assert target.read_bytes() == b"{}\n" and (tmp_path / "record.json.partial").exists()
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    with pytest.raises(FileExistsError):
+        rd._write_new(target, b"{other}\n")  # never overwrites; the stale partial is replaced, then refused
+    assert target.read_bytes() == b"{}\n"
 
 
 def test_verify_bundle_rejects_duplicate_archive_members_and_manifest_paths(tmp_path):
