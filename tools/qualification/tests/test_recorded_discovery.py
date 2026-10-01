@@ -806,3 +806,129 @@ def test_verify_bundle_rejects_duplicate_archive_members_and_manifest_paths(tmp_
     (two / "MANIFEST.json").write_bytes(json.dumps(manifest).encode())
     with pytest.raises(StoreError, match="duplicate manifest path"):
         rd.verify_bundle(two, "b-dup-manifest", require_checksum=False)
+
+
+# ---------------------------------------------------------------- P2 completion pass
+
+NEW = ["File:Lane C 2026.webm", "File:Lane D 2026.webm", "File:Lane E 2026.webm"]
+
+
+def _search_route(pages: dict[int, tuple[list[tuple[str, int]], bool]], seen: list[int]):
+    """Serve search pages by sroffset: {offset: ([(title, pageid)], has_continuation)}."""
+    def route(url):
+        params = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+        offset = int(params.get("sroffset", "0"))
+        seen.append(offset)
+        rows, more = pages[offset]
+        body = {"query": {"searchinfo": {"totalhits": 90}, "search": [{"title": t, "pageid": p} for t, p in rows]}}
+        if more:
+            body["continue"] = {"sroffset": offset + 20, "continue": "-||"}
+        return 200, {}, io.BytesIO(json.dumps(body).encode())
+    return route
+
+
+def _prior_bundle(tmp_path: Path) -> tuple[Path, str]:
+    clock = Clock()
+    run_dir, _ = run(tmp_path / "prior", Net(clock=clock), clock, scopes=SCOPES[:1])
+    evidence = tmp_path / "evidence"
+    evidence.mkdir(exist_ok=True)
+    return rd.bundle(run_dir, evidence, "prior-run"), "prior-run"
+
+
+def _completion(tmp_path: Path, net: Net, clock: Clock, prior: dict, **limits):
+    root = tmp_path / "completion-root"
+    root.mkdir(parents=True, exist_ok=True)
+    return rd.run_discovery(root, CONTACT, stamp=STAMP, scopes=rd.P2_COMPLETION_SCOPES,
+                            limits={**rd.P2_COMPLETION_LIMITS, **limits}, fetch=net, sleep=clock.sleep,
+                            monotonic=clock.monotonic, utc=lambda: UTC, hard_deadline=False,
+                            pass_id=rd.P2_COMPLETION_PASS_ID, prior_runs=[prior], run_prefix="commons-discovery-completion")
+
+
+def test_the_p2_completion_pass_is_predeclared_exactly():
+    assert [(s["id"], s["kind"], s["query"], s["pool"], s["offset"]) for s in rd.P2_COMPLETION_SCOPES] == [
+        ("P2-o0", "search", "street India 2026", "primary", 0), ("P2-o20", "search", "street India 2026", "primary", 20),
+        ("P2-o40", "search", "street India 2026", "primary", 40), ("P2-o60", "search", "street India 2026", "primary", 60)]
+    limits = rd.P2_COMPLETION_LIMITS
+    worst_case_logical = 1 + len(rd.P2_COMPLETION_SCOPES) + limits["candidateCap"]  # preflight + pages + new metadata
+    assert (worst_case_logical, limits["attemptBudget"], limits["scopeLimit"], limits["candidateCap"]) == (25, 30, 20, 20)
+    assert limits["softDeadlineSeconds"] < limits["hardDeadlineSeconds"]
+
+
+def test_scope_validation_freezes_offsets_and_page_order():
+    page = {"id": "P", "kind": "search", "query": "q", "pool": "primary"}
+    for scopes in ([dict(page, offset=10)],                                              # not a page boundary
+                   [dict(page, id="a", offset=20), dict(page, id="b", offset=0)],        # descending pages
+                   [dict(page, kind="category", query="Category:X", offset=0)],          # no offsets on categories
+                   [dict(page, offset=True)], [dict(page, extra=1)], [page, dict(page)]):  # bool, unknown key, duplicate id
+        with pytest.raises(StoreError):
+            rd.build_config(CONTACT, scopes, rd.P2_COMPLETION_LIMITS)
+
+
+def test_completion_pages_use_frozen_offsets_and_stop_when_the_search_is_exhausted(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    pages = {0: ([(TITLES[0], 100), (TITLES[1], 101), (NEW[0], 300)], True), 20: ([(NEW[1], 301)], False)}
+    net = Net(titles=TITLES + NEW, clock=clock, list_route=_search_route(pages, seen))
+    run_dir, status = _completion(tmp_path, net, clock, prior)
+    list_urls = [u for u in net.calls if "list=search" in u]
+    assert seen == [0, 20] and "sroffset" not in list_urls[0] and list_urls[1].endswith("&sroffset=20")
+    scopes = scope_records(run_dir)
+    assert scopes["P2-o0"]["priorRunTitles"] == TITLES and scopes["P2-o0"]["requestedTitles"] == [NEW[0]]
+    assert scopes["P2-o20"]["serverContinuation"] is None and scopes["P2-o40"]["status"] == "NOT_NEEDED"
+    assert scopes["P2-o60"]["status"] == "NOT_NEEDED" and status["status"] == "COMPLETE"
+    assert not any(t.replace(" ", "+") in u for t in TITLES for u in net.calls if "titles=" in u)  # prior files never re-described
+    assert status["describedWithoutError"] == 2
+    config = json.loads((run_dir / "config" / "run-config.json").read_bytes())
+    assert config["passId"] == rd.P2_COMPLETION_PASS_ID and config["priorRuns"][0]["archiveSha256"] == prior["archiveSha256"]
+    assert [i["title"] for i in config["priorRuns"][0]["describedIdentities"]] == TITLES
+
+
+def test_a_renamed_prior_file_is_excluded_by_page_id_and_drift_duplicates_count_once(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    renamed = "File:Crossing A renamed 2026.webm"  # same page id 100 as a prior file
+    pages = {0: ([(renamed, 100), (NEW[0], 300)], True), 20: ([(NEW[0], 300), (NEW[1], 301)], True),
+             40: ([(NEW[2], 302)], False)}
+    net = Net(titles=TITLES + NEW + [renamed], clock=clock, list_route=_search_route(pages, seen))
+    run_dir, status = _completion(tmp_path, net, clock, prior)
+    scopes = scope_records(run_dir)
+    assert scopes["P2-o0"]["priorRunTitles"] == [renamed] and scopes["P2-o0"]["requestedTitles"] == [NEW[0]]
+    assert scopes["P2-o20"]["alreadyDescribedTitles"] == [NEW[0]] and scopes["P2-o20"]["requestedTitles"] == [NEW[1]]
+    assert status["describedWithoutError"] == 3 and len([u for u in net.calls if "titles=" in u]) == 3
+
+
+def test_the_new_candidate_cap_stops_paging(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    pages = {0: ([(NEW[0], 300), (NEW[1], 301), (NEW[2], 302)], True), 20: ([("File:Never 2026.webm", 400)], True)}
+    net = Net(titles=NEW + ["File:Never 2026.webm"], clock=clock, list_route=_search_route(pages, seen))
+    run_dir, status = _completion(tmp_path, net, clock, prior, candidateCap=2)
+    scopes = scope_records(run_dir)
+    assert seen == [0] and scopes["P2-o0"]["overCandidateCapTitles"] == [NEW[2]]
+    assert {scopes[s]["reason"] for s in ("P2-o20", "P2-o40", "P2-o60")} == {"candidate-cap"} and status["describedWithoutError"] == 2
+
+
+def test_a_tampered_prior_bundle_is_refused_before_any_request(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    (destination / f"{name}.tar.gz.sha256").write_text("0" * 64 + f"  {name}.tar.gz\n", encoding="ascii")
+    with pytest.raises(StoreError):
+        rd.prior_run_identities(destination, name)
+    root = tmp_path / "cli-root"
+    root.mkdir()
+    code = rd.main(["run-completion", "--run-root", str(root), "--contact", CONTACT,
+                    "--prior-evidence-dir", str(destination), "--prior-name", name])
+    assert code == 2 and list(root.iterdir()) == []  # refused before a run directory or any request exists
+
+
+def test_a_prior_title_without_a_page_id_is_still_excluded(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+    prior = rd.prior_run_identities(destination, name)
+    clock, seen = Clock(), []
+    pages = {0: ([(TITLES[0], None), (NEW[0], 300)], False)}
+    net = Net(titles=TITLES + NEW, clock=clock, list_route=_search_route(pages, seen))
+    run_dir, status = _completion(tmp_path, net, clock, prior)
+    assert scope_records(run_dir)["P2-o0"]["priorRunTitles"] == [TITLES[0]]
+    assert len([u for u in net.calls if "titles=" in u]) == 1 and status["describedWithoutError"] == 1

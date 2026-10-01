@@ -52,7 +52,7 @@ from .acquire import StoreError, assert_controlled_store, discover
 from .cli import USER_AGENT
 from .transport import Transport, TransportError, _default_fetch
 
-CONFIG_SCHEMA = "mavi-s2c-recorded-discovery-config-v1"
+CONFIG_SCHEMA = "mavi-s2c-recorded-discovery-config-v2"
 STATUS_SCHEMA = "mavi-s2c-recorded-discovery-status-v1"
 MANIFEST_SCHEMA = "mavi-s2c-recorded-discovery-manifest-v1"
 
@@ -65,6 +65,18 @@ PILOT_RETRY_SCOPES = (
     {"id": "P5", "kind": "category", "query": "Category:Videos of road traffic in India", "pool": "primary"},
     {"id": "S1", "kind": "category", "query": "Category:Videos of street scenes", "pool": "secondary"},
     {"id": "S2", "kind": "category", "query": "Category:Videos of road traffic", "pool": "secondary"},
+)
+# The first completion pass (proposal; requires a fresh R-3 predeclaration before any run).
+# It continues only the one primary scope with unretrieved hits: P2 had totalhits 90 and the
+# retry described its first 20. Pages are fixed offsets of a frozen page size, all fetched in
+# one run so the ranking is one snapshot. Files described by the prior run are excluded by
+# identity, so they never consume this pass's budget. B0 stop condition S1 is judged on 60
+# reviewed candidates; the prior run described 43, so 20 new files (one page) is enough with
+# a small margin, and paging stops as soon as they are described.
+P2_COMPLETION_PASS_ID = "s2c-b0-p2-completion-1"
+P2_COMPLETION_SCOPES = tuple(
+    {"id": f"P2-o{offset}", "kind": "search", "query": "street India 2026", "pool": "primary", "offset": offset}
+    for offset in (0, 20, 40, 60)
 )
 CATEGORY_CAVEAT = (
     "Direct-category query: lists only files directly in the category (cmtype=file, at most the "
@@ -86,6 +98,18 @@ LIMITS = {
     "attemptReadSeconds": 120,
     "bodyLimitBytes": 16 * 1024 * 1024,
 }
+P2_COMPLETION_LIMITS = {
+    "scopeLimit": 20,                              # page size (srlimit), frozen
+    "secondaryOnlyIfPrimaryDescribedBelow": 1,     # no secondary scope in this pass
+    "candidateCap": 20,                            # new unique files described in this pass
+    "attemptBudget": 30,                           # worst case 25 logical requests + 5 redirect hops
+    "minIntervalSeconds": 5,
+    "scopeGapSeconds": 15,                         # between pages
+    "softDeadlineSeconds": 10 * 60,
+    "hardDeadlineSeconds": 12 * 60,
+    "attemptReadSeconds": 120,
+    "bodyLimitBytes": 16 * 1024 * 1024,
+}
 STOP_RULES = (
     "a refused URL (anything but the Commons Action API endpoint) latches the run before any socket opens",
     "a refusal raised inside the helper's Transport (redirect to a host that is not allow-listed, a non-HTTPS hop, a malformed URL or redirect location, a redirect without a location, too many redirects, an over-limit body) latches the run before any further request",
@@ -100,6 +124,8 @@ STOP_RULES = (
     "an interruption latches the run and finalises locally",
     "after the latch, no network attempt starts; remaining scopes are recorded NOT_STARTED",
     "secondary scopes run only if primary scopes described fewer files without error than the threshold",
+    "a search page whose response carries no continuation ends that query's paging; its later predeclared pages are recorded NOT_NEEDED",
+    "files whose title or page id a verified prior run described are excluded and never consume the candidate cap",
     "no scope starts once the candidate cap of unique files described without error is reached; within a scope, only titles not already described are requested, and only up to the remaining allowance",
 )
 RECORDED_HEADER_NAMES = ("retry-after", "date", "content-type", "content-length", "age", "server", "x-cache", "x-cache-status",
@@ -471,14 +497,43 @@ def _validate_limits(limits: dict) -> dict:
     return dict(limits)
 
 
-def build_config(contact: str, scopes=PILOT_RETRY_SCOPES, limits: dict | None = None) -> dict:
+def _validate_scopes(scopes) -> list[dict]:
+    """Every scope is fully predeclared: id, kind, query, pool, and for a search page an offset
+    that is a multiple of the frozen page size. Ids are unique; pages of one query are ascending."""
+    out, ids, last_offset = [], set(), {}
+    for scope in scopes:
+        scope = dict(scope)
+        if set(scope) - {"id", "kind", "query", "pool", "offset"} or not {"id", "kind", "query", "pool"} <= set(scope):
+            raise StoreError("scope must have exactly id, kind, query, pool and an optional offset")
+        if scope["id"] in ids or scope["kind"] not in ("search", "category") or scope["pool"] not in ("primary", "secondary"):
+            raise StoreError(f"scope {scope.get('id')} is invalid")
+        if "offset" in scope:
+            offset = scope["offset"]
+            if scope["kind"] != "search" or not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+                raise StoreError(f"scope {scope['id']}: an offset is a non-negative integer on a search scope only")
+            if offset <= last_offset.get(scope["query"], -1):
+                raise StoreError(f"scope {scope['id']}: pages of one query must be predeclared in ascending order")
+            last_offset[scope["query"]] = offset
+        ids.add(scope["id"])
+        out.append(scope)
+    return out
+
+
+def build_config(contact: str, scopes=PILOT_RETRY_SCOPES, limits: dict | None = None, *,
+                 pass_id: str = "s2c-b0-pilot-retry", prior_runs: list[dict] | None = None) -> dict:
     limits = _validate_limits(dict(LIMITS if limits is None else limits))
+    scopes = _validate_scopes(scopes)
+    for scope in scopes:
+        if "offset" in scope and scope["offset"] % limits["scopeLimit"] != 0:
+            raise StoreError(f"scope {scope['id']}: the offset must be a multiple of the page size")
     user_agent = USER_AGENT.format(contact=_validate_contact(contact))
     return {
         "schema": CONFIG_SCHEMA,
         "provider": commons.PROVIDER,
-        "purpose": "metadata-only discovery retry; no admission, no acquisition, no media request",
-        "scopes": [dict(s) for s in scopes],
+        "purpose": "metadata-only discovery; no admission, no acquisition, no media request",
+        "passId": pass_id,
+        "priorRuns": list(prior_runs or []),
+        "scopes": scopes,
         "categoryCaveat": CATEGORY_CAVEAT,
         "limits": limits,
         "stopRules": list(STOP_RULES),
@@ -515,18 +570,48 @@ def make_hard_stop(recorder: Recorder, exit_process: Callable[[int], None] = os.
     return _hard_stop
 
 
+def prior_run_identities(evidence_dir: Path, name: str) -> dict:
+    """The file identities a finalised, bundled prior run described, read from its verified
+    archive (not from the mutable run directory). Local only: no network."""
+    evidence_dir = Path(evidence_dir)
+    verify_bundle(evidence_dir, name)
+    archive = evidence_dir / f"{name}.tar.gz"
+    manifest_bytes = (evidence_dir / "MANIFEST.json").read_bytes()
+    manifest = json.loads(manifest_bytes)
+    identities = {}
+    with tarfile.open(archive, "r:gz") as tar:
+        for member in tar.getmembers():
+            relative = member.name[len(name) + 1:]
+            if not (member.isfile() and relative.startswith("store/evidence/") and relative.endswith(".json")):
+                continue
+            meta = commons.parse_file_metadata(json.loads(tar.extractfile(member).read().decode("utf-8")))
+            identities[meta["pageId"]] = {"pageId": meta["pageId"], "title": meta["fileTitle"],
+                                          "pageRevisionId": meta["pageRevisionId"], "fileSha1": meta["fileSha1"]}
+    if not identities:
+        raise StoreError("the prior run's archive holds no described files")
+    config_entry = next((e for e in manifest["files"] if e["path"] == "config/run-config.json"), None)
+    return {"bundleName": name, "run": manifest["run"],
+            "archiveSha256": sha256_hex(archive.read_bytes()), "manifestSha256": sha256_hex(manifest_bytes),
+            "configSha256": config_entry["sha256"] if config_entry else None,
+            "describedIdentities": [identities[k] for k in sorted(identities)]}
+
+
 def run_discovery(run_root: Path, contact: str, *, stamp: str | None = None, scopes=PILOT_RETRY_SCOPES,
                   limits: dict | None = None, fetch: Callable | None = None, sleep: Callable[[float], None] = time.sleep,
                   monotonic: Callable[[], float] = time.monotonic, utc: Callable[[], str] = _utc_now,
-                  hard_deadline: bool = True) -> tuple[Path, dict]:
+                  hard_deadline: bool = True, pass_id: str = "s2c-b0-pilot-retry", prior_runs: list[dict] | None = None,
+                  run_prefix: str = "commons-discovery-retry") -> tuple[Path, dict]:
     """One recorded run in a new directory under ``run_root``; returns (run directory, status)."""
     root = assert_controlled_store(run_root)
     if not root.is_dir():
         raise StoreError("run root must be an existing directory")
-    config = build_config(contact, scopes, limits)
+    config = build_config(contact, scopes, limits, pass_id=pass_id, prior_runs=prior_runs)
     limits = config["limits"]
+    scopes = config["scopes"]
     stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = root / f"commons-discovery-retry-{stamp}"
+    if run_prefix not in ("commons-discovery-retry", "commons-discovery-completion"):
+        raise StoreError("unknown run prefix")
+    run_dir = root / f"{run_prefix}-{stamp}"
     run_dir.mkdir(exist_ok=False)
     (run_dir / "config").mkdir()
     config_bytes = canonical_json(config)
@@ -550,7 +635,7 @@ def run_discovery(run_root: Path, contact: str, *, stamp: str | None = None, sco
     store = run_dir / "store"
     interrupted = False
     try:
-        _run_scopes(recorder, scope_log, transport, store, scopes, limits)
+        _run_scopes(recorder, scope_log, transport, store, scopes, limits, config["priorRuns"])
     except KeyboardInterrupt:
         interrupted = True
         recorder.latch("interrupted")
@@ -564,7 +649,11 @@ def run_discovery(run_root: Path, contact: str, *, stamp: str | None = None, sco
     return run_dir, status
 
 
-def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: Path, scopes, limits: dict) -> None:
+def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: Path, scopes, limits: dict,
+                prior_runs: list[dict] = ()) -> None:
+    prior_titles = {i["title"] for run in prior_runs for i in run["describedIdentities"]}
+    prior_page_ids = {i["pageId"] for run in prior_runs for i in run["describedIdentities"]}
+    exhausted: set[str] = set()
     try:
         raw = transport.get_bytes(PREFLIGHT_URL)
         json.loads(raw.decode("utf-8"))
@@ -586,6 +675,9 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
         if len(described) >= limits["candidateCap"]:
             log.write("scope", scope=sid, status="NOT_STARTED", reason="candidate-cap")
             continue
+        if "offset" in scope and scope["query"] in exhausted:
+            log.write("scope", scope=sid, status="NOT_NEEDED", reason="search-exhausted: an earlier page carried no continuation")
+            continue
         if not first:
             try:
                 recorder.pause(limits["scopeGapSeconds"])
@@ -594,9 +686,11 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
                 continue
         first = False
         caveat = CATEGORY_CAVEAT if scope["kind"] == "category" else None
-        log.write("scope-start", scope=sid, kind=scope["kind"], query=scope["query"])
+        log.write("scope-start", scope=sid, kind=scope["kind"], query=scope["query"], offset=scope.get("offset"))
         if scope["kind"] == "search":
             url = commons.search_query_url(scope["query"], limits["scopeLimit"])
+            if scope.get("offset"):
+                url += "&" + urllib.parse.urlencode({"sroffset": str(scope["offset"])})
         else:
             url = commons.category_query_url(scope["query"], limits["scopeLimit"])
         try:
@@ -614,10 +708,17 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
         query = response.get("query") if isinstance(response, dict) else None
         rows = (query or {}).get("search") or (query or {}).get("categorymembers") or []
         titles = commons.discovered_titles(response if isinstance(response, dict) else {})
-        # Only titles not already described count, and only up to the remaining unique allowance;
-        # the helper sorts titles, so the cut is deterministic and independent of results.
-        already = [title for title in titles if title in described]
-        new_titles = [title for title in titles if title not in described]
+        continuation = response.get("continue") if isinstance(response, dict) else None
+        if "offset" in scope and not continuation:
+            exhausted.add(scope["query"])
+        page_id_of = {row.get("title"): row.get("pageid") for row in rows if isinstance(row, dict)}
+        # Files the prior run described are excluded by title or page id; they never consume
+        # this pass's budget. Only titles not already described count, and only up to the
+        # remaining unique allowance; the helper sorts titles, so the cut is deterministic and
+        # independent of results.
+        prior = [title for title in titles if title in prior_titles or page_id_of.get(title) in prior_page_ids]
+        already = [title for title in titles if title in described and title not in prior]
+        new_titles = [title for title in titles if title not in described and title not in prior]
         allowance = limits["candidateCap"] - len(described)
         requested, over_cap = new_titles[:allowance], new_titles[allowance:]
         try:
@@ -634,7 +735,9 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
             primary_described = len(described)
         log.write("scope", scope=sid, status="PER_FILE_ERRORS" if errors else "COMPLETE", reason=recorder.stop_reason,
                   listAttempt=recorder.last_list_attempt, listRows=len(rows), listContinues=bool(isinstance(response, dict) and "continue" in response),
-                  videoTitles=titles, alreadyDescribedTitles=already, overCandidateCapTitles=over_cap,
+                  videoTitles=titles, priorRunTitles=prior, alreadyDescribedTitles=already, overCandidateCapTitles=over_cap,
+                  offset=scope.get("offset"), totalHits=((query or {}).get("searchinfo") or {}).get("totalhits"),
+                  serverContinuation=continuation,
                   requestedTitles=requested, describedTitles=ok, describedWithoutError=len(ok), itemErrors=len(errors),
                   uniqueDescribedSoFar=len(described),
                   discoveryReportSha256=result["discoveryReportSha256"], decisionsTemplate=result["decisionsTemplate"],
@@ -811,6 +914,11 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run", help="one recorded metadata-only run of the predeclared scopes")
     r.add_argument("--run-root", required=True, type=Path)
     r.add_argument("--contact", required=True)
+    c = sub.add_parser("run-completion", help="the predeclared P2 completion pass, excluding a verified prior run's files")
+    c.add_argument("--run-root", required=True, type=Path)
+    c.add_argument("--contact", required=True)
+    c.add_argument("--prior-evidence-dir", required=True, type=Path)
+    c.add_argument("--prior-name", required=True)
     f = sub.add_parser("finalize", help="local only: derive run-status.json after a hard stop")
     f.add_argument("--run-dir", required=True, type=Path)
     b = sub.add_parser("bundle", help="local only: MANIFEST.json and .tar.gz in a new evidence directory")
@@ -827,6 +935,13 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"runDir": run_dir.name, "status": status["status"], "stopReason": status["stopReason"],
                               "attemptsStarted": status["attemptsStarted"], "describedWithoutError": status["describedWithoutError"]}, indent=2))
             return {"COMPLETE": 0, "STOPPED": 1}.get(status["status"], 130)
+        if args.command == "run-completion":
+            prior = prior_run_identities(args.prior_evidence_dir, args.prior_name)  # verified before any request
+            run_dir, status = run_discovery(args.run_root, args.contact, scopes=P2_COMPLETION_SCOPES, limits=P2_COMPLETION_LIMITS,
+                                            pass_id=P2_COMPLETION_PASS_ID, prior_runs=[prior], run_prefix="commons-discovery-completion")
+            print(json.dumps({"runDir": run_dir.name, "status": status["status"], "stopReason": status["stopReason"],
+                              "attemptsStarted": status["attemptsStarted"], "describedWithoutError": status["describedWithoutError"]}, indent=2))
+            return {"COMPLETE": 0, "STOPPED": 1}.get(status["status"], 130)
         if args.command == "finalize":
             status = finalize(args.run_dir)
             print(json.dumps({"status": status["status"], "stopReason": status["stopReason"]}, indent=2))
@@ -838,6 +953,6 @@ def main(argv: list[str] | None = None) -> int:
         destination = bundle(args.run_dir, args.evidence_root, args.name)
         print(json.dumps({"evidenceDir": destination.name}, indent=2))
         return 0
-    except (StoreError, OSError, ValueError, KeyError, tarfile.TarError) as exc:
+    except (StoreError, OSError, ValueError, KeyError, tarfile.TarError) as exc:  # CorpusError is a ValueError
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2

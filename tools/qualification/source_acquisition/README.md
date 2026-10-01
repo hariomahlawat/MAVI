@@ -141,6 +141,18 @@ python tools/qualification/source_discovery_recorded_cli.py bundle   --run-dir <
 python tools/qualification/source_discovery_recorded_cli.py verify-bundle --evidence-dir <Evidence dir>/<name> --name <name>
 ```
 
+**P2 completion pass (predeclared; needs a fresh R-3 approval before any run).** `run-completion` runs exactly `P2_COMPLETION_SCOPES`, which is the P2 search `street India 2026` at the frozen offsets 0, 20, 40 and 60 with a page size of 20, under `P2_COMPLETION_LIMITS`:
+- at most 20 **new** unique files;
+- 30 actual attempts, against a worst case of 25 logical requests;
+- 5 s pacing and 15 s between pages;
+- 10/12-minute soft and hard deadlines.
+
+Before the first request, it verifies the prior run's bundle and writes that run's described file identities (page id, title, revision, SHA-1) into `priorRuns` in the configuration. Those files are never re-described and never consume the budget. All pages come from one run, so the ranking is a single snapshot. A title that appears again on a later page is described once. Paging stops at the first page without a continuation, or when the new-file cap is reached. Category continuation and subcategories are not supported.
+
+```
+python tools/qualification/source_discovery_recorded_cli.py run-completion --run-root <Acquisition dir> --contact <url> --prior-evidence-dir <Evidence dir>/<prior name> --prior-name <prior name>
+```
+
 `bundle` writes `MANIFEST.json` (path, bytes, SHA-256, role and modification time per file), a `.tar.gz` and its SHA-256 into a new directory, and re-verifies every member. `verify-bundle` repeats that check later. The run configuration, its hash, `run-status.json` and the bundle files are created atomically and never overwritten. The event logs are append-only, and the helper's own store records are written as the helper writes them.
 
 **Exit codes.** `run` exits `0` complete, `1` stopped, `130` interrupted and `124` at the hard deadline. Any command exits `2` on a refusal.
