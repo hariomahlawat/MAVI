@@ -870,7 +870,8 @@ def test_scope_validation_freezes_offsets_and_page_order():
                    [dict(page, offset=True)], [dict(page, extra=1)], [page, dict(page)],   # bool, unknown key, duplicate id
                    [dict(page, offset=False)],                                            # False is not offset 0
                    [dict(page, id="a", offset=20), dict(page, id="b", offset=20)],        # the same page twice
-                   [dict(page, id="a"), dict(page, id="b", offset=0)]):                   # no offset is page 1
+                   [dict(page, id="a"), dict(page, id="b", offset=0)],                    # no offset is page 1
+                   [dict(page, id="a"), dict(page, id="a", query="other")]):               # duplicate id, distinct pages
         with pytest.raises(StoreError):
             rd.build_config(CONTACT, scopes, rd.P2_COMPLETION_LIMITS)
 
@@ -906,6 +907,7 @@ def test_a_renamed_prior_file_is_excluded_by_page_id_and_drift_duplicates_count_
     run_dir, status = _completion(tmp_path, net, clock, prior)
     scopes = scope_records(run_dir)
     assert scopes["P2-o0"]["priorRunTitles"] == [renamed] and scopes["P2-o0"]["requestedTitles"] == [NEW[0]]
+    assert scopes["P2-o0"]["priorRunMatches"] == [{"title": renamed, "byTitle": False, "byPageId": True}]
     assert scopes["P2-o20"]["alreadyDescribedTitles"] == [NEW[0]] and scopes["P2-o20"]["requestedTitles"] == [NEW[1]]
     assert status["describedWithoutError"] == 3 and len([u for u in net.calls if "titles=" in u]) == 3
 
@@ -929,9 +931,12 @@ def test_a_tampered_prior_bundle_is_refused_before_any_request(tmp_path):
         rd.prior_run_identities(destination, name)
     root = tmp_path / "cli-root"
     root.mkdir()
+    clock = Clock()
+    net = Net(clock=clock)
     code = rd.main(["run-completion", "--run-root", str(root), "--contact", CONTACT,
-                    "--prior-evidence-dir", str(destination), "--prior-name", name])
-    assert code == 2 and list(root.iterdir()) == []  # refused before a run directory or any request exists
+                    "--prior-evidence-dir", str(destination), "--prior-name", name],
+                   fetch=net, sleep=clock.sleep, monotonic=clock.monotonic, hard_deadline=False)
+    assert code == 2 and list(root.iterdir()) == [] and net.calls == []  # refused before a run directory or any request
 
 
 def test_a_prior_title_without_a_page_id_is_still_excluded(tmp_path):
@@ -942,6 +947,7 @@ def test_a_prior_title_without_a_page_id_is_still_excluded(tmp_path):
     net = Net(titles=TITLES + NEW, clock=clock, list_route=_search_route(pages, seen))
     run_dir, status = _completion(tmp_path, net, clock, prior)
     assert scope_records(run_dir)["P2-o0"]["priorRunTitles"] == [TITLES[0]]
+    assert scope_records(run_dir)["P2-o0"]["priorRunMatches"] == [{"title": TITLES[0], "byTitle": True, "byPageId": False}]
     assert len([u for u in net.calls if "titles=" in u]) == 1 and status["describedWithoutError"] == 1
 
 
@@ -1021,5 +1027,29 @@ def test_an_unknown_run_prefix_is_refused_before_any_directory_exists(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
     with pytest.raises(StoreError):
-        rd.run_discovery(root, CONTACT, stamp=STAMP, fetch=Net(), hard_deadline=False, run_prefix="commons-crawl")
+        clock = Clock()
+        rd.run_discovery(root, CONTACT, stamp=STAMP, fetch=Net(clock=clock), sleep=clock.sleep, monotonic=clock.monotonic,
+                         hard_deadline=False, run_prefix="commons-crawl")
     assert list(root.iterdir()) == []
+
+
+def test_the_pin_checks_every_key_on_its_own():
+    real = dict(rd.P2_COMPLETION_PRIOR)
+    rd.check_pinned_prior(dict(real, describedIdentities=[]), rd.P2_COMPLETION_PRIOR)
+    for key in ("bundleName", "archiveSha256", "manifestSha256", "configSha256"):
+        with pytest.raises(StoreError, match=key):
+            rd.check_pinned_prior(dict(real, **{key: "different"}), rd.P2_COMPLETION_PRIOR)
+
+
+def test_prior_identities_come_only_from_a_member_verified_archive(tmp_path):
+    destination, name = _prior_bundle(tmp_path)
+
+    def add_extra(ms):
+        return ms + [(tarfile.TarInfo(f"{name}/store/evidence/{'f' * 64}.json"), json.dumps(metadata(NEW[0], 300)).encode())]
+
+    _rewrite_archive(destination, name, add_extra)
+    archive = destination / f"{name}.tar.gz"
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    (destination / f"{name}.tar.gz.sha256").write_text(f"{digest}  {archive.name}\n", encoding="ascii")  # checksum now agrees
+    with pytest.raises(StoreError, match="member set"):
+        rd.prior_run_identities(destination, name)  # the unlisted member is refused, never read as an identity

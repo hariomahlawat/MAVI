@@ -936,6 +936,7 @@ def check_pinned_prior(prior: dict, pinned: dict) -> None:
         if prior.get(key) != pinned[key]:
             raise StoreError(f"prior run is not the pinned bundle: {key} differs")
 
+
 def main(argv: list[str] | None = None, *, fetch: Callable | None = None, sleep: Callable[[float], None] = time.sleep,
          monotonic: Callable[[], float] = time.monotonic, hard_deadline: bool = True,
          pinned_prior: dict = P2_COMPLETION_PRIOR) -> int:
