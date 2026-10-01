@@ -137,7 +137,8 @@ An admitted file enters qualification only through this path. B0 executes none o
    - `processingRunId`, `videoAssetId` and `recordingDate` (from the reviewed capture interval);
    - conditions;
    - the receipt SHA-256.
-4. Every item carries the ProcessingRun's **Track UUID** and its **Observation** ids, the **crop SHA-256**, and exactly **one raw-evidence pin** (the retained original's SHA-256 from the receipt).
+4. Every item carries the ProcessingRun's **Track UUID** and its **Observation** ids, and the **crop SHA-256**. The whole corpus carries exactly **one raw-evidence pin**: the vision pipeline profile SHA-256 recorded by the ProcessingRun, plus the Evidence Set selector and scorer versions (`rawEvidencePin` in `tools/qualification/attributes/corpus/manifest.py`). The pin is not a source-file hash. The retained original's SHA-256 is bound per source through the receipt SHA-256 (step 3).
+   *Corrected 2026-10-01: this step previously described the pin as the retained original's SHA-256, which conflicted with `manifest.py`.*
 5. Tracks are never synthesised from stills, and crops are never hand-cut outside the pipeline.
 
 ## 6. Pilot plan (to be executed by an operator after this PR; not executed here)

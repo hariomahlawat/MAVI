@@ -68,11 +68,45 @@ Every discovered item is therefore at most `DISCOVERED` or pending. **No rights 
 
 **Live parser validation.** B0 §9 deferred this. It now passes: real Commons `imageinfo` / `extmetadata` / `revisions` responses parse into the documented fields (MIME type, dimensions, duration, size, SHA-1, licence, author, `DateTimeOriginal`). No tool change was needed.
 
-**Rate limiting.** After the run, a single read-only request was repeated every 2 minutes for 10 minutes, using the helper's own User-Agent. Every request returned HTTP 429 (`retry-after: 5–7`) with Wikimedia's "too many requests" message. B0 §9 saw the same from a different container. Requests that slow cannot be caused by the helper's request rate. The result is **consistent with** a limit on this session container's shared egress address. A User-Agent-based throttle, or a penalty lingering from the earlier burst, is not excluded. No acquisition-tool repair is justified, because the helper's pacing is not shown to be the cause.
+**Rate limiting.** Repeated HTTP 429 responses blocked discovery from this environment; the underlying cause was not established. After the run, a single read-only request with the helper's own User-Agent was repeated every 2 minutes for 10 minutes, and every request returned HTTP 429 (`retry-after: 5–7`) with Wikimedia's "too many requests" message. No acquisition-tool repair is made, because no tool defect was shown.
 
-The pilot reached **stop condition S4** (rate limiting prevents metadata access) **in this execution environment**. That is not a finding about Commons from an ordinary network.
+The pilot reached **stop condition S4** (rate limiting prevents metadata access) **in this execution environment**. That is not a finding about Commons access from other environments.
 
-**Custody of this run's evidence.** Discovery reports and per-file metadata evidence were written to a session-local store outside Git. The run note holds the predeclared scopes, followed by the verbatim run outcomes and probe results, appended after the run; its final SHA-256 is `663481c52a3956200bb2a085132445f66fa7707d0458539340a3d55a498d75d7`. That store is **ephemeral and is not the controlled store**: the identities below are recorded so a rerun can be compared with them, but the bytes are not retained custody. No media bytes were downloaded.
+**Custody of this run's evidence.** The run wrote to a session-local store outside Git, which is ephemeral and is not a controlled store. No media bytes were downloaded. Everything still available was exported into an evidence bundle and delivered to the owner for retention outside session storage (§4a).
+
+## 4a. Evidence bundle
+
+**Bundle:** `mavi-s2c-b-source-pilot-evidence-2026-10-01.tar.gz`, SHA-256 `82fe15b714111c968d676bdd36b55598d5235697b0200d5954ce2b5350760331`. It was delivered to the owner as a download from the session on 2026-10-01. **Durable custody depends on the owner storing it** on the Development host or another retained store; the session copy is ephemeral.
+
+**Manifest:** `MANIFEST.json` inside the bundle, SHA-256 `60e4edc8a3ae18447d8e44cb4bdaf66d56cb5d94b4a13529ec50abef9a97d599`. It lists the following, with path, SHA-256, size, UTC modification time and role for every file:
+- 15 Commons file-metadata API responses;
+- 2 discovery reports and their 2 unreviewed decisions templates;
+- the run note;
+- the P1 console output, transcribed from the session transcript because it was not written to a file;
+- the P2–P5 console log;
+- the rate-limit probe log and its script.
+
+It also records each scope's completion status and the evidence already lost.
+
+| Scope | Status | Items described | Discovery report |
+|---|---|---|---|
+| P1 | complete | 3 | `3d40f185…01ef5` |
+| P2 | **partial**: terminated by the operator's 900 s wall-clock limit during HTTP 429 back-off | 12. The scope is attributed by file modification time, because the helper does not record scope per evidence file. | none written |
+| P3 | not completed: HTTP 429 on the search request | 0 | none |
+| P4 | complete: 0 video-file titles among direct file members | 0 | `83be9715…b569a` |
+| P5 | not completed: HTTP 429 | 0 | none |
+| S1, S2 | not started | — | — |
+
+**Run note.** Its final SHA-256 is `663481c52a3956200bb2a085132445f66fa7707d0458539340a3d55a498d75d7`. The predeclaration's hash was not captured when it was written, before P1. `bc4b0c2cf9dc54319bda31a1591c6d16fa9465fa759c047d7a1cbae511b03339` is **reconstructed** by truncating the note before its appended "Run outcomes" section.
+
+**Evidence already lost.** None of the following can be recovered:
+- the raw search and category list responses for every scope, because the helper never retains them, so the ordered candidate lists, including filtered-out non-video titles, are unavailable;
+- P2's discovery report and decisions template, which were never written;
+- exact per-scope start and end times for P2–P5, of which only file and log modification times remain;
+- full HTTP 429 headers and bodies, because the helper reports only "HTTP 429" and the probe log keeps the first 200 bytes of each body;
+- the helper's internal back-off timings, which are not logged.
+
+**Reproducibility.** These hashes identify exactly the bytes retained in the bundle. A future rerun is a new observation, and is not expected to reproduce them: Commons page revisions, search ranking, category membership and rate limiting all change over time.
 
 ## 4. Candidates described (metadata and title only; no model, no frames viewed, no human review)
 
@@ -103,23 +137,25 @@ Share-alike (`cc-by-sa-4.0`) is a machine pre-classification only. Whether SA te
 
 ## 5. Feasibility result
 
-**Outcome: INCOMPLETE in this environment (S4). Preliminary indications are that public Commons video is insufficient** for a first operational corpus. They rest on 15 described files from 2 of 5 primary scopes.
+**Outcome: INCOMPLETE in this environment (S4). Public-source sufficiency is UNRESOLVED.** Only 15 files were described, from 2 of 5 primary scopes, and none was reviewed.
 
-- The sample is small and this is not a final determination. But every observed candidate falls into one of four kinds:
+- **Observations from this sample only, with no conclusion drawn.** Every described candidate falls into one of four kinds:
   - archival film, which can never be fresh;
   - single-event clips;
   - short phone-style clips, mostly portrait;
   - unrelated scenes.
 - None *evidences* the fixed or slowly moving viewpoint that MAVI's camera-based Tracks presuppose; no frames were viewed.
-- The corpus checks add structural needs that short single-uploader clips rarely meet:
+- The corpus tooling's structural constraints (§6.1) apply to whatever footage is eventually admitted:
   - at least 3 cameras in **each** of training, tuning, selection and frozen-test (`check-f1`);
   - a frozen-test camera unseen elsewhere, for example through a held-out site;
   - site/date-block clusters, so that partitions can be filled without splitting a site's block.
 - Recent declared capture dates would at best support a *disjointness argument*. They never establish independence from candidate training data (B0 §1.3).
 
-**Not established:** any operational corpus, F1 PASS, rights or privacy approval, annotation, adjudication, or a final "insufficient" ruling under S1, S2 or S3.
+**Not established:** any operational corpus, F1 PASS, rights or privacy approval, annotation, adjudication, or a ruling either way on public-source sufficiency under S1, S2 or S3.
 
-## 6. Minimum additional footage if public sources are insufficient
+## 6. Corpus-tool constraints and a recommended acquisition brief
+
+§6.1 states what the corpus tooling enforces on any footage. §6.2 is a recommended brief for commissioned or owner capture, for use if the owner decides public sources are insufficient or chooses to proceed in parallel. It is a set of planning choices, not tool requirements.
 
 ### 6.1 Hard tool requirements (enforced by the corpus tooling)
 
@@ -164,9 +200,9 @@ The Corpus Custodian must populate the pin from the ProcessingRun's recorded `pi
    - the owner names the footage rights reviewer and the privacy reviewer;
    - R-1 supplies `freshnessReferenceDate` with evidence;
    - R-2 rules on the B0 §1 interpretation.
-2. **Owner decision**, which can run in parallel: whether to start a commissioned or owner-captured footage brief along the lines of §6.2. The preliminary indications in §5 suggest that public sources are unlikely to supply fixed multi-camera sites, but the completed rerun is the evidence for that.
+2. **Owner decision**, which can run in parallel: whether to start a commissioned or owner-captured footage brief along the lines of §6.2. Public-source sufficiency remains unresolved until a completed and reviewed run.
 3. **Complete the public pilot from the Development host**, if the owner still wants it:
-   - re-run the *same* predeclared scopes P1–P5 (then S1–S2) with the existing helper from a non-shared network;
+   - re-run the *same* predeclared scopes P1–P5 (then S1–S2) with the existing helper from the Development host. Whether the HTTP 429s recur there is unknown, because their cause was not established;
    - record the run note and report hashes;
    - have the named reviewers complete the decisions template;
    - acquire admitted files only;
@@ -177,6 +213,6 @@ The Corpus Custodian must populate the pin from the ProcessingRun's recorded `pi
 
 No tooling was changed, and nothing here may be merged without authorization.
 
-## 9. Inconsistency noted in an existing record (not changed here)
+## 9. Correction to the B0 record (made in this change)
 
-B0 §5 step 4 describes the corpus raw-evidence pin as "the retained original's SHA-256 from the receipt". `manifest.py` defines the pin as the pipeline profile digest plus the selector and scorer versions, and B0 §5 step 3 already binds the receipt SHA-256 per source. The B0 wording should be corrected in a separate change.
+B0 §5 step 4 described the corpus raw-evidence pin as "the retained original's SHA-256 from the receipt". That conflicts with `manifest.py`, where the pin is the vision pipeline profile digest plus the Evidence Set selector and scorer versions. It is now corrected in `s2c-b0-source-acquisition-record.md`. The retained original's SHA-256 stays bound per source through the receipt SHA-256 in the manifest source row (B0 §5 step 3).
