@@ -159,9 +159,44 @@ python tools/qualification/source_discovery_recorded_cli.py run-completion --run
 
 **Exit codes.** `run` exits `0` complete, `1` stopped, `130` interrupted and `124` at the hard deadline. Any command exits `2` on a refusal.
 
+## Review inventory (metadata-only triage)
+
+`source_acquisition/review_inventory.py` (entry point `tools/qualification/source_review_inventory_cli.py`) builds one B0 review inventory from explicitly supplied recorded-discovery bundles. It is local only: no network, no media, no writes inside a bundle.
+
+**Inputs.**
+- Each bundle is given as directory, name and the archive SHA-256 it must have.
+- The bundle's bytes are read once and verified against its checksum file, that pin and every manifest member before anything is used.
+- The provisional freshness reference is recorded as `PROVISIONAL, NOT DECIDED`.
+- An optional title-judgements file (`mavi-s2c-b0-title-judgements-v1`) holds corpus-specific title rules. Each rule is a regex with a code from a closed vocabulary and a reason. The file's SHA-256 and its rules are recorded in the output.
+
+**Each candidate (one per Commons page id) records:**
+- provenance back to the bundle, archive hash, run, run-configuration hash, scope or page, metadata member and member hash; a page described in several bundles keeps every provenance;
+- the **historical** automatic state exactly as that bundle recorded it, next to the state **re-derived** with the current helper;
+- triage flags and a primary class, from metadata and titles only.
+
+**Status fields:** `DESCRIBED`, `REVIEWED`, `ADMISSIBLE` and `FROZEN_QUALIFICATION` are kept separate. Only `DESCRIBED` is set here.
+
+**Rules.**
+- Title rules describe what a title says. They never establish a visual property, a place or a capture date.
+- `NO_INDIA_HINT_IN_TITLE` is descriptive only.
+- Freshness exclusion is objective: a file uploaded on or before a reference date cannot have been captured after it.
+- `freshnessBoundValidForReferenceOnOrAfter` is the latest upload among the excluded files. The fresh-possible upper bound holds for every reference date from there up to the provisional one.
+
+**Outputs** go to a new directory outside Git and are never overwritten:
+- `inventory.json` (canonical) and `inventory.csv`;
+- an unreviewed `decisions-template.json`;
+- `proposed-metadata-decisions.json`: stage-1 proposals, `PROPOSED_UNCONFIRMED` with `reviewedBy` null, for a named reviewer to confirm or change;
+- `visual-review-worksheet.csv` for the candidates that need a person to look;
+- `SHA256SUMS`.
+
+The output is deterministic: identical bundles, inputs and code give identical bytes.
+
+```
+python tools/qualification/source_review_inventory_cli.py --bundle <evidence dir> <name> <archive sha256> [--bundle ...] --provisional-reference YYYY-MM-DD [--title-judgements <file>] --out <new dir>
+```
 ## Tests
 
-`tools/qualification/tests/test_source_acquisition.py` and `test_recorded_discovery.py` run offline, with fake transports and a fake clock.
+`tools/qualification/tests/test_source_acquisition.py`, `test_recorded_discovery.py` and `test_review_inventory.py` run offline, with fake transports and a fake clock.
 
 ## Dependencies
 
