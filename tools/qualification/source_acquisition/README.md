@@ -63,9 +63,9 @@ A recent upload is not a fresh capture.
 - Allow-listed hosts: `commons.wikimedia.org` and `upload.wikimedia.org`, on the default port.
 - Every redirect hop is re-validated, with at most 5 redirects.
 - No credentials, cookies or `Authorization` header. The only headers are `User-Agent` and `Accept`.
-- The User-Agent names the tool and an operator contact passed with `--contact`. The contact is never written to any record.
-- 60 s timeout.
-- On HTTP 429/503, back off 30 s and then 60 s, then fail closed.
+- The User-Agent names the tool and an operator contact passed with `--contact`. The contact is never written to a receipt, discovery report or evidence record. The recorded-discovery wrapper (below) writes the actual User-Agent into its own run configuration, which is controlled run evidence.
+- 60 s timeout per socket operation (connect or read). This is not a total deadline for a request.
+- On HTTP 429/503, back off 30 s and then 60 s, then fail closed. `Retry-After` is not read. Network errors (resets, TLS failures, timeouts) are not retried, and the plain `discover` command does not catch them.
 - Downloads stream to `<name>.partial` and are verified against the declared size and provider SHA-1. SHA-256 is recorded. Promotion uses a hard link, which never overwrites.
 - A failed transfer removes only its own partial file.
 - Reruns are idempotent. A verified existing file is `ALREADY_PRESENT_VERIFIED`, and a differing one is refused and left untouched.
@@ -98,9 +98,53 @@ python tools/qualification/source_acquisition_cli.py verify   --store <store>
 
 A category or search is only a **discovery scope**. Every decision names one exact `File:` title, and wildcards and categories are refused as titles. Exit codes: `0` success, `1` one or more item failures or verify problems, `2` refusal (bad store, bad decisions file).
 
+## Recorded discovery (metadata only)
+
+`source_acquisition/recorded_discovery.py` (entry point `tools/qualification/source_discovery_recorded_cli.py`) runs the predeclared retry scopes with durable capture. It does not change the helper. It injects a recording `fetch` and `sleep` into the helper's own `Transport` and calls `discover` unchanged, so the allow-listed hosts, redirect re-validation, credential refusal, metadata hashing, admission rules and store containment stay as above.
+
+**What it adds:**
+- **Discovery only.** Every network attempt must be an HTTPS GET of `commons.wikimedia.org/w/api.php` with `action=query`. Media and every other URL are refused before a socket opens.
+- **Global stop latch.** The run latches on the first of these:
+  - a refused URL;
+  - a non-200, non-redirect status, including 429 and 503;
+  - an API `error` body;
+  - a network or read failure;
+  - an incomplete or over-limit body;
+  - an exhausted attempt budget;
+  - the soft deadline;
+  - an interruption;
+  - a per-file error that the helper records (the run stops after that scope).
+
+  Once it has latched, no network attempt starts, including redirect hops and the helper's own back-off retries. Local finalisation continues.
+- **Limits.** The attempt budget counts every fetch, including each redirect hop. Attempt starts are paced, and scopes are separated by a gap. The soft deadline is checked before every attempt, read chunk and wait. Each attempt has a read-time limit. A hard deadline records an event and ends the process.
+- **Durable capture.** An `attempt-start` event is fsynced before each attempt, and an `attempt-end` event after it. Bodies stream to `capture/bodies/attempt-NNNNNN.part` and become `.body` only when read completely. Selected response headers are recorded (`retry-after`, `date`, `content-*`, `age`, `server`, `x-cache*`, `x-ratelimit-*`, `ratelimit*`). Cookies and request headers other than those in the run configuration are never logged.
+- **Scopes.** The seven original scopes, P1–P5 then S1–S2, at 20 results each. S1–S2 run only if P1–P5 describe fewer than 40 files without error. Direct-category queries exclude subcategory members, so an empty result does not establish that a category contains no relevant footage.
+
+**Run directory.** Each run creates a new directory, `<run-root>/commons-discovery-retry-<UTC stamp>/`, and never reuses one:
+
+```
+config/run-config.json, run-config.sha256   written and fsynced before the first request
+capture/events.jsonl, scopes.jsonl          append-only, fsynced per event
+capture/bodies/attempt-NNNNNN.body|.part    raw responses; .part = incomplete
+store/                                      the helper's --store root (discovery/, evidence/)
+run-status.json                             derived locally; never overwritten
+```
+
+**Commands.**
+
+```
+python tools/qualification/source_discovery_recorded_cli.py run      --run-root <Acquisition dir> --contact <url>
+python tools/qualification/source_discovery_recorded_cli.py finalize --run-dir <run dir>        # after a hard stop; local only
+python tools/qualification/source_discovery_recorded_cli.py bundle   --run-dir <run dir> --evidence-root <Evidence dir> --name <new name>
+```
+
+`bundle` writes `MANIFEST.json`, a `.tar.gz` and its SHA-256 into a new directory, and re-verifies every member.
+
+**Exit codes.** `run` exits `0` complete, `1` stopped and `130` interrupted. Any command exits `2` on a refusal.
+
 ## Tests
 
-`tools/qualification/tests/test_source_acquisition.py` runs offline with a fake transport.
+`tools/qualification/tests/test_source_acquisition.py` and `test_recorded_discovery.py` run offline, with fake transports and a fake clock.
 
 ## Dependencies
 
