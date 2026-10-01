@@ -53,7 +53,7 @@ from .cli import USER_AGENT
 from .transport import Transport, TransportError, _default_fetch
 
 CONFIG_SCHEMA = "mavi-s2c-recorded-discovery-config-v2"
-STATUS_SCHEMA = "mavi-s2c-recorded-discovery-status-v1"
+STATUS_SCHEMA = "mavi-s2c-recorded-discovery-status-v2"
 MANIFEST_SCHEMA = "mavi-s2c-recorded-discovery-manifest-v1"
 
 # The original predeclared scopes (B0 record section 6; 2026-10-01 run note), verbatim and in order.
@@ -74,6 +74,13 @@ PILOT_RETRY_SCOPES = (
 # reviewed candidates; the prior run described 43, so 20 new files (one page) is enough with
 # a small margin, and paging stops as soon as they are described.
 P2_COMPLETION_PASS_ID = "s2c-b0-p2-completion-1"
+# The only prior run this pass may exclude: the recorded retry, pinned by its bundle hashes.
+P2_COMPLETION_PRIOR = {
+    "bundleName": "2026-10-01-source-pilot-retry-20261001T161421Z",
+    "archiveSha256": "710486a2300ce1282acc447e422f423379fa354727d271c1dca84ef7d8b24ccc",
+    "manifestSha256": "dd9a6e41cdc406fa4ae73d8ca977305c443ec07cb405e7c6484607a3aeb8f11f",
+    "configSha256": "e6a4820bd7a09b1a19bf2b5a8370d7ca5c078b6a60eac65f5bd24400b403a7e6",
+}
 P2_COMPLETION_SCOPES = tuple(
     {"id": f"P2-o{offset}", "kind": "search", "query": "street India 2026", "pool": "primary", "offset": offset}
     for offset in (0, 20, 40, 60)
@@ -125,7 +132,7 @@ STOP_RULES = (
     "after the latch, no network attempt starts; remaining scopes are recorded NOT_STARTED",
     "secondary scopes run only if primary scopes described fewer files without error than the threshold",
     "a search page whose response carries no continuation ends that query's paging; its later predeclared pages are recorded NOT_NEEDED",
-    "files whose title or page id a verified prior run described are excluded and never consume the candidate cap",
+    "files whose title or page id a verified prior run described are excluded and never consume the candidate cap; run-completion accepts only the pinned prior bundle",
     "no scope starts once the candidate cap of unique files described without error is reached; within a scope, only titles not already described are requested, and only up to the remaining allowance",
 )
 RECORDED_HEADER_NAMES = ("retry-after", "date", "content-type", "content-length", "age", "server", "x-cache", "x-cache-status",
@@ -511,9 +518,11 @@ def _validate_scopes(scopes) -> list[dict]:
             offset = scope["offset"]
             if scope["kind"] != "search" or not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
                 raise StoreError(f"scope {scope['id']}: an offset is a non-negative integer on a search scope only")
-            if offset <= last_offset.get(scope["query"], -1):
-                raise StoreError(f"scope {scope['id']}: pages of one query must be predeclared in ascending order")
-            last_offset[scope["query"]] = offset
+        if scope["kind"] == "search":
+            page = scope.get("offset", 0)  # a search without an offset is its first page
+            if page <= last_offset.get(scope["query"], -1):
+                raise StoreError(f"scope {scope['id']}: pages of one query must be predeclared once each, in ascending order")
+            last_offset[scope["query"]] = page
         ids.add(scope["id"])
         out.append(scope)
     return out
@@ -574,12 +583,16 @@ def prior_run_identities(evidence_dir: Path, name: str) -> dict:
     """The file identities a finalised, bundled prior run described, read from its verified
     archive (not from the mutable run directory). Local only: no network."""
     evidence_dir = Path(evidence_dir)
-    verify_bundle(evidence_dir, name)
-    archive = evidence_dir / f"{name}.tar.gz"
+    # Read every input once and verify those exact bytes, so the identities come from what was verified.
+    archive_bytes = (evidence_dir / f"{name}.tar.gz").read_bytes()
     manifest_bytes = (evidence_dir / "MANIFEST.json").read_bytes()
+    recorded = (evidence_dir / f"{name}.tar.gz.sha256").read_text(encoding="ascii").split()[0]
+    if sha256_hex(archive_bytes) != recorded:
+        raise StoreError("bundle verification failed: archive SHA-256 differs")
+    _verify_archive(archive_bytes, manifest_bytes, name)
     manifest = json.loads(manifest_bytes)
     identities = {}
-    with tarfile.open(archive, "r:gz") as tar:
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tar:
         for member in tar.getmembers():
             relative = member.name[len(name) + 1:]
             if not (member.isfile() and relative.startswith("store/evidence/") and relative.endswith(".json")):
@@ -591,7 +604,7 @@ def prior_run_identities(evidence_dir: Path, name: str) -> dict:
         raise StoreError("the prior run's archive holds no described files")
     config_entry = next((e for e in manifest["files"] if e["path"] == "config/run-config.json"), None)
     return {"bundleName": name, "run": manifest["run"],
-            "archiveSha256": sha256_hex(archive.read_bytes()), "manifestSha256": sha256_hex(manifest_bytes),
+            "archiveSha256": sha256_hex(archive_bytes), "manifestSha256": sha256_hex(manifest_bytes),
             "configSha256": config_entry["sha256"] if config_entry else None,
             "describedIdentities": [identities[k] for k in sorted(identities)]}
 
@@ -708,8 +721,9 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
         query = response.get("query") if isinstance(response, dict) else None
         rows = (query or {}).get("search") or (query or {}).get("categorymembers") or []
         titles = commons.discovered_titles(response if isinstance(response, dict) else {})
-        continuation = response.get("continue") if isinstance(response, dict) else None
-        if "offset" in scope and not continuation:
+        raw_continuation = response.get("continue") if isinstance(response, dict) else None
+        continuation = raw_continuation if isinstance(raw_continuation, dict) and raw_continuation else None
+        if "offset" in scope and continuation is None:
             exhausted.add(scope["query"])
         page_id_of = {row.get("title"): row.get("pageid") for row in rows if isinstance(row, dict)}
         # Files the prior run described are excluded by title or page id; they never consume
@@ -717,6 +731,8 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
         # remaining unique allowance; the helper sorts titles, so the cut is deterministic and
         # independent of results.
         prior = [title for title in titles if title in prior_titles or page_id_of.get(title) in prior_page_ids]
+        prior_basis = [{"title": title, "byTitle": title in prior_titles, "byPageId": page_id_of.get(title) in prior_page_ids}
+                       for title in prior]
         already = [title for title in titles if title in described and title not in prior]
         new_titles = [title for title in titles if title not in described and title not in prior]
         allowance = limits["candidateCap"] - len(described)
@@ -734,8 +750,9 @@ def _run_scopes(recorder: Recorder, log: EventLog, transport: Transport, store: 
         if scope["pool"] == "primary":
             primary_described = len(described)
         log.write("scope", scope=sid, status="PER_FILE_ERRORS" if errors else "COMPLETE", reason=recorder.stop_reason,
-                  listAttempt=recorder.last_list_attempt, listRows=len(rows), listContinues=bool(isinstance(response, dict) and "continue" in response),
-                  videoTitles=titles, priorRunTitles=prior, alreadyDescribedTitles=already, overCandidateCapTitles=over_cap,
+                  listAttempt=recorder.last_list_attempt, listRows=len(rows), listContinues=continuation is not None,
+                  videoTitles=titles, priorRunTitles=prior, priorRunMatches=prior_basis, alreadyDescribedTitles=already,
+                  overCandidateCapTitles=over_cap,
                   offset=scope.get("offset"), totalHits=((query or {}).get("searchinfo") or {}).get("totalhits"),
                   serverContinuation=continuation,
                   requestedTitles=requested, describedTitles=ok, describedWithoutError=len(ok), itemErrors=len(errors),
@@ -880,18 +897,23 @@ def verify_bundle(destination: Path, name: str, *, require_checksum: bool = True
     """Every archive member matches MANIFEST.json, nothing is missing or extra, and the archive hash matches."""
     destination = Path(destination)
     manifest_bytes = (destination / "MANIFEST.json").read_bytes()
-    manifest = json.loads(manifest_bytes)
-    archive = destination / f"{name}.tar.gz"
+    archive_bytes = (destination / f"{name}.tar.gz").read_bytes()
     if require_checksum:
         recorded = (destination / f"{name}.tar.gz.sha256").read_text(encoding="ascii").split()[0]
-        if sha256_hex(archive.read_bytes()) != recorded:
+        if sha256_hex(archive_bytes) != recorded:
             raise StoreError("bundle verification failed: archive SHA-256 differs")
+    _verify_archive(archive_bytes, manifest_bytes, name)
+
+
+def _verify_archive(archive_bytes: bytes, manifest_bytes: bytes, name: str) -> None:
+    """The archive bytes hold exactly the manifest's files, each with its recorded SHA-256."""
+    manifest = json.loads(manifest_bytes)
     paths = [e["path"] for e in manifest["files"]]
     if len(paths) != len(set(paths)) or "MANIFEST.json" in paths:
         raise StoreError("bundle verification failed: duplicate manifest path")
     expected = {e["path"]: e["sha256"] for e in manifest["files"]}
     expected["MANIFEST.json"] = sha256_hex(manifest_bytes)
-    with tarfile.open(archive, "r:gz") as tar:
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tar:
         members = {}
         for member in tar.getmembers():
             if not member.isfile() or not member.name.startswith(f"{name}/"):
@@ -908,7 +930,16 @@ def verify_bundle(destination: Path, name: str, *, require_checksum: bool = True
                 raise StoreError(f"bundle verification failed: {relative}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def check_pinned_prior(prior: dict, pinned: dict) -> None:
+    """The prior run is the one predeclared: bundle name and archive, manifest and config hashes."""
+    for key in ("bundleName", "archiveSha256", "manifestSha256", "configSha256"):
+        if prior.get(key) != pinned[key]:
+            raise StoreError(f"prior run is not the pinned bundle: {key} differs")
+
+def main(argv: list[str] | None = None, *, fetch: Callable | None = None, sleep: Callable[[float], None] = time.sleep,
+         monotonic: Callable[[], float] = time.monotonic, hard_deadline: bool = True,
+         pinned_prior: dict = P2_COMPLETION_PRIOR) -> int:
+    """CLI entry point. The keyword arguments are test seams only; the command line cannot set them."""
     parser = argparse.ArgumentParser(prog="recorded_discovery", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     r = sub.add_parser("run", help="one recorded metadata-only run of the predeclared scopes")
@@ -931,14 +962,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "run":
-            run_dir, status = run_discovery(args.run_root, args.contact)
+            run_dir, status = run_discovery(args.run_root, args.contact, fetch=fetch, sleep=sleep, monotonic=monotonic,
+                                            hard_deadline=hard_deadline)
             print(json.dumps({"runDir": run_dir.name, "status": status["status"], "stopReason": status["stopReason"],
                               "attemptsStarted": status["attemptsStarted"], "describedWithoutError": status["describedWithoutError"]}, indent=2))
             return {"COMPLETE": 0, "STOPPED": 1}.get(status["status"], 130)
         if args.command == "run-completion":
             prior = prior_run_identities(args.prior_evidence_dir, args.prior_name)  # verified before any request
+            check_pinned_prior(prior, pinned_prior)
             run_dir, status = run_discovery(args.run_root, args.contact, scopes=P2_COMPLETION_SCOPES, limits=P2_COMPLETION_LIMITS,
-                                            pass_id=P2_COMPLETION_PASS_ID, prior_runs=[prior], run_prefix="commons-discovery-completion")
+                                            pass_id=P2_COMPLETION_PASS_ID, prior_runs=[prior], run_prefix="commons-discovery-completion",
+                                            fetch=fetch, sleep=sleep, monotonic=monotonic, hard_deadline=hard_deadline)
             print(json.dumps({"runDir": run_dir.name, "status": status["status"], "stopReason": status["stopReason"],
                               "attemptsStarted": status["attemptsStarted"], "describedWithoutError": status["describedWithoutError"]}, indent=2))
             return {"COMPLETE": 0, "STOPPED": 1}.get(status["status"], 130)
