@@ -108,7 +108,7 @@ ALLOWED_REFERENCES = {
 
 PROHIBITED_TRACKED_SUFFIXES = {
     ".pt", ".pth", ".onnx", ".engine", ".plan", ".safetensors", ".gguf", ".whl",
-    ".mp4", ".avi", ".mov", ".mkv", ".m4v", ".webm",
+    ".mp4", ".avi", ".mov", ".mkv", ".m4v", ".webm", ".ogv", ".ogg", ".mpg", ".mpeg",
     ".pem", ".key", ".pfx", ".p12",
 }
 
@@ -125,6 +125,7 @@ PRIVATE_EVIDENCE_AREAS = (
     "docs/qualification/stage2-s2c",
     "docs/qualification/model-selection",
     "tools/qualification/attributes",
+    "tools/qualification/source_acquisition",
 )
 PROHIBITED_EVIDENCE_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif", ".tif", ".tiff", ".heic"}
 

@@ -406,6 +406,17 @@ All 14 permitted files are therefore present and integrity-verified. Model bytes
 
 **Scope.** This completes acquisition/pinning only. It does not shortlist, run, train, tune, measure or select any candidate; it does not create a frozen ledger/protocol, E/F/J/T, E1/E2/E3 or Model Pack.
 
+#### 4.3.12 B0 source admission and acquisition pilot — preparation only, 2026-09-30
+
+Hari Om has no private corpus, so B0 prepares a reproducible way to admit and retain public qualification footage one file at a time. It covers:
+- a Commons-only helper, `tools/qualification/source_acquisition/`;
+- a per-file admission receipt;
+- the pilot plan.
+
+The interpretation of "MAVI-acquired operational footage" is in `s2c-b0-source-acquisition-record.md` §1. In short, footage becomes operational only through the real MAVI ingestion, detector, tracker and Evidence Set path and the corpus tooling. For public sources, disjointness rests on reviewed capture-date evidence, not on construction. That interpretation needs R-2/owner acceptance.
+
+No footage was discovered or acquired in this pass; the pilot has not run. Slice B has not started, and F1 is unchanged. Both MSRs remain `PLANNED`, and no candidate gains any standing from source acquisition.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:
