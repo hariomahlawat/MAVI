@@ -54,6 +54,24 @@ MINIMUM_TIMING_SAMPLES = 30
 MINIMUM_TIMING_REPEATS = 3
 
 # --------------------------------------------------------------------------- §2.1
+# §2.1's "qualification harnesses used to produce evidence": the S1 harness only,
+# named by its convention (``s1_*``/``s1-*`` modules, ``test_s1_*`` tests) plus
+# the test support its suites load without citing. Later-stage tooling under
+# tools/qualification/ (S2a provenance, S2c corpus, model selection, source
+# acquisition) is not S1 evidence; the original ``tools/qualification/*`` glob
+# predates it (docs/qualification/stage2-s1/2026-10-01-s1-qualification-harness-surface.md).
+# Task 10 triggers on exactly this set.
+S1_QUALIFICATION_HARNESS: tuple[str, ...] = (
+    "tools/qualification/s1_*",
+    "tools/qualification/s1-*",
+    "tools/qualification/process_memory.py",
+    "tools/qualification/tests/conftest.py",
+    "tools/qualification/tests/fixtures/*",
+    "tools/qualification/tests/test_s1_*",
+)
+# The S1 harness's own tests, run by Task 10's s1-qualification-harness step.
+S1_QUALIFICATION_HARNESS_TESTS = "tools/qualification/tests/test_s1_*.py"
+
 # The behavior-bearing surface, as path globs. ``*`` in fnmatch also crosses
 # ``/``, so ``src/vision/**`` covers every depth.
 BEHAVIOR_BEARING_SURFACE: tuple[str, ...] = (
@@ -68,7 +86,7 @@ BEHAVIOR_BEARING_SURFACE: tuple[str, ...] = (
     "tools/phase1/*",
     "tools/setup/*",
     "tools/native/*",
-    "tools/qualification/*",
+    *S1_QUALIFICATION_HARNESS,
     "infrastructure/*",
     "config/setup/*",
     "config/acceptance/*",
@@ -204,7 +222,7 @@ APPROVED_PAIRED_SKIPS: dict[tuple[str, str], frozenset[str]] = {
     }),
     # PR A's own process-memory probes (tools/qualification/tests/test_s1_memory.py):
     # each platform's probe is exercised on that platform only.
-    ("tools/qualification/tests", _WINDOWS): frozenset({
+    ("tools/qualification/tests/test_s1_memory.py", _WINDOWS): frozenset({
         "test_linux_probe_reads_this_process",
         # S1.4 B3 F4 §17.2: the Linux storage-class probe reads a synthetic sysfs tree
         # (symlinks, "8:1" names) that cannot exist on Windows; each passes on Linux.
@@ -212,7 +230,7 @@ APPROVED_PAIRED_SKIPS: dict[tuple[str, str], frozenset[str]] = {
         "test_a_network_filesystem_is_network_and_an_unknown_mount_is_unknown",
         "test_the_longest_matching_mount_wins",
     }),
-    ("tools/qualification/tests", _LINUX): frozenset({"test_windows_probe_reads_commit_charge"}),
+    ("tools/qualification/tests/test_s1_memory.py", _LINUX): frozenset({"test_windows_probe_reads_commit_charge"}),
 }
 
 
@@ -589,7 +607,7 @@ TASK10_STEP_SOURCES: dict[str, tuple[str, ...]] = {
     "runtime-probe-real-torch": ("src/vision/tests/test_runtime_probe.py",),
     "bytetrack-runtime": ("src/vision/tests/test_bytetrack_runtime.py",),
     "real-clip-harness": ("src/vision/tests/test_measure_evidence_real_clips.py",),
-    "s1-qualification-harness": ("tools/qualification/tests",),
+    "s1-qualification-harness": (S1_QUALIFICATION_HARNESS_TESTS,),
     "production-processor-runtime": ("src/vision/tests/test_production_processor_runtime.py",),
 }
 # Records a Task-10 job writes about itself (its head, variant, platform), so
@@ -859,7 +877,10 @@ UNIT_REQUIREMENTS: dict[str, UnitRequirement] = {
             "src/vision/tests/test_track_finalization.py",
             "src/vision/tests/test_artifact_store.py",
             "src/vision/tests/test_artifact_store_windows.py",
-            "tools/qualification/tests",
+            # The S1 qualification harness's tests (§13 PR A), as Task 10 runs them.
+            "tools/qualification/tests/test_s1_b1.py",
+            "tools/qualification/tests/test_s1_evidence.py",
+            "tools/qualification/tests/test_s1_memory.py",
             # §6.3: platform janitor ownership of staging after completion.
             "tests/Mavi.IntegrationTests/StagingJanitorTests",
         ),
@@ -997,6 +1018,11 @@ def _matches(path: str, patterns: Iterable[str]) -> bool:
 
 
 def is_behavior_bearing(path: str) -> bool:
+    # Under tools/qualification/ only the S1 harness is behavior-bearing; the
+    # repository-wide ``*.ps1``/``*.cmd`` globs (root setup scripts) do not
+    # reach later-stage qualification scripts there.
+    if path.startswith("tools/qualification/"):
+        return _matches(path, S1_QUALIFICATION_HARNESS)
     return _matches(path, BEHAVIOR_BEARING_SURFACE)
 
 
@@ -1018,10 +1044,13 @@ def suite_covers(suite: str, path: str) -> bool:
     Python suites are cited by file, the web suite by directory, and .NET
     suites by their extension-less class path (``tests/Proj/ClassTests`` is
     ``tests/Proj/ClassTests.cs``, including partial ``ClassTests.*.cs`` files).
-    A Task-10 step covers every file it runs.
+    A Task-10 step covers every file it runs; a step source may be a glob
+    (``tools/qualification/tests/test_s1_*.py``) so a new file it runs is covered.
     """
     if suite.startswith("task10:"):
         return any(suite_covers(source, path) for source in suite_sources(suite))
+    if "*" in suite:
+        return fnmatchcase(path, suite)
     suite = suite.rstrip("/")
     if path == suite or path.startswith(suite + "/"):
         return True
@@ -1050,6 +1079,10 @@ def is_shared_test_support(path: str) -> bool:
         return False
     if project.startswith("tests/"):
         return True
+    if project == "tools/qualification/tests" and not _matches(path, S1_QUALIFICATION_HARNESS):
+        # Later-stage helpers there (corpus/model-selection fixtures, PowerShell
+        # behaviour scripts) are imported by their own suites, never by the S1 harness.
+        return False
     return not path.rsplit("/", 1)[-1].startswith("test_")
 
 

@@ -41,20 +41,18 @@ on:
       - 'src/vision/tests/test_artifact_publisher.py'
       - 'src/vision/tests/test_analytical_models.py'
       - 'src/vision/tests/test_s1_bound_agreement.py'
+      - 'src/vision/tests/test_runtime_errors.py'
       - 'contracts/schemas/vision-job-complete-v3.schema.json'
       - 'contracts/examples/vision-job-complete-v3.example.json'
-      # Native/runtime qualification depends on S1 qualification evidence tooling,
-      # not every qualification helper. Generic S2c/source-acquisition changes are
-      # covered by the parallel Quality Gate and must not rebuild MMCV/RTMDet.
-      - 'tools/qualification/s1-qualification-evidence.schema.json'
-      - 'tools/qualification/s1_b1.py'
-      - 'tools/qualification/s1_evidence.py'
-      - 'tools/qualification/s1_memory.py'
+      # Exactly s1_evidence.S1_QUALIFICATION_HARNESS (S1.4 plan §2.1): the S1
+      # harness, not later-stage qualification tooling, which has the Quality Gate
+      # and the Qualification Tooling Windows workflow instead.
+      - 'tools/qualification/s1_*'
+      - 'tools/qualification/s1-*'
       - 'tools/qualification/process_memory.py'
       - 'tools/qualification/tests/conftest.py'
-      - 'tools/qualification/tests/test_s1_*.py'
-      # The S1 evidence tests' retained TRX/settings fixtures.
       - 'tools/qualification/tests/fixtures/**'
+      - 'tools/qualification/tests/test_s1_*'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
@@ -106,20 +104,18 @@ on:
       - 'src/vision/tests/test_artifact_publisher.py'
       - 'src/vision/tests/test_analytical_models.py'
       - 'src/vision/tests/test_s1_bound_agreement.py'
+      - 'src/vision/tests/test_runtime_errors.py'
       - 'contracts/schemas/vision-job-complete-v3.schema.json'
       - 'contracts/examples/vision-job-complete-v3.example.json'
-      # Native/runtime qualification depends on S1 qualification evidence tooling,
-      # not every qualification helper. Generic S2c/source-acquisition changes are
-      # covered by the parallel Quality Gate and must not rebuild MMCV/RTMDet.
-      - 'tools/qualification/s1-qualification-evidence.schema.json'
-      - 'tools/qualification/s1_b1.py'
-      - 'tools/qualification/s1_evidence.py'
-      - 'tools/qualification/s1_memory.py'
+      # Exactly s1_evidence.S1_QUALIFICATION_HARNESS (S1.4 plan §2.1): the S1
+      # harness, not later-stage qualification tooling, which has the Quality Gate
+      # and the Qualification Tooling Windows workflow instead.
+      - 'tools/qualification/s1_*'
+      - 'tools/qualification/s1-*'
       - 'tools/qualification/process_memory.py'
       - 'tools/qualification/tests/conftest.py'
-      - 'tools/qualification/tests/test_s1_*.py'
-      # The S1 evidence tests' retained TRX/settings fixtures.
       - 'tools/qualification/tests/fixtures/**'
+      - 'tools/qualification/tests/test_s1_*'
       - 'src/vision/pyproject.toml'
       - 'src/vision/runtime/**/*.json'
       - 'src/vision/config/pipelines/**/*.json'
@@ -500,7 +496,7 @@ jobs:
         shell: bash
         run: >-
           MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1 PYTHONPATH=src/vision
-          python -m pytest tools/qualification/tests -q
+          python -m pytest tools/qualification/tests/test_s1_*.py -q
           -o junit_suite_name=${{ matrix.runtime-variant }} --junitxml=qualification-evidence/junit/s1-qualification-harness.xml
 
       - name: Run exact production attempt composition qualification
