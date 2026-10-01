@@ -379,3 +379,104 @@ def test_development_qualification_does_not_satisfy_a_release_gate() -> None:
     assert "windows-x86_64-cuda" not in record["evidence"]
     assert record["overallResult"] == "pending"
     assert profile["qualificationStatus"] == "partial"
+
+
+_WORKFLOWS = Path(__file__).parents[3] / ".github" / "workflows"
+
+
+def _trigger_paths(workflow: str, event: str) -> list[str]:
+    """The ``paths:`` globs of one ``on:`` event, read line by line."""
+    block = workflow.split(f"\n  {event}:\n", 1)[1]
+    lines = block.split("\n    paths:\n", 1)[1].splitlines()
+    globs = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if not stripped.startswith("- '"):
+            break
+        globs.append(stripped[3:-1])
+    return globs
+
+
+def _glob_matches(glob: str, path: str) -> bool:
+    """GitHub path-filter semantics: ``**`` crosses ``/``; ``*`` does not."""
+    import re
+
+    pattern = "".join(
+        ".*" if token == "**" else "[^/]*" if token == "*" else re.escape(token)
+        for token in re.split(r"(\*\*|\*)", glob)
+    )
+    return re.fullmatch(pattern, path) is not None
+
+
+def _triggers(workflow: str, path: str) -> bool:
+    return all(
+        any(_glob_matches(glob, path) for glob in _trigger_paths(workflow, event))
+        for event in ("pull_request", "push")
+    )
+
+
+GENERIC_QUALIFICATION_CHANGES = (
+    "tools/qualification/source_acquisition/acquire.py",
+    "tools/qualification/model_selection/credibility.py",
+    "tools/qualification/model_selection/acquire_s2c_candidates.ps1",
+    "tools/qualification/attributes/corpus/canonical.py",
+    "tools/qualification/tests/test_s2c_artifacts.py",
+    "tools/qualification/tests/s2c_acquisition_behaviour.ps1",
+    "tools/qualification/model_selection_check.py",
+    "docs/qualification/model-selection/s2c-quality-statistics-contract.json",
+    "docs/qualification/stage2-s2c/corpus/f1-evidence-record.json",
+    "tests/fixtures/visual-attributes/fixture-pipeline-v1.json",
+)
+S1_RUNTIME_QUALIFICATION_CHANGES = (
+    "tools/qualification/s1_evidence.py",
+    "tools/qualification/s1_memory.py",
+    "tools/qualification/s1_b1.py",
+    "tools/qualification/process_memory.py",
+    "tools/qualification/s1-qualification-evidence.schema.json",
+    "tools/qualification/tests/conftest.py",
+    "tools/qualification/tests/test_s1_memory.py",
+    "tools/qualification/tests/fixtures/m2-quality-gate-domain-theories.trx",
+)
+
+
+def test_qualification_changes_split_between_windows_portability_and_task10() -> None:
+    """Generic qualification tooling gets Windows portability CI without forcing
+    the native Task 10 rebuild; S1/runtime-bearing qualification still runs Task 10."""
+    windows = (_WORKFLOWS / "qualification-tooling-windows.yml").read_text(encoding="utf-8")
+    task10 = (_WORKFLOWS / "task10-runtime-qualification.yml").read_text(encoding="utf-8")
+
+    for path in GENERIC_QUALIFICATION_CHANGES + S1_RUNTIME_QUALIFICATION_CHANGES:
+        assert _triggers(windows, path), path
+    for path in GENERIC_QUALIFICATION_CHANGES:
+        if not path.startswith("tools/qualification/tests/fixtures/"):
+            assert not _triggers(task10, path), path
+    for path in S1_RUNTIME_QUALIFICATION_CHANGES:
+        assert _triggers(task10, path), path
+    # A runtime-bearing vision change stays Task 10's, not this lane's.
+    assert _triggers(task10, "src/vision/mavi_vision/tracking/bytetrack.py")
+    assert not _triggers(windows, "src/vision/mavi_vision/tracking/bytetrack.py")
+    assert _triggers(windows, ".github/workflows/qualification-tooling-windows.yml")
+
+
+def test_windows_qualification_lane_is_exact_head_and_runtime_free() -> None:
+    windows = (_WORKFLOWS / "qualification-tooling-windows.yml").read_text(encoding="utf-8")
+    jobs = windows.split("\njobs:\n", 1)[1]
+
+    assert "runs-on: windows-latest" in jobs
+    assert "ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}" in jobs
+    assert "MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in windows
+    assert "(git rev-parse HEAD).Trim()" in jobs and "-ne $env:MAVI_EXPECTED_SOURCE_SHA" in jobs
+    # The whole qualification suite, split by test, never an empty shard.
+    assert "--collect-only -q -p no:cacheprovider tools/qualification/tests" in jobs
+    assert 'test "$total" -gt 0' in jobs and 'test "$selected" -gt 0' in jobs
+    assert "python -m pytest -q -rs -p no:cacheprovider @shard-tests.txt" in jobs
+    assert "test '${{ needs.qualification-tests.result }}' = 'success'" in jobs
+    # Portability only: no runtime graph, native qualification or evidence upload.
+    lowered = jobs.lower()
+    for forbidden in (
+        "torch", "mmcv", "mmdet", "mmengine", "rtmdet", "vision-runtime",
+        "probe_runtime", "mavi_run_qualified", "upload-artifact", "qualification-evidence",
+    ):
+        assert forbidden not in lowered, forbidden
