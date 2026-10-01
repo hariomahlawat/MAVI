@@ -32,7 +32,7 @@ The following are unchanged:
 - **Custody.** Local custody of the bundle (§4a) is recorded, with a fresh automated re-verification on the Development host.
 - **No retroactive claims.** No delegation, approval or ratification of this run is claimed. R-3's confirmation stays pending. If R-3 Hari Om gives it, it is a later ratification by the person who instructed the run.
 - **Independence.** From the decision the same person holds R-1, R-2, R-3 and R-7. The resulting independent-review conflicts are recorded there (§2) and remain open.
-- **Eligibility.** §8 below asks for "R-2's ruling" on the B0 §1 interpretation. With R-1 and R-2 now one person, that ruling can only be recorded as an owner decision, not an independent review. It remains PENDING.
+- **Eligibility.** §8 below says "R-2 rules on the B0 §1 interpretation". With R-1 and R-2 now one person, that ruling can only be recorded as an owner decision, not an independent review. It remains PENDING.
 - **Freshness.** `freshnessReferenceDate` remains MISSING, with a provisional proposal only.
 
 ## 1. Inventory of existing source material

@@ -24,11 +24,11 @@ F1 stays OPEN, both MSRs stay `PLANNED`, and S1.4 B1–B6 stay OPEN and separate
 
 | Event | Time (UTC) | Evidence |
 |---|---|---|
-| Pilot run | 11:44:06Z to 12:23:49Z | modification times in `MANIFEST.json`: first evidence file to the run note's appended outcomes. The P1 console transcription was written later, when the bundle was built. |
+| Pilot run | began before 11:44:06Z; ended by 12:23:49Z | Retained modification times in `MANIFEST.json`. 11:44:06Z is the earliest retained time, not the run start: the predeclaration and P1's list request came earlier, and the run note's own modification time was later overwritten. 12:23:49Z is when the run outcomes were appended to the run note. The P1 console transcription was written later, when the bundle was built. |
 | Pilot evidence bundle built | 12:32:54Z | `MANIFEST.json` `createdUtc` |
 | Pilot record's last commit before the decisions | 13:02:35Z | commit `6201ff0f` |
 | Archive placed on QUEENSGAMBIT | 13:33:03.718Z | archive last-write time (§4) |
-| **Owner decisions given** | exact time not recorded | Given in chat after a read-only session had already observed the placed archive |
+| **Owner decisions given** | exact time not recorded | Given in chat. That they came after the archive was placed rests on the Claude Code session's own observation: it saw the placed archive before the decisions arrived. It is not repository evidence. |
 | Decisions first recorded | 13:54:38Z (19:24:38+05:30) | author time of commit `775ba92a`; an upper bound, not the decision instant |
 
 The changes below take effect from that decision. Everything earlier on 2026-10-01, including the whole pilot run, falls under the earlier assignments.
@@ -56,10 +56,10 @@ The 2026-09-30 assignments in execution record §2 stay the historical record. E
 These appointments name the reviewers. They are **not** a blanket permission or an admission for any footage, provider, category or search. Every file still needs its own recorded rights determination with evidence and its own privacy review with a basis before it can reach `ADMITTED_FOR_PILOT` (README "States"). An open copyright licence does not settle privacy.
 
 **Share-alike and other licence questions go to R-5.** This appointment grants no permission. The licence notes in B0 §2 are "summaries for R-5 review", TRAIN roles are "subject to R-5 licence review", and the pilot record §4 calls share-alike compatibility "an R-5 question". So for any share-alike file (for example `cc-by-sa-4.0`), and for any file whose licence terms need interpretation, the path is:
-1. R-5 records a determination of whether the licence permits the intended role (`operational-candidate` or `training-only`). It must cover derived material: crops, labels, MAVI-trained heads and any redistribution. R-5's model-evaluation determinations (§4.3.8) do not cover footage.
+1. R-5 records a determination of whether the licence permits the intended role (`operational-candidate` or `training-only`). This record's reading, which no existing rule states and which is for R-5 to confirm, is that the determination should also address derived material: crops, labels, MAVI-trained heads and any redistribution. R-5's model-evaluation determinations (§4.3.8) do not cover footage.
 2. Only then may the footage rights reviewer record `PERMITTED_FOR_PILOT_ACQUISITION` for that file, citing the R-5 determination as evidence.
 
-Non-commercial and no-derivatives licences are already rejected automatically by the helper (README "States").
+The helper never admits a file under a non-commercial or no-derivatives licence. Without a decision it marks such a file `REJECTED`; with a decision it marks it `RIGHTS_PENDING` (README "States"; `admission.py`).
 
 **Unchanged:** R-2 Hari Om, R-4 Aarav (annotation owner/annotator) and Savita (independent annotator/reviewer), R-5 Aarav (Licence Review Owner), R-6 Aarav and R-7 Hari Om. The footage rights reviewer is a separate appointment from R-5.
 
@@ -190,7 +190,7 @@ Under the strictly-after rule (`admission.py`: the capture start must be after t
 
 ### 6.2 Public-source eligibility decision (B0 §1): pending
 
-The B0 record assigns this to "R-2 / owner". With Hari Om now holding R-1 and R-2, it can be recorded as an **owner decision**. It must not be described as an independent R-2 review (§2). The pilot record §8 asks for "R-2's ruling" as of the run; that request is now answered through the owner route. Three options:
+The B0 record assigns this to "R-2 / owner". With Hari Om now holding R-1 and R-2, it can be recorded as an **owner decision**. It must not be described as an independent R-2 review (§2). The pilot record §8 says, as of the run, that "R-2 rules on the B0 §1 interpretation". That ruling will be answered through the owner route when the owner decides; it has not been decided. Three options:
 
 | Option | Proposed wording | Consequence |
 |---|---|---|
@@ -213,7 +213,7 @@ This is a proposal for R-3 Hari Om to approve or change. It is not authorized by
 - **Host and store.** QUEENSGAMBIT, from a checkout at a recorded commit. `--store` is one new run subdirectory of `E:\MAVI-Controlled\Acquisition\S2c\2026-01\` (for example `commons-discovery-<UTC date>`), used as the store root for every scope in this run. `--contact` is the public repository URL, once the owner confirms it.
 - **What the helper actually does.**
   - **Logical requests.** Each scope makes one list request, then one metadata request per video title, with no pacing between requests. With `--limit 20` that is at most **21 logical requests per scope** and at most **147** for P1–P5 plus S1–S2.
-  - **Attempts.** Each logical request is up to **3 attempts**. After an HTTP 429 or 503 the helper sleeps 30 s and then 60 s; it ignores `Retry-After`. Each attempt may follow up to **5 redirects**, each a further HTTP request.
+  - **Attempts.** Retries apply to HTTP 429 and 503 responses only. Such a logical request gets up to **3 attempts**: after each 429 or 503 the helper sleeps 30 s, then 60 s, and it ignores `Retry-After`. Each attempt may follow up to **5 redirects**, each a further HTTP request. A network error (connection reset, TLS failure or socket timeout) is **not** retried. It is not caught by the helper, so the scope ends with a traceback, exit 1, and no discovery report.
   - **Worst case.** About 63 HTTP attempts per scope and about 441 for the run, before redirects.
   - **Timeout.** `TIMEOUT_SECONDS = 60` applies to each socket operation. It is **not** a total deadline per request or per scope.
   - **No duration bound.** Because of the timeout behaviour, a scope's duration has no hard bound. A rough worst case for 21 logical requests is well over an hour.
@@ -225,7 +225,7 @@ This is a proposal for R-3 Hari Om to approve or change. It is not authorized by
 - **Preflight (proposed; no such script exists).** Before P1, send one read-only `siteinfo` request with the helper's User-Agent, using a small operator script in the manner of the pilot's `rate-limit-probe.py`. The script and its SHA-256 are retained in the evidence. If the request returns HTTP 429, stop and record S4 without running any scope.
 - **Stop conditions.** Each is checked after a scope finishes. The helper cannot be stopped cleanly inside a scope.
   - Any nonzero exit stops the **whole run**: `REFUSED`/exit 2 when the list request fails, or any other unexpected exit. The 2026-10-01 run continued after a 429.
-  - A per-file metadata failure stops the run after that scope. The helper does not fail the scope for it: it records the item with `"error"` set and `admissionState` null, writes the report and exits 0. The operator therefore checks the console `states` for `"None"` and the written discovery report for any item with a non-null `error`.
+  - A per-file metadata failure stops the run after that scope. A failure the helper catches (an HTTP error status after any retries, or a parse error) does not fail the scope: the helper records the item with `"error"` set and `admissionState` null, writes the report and exits 0. A network error is not caught: it ends the scope with exit 1 and no report, which the nonzero-exit rule above covers. The operator therefore checks the console `states` for `"None"` and the written discovery report for any item with a non-null `error`.
   - An incomplete result stops the run: a scope that ends without printing its `discoveryReportSha256`, or whose discovery report or decisions template is missing from the store.
   - A parser field that differs from the documented shape stops the run (B0 §9).
   - Stop on reaching 60 candidates described without error, or the 147-logical-request planning limit.
