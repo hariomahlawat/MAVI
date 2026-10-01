@@ -38,7 +38,7 @@ def api_response(**over) -> dict:
     if over.get("license") is None and "license" in over:
         del ext["License"]
     info = {"timestamp": over.get("uploaded", "2026-05-10T08:00:00Z"), "user": "Example", "size": len(over.get("media", MEDIA)),
-            "width": 1280, "height": 720, "duration": 12.5, "sha1": hashlib.sha1(over.get("media", MEDIA)).hexdigest(),
+            "width": over.get("width", 1280), "height": over.get("height", 720), "duration": over.get("duration", 12.5), "sha1": hashlib.sha1(over.get("media", MEDIA)).hexdigest(),
             "mime": over.get("mime", "video/webm"), "mediatype": over.get("mediatype", "VIDEO"),
             "url": over.get("url", UPLOAD_URL), "descriptionurl": "https://commons.wikimedia.org/wiki/File:Street_crossing_Pune_2026.webm",
             "extmetadata": ext, "metadata": []}
@@ -175,6 +175,63 @@ def test_provider_or_category_membership_alone_never_admits():
 def test_still_image_is_rejected_as_not_continuous_video():
     state, blockers = admission.derive_state(meta(mediatype="BITMAP", mime="image/jpeg"), admitted())
     assert state == "REJECTED" and "not-continuous-video" in blockers
+
+
+OGV_TITLE = "File:Street crossing Pune 2026.ogv"
+
+
+@pytest.mark.parametrize("mime", ["video/webm", "video/ogg", "video/mpeg", "video/mp4"])
+def test_existing_video_mime_types_are_still_continuous_video(mime):
+    assert admission.is_continuous_video(meta(mime=mime))
+    assert admission.derive_state(meta(mime=mime), None)[0] == "DISCOVERED"
+    assert admission.derive_state(meta(mime=mime), admitted())[0] == "ADMITTED_FOR_PILOT"
+
+
+def test_commons_ogv_reported_as_application_ogg_is_continuous_video():
+    # Commons reports every Ogg container as application/ogg; mediatype VIDEO is its content classification.
+    ogv = meta(title=OGV_TITLE, mime="application/ogg", mediatype="VIDEO")
+    assert admission.is_continuous_video(ogv)
+    assert admission.derive_state(ogv, None) == ("DISCOVERED", [])
+    assert admission.derive_state(ogv, admitted(fileTitle=OGV_TITLE)) == ("ADMITTED_FOR_PILOT", [])
+    # An .ogg extension holding Theora video is the same case.
+    assert admission.is_continuous_video(meta(title="File:Street crossing Pune 2026.ogg", mime="application/ogg"))
+
+
+def test_admitted_commons_ogv_is_acquired_and_verified(store):
+    net = FakeNet(api_response(title=OGV_TITLE, mime="application/ogg"))
+    summary = acq.acquire(store, [admitted(fileTitle=OGV_TITLE)], transport(net))
+    receipt = _only_receipt(store)
+    assert summary["failed"] == 0 and receipt["admissionState"] == "ADMITTED_FOR_PILOT"
+    assert receipt["declaredMedia"]["mime"] == "application/ogg" and receipt["acquisition"]["status"] == "ACQUIRED"
+    assert acq.verify(store) == []
+
+
+@pytest.mark.parametrize("over", [
+    {"title": "File:Street ambience Pune 2026.ogg", "mediatype": "AUDIO", "width": 0, "height": 0},  # Vorbis/Opus audio only
+    {"title": "File:Street ambience Pune 2026.oga", "mediatype": "AUDIO", "width": 0, "height": 0},
+    {"title": OGV_TITLE, "mediatype": "AUDIO", "width": 0, "height": 0},                              # wrong-extension audio
+    {"title": OGV_TITLE, "mediatype": "VIDEO", "width": 0, "height": 0},                              # no frame size
+    {"title": OGV_TITLE, "mediatype": "VIDEO", "width": 1280, "height": None},
+    {"title": OGV_TITLE, "mediatype": "VIDEO", "width": True, "height": True},                        # bool is not a size
+    {"title": TITLE, "mediatype": "VIDEO"},                                                           # application/ogg on .webm
+    {"title": OGV_TITLE, "mediatype": "BITMAP"},
+])
+def test_non_video_ogg_is_not_admitted_as_continuous_video(over):
+    if over["title"].endswith(".oga"):
+        with pytest.raises(CorpusError):  # .oga is not even an admissible file title
+            meta(mime="application/ogg", **over)
+        return
+    candidate = meta(mime="application/ogg", **over)
+    assert not admission.is_continuous_video(candidate)
+    state, blockers = admission.derive_state(candidate, admitted(fileTitle=over["title"]))
+    assert state == "REJECTED" and "not-continuous-video" in blockers
+
+
+@pytest.mark.parametrize("mime", ["application/octet-stream", "application/x-matroska", "application/mp4", "video/quicktime", None])
+def test_no_other_mime_is_accepted_even_with_mediatype_video(mime):
+    candidate = meta(title=OGV_TITLE, mime=mime, mediatype="VIDEO")
+    assert not admission.is_continuous_video(candidate)
+    assert admission.derive_state(candidate, None)[0] == "REJECTED"
 
 
 def test_review_bound_to_a_different_revision_is_not_admitted():
