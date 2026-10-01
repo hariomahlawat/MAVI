@@ -425,7 +425,7 @@ A bounded metadata-only run of the B0 pilot is recorded in `s2c-b-source-feasibi
 - **Run:** 15 candidates were described, and live Commons parsing was validated. Repeated HTTP 429 responses then blocked discovery from this environment; the underlying cause was not established (stop condition S4).
 - **Acquisition:** nothing was admitted or acquired. No rights or privacy review exists, and `freshnessReferenceDate` is missing.
 
-Public-source sufficiency is UNRESOLVED. The available evidence is exported to a hashed bundle delivered to the owner for retention; the record lists its manifest and the evidence already lost. The record separates the corpus tooling's hard requirements from a recommended capture brief for commissioned or owner capture, and proposes the next bounded step. Slice B corpus execution has not started. F1, both MSRs and S1.4 are unchanged.
+Public-source sufficiency is UNRESOLVED. The available evidence is exported to a hashed bundle delivered to the owner for retention (durable custody not yet confirmed); the record lists its manifest and the evidence already lost. The record separates the corpus tooling's hard requirements from a recommended capture brief for commissioned or owner capture, and proposes the next bounded step. Slice B corpus execution has not started. F1, both MSRs and S1.4 are unchanged.
 
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 

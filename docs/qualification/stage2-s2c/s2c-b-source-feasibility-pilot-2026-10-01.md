@@ -97,7 +97,7 @@ It also records each scope's completion status and the evidence already lost.
 | P5 | not completed: HTTP 429 | 0 | none |
 | S1, S2 | not started | — | — |
 
-**Run note.** Its final SHA-256 is `663481c52a3956200bb2a085132445f66fa7707d0458539340a3d55a498d75d7`. The predeclaration's hash was not captured when it was written, before P1. `bc4b0c2cf9dc54319bda31a1591c6d16fa9465fa759c047d7a1cbae511b03339` is **reconstructed** by truncating the note before its appended "Run outcomes" section.
+**Run note.** Its final SHA-256 is `663481c52a3956200bb2a085132445f66fa7707d0458539340a3d55a498d75d7`. The predeclaration's hash was not captured when it was written, before P1. `bc4b0c2cf9dc54319bda31a1591c6d16fa9465fa759c047d7a1cbae511b03339` is **reconstructed**. It is the SHA-256 of the note's first 1,346 bytes. These are the bytes before the `\n## Run outcomes` sequence that starts the section appended after the run (in Python, `note.split(b"\n## Run outcomes", 1)[0]`). The reconstruction assumes the predeclaration was not edited before that section was appended, and nothing independent confirms that assumption.
 
 **Evidence already lost.** None of the following can be recovered:
 - the raw search and category list responses for every scope, because the helper never retains them, so the ordered candidate lists, including filtered-out non-video titles, are unavailable;
@@ -105,6 +105,20 @@ It also records each scope's completion status and the evidence already lost.
 - exact per-scope start and end times for P2–P5, of which only file and log modification times remain;
 - full HTTP 429 headers and bodies, because the helper reports only "HTTP 429" and the probe log keeps the first 200 bytes of each body;
 - the helper's internal back-off timings, which are not logged.
+- the original P1 console output, which was not written to a file. `logs/discovery-p1-console.txt` is a transcription from the session transcript, not the original capture.
+
+**Integrity re-verification (2026-10-01).** The archive delivered to the owner (session download `7eefcd11-7a1e-44f8-8081-9c1f2090b5d8`) was re-checked in the session after delivery:
+- It is the same file that was delivered: 21,782 bytes, unchanged since it was built at 12:32:54 UTC, eight seconds before delivery. It was not rebuilt.
+- Its SHA-256 is the full 64-hexadecimal digest above, which matches the value printed when it was built.
+- A fresh extraction contains 24 payload files plus `MANIFEST.json`. Every file the manifest lists exists and matches its recorded size and SHA-256, and every payload file is listed.
+- The manifest's own SHA-256 matches the value above.
+- All 15 evidence-file references in the scopes resolve to files in the bundle.
+- Both discovery reports are named by their own SHA-256.
+- The reconstructed predeclaration hash is reproduced by the rule stated above.
+
+Two limitations remain:
+- No receipt confirms that the owner retained the file, so **durable custody is not established**.
+- The manifest describes the reconstruction less precisely than this record.
 
 **Reproducibility.** These hashes identify exactly the bytes retained in the bundle. A future rerun is a new observation, and is not expected to reproduce them: Commons page revisions, search ranking, category membership and rate limiting all change over time.
 
@@ -137,7 +151,7 @@ Share-alike (`cc-by-sa-4.0`) is a machine pre-classification only. Whether SA te
 
 ## 5. Feasibility result
 
-**Outcome: INCOMPLETE in this environment (S4). Public-source sufficiency is UNRESOLVED.** Only 15 files were described, from 2 of 5 primary scopes, and none was reviewed.
+**Outcome: INCOMPLETE in this environment (S4). Public-source sufficiency is UNRESOLVED.** Only 15 files were described, from 2 of 5 primary scopes, and none was reviewed. **0 minutes of footage were admitted**, and 0 media bytes were acquired.
 
 - **Observations from this sample only, with no conclusion drawn.** Every described candidate falls into one of four kinds:
   - archival film, which can never be fresh;
