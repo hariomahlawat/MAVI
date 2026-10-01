@@ -469,3 +469,173 @@ def test_windows_qualification_lane_is_exact_head_and_runtime_free() -> None:
         "probe_runtime", "mavi_run_qualified", "upload-artifact", "qualification-evidence",
     ):
         assert forbidden not in lowered, forbidden
+
+
+def _task10_job(name: str) -> str:
+    """One job's text in the Task 10 workflow (jobs are two-space indented keys)."""
+    import re
+
+    workflow = (_WORKFLOWS / "task10-runtime-qualification.yml").read_text(encoding="utf-8")
+    jobs = workflow.split("\njobs:\n", 1)[1]
+    parts = re.split(r"\n(?=  [a-z0-9-]+:\n)", "\n" + jobs)
+    matching = [part for part in parts if part.startswith(f"  {name}:\n")]
+    assert len(matching) == 1, name
+    return matching[0]
+
+
+def _job_step(job: str, name: str) -> str:
+    assert job.count(f"- name: {name}\n") == 1, name
+    return job.split(f"- name: {name}\n", 1)[1].split("\n      - ", 1)[0]
+
+
+def test_task10_reuses_only_a_verified_wheel_it_built_for_this_exact_identity() -> None:
+    """The decision note: an exact identity key, no fallback restore, rebuild on an
+    unverifiable entry, fail on an integrity violation, verify again at install."""
+    candidate = _task10_job("cpu-candidate")
+    command = candidate.split("MMCV_BUILD_COMMAND: ", 1)[1].split("\n", 1)[0]
+    commit = candidate.split("MMCV_SOURCE_COMMIT: ", 1)[1].split("\n", 1)[0]
+    assert commit == "57c4e25e06e2d4f8a9357c84bcd24089a284dc88"
+
+    identity = _job_step(candidate, "Compute MMCV build identity")
+    assert 'identity --mmcv-commit "$MMCV_SOURCE_COMMIT" --recipe "$MMCV_BUILD_COMMAND|MMCV_WITH_OPS=$MMCV_WITH_OPS"' in identity
+    assert 'echo "key=task10-mmcv-wheel-v1-${MAVI_RUNTIME_VARIANT}-${digest}"' in identity
+
+    restore = _job_step(candidate, "Restore Task 10 MMCV wheel")
+    assert "uses: actions/cache/restore@v4" in restore
+    assert "key: ${{ steps.mmcv-identity.outputs.key }}" in restore
+    assert not [line for line in candidate.splitlines() if "restore-keys" in line and not line.strip().startswith("#")]
+    assert candidate.count("uses: actions/cache") == 2
+
+    verify = _job_step(candidate, "Verify restored MMCV wheel")
+    assert 'if [ "$CACHE_HIT" != "true" ]; then' in verify
+    assert '0) echo "state=reuse" >> "$GITHUB_OUTPUT" ;;' in verify
+    assert '3) rm -rf .mmcv-wheel; echo "state=build" >> "$GITHUB_OUTPUT" ;;' in verify
+    assert '*) exit "$code" ;;' in verify
+
+    build_only = "if: steps.mmcv-verify.outputs.state == 'build'"
+    for name in (
+        "Checkout immutable MMCV 2.1.0 source",
+        "Build MMCV 2.1.0 wheel against installed PyTorch",
+        "Record MMCV wheel provenance",
+        "Save Task 10 MMCV wheel",
+    ):
+        assert build_only in _job_step(candidate, name), name
+    source = _job_step(candidate, "Checkout immutable MMCV 2.1.0 source")
+    assert 'test "$(git -C .qualification-mmcv rev-parse HEAD)" = "$MMCV_SOURCE_COMMIT"' in source
+    # What is built is exactly the recipe that enters the identity.
+    build = _job_step(candidate, "Build MMCV 2.1.0 wheel against installed PyTorch")
+    assert build.split("run: ", 1)[1].strip() == command
+    save = _job_step(candidate, "Save Task 10 MMCV wheel")
+    assert "uses: actions/cache/save@v4" in save and "key: ${{ steps.mmcv-identity.outputs.key }}" in save
+
+    install = _job_step(candidate, "Install verified MMCV 2.1.0 wheel")
+    assert "set -euo pipefail" in install
+    verify_at = install.index("mmcv_wheel_cache.py verify --dir .mmcv-wheel --identity .mmcv-identity.json")
+    assert verify_at < install.index("python -m pip install .mmcv-wheel/*.whl")
+    assert "qualification-evidence/mmcv-wheel.json" in install
+    # No other step installs MMCV.
+    assert candidate.count("pip install .mmcv-wheel/") == 1
+    assert "pip install --no-build-isolation" not in candidate
+
+    order = [candidate.index(f"- name: {name}\n") for name in (
+        "Compute MMCV build identity", "Restore Task 10 MMCV wheel", "Verify restored MMCV wheel",
+        "Checkout immutable MMCV 2.1.0 source", "Build MMCV 2.1.0 wheel against installed PyTorch",
+        "Record MMCV wheel provenance", "Save Task 10 MMCV wheel", "Install verified MMCV 2.1.0 wheel",
+        "Install remaining candidate graph",
+    )]
+    assert order == sorted(order)
+    evidence = _job_step(candidate, "Verify qualification evidence set")
+    assert '"mmcv-wheel.json",' in evidence and '"candidate-environment.json",' in evidence
+
+
+def _pins(install_step: str) -> set[str]:
+    return {
+        token.strip('"')
+        for token in install_step.split("run: >-", 1)[1].split()
+        if token not in {"python", "-m", "pip", "install", "--upgrade"}
+    }
+
+
+def test_the_s1_harness_runs_concurrently_on_a_pinned_subset_of_the_candidate_graph() -> None:
+    harness = _task10_job("s1-harness")
+    candidate = _task10_job("cpu-candidate")
+    harness_step_name = "Run S1.4 qualification harness tests with the native ByteTrack backend"
+
+    # The harness runs only in its own job, which needs nothing and so starts at once.
+    assert f"- name: {harness_step_name}\n" not in candidate
+    assert "needs:" not in harness
+    step = _job_step(harness, harness_step_name)
+    assert "MAVI_RUN_QUALIFIED_BYTETRACK_TESTS=1" in step
+    assert "tools/qualification/tests/test_s1_*.py" in step
+    assert "--junitxml=qualification-evidence/junit/s1-qualification-harness.xml" in step
+
+    # The same matrix variants on the same head.
+    matrix = candidate.split("matrix:\n", 1)[1].split("    runs-on:", 1)[0]
+    assert matrix == harness.split("matrix:\n", 1)[1].split("    runs-on:", 1)[0]
+    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in harness
+    assert 'test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"' in harness
+    assert "MAVI_RUNTIME_VARIANT: ${{ matrix.runtime-variant }}" in harness
+
+    # Every harness pin is a candidate pin; the runtime graph proper is absent.
+    installs = [
+        _job_step(candidate, "Install compatible build tooling"),
+        _job_step(candidate, "Install remaining candidate graph"),
+    ]
+    candidate_pins = set().union(*(_pins(step) for step in installs))
+    harness_pins = _pins(_job_step(harness, "Install S1 harness subset of the candidate graph"))
+    assert harness_pins <= candidate_pins, sorted(harness_pins - candidate_pins)
+    for forbidden in ("torch", "mmcv", "mmengine", "mmdet"):
+        assert forbidden not in harness.lower(), forbidden
+
+    # Harness evidence is checked in the job and always retained.
+    check = _job_step(harness, "Check retained harness evidence and skips")
+    assert "task10_environment.py check-harness --junit qualification-evidence/junit/s1-qualification-harness.xml" in check
+    record = _job_step(harness, "Record harness environment")
+    assert "if: always()" in record and "s1-harness-environment.json" in record
+    upload = harness.split("uses: actions/upload-artifact@v4", 1)[1]
+    assert "if: always()" in harness.split("uses: actions/upload-artifact@v4", 1)[1][:40]
+    assert "name: s1-harness-${{ matrix.os }}-py3.12" in upload
+    assert "if-no-files-found: error" in upload
+
+
+def test_task10_passes_only_when_every_split_job_and_its_evidence_does() -> None:
+    gate = _task10_job("task10-qualification")
+    workflow = (_WORKFLOWS / "task10-runtime-qualification.yml").read_text(encoding="utf-8")
+
+    assert "    if: always()\n" in gate
+    assert "      - cpu-candidate\n" in gate and "      - s1-harness\n" in gate
+    require = _job_step(gate, "Require every Task 10 job")
+    for job in ("cpu-candidate", "s1-harness"):
+        assert f"test '${{{{ needs.{job}.result }}}}' = 'success'" in require, job
+    assert 'test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"' in gate
+    evidence = _job_step(gate, "Require harness evidence bound to each candidate environment")
+    assert "set -euo pipefail" in evidence
+    assert "ubuntu-latest:linux-x86_64-cpu windows-latest:windows-x86_64-cpu" in evidence
+    assert 'check-harness --junit "$harness/junit/s1-qualification-harness.xml" --variant "$variant"' in evidence
+    assert 'compare --candidate "$candidate/candidate-environment.json" --harness "$harness/s1-harness-environment.json"' in evidence
+    assert 'test -s "$candidate/mmcv-wheel.json"' in evidence
+    import re
+
+    candidate_steps = set(re.findall(r"--junitxml=(?:\.\./\.\./)?qualification-evidence/junit/([a-z0-9-]+)\.xml", _task10_job("cpu-candidate")))
+    listed = set(evidence.split("for step in ", 1)[1].split(";", 1)[0].split())
+    assert listed == candidate_steps
+    assert candidate_steps | {"s1-qualification-harness"} == set(_s1_task10_steps())
+
+    # Never a green aggregate over a red job.
+    assert "continue-on-error" not in workflow
+
+
+def _s1_task10_steps() -> tuple[str, ...]:
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parents[3] / "tools" / "qualification"))
+    import s1_evidence
+
+    return s1_evidence.TASK10_JUNIT_STEPS
+
+
+def test_the_split_job_tools_trigger_task10() -> None:
+    task10 = (_WORKFLOWS / "task10-runtime-qualification.yml").read_text(encoding="utf-8")
+    for path in ("tools/vision/mmcv_wheel_cache.py", "tools/vision/task10_environment.py",
+                 "tools/vision/compare_wheel_reproducibility.py"):
+        assert _triggers(task10, path), path
