@@ -151,17 +151,6 @@ def test_task10_triggers_on_and_qualifies_the_runtime_bearing_s1_surface() -> No
     for trigger in (pull_request, push):
         assert "- 'src/vision/mavi_vision/**'" in trigger
         assert "- 'tools/qualification/**'" not in trigger
-        for qualification_path in (
-            "s1-qualification-evidence.schema.json",
-            "s1_b1.py",
-            "s1_evidence.py",
-            "s1_memory.py",
-            "process_memory.py",
-            "tests/conftest.py",
-            "tests/test_s1_*.py",
-            "tests/fixtures/**",
-        ):
-            assert f"- 'tools/qualification/{qualification_path}'" in trigger, qualification_path
         for suite in (
             "test_worker_completion_v3.py",
             "test_completion_contract_*.py",

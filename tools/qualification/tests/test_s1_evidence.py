@@ -1697,7 +1697,7 @@ def test_a_pair_must_name_the_same_test_of_the_same_suite() -> None:
 # OS-conditional tests whose condition is false on both qualified platforms, so
 # they never skip in Task 10 and need no approval.
 NEVER_SKIPS_ON_A_QUALIFIED_VARIANT = {
-    ("tools/qualification/tests", "test_a_process_mode_run_fits_the_platform_metric"),
+    ("tools/qualification/tests/test_s1_memory.py", "test_a_process_mode_run_fits_the_platform_metric"),
 }
 _OS_CONDITION = ("os.name", "sys.platform", "hasattr(os", "platform.system")
 
@@ -2574,7 +2574,7 @@ def _task10_step_commands() -> dict[str, tuple[str, ...]]:
             continue
         prefix = "src/vision/" if re.search(r"^        working-directory: src/vision\s*$", step, re.M) else ""
         step = re.sub(r"--deselect \S+", "", step)  # deselected node ids are not run
-        paths = re.findall(r"(?<![\w/])((?:src/vision/)?tests/test_\w+\.py|tools/qualification/tests)(?![\w/])", step)
+        paths = re.findall(r"(?<![\w/])((?:src/vision/)?tests/test_\w+\.py|tools/qualification/tests/test_s1_\*\.py)(?![\w/])", step)
         found[match.group(1)] = tuple(dict.fromkeys(path if path.startswith(("src/", "tools/")) else prefix + path for path in paths))
     return found
 
@@ -3487,3 +3487,140 @@ def test_the_real_m2_theory_results_satisfy_crash_17(tmp_path: Path) -> None:
     findings = check_record(record, repo_root=tmp_path, verify_git=False)
     assert not [f for f in findings if "crash.17" in f.detail]
     assert [f for f in findings if f.code == "proving_test_missing"], "the pruned fixtures must still leave other proving tests missing"
+
+
+# --------------------------------------------------------------------------- S1 harness / Task-10 trigger alignment
+# One path set governs three things: what §2.1 treats as S1 behavior-bearing
+# qualification tooling, what Task 10 retains as the S1 harness, and what
+# triggers Task 10 (docs/qualification/stage2-s1/2026-10-01-s1-qualification-harness-surface.md).
+
+_WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+NEW_S1_HARNESS_FILES = (
+    "tools/qualification/s1_new_probe.py",
+    "tools/qualification/s1-new-record.schema.json",
+    "tools/qualification/tests/test_s1_new_probe.py",
+    "tools/qualification/tests/fixtures/new-sample.trx",
+)
+LATER_STAGE_QUALIFICATION_FILES = (
+    "tools/qualification/model_selection/credibility.py",
+    "tools/qualification/model_selection/acquire_s2c_candidates.ps1",
+    "tools/qualification/attributes/corpus/f1.py",
+    "tools/qualification/source_acquisition/acquire.py",
+    "tools/qualification/s2c_operational_check.py",
+    "tools/qualification/summarize_aggregate_qualification.py",
+    "tools/qualification/tests/test_s2c_artifacts.py",
+    "tools/qualification/tests/test_s2a_provenance_diff.py",
+    "tools/qualification/tests/model_selection_fixtures.py",
+    "tools/qualification/tests/s2c_acquisition_behaviour.ps1",
+)
+
+
+def _trigger_globs(workflow: str, event: str) -> list[str]:
+    block = workflow.split(f"\n  {event}:\n", 1)[1].split("\n    paths:\n", 1)[1]
+    globs = []
+    for line in block.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if not stripped.startswith("- '"):
+            break
+        globs.append(stripped[3:-1])
+    return globs
+
+
+def _glob(pattern: str, path: str) -> bool:
+    """GitHub path-filter semantics: ``**`` crosses ``/``; ``*`` does not."""
+    regex = "".join(
+        ".*" if token == "**" else "[^/]*" if token == "*" else re.escape(token)
+        for token in re.split(r"(\*\*|\*)", pattern)
+    )
+    return re.fullmatch(regex, path) is not None
+
+
+def _triggers(workflow_file: str, path: str) -> bool:
+    workflow = (_WORKFLOWS / workflow_file).read_text(encoding="utf-8")
+    return all(any(_glob(g, path) for g in _trigger_globs(workflow, event)) for event in ("pull_request", "push"))
+
+
+def _qualification_files() -> list[str]:
+    root = REPO_ROOT / "tools" / "qualification"
+    return sorted(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts
+    )
+
+
+def test_task10_triggers_on_exactly_the_s1_behavior_bearing_qualification_tooling() -> None:
+    """S1-invalidating qualification tooling always triggers exact-head Task 10,
+    and later-stage qualification tooling neither invalidates S1 nor forces it."""
+    for path in [*_qualification_files(), *NEW_S1_HARNESS_FILES, *LATER_STAGE_QUALIFICATION_FILES]:
+        assert _triggers(TASK10_WORKFLOW_FILE, path) == s1_evidence.is_behavior_bearing(path), path
+    for path in NEW_S1_HARNESS_FILES:
+        assert s1_evidence.is_behavior_bearing(path), path
+    for path in LATER_STAGE_QUALIFICATION_FILES:
+        assert not s1_evidence.is_behavior_bearing(path), path
+        # Portability CI, not S1 evidence, still covers it on Windows.
+        assert _triggers("qualification-tooling-windows.yml", path), path
+
+
+TASK10_WORKFLOW_FILE = "task10-runtime-qualification.yml"
+
+
+def test_every_task10_step_source_triggers_task10() -> None:
+    for step, sources in s1_evidence.TASK10_STEP_SOURCES.items():
+        for source in sources:
+            matches = sorted(p.relative_to(REPO_ROOT).as_posix() for p in REPO_ROOT.glob(source)) if "*" in source else [source]
+            assert matches, (step, source)
+            for path in matches:
+                assert _triggers(TASK10_WORKFLOW_FILE, path), (step, path)
+
+
+def test_the_retained_s1_harness_is_every_s1_harness_test_and_b2_cites_each() -> None:
+    harness_tests = {
+        p.relative_to(REPO_ROOT).as_posix() for p in REPO_ROOT.glob(s1_evidence.S1_QUALIFICATION_HARNESS_TESTS)
+    }
+    assert harness_tests >= {
+        "tools/qualification/tests/test_s1_b1.py",
+        "tools/qualification/tests/test_s1_evidence.py",
+        "tools/qualification/tests/test_s1_memory.py",
+    }
+    assert s1_evidence.TASK10_STEP_SOURCES["s1-qualification-harness"] == (s1_evidence.S1_QUALIFICATION_HARNESS_TESTS,)
+    b2_qualification = {s for s in UNIT_REQUIREMENTS["B2"].suites if s.startswith("tools/qualification/")}
+    assert b2_qualification == harness_tests
+    for path in harness_tests:
+        assert s1_evidence.is_behavior_bearing(path), path
+        assert s1_evidence.suite_covers("task10:s1-qualification-harness", path), path
+
+
+def test_later_stage_qualification_changes_invalidate_no_s1_unit() -> None:
+    record = complete_record()
+    cited = {unit: set(body["suites"]) for unit, body in record["units"].items()}
+    cited = {unit: {record["suites"][sid]["suite"] for sid in sids} | {"task10:s1-qualification-harness"} for unit, sids in cited.items()}
+    assert invalidated_units(LATER_STAGE_QUALIFICATION_FILES, cited) == {}
+    # The S1 harness still invalidates: its tests and support through B2's suites,
+    # an S1 module (unmapped behavior-bearing) every unit.
+    s1_changes = invalidated_units(
+        [
+            "tools/qualification/tests/test_s1_memory.py",
+            "tools/qualification/tests/conftest.py",
+            "tools/qualification/tests/fixtures/m2-quality-gate-domain-theories.trx",
+            "tools/qualification/tests/test_s1_new_probe.py",
+            "tools/qualification/s1_memory.py",
+        ],
+        cited,
+    )
+    assert all("B2" in units for units in s1_changes.values()), s1_changes
+    assert s1_changes["tools/qualification/s1_memory.py"] == set(UNITS)
+
+
+def test_the_windows_portability_workflow_is_not_s1_evidence() -> None:
+    assert "qualification-tooling-windows.yml" not in s1_evidence.POST_MERGE_WORKFLOWS
+    record = complete_record()
+    sid = next(sid for sid in record["units"]["B2"]["suites"] if "test_s1_memory.py:windows" in sid)
+    record["runs"]["portability"] = {
+        "kind": "workflow", "workflow": "qualification-tooling-windows.yml", "runId": 77, "headSha": SHA, "conclusion": "success",
+    }
+    record["suites"][sid]["run"] = "portability"
+    record["retainedArtifacts"][record["suites"][sid]["junitArtifact"]]["run"] = "portability"
+    assert ("B2", "suite_provenance_invalid") in codes(record)
