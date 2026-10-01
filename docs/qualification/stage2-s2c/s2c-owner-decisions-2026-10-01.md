@@ -59,7 +59,7 @@ These appointments name the reviewers. They are **not** a blanket permission or 
 1. R-5 records a determination of whether the licence permits the intended role (`operational-candidate` or `training-only`). This record's reading, which no existing rule states and which is for R-5 to confirm, is that the determination should also address derived material: crops, labels, MAVI-trained heads and any redistribution. R-5's model-evaluation determinations (§4.3.8) do not cover footage.
 2. Only then may the footage rights reviewer record `PERMITTED_FOR_PILOT_ACQUISITION` for that file, citing the R-5 determination as evidence.
 
-The helper never admits a file under a non-commercial or no-derivatives licence. Without a decision it marks such a file `REJECTED`; with a decision it marks it `RIGHTS_PENDING` (README "States"; `admission.py`).
+The helper never admits a file under a non-commercial or no-derivatives licence. Without a decision it marks such a file `REJECTED`. With a decision requesting admission it marks a video file `RIGHTS_PENDING`, because the licence blocker can never be cleared (README "States"; `admission.py`).
 
 **Unchanged:** R-2 Hari Om, R-4 Aarav (annotation owner/annotator) and Savita (independent annotator/reviewer), R-5 Aarav (Licence Review Owner), R-6 Aarav and R-7 Hari Om. The footage rights reviewer is a separate appointment from R-5.
 
