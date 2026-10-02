@@ -309,6 +309,28 @@ def test_measurement_reauthorises_and_the_real_path_stays_blocked(tmp_path):
         measure(tmp_path, forged, pa_det=None)
 
 
+def test_a_narrow_development_grant_does_not_open_development_role_rows(tmp_path):
+    """R-5's narrow approval (benchmarking + development, evaluate only) admits the benchmark and its
+    smoke diagnostic. Asking to measure the development role (PA-100K val, mapped to tuning) under
+    that approval is refused: `development` never authorises a row without the role's own purpose."""
+    from attributes.datasets.release import release_sha256
+    manifest = benchmark_case(tmp_path)
+    assert {s["role"] for s in manifest["samples"]} >= {"benchmark", "development"}
+    narrow_inventory = {"create-derivatives": "pending-r5", "evaluate": "granted", "redistribute-derived-weights": "pending-r5",
+                        "run-operationally": "pending-r5", "train": "pending-r5"}
+    narrow = {licence: determination(licence, purposes=["benchmarking", "development"],
+                                     rights={"reviewedBy": "fixture reviewer", "determination": "PERMITTED_FOR_ENGINEERING_USE",
+                                             "evidence": "fixture", "inventory": narrow_inventory})
+              for licence in ("cc-by-4.0", "cc-by-nc-sa-3.0-de")}
+    dets = {"pa_det": narrow["cc-by-4.0"], "up_det": narrow["cc-by-nc-sa-3.0-de"]}
+    pa, up = releases_of(tmp_path, **dets)
+    rebound = copy.deepcopy(manifest)
+    rebound["releases"] = [{"releaseId": r["releaseId"], "releaseSha256": release_sha256(pa if r["releaseId"] == PA else up)} for r in rebound["releases"]]
+    with pytest.raises(CorpusError, match="component_result_unauthorised:.*purpose-not-covered-by-determination"):
+        measure(tmp_path, rebound, roles=("development",), **dets)
+    assert measure(tmp_path, rebound, roles=("benchmark",), **dets)["rolesMeasured"] == ["benchmark"]
+
+
 def test_a_tampered_image_is_refused(tmp_path):
     manifest = benchmark_case(tmp_path)
     forged = copy.deepcopy(manifest)

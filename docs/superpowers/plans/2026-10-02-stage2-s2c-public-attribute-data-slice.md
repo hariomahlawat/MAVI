@@ -178,6 +178,8 @@ Here "packageable" means a **MAVI engineering disposition for one artefact and o
 
 The builder refuses a sample when any release supplying that sample's image **or the label used for that attribute** lacks the mapped purpose. There is no frozen role. Public origin is refused for `frozen-qualification` by `provenance.parse_purposes`.
 
+`development` is never enough on its own. A smoke build and every measurement of a non-benchmark role need the role's own purpose as well, so a release approved only for `benchmarking` and `development` yields benchmark rows and nothing else.
+
 ## 4. Records and import seam
 
 New package `tools/qualification/attributes/datasets/`, using the standard library, Pillow and the canonical helpers.
