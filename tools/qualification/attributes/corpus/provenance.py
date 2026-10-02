@@ -37,7 +37,8 @@ def parse_purposes(value: object, code: str, origin: str) -> tuple[str, ...]:
     combined only with partition purposes (training, tuning, selection), whose exposure the
     partitioner records; development, reference, benchmarking or challenge use happens
     outside the partitions, so footage approved for it is not a frozen candidate."""
-    require(isinstance(value, list) and value and value == sorted(set(value)), f"{code}:purposes")
+    require(isinstance(value, list) and value and all(isinstance(p, str) for p in value), f"{code}:purposes")  # before set()
+    require(value == sorted(set(value)), f"{code}:purposes")
     require(all(p in PURPOSES for p in value), f"{code}:purpose_unknown")
     if FROZEN_QUALIFICATION in value:
         require(origin in PROTECTED_ORIGINS, f"{code}:frozen_qualification_requires_protected_origin")

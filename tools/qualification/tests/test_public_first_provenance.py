@@ -50,7 +50,7 @@ def determination(**over) -> dict:
         "purposes": ["benchmarking", "development", "reference", "regression-challenge", "training"],
         "licenceCodes": ["cc-by-4.0", "cc-by-nc-sa-4.0", "cc-by-sa-3.0-nl", "cc-by-sa-4.0"],
         "rights": {"reviewedBy": "Hari Om Ahlawat", "determination": "PERMITTED_FOR_ENGINEERING_USE", "evidence": "file-page licences; internal processing only"},
-        "privacy": {"reviewedBy": "Hari Om Ahlawat", "basis": "street scenes; no identity processing; pseudonymous crops"},
+        "privacy": {"reviewedBy": "Hari Om Ahlawat", "disposition": "PERMITTED", "basis": "street scenes; no identity processing; pseudonymous crops"},
         "r5Ruling": {"ruledBy": "R-5", "ruling": "PERMITTED", "reference": "R-5 ruling 2026-10-03 #1 (CC BY-SA internal adaptation)"},
     }
     record.update(over)
@@ -161,7 +161,8 @@ def test_public_files_can_never_be_approved_for_frozen_qualification(store, tmp_
 @pytest.mark.parametrize("det,over,blocker", [
     ({"r5Ruling": None}, {}, "r5-ruling-missing"),
     ({"rights": {"reviewedBy": "x", "determination": "PERMITTED_FOR_PILOT_ACQUISITION", "evidence": "e"}}, {}, "rights-determination-missing"),
-    ({"privacy": {}}, {}, "privacy-determination-missing"),
+    ({"privacy": {"disposition": "PERMITTED"}}, {}, "privacy-determination-missing"),
+    ({"privacy": {"reviewedBy": "Hari Om Ahlawat", "disposition": "DENIED", "basis": "close-range faces"}}, {}, "privacy-denied"),
     ({"purposes": ["benchmarking"]}, {}, "purpose-not-covered-by-determination"),
     ({"licenceCodes": ["cc-by-4.0"]}, {}, "licence-not-covered-by-determination"),
     ({}, {"pageRevisionId": 776}, "approved-revision-differs-from-current"),
@@ -198,6 +199,21 @@ def test_a_b0_rejection_cannot_be_bypassed_by_a_new_purpose(store):
     acq.acquire(store, [decision], transport(FakeNet()), [content])
     receipt = [r for r in _receipts(store) if r["acquisitionBases"]][0]
     assert decision == before and receipt["admissionState"] == "REJECTED" and receipt["requestedState"] == "REJECTED"
+
+
+@pytest.mark.parametrize("edit", [
+    lambda d: d["determinations"][0]["rights"].update(reviewedBy=True),
+    lambda d: d["determinations"][0]["rights"].update(evidence=1),
+    lambda d: d["determinations"][0]["privacy"].update(basis=["internal"]),
+    lambda d: d["determinations"][0].update(r5Ruling={"ruledBy": {"n": "R-5"}, "ruling": "PERMITTED", "reference": "r"}),
+    lambda d: d["approvals"][0].update(b0Decision="REJECTED", b0RejectionReview={"reviewedBy": True, "rightsOrPrivacyRejection": False, "basis": "b"}),
+    lambda d: d["approvals"][0].update(b0Decision="REJECTED", b0RejectionReview={"reviewedBy": "x", "rightsOrPrivacyRejection": 0, "basis": "b"}),
+])
+def test_commons_approvals_refuse_non_text_review_fields(edit):
+    doc = document([entry()])
+    edit(doc)
+    with pytest.raises(CorpusError, match="review_text|rejection_review"):
+        admission.parse_purpose_approvals(doc)
 
 
 def test_r5_settles_share_alike_and_unrecognised_licence_codes_but_never_nc_nd_or_a_missing_licence():

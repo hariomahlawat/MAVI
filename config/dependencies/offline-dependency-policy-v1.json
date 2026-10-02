@@ -99,7 +99,8 @@
       },
       "tools/requirements.txt": {
         "requirements": [
-          "jsonschema[format-nongpl]>=4.23,<5"
+          "jsonschema[format-nongpl]>=4.23,<5",
+          "scipy==1.18.1"
         ]
       }
     }

@@ -62,7 +62,7 @@ Review effort sits in reusable **determinations**. One determination records the
  "determinations": [{"determinationId": "commons-cc-street-2026", "reviewedOn": "YYYY-MM-DD",
    "purposes": ["reference", "regression-challenge", "training"], "licenceCodes": ["cc-by-4.0", "cc-by-sa-4.0"],
    "rights": {"reviewedBy": "…", "determination": "PERMITTED_FOR_ENGINEERING_USE", "evidence": "…"},
-   "privacy": {"reviewedBy": "…", "basis": "…"},
+   "privacy": {"reviewedBy": "…", "disposition": "PERMITTED", "basis": "…"},
    "r5Ruling": {"ruledBy": "…", "ruling": "PERMITTED", "reference": "…"}}],
  "approvals": [{"fileTitle": "File:…", "pageRevisionId": 0, "fileSha1": "…", "purposes": ["training"],
    "determinationId": "commons-cc-street-2026", "b0Decision": null}]}
@@ -71,7 +71,7 @@ Review effort sits in reusable **determinations**. One determination records the
 - Purposes, sorted: `benchmarking`, `development`, `reference`, `regression-challenge`, `selection`, `training`, `tuning`. `frozen-qualification` is **refused** for any public file. A malformed document is refused whole.
 - A file is `APPROVED` only with no blockers:
   - the entry binds the re-fetched revision and SHA-1;
-  - the determination covers the entry's purposes and the file's licence code, and has rights and privacy reviews;
+  - the determination covers the entry's purposes and the file's licence code, and has rights and privacy reviews; the privacy review's `disposition` must be `PERMITTED` (`DENIED` blocks, and a missing or unknown disposition is refused when parsing);
   - share-alike or unrecognised licence codes also need R-5's `PERMITTED` ruling;
   - the file is continuous video with a named author and a licence code, and that licence is not NC/ND.
 - `b0Decision` is the file's B0 decision (`null` if none). A supplied decision that differs is refused. For `REJECTED`, the entry also needs a named `b0RejectionReview` with `rightsOrPrivacyRejection: false` and a basis. A rights or privacy rejection is never bypassed (ADR-015 §2), and omitting `--decisions` does not skip the check.
