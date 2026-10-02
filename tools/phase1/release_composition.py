@@ -38,8 +38,8 @@ from mavi_vision.runtime.resolver import (  # noqa: E402
 ROLE_ID = build_offline_bundle.ROLE_ID
 CANONICAL_COMPONENT_BINDING = build_offline_bundle.CANONICAL_COMPONENT_BINDING
 CANONICAL_PIPELINE_PROFILE = build_offline_bundle.CANONICAL_PIPELINE_PROFILE
-# The completion schema the worker emits after the cut-over (P-16).
-EMITTED_COMPLETION_VERSIONS = ("3.2",)
+# The completion schema the worker emits after the cut-over (P-16): 3.3 since Stage 3 (ADR-016).
+EMITTED_COMPLETION_VERSIONS = ("3.3",)
 
 # Never inherited into a worker a tool launches: the retired v1 composition
 # variables (the worker refuses to start on any of them), the Development-only

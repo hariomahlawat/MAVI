@@ -507,7 +507,7 @@ def resolve_bundle_role(
             binding.role(ROLE_ID),
             override=None,
             production_mode=production,
-            emittable_versions=("3.2",),
+            emittable_versions=("3.3",),
         )
         composition = RoleComposition(
             RoleCompositionInputs(

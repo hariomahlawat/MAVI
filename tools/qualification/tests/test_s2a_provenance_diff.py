@@ -126,11 +126,16 @@ def test_the_identities_changed_exactly_as_reconciled() -> None:
     assert head["mavi_commit"] != baseline["mavi_commit"]
 
 
-def test_the_head_binding_identity_is_the_committed_binding() -> None:
-    import hashlib
+# The binding and qualification record the S2a.3 cut-over published. Stage 3 (ADR-016)
+# has since re-issued both live files (completion 3.3; the 1.3.0-candidate profile), so
+# this historical evidence is checked against the published identities, which the
+# migration generator still reproduces (src/vision/tests/test_migrate_component_binding_v1.py).
+S2A3_PUBLISHED_BINDING_SHA256 = "081c0c8948a16480626dd6d05f18c4037758e1cf513c8bf891d06ee7fb9f2819"
+S2A3_PUBLISHED_QUALIFICATION_SHA256 = "100b8f102697dfaa7ac4cd02abfc7d83fd0fbbe73adaa1908fbf3f6dcfa40e40"
 
-    binding = REPO / "src/vision/config/components/phase1-bindings-v2.json"
-    assert _load(HEAD)["provenance"]["component_binding_sha256"] == hashlib.sha256(binding.read_bytes()).hexdigest()
+
+def test_the_head_binding_identity_is_the_binding_the_cut_over_published() -> None:
+    assert _load(HEAD)["provenance"]["component_binding_sha256"] == S2A3_PUBLISHED_BINDING_SHA256
 
 
 def test_the_allow_list_is_discriminating() -> None:
@@ -145,7 +150,8 @@ def test_the_allow_list_is_discriminating() -> None:
 
 
 def test_the_v1_side_is_the_frozen_v1_bytes_and_the_v2_side_the_committed_bytes() -> None:
-    """Each reconciled digest is the digest of a file in the repository, not a typed value."""
+    """Each reconciled digest is the digest of a file in the repository, not a typed value; the
+    qualification record's is the identity the cut-over published, since re-issued by Stage 3."""
     import hashlib
 
     def sha(path: Path) -> str:
@@ -156,5 +162,5 @@ def test_the_v1_side_is_the_frozen_v1_bytes_and_the_v2_side_the_committed_bytes(
     assert sha(frozen / "rtmdet-m-coco-phase1-v1.qualification.json") == RECONCILED["qualification_sha256"][0]
     assert sha(frozen / "runtime.v1.json") == RECONCILED["runtime_profile_sha256"][0]
     assert sha(REPO / "models/manifests/rtmdet-m-coco-phase1-v2.json") == RECONCILED["model_manifest_sha256"][1]
-    assert sha(REPO / "models/qualifications/rtmdet-m-coco-phase1-v2.json") == RECONCILED["qualification_sha256"][1]
+    assert RECONCILED["qualification_sha256"][1] == S2A3_PUBLISHED_QUALIFICATION_SHA256
     assert sha(REPO / "src/vision/runtime/mmdetection-phase1-v1/runtime.json") == RECONCILED["runtime_profile_sha256"][1]
