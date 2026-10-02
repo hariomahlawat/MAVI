@@ -266,7 +266,8 @@ def parse_determination(value: object, code: str) -> dict:
     require(_date_or_none(value["reviewedOn"], f"{code}:date") is not None, f"{code}:date")
     parse_purposes(value["purposes"], code, PUBLIC)
     codes = value["licenceCodes"]
-    require(isinstance(codes, list) and codes and codes == sorted(set(codes)) and all(normalise_licence(c) == c for c in codes), f"{code}:licence_codes")
+    require(isinstance(codes, list) and codes and all(isinstance(c, str) for c in codes), f"{code}:licence_codes")  # before set()
+    require(codes == sorted(set(codes)) and all(normalise_licence(c) == c for c in codes), f"{code}:licence_codes")
     require(isinstance(value["rights"], dict) and isinstance(value["privacy"], dict), f"{code}:reviews")
     require(value["privacy"].get("disposition") in PRIVACY_DISPOSITIONS, f"{code}:privacy_disposition")
     require(value["r5Ruling"] is None or isinstance(value["r5Ruling"], dict), f"{code}:r5")

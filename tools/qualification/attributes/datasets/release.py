@@ -125,7 +125,8 @@ def parse_release(document: object) -> dict:
     require(isinstance(licence, dict), f"{code}:licence")
     require_keys(licence, f"{code}:licence", ("codes", "url", "textSha256"))
     codes = licence["codes"]
-    require(isinstance(codes, list) and codes and codes == sorted(set(codes)) and all(normalise_licence(c) == c for c in codes), f"{code}:licence_codes")
+    require(isinstance(codes, list) and codes and all(isinstance(c, str) for c in codes), f"{code}:licence_codes")  # before set()
+    require(codes == sorted(set(codes)) and all(normalise_licence(c) == c for c in codes), f"{code}:licence_codes")
     if licence["url"] is not None:
         _https(licence["url"], f"{code}:licence_url")
     require_sha256(licence["textSha256"], f"{code}:licence_text")
@@ -182,6 +183,8 @@ def authorise_release_use(release: dict, purposes, operations=(), member: str | 
     required operation must be ``granted`` in the determination's rights inventory:
     ``not-granted`` blocks; ``not-stated`` and ``pending-r5`` block pending R-5's
     interpretation. An empty result authorises the use."""
+    purposes = list(purposes)
+    require(all(isinstance(p, str) for p in purposes), "dataset_use:purposes")
     requested = parse_purposes(sorted(set(purposes)), "dataset_use", PUBLIC)
     for purpose in requested:
         require(purpose in PURPOSE_OPERATIONS, f"dataset_purpose_has_no_operations:{purpose}")

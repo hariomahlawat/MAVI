@@ -362,3 +362,34 @@ def test_a_non_text_r5_field_is_refused_and_never_permits(field, value):
 def test_null_review_fields_parse_and_block():
     det = determination(rights={"reviewedBy": None, "determination": None, "evidence": None, "inventory": dict(INVENTORY_ALL)})
     assert "rights-determination-missing" in rel.authorise_release_use(release(det=det), ["benchmarking"])
+
+
+# ---------------------------------------------------------------- unhashable list elements (Codex P2 on #141)
+
+UNHASHABLE = [{"code": "cc-by-4.0"}, ["cc-by-4.0"], 1, None]
+
+
+@pytest.mark.parametrize("bad", UNHASHABLE)
+def test_non_string_licence_codes_are_refused_not_crashed(bad):
+    with pytest.raises(CorpusError, match="licence_codes"):
+        release(licence={"codes": [bad], "url": None, "textSha256": "b" * 64})
+    with pytest.raises(CorpusError, match="licence_codes"):
+        release(det=determination(licenceCodes=[bad]))
+
+
+@pytest.mark.parametrize("bad", UNHASHABLE)
+def test_non_string_purposes_are_refused_not_crashed(bad):
+    with pytest.raises(CorpusError, match="purposes"):
+        release(det=determination(purposes=[bad]))
+    with pytest.raises(CorpusError, match="purposes"):
+        rel.authorise_release_use(release(), [bad])
+
+
+def test_cli_refuses_an_unhashable_licence_code_with_exit_2(store, tmp_path, capsys):
+    from attributes.datasets import cli
+    record = copy.deepcopy(release())
+    record["licence"]["codes"] = [{"code": "cc-by-4.0"}]
+    path = tmp_path / "release.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    assert cli.main(["verify-release", "--release", str(path), "--root", str(store), "--purpose", "benchmarking"]) == 2
+    assert "REFUSED" in capsys.readouterr().err
