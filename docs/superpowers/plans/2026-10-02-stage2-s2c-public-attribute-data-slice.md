@@ -2,7 +2,7 @@
 
 > **For agentic workers:** implement vertical by vertical, with tests first. This plan authorizes no training, no candidate-model execution, no frozen-qualification work and no change to B0 records.
 
-**Status:** plan, amended after review (rev 2).
+**Status:** plan, amended after review (rev 3: final contract fixes).
 **Date:** 2026-10-02.
 **Starting baseline:** `main@6eb85597136c77d3cdbaf607832d24d0430340c8`, which includes:
 - #137, ADR-015 (C+);
@@ -103,15 +103,35 @@ Licence lines were checked on official pages on 2026-10-02. "Among the sources r
 
 A new shared function, `determination_blockers(determination, licence_code, purposes)`, is factored out of `purpose_approval_blockers`. Both the Commons path and the dataset path call it. Commons video and revision checks stay Commons-only.
 
-A dataset use is authorised only when `authorise_release_use(release, purposes, member)` returns no blockers. It returns a blocker for each of the following:
+A dataset use is authorised only when `authorise_release_use(release, purposes, operations, member)` returns no blockers.
+
+**Operations are a separate check from purposes.** Each purpose requires a pinned set of dataset operations (`PURPOSE_OPERATIONS` in code):
+
+| Purpose | Required operations |
+|---|---|
+| `benchmarking`, `selection`, `regression-challenge`, `development` | `evaluate` |
+| `tuning` | `evaluate`, `create-derivatives` (thresholds and parameters derived from the data) |
+| `training` | `train`, `create-derivatives` |
+
+- The checked set is the union of the operations each requested purpose requires and any extra `operations` the caller names.
+- `run-operationally` and redistribution are never dataset-use operations here. They belong to the artefact and its route, through `artefact_disposition` (§3.3), so they are not checked twice.
+- Granting a purpose never implies an operation.
+
+**The rights inventory.** `determination.rights.inventory` lists each operation as `granted`, `not-granted`, `not-stated` or `pending-r5`. The dataset structural parser requires every operation key, with only those status values.
+
+`authorise_release_use` returns a blocker for each of the following:
 - rights not `PERMITTED_FOR_ENGINEERING_USE`, or with no `reviewedBy`/`evidence` (empty or denied);
 - privacy with no `reviewedBy`/`basis` (empty or denied);
 - the release licence code not in `licenceCodes`;
 - a purpose not covered by `determination.purposes`;
+- an operation whose status is not `granted`:
+  - `not-granted` gives `rights-operation-not-granted:<op>`;
+  - `not-stated` or `pending-r5` gives `rights-operation-pending-r5:<op>`;
+  - both are blocking;
 - an R-5 ruling `PERMITTED` with `ruledBy`/`reference` missing when the licence is share-alike, NC/ND, unrecognised or bespoke terms;
 - an excluded member.
 
-For datasets, NC/ND or bespoke terms are acceptable when R-5 rules them `PERMITTED` for the requested purposes. The Commons rule is unchanged: NC/ND stays blocked there.
+For datasets, NC/ND or bespoke terms are acceptable only when R-5 rules them `PERMITTED` and grants the operations used. R-5 interprets the inventory. The Commons rule is unchanged: NC/ND stays blocked there.
 
 ### 3.3 Artefact disposition (lineage, not dataset-wide inheritance)
 
@@ -193,8 +213,23 @@ UPAR's `Accessory-*` columns are not used as truth in vertical 1. They are a sep
 - the official ReID protocol is untouched. Colour evaluation is named the **MAVI VeRi colour protocol v1**.
 
 **Deduplication:**
-- **Exact SHA-256 duplicates** are resolved deterministically. Within a role, keep one sample (lowest member path). Across roles, drop the copy from the non-benchmark role. Every drop is recorded.
-- **Near duplicates:** `dhash64`/`hamming` produce a **bounded candidate report** (Hamming ≤ 4; at most 10,000 pairs; cross-role pairs first). The report never deletes anything. Exclusion needs a listed `excludedMembers` entry (stronger confirmation). Colour-distinct images are never removed because of a dHash match.
+**Exact SHA-256 duplicates** are resolved by one deterministic rule. A group is all members with the same image SHA-256. Every drop and refusal is recorded.
+1. **Within one role:** keep the lowest member path; drop the rest.
+2. **Training against any evaluation role** (`development`, `selection`, `benchmark`, `regression`): remove every training copy. Evaluation copies are never lost to training, and benchmark material never reaches training.
+3. **`benchmark` against another evaluation role:** keep the benchmark copy, and remove the others from their roles.
+4. **Two or more of `development`, `selection` and `regression`, with no benchmark copy:** **refuse the build** (`duplicate_role_conflict`), listing the group. It is resolved only by an explicit `excludedMembers` entry. No precedence is guessed.
+
+Rules apply in that order, and the output is byte-identical on rerun.
+
+**Near duplicates** are a screening report only and never delete anything.
+- **Seam:** extract the pigeonhole index from `duplicates.find_pairs` into a neutral primitive, `pigeonhole_pairs(values: {id: dhash64}, threshold, same_group=None)`, and make `find_pairs` call it.
+  - With a threshold t < 8, two hashes within distance t share at least one exact byte, so only ids sharing a byte bucket are compared.
+  - The corpus behaviour is unchanged, pinned by the existing duplicate tests.
+  - The still path calls the primitive with no `CorpusManifest`.
+  - No all-pairs comparison is introduced.
+- **Bucket cap:** within a bucket the comparison is still pairwise. A bucket over a pinned size cap (2,048 members) is reported as `degenerate-bucket` with its count and is not expanded. This happens with low-texture images.
+- **Report bounds:** threshold Hamming ≤ 4. Cross-role pairs come first, then pairs within a role, each ordered by (distance, a, b). At most 10,000 pairs are kept, and the totals are reported.
+- **Exclusion** needs an explicit `excludedMembers` entry. Colour-distinct images are never removed because of a dHash match.
 
 **Contamination notes** go in every result:
 - known exposure, for example PO-7 trained on PA-100K;
@@ -203,12 +238,19 @@ UPAR's `Accessory-*` columns are not used as truth in vertical 1. They are a sep
 
 ## 7. Baselines in this slice (honest identities)
 
-- **`mavi-dev-colour-probe-v1`.** A development probe, **not PC-B0/VC-B0**; nothing about PC-B0/VC-B0 is fixed by it. Pinned in code, with its method identity as the SHA-256 of its parameters:
-  - **regions:** upper is rows 15–50% of crop height, lower is rows 55–90%, both over the central 60% of width;
-  - **conversion:** sRGB → CIE-Lab (D65) by the standard formulas;
-  - **naming:** per pixel, the nearest of 11 fixed Lab reference centres;
-  - **output:** the most frequent name;
-  - **abstains** when the crop is undecodable, the region is under 400 pixels, or the winning share is below 0.40.
+- **`mavi-dev-colour-probe-v1`.** A development probe, **not PC-B0/VC-B0**; nothing about PC-B0/VC-B0 is fixed by it.
+  - **Configuration file:** its full configuration lives in a committed file, `attributes/datasets/data/mavi-dev-colour-probe-v1.json`, which says "development probe; not PC-B0/VC-B0".
+  - **Method identity:** the SHA-256 of that file in canonical JSON, recorded in every result.
+  - **Code reads every value from the file;** no numeric constant lives in code. The file must specify:
+    - **regions:** upper is rows 15–50% of crop height, lower is rows 55–90%, both over the central 60% of width; pixel bounds are `floor` of the fractional bounds; vehicle uses the central body band defined in the same file;
+    - **decoding:** Pillow decode → 8-bit RGB (`convert("RGB")`, which drops alpha and expands greyscale), with no resize;
+    - **conversion:** sRGB per IEC 61966-2-1 (linearisation with threshold 0.04045), the sRGB→XYZ matrix, the D65 reference white (Xn, Yn, Zn) and the CIE 1976 L\*a\*b\* formulas, computed in float64 with no quantisation;
+    - **centres:** all 11 numeric Lab reference centres for the MAVI colour names; vehicle uses its own 11;
+    - **distance:** CIE76 ΔE (Euclidean in Lab);
+    - **ties:** a pixel equidistant to several centres takes the first in schema order; a tie between winning names takes the first in schema order;
+    - **output:** the most frequent name, with its share;
+    - **abstention:** `undecodable` (decode error); `insufficient-area` when the region has fewer than 400 pixels; `ambiguous` when the winning share is below 0.40.
+  - **Centre values** are chosen when the probe is implemented and reviewed in that PR. They are not taken from PC-B0, which is undefined, and changing any value changes the method identity.
 - **`dataset-prevalence-diagnostic-v1`.** Training-role prevalence per presence attribute, **not PO-B0**, because there is no camera grouping. It is a diagnostic only.
 
 ## 8. Metrics (source-native and proxy are never operational)
@@ -227,10 +269,10 @@ For binary source labels, precision, recall and F1 are reported **as source-nati
 | # | Step | Tests first (each kills a plausible mutant) | Done when |
 |---|---|---|---|
 | 1 | Pin PA-100K (archive SHA-256s; probe the annotation-file format locally and record it here; if it is MATLAB v5, reuse the `scipy` pin already in `vision-runtime` and update `offline-dependency-policy-v1.json` in the same change). The VeRi request goes out in parallel | — | pinned files and format summary committed |
-| 2 | Release verification and authorisation: shared `determination_blockers`, `authorise_release_use`, `artefact_disposition` | empty rights; empty privacy; denied rights or privacy; purpose not covered; licence not covered; missing R-5 for NC-SA or bespoke terms; excluded member; a valid release determination reused across all members; Commons tests unchanged | §3 enforced |
+| 2 | Release verification and authorisation: shared `determination_blockers`, `authorise_release_use`, `artefact_disposition` | empty rights; empty privacy; denied rights or privacy; purpose not covered; licence not covered; missing R-5 for NC-SA or bespoke terms; excluded member; purpose allowed but a required operation `not-granted` → blocked; purpose allowed but an operation `not-stated`/`pending-r5` → blocked as pending R-5; an evaluation purpose with only `evaluate` granted → permitted; `training` without `train` granted → blocked; a valid purpose with every required operation granted → permitted; a valid release determination reused across all members; Commons tests unchanged | §3 enforced |
 | 3 | PA-100K and UPAR adapters behind the neutral row seam | synthetic rows in the real formats; the UPAR `task1` header is required; the misaligned top-level CSV is refused; unknown labels refused | — |
-| 4 | Person still manifest | official splits preserved; benchmark never in training or selection; group `kind` recorded; exact duplicates deterministic; a colour-distinct dHash collision is not removed; the near-duplicate report is bounded; role→purpose refusal; per-attribute label lineage; no frozen role; byte-identical rerun; a deterministic smoke subset (seeded 2,000 images) | manifest built |
-| 5 | First person results: support and prevalence, source-native and proxy confusion, missing, unsupported and unscorable counts, colour probe output | hand-computed fixtures; denominators include abstentions; proxy and source labels kept apart | smoke result, then a full benchmark-role result |
+| 4 | Person still manifest | official splits preserved; benchmark never in training or selection; group `kind` recorded; exact duplicates: training vs benchmark, vs selection and vs development (the training copy is removed), selection vs benchmark (the benchmark copy is kept), development vs selection with no benchmark copy → refused; near duplicates: colour-distinct images with an identical dHash are reported and never removed, a known Hamming-near pair is found, a Hamming-far pair is not returned, cross-role pairs come first, the bounded ordering is deterministic, a degenerate bucket is capped, and `pigeonhole_pairs` keeps the corpus duplicate tests green (no all-pairs path); role→purpose refusal; per-attribute label lineage; no frozen role; byte-identical rerun; a deterministic smoke subset (seeded 2,000 images) | manifest built |
+| 5 | First person results: support and prevalence, source-native and proxy confusion, missing, unsupported and unscorable counts, colour probe output | hand-computed fixtures; denominators include abstentions; proxy and source labels kept apart; probe output reproduced from its configuration file alone; changing one centre changes the method identity; pixel and winner ties follow schema order; each abstention reason is triggered | smoke result, then a full benchmark-role result |
 | 6 | VeRi vertical, after access is granted and its native colour table is verified | VeRi ID groups never span roles; the full published test set is the benchmark; gray merged for evaluation only | VeRi result |
 | 7 | Optional MEVA step | below | smoke run, or a recorded skip |
 
@@ -258,11 +300,13 @@ For binary source labels, precision, recall and F1 are reported **as source-nati
 - PA-100K and UPAR import through one adapter seam;
 - official splits are preserved;
 - authentic and synthetic groups are distinguished;
-- exact duplicates are resolved deterministically, and near-duplicate screening cannot delete colour-distinct images;
+- exact duplicates follow the explicit role rule for every role combination, with conflicts refused;
+- near-duplicate discovery uses the shared pigeonhole primitive and cannot delete colour-distinct images;
+- authorisation checks both purposes and the rights-inventory operations they exercise;
 - mappings are explicit and hash-bound;
 - missing, unsupported and unscorable rows are counted;
 - source-native and proxy metrics never present themselves as MAVI operational metrics;
-- baselines carry honest identities;
+- baselines carry honest identities, and the colour probe is reproducible from its hash-bound configuration;
 - disposition follows actual lineage and the delivery route;
 - public stills cannot become frozen-qualification data;
 - the person vertical produces reproducible component measurements while VeRi and MEVA are still pending.
