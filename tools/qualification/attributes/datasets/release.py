@@ -21,8 +21,12 @@ Three separate steps, never merged:
    - the member is not excluded.
 
    A purpose never implies an operation.
-3. Artefact disposition for a delivery route (``run-operationally``, redistribution) belongs
-   to the artefact, not to dataset use, and is out of scope here.
+3. ``artefact_disposition`` decides whether an **artefact** (head, calibration, threshold,
+   output mapping) may be delivered on a route. It checks every release in its actual
+   lineage for the operations that produced it and the route's own operations
+   (``ROUTE_OPERATIONS``: running operationally, and redistributing derived weights for an
+   offline kit). This is an engineering disposition, not a legal conclusion; R-5
+   interprets the inventory. Wiring it into training manifests and packs is S2c.6.
 """
 
 from __future__ import annotations
@@ -71,6 +75,14 @@ PURPOSE_OPERATIONS = {
     "tuning": ("create-derivatives", "evaluate"),
     "training": ("create-derivatives", "train"),
 }
+
+# Delivery routes (parent plan U10): local acquisition on the host, or inclusion in an
+# offline kit, which is what exercises redistribution.
+ROUTE_OPERATIONS = {
+    "local-acquisition": ("run-operationally",),
+    "offline-kit": ("redistribute-derived-weights", "run-operationally"),
+}
+DISPOSITIONS = ("CLEARED", "NOT_COVERED", "PENDING_R5")
 
 _MEMBER_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$")
 
@@ -220,6 +232,49 @@ def authorise_release_use(release: dict, purposes, operations=(), member: str | 
     return sorted(set(blockers))
 
 
+def artefact_disposition(lineage: list[dict], operations, route: str) -> dict:
+    """Disposition of one artefact for one delivery route, from its **actual** lineage.
+
+    ``lineage`` holds the parsed release records whose images or labels the producing step
+    read; nothing else in a wider manifest counts. ``operations`` are the dataset operations
+    that produced it (for example ``train`` and ``create-derivatives``). Every release must
+    have an affirmative determination and grant those operations plus the route's.
+    ``NOT_COVERED`` when any is ``not-granted`` or privacy is denied; ``PENDING_R5`` for any
+    other gap (missing determination or review, unresolved right, missing R-5 ruling);
+    ``CLEARED`` otherwise. Blockers are prefixed with the release id."""
+    require(route in ROUTE_OPERATIONS, f"artefact_route_unknown:{route}")
+    produced = list(operations)
+    for operation in produced:
+        require(operation in DATASET_USE_OPERATIONS, f"dataset_operation_not_a_use_operation:{operation}")
+    require(isinstance(lineage, list), "artefact_lineage")
+    ids = [r["releaseId"] for r in lineage]
+    require(len(ids) == len(set(ids)), "artefact_lineage_duplicate")
+    required = sorted(set(produced) | set(ROUTE_OPERATIONS[route]))
+    blockers, denied = [], False
+    for release in sorted(lineage, key=lambda r: r["releaseId"]):
+        prefix = release["releaseId"]
+        determination = release["determination"]
+        if determination is None:
+            blockers.append(f"{prefix}:determination-missing")
+            continue
+        codes = release["licence"]["codes"]
+        for blocker in determination_blockers(determination, codes, (), _r5_required(codes)):
+            denied = denied or blocker == "privacy-denied"
+            blockers.append(f"{prefix}:{blocker}")
+        inventory = determination["rights"]["inventory"]
+        for operation in required:
+            status = inventory.get(operation)
+            if status == "granted":
+                continue
+            if status == "not-granted":
+                denied = True
+                blockers.append(f"{prefix}:rights-operation-not-granted:{operation}")
+            else:
+                blockers.append(f"{prefix}:rights-operation-pending-r5:{operation}")
+    disposition = "CLEARED" if not blockers else ("NOT_COVERED" if denied else "PENDING_R5")
+    return {"disposition": disposition, "blockers": sorted(blockers)}
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -254,6 +309,6 @@ def verify_release_files(release: dict, root: Path) -> list[str]:
 
 
 __all__ = [
-    "CorpusError", "DATASET_USE_OPERATIONS", "INVENTORY_OPERATIONS", "INVENTORY_STATUSES", "PURPOSE_OPERATIONS", "RELEASE_SCHEMA",
+    "CorpusError", "DATASET_USE_OPERATIONS", "DISPOSITIONS", "ROUTE_OPERATIONS", "artefact_disposition", "INVENTORY_OPERATIONS", "INVENTORY_STATUSES", "PURPOSE_OPERATIONS", "RELEASE_SCHEMA",
     "ReleaseError", "authorise_release_use", "parse_release", "release_sha256", "verify_release_files",
 ]

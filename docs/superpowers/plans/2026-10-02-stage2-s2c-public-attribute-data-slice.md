@@ -157,7 +157,7 @@ Here "packageable" means a **MAVI engineering disposition for one artefact and o
   - run operationally;
   - redistribute weights or derived weights for the delivery route.
 - **Lineage.** An artefact (head, calibration, threshold, output mapping) records its **actual lineage**: the releases whose images or labels its producing step read, per attribute.
-- **Disposition rule.** `artefact_disposition(lineage, profile, route)` returns `CLEARED` only if every release in the lineage grants every right that the artefact's use and route exercise. Otherwise it returns `NOT_COVERED` or `PENDING_R5`. Unresolved rights stay blocked.
+- **Disposition rule.** `artefact_disposition(lineage, operations, route)` returns `CLEARED` only if every release in the lineage grants every right that the artefact's producing operations and its route exercise. The routes are `local-acquisition` (`run-operationally`) and `offline-kit` (adds `redistribute-derived-weights`). Otherwise it returns `NOT_COVERED` (a right not granted, or privacy denied) or `PENDING_R5` (any other gap). Unresolved rights stay blocked. Each inventory is recorded for the declared non-commercial profile, so the profile is implicit in the determination.
 - **Consequences:**
   - **Evaluation produces results, not artefacts**, so evaluation-only data never enters a training lineage.
   - **A presence head trained on PA-100K labels has a PA-100K-only lineage**, even though UPAR colour labels sit in the same manifest.

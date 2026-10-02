@@ -430,3 +430,64 @@ def test_reordering_known_exposure_cannot_create_a_second_identity():
     assert rel.release_sha256(release(knownExposure=entries))
     with pytest.raises(CorpusError):
         release(knownExposure=list(reversed(entries)))
+
+
+# ---------------------------------------------------------------- artefact disposition (plan §3.3; Codex P2 on #141)
+
+TRAINED = ("create-derivatives", "train")
+
+
+def test_an_artefact_is_cleared_only_when_its_lineage_grants_its_operations_and_route():
+    r = release()
+    for route in ("local-acquisition", "offline-kit"):
+        assert rel.artefact_disposition([r], TRAINED, route) == {"disposition": "CLEARED", "blockers": []}
+
+
+def test_the_route_decides_whether_redistribution_is_exercised():
+    no_kit = release(det=with_inventory(redistribute_derived_weights="not-granted"))
+    assert rel.artefact_disposition([no_kit], TRAINED, "local-acquisition")["disposition"] == "CLEARED"
+    kit = rel.artefact_disposition([no_kit], TRAINED, "offline-kit")
+    assert kit["disposition"] == "NOT_COVERED" and "pa-100k-2017:rights-operation-not-granted:redistribute-derived-weights" in kit["blockers"]
+
+
+@pytest.mark.parametrize("status", ["not-stated", "pending-r5"])
+def test_unresolved_route_rights_stay_pending_r5(status):
+    pending = release(det=with_inventory(run_operationally=status))
+    result = rel.artefact_disposition([pending], TRAINED, "local-acquisition")
+    assert result["disposition"] == "PENDING_R5" and "pa-100k-2017:rights-operation-pending-r5:run-operationally" in result["blockers"]
+
+
+def test_a_denied_operation_outranks_a_pending_one():
+    mixed = release(det=with_inventory(train="not-granted", run_operationally="pending-r5"))
+    assert rel.artefact_disposition([mixed], TRAINED, "local-acquisition")["disposition"] == "NOT_COVERED"
+
+
+def test_disposition_follows_actual_lineage_not_the_wider_manifest():
+    pa100k = release()
+    upar = release(releaseId="upar-2027", det=determination(licenceCodes=["cc-by-nc-sa-3.0-de"],
+                   rights={**determination()["rights"], "inventory": {**INVENTORY_ALL, "run-operationally": "pending-r5"}},
+                   r5Ruling={"ruledBy": "R-5", "ruling": "PERMITTED", "reference": "R-5 ruling #4"}),
+                   licence={"codes": ["cc-by-nc-sa-3.0-de"], "url": None, "textSha256": "c" * 64})
+    # A presence head read only PA-100K labels: UPAR is not in its lineage.
+    assert rel.artefact_disposition([pa100k], TRAINED, "local-acquisition")["disposition"] == "CLEARED"
+    # A colour head read UPAR labels: UPAR's unresolved right holds it back.
+    colour = rel.artefact_disposition([pa100k, upar], TRAINED, "local-acquisition")
+    assert colour["disposition"] == "PENDING_R5" and colour["blockers"] == ["upar-2027:rights-operation-pending-r5:run-operationally"]
+
+
+def test_a_release_without_a_determination_or_with_denied_reviews_never_clears():
+    assert rel.artefact_disposition([release(det=None)], TRAINED, "local-acquisition") == {"disposition": "PENDING_R5", "blockers": ["pa-100k-2017:determination-missing"]}
+    denied = release(det=determination(privacy={"reviewedBy": "x", "disposition": "DENIED", "basis": "faces"}))
+    assert rel.artefact_disposition([denied], TRAINED, "local-acquisition")["disposition"] == "NOT_COVERED"
+    unreviewed = release(det=with_rights(reviewedBy=None))
+    assert rel.artefact_disposition([unreviewed], TRAINED, "local-acquisition")["disposition"] == "PENDING_R5"
+
+
+def test_disposition_inputs_are_validated():
+    with pytest.raises(CorpusError, match="artefact_route"):
+        rel.artefact_disposition([release()], TRAINED, "cloud")
+    with pytest.raises(CorpusError, match="dataset_operation"):
+        rel.artefact_disposition([release()], ("run-operationally",), "local-acquisition")
+    with pytest.raises(CorpusError, match="artefact_lineage_duplicate"):
+        rel.artefact_disposition([release(), release()], TRAINED, "local-acquisition")
+    assert rel.ROUTE_OPERATIONS == {"local-acquisition": ("run-operationally",), "offline-kit": ("redistribute-derived-weights", "run-operationally")}
