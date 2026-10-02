@@ -48,7 +48,7 @@ GATE_SETS = REPOSITORY / "config/acceptance/capability-gate-sets-v1.json"
 DEPLOYMENT_PROFILES = REPOSITORY / "config/acceptance/phase1-deployment-profiles-v1.json"
 PIPELINE_PROFILE = REPOSITORY / "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
 EVIDENCE = {"kind": "workflow", "reference": "run-1", "sha256": "e" * 64}
-EMITTABLE = ("3.0", "3.1", "3.2")
+EMITTABLE = ("3.0", "3.1", "3.2", "3.3")
 
 
 def sha256_bytes(value: bytes) -> str:

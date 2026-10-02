@@ -25,7 +25,10 @@ public static class VisionFinalizationPayloadCodec
         long ProcessingDurationMs,
         VisionRuntimeProvenanceContract Provenance,
         IReadOnlyList<VisionTrackResultContract> Tracks,
-        VisionEvidenceAccountingContract? EvidenceAccounting);
+        VisionEvidenceAccountingContract? EvidenceAccounting,
+        // Completion 3.3 only; omitted when null so stored 3.1/3.2 documents keep their bytes.
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ObjectSubclassVocabulary = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ObjectSubclassSource = null);
 
     /// <summary>
     /// Serialize the semantic completion payload. The authenticated HTTP envelope
@@ -52,7 +55,9 @@ public static class VisionFinalizationPayloadCodec
             processingDurationMs,
             request.Provenance,
             request.Tracks,
-            request.EvidenceAccounting);
+            request.EvidenceAccounting,
+            request.ObjectSubclassVocabulary,
+            request.ObjectSubclassSource);
 
         return JsonSerializer.SerializeToUtf8Bytes(document, Json);
     }
@@ -91,6 +96,8 @@ public static class VisionFinalizationPayloadCodec
             document.ProcessingDurationMs,
             document.Provenance,
             document.Tracks,
-            document.EvidenceAccounting);
+            document.EvidenceAccounting,
+            document.ObjectSubclassVocabulary,
+            document.ObjectSubclassSource);
     }
 }

@@ -20,6 +20,8 @@ class TrackCandidate:
     object_class: ObjectClass
     confidence: float
     bounding_box: NormalizedBoundingBox
+    # The matched detection's native class, passed through untouched (ADR-016).
+    source_class: str | None = None
 
     def __post_init__(self) -> None:
         _require_track_id(self.track_id)

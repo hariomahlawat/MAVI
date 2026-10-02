@@ -63,8 +63,15 @@
           "type": "array",
           "minItems": 2,
           "items": { "$ref": "#/$defs/sample" }
+        },
+        "vehicleSubclass": { "enum": ["car", "truck", "bus", "motorcycle"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "objectClass": { "const": "Person" } }, "required": ["objectClass"] },
+          "then": { "not": { "required": ["vehicleSubclass"] } }
         }
-      }
+      ]
     }
   }
 }

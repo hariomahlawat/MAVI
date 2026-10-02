@@ -26,6 +26,11 @@ public enum CompletionSchema
     /// under its own digest domain (S2a plan P-7, §4.5).
     /// </summary>
     V32,
+    /// <summary>
+    /// Completion 3.3: the 3.2 body plus the detector-native vehicle subclass, under its
+    /// own digest domain (Stage 3, ADR-016).
+    /// </summary>
+    V33,
 }
 
 public static class CompletionSchemaExtensions
@@ -38,7 +43,23 @@ public static class CompletionSchemaExtensions
     public static bool IsEvidenceSet(this CompletionSchema schema) => schema switch
     {
         CompletionSchema.V2 => false,
-        CompletionSchema.V3 or CompletionSchema.V32 => true,
+        CompletionSchema.V3 or CompletionSchema.V32 or CompletionSchema.V33 => true,
+        _ => throw new ArgumentOutOfRangeException(nameof(schema)),
+    };
+
+    /// <summary>Whether a schema's provenance carries component identity (3.2 and later).</summary>
+    public static bool HasComponentIdentity(this CompletionSchema schema) => schema switch
+    {
+        CompletionSchema.V2 or CompletionSchema.V3 => false,
+        CompletionSchema.V32 or CompletionSchema.V33 => true,
+        _ => throw new ArgumentOutOfRangeException(nameof(schema)),
+    };
+
+    /// <summary>Whether a schema carries the detector-native vehicle subclass (3.3 and later).</summary>
+    public static bool HasVehicleSubclass(this CompletionSchema schema) => schema switch
+    {
+        CompletionSchema.V2 or CompletionSchema.V3 or CompletionSchema.V32 => false,
+        CompletionSchema.V33 => true,
         _ => throw new ArgumentOutOfRangeException(nameof(schema)),
     };
 }
@@ -70,7 +91,9 @@ public sealed record ValidatedTrackResult(
     double MeanConfidence,
     double MaxConfidence,
     IReadOnlyList<ValidatedObservation> Observations,
-    ValidatedArtifactDescriptor TrajectoryArtifact)
+    ValidatedArtifactDescriptor TrajectoryArtifact,
+    // Completion 3.3 only: the resolved detector-native vehicle subclass, or null.
+    string? ObjectSubclass = null)
 {
     /// <summary>The mandatory rank-0 observation; always first.</summary>
     public ValidatedObservation Representative => Observations[0];
@@ -101,7 +124,10 @@ public sealed record ValidatedVisionResult(
     string TrackerVersion,
     IReadOnlyList<ValidatedTrackResult> Tracks,
     ValidatedEvidenceAccounting? EvidenceAccounting,
-    string CompletionDigest);
+    string CompletionDigest,
+    // Completion 3.3 only (ADR-016); null for every older body.
+    string? ObjectSubclassVocabulary = null,
+    string? ObjectSubclassSource = null);
 
 public sealed class VisionResultValidationException(string reasonCode)
     : Exception("The vision result is invalid.")
@@ -144,6 +170,7 @@ public sealed class VisionResultValidator
             WorkerContractRules.CompletionSchemaVersionV3 => CompletionSchema.V3,
             WorkerContractRules.CompletionSchemaVersionV31 => CompletionSchema.V3,
             WorkerContractRules.CompletionSchemaVersionV32 => CompletionSchema.V32,
+            WorkerContractRules.CompletionSchemaVersionV33 => CompletionSchema.V33,
             _ => throw Invalid("schema_version_invalid"),
         };
         // Each version carries its own evidence members and forbids the other's,
@@ -154,6 +181,7 @@ public sealed class VisionResultValidator
             throw Invalid("evidence_accounting_missing");
 
         var provenance = VisionRuntimeProvenanceParser.Parse(request.Provenance, schema);
+        var (subclassVocabulary, subclassSource) = ValidateSubclassBody(schema, request);
         var trackIds = new HashSet<string>(StringComparer.Ordinal);
         var artifactKeys = new HashSet<string>(StringComparer.Ordinal);
         var tracks = new List<ValidatedTrackResult>(request.Tracks.Count);
@@ -180,6 +208,11 @@ public sealed class VisionResultValidator
                 "vehicle" => ObjectClass.Vehicle,
                 _ => throw Invalid("object_class_invalid"),
             };
+            // Only a vehicle Track may carry a subclass, and only a v1 vocabulary value
+            // (ADR-016). Pre-3.3 bodies were already refused if any Track carried one.
+            if (contract.ObjectSubclass is not null &&
+                (objectClass != ObjectClass.Vehicle || !WorkerContractRules.VehicleSubclassValuesV1.Contains(contract.ObjectSubclass)))
+                throw Invalid("object_subclass_invalid");
 
             if (contract.StartOffsetMs is not { } startOffsetMs || startOffsetMs < 0 ||
                 contract.EndOffsetMs is not { } endOffsetMs || endOffsetMs < startOffsetMs ||
@@ -242,7 +275,8 @@ public sealed class VisionResultValidator
                 contract.MeanConfidence!.Value,
                 contract.MaxConfidence!.Value,
                 observations,
-                trajectory));
+                trajectory,
+                contract.ObjectSubclass));
         }
 
         ValidatedEvidenceAccounting? accounting = null;
@@ -261,7 +295,9 @@ public sealed class VisionResultValidator
             request.ProcessingDurationMs.Value,
             request.Provenance,
             accounting,
-            tracks);
+            tracks,
+            subclassVocabulary,
+            subclassSource);
 
         return new ValidatedVisionResult(
             schema,
@@ -275,7 +311,40 @@ public sealed class VisionResultValidator
             provenance.TrackerVersion,
             tracks,
             accounting,
-            digest);
+            digest,
+            subclassVocabulary,
+            subclassSource);
+    }
+
+    /// <summary>
+    /// The body-level vehicle-subclass members (ADR-016). A pre-3.3 body must carry none of
+    /// them, on the body or on any Track. A 3.3 body must declare the v1 vocabulary and a
+    /// detector-native source naming exactly this body's pipeline profile.
+    /// </summary>
+    private static (string? Vocabulary, string? Source) ValidateSubclassBody(
+        CompletionSchema schema,
+        VisionJobCompleteRequest request)
+    {
+        if (!schema.HasVehicleSubclass())
+        {
+            if (request.ObjectSubclassVocabulary is not null ||
+                request.ObjectSubclassSource is not null ||
+                request.Tracks!.Any(track => track?.ObjectSubclass is not null))
+                throw Invalid("object_subclass_field_in_pre_v33_body");
+            return (null, null);
+        }
+
+        if (request.ObjectSubclassVocabulary != WorkerContractRules.VehicleSubclassVocabularyV1)
+            throw Invalid("object_subclass_vocabulary_invalid");
+        var source = request.ObjectSubclassSource;
+        const string prefix = WorkerContractRules.DetectorNativeSubclassSourcePrefix;
+        if (source is null || source.Length != prefix.Length + 64 ||
+            !source.StartsWith(prefix, StringComparison.Ordinal) ||
+            !source[prefix.Length..].All(character => char.IsAsciiDigit(character) || character is >= 'a' and <= 'f'))
+            throw Invalid("object_subclass_source_invalid");
+        if (!string.Equals(source, prefix + request.Provenance!.PipelineProfileSha256, StringComparison.Ordinal))
+            throw Invalid("object_subclass_source_mismatch");
+        return (request.ObjectSubclassVocabulary, source);
     }
 
     /// <summary>Canonical role order (ADR-013 §4); also the rank order.</summary>
@@ -505,7 +574,9 @@ public sealed class VisionResultValidator
         long processingDurationMs,
         VisionRuntimeProvenanceContract provenance,
         ValidatedEvidenceAccounting? accounting,
-        List<ValidatedTrackResult> tracks)
+        List<ValidatedTrackResult> tracks,
+        string? subclassVocabulary,
+        string? subclassSource)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
@@ -532,12 +603,13 @@ public sealed class VisionResultValidator
 
         // Domain-separated per version: a stored v2 digest can only ever match a
         // v2 replay, a v3 digest only a v3 replay (plan §7.3) and a v3.2 digest only
-        // a v3.2 replay (S2a plan §4.5).
+        // a v3.2 replay (S2a plan §4.5), and a v3.3 digest only a v3.3 replay (ADR-016).
         Add(schema switch
         {
             CompletionSchema.V2 => "mavi:vision-completion-digest:v2",
             CompletionSchema.V3 => "mavi:vision-completion-digest:v3",
             CompletionSchema.V32 => "mavi:vision-completion-digest:v3.2",
+            CompletionSchema.V33 => "mavi:vision-completion-digest:v3.3",
             _ => throw new ArgumentOutOfRangeException(nameof(schema)),
         });
         Add(jobId.ToString("D"));
@@ -560,7 +632,7 @@ public sealed class VisionResultValidator
         Add(provenance.RuntimeProfileSha256!);
         Add(provenance.RuntimeVariant!);
         AddNullable(provenance.PlatformLockSha256);
-        if (schema == CompletionSchema.V32)
+        if (schema.HasComponentIdentity())
         {
             Add(provenance.CapabilityId!);
             Add(provenance.ModelPackId!);
@@ -622,6 +694,11 @@ public sealed class VisionResultValidator
         AddNumber(tracker.MinimumConsecutiveFrames!.Value);
         AddNumber(tracker.LostTrackBufferSeconds!.Value);
         Add(provenance.InputColourSpace!);
+        if (schema.HasVehicleSubclass())
+        {
+            Add(subclassVocabulary!);
+            Add(subclassSource!);
+        }
 
         if (schema.IsEvidenceSet())
         {
@@ -645,6 +722,8 @@ public sealed class VisionResultValidator
             AddNumber(track.DetectionCount);
             AddNumber(track.MeanConfidence);
             AddNumber(track.MaxConfidence);
+            if (schema.HasVehicleSubclass())
+                AddNullable(track.ObjectSubclass);
             if (schema == CompletionSchema.V2)
             {
                 // Byte-for-byte the historical v2 sequence: stored v2 digests must

@@ -26,6 +26,8 @@ from mavi_vision.common.control_plane import (
     VisionJobCompleteResponse,
     VisionJobCompleteV3,
     VisionJobCompleteV32,
+    VisionJobCompleteV33,
+    VisionCompletionTrackV33,
     VisionJobFail,
     VisionJobFinalizationResponse,
     VisionJobHeartbeat,
@@ -38,6 +40,7 @@ from mavi_vision.common.control_plane import (
     VisionTrackerParameters,
 )
 from mavi_vision.common.settings import WorkerSettings
+from mavi_vision.common.subclass import VEHICLE_SUBCLASS_VOCABULARY_V1, detector_native_source
 from mavi_vision.runtime.provenance import RuntimeProvenance
 from mavi_vision.runtime.resolver import CompletionContract
 
@@ -47,13 +50,14 @@ _LOGGER = logging.getLogger(__name__)
 _SAFE_PROBLEM_CODE: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$", re.ASCII)
 
 # The completion contracts this worker can emit. Which one it emits is the role's
-# resolved completion contract (S2a plan P-16): "3.2", the role's declared
-# provenance contract, carrying component identity; "3.1" (asynchronous hand-off)
+# resolved completion contract (S2a plan P-16): "3.3", the role's declared
+# provenance contract, carrying component identity and the detector-native vehicle
+# subclass (ADR-016); "3.2" is still readable by the platform; "3.1" (asynchronous hand-off)
 # or "3.0" (synchronous) only under the explicit, Development-only, non-qualifying
 # MAVI_COMPLETION_SCHEMA_OVERRIDE. The platform must advertise exactly that version;
 # there is never a fallback to another one.
-SUPPORTED_COMPLETION_SCHEMA_VERSIONS: Final = ("3.0", "3.1", "3.2")
-ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS: Final = frozenset({"3.1", "3.2"})
+SUPPORTED_COMPLETION_SCHEMA_VERSIONS: Final = ("3.0", "3.1", "3.2", "3.3")
+ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS: Final = frozenset({"3.1", "3.2", "3.3"})
 _CONTRACT_VERSION_UNSUPPORTED: Final = "worker_contract_version_unsupported"
 
 
@@ -260,15 +264,28 @@ class WorkerApiClient:
         processing_duration_ms: int,
         provenance: RuntimeProvenance,
     ) -> VisionJobCompleteV3:
-        # 3.2 carries the component identity; the P-16 override versions (3.1, 3.0)
-        # drop it, because those bodies must not carry it (plan §4.5).
-        if self.completion_schema_version == "3.2":
-            model: type[VisionJobCompleteV3] = VisionJobCompleteV32
+        # 3.2 and 3.3 carry the component identity; the P-16 override versions (3.1,
+        # 3.0) drop it, because those bodies must not carry it (plan §4.5). Only 3.3
+        # carries the vehicle subclass (ADR-016); older bodies must not.
+        version = self.completion_schema_version
+        subclass_body = version == "3.3"
+        extra: dict[str, object] = {}
+        if subclass_body:
+            model: type[VisionJobCompleteV3] = VisionJobCompleteV33
             mapped: VisionRuntimeProvenance = self._map_provenance_v32(provenance)
+            extra = {
+                "objectSubclassVocabulary": VEHICLE_SUBCLASS_VOCABULARY_V1,
+                "objectSubclassSource": detector_native_source(provenance.pipeline_profile_sha256),
+            }
+        elif version == "3.2":
+            model = VisionJobCompleteV32
+            mapped = self._map_provenance_v32(provenance)
         else:
             model = VisionJobCompleteV3
             mapped = self._map_provenance(provenance)
+        track_model: type[VisionCompletionTrackV3] = VisionCompletionTrackV33 if subclass_body else VisionCompletionTrackV3
         return model(
+            **extra,
             schemaVersion=self.completion_schema_version,
             jobId=lease.job_id,
             workerId=self._settings.worker_id,
@@ -278,7 +295,7 @@ class WorkerApiClient:
             processingDurationMs=processing_duration_ms,
             provenance=mapped,
             tracks=tuple(
-                VisionCompletionTrackV3(
+                track_model(
                     trackId=track.track_id,
                     objectClass=track.object_class.value,
                     startOffsetMs=track.start_offset_ms,
@@ -298,6 +315,7 @@ class WorkerApiClient:
                         sizeBytes=track.trajectory_artifact.size_bytes,
                         sha256=track.trajectory_artifact.sha256,
                     ),
+                    **({"objectSubclass": track.object_subclass} if subclass_body and track.object_subclass is not None else {}),
                 )
                 for track in result.tracks
             ),

@@ -51,9 +51,13 @@ COMPONENT_BINDING_V2_SCHEMA = "mavi-vision-component-binding-v2"
 
 # Closed contract vocabularies a role may declare. A role declares exactly one
 # provenance contract; startup enforcement against the worker's effective
-# completion schema is the resolver's job (P-16, S2a.3).
+# completion schema is the resolver's job (P-16, S2a.3). 3.2 stays readable so the
+# S2a.3 cut-over output still parses, but no role can be resolved on it any more: the
+# resolver maps only the current vision contract, 3.3 (ADR-016), to an emitted version.
 KNOWN_READINESS_CONTRACTS = frozenset({"worker-health-v2"})
-KNOWN_PROVENANCE_CONTRACTS = frozenset({"vision-job-complete-v3.2", "visual-attribute-complete-v1"})
+KNOWN_PROVENANCE_CONTRACTS = frozenset(
+    {"vision-job-complete-v3.2", "vision-job-complete-v3.3", "visual-attribute-complete-v1"}
+)
 
 _ENTRY_POINT_RE = re.compile(r"^[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)+$")
 

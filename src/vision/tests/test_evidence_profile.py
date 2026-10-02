@@ -37,8 +37,9 @@ def test_shipped_profile_carries_the_versioned_evidence_policy() -> None:
     profile = load_pipeline_profile(PIPELINE_PROFILE_PATH)
     policy = profile.evidence
 
-    assert profile.schema_version == "1.1"
-    assert profile.profile_version == "1.2.0-candidate"
+    # Stage 3 (ADR-016) added the vehicleSubclass block; the evidence policy is unchanged.
+    assert profile.schema_version == "1.2"
+    assert profile.profile_version == "1.3.0-candidate"
     assert (policy.selector_version, policy.scorer_version) == (SELECTOR_VERSION, SCORER_VERSION)
     # The two-tier Representative (ADR-013 §4, amended 2026-09-24) has its own
     # identity: strict and two-tier outcomes never share a selector version.

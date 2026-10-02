@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 SUPPORTED_CLASSES = ("Person", "Vehicle")
+# Optional per-event vehicle-type label (Stage 3, ADR-016). It is measured only by
+# evaluate_vehicle_subclass.py; this evaluator validates it and otherwise ignores it.
+VEHICLE_SUBCLASS_VALUES_V1 = ("car", "truck", "bus", "motorcycle")
 
 
 class EvaluationError(ValueError):
@@ -143,8 +146,12 @@ def validate_ground_truth(gt: dict[str, Any], profile: dict[str, Any]) -> dict[s
     max_span = profile["matching"]["maximumInterpolationSpanMs"]
     for event in events:
         expected = {"eventId", "objectClass", "startOffsetMs", "endOffsetMs", "spatialSamples"}
-        if not isinstance(event, dict) or set(event) != expected:
+        if not isinstance(event, dict) or not expected <= set(event) <= expected | {"vehicleSubclass"}:
             raise EvaluationError("ground_truth_event_invalid")
+        if "vehicleSubclass" in event and (
+            event.get("objectClass") != "Vehicle" or event["vehicleSubclass"] not in VEHICLE_SUBCLASS_VALUES_V1
+        ):
+            raise EvaluationError("ground_truth_vehicle_subclass_invalid")
         event_id = event["eventId"]
         if not isinstance(event_id, str) or not event_id or event_id in seen_ids:
             raise EvaluationError("ground_truth_event_id_invalid")

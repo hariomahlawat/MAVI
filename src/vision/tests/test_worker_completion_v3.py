@@ -1,6 +1,6 @@
 """W family: the worker client's completion 3.x wire and capability probe.
 
-Since the S2a.3 cut-over the worker emits completion 3.2, the vision role's
+Since Stage 3 (ADR-016) the worker emits completion 3.3, the vision role's
 ``provenanceContract``; 3.1 and 3.0 are reachable only through the
 Development-only ``MAVI_COMPLETION_SCHEMA_OVERRIDE`` (plan P-16), which is
 non-qualifying. These tests pin the worker's body to the checked-in golden
@@ -29,7 +29,7 @@ from mavi_vision.common.analytical import (
     RoleAccounting,
     VisionProcessingResult,
 )
-from mavi_vision.common.control_plane import VisionJobCompleteV3, VisionJobCompleteV32, VisionJobLease
+from mavi_vision.common.control_plane import VisionJobCompleteV3, VisionJobCompleteV32, VisionJobCompleteV33, VisionJobLease
 from mavi_vision.common.settings import WorkerSettings
 from mavi_vision.runtime.binding import load_component_binding
 from mavi_vision.runtime.resolver import CompletionContract, resolve_completion_contract
@@ -59,6 +59,10 @@ SCHEMA = ROOT / "contracts/schemas/vision-job-complete-v3.1.schema.json"
 GOLDEN_32 = ROOT / "contracts/examples/vision-job-complete-v3.2.example.json"
 GOLDEN_32_UNPACKED = ROOT / "contracts/examples/vision-job-complete-v3.2-unpacked-environment.example.json"
 SCHEMA_32 = ROOT / "contracts/schemas/vision-job-complete-v3.2.schema.json"
+# The default since Stage 3: the 3.2 body plus the detector-native vehicle subclass.
+GOLDEN_33 = ROOT / "contracts/examples/vision-job-complete-v3.3.example.json"
+GOLDEN_33_UNPACKED = ROOT / "contracts/examples/vision-job-complete-v3.3-unpacked-environment.example.json"
+SCHEMA_33 = ROOT / "contracts/schemas/vision-job-complete-v3.3.schema.json"
 BINDING = ROOT / "src/vision/config/components/phase1-bindings-v2.json"
 # The binding identity the golden examples name; the client is constructed with it.
 BINDING_SHA = json.loads(GOLDEN_32.read_text(encoding="utf-8"))["provenance"]["componentBindingSha256"]
@@ -222,6 +226,7 @@ def _track_from(wire: dict) -> ProcessedTrack:
             for item in wire["observations"]
         ),
         trajectory_artifact=_artifact(wire["trajectoryArtifact"]),
+        object_subclass=wire.get("objectSubclass"),
     )
 
 
@@ -241,9 +246,9 @@ def _accounting_from(wire: dict) -> EvidenceAccounting:
 
 
 def _response_for(body: dict, version: str = "3.1", state: str = "finalizing") -> httpx.Response:
-    """A completion acknowledgement: the 3.1 hand-off by default, a 3.2 hand-off,
-    or a synchronous-style (2.0/3.0) echo for the version-skew tests."""
-    if version not in ("3.1", "3.2"):
+    """A completion acknowledgement: the 3.1 hand-off by default, a 3.2 or 3.3
+    hand-off, or a synchronous-style (2.0/3.0) echo for the version-skew tests."""
+    if version not in ("3.1", "3.2", "3.3"):
         return httpx.Response(
             200,
             json={
@@ -281,7 +286,7 @@ def _run(tmp_path: Path, handler, action, *, worker_id: str = "gpu-sdd-01", vers
 
 
 def _complete_golden(tmp_path: Path, handler, version: str | None = "3.1", golden_path: Path | None = None, **component):
-    golden = _golden(golden_path or (GOLDEN_32 if version is None else GOLDEN))
+    golden = _golden(golden_path or (GOLDEN_33 if version is None else GOLDEN))
     result = VisionProcessingResult(
         job_id=_lease_for(golden).job_id,
         frames_processed=golden["framesProcessed"],
@@ -394,29 +399,29 @@ def test_a_3_0_worker_refuses_a_hand_off_acknowledgement(tmp_path: Path) -> None
 # The shipped default (S2a.3): every test below passes version=None, so the
 # worker runs on the role's own provenanceContract, not on a value the test supplies.
 
-def test_the_default_worker_is_on_completion_3_2(tmp_path: Path) -> None:
+def test_the_default_worker_is_on_completion_3_3(tmp_path: Path) -> None:
     settings = _settings(tmp_path, version=None)
     assert settings.completion_schema_override is None
-    assert _completion(settings) == CompletionContract(version="3.2", override=None)
-    assert _client(settings, httpx.AsyncClient()).completion_schema_version == "3.2"
+    assert _completion(settings) == CompletionContract(version="3.3", override=None)
+    assert _client(settings, httpx.AsyncClient()).completion_schema_version == "3.3"
 
 
 def test_the_default_worker_emits_the_hand_off_completion(tmp_path: Path) -> None:
-    """The default body is the 3.2 golden example byte for byte, and the
+    """The default body is the 3.3 golden example byte for byte, and the
     platform's finalizing acknowledgement is taken as the durable hand-off."""
     captured: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         captured.append(body)
-        return _response_for(body, version="3.2")
+        return _response_for(body, version="3.3")
 
     acknowledged = _complete_golden(tmp_path, handler, version=None)
 
-    assert captured == [_golden(GOLDEN_32)]
-    assert captured[0]["schemaVersion"] == "3.2"
+    assert captured == [_golden(GOLDEN_33)]
+    assert captured[0]["schemaVersion"] == "3.3"
     assert acknowledged.state == "finalizing"
-    assert acknowledged.tracks_submitted == len(_golden(GOLDEN_32)["tracks"])
+    assert acknowledged.tracks_submitted == len(_golden(GOLDEN_33)["tracks"])
 
 
 def test_the_default_worker_refuses_a_synchronous_acknowledgement(tmp_path: Path) -> None:
@@ -429,23 +434,24 @@ def test_the_default_worker_refuses_a_synchronous_acknowledgement(tmp_path: Path
         _complete_golden(tmp_path, handler, version=None)
 
 
-def test_the_default_worker_accepts_a_platform_listing_completion_3_2(tmp_path: Path) -> None:
+def test_the_default_worker_accepts_a_platform_listing_completion_3_3(tmp_path: Path) -> None:
     capabilities = _run(
         tmp_path,
-        _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1", "3.2"]}),
+        _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1", "3.2", "3.3"]}),
         lambda client: client.get_contract_capabilities(),
         version=None,
     )
-    assert capabilities.completion_schema_versions == ("2.0", "3.1", "3.2")
+    assert capabilities.completion_schema_versions == ("2.0", "3.1", "3.2", "3.3")
 
 
-def test_a_platform_without_completion_3_2_is_unsupported_for_the_default_worker(tmp_path: Path) -> None:
-    """A pre-S2a.2 platform lists 2.0 and 3.1 only; the default worker does not
-    fall back to 3.1 on its own (only the explicit Development override would)."""
+@pytest.mark.parametrize("listed", [["2.0", "3.1"], ["2.0", "3.1", "3.2"]])
+def test_a_platform_without_completion_3_3_is_unsupported_for_the_default_worker(tmp_path: Path, listed: list[str]) -> None:
+    """A pre-Stage-3 platform lists 2.0, 3.1 and 3.2 only; the default worker does not
+    fall back to 3.2 or 3.1 on its own: it stops before leasing (ADR-016)."""
     with pytest.raises(PlatformContractUnsupported):
         _run(
             tmp_path,
-            _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": ["2.0", "3.1"]}),
+            _capabilities({"schemaVersion": "2.0", "completionSchemaVersions": listed}),
             lambda client: client.get_contract_capabilities(),
             version=None,
         )
@@ -843,48 +849,70 @@ def test_python_v3_model_follows_the_shared_integer_conformance_corpus() -> None
         assert (not located) is vector["accepted"], (vector["name"], located)
 
 
-# Completion 3.2 (Stage 2 S2a plan P-7/P-16, S2a.3): the worker's default, the
-# vision role's provenanceContract; 3.1/3.0 exist only as the Development override.
+# Completion 3.3 (Stage 3, ADR-016): the worker's default, the vision role's
+# provenanceContract; 3.1/3.0 exist only as the Development override, and 3.2 is no
+# longer emitted (the platform still reads it).
 
-def test_the_worker_recognises_completion_3_2_as_an_asynchronous_version() -> None:
-    assert SUPPORTED_COMPLETION_SCHEMA_VERSIONS == ("3.0", "3.1", "3.2")
-    assert ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS == frozenset({"3.1", "3.2"})
+def test_the_worker_recognises_completion_3_3_as_an_asynchronous_version() -> None:
+    assert SUPPORTED_COMPLETION_SCHEMA_VERSIONS == ("3.0", "3.1", "3.2", "3.3")
+    assert ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS == frozenset({"3.1", "3.2", "3.3"})
 
 
-def test_the_default_body_validates_against_the_3_2_schema_and_model(tmp_path: Path) -> None:
+def test_the_default_body_validates_against_the_3_3_schema_and_model(tmp_path: Path) -> None:
     captured: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         captured.append(body)
-        return _response_for(body, version="3.2")
+        return _response_for(body, version="3.3")
 
     _complete_golden(tmp_path, handler, version=None)
 
-    schema = json.loads(SCHEMA_32.read_text(encoding="utf-8"))
+    schema = json.loads(SCHEMA_33.read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(captured[0])
-    VisionJobCompleteV32.model_validate_json(json.dumps(captured[0]))
-    with pytest.raises(ValidationError):
-        VisionJobCompleteV3.model_validate_json(json.dumps(captured[0]))
+    VisionJobCompleteV33.model_validate_json(json.dumps(captured[0]))
+    for older in (VisionJobCompleteV32, VisionJobCompleteV3):
+        with pytest.raises(ValidationError):
+            older.model_validate_json(json.dumps(captured[0]))
 
 
-def test_an_unpacked_environment_completes_as_3_2_with_a_null_runtime_pack_id(tmp_path: Path) -> None:
+def test_the_default_body_carries_the_vehicle_subclass_only_where_resolved(tmp_path: Path) -> None:
     captured: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         captured.append(body)
-        return _response_for(body, version="3.2")
+        return _response_for(body, version="3.3")
 
-    _complete_golden(tmp_path, handler, version=None, golden_path=GOLDEN_32_UNPACKED)
+    _complete_golden(tmp_path, handler, version=None)
 
-    assert captured == [_golden(GOLDEN_32_UNPACKED)]
+    body = captured[0]
+    assert body["objectSubclassVocabulary"] == "mavi-vehicle-subclass-v1"
+    assert body["objectSubclassSource"] == "detector-native:" + body["provenance"]["pipelineProfileSha256"]
+    person, vehicle = body["tracks"]
+    assert "objectSubclass" not in person
+    assert vehicle["objectSubclass"] == "truck"
+
+
+def test_an_unpacked_environment_completes_as_3_3_with_a_null_runtime_pack_id(tmp_path: Path) -> None:
+    captured: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        captured.append(body)
+        return _response_for(body, version="3.3")
+
+    _complete_golden(tmp_path, handler, version=None, golden_path=GOLDEN_33_UNPACKED)
+
+    assert captured == [_golden(GOLDEN_33_UNPACKED)]
+    # The abstained vehicle carries no subclass member at all, never a null.
+    assert "objectSubclass" not in captured[0]["tracks"][1]
     provenance = captured[0]["provenance"]
     assert provenance["runtimePackSource"] == "unpacked-environment"
     assert provenance["runtimePackId"] is None
 
 
-def test_the_3_2_identity_on_the_wire_is_the_resolved_provenance_verbatim(tmp_path: Path) -> None:
+def test_the_component_identity_on_the_wire_is_the_resolved_provenance_verbatim(tmp_path: Path) -> None:
     """The client maps; it never derives, defaults or substitutes an identity."""
     captured: list[dict] = []
     identity = {
@@ -895,7 +923,7 @@ def test_the_3_2_identity_on_the_wire_is_the_resolved_provenance_verbatim(tmp_pa
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         captured.append(body)
-        return _response_for(body, version="3.2")
+        return _response_for(body, version="3.3")
 
     _complete_golden(tmp_path, handler, version=None, **identity)
 
@@ -911,7 +939,7 @@ def test_a_provenance_naming_another_binding_is_refused_before_anything_is_sent(
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.append(request.content)
-        return _response_for(json.loads(request.content), version="3.2")
+        return _response_for(json.loads(request.content), version="3.3")
 
     for version in (None, "3.1"):
         with pytest.raises(CompletionPayloadInvalid, match="another component binding"):
@@ -931,8 +959,8 @@ def test_the_default_worker_refuses_a_3_1_hand_off_acknowledgement(tmp_path: Pat
 
 
 @pytest.mark.parametrize("version", ["3.1", "3.0"])
-def test_an_overridden_worker_drops_the_3_2_identity_from_the_wire(tmp_path: Path, version: str) -> None:
-    """The provenance still carries the resolved identity; the older body cannot."""
+def test_an_overridden_worker_drops_the_component_identity_and_subclass_from_the_wire(tmp_path: Path, version: str) -> None:
+    """The provenance and the Tracks still carry them; the older body cannot."""
     captured: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -940,12 +968,15 @@ def test_an_overridden_worker_drops_the_3_2_identity_from_the_wire(tmp_path: Pat
         captured.append(body)
         return _response_for(body, version=version)
 
-    _complete_golden(tmp_path, handler, version=version, golden_path=GOLDEN_32)
+    _complete_golden(tmp_path, handler, version=version, golden_path=GOLDEN_33)
 
     body = captured[0]
     assert body["schemaVersion"] == version
     for member in ("capabilityId", "modelPackId", "runtimePackId", "runtimePackSource", "componentBindingSha256"):
         assert member not in body["provenance"]
+    for member in ("objectSubclassVocabulary", "objectSubclassSource"):
+        assert member not in body
+    assert all("objectSubclass" not in track for track in body["tracks"])
     VisionJobCompleteV3.model_validate_json(json.dumps(body))
 
 
@@ -997,7 +1028,7 @@ def test_every_overridden_completion_logs_that_it_is_non_qualifying(tmp_path: Pa
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="mavi_vision.worker.client"):
         _complete_golden(
-            tmp_path, lambda request: _response_for(json.loads(request.content), version="3.2"), version=None
+            tmp_path, lambda request: _response_for(json.loads(request.content), version="3.3"), version=None
         )
     assert not any("completion_schema_override_active" in record.getMessage() for record in caplog.records)
 
@@ -1033,20 +1064,21 @@ def test_an_overridden_worker_refuses_a_3_2_acknowledgement(tmp_path: Path, vers
 
 
 def test_the_override_admits_only_the_pre_cut_over_versions(tmp_path: Path) -> None:
-    for value in ("3.2", "2.0", "3"):
+    for value in ("3.3", "3.2", "2.0", "3"):
         with pytest.raises(ValidationError):
             _settings(tmp_path, version=value)
 
 
 def test_no_completion_contract_emits_a_pre_cut_over_version_without_the_override() -> None:
     """Structural: 3.0/3.1 exist only as the override, and the override is exactly its version."""
-    for version in ("3.0", "3.1"):
+    # 3.2 stopped being a role contract at Stage 3: no worker path emits it any more.
+    for version in ("3.0", "3.1", "3.2"):
         with pytest.raises(ValueError, match="completion_contract_version_not_a_role_contract"):
             CompletionContract(version=version, override=None)
-    for version, override in (("3.2", "3.1"), ("3.1", "3.0"), ("3.2", "3.2")):
+    for version, override in (("3.3", "3.1"), ("3.1", "3.0"), ("3.3", "3.3"), ("3.2", "3.2")):
         with pytest.raises(ValueError, match="completion_override_invalid"):
             CompletionContract(version=version, override=override)
-    assert CompletionContract(version="3.2", override=None).override_active is False
+    assert CompletionContract(version="3.3", override=None).override_active is False
 
 
 def test_the_retired_version_variable_is_refused(tmp_path: Path, monkeypatch) -> None:

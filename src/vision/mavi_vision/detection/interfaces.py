@@ -13,10 +13,15 @@ class DetectionCandidate:
     confidence: float
     bounding_box: NormalizedBoundingBox
     frame_ordinal: int = 0
+    # The detector's native class (for example "truck"), kept for the Track-level
+    # vehicle subclass vote (ADR-016). Tracking never reads it.
+    source_class: str | None = None
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("detection_confidence_out_of_range")
+        if self.source_class is not None and (not isinstance(self.source_class, str) or not self.source_class):
+            raise ValueError("detection_source_class_invalid")
         if (
             not isinstance(self.frame_ordinal, int)
             or isinstance(self.frame_ordinal, bool)

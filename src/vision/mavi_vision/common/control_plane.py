@@ -1036,6 +1036,46 @@ class VisionJobCompleteV32(VisionJobCompleteV3):
     provenance: VisionRuntimeProvenanceV32
 
 
+class VisionCompletionTrackV33(VisionCompletionTrackV3):
+    """A completion 3.3 Track: the 3.2 Track plus the detector-native vehicle subclass.
+
+    ``objectSubclass`` is present only when the Track-level vote resolved a value;
+    a Person Track and an abstained Vehicle Track omit it (ADR-016). It is never
+    written as an explicit null.
+    """
+
+    object_subclass: Literal["car", "truck", "bus", "motorcycle"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def validate_subclass_class(self) -> "VisionCompletionTrackV33":
+        if self.object_subclass is not None and self.object_class != "vehicle":
+            raise ValueError("objectSubclass is allowed only on a vehicle Track")
+        return self
+
+
+class VisionJobCompleteV33(VisionJobCompleteV32):
+    """Completion 3.3: the 3.2 body plus the detector-native vehicle subclass (ADR-016).
+
+    Mirrors ``contracts/schemas/vision-job-complete-v3.3``. The vocabulary and the
+    source identity are stated once for the body; the source names the pipeline
+    profile that resolved every subclass in it, so it must equal that profile's
+    hash in the provenance.
+    """
+
+    schema_version: Literal["3.3"]
+    tracks: tuple[VisionCompletionTrackV33, ...] = Field(max_length=10_000)
+    object_subclass_vocabulary: Literal["mavi-vehicle-subclass-v1"]
+    object_subclass_source: StrictStr = Field(min_length=80, max_length=80, pattern=r"^detector-native:[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def validate_subclass_source(self) -> "VisionJobCompleteV33":
+        if self.object_subclass_source != f"detector-native:{self.provenance.pipeline_profile_sha256}":
+            raise ValueError("objectSubclassSource must name this completion's pipeline profile")
+        return self
+
+
 class VisionContractCapabilities(ControlPlaneModel):
     """``GET /api/vision/contract`` (S1.2a). Additive fields are tolerated."""
 
@@ -1069,8 +1109,8 @@ class VisionJobCompleteResponse(ControlPlaneModel):
 
 
 class VisionJobFinalizationResponse(ControlPlaneModel):
-    """Completion 3.1/3.2 acknowledgement (S1.4 B3 plan §5.2; ``vision-job-finalization-response-v3.1``
-    and ``-v3.2``, identical apart from the version the platform echoes).
+    """Completion 3.1/3.2/3.3 acknowledgement (S1.4 B3 plan §5.2; ``vision-job-finalization-response-v3.1``,
+    ``-v3.2`` and ``-v3.3``, identical apart from the version the platform echoes).
 
     ``finalizing`` means the platform durably owns the hand-off and still has
     to seal and publish; ``completed`` is the exact replay of a job the
@@ -1079,7 +1119,7 @@ class VisionJobFinalizationResponse(ControlPlaneModel):
     is present only with ``completed``.
     """
 
-    schema_version: Literal["3.1", "3.2"]
+    schema_version: Literal["3.1", "3.2", "3.3"]
     job_id: UUID
     processing_run_id: UUID
     state: Literal["finalizing", "completed"]

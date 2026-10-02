@@ -362,6 +362,32 @@ public sealed class BoundedVisionObservationListJsonConverter
 /// <c>evidenceAccounting</c>): the member is either absent or an object. An explicit JSON
 /// <c>null</c> is rejected during binding, as the schemas require.
 /// </summary>
+/// <summary>
+/// A string member that may be absent but never an explicit JSON null: absence
+/// deserialises to null, a null token is refused (the published schema allows no
+/// null either). Used by the completion 3.3 vehicle-subclass members (ADR-016).
+/// </summary>
+public sealed class PresentStringJsonConverter : JsonConverter<string?>
+{
+    public override bool HandleNull => true;
+
+    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String)
+            throw new JsonException("Expected a string.");
+        return reader.GetString();
+    }
+
+    public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        if (value is null)
+            writer.WriteNullValue();
+        else
+            writer.WriteStringValue(value);
+    }
+}
+
 public sealed class PresentObjectJsonConverter<T> : JsonConverter<T?>
     where T : class
 {

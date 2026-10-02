@@ -103,7 +103,7 @@ public sealed class VisionRuntimeProvenanceParser
         ArgumentNullException.ThrowIfNull(value);
         if (!Enum.IsDefined(schema))
             throw new ArgumentOutOfRangeException(nameof(schema));
-        return ParseCore(value, componentIdentityRequired: schema == CompletionSchema.V32);
+        return ParseCore(value, componentIdentityRequired: schema.HasComponentIdentity());
     }
 
     /// <summary>Whether any completion 3.2 component-identity member is present.</summary>

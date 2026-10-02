@@ -302,7 +302,7 @@ public sealed class VisionFinalizationPersistenceTests(PostgresFixture fixture)
         Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
         Assert.Contains("worker_contract_version_unsupported", await rejected.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         using var probe = await client.GetAsync("/api/vision/contract");
-        Assert.Contains("\"completionSchemaVersions\":[\"2.0\",\"3.1\",\"3.2\"]", await probe.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("\"completionSchemaVersions\":[\"2.0\",\"3.1\",\"3.2\",\"3.3\"]", await probe.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MaviDbContext>();
         Assert.Equal(VisionJobStatus.Leased, (await db.VisionJobs.SingleAsync()).Status);

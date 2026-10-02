@@ -13,6 +13,7 @@ from mavi_vision.common.analytical import (
     VisionProcessingResult,
 )
 from mavi_vision.common.lease import LeaseGuard, LeaseLostError
+from mavi_vision.common.subclass import SubclassVotes, VehicleSubclassPolicy, resolve_vehicle_subclass
 from mavi_vision.detection.interfaces import DetectionCandidate, Detector
 from mavi_vision.evidence.admission import admit
 from mavi_vision.evidence.encoder import EvidenceEncoder, JpegLadderEncoder
@@ -58,6 +59,7 @@ class _TrackAccumulator:
     confidence_sum: float = 0.0
     max_confidence: float = 0.0
     observation_count: int = 0
+    subclass_votes: SubclassVotes | None = None
 
 
 class VideoProcessor:
@@ -95,8 +97,12 @@ class VideoProcessor:
         evidence_quota_bytes: int | None = None,
         trajectory_chunk_points: int = DEFAULT_CHUNK_POINTS,
         frame_reader: Callable[[BinaryIO], Iterable[DecodedFrame]] | None = None,
+        vehicle_subclass_policy: VehicleSubclassPolicy | None = None,
     ) -> None:
         self._detector = detector
+        # The profile's Track-level vehicle subclass vote (ADR-016). Without it no
+        # Track is given a subclass; it never changes tracking or evidence.
+        self._vehicle_subclass_policy = vehicle_subclass_policy
         self._tracker = tracker
         self._artifact_store = artifact_store
         self._evidence_policy = evidence_policy
@@ -323,6 +329,11 @@ class VideoProcessor:
                     encoder=self._evidence_encoder,
                     track_start_ms=frame.offset_ms,
                 ),
+                subclass_votes=(
+                    SubclassVotes()
+                    if candidate.object_class is ObjectClass.VEHICLE and self._vehicle_subclass_policy is not None
+                    else None
+                ),
             )
             live[candidate.track_id] = accumulator
         elif accumulator.object_class is not candidate.object_class:
@@ -335,6 +346,8 @@ class VideoProcessor:
             candidate.confidence,
         )
         accumulator.observation_count += 1
+        if accumulator.subclass_votes is not None:
+            accumulator.subclass_votes.add(candidate.source_class, candidate.confidence)
         bbox = candidate.bounding_box
         accumulator.trajectory.append(
             frame.offset_ms,
@@ -343,8 +356,8 @@ class VideoProcessor:
         )
         accumulator.evidence.observe(context, candidate)
 
-    @staticmethod
     def _finalise_track(
+        self,
         track_id: str,
         accumulator: _TrackAccumulator,
         publisher: ArtifactPublisher,
@@ -362,6 +375,11 @@ class VideoProcessor:
             observation_count=accumulator.observation_count,
             evidence=accumulator.evidence.resolve(),
             trajectory=accumulator.trajectory.summary(),
+            object_subclass=(
+                resolve_vehicle_subclass(accumulator.subclass_votes, self._vehicle_subclass_policy)
+                if accumulator.subclass_votes is not None and self._vehicle_subclass_policy is not None
+                else None
+            ),
         )
         lease_guard.check_owned()
         # The spool streams its canonical v1 payload into the publication and is

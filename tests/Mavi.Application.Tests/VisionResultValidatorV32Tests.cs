@@ -178,8 +178,17 @@ public sealed class VisionResultValidatorV32Tests
         Assert.False(CompletionSchema.V2.IsEvidenceSet());
         Assert.True(CompletionSchema.V3.IsEvidenceSet());
         Assert.True(CompletionSchema.V32.IsEvidenceSet());
+        Assert.True(CompletionSchema.V33.IsEvidenceSet());
         Assert.Throws<ArgumentOutOfRangeException>(() => ((CompletionSchema)99).IsEvidenceSet());
-        Assert.Equal(3, Enum.GetValues<CompletionSchema>().Length);
+        Assert.Equal(4, Enum.GetValues<CompletionSchema>().Length);
+
+        // Component identity and the vehicle subclass are cumulative from their versions on.
+        Assert.Equal(
+            [false, false, true, true],
+            Enum.GetValues<CompletionSchema>().Select(schema => schema.HasComponentIdentity()));
+        Assert.Equal(
+            [false, false, false, true],
+            Enum.GetValues<CompletionSchema>().Select(schema => schema.HasVehicleSubclass()));
     }
 
     [Fact]

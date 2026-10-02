@@ -1,0 +1,76 @@
+{
+  "description": "Completion 3.3 vehicle-subclass bodies both boundaries must refuse (ADR-016). Each case patches a 3.3 golden example ('installed': vision-job-complete-v3.3.example.json, whose second Track is a resolved truck; 'unpacked': the unpacked-environment example, whose second Track is an abstained vehicle): 'schemaVersion' relabels the body, 'remove' deletes and 'set' replaces top-level members, and each 'tracks' entry does the same to one Track. 'rejectedBy' says whether the published schema of the resulting version must already reject the payload ('schema') or whether only the platform validator can ('validator'); either way the platform validator must reject it with 'code'.",
+  "cases": [
+    {
+      "name": "v3.2-body-with-subclass-members",
+      "base": "installed",
+      "schemaVersion": "3.2",
+      "rejectedBy": "schema",
+      "code": "object_subclass_field_in_pre_v33_body"
+    },
+    {
+      "name": "v3.2-body-with-only-a-track-subclass",
+      "base": "installed",
+      "schemaVersion": "3.2",
+      "remove": ["objectSubclassVocabulary", "objectSubclassSource"],
+      "rejectedBy": "schema",
+      "code": "object_subclass_field_in_pre_v33_body"
+    },
+    {
+      "name": "v3.3-body-without-vocabulary",
+      "base": "installed",
+      "remove": ["objectSubclassVocabulary"],
+      "rejectedBy": "schema",
+      "code": "object_subclass_vocabulary_invalid"
+    },
+    {
+      "name": "v3.3-body-with-another-vocabulary",
+      "base": "installed",
+      "set": {"objectSubclassVocabulary": "mavi-vehicle-subclass-v2"},
+      "rejectedBy": "schema",
+      "code": "object_subclass_vocabulary_invalid"
+    },
+    {
+      "name": "v3.3-body-without-source",
+      "base": "unpacked",
+      "remove": ["objectSubclassSource"],
+      "rejectedBy": "schema",
+      "code": "object_subclass_source_invalid"
+    },
+    {
+      "name": "v3.3-body-with-a-classifier-source",
+      "base": "installed",
+      "set": {"objectSubclassSource": "classifier-native:4444444444444444444444444444444444444444444444444444444444444444"},
+      "rejectedBy": "schema",
+      "code": "object_subclass_source_invalid"
+    },
+    {
+      "name": "v3.3-body-whose-source-names-another-profile",
+      "base": "installed",
+      "set": {"objectSubclassSource": "detector-native:0000000000000000000000000000000000000000000000000000000000000000"},
+      "rejectedBy": "validator",
+      "code": "object_subclass_source_mismatch"
+    },
+    {
+      "name": "v3.3-person-track-with-a-subclass",
+      "base": "installed",
+      "tracks": [{"index": 0, "set": {"objectSubclass": "car"}}],
+      "rejectedBy": "schema",
+      "code": "object_subclass_invalid"
+    },
+    {
+      "name": "v3.3-vehicle-track-with-an-unknown-subclass",
+      "base": "installed",
+      "tracks": [{"index": 1, "set": {"objectSubclass": "suv"}}],
+      "rejectedBy": "schema",
+      "code": "object_subclass_invalid"
+    },
+    {
+      "name": "v3.3-vehicle-track-with-a-bicycle-subclass",
+      "base": "unpacked",
+      "tracks": [{"index": 1, "set": {"objectSubclass": "bicycle"}}],
+      "rejectedBy": "schema",
+      "code": "object_subclass_invalid"
+    }
+  ]
+}

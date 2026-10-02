@@ -813,3 +813,32 @@ def test_retirement_threshold_follows_the_profile(
 
     assert boundary.retired_track_ids == ()
     assert past.retired_track_ids == ("person-000001",)
+
+
+def test_the_native_detector_class_is_passed_through_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stage 3 (ADR-016): the vote reads the matched detection's native class. The
+    adapter passes it through and never lets it reach association: the native
+    tracker sees exactly the same boxes, confidences and ordinals either way."""
+    native_inputs: list[tuple[list[list[float]], list[float], list[int]]] = []
+    for source_classes in ((None, None), ("car", "truck")):
+        factory = install_bindings(monkeypatch)
+        tracker = ByteTrackTracker(profile())
+        detections = tuple(
+            DetectionCandidate(
+                object_class=ObjectClass.VEHICLE,
+                confidence=0.9,
+                bounding_box=NormalizedBoundingBox(0.1 + 0.4 * index, 0.2, 0.3, 0.4),
+                frame_ordinal=index,
+                source_class=source_class,
+            )
+            for index, source_class in enumerate(source_classes)
+        )
+
+        output = tracker.update(frame(), detections).candidates
+
+        assert [candidate.source_class for candidate in output] == list(source_classes)
+        native, _ = factory.trackers[1].calls[0]
+        native_inputs.append((native.xyxy.tolist(), native.confidence.tolist(), native.data["mavi_ordinal"].tolist()))
+    assert native_inputs[0] == native_inputs[1]

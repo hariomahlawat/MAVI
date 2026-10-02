@@ -112,7 +112,7 @@ function New-AutoBinding {
         schemaVersion = "mavi-vision-component-binding-v2"
         bindingId = "phase1-v2"
         runtimePacks = @([ordered]@{ runtimePackFamilyId = "mmdetection-phase1-v1"; variants = $Variants })
-        roles = @([ordered]@{ roleId = "vision"; runtimePackFamilyId = "mmdetection-phase1-v1"; capabilityIds = @("detector"); entryPoint = "mavi_vision.worker.main"; readinessContract = "worker-health-v2"; provenanceContract = "vision-job-complete-v3.2" })
+        roles = @([ordered]@{ roleId = "vision"; runtimePackFamilyId = "mmdetection-phase1-v1"; capabilityIds = @("detector"); entryPoint = "mavi_vision.worker.main"; readinessContract = "worker-health-v2"; provenanceContract = "vision-job-complete-v3.3" })
         capabilityBindings = @([ordered]@{ capabilityId = "detector"; roleId = "vision"; modelPackId = ("mavi-model-v2-" + ("4" * 64)); qualificationId = "fixture-v2"; enabled = $true })
     }
 }

@@ -74,6 +74,7 @@ class ProductionVisionProcessor:
                 tracker,
                 artifact_store,
                 evidence_policy=self._profile.evidence,
+                vehicle_subclass_policy=self._profile.vehicle_subclass,
             )
 
             return processor.process(

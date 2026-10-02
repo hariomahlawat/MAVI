@@ -380,6 +380,7 @@ class ByteTrackTracker:
                     object_class=object_class,
                     confidence=row.detection.confidence,
                     bounding_box=row.detection.bounding_box,
+                    source_class=row.detection.source_class,
                 ),
             )
             for row in rows

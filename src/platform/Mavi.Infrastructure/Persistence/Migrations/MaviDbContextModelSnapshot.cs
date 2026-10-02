@@ -290,6 +290,21 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("object_class");
 
+                    b.Property<string>("ObjectSubclass")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("object_subclass");
+
+                    b.Property<string>("ObjectSubclassSource")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("object_subclass_source");
+
+                    b.Property<string>("ObjectSubclassVocabulary")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("object_subclass_vocabulary");
+
                     b.Property<Guid>("ProcessingRunId")
                         .HasColumnType("uuid")
                         .HasColumnName("processing_run_id");
@@ -332,6 +347,9 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ObjectClass", "StartTimestampUtc");
 
+                    b.HasIndex("ObjectSubclass", "StartTimestampUtc")
+                        .HasFilter("object_subclass IS NOT NULL");
+
                     b.HasIndex("ProcessingRunId", "LocalTrackNumber")
                         .IsUnique();
 
@@ -344,6 +362,10 @@ namespace Mavi.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_tracks_detections", "detection_count > 0");
 
                             t.HasCheckConstraint("ck_tracks_duration", "duration_ms = end_offset_ms - start_offset_ms");
+
+                            t.HasCheckConstraint("ck_tracks_object_subclass_state", "(object_subclass IS NULL AND object_subclass_vocabulary IS NULL AND object_subclass_source IS NULL) OR (object_class = 'Vehicle' AND object_subclass_vocabulary IS NOT NULL AND object_subclass_source IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_tracks_object_subclass_value", "object_subclass IS NULL OR (object_subclass_vocabulary = 'mavi-vehicle-subclass-v1' AND object_subclass IN ('car', 'truck', 'bus', 'motorcycle'))");
 
                             t.HasCheckConstraint("ck_tracks_offsets", "start_offset_ms >= 0 AND end_offset_ms >= start_offset_ms");
                         });

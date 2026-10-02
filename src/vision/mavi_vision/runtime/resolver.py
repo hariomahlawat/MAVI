@@ -98,11 +98,11 @@ QUALIFICATIONS_RELATIVE = Path("models/qualifications")
 RUNTIME_PROFILES_RELATIVE = Path("src/vision/runtime")
 
 # A role's declared provenance contract and the completion schema it emits (P-16).
-VISION_PROVENANCE_CONTRACT = "vision-job-complete-v3.2"
+VISION_PROVENANCE_CONTRACT = "vision-job-complete-v3.3"
 ATTRIBUTE_PROVENANCE_CONTRACT = "visual-attribute-complete-v1"
 ATTRIBUTE_CONTROL_VERSION = "mavi-visual-attribute-control-v1"
 PROVENANCE_CONTRACT_VERSIONS: Mapping[str, str] = MappingProxyType(
-    {VISION_PROVENANCE_CONTRACT: "3.2", ATTRIBUTE_PROVENANCE_CONTRACT: ATTRIBUTE_CONTROL_VERSION}
+    {VISION_PROVENANCE_CONTRACT: "3.3", ATTRIBUTE_PROVENANCE_CONTRACT: ATTRIBUTE_CONTROL_VERSION}
 )
 # The capabilities each provenance contract's runtime serves. A role declaring one its
 # contract does not serve is refused: the vision worker never runs attributes, nor the reverse.

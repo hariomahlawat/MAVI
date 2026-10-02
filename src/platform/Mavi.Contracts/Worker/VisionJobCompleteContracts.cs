@@ -16,7 +16,16 @@ public sealed record VisionJobCompleteRequest(
     // Completion 3.0 only. A 2.0 body omits it; a 3.0 body requires it.
     [property: JsonConverter(typeof(PresentObjectJsonConverter<VisionEvidenceAccountingContract>))]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    VisionEvidenceAccountingContract? EvidenceAccounting = null);
+    VisionEvidenceAccountingContract? EvidenceAccounting = null,
+    // Completion 3.3 only (ADR-016): the detector-native vehicle subclass vocabulary and
+    // the source that resolved every subclass in the body. Older bodies must omit both;
+    // they are never written as null, so older versions round-trip byte-identically.
+    [property: JsonConverter(typeof(PresentStringJsonConverter))]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? ObjectSubclassVocabulary = null,
+    [property: JsonConverter(typeof(PresentStringJsonConverter))]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? ObjectSubclassSource = null);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VisionRuntimeProvenanceContract(
@@ -111,7 +120,11 @@ public sealed record VisionTrackResultContract(
     VisionArtifactDescriptorContract? TrajectoryArtifact,
     [property: JsonConverter(typeof(BoundedVisionObservationListJsonConverter))]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<VisionTrackObservationContract>? Observations = null);
+    IReadOnlyList<VisionTrackObservationContract>? Observations = null,
+    // Completion 3.3 only: present exactly when the Track-level vote resolved a value.
+    [property: JsonConverter(typeof(PresentStringJsonConverter))]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? ObjectSubclass = null);
 
 /// <summary>One accepted Evidence Set observation of a completion 3.0 Track.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

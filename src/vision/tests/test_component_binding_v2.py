@@ -19,7 +19,7 @@ ATTRIBUTES_ROLE = {
     "capabilityIds": ["person-attributes", "vehicle-attributes"],
     "entryPoint": "mavi_vision.worker.main",
     "readinessContract": "worker-health-v2",
-    "provenanceContract": "vision-job-complete-v3.2",
+    "provenanceContract": "vision-job-complete-v3.3",
 }
 
 
@@ -46,7 +46,7 @@ def test_generated_binding_has_the_adr_014_shape() -> None:
     assert set(variants) == {"windows-x86_64-cpu", "linux-x86_64-cpu", "windows-x86_64-cuda"}
     role = binding.role("vision")
     assert (role.entry_point, role.readiness_contract, role.provenance_contract) == (
-        "mavi_vision.worker.main", "worker-health-v2", "vision-job-complete-v3.2")
+        "mavi_vision.worker.main", "worker-health-v2", "vision-job-complete-v3.3")
     (detector,) = binding.bindings_for_role("vision")
     assert detector.capability_id == "detector" and detector.enabled
     assert detector.qualification_id == "rtmdet-m-coco-phase1-v2"

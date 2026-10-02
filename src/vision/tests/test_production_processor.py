@@ -30,11 +30,18 @@ from mavi_vision.runtime.profile import ByteTrackProfile, PipelineProfile
 from mavi_vision.storage.artifact_store import StagingArtifactError, StagingArtifactStore
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.tracking.interfaces import TrackCandidate, TrackerUpdate
+from mavi_vision.common.subclass import PHASE1_VEHICLE_SUBCLASS_MAPPING, VEHICLE_SUBCLASS_VOCABULARY_V1, VehicleSubclassPolicy
 from tests.profile_fixtures import PRODUCTION_EVIDENCE_POLICY
 
 
 JOB_ID = UUID("018fa7b6-2b31-7f42-9f33-9fd9f6fdd771")
 BASE = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+VEHICLE_SUBCLASS_POLICY = VehicleSubclassPolicy(
+    vocabulary_id=VEHICLE_SUBCLASS_VOCABULARY_V1,
+    mapping=PHASE1_VEHICLE_SUBCLASS_MAPPING,
+    min_share_micro=600_000,
+    min_matched_detections=3,
+)
 
 
 def _profile() -> PipelineProfile:
@@ -64,6 +71,7 @@ def _profile() -> PipelineProfile:
         ),
         frame_policy="every-frame",
         evidence=PRODUCTION_EVIDENCE_POLICY,
+        vehicle_subclass=VEHICLE_SUBCLASS_POLICY,
     )
 
 
@@ -125,8 +133,10 @@ def test_process_constructs_fresh_attempt_graph_in_exact_order_and_delegates(
         return store
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store, *, evidence_policy):
+        def __init__(self, detector, tracker, store, *, evidence_policy, vehicle_subclass_policy):
             assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
+            # The profile's own subclass vote, never a default (ADR-016).
+            assert vehicle_subclass_policy is VEHICLE_SUBCLASS_POLICY
             events.append(("processor", detector, tracker, store))
             processors.append(self)
 
@@ -258,8 +268,10 @@ def test_next_attempt_uses_replacement_runtime_from_provider(
             pass
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store, *, evidence_policy):
+        def __init__(self, detector, tracker, store, *, evidence_policy, vehicle_subclass_policy):
             assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
+            # The profile's own subclass vote, never a default (ADR-016).
+            assert vehicle_subclass_policy is VEHICLE_SUBCLASS_POLICY
             pass
 
         def process(self, **kwargs):
@@ -381,8 +393,10 @@ def test_typed_processing_failure_notifies_exact_object_once(
             pass
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store, *, evidence_policy):
+        def __init__(self, detector, tracker, store, *, evidence_policy, vehicle_subclass_policy):
             assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
+            # The profile's own subclass vote, never a default (ADR-016).
+            assert vehicle_subclass_policy is VEHICLE_SUBCLASS_POLICY
             pass
 
         def process(self, **kwargs):
@@ -430,8 +444,10 @@ def test_typed_failure_is_reported_locally_even_if_lease_is_lost_during_unwind(
             pass
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store, *, evidence_policy):
+        def __init__(self, detector, tracker, store, *, evidence_policy, vehicle_subclass_policy):
             assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
+            # The profile's own subclass vote, never a default (ADR-016).
+            assert vehicle_subclass_policy is VEHICLE_SUBCLASS_POLICY
             pass
 
         def process(self, **kwargs):
@@ -489,8 +505,10 @@ def test_non_dependency_processing_failure_does_not_notify_sink(
             pass
 
     class FakeVideoProcessor:
-        def __init__(self, detector, tracker, store, *, evidence_policy):
+        def __init__(self, detector, tracker, store, *, evidence_policy, vehicle_subclass_policy):
             assert evidence_policy is PRODUCTION_EVIDENCE_POLICY
+            # The profile's own subclass vote, never a default (ADR-016).
+            assert vehicle_subclass_policy is VEHICLE_SUBCLASS_POLICY
             pass
 
         def process(self, **kwargs):
@@ -666,7 +684,7 @@ if loaded:
 def test_production_never_substitutes_the_frame_reader() -> None:
     """``VideoProcessor(frame_reader=...)`` is the S1.4 B2 qualification seam
     (plan §6.2), never production configuration: the production attempt graph
-    constructs ``VideoProcessor`` with the profile's evidence policy only, and no
+    constructs ``VideoProcessor`` with the profile's evidence and vehicle-subclass policies only, and no
     worker module other than its definition names the seam."""
     import ast
 
@@ -677,7 +695,7 @@ def test_production_never_substitutes_the_frame_reader() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "VideoProcessor"
     ]
     assert len(calls) == 1
-    assert [keyword.arg for keyword in calls[0].keywords] == ["evidence_policy"]
+    assert [keyword.arg for keyword in calls[0].keywords] == ["evidence_policy", "vehicle_subclass_policy"]
     assert len(calls[0].args) == 3 and not any(isinstance(arg, ast.Starred) for arg in calls[0].args)
 
     naming = sorted(

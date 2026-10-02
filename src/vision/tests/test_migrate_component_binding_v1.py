@@ -12,6 +12,7 @@ from mavi_vision.runtime.model_manifest_v2 import parse_model_manifest_v2
 from mavi_vision.runtime.qualification_v2 import parse_qualification_record_v2
 from mavi_vision.runtime.runtime_profile_v2 import parse_runtime_profile_v2
 from tests.component_binding_v2_fixtures import (
+    REPOSITORY,
     GATE_SETS,
     V1_BINDING,
     V1_MANIFEST,
@@ -381,18 +382,31 @@ def test_frozen_v1_inputs_are_the_bytes_the_cut_over_consumed() -> None:
     assert {path.name: _sha(path.read_bytes()) for path in V1_FIXTURES.iterdir()} == FROZEN_V1_SHA256
 
 
-def test_the_published_v2_artefacts_are_exactly_the_generator_output(tmp_path) -> None:
+def test_the_generator_reproduces_exactly_what_the_cut_over_published(tmp_path) -> None:
+    documents = generate(tmp_path)
+    assert {key: _sha(value) for key, value in documents.items()} == PUBLISHED_V2_SHA256
+
+
+def test_the_live_artefacts_are_the_cut_over_output_plus_only_the_stage_3_delta(tmp_path) -> None:
+    """Stage 3 (ADR-016) moved two published artefacts past the S2a.3 cut-over, by exactly
+    one member each: the vision role's provenance contract (completion 3.3) and the
+    qualification record's bound pipeline profile (1.3.0-candidate). Everything else is
+    still byte-identical to the cut-over output."""
     from tests.component_binding_v2_fixtures import V2_BINDING, V2_MANIFEST, V2_QUALIFICATION, V2_RUNTIME_PROFILE
 
     documents = generate(tmp_path)
-    published = {
-        "binding": V2_BINDING.read_bytes(),
-        "manifest": V2_MANIFEST.read_bytes(),
-        "runtimeProfile": V2_RUNTIME_PROFILE.read_bytes(),
-        "qualification": V2_QUALIFICATION.read_bytes(),
-    }
-    assert documents == published
-    assert {key: _sha(value) for key, value in published.items()} == PUBLISHED_V2_SHA256
+    assert V2_MANIFEST.read_bytes() == documents["manifest"]
+    assert V2_RUNTIME_PROFILE.read_bytes() == documents["runtimeProfile"]
+
+    binding = json.loads(documents["binding"])
+    assert [role["provenanceContract"] for role in binding["roles"]] == ["vision-job-complete-v3.2"]
+    binding["roles"][0]["provenanceContract"] = "vision-job-complete-v3.3"
+    assert json.loads(V2_BINDING.read_bytes()) == binding
+
+    record = json.loads(documents["qualification"])
+    profile = REPOSITORY / "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
+    record["policies"]["pipelineProfileSha256"] = _sha(profile.read_bytes())
+    assert json.loads(V2_QUALIFICATION.read_bytes()) == record
 
 
 def test_the_cut_over_changes_no_runtime_pack_identity() -> None:

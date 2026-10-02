@@ -268,7 +268,7 @@ def make_selection(
         capability_ids=("detector",),
         entry_point="mavi_vision.worker.main",
         readiness_contract="worker-health-v2",
-        provenance_contract="vision-job-complete-v3.2",
+        provenance_contract="vision-job-complete-v3.3",
     )
     entries = {
         variant: RuntimePackVariantV2(
@@ -343,7 +343,7 @@ def make_selection(
         capabilities=MappingProxyType({"detector": capability}),
         pipeline_profile=profile or pipeline_profile(),
         pipeline_profile_sha256=SHA_D,
-        completion=CompletionContract(version=override or "3.2", override=override),
+        completion=CompletionContract(version=override or "3.3", override=override),
         production_mode=False,
     )
     return resolved.detector_selection()

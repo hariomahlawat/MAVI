@@ -17,7 +17,7 @@
   },
   "policies": {
     "pipelineProfileId": "phase1-detection-tracking-v1",
-    "pipelineProfileSha256": "503225be736d9622ed110aa69e49a83dde4ae02c858d5e8fa41e527b1c4b23fb"
+    "pipelineProfileSha256": "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf"
   },
   "protocol": {
     "corpusId": null,

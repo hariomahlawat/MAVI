@@ -97,6 +97,7 @@ class RTMDetDetector:
                     confidence=parsed.confidence,
                     bounding_box=clipped,
                     frame_ordinal=0,
+                    source_class=parsed.source_class,
                 )
             except ValueError as exc:
                 raise InferenceContractError("detection_candidate_invalid") from exc
@@ -120,6 +121,7 @@ class RTMDetDetector:
                 confidence=candidate.confidence,
                 bounding_box=candidate.bounding_box,
                 frame_ordinal=ordinal,
+                source_class=candidate.source_class,
             )
             for ordinal, candidate in enumerate(normalized)
         )

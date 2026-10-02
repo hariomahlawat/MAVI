@@ -58,6 +58,8 @@ REQUIRED_PATHS = [
     "contracts/schemas/vision-job-finalization-response-v3.1.schema.json",
     "contracts/schemas/vision-job-complete-v3.2.schema.json",
     "contracts/schemas/vision-job-finalization-response-v3.2.schema.json",
+    "contracts/schemas/vision-job-complete-v3.3.schema.json",
+    "contracts/schemas/vision-job-finalization-response-v3.3.schema.json",
     "contracts/schemas/worker-health-v2.schema.json",
     "config/acceptance/phase1-acceptance-v1.json",
     "config/acceptance/phase1-supported-updates-v1.json",
@@ -1012,6 +1014,7 @@ def check_contracts(errors: list[str]) -> None:
         "vision-job-complete-v3",
         "vision-job-complete-v3.1", "vision-job-finalization-response-v3.1",
         "vision-job-complete-v3.2", "vision-job-finalization-response-v3.2",
+        "vision-job-complete-v3.3", "vision-job-finalization-response-v3.3",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -1033,6 +1036,7 @@ def check_contracts(errors: list[str]) -> None:
 
     check_completion_v3_contract(errors)
     check_completion_v32_contract(errors)
+    check_completion_v33_contract(errors)
 
 
 def check_completion_v3_contract(errors: list[str]) -> None:
@@ -1190,6 +1194,119 @@ def check_completion_v32_contract(errors: list[str]) -> None:
             fail(f"Completion v3.2 example {vector['example']} changed without re-pinning its digest vector.", errors)
         if not re.fullmatch(r"[0-9a-f]{64}", vector.get("completionDigest", "")):
             fail("Completion v3.2 digest vectors must pin lower-case SHA-256 digests.", errors)
+
+
+# Completion 3.3 (Stage 3, ADR-016): the 3.2 body plus the detector-native vehicle
+# subclass. This is the one statement of that delta; the published 3.3 schema must
+# equal it applied to the published 3.2 schema.
+COMPLETION_V33_SUBCLASS_VALUES = ("car", "truck", "bus", "motorcycle")
+COMPLETION_V33_EXAMPLES = (
+    "vision-job-complete-v3.3.example.json",
+    "vision-job-complete-v3.3-unpacked-environment.example.json",
+)
+
+
+def expected_completion_v33_schema(v32: dict) -> dict:
+    schema = json.loads(json.dumps(v32))
+    schema["title"] = "vision-job-complete-v3.3"
+    schema["properties"]["schemaVersion"] = {"const": "3.3"}
+    defs = schema["$defs"]
+    defs["objectSubclass"] = {
+        "$comment": "mavi-vehicle-subclass-v1; mirrored by mavi_vision.common.subclass and VisionResultValidator.",
+        "enum": list(COMPLETION_V33_SUBCLASS_VALUES),
+    }
+    track = defs["track"]
+    # Present only when the Track-level vote resolved a value; never null (ADR-016).
+    track["properties"]["objectSubclass"] = {"$ref": "#/$defs/objectSubclass"}
+    track["allOf"] = [
+        *track.get("allOf", []),
+        {
+            "if": {"properties": {"objectClass": {"const": "person"}}, "required": ["objectClass"]},
+            "then": {"not": {"required": ["objectSubclass"]}},
+        },
+    ]
+    schema["properties"]["objectSubclassVocabulary"] = {"const": "mavi-vehicle-subclass-v1"}
+    # The source names the pipeline profile that resolved every subclass in the body;
+    # the platform checks that it equals provenance.pipelineProfileSha256.
+    schema["properties"]["objectSubclassSource"] = {
+        "type": "string", "minLength": 80, "maxLength": 80, "pattern": "^detector-native:[0-9a-f]{64}$",
+    }
+    schema["required"] = [*schema["required"], "objectSubclassVocabulary", "objectSubclassSource"]
+    return schema
+
+
+def expected_finalization_response_v33_schema(v32: dict) -> dict:
+    schema = json.loads(json.dumps(v32))
+    schema["title"] = "vision-job-finalization-response-v3.3"
+    schema["description"] = schema["description"].replace("Completion 3.2 acknowledgement", "Completion 3.3 acknowledgement", 1)
+    schema["properties"]["schemaVersion"] = {"const": "3.3"}
+    return schema
+
+
+def completion_v33_invalid_cases() -> list[dict]:
+    """The shared 3.3 negative corpus, each case applied to its golden example."""
+    bases = {
+        "installed": "contracts/examples/vision-job-complete-v3.3.example.json",
+        "unpacked": "contracts/examples/vision-job-complete-v3.3-unpacked-environment.example.json",
+    }
+    corpus = json.loads((ROOT / "contracts/test-vectors/control-plane-v3.3-invalid.json").read_text())
+    cases = []
+    for case in corpus["cases"]:
+        payload = json.loads((ROOT / bases[case["base"]]).read_text())
+        if "schemaVersion" in case:
+            payload["schemaVersion"] = case["schemaVersion"]
+        for field in case.get("remove", []):
+            del payload[field]
+        payload.update(case.get("set", {}))
+        for edit in case.get("tracks", []):
+            track = payload["tracks"][edit["index"]]
+            for field in edit.get("remove", []):
+                del track[field]
+            track.update(edit.get("set", {}))
+        cases.append({"name": case["name"], "code": case["code"], "rejectedBy": case["rejectedBy"], "payload": payload})
+    return cases
+
+
+def check_completion_v33_contract(errors: list[str]) -> None:
+    """Completion 3.3: exactly the pinned delta over 3.2, its negative corpus and golden digests."""
+    schemas = ROOT / "contracts/schemas"
+    v32 = json.loads((schemas / "vision-job-complete-v3.2.schema.json").read_text())
+    v33 = json.loads((schemas / "vision-job-complete-v3.3.schema.json").read_text())
+    if v33 != expected_completion_v33_schema(v32):
+        fail("Completion v3.3 schema must equal v3.2 plus the pinned vehicle-subclass delta.", errors)
+    response_v32 = json.loads((schemas / "vision-job-finalization-response-v3.2.schema.json").read_text())
+    response_v33 = json.loads((schemas / "vision-job-finalization-response-v3.3.schema.json").read_text())
+    if response_v33 != expected_finalization_response_v33_schema(response_v32):
+        fail("Finalization response v3.3 schema must equal v3.2 apart from title, description and version.", errors)
+
+    validator = jsonschema.Draft202012Validator(v33, format_checker=jsonschema.FormatChecker())
+    for name in COMPLETION_V33_EXAMPLES:
+        example = json.loads((ROOT / "contracts/examples" / name).read_text())
+        for error in validator.iter_errors(example):
+            fail(f"Contract example {name} is invalid: {error.message}", errors)
+        if example.get("objectSubclassSource") != "detector-native:" + example["provenance"]["pipelineProfileSha256"]:
+            fail(f"Contract example {name} must name its own pipeline profile as the subclass source.", errors)
+
+    stems = {"3.2": "vision-job-complete-v3.2", "3.3": "vision-job-complete-v3.3"}
+    for case in completion_v33_invalid_cases():
+        case_validator = jsonschema.Draft202012Validator(
+            json.loads((schemas / f"{stems[case['payload']['schemaVersion']]}.schema.json").read_text()),
+            format_checker=jsonschema.FormatChecker())
+        schema_valid = not list(case_validator.iter_errors(case["payload"]))
+        if case["rejectedBy"] == "schema" and schema_valid:
+            fail(f"Invalid completion v3.3 case was accepted by the schema: {case['name']}", errors)
+        if case["rejectedBy"] == "validator" and not schema_valid:
+            fail(f"Completion v3.3 case '{case['name']}' must be schema-valid so it exercises the platform validator.", errors)
+
+    vectors = json.loads((ROOT / "contracts/test-vectors/vision-job-complete-v3.3-digest.json").read_text())["vectors"]
+    if sorted(vector["example"] for vector in vectors) != sorted(f"contracts/examples/{name}" for name in COMPLETION_V33_EXAMPLES):
+        fail("Completion v3.3 digest vectors must pin exactly the installed-pack and unpacked-environment examples.", errors)
+    for vector in vectors:
+        example_sha = hashlib.sha256((ROOT / vector["example"]).read_bytes()).hexdigest()
+        if example_sha != vector.get("exampleSha256"):
+            fail(f"Completion v3.3 example {vector['example']} changed without re-pinning its digest vector.", errors)
+        if not re.fullmatch(r"[0-9a-f]{64}", vector.get("completionDigest", "")):
+            fail("Completion v3.3 digest vectors must pin lower-case SHA-256 digests.", errors)
 
 
 def check_phase1_acceptance_assets(errors: list[str]) -> None:
