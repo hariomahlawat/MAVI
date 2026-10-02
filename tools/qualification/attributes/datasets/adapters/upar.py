@@ -22,6 +22,11 @@ from attributes.corpus.canonical import require
 
 PINNED_REVISION = "a19ab2fb6470140606d3c1982c303937b58fbd14"
 FILES = {"train": "data/annotations/task1/train/gt.csv", "val": "data/annotations/task1/val/gt.csv"}
+# The exact pinned files (plan §2). A release record naming other bytes is not this release.
+PINNED_FILES = {
+    "data/annotations/task1/train/gt.csv": (12118754, "e42084aa43b31d4074624265b8239437afc6e47a359a8c0129fae4513a77d424"),
+    "data/annotations/task1/val/gt.csv": (4131332, "783be600e359052c9dafe856cbfa2aee45bbd4e3eac10309394e2388bcf7c2bc"),
+}
 PA100K_PREFIX = "PA100k/"
 COLUMNS = (
     "Age-Young", "Age-Adult", "Age-Old", "Gender-Female", "Hair-Length-Short", "Hair-Length-Long", "Hair-Length-Bald",

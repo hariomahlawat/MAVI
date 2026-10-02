@@ -31,6 +31,11 @@ ATTRIBUTES = (
 )
 VARIABLES = frozenset({"attributes"} | {f"{s}_images_name" for s in SPLITS} | {f"{s}_label" for s in SPLITS})
 _NAME_RE = re.compile(r"^(\d{6})\.jpg$")
+# The exact pinned files (plan §2). A release record naming other bytes is not this release.
+PINNED_FILES = {
+    "annotation.zip": (338633, "64411ff2fc1c44b4d77b9da7b6da51d2f67f6af004b7927efbebe34b526cb3e9"),
+    "data.zip": (450818381, "ded122754063d30c06f9c2a407c189130a9034fecde353fd1cd12e4c499b889b"),
+}
 
 
 def _cell_strings(value, code: str) -> list[str]:

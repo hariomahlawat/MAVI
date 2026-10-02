@@ -136,6 +136,16 @@ def _near_report(kept: list[dict], fingerprints: dict[str, int], policy: dict) -
     }
 
 
+def _require_pinned(release: dict, pinned: dict[str, tuple[int, str]], revision: str | None = None) -> None:
+    """The release record must carry exactly the pinned files (and revision): mappings were
+    written for those bytes, and a record reusing the id for other bytes is refused."""
+    files = {f["path"]: (f["sizeBytes"], f["sha256"]) for f in release["files"]}
+    for path, identity in pinned.items():
+        require(files.get(path) == identity, f"still_dataset_not_the_pinned_release:{release['releaseId']}:{path}")
+    if revision is not None:
+        require(revision in release["pinnedSource"]["reference"], f"still_dataset_not_the_pinned_release:{release['releaseId']}:revision")
+
+
 def build_person_manifest(pa_release: dict, pa_root: Path, upar_release: dict, upar_root: Path, smoke: bool = False,
                           policy: dict = PERSON_POLICY) -> tuple[dict, dict]:
     """Build the person still-dataset manifest and its near-duplicate report.
@@ -144,6 +154,8 @@ def build_person_manifest(pa_release: dict, pa_root: Path, upar_release: dict, u
     mappings name, UPAR names an image PA-100K does not contain, an image member is
     missing from the archive, an exact duplicate cannot be resolved by the role rule, or
     no sample is authorised."""
+    _require_pinned(pa_release, pa100k.PINNED_FILES)
+    _require_pinned(upar_release, upar.PINNED_FILES, upar.PINNED_REVISION)
     for release, root in ((pa_release, pa_root), (upar_release, upar_root)):
         problems = verify_release_files(release, root)
         require(not problems, f"still_dataset_release_files:{release['releaseId']}:{'; '.join(problems)}")
@@ -199,26 +211,30 @@ def build_person_manifest(pa_release: dict, pa_root: Path, upar_release: dict, u
             for attribute, entry in attributes.items():
                 if entry["truth"] == "present" and label_release_of[attribute] != pa_release["releaseId"]:
                     blockers += [f"{label_release_of[attribute]}:{b}" for b in release_blockers(label_release_of[attribute], purpose, None)]
-            if blockers:
-                refused.append({"memberPath": member, "role": role, "blockers": sorted(set(blockers))})
-                continue
+            # Every copy, authorised or not, takes part in exact-duplicate resolution: a refused
+            # evaluation copy must still remove its training duplicates (no role leakage).
             data = archive.read(member)
             sample_id = hashlib.sha256(data).hexdigest()
-            fingerprints.setdefault(sample_id, dhash64(data))
+            if not blockers:
+                fingerprints.setdefault(sample_id, dhash64(data))
             candidates.append({"sampleId": sample_id, "releaseId": pa_release["releaseId"], "memberPath": member,
-                               "sourceSplit": row["sourceSplit"], "group": row["group"], "role": role, "attributes": attributes})
+                               "sourceSplit": row["sourceSplit"], "group": row["group"], "role": role, "attributes": attributes,
+                               "_blockers": sorted(set(blockers))})
 
     by_sha: dict[str, list[dict]] = defaultdict(list)
     for sample in candidates:
         by_sha[sample["sampleId"]].append(sample)
     kept, drops, conflicts = [], [], []
     for sample_id in sorted(by_sha):
-        keep, dropped, conflict = _resolve_exact(by_sha[sample_id])
+        copies = by_sha[sample_id]
+        refused += [{"sampleId": sample_id, "memberPath": c["memberPath"], "role": c["role"], "blockers": c["_blockers"]} for c in copies if c["_blockers"]]
+        keep, dropped, conflict = _resolve_exact(copies)
         if conflict:
             conflicts.append(f"{sample_id}:{conflict}")
             continue
-        kept.append(keep)
         drops += [{"sampleId": sample_id, "memberPath": d["memberPath"], "role": d["role"], "keptMemberPath": keep["memberPath"], "keptRole": keep["role"]} for d in dropped]
+        if not keep["_blockers"]:  # a refused winner leaves no copy of the image in the manifest
+            kept.append({k: v for k, v in keep.items() if k != "_blockers"})
     require(not conflicts, f"duplicate_role_conflict:{';'.join(conflicts[:5])}")
     require(kept, "still_dataset_empty_no_authorised_sample")
 
@@ -234,7 +250,7 @@ def build_person_manifest(pa_release: dict, pa_root: Path, upar_release: dict, u
         "sourceCoverage": {"pa100kRows": {s: sum(1 for r in rows if r["sourceSplit"] == s) for s in pa100k.SPLITS},
                            "uparRowsBySource": upar_counts,
                            "uparPa100kRowsByOfficialSplit": {s: sum(1 for m in upar_rows if split_of[m] == s) for s in pa100k.SPLITS}},
-        "refusedSamples": sorted(refused, key=lambda r: r["memberPath"]),
+        "refusedSamples": sorted(refused, key=lambda r: (r["memberPath"], r["sampleId"])),
         "exactDuplicateDrops": drops,
         "nearDuplicateReport": {"sha256": sha256_hex(canonical_json(report)), "totals": report["totals"]},
         "counts": _counts(kept),

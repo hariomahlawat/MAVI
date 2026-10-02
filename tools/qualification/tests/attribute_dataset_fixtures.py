@@ -129,13 +129,13 @@ def determination(licence: str, purposes=None, **over) -> dict:
     return record
 
 
-def release_record(release_id: str, root: Path, licence: str, det=..., excluded=()) -> dict:
+def release_record(release_id: str, root: Path, licence: str, det=..., excluded=(), pinned: str = "fixture") -> dict:
     from attributes.datasets.release import parse_release
 
     return parse_release({
         "schemaVersion": "mavi-attribute-dataset-release-v1", "releaseId": release_id, "name": release_id, "version": "fixture",
         "origin": "public", "officialUrl": "https://example.org/fixture",
-        "pinnedSource": {"kind": "fixture", "reference": "fixture", "retrievedOn": "2026-10-02"},
+        "pinnedSource": {"kind": "fixture", "reference": f"fixture@{pinned}", "retrievedOn": "2026-10-02"},
         "licence": {"codes": [licence], "url": None, "textSha256": "a" * 64},
         "files": files_of(root), "excludedMembers": [{"path": p, "reason": "fixture exclusion"} for p in sorted(excluded)],
         "determination": determination(licence) if det is ... else det, "knownExposure": [],

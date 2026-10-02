@@ -33,10 +33,23 @@ from attributes.datasets.adapters import pa100k, upar
 PA, UP = "pa-100k-2017", "upar-challenge-2027-a19ab2fb"
 
 
+PATCH = {}
+
+
 @pytest.fixture(autouse=True)
 def small_release(monkeypatch):
     monkeypatch.setattr(pa100k, "SPLIT_ROWS", dict(SMALL_ROWS))
     monkeypatch.setattr(sm, "SMOKE", {"seed": "fixture-smoke", "perSplit": {"train": 120, "val": 20, "test": 20}})
+    PATCH["monkeypatch"] = monkeypatch
+
+
+def pin_fixture_files(pa_root, up_root):
+    """The synthetic files stand in for the pinned ones, as the real files do in production."""
+    from attribute_dataset_fixtures import files_of
+    pins = {f["path"]: (f["sizeBytes"], f["sha256"]) for f in files_of(pa_root) if f["path"] in pa100k.PINNED_FILES}
+    PATCH["monkeypatch"].setattr(pa100k, "PINNED_FILES", pins)
+    pins = {f["path"]: (f["sizeBytes"], f["sha256"]) for f in files_of(up_root) if f["path"] in upar.PINNED_FILES}
+    PATCH["monkeypatch"].setattr(upar, "PINNED_FILES", pins)
 
 
 def member(n: int) -> str:
@@ -50,8 +63,9 @@ def build(tmp_path, images=None, upar_train=None, upar_val=None, pa_det=..., up_
         train = upar_train if upar_train is not None else [(f"PA100k/{member(n)}", colour_values("Blue", "Black")) for n in range(1, 1201, 2)]
         val = upar_val if upar_val is not None else [(f"PA100k/{member(n)}", colour_values("Red", "Grey")) for n in range(1301, 1401)]
         write_upar(up_root, train, val)
+    pin_fixture_files(pa_root, up_root)
     pa = release_record(PA, pa_root, "cc-by-4.0", pa_det, excluded)
-    up = release_record(UP, up_root, "cc-by-nc-sa-3.0-de", up_det)
+    up = release_record(UP, up_root, "cc-by-nc-sa-3.0-de", up_det, pinned=upar.PINNED_REVISION)
     return sm.build_person_manifest(pa, pa_root, up, up_root, smoke=smoke, policy=policy or sm.PERSON_POLICY)
 
 
@@ -418,13 +432,68 @@ def test_cli_build_person_refuses_unauthorised_releases_and_outputs_inside_git(t
     pa_root, up_root = tmp_path / "pa", tmp_path / "upar"
     write_pa100k(pa_root)
     write_upar(up_root, [], [])
+    pin_fixture_files(pa_root, up_root)
     paths = {}
     for rid, root, lic in ((PA, pa_root, "cc-by-4.0"), (UP, up_root, "cc-by-nc-sa-3.0-de")):
         paths[rid] = tmp_path / f"{rid}.json"
-        paths[rid].write_text(json.dumps(release_record(rid, root, lic, None)), encoding="utf-8")
+        paths[rid].write_text(json.dumps(release_record(rid, root, lic, None, pinned=upar.PINNED_REVISION)), encoding="utf-8")
     argv = ["build-person", "--pa100k-release", str(paths[PA]), "--pa100k-root", str(pa_root), "--upar-release", str(paths[UP]),
             "--upar-root", str(up_root), "--out-dir", str(tmp_path / "out")]
     assert cli.main(argv) == 2 and "still_dataset_empty" in capsys.readouterr().err
     assert not (tmp_path / "out").exists()
     (tmp_path / "repo" / ".git").mkdir(parents=True)
     assert cli.main(argv[:-1] + [str(tmp_path / "repo" / "out")]) == 2 and "Git" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- Codex findings on #142
+
+
+def test_a_refused_evaluation_copy_still_removes_its_training_duplicate(tmp_path):
+    """P1: a release authorised for training but not benchmarking must not let the benchmark
+    image survive as a training copy."""
+    training_only = determination("cc-by-4.0", purposes=["development", "training", "tuning"])
+    manifest, _ = build(tmp_path, images={1350: image_for(2)}, pa_det=training_only, up_det=determination("cc-by-nc-sa-3.0-de", purposes=["development", "training", "tuning"]))
+    kept = by_member(manifest)
+    assert member(2) not in kept and member(1350) not in kept
+    drop = next(d for d in manifest["exactDuplicateDrops"] if d["memberPath"] == member(2))
+    assert drop["keptMemberPath"] == member(1350) and drop["keptRole"] == "benchmark"
+    assert any(r["memberPath"] == member(1350) for r in manifest["refusedSamples"])
+
+
+def test_a_role_conflict_is_refused_even_when_one_copy_is_unauthorised(tmp_path):
+    manifest, _ = build(tmp_path)
+    selection = next(s["memberPath"] for s in manifest["samples"] if s["role"] == "selection")
+    no_selection = determination("cc-by-4.0", purposes=["benchmarking", "development", "training", "tuning"])
+    with pytest.raises(CorpusError, match="duplicate_role_conflict"):
+        build(tmp_path / "second", images={1250: image_for(int(selection[-10:-4]))}, pa_det=no_selection)
+
+
+@pytest.mark.parametrize("which", ["pa", "upar-file", "upar-revision"])
+def test_a_release_that_is_not_the_pinned_one_is_refused(tmp_path, which):
+    pa_root, up_root = tmp_path / "pa", tmp_path / "upar"
+    write_pa100k(pa_root)
+    write_upar(up_root, [], [])
+    pin_fixture_files(pa_root, up_root)
+    if which == "pa":  # a repacked image archive under the same release id
+        import zipfile
+        with zipfile.ZipFile(pa_root / pa100k.IMAGE_ARCHIVE, "a") as z:
+            z.writestr("README-repack.txt", "x")
+    elif which == "upar-file":
+        (up_root / upar.FILES["val"]).write_bytes((up_root / upar.FILES["val"]).read_bytes() + b"\n")
+    pa = release_record(PA, pa_root, "cc-by-4.0")
+    up = release_record(UP, up_root, "cc-by-nc-sa-3.0-de", pinned="0" * 40 if which == "upar-revision" else upar.PINNED_REVISION)
+    with pytest.raises(CorpusError, match="not_the_pinned_release"):
+        sm.build_person_manifest(pa, pa_root, up, up_root)
+
+
+def test_the_real_pins_are_the_recorded_identities():
+    """The adapters pin the files recorded in the plan (step 1) and the PA-100K/UPAR release records."""
+    assert pa100k.PINNED_FILES == {
+        "annotation.zip": (338633, "64411ff2fc1c44b4d77b9da7b6da51d2f67f6af004b7927efbebe34b526cb3e9"),
+        "data.zip": (450818381, "ded122754063d30c06f9c2a407c189130a9034fecde353fd1cd12e4c499b889b"),
+    }
+    assert upar.PINNED_FILES == {
+        "data/annotations/task1/train/gt.csv": (12118754, "e42084aa43b31d4074624265b8239437afc6e47a359a8c0129fae4513a77d424"),
+        "data/annotations/task1/val/gt.csv": (4131332, "783be600e359052c9dafe856cbfa2aee45bbd4e3eac10309394e2388bcf7c2bc"),
+    }
+    assert upar.PINNED_REVISION == "a19ab2fb6470140606d3c1982c303937b58fbd14"
