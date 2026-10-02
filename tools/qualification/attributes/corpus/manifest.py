@@ -11,6 +11,10 @@ The manifest mirrors MAVI's own evidence identity rather than inventing one:
   ``late-diverse``), evidence rank, byte size and SHA-256 — the same fields the S2b
   attribute lease carries (``LeaseObservation``).
 
+A source may also carry ``provenance`` (``provenance.py``): its origin (public, private,
+commissioned or owner-captured), its approved purposes, its acquisition receipt and its
+earlier exposures. Frozen-test eligibility is decided from that record alone (C+).
+
 The whole corpus carries one raw-evidence pin (vision pipeline profile SHA-256, Evidence
 Set selector and scorer versions). Mixing crops produced under different pins is
 refused: a selector or profile change re-derives the affected crops (S2c plan §10.2).
@@ -32,6 +36,7 @@ from .canonical import (
     require_token,
     require_uuid,
 )
+from .provenance import frozen_blockers, parse_provenance
 
 CORPUS_SCHEMA = "mavi-attribute-corpus-manifest-v1"
 CORPUS_KINDS = ("operational", "synthetic-fixture")
@@ -66,6 +71,7 @@ class Source:
     frame_width: int | None
     frame_height: int | None
     source_class: str
+    provenance: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +139,7 @@ def parse_corpus(document: dict) -> CorpusManifest:
     for entry in document["sources"]:
         scode = f"{code}:source"
         require(isinstance(entry, dict), scode)
-        require_keys(entry, scode, ("sourceId", "siteId", "cameraId", "processingRunId", "videoAssetId", "recordingDate", "conditions"))
+        require_keys(entry, scode, ("sourceId", "siteId", "cameraId", "processingRunId", "videoAssetId", "recordingDate", "conditions"), ("provenance",))
         source_id = require_pseudonym(entry["sourceId"], scode)
         require(source_id not in sources, f"corpus_duplicate_source:{source_id}")
         conditions = entry["conditions"]
@@ -154,6 +160,7 @@ def parse_corpus(document: dict) -> CorpusManifest:
             frame_width=_optional_dimension(conditions["frameWidth"], f"{scode}:frame"),
             frame_height=_optional_dimension(conditions["frameHeight"], f"{scode}:frame"),
             source_class=conditions["sourceClass"],
+            provenance=parse_provenance(entry["provenance"], f"{scode}:provenance") if "provenance" in entry else None,
         )
     site_of_camera: dict[str, str] = {}
     for source in sources.values():
@@ -224,4 +231,21 @@ def revise_corpus(previous: CorpusManifest, document: dict) -> CorpusManifest:
     require(document.get("corpusId") == previous.corpus_id, "corpus_revision_id_changed")
     revised = parse_corpus(document)
     require(revised.sha256 != previous.sha256, "corpus_revision_identical")
+    # Exposure history is append-only. A source carried into the revision (matched by its
+    # sourceId or, if renamed, by its VideoAsset) keeps its origin and every recorded exposure,
+    # so it cannot be laundered into the frozen test. A source whose provenance was undeclared
+    # has an unknown history, so declaring it in a revision can never make it frozen-eligible.
+    previous_by_video = {s.video_asset_id: s for s in previous.sources.values() if s.video_asset_id is not None}
+    for after in revised.sources.values():
+        before = previous.sources.get(after.source_id)
+        if before is None and after.video_asset_id is not None:
+            before = previous_by_video.get(after.video_asset_id)
+        if before is None:
+            continue
+        if before.provenance is None:
+            require(after.provenance is None or bool(frozen_blockers(after.provenance, revised.corpus_kind)), f"corpus_revision_undeclared_source_made_frozen_eligible:{after.source_id}")
+            continue
+        require(after.provenance is not None and after.provenance["origin"] == before.provenance["origin"], f"corpus_revision_origin_changed:{after.source_id}")
+        kept = {(e["use"], e["recordSha256"]) for e in after.provenance["priorExposures"]}
+        require(kept >= {(e["use"], e["recordSha256"]) for e in before.provenance["priorExposures"]}, f"corpus_revision_exposure_dropped:{after.source_id}")
     return revised

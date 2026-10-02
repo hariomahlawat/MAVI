@@ -47,7 +47,7 @@ from .canonical import (
 )
 from .ledger import Ledger
 from .manifest import CorpusManifest
-from .partition import FROZEN, partition_of
+from .partition import FROZEN, partition_of, track_frozen_blockers
 
 SEAL_SCHEMA = "mavi-attribute-frozen-test-seal-v1"
 PROPER_BEFORE_S5 = ("integrity-verify", "custody-transfer")
@@ -86,6 +86,10 @@ def build_seal(
     require(all(r["partition"] != FROZEN for r in evaluation_ground_truth["rows"]), "seal_evaluation_view_contains_frozen_rows")
     members = frozen_members(corpus, partition)
     require(members, "seal_frozen_partition_empty")
+    # C+: a seal never commits public, unapproved or previously exposed footage, whatever
+    # the partition manifest says.
+    ineligible = [m["trackId"] for m in members if track_frozen_blockers(corpus, m["trackId"])]
+    require(not ineligible, f"seal_frozen_tracks_not_eligible:{len(ineligible)}")
     labelled = {r["trackId"] for r in frozen_ground_truth["rows"]}
     unlabelled = [m["trackId"] for m in members if m["trackId"] not in labelled]
     require(not unlabelled, f"seal_frozen_tracks_unlabelled:{len(unlabelled)}")

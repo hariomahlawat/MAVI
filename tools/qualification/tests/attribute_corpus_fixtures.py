@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import date, timedelta
 
@@ -22,6 +23,12 @@ def sha(*parts: object) -> str:
     return hashlib.sha256("/".join(map(str, parts)).encode()).hexdigest()
 
 
+# Protected footage approved for the frozen test and every non-frozen partition (C+).
+PROTECTED_PROVENANCE = {"origin": "owner-captured", "approvedPurposes": ["frozen-qualification", "selection", "training", "tuning"],
+                        "acquisitionReceiptSha256": None, "priorExposures": []}
+AUTO = object()
+
+
 def build_corpus(
     sites: int = 3,
     cameras_per_site: int = 3,
@@ -29,8 +36,15 @@ def build_corpus(
     tracks_per_source: int = 4,
     start: date = date(2026, 3, 2),
     kind: str = "synthetic-fixture",
+    provenance=AUTO,
 ) -> dict:
-    """A corpus with one source per (site, camera, day); each Track has two crops."""
+    """A corpus with one source per (site, camera, day); each Track has two crops.
+
+    ``provenance`` is copied onto every source. By default an operational corpus declares
+    protected owner-captured footage (so it may be frozen) and a synthetic fixture declares
+    none (its pre-C+ shape); pass a dict, or None for no provenance."""
+    if provenance is AUTO:
+        provenance = PROTECTED_PROVENANCE if kind == "operational" else None
     sources, tracks = [], []
     for site in range(sites):
         for camera in range(cameras_per_site):
@@ -51,6 +65,7 @@ def build_corpus(
                             "frameHeight": 1080,
                             "sourceClass": "h264-recorded",
                         },
+                        **({} if provenance is None else {"provenance": json.loads(json.dumps(provenance))}),
                     }
                 )
                 for index in range(tracks_per_source):

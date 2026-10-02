@@ -4,7 +4,7 @@ A small helper that discovers, admits and retains **individual public video file
 
 **Current policy (2026-10-02):** ADR-015 and owner-decision record §8 adopt **C+ — Public-first development, protected final qualification**. Public origin alone does not imply `REFERENCE_ONLY`: purpose-cleared public material is actively used for training/fine-tuning, training-only calibration fitting, development/tuning, component/base-model/attribute evaluation, selection with contamination/domain caveats, benchmarks, hard negatives/rare cases, failure analysis, regression/challenge, decoder/tracker/adapter tests and vocabulary work. No public source enters final frozen qualification.
 
-**Policy is not implemented state.** `DESCRIBED`, `REVIEWED`, `ROLE_ELIGIBLE`, `RIGHTS/PRIVACY_CLEARED`, `ACQUIRED` and `PARTITIONED` are separate policy facts; this amendment adds no enum or transition and does not equate them to `ADMISSIBLE`/`FROZEN_QUALIFICATION`. The state table and `ADMITTED_FOR_PILOT` gates below describe the unchanged helper. In particular, it does not download `REFERENCE_ONLY` files. An additional approved engineering purpose must preserve the original B0 decision and use a separately reviewed acquisition path; do not relabel a file to bypass the gate. Current capture/freshness requirements for this helper are not a universal restriction on other public development workflows.
+**Policy is not implemented state.** `DESCRIBED`, `REVIEWED`, `ROLE_ELIGIBLE`, `RIGHTS/PRIVACY_CLEARED`, `ACQUIRED` and `PARTITIONED` are separate policy facts; this amendment adds no enum or transition and does not equate them to `ADMISSIBLE`/`FROZEN_QUALIFICATION`. The state table and `ADMITTED_FOR_PILOT` gates below are unchanged. A `REFERENCE_ONLY` (or any other) file is downloaded for another engineering purpose only through a separate purpose approval (below), which preserves the original B0 decision; do not relabel a file to bypass the gate. Current capture/freshness requirements for this helper are not a universal restriction on other public development workflows.
 
 **Closed campaign:** B0 S1 remains closed with 63/63 reviewed, 38 `REJECT_OPERATIONAL_QUALIFICATION`, 15 `REFERENCE_ONLY`, 10 `REJECTED`, 0 operationally admissible seconds. New discovery requires a new purpose-specific declaration for explicit engineering needs; it is not another S1 attempt. Recommended 20–30 reviews/5–10 acquisitions are workload bounds, not implemented wrapper limits, adequacy thresholds or permission. Screen terms early; detailed R-5/rights/privacy review follows usefulness and precedes acquisition/processing/use requiring clearance. ShareAlike alone is not disqualifying. No runtime/tool behavior changes in this documentation amendment.
 
@@ -21,7 +21,7 @@ It never:
 - reads candidate output;
 - runs a model.
 
-Acquired files are **candidate source material**. Before any of it can become qualification corpus material, it must pass through the real MAVI ingestion → detector → tracker → Evidence Set path, followed by the S2c corpus tooling in `tools/qualification/attributes/corpus/`. This package imports nothing from that path except `canonical_json`/`sha256_hex` and the pseudonym check. A test also asserts that the corpus package has no network imports.
+Acquired files are **candidate source material**. Before any of it can become qualification corpus material, it must pass through the real MAVI ingestion → detector → tracker → Evidence Set path, followed by the S2c corpus tooling in `tools/qualification/attributes/corpus/`. This package imports nothing from that path except `canonical_json`/`sha256_hex`, the pseudonym check and the shared origin/purpose vocabulary (`attributes/corpus/provenance.py`). A test also asserts that the corpus package has no network imports.
 
 ## States
 
@@ -50,6 +50,33 @@ Rules that apply to every item:
 - The licence is taken from the **file's own** description page (`extmetadata`). It is never taken from the site's text licence or from a category.
 - The licence class (`OPEN`/`RESTRICTED`/`UNKNOWN`) is a machine pre-classification. It is not a legal determination.
 - Continuous video needs Commons `mediatype` `VIDEO` **and** either a video MIME (`video/webm`, `video/ogg`, `video/mpeg`, `video/mp4`) or the Ogg container MIME `application/ogg` on a `.ogv`/`.ogg` file (any letter case) with a positive integer width and height. Commons labels every Ogg container `application/ogg`, whether it holds Theora video or only Vorbis/Opus audio, so that MIME alone proves nothing either way. No other `application/*` MIME is accepted.
+
+## Purpose approvals (owner decision C+)
+
+A purpose approval lets one exact public file revision be acquired for named engineering purposes (ADR-015 §1). It is a separate record (`mavi-s2c-source-purpose-approvals-v1`, passed with `acquire --purpose-approvals`). It **never changes the B0 decision or admission state**: a `REFERENCE_ONLY` file stays `REFERENCE_ONLY`, and a file with no B0 decision gets none.
+
+Review effort sits in reusable **determinations**. One determination records the rights review, the privacy review and, where needed, R-5's ruling for a release or a homogeneous set of files. It also bounds the purposes and licence codes it covers. Each file entry then binds only its identity, its purposes, the determination it relies on and its B0 decision. One `approvedBy`/`approvedOn` signs the whole document.
+
+```json
+{"schemaVersion": "mavi-s2c-source-purpose-approvals-v1", "approvedBy": "…", "approvedOn": "YYYY-MM-DD",
+ "determinations": [{"determinationId": "commons-cc-street-2026", "reviewedOn": "YYYY-MM-DD",
+   "purposes": ["reference", "regression-challenge", "training"], "licenceCodes": ["cc-by-4.0", "cc-by-sa-4.0"],
+   "rights": {"reviewedBy": "…", "determination": "PERMITTED_FOR_ENGINEERING_USE", "evidence": "…"},
+   "privacy": {"reviewedBy": "…", "basis": "…"},
+   "r5Ruling": {"ruledBy": "…", "ruling": "PERMITTED", "reference": "…"}}],
+ "approvals": [{"fileTitle": "File:…", "pageRevisionId": 0, "fileSha1": "…", "purposes": ["training"],
+   "determinationId": "commons-cc-street-2026", "b0Decision": null}]}
+```
+
+- Purposes, sorted: `benchmarking`, `development`, `reference`, `regression-challenge`, `selection`, `training`, `tuning`. `frozen-qualification` is **refused** for any public file. A malformed document is refused whole.
+- A file is `APPROVED` only with no blockers:
+  - the entry binds the re-fetched revision and SHA-1;
+  - the determination covers the entry's purposes and the file's licence code, and has rights and privacy reviews;
+  - share-alike or unrecognised licence codes also need R-5's `PERMITTED` ruling;
+  - the file is continuous video with a named author and a licence code, and that licence is not NC/ND.
+- `b0Decision` is the file's B0 decision (`null` if none). A supplied decision that differs is refused. For `REJECTED`, the entry also needs a named `b0RejectionReview` with `rightsOrPrivacyRejection: false` and a basis. A rights or privacy rejection is never bypassed (ADR-015 §2), and omitting `--decisions` does not skip the check.
+- Receipt v2 (`mavi-s2c-source-admission-receipt-v2`) adds `sourceOrigin` (`public`), `purposeApproval` and `acquisitionBases` (`ADMITTED_FOR_PILOT`, `PURPOSE_APPROVAL`). `purposeApproval` records the purposes, the declared B0 decision, the approval and determination SHA-256s, the status and the blockers. Bytes are retained only when a basis exists, and the admission fields are unchanged.
+- A corpus source made from the file records `provenance.origin = "public"`, its approved purposes and the receipt SHA-256 (`attributes/corpus/README.md` §3.1).
 
 ## Time fields are separate
 
@@ -87,7 +114,7 @@ The helper refuses any store inside a Git worktree.
 <store>/discovery/decisions-template-<sha16>.json      human decisions template (null review fields)
 <store>/evidence/<sha256>.json                         canonical provider metadata responses
 <store>/receipts/<sha256>.json                         canonical admission receipts
-<store>/media/commons/<pageId>/<sha1>/<safe name>      original files (admitted only)
+<store>/media/commons/<pageId>/<sha1>/<safe name>      original files (admitted or purpose-approved only)
 <store>/source-acquisition-summary.json                last acquire run
 ```
 
@@ -99,7 +126,7 @@ Records are canonical JSON: sorted keys, ASCII, LF, and no NaN. Receipts contain
 python tools/qualification/source_acquisition_cli.py discover --store <store> --contact <email-or-url> --search "traffic India 2026" --limit 60
 python tools/qualification/source_acquisition_cli.py discover --store <store> --contact <email-or-url> --category "Category:Videos of streets in India"
 #   -> reviewers complete discovery/decisions-template-*.json (only for files they have actually reviewed)
-python tools/qualification/source_acquisition_cli.py acquire  --store <store> --contact <email-or-url> --decisions <completed decisions>
+python tools/qualification/source_acquisition_cli.py acquire  --store <store> --contact <email-or-url> --decisions <completed decisions> [--purpose-approvals <approvals>]
 python tools/qualification/source_acquisition_cli.py verify   --store <store>
 ```
 
