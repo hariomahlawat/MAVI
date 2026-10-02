@@ -60,6 +60,19 @@ Licence lines were checked on official pages on 2026-10-02. "Among the sources r
 | 2 (vehicle) | **VeRi-776** | the release received by e-mail, pinned at receipt (archive SHA-256 and the native colour table) | "used for non-commercial purposes" (vehiclereid.github.io/VeRi) | Owner request with the scope of use; R-5 item 3 |
 | optional | **MEVA**, at most 6 static ground-camera clips | a list of S3 object keys and SHA-256s, pinned before any download | "All MEVA data is available for use under a CC BY-4.0 license" (mevadata.org) | Attribution only |
 
+**PA-100K pinned** (step 1, 2026-10-02; files in the controlled source-media store, release record `pa-100k-2017`, SHA-256 `fa8cc479098993582ae3f0adf5292d46cc1749f08901aa096a3d81a8df25e6e7`, with `determination: null` until R-5 decides):
+
+| File | Bytes | SHA-256 |
+|---|---|---|
+| `README.txt` | 794 | `c2f4b84c3ab0c1450cfc2c96be5c46c37d19a1f7c4012539acba6fb7d9b6e794` |
+| `annotation.zip` | 338,633 | `64411ff2fc1c44b4d77b9da7b6da51d2f67f6af004b7927efbebe34b526cb3e9` |
+| `data.zip` | 450,818,381 | `ded122754063d30c06f9c2a407c189130a9034fecde353fd1cd12e4c499b889b` |
+| licence statement (HydraPlus-Net `README.md` @ `2b056d36d670d8760c1caea65802534703c1379f`) | 7,686 | `cadf4987a4ddc54d247a39f1856441d8e514a3d7824aacb3a65da0d24968235e` |
+
+- **Source:** the official Google Drive folder `0B5_Ra3JsEOyOUlhKM0VPZ1ZWR2M`, linked from that README.
+- **`annotation.zip`:** contains `annotation.mat` (579,061 bytes, SHA-256 `2838933c41ba1ca8a76284f47ef671dc4c61d1326fb5899ddac915a1917e96d3`). It is a **MATLAB 5.0 MAT-file**: little-endian, created 2017-07-26. Its variables are `train_images_name`, `val_images_name`, `test_images_name`, `train_label`, `val_label`, `test_label` (n × 26) and `attributes` (26 × 1). The adapter reads it with `scipy.io.loadmat`, under the `scipy` pin.
+- **`data.zip`:** stored without compression, with exactly 100,000 members named `release_data/release_data/NNNNNN.jpg`. These are UPAR's keys without its `PA100k/` prefix.
+
 **UPAR format** (probed at the pinned revision; probe files deleted; summary retained here):
 - **Header and rows:** UTF-8 CSV. The header line is `# image,` followed by 40 attribute names. Each row is `PA100k/release_data/release_data/NNNNNN.jpg` (or a Market1501 or PETA path) followed by 40 integers in {0,1}.
 - **Colour columns:** 12 per region, `{Upper,Lower}Body-Color-{Black,Blue,Brown,Green,Grey,Orange,Pink,Purple,Red,White,Yellow,Other}`. Bags and hat are `Accessory-Backpack`, `Accessory-Bag` and `Accessory-Hat`.
@@ -172,7 +185,7 @@ New package `tools/qualification/attributes/datasets/`, using the standard libra
 | Release | `mavi-attribute-dataset-release-v1` | store | §3.1 |
 | Label mapping | `mavi-attribute-label-mapping-v1` | Git (`attributes/datasets/data/mappings/`) | per source label → `value`, `source-binary` (positive or negative under source semantics), `unscorable:<reason>`, `merged:<set>`, `unsupported` or `unmapped`; plus `coverage` notes (what a MAVI attribute's definition includes that the source does not) |
 | Still dataset | `mavi-attribute-still-dataset-v1` | store | release and mapping hashes; per sample: `sampleId` (image SHA-256), `releaseId`, member path, `sourceSplit`, `group {id, kind: authentic \| synthetic-allocation}`, `role`, and per attribute `{truth: present \| missing, outcome, value, semantics: source-native \| proxy, labelReleaseId}`; the dedup report hash |
-| Component result | `mavi-attribute-component-result-v1` | store | §8 |
+| Component result | `mavi-attribute-component-result-v1` | store | §8, including the evidence binding (not implemented yet) |
 
 **Adapter seam:** `adapters/<source>.py` yields neutral rows (`memberPath`, `sourceSplit`, `group`, `labels {sourceLabel: int}`). PA-100K and UPAR share this seam, and VeRi uses it later.
 
@@ -264,6 +277,15 @@ Each result reports, per attribute and role:
 
 For binary source labels, precision, recall and F1 are reported **as source-native**. Negatives are source zeros, not MAVI `absent`. No result is named MAVI operational accuracy or F1, and no full bag or headwear coverage is claimed.
 
+**Only real predictions get confusion and F1.** In this slice that means colour, from the probe. Backpack, bag and headwear get support, prevalence and the missing, unsupported and unscorable counts only, until a real per-sample presence predictor exists. `dataset-prevalence-diagnostic-v1` is never treated as a predictor.
+
+**Evidence binding (a hard contract for the result schema; not implemented yet).** Every component result must carry:
+- the exact still-dataset manifest SHA-256. From it, the release records, mapping tables, roles and dedup report are recovered transitively;
+- the method identity, which is its configuration SHA-256 (for example the colour-probe configuration);
+- the executing code identity: the Git commit, a local-changes flag, and module hashes, as `review_inventory` already records.
+
+A result without all three is refused.
+
 ## 9. Implementation sequence
 
 | # | Step | Tests first (each kills a plausible mutant) | Done when |
@@ -272,7 +294,7 @@ For binary source labels, precision, recall and F1 are reported **as source-nati
 | 2 | Release verification and authorisation: shared `determination_blockers`, `authorise_release_use`, `artefact_disposition` | empty rights; empty privacy; denied rights or privacy; purpose not covered; licence not covered; missing R-5 for NC-SA or bespoke terms; excluded member; purpose allowed but a required operation `not-granted` → blocked; purpose allowed but an operation `not-stated`/`pending-r5` → blocked as pending R-5; an evaluation purpose with only `evaluate` granted → permitted; `training` without `train` granted → blocked; a valid purpose with every required operation granted → permitted; a valid release determination reused across all members; Commons tests unchanged | §3 enforced |
 | 3 | PA-100K and UPAR adapters behind the neutral row seam | synthetic rows in the real formats; the UPAR `task1` header is required; the misaligned top-level CSV is refused; unknown labels refused | — |
 | 4 | Person still manifest | official splits preserved; benchmark never in training or selection; group `kind` recorded; exact duplicates: training vs benchmark, vs selection and vs development (the training copy is removed), selection vs benchmark (the benchmark copy is kept), development vs selection with no benchmark copy → refused; near duplicates: colour-distinct images with an identical dHash are reported and never removed, a known Hamming-near pair is found, a Hamming-far pair is not returned, cross-role pairs come first, the bounded ordering is deterministic, a degenerate bucket is capped, and `pigeonhole_pairs` keeps the corpus duplicate tests green (no all-pairs path); role→purpose refusal; per-attribute label lineage; no frozen role; byte-identical rerun; a deterministic smoke subset (seeded 2,000 images) | manifest built |
-| 5 | First person results: support and prevalence, source-native and proxy confusion, missing, unsupported and unscorable counts, colour probe output | hand-computed fixtures; denominators include abstentions; proxy and source labels kept apart; probe output reproduced from its configuration file alone; changing one centre changes the method identity; pixel and winner ties follow schema order; each abstention reason is triggered | smoke result, then a full benchmark-role result |
+| 5 | First person results: support and prevalence for every attribute; source-native and proxy confusion for colour only (probe predictions); missing, unsupported and unscorable counts; the evidence binding of §8 | hand-computed fixtures; denominators include abstentions; proxy and source labels kept apart; probe output reproduced from its configuration file alone; changing one centre changes the method identity; pixel and winner ties follow schema order; each abstention reason is triggered | smoke result, then a full benchmark-role result |
 | 6 | VeRi vertical, after access is granted and its native colour table is verified | VeRi ID groups never span roles; the full published test set is the benchmark; gray merged for evaluation only | VeRi result |
 | 7 | Optional MEVA step | below | smoke run, or a recorded skip |
 

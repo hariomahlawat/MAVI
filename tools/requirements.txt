@@ -1,2 +1,5 @@
 # Repository verification dependencies; not part of the MAVI Vision runtime.
 jsonschema[format-nongpl]>=4.23,<5
+# Qualification tooling: scipy.io.loadmat reads the PA-100K MATLAB 5.0 annotation file. Same pin as
+# the vision-runtime extra, so the two environments never resolve different SciPy versions.
+scipy==1.18.1

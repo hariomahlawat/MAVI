@@ -50,7 +50,7 @@ def determination(**over) -> dict:
         "purposes": ["benchmarking", "development", "reference", "regression-challenge", "training"],
         "licenceCodes": ["cc-by-4.0", "cc-by-nc-sa-4.0", "cc-by-sa-3.0-nl", "cc-by-sa-4.0"],
         "rights": {"reviewedBy": "Hari Om Ahlawat", "determination": "PERMITTED_FOR_ENGINEERING_USE", "evidence": "file-page licences; internal processing only"},
-        "privacy": {"reviewedBy": "Hari Om Ahlawat", "basis": "street scenes; no identity processing; pseudonymous crops"},
+        "privacy": {"reviewedBy": "Hari Om Ahlawat", "disposition": "PERMITTED", "basis": "street scenes; no identity processing; pseudonymous crops"},
         "r5Ruling": {"ruledBy": "R-5", "ruling": "PERMITTED", "reference": "R-5 ruling 2026-10-03 #1 (CC BY-SA internal adaptation)"},
     }
     record.update(over)
@@ -161,7 +161,8 @@ def test_public_files_can_never_be_approved_for_frozen_qualification(store, tmp_
 @pytest.mark.parametrize("det,over,blocker", [
     ({"r5Ruling": None}, {}, "r5-ruling-missing"),
     ({"rights": {"reviewedBy": "x", "determination": "PERMITTED_FOR_PILOT_ACQUISITION", "evidence": "e"}}, {}, "rights-determination-missing"),
-    ({"privacy": {}}, {}, "privacy-determination-missing"),
+    ({"privacy": {"disposition": "PERMITTED"}}, {}, "privacy-determination-missing"),
+    ({"privacy": {"reviewedBy": "Hari Om Ahlawat", "disposition": "DENIED", "basis": "close-range faces"}}, {}, "privacy-denied"),
     ({"purposes": ["benchmarking"]}, {}, "purpose-not-covered-by-determination"),
     ({"licenceCodes": ["cc-by-4.0"]}, {}, "licence-not-covered-by-determination"),
     ({}, {"pageRevisionId": 776}, "approved-revision-differs-from-current"),
