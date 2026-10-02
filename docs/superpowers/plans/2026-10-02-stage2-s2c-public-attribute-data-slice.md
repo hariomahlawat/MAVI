@@ -1,237 +1,296 @@
 # Stage 2 S2c — public-data slice for person attributes and vehicle colour (C+)
 
-> **For agentic workers:** implement slice by slice with tests first. This plan authorizes no training, no frozen-qualification work and no change to B0 records.
+> **For agentic workers:** implement vertical by vertical, with tests first. This plan authorizes no training, no candidate-model execution, no frozen-qualification work and no change to B0 records.
 
-**Status:** plan for review.
+**Status:** plan, amended after review (rev 2).
 **Date:** 2026-10-02.
-**Starting baseline:** `main@6eb85597136c77d3cdbaf607832d24d0430340c8`, which includes #137 (ADR-015, C+), #138 (purpose-aware acquisition and frozen eligibility) and #139 (operating principles).
-**Governing:** ADR-015; parent plan `2026-09-28-stage2-s2c-learned-attribute-model-packs.md` (§6 tasks, §9 evaluation, §12 packs); candidate attribute task `tools/qualification/attributes/corpus/data/attribute-task-v1-candidate.json`; annotation guide `docs/qualification/stage2-s2c/annotation-guide.md`.
-**Goal:** import the first public data for the six attributes, with release-level clearance, explicit label mapping and split integrity, and run a baseline component evaluation. Video is an optional, small track-level step. Gaps are measured, not guessed.
-**Attributes:** `person-upper-colour`, `person-lower-colour`, `person-backpack`, `person-bag`, `person-headwear`, `vehicle-colour`.
+**Starting baseline:** `main@6eb85597136c77d3cdbaf607832d24d0430340c8`, which includes:
+- #137, ADR-015 (C+);
+- #138, purpose-aware acquisition and frozen eligibility;
+- #139, operating principles.
+
+**Governing:**
+- ADR-015;
+- parent plan `2026-09-28-stage2-s2c-learned-attribute-model-packs.md`: §6 tasks; §9.3 licence classes; §9.5 baselines; §12 packs; owner constraint A, under which MAVI is non-commercial;
+- MSR method `docs/qualification/model-selection/README.md` §2.1 and §5, the rights inventory per declared profile and delivery route;
+- the candidate attribute task `tools/qualification/attributes/corpus/data/attribute-task-v1-candidate.json`;
+- the annotation guide.
+
+**Goal:** a first reproducible person-attribute component measurement from public data, through a verified release, explicit intended-use authorisation, explicit label mapping and honest metrics. VeRi-776 is the second vertical; MEVA is optional. Gaps are measured, not guessed.
+
 **Evidence levels, kept separate:**
-- **component:** labelled stills and crops;
+- **component:** labelled stills;
 - **track:** aggregation over MAVI Tracks;
-- **end-to-end:** original video → VideoAsset → detector/tracker → Evidence Sets → attributes.
+- **end-to-end:** original video through MAVI.
 
 Still images never stand in for track-level or end-to-end evidence (ADR-015 §1).
 
 ---
 
-## 1. What exists and what is missing
+## 1. Baseline facts (checked against code at `6eb85597`)
 
 **Reused as is:**
-- the attribute vocabulary (task v1 candidate):
-  - upper/lower colour: 11 values plus a conditional `multicolour`;
-  - vehicle colour: 11 values, including `beige` and `silver`, plus `multicolour`;
-  - presence attributes are `absent`/`present`, with `person-headwear` conditional;
-  - the seven `unscorableReasons`;
-- C+ provenance (`attributes/corpus/provenance.py`: origins, purposes, `frozen_blockers`);
-- the determination shape from #138 (`admission._determination`: purposes, licence codes, rights, privacy, R-5 ruling);
-- `canonical.py` (canonical JSON and hashing helpers);
-- `duplicates.dhash64` / `find_pairs`;
-- the corpus manifest and annotation tooling, for the optional video step only.
+- **Attribute vocabulary.**
+  - Upper/lower colour: 11 values plus a conditional `multicolour`.
+  - Vehicle colour: 11 values including `beige` and `silver`, plus `multicolour`; `grey+silver` is a `valueMergeCandidate`.
+  - Presence attributes are `absent`/`present`; `person-headwear` is conditional.
+  - Seven `unscorableReasons`.
+- **C+ provenance:** origins, purposes, `PARTITION_PURPOSES`, `frozen_blockers`.
+- **Canonical hashing helpers.**
 
-**Missing, and built here:**
-- an external dataset release record;
-- a still-image dataset manifest (the "separate source/training manifest" of ADR-015 §1);
-- label-mapping tables;
-- source adapters;
-- a component benchmark runner with MAVI's deterministic colour baselines.
+**What the code actually does, and how this plan treats it:**
 
-There is no OMZ, SigLIP or DINOv2 adapter, and none is added: candidate runtimes need the separate S2c.3 evaluation environment.
+| Fact in code | Consequence here |
+|---|---|
+| `admission._determination` checks **structure only**. It accepts empty `rights`/`privacy` dicts and a null `r5Ruling`. Authorisation semantics live in `purpose_approval_blockers`, mixed with Commons video and revision checks | Parsing is never treated as authorisation (§3) |
+| `duplicates.find_pairs` and the duplicate audit are tied to `CorpusManifest`. `dhash64` works on greyscale: solid red, green, blue and white all hash to `0` (verified locally) | Reuse only `dhash64`/`hamming`, and only as a screening signal (§6) |
+| PC-B0/VC-B0 are defined in prose only (parent §9.5: region band, dominant chroma cluster, CIE-Lab naming; confidence is the share of pixels). No geometry, palette or implementation exists | This slice does **not** implement them (§7) |
+| PO-B0 is a per-camera training-prevalence reference with a global prior | PA-100K has no camera grouping, so no PO-B0 here (§7) |
+| No external-dataset importer, still-image manifest, crop-evaluation harness, or OMZ/SigLIP/DINOv2 adapter exists | Built here, except candidate adapters, which wait for the S2c.3 environment |
+| MAVI is non-commercial. Licence fitness is judged per **declared deployment profile and delivery route**, by a human (parent §9.3; MSR §2.1) | Disposition is per artefact and route, with R-5 interpreting (§3.3) |
 
-**Constraints:**
-- The corpus manifest (`mavi-attribute-corpus-manifest-v1`) is **not** extended to stills. It stays MAVI Track evidence.
-- The Commons helper stays Commons-only.
+## 2. Sources and pinned releases
 
-## 2. First sources (smallest useful batch)
+Licence lines were checked on official pages on 2026-10-02. "Among the sources reviewed" applies to every comparison; this was a bounded survey, not proof that nothing better exists.
 
-Licence statements were checked against official pages on 2026-10-02.
+| Vertical | Source | Pinned identity | Licence (official text) | Notes |
+|---|---|---|---|---|
+| 1 (person) | **PA-100K** images and the 26 native binary labels | the dataset linked from `github.com/xh-liu/HydraPlus-Net` README; image files `release_data/NNNNNN.jpg`; official split by index: 000001–080000 train, 080001–090000 val, 090001–100000 test | "under CC-BY 4.0 license" (README; line added 2021) | Camera rights and consent are undocumented, which is R-5 item 1. **The annotation-file format is unverified until the archive is in hand** (step 1) |
+| 1 (person) | **UPAR** colour labels, PA-100K rows only | `github.com/speckean/UPAR-Challenge-2027` @ `a19ab2fb6470140606d3c1982c303937b58fbd14` (2026-09-21); files `data/annotations/task1/train/gt.csv` (SHA-256 `31ba2922558da52411a8ea25de3962a3b0b1d253af23566c16503a04e09ecef7`) and `data/annotations/task1/val/gt.csv` (SHA-256 `783be600e359052c9dafe856cbfa2aee45bbd4e3eac10309394e2388bcf7c2bc`) | annotations "CC BY-NC-SA 3.0" (DE); "source image datasets retain their respective licenses" | Format summary below; R-5 item 2 |
+| 2 (vehicle) | **VeRi-776** | the release received by e-mail, pinned at receipt (archive SHA-256 and the native colour table) | "used for non-commercial purposes" (vehiclereid.github.io/VeRi) | Owner request with the scope of use; R-5 item 3 |
+| optional | **MEVA**, at most 6 static ground-camera clips | a list of S3 object keys and SHA-256s, pinned before any download | "All MEVA data is available for use under a CC BY-4.0 license" (mevadata.org) | Attribution only |
 
-| Role | Source | Why first | Licence (official) | Use in this slice | `derivedArtefacts` |
-|---|---|---|---|---|---|
-| Person: images, backpack/bag/hat labels | **PA-100K** (100k surveillance crops, 598 scenes; 80k/10k/10k split by tracklet) | The only large pedestrian-attribute set with an explicit permissive licence. It labels backpack, handbag, shoulder bag and hat directly | **CC BY 4.0** (HydraPlus-Net README; line added 2021; camera rights and consent undocumented) | training, development, selection, benchmarking, regression | `packageable` only if R-5 accepts the provenance caveat; otherwise `internal-only` |
-| Person: clothing-colour labels | **UPAR** annotations, PA-100K images only (12 per-image colour flags per region: 11 colours plus `Other`) | The only per-image colour labels on PA-100K. Its 11 colours equal MAVI's 11 exactly | **CC BY-NC-SA 3.0 DE** for the annotations; images keep their own licence (UPAR-Challenge-2027 README) | development, selection, benchmarking, regression; training only for internal experiments | `internal-only` |
-| Vehicle colour | **VeRi-776** (about 50k images, 776 vehicles, 20 fixed urban CCTV cameras over 24 h; identity-disjoint split) | Fixed CCTV, a real colour vocabulary, identity groups, obtainable by request | "used for non-commercial purposes" (request by e-mail to the VeRi contact) | training, development, selection, benchmarking, regression | `internal-only` |
-| Optional track-level | **MEVA**, at most 6 static ground-camera clips | Clear licence, documented consent and ethics approval, fixed cameras, pedestrians and vehicles, continuous video | **CC BY 4.0** (mevadata.org); AWS S3 | track-level development and regression only; MAVI labels the tracks | `packageable` |
+**UPAR format** (probed at the pinned revision; probe files deleted; summary retained here):
+- **Header and rows:** UTF-8 CSV. The header line is `# image,` followed by 40 attribute names. Each row is `PA100k/release_data/release_data/NNNNNN.jpg` (or a Market1501 or PETA path) followed by 40 integers in {0,1}.
+- **Colour columns:** 12 per region, `{Upper,Lower}Body-Color-{Black,Blue,Brown,Green,Grey,Orange,Pink,Purple,Red,White,Yellow,Other}`. Bags and hat are `Accessory-Backpack`, `Accessory-Bag` and `Accessory-Hat`.
+- **Use only `task1/*/gt.csv`.** The top-level `data/annotations/train.csv` header lacks the `image` column (40 names over 41 cells).
+- **PA-100K coverage:**
+  - `task1/train/gt.csv` covers **79,001 of the 80,000 official train images**;
+  - `task1/val/gt.csv` covers **9,986 of the 10,000 official test images**;
+  - **no official PA-100K val image has UPAR truth**.
+- **Encoding:** every PA-100K row has at least one positive colour per region; UPAR removed images with unknown colour. Multiple positives: upper 177, lower 49 (train); upper 18, lower 9 (test).
+- **Missing truth stays missing.** Images absent from UPAR have no colour label, and none is ever inferred.
 
-**Not first, with reasons:**
-- **PETA:** research-only; its split is not identity-disjoint; it includes withdrawn sources.
-- **RAP v1/v2:** signed no-transfer agreement; non-commercial; indoor mall only.
-- **Market-1501 attributes:** no licence; labels are per identity, not per image.
-- **MSP60K and VRAI:** no licence stated.
-- **UFPR-VCR/VeSV:** academic e-mail required; eligibility unconfirmed. Keep as the VeRi alternative.
-- **CompCars, VehicleID, CityFlow:** non-commercial agreements, with unclear colour labels or distribution.
-- **MOT17/20:** licence currently unverifiable; mostly moving cameras.
-- **UA-DETRAC, BDD100K, IDD:** no colour labels, or wrong viewpoint.
-- **Duke- and Oxford-derived sets:** withdrawn.
+**Not selected first, among the sources reviewed:**
+- PETA: research-only; split not identity-disjoint; withdrawn constituents.
+- RAP: no-transfer agreement; indoor mall.
+- Market-1501 attributes: no licence; labels per identity.
+- MSP60K, VRAI: no licence stated.
+- UFPR-VCR/VeSV: academic e-mail eligibility unconfirmed; the VeRi alternative.
+- CompCars, VehicleID, CityFlow: restrictive agreements; unclear colour labels.
+- MOT17/20: licence unverifiable today.
+- UA-DETRAC, BDD100K, IDD: no colour labels, or a moving camera.
+- Duke- and Oxford-derived sets: withdrawn.
 
-**Commercial path:** no clearly licensed vehicle-colour or clothing-colour label set exists. Packageable colour heads therefore need MAVI's own labels, on PA-100K or the CC BY 4.0 UVH-26 Indian CCTV set. This is follow-on work (§11). It is not a reason to delay the internal benchmark.
+## 3. Clearance: structure, authorisation, disposition
 
-**Unresolved rights items. Each blocks only the import that depends on it:**
-1. R-5: PA-100K packageable or internal-only, given the undocumented capture rights. Also a privacy basis for surveillance crops processed internally.
-2. R-5: UPAR NC-SA for internal R&D, and whether share-alike attaches to derived labels or heads (they stay internal-only either way).
-3. Owner: request VeRi-776 by e-mail, and keep the reply as the rights evidence. Ask explicitly about internal model training.
-4. MEVA: attribution notice only; there is no open question.
+### 3.1 Release record (structure)
 
-## 3. Clearance model: reuse #138 determinations
+`mavi-attribute-dataset-release-v1` lives in the controlled store and holds no imagery. Fields:
+- `releaseId`, name and version, `officialUrl`;
+- pinned revision or receipt evidence;
+- `licence {codes, url, textSha256}`;
+- `files [{path, sizeBytes, sha256}]`;
+- `excludedMembers [{path, reason}]`;
+- `determination` (#138 shape, parsed by the shared structural parser);
+- `knownExposure`.
 
-There is one **release record** per downloaded release. A release record embeds one #138-shaped determination: purposes, licence codes, rights, privacy and R-5 ruling. It is validated by the same function, made public as `admission.parse_determination`.
+**Binding rules:**
+- Files are placed by the operator. The importer refuses any file whose size or SHA-256 differs, and any excluded member.
+- There is no network code.
 
-| Bound by SHA-256 | Reused across the release | Per-file treatment |
-|---|---|---|
-| every archive or file obtained (size and SHA-256); the licence text, as retained; the determination; each label-mapping table | rights, privacy, R-5, approved purposes and `derivedArtefacts`, for all members | only exceptions: a member excluded on privacy grounds (listed by sample ID), or a corrupt or duplicate file (recorded by the importer) |
+### 3.2 Intended-use authorisation (separate from parsing)
 
-**Rules, enforced in code:**
-- **No network code.** The operator places release files in the controlled store, and the importer refuses any file whose size or SHA-256 differs from the record.
-- **Restricted licences** (NC/ND or bespoke terms) are accepted for datasets only with an R-5 `PERMITTED` ruling and `derivedArtefacts: internal-only`. The Commons purpose-approval rule is unchanged: NC/ND stays blocked there.
-- **Most restrictive wins.** A dataset manifest joining several releases (PA-100K images with UPAR labels) inherits the most restrictive `derivedArtefacts`. A guard `require_packageable(manifest)` refuses `internal-only` inputs. The future training-manifest and Model Pack `component-provenance` step (S2c.6) must call it; a test pins the guard now.
-- Every release is `origin: public`. `frozen-qualification` is not a dataset role, and the public-origin rule in `provenance.parse_purposes` refuses it again.
+A new shared function, `determination_blockers(determination, licence_code, purposes)`, is factored out of `purpose_approval_blockers`. Both the Commons path and the dataset path call it. Commons video and revision checks stay Commons-only.
 
-## 4. Records and import architecture
+A dataset use is authorised only when `authorise_release_use(release, purposes, member)` returns no blockers. It returns a blocker for each of the following:
+- rights not `PERMITTED_FOR_ENGINEERING_USE`, or with no `reviewedBy`/`evidence` (empty or denied);
+- privacy with no `reviewedBy`/`basis` (empty or denied);
+- the release licence code not in `licenceCodes`;
+- a purpose not covered by `determination.purposes`;
+- an R-5 ruling `PERMITTED` with `ruledBy`/`reference` missing when the licence is share-alike, NC/ND, unrecognised or bespoke terms;
+- an excluded member.
 
-New package `tools/qualification/attributes/datasets/` (standard library, Pillow and the existing canonical helpers). Records live in the controlled store; mapping tables live in Git. No imagery goes in Git.
+For datasets, NC/ND or bespoke terms are acceptable when R-5 rules them `PERMITTED` for the requested purposes. The Commons rule is unchanged: NC/ND stays blocked there.
 
-| Record | Schema | Content |
-|---|---|---|
-| Release | `mavi-attribute-dataset-release-v1` | `releaseId`, name and version, `officialUrl`, `licence {codes, url, textSha256}`, `files [{path, sizeBytes, sha256}]`, `determination`, `derivedArtefacts`, `knownExposure` (for example "PO-7 trained on PA-100K"; widely used in pretraining) |
-| Label mapping | `mavi-attribute-label-mapping-v1` | per source label, a target: `value`, `negative-binary`, `unscorable:<reason>`, `merged:<set>` or `unmapped`. Each table is hash-bound and in Git |
-| Still dataset | `mavi-attribute-still-dataset-v1` | release and mapping hashes; per sample: `sampleId` (image SHA-256), `releaseId`, member path, size, `objectClass`, `group` (vehicle ID; PA-100K index block), `sourceSplit`, `role`, and per attribute `{outcome, value, basis}`; the effective `derivedArtefacts`; the hash of the dedup report |
-| Benchmark result | `mavi-attribute-component-benchmark-v1` | dataset hash, role, method identity, per-attribute confusion, support, coverage and macro-F1, and contamination notes. Evidence level `component` |
+### 3.3 Artefact disposition (lineage, not dataset-wide inheritance)
 
-**Roles:** `training`, `development` (tuning), `selection`, `benchmark` and `regression`.
-- `benchmark` is the published test split, left untouched.
-- `regression` is a named sample list drawn from non-training roles.
+Here "packageable" means a **MAVI engineering disposition for one artefact and one delivery route**. It is not a legal conclusion; R-5 owns interpretation.
 
-**Adapters** each parse one source format into neutral rows: `pa100k.py` (annotation file), `upar.py` (CSV keyed by image path), `veri.py` (label XML with colour ID).
+- **Rights inventory.** Each determination records the rights inventory from MSR §5, for the declared non-commercial profile, as granted / not granted / not stated:
+  - evaluate;
+  - train or fine-tune;
+  - create derivatives;
+  - run operationally;
+  - redistribute weights or derived weights for the delivery route.
+- **Lineage.** An artefact (head, calibration, threshold, output mapping) records its **actual lineage**: the releases whose images or labels its producing step read, per attribute.
+- **Disposition rule.** `artefact_disposition(lineage, profile, route)` returns `CLEARED` only if every release in the lineage grants every right that the artefact's use and route exercise. Otherwise it returns `NOT_COVERED` or `PENDING_R5`. Unresolved rights stay blocked.
+- **Consequences:**
+  - **Evaluation produces results, not artefacts**, so evaluation-only data never enters a training lineage.
+  - **A presence head trained on PA-100K labels has a PA-100K-only lineage**, even though UPAR colour labels sit in the same manifest.
+- **Timing.** This slice implements the function and its tests. Wiring it into training manifests and pack `component-provenance` happens in S2c.6. No Model Pack changes here.
 
-**Builder:**
-1. join the rows;
-2. apply the mappings;
-3. assign roles;
-4. run deduplication;
-5. write the manifest, byte-identical on rerun.
+### 3.4 Role → purpose mapping (explicit, validated)
 
-**CLI:** `attribute_dataset_cli.py`, with the commands `verify-release`, `build`, `verify` and `benchmark`.
+| Manifest role | Required authorised purpose |
+|---|---|
+| `training` | `training` |
+| `development` | `tuning` |
+| `selection` | `selection` |
+| `benchmark` | `benchmarking` |
+| `regression` | `regression-challenge` |
+| diagnostics (support, prevalence, smoke runs) | `development` |
 
-## 5. Label mapping (nothing is silently collapsed)
+The builder refuses a sample when any release supplying that sample's image **or the label used for that attribute** lacks the mapped purpose. There is no frozen role. Public origin is refused for `frozen-qualification` by `provenance.parse_purposes`.
 
-| MAVI attribute | PA-100K | UPAR (PA-100K subset) | VeRi-776 |
+## 4. Records and import seam
+
+New package `tools/qualification/attributes/datasets/`, using the standard library, Pillow and the canonical helpers.
+
+| Record | Schema | Location | Content |
 |---|---|---|---|
-| upper / lower colour | — | `*-Color-{11}` map 1:1. `Other` → `unmapped`, **not** `multicolour`. Several positives → `unscorable:ambiguous` | — |
-| backpack | `Backpack` 1 → `present`; 0 → `negative-binary` | `Accessory-Backpack`, used for cross-checking only | — |
-| bag | `HandBag` OR `ShoulderBag` → `present`; both 0 → `negative-binary`. `HoldObjectsInFront` → `unmapped`, never a bag | `Accessory-Bag`, cross-check only | — |
-| headwear | `Hat` 1 → `present`; 0 → `negative-binary`. Hats only: helmets, hoods and headscarves are uncovered, so negatives are weaker | `Accessory-Hat`, cross-check only | — |
-| vehicle colour | — | — | black, white, red, blue, yellow, green, brown and orange map 1:1; gray → `merged:{grey,silver}` (VeRi has no silver); golden → `unmapped`. There is no beige or multicolour, so recall for those cannot be measured. This colour list comes from secondary sources; step 3 confirms it from the release's own colour list before the table is fixed |
+| Release | `mavi-attribute-dataset-release-v1` | store | §3.1 |
+| Label mapping | `mavi-attribute-label-mapping-v1` | Git (`attributes/datasets/data/mappings/`) | per source label → `value`, `source-binary` (positive or negative under source semantics), `unscorable:<reason>`, `merged:<set>`, `unsupported` or `unmapped`; plus `coverage` notes (what a MAVI attribute's definition includes that the source does not) |
+| Still dataset | `mavi-attribute-still-dataset-v1` | store | release and mapping hashes; per sample: `sampleId` (image SHA-256), `releaseId`, member path, `sourceSplit`, `group {id, kind: authentic \| synthetic-allocation}`, `role`, and per attribute `{truth: present \| missing, outcome, value, semantics: source-native \| proxy, labelReleaseId}`; the dedup report hash |
+| Component result | `mavi-attribute-component-result-v1` | store | §8 |
 
-**`negative-binary` semantics:**
-- A source 0 cannot tell absent from not visible. Metrics therefore report positive-class precision and recall separately and mark negatives as weak.
-- MAVI's ground-truth `absent` semantics are not claimed.
+**Adapter seam:** `adapters/<source>.py` yields neutral rows (`memberPath`, `sourceSplit`, `group`, `labels {sourceLabel: int}`). PA-100K and UPAR share this seam, and VeRi uses it later.
 
-**Merged values:** scoring for a merged value uses the coarse vocabulary (grey or silver), matching the task's `valueMergeCandidates`.
+**Builder steps:**
+1. join on the exact image path, then verify the image hash;
+2. apply the mappings;
+3. authorise per §3.4;
+4. assign roles;
+5. deduplicate;
+6. write canonically, byte-identical on rerun.
 
-**Light conditions:** VeRi night or achromatic frames cannot be detected from the source labels. Results are reported per camera, and night limitations are recorded rather than inferred.
+**CLI:** `attribute_dataset_cli.py` with `verify-release`, `build`, `verify` and `measure`.
 
-## 6. Splits, deduplication and contamination
+## 5. Label mapping (conservative)
 
-**Split integrity:**
-- Published test splits become `benchmark` and are never used for training or development.
-- PA-100K:
-  - train → training, except a seeded 10% by contiguous index block → development;
-  - val → selection;
-  - test → benchmark.
-- VeRi:
-  - train identities → training, except a seeded 10% of vehicle IDs → development;
-  - test identities, query included, are split 50/50 by a seeded vehicle-ID hash into selection and benchmark. VeRi has no published colour protocol.
-- A vehicle ID never spans roles; the builder enforces this.
+| MAVI attribute | Source label → mapping | Coverage limits recorded |
+|---|---|---|
+| upper / lower colour | UPAR `*-Color-{11}` → the 1:1 value (the names match MAVI's 11 at the pinned revision); `Other` → `unmapped`, never `multicolour`; more than one positive → `unscorable:ambiguous`, never a single colour | `multicolour` is not represented. Images missing from UPAR → truth `missing` |
+| backpack | PA-100K `Backpack` → `source-binary` (positive or negative under PA-100K semantics) | source semantics, not shown equivalent to annotation guide §5.1 |
+| bag | PA-100K `HandBag` OR `ShoulderBag` → `source-binary`, **proxy**; `HoldObjectsInFront` → `unmapped`, never a bag | the proxy may miss totes, briefcases and shopping bags that MAVI counts |
+| headwear | PA-100K `Hat` → `source-binary`, **proxy** for a subset of MAVI headwear | `Hat=0` is not evidence that a helmet, hood or headscarf is absent |
+| vehicle colour (vertical 2) | **provisional** until the received release's native table is checked: black, white, red, blue, yellow, green, brown, orange → 1:1; gray → `merged:{grey,silver}` (evaluation only; MAVI's vocabulary is unchanged); golden → `unmapped` | no beige or multicolour; light conditions are not derivable from labels |
 
-**Deduplication (practical; no impossible guarantees for non-frozen data):**
-- exact SHA-256 duplicates within and across releases;
-- `dhash64` near-duplicates across roles. A training member that near-duplicates a selection or benchmark member is dropped from training, and every drop is recorded;
-- UPAR is joined to PA-100K by path and image hash. A path without a matching image is reported, never guessed.
+UPAR's `Accessory-*` columns are not used as truth in vertical 1. They are a separately licensed second opinion and may be reported as an agreement diagnostic only.
 
-**Contamination notes** are recorded in the release record and every benchmark result:
-- known candidate exposure (PO-7 on PA-100K);
-- PA-100K's and VeRi's broad use in pretraining;
-- web-scale backbones of unknown exposure.
+## 6. Splits, groups and deduplication
 
-Public benchmark numbers carry a contamination and domain caveat. They are never qualification claims.
+**PA-100K** (official splits preserved; it publishes no identity or tracklet IDs):
+- train (000001–080000) is cut into **synthetic allocation groups** of 500 consecutive indices. A seeded 10% of those groups goes to `selection`, the rest to `training`.
+- val → `development`. It has no colour truth; colour development uses no data in this slice.
+- test → `benchmark`, complete and never used for training or selection.
+- Synthetic groups are **not** identity- or tracklet-disjoint, so leakage between training and selection is possible and is disclosed in every result.
 
-## 7. Model integration
+**VeRi-776** (authentic vehicle-ID groups):
+- the complete published test set (test plus query) → `benchmark`;
+- `development` and `selection` are seeded vehicle-ID fractions of the published train set;
+- a vehicle ID never spans roles;
+- the official ReID protocol is untouched. Colour evaluation is named the **MAVI VeRi colour protocol v1**.
 
-- **Now:** baseline component benchmark with no new runtime dependency:
-  - PC-B0/VC-B0: deterministic region chroma with CIE-Lab naming, the MAVI baselines in plan §9.5;
-  - a prevalence baseline for presence attributes.
+**Deduplication:**
+- **Exact SHA-256 duplicates** are resolved deterministically. Within a role, keep one sample (lowest member path). Across roles, drop the copy from the non-benchmark role. Every drop is recorded.
+- **Near duplicates:** `dhash64`/`hamming` produce a **bounded candidate report** (Hamming ≤ 4; at most 10,000 pairs; cross-role pairs first). The report never deletes anything. Exclusion needs a listed `excludedMembers` entry (stronger confirmation). Colour-distinct images are never removed because of a dHash match.
 
-  This proves the manifest → crops → metrics path end to end on public data.
-- **Next (S2c.3 environment):** candidate runners read crops by `sampleId` from the still-dataset manifest:
-  - OMZ 0230 and 0042;
-  - SigLIP 2 and DINOv2 heads.
-- **Training manifests (§9.7):** cite the still-dataset hash and must pass `require_packageable` before any artefact can enter a Model Pack.
-- **Calibration** is fitted only on training-derived data, per ADR-015.
+**Contamination notes** go in every result:
+- known exposure, for example PO-7 trained on PA-100K;
+- broad use of PA-100K and VeRi in pretraining;
+- the synthetic-group caveat.
 
-## 8. Optional video step (track level)
+## 7. Baselines in this slice (honest identities)
 
-- **Acquisition:** MEVA clips are placed by the operator and bound by the same release record. The Commons helper is not used, and no generic downloader is added.
-- **Processing:** the clips go through the existing MAVI Development ingestion and VisionJob path. They become an operational corpus revision whose sources carry `provenance.origin = public`, with `acquisitionReceiptSha256` set to the release-record hash. #138 enforcement keeps them out of the frozen test automatically.
-- **Labelling:** at most 150 Tracks, with the existing annotation tooling. The output is a track-level aggregation check.
-- **Skip rule:** skip this step if Development ingestion of local files needs anything beyond configuration. Record the gap instead.
+- **`mavi-dev-colour-probe-v1`.** A development probe, **not PC-B0/VC-B0**; nothing about PC-B0/VC-B0 is fixed by it. Pinned in code, with its method identity as the SHA-256 of its parameters:
+  - **regions:** upper is rows 15–50% of crop height, lower is rows 55–90%, both over the central 60% of width;
+  - **conversion:** sRGB → CIE-Lab (D65) by the standard formulas;
+  - **naming:** per pixel, the nearest of 11 fixed Lab reference centres;
+  - **output:** the most frequent name;
+  - **abstains** when the crop is undecodable, the region is under 400 pixels, or the winning share is below 0.40.
+- **`dataset-prevalence-diagnostic-v1`.** Training-role prevalence per presence attribute, **not PO-B0**, because there is no camera grouping. It is a diagnostic only.
+
+## 8. Metrics (source-native and proxy are never operational)
+
+Each result reports, per attribute and role:
+- eligible rows and support per value;
+- truth-missing, unsupported and unscorable counts;
+- abstentions and the coverage denominator;
+- a confusion matrix;
+- the `semantics` label: `source-native` (under PA-100K or UPAR definitions) or `proxy` (a subset mapping to a MAVI attribute).
+
+For binary source labels, precision, recall and F1 are reported **as source-native**. Negatives are source zeros, not MAVI `absent`. No result is named MAVI operational accuracy or F1, and no full bag or headwear coverage is claimed.
 
 ## 9. Implementation sequence
 
-| # | Step | Tests first | Done when |
+| # | Step | Tests first (each kills a plausible mutant) | Done when |
 |---|---|---|---|
-| 0 | Rights, in parallel: R-5 rulings 1–2, the VeRi request, MEVA attribution | — | determinations written into release records |
-| 1 | Make `admission.parse_determination` public; add the dataset licence rule | NC/ND accepted for datasets only with R-5 and `internal-only`; Commons behaviour unchanged | existing acquisition tests green |
-| 2 | Release record and file verification | wrong size or hash refused; missing determination refused; licence-text hash bound; local paths refused | — |
-| 3 | Format probes, local and not retained (PA-100K annotation file version, VeRi XML), then the adapters | adapter fixtures built from synthetic rows in the real formats | if the PA-100K file is MATLAB v5, reuse the `scipy` pin already in `vision-runtime` and update `offline-dependency-policy-v1.json` in the same change |
-| 4 | Mapping tables and mapping engine | `Other` is never `multicolour`; `HoldObjectsInFront` is never a bag; multi-positive is ambiguous; gray maps to the merged set; an unknown source label is refused | tables reviewed |
-| 5 | Still-dataset builder | split preservation; benchmark never in training; ID groups never span roles; dedup drops recorded; most restrictive `derivedArtefacts`; no frozen role; byte-identical rerun | manifests built for PA-100K+UPAR and VeRi |
-| 6 | Baseline benchmark | metrics against hand-computed fixtures; coverage counts unscorable rows; refuses a role outside its purposes | baseline results for all six attributes |
-| 7 | Optional MEVA track step | the corpus revision is public-origin and frozen-ineligible (reuses #138 tests) | track aggregation check, or a recorded skip |
+| 1 | Pin PA-100K (archive SHA-256s; probe the annotation-file format locally and record it here; if it is MATLAB v5, reuse the `scipy` pin already in `vision-runtime` and update `offline-dependency-policy-v1.json` in the same change). The VeRi request goes out in parallel | — | pinned files and format summary committed |
+| 2 | Release verification and authorisation: shared `determination_blockers`, `authorise_release_use`, `artefact_disposition` | empty rights; empty privacy; denied rights or privacy; purpose not covered; licence not covered; missing R-5 for NC-SA or bespoke terms; excluded member; a valid release determination reused across all members; Commons tests unchanged | §3 enforced |
+| 3 | PA-100K and UPAR adapters behind the neutral row seam | synthetic rows in the real formats; the UPAR `task1` header is required; the misaligned top-level CSV is refused; unknown labels refused | — |
+| 4 | Person still manifest | official splits preserved; benchmark never in training or selection; group `kind` recorded; exact duplicates deterministic; a colour-distinct dHash collision is not removed; the near-duplicate report is bounded; role→purpose refusal; per-attribute label lineage; no frozen role; byte-identical rerun; a deterministic smoke subset (seeded 2,000 images) | manifest built |
+| 5 | First person results: support and prevalence, source-native and proxy confusion, missing, unsupported and unscorable counts, colour probe output | hand-computed fixtures; denominators include abstentions; proxy and source labels kept apart | smoke result, then a full benchmark-role result |
+| 6 | VeRi vertical, after access is granted and its native colour table is verified | VeRi ID groups never span roles; the full published test set is the benchmark; gray merged for evaluation only | VeRi result |
+| 7 | Optional MEVA step | below | smoke run, or a recorded skip |
+
+**MEVA binding** (only if it is exercised):
+- Each clip gets an external import receipt `{releaseRecordSha256, memberPath, memberSha256, determinationSha256, purposes, placedAtUtc}`. That receipt's SHA-256 — not the release-record hash — is the source's `acquisitionReceiptSha256`.
+- Clips go through MAVI Development ingestion as a public-origin, frozen-ineligible corpus revision (#138).
+- A fixture-score run proves **pipeline structure only**. Track attribute quality needs MAVI labels on at most 150 Tracks and a real inferencer, so it is follow-on work.
 
 **Workload bounds (not adequacy thresholds):**
 
 | Item | Bound |
 |---|---|
 | Releases | 3 still releases (PA-100K, UPAR annotations, VeRi-776) and at most 1 video release |
-| Files | about 100k PA-100K images and about 50k VeRi images, as published, without sub-sampling; at most 6 MEVA clips totalling 30 minutes |
-| Controlled storage | at most 15 GB (stills at most 10 GB, video at most 5 GB) |
-| Adapters | 3 |
-| Mapping tables | 3 |
-| Human review | 3 release determinations, 1 R-5 session and at most 150 track labels |
-| Engineering | about 1–2 weeks |
+| Images | the published files |
+| Video | at most 6 clips, 30 minutes in total |
+| Storage | at most 15 GB |
+| Code | 3 adapters, 3 mapping tables |
+| Human review | 3 release determinations, 1 R-5 session; track labels only if MEVA proceeds |
 
-## 10. Acceptance criteria and non-goals
+## 10. Acceptance criteria (first slice)
 
-**Accept when:**
-- the selected releases import cleanly and verify by hash;
-- release determinations are reused across all members, with no per-file approvals;
-- mappings are tested, and every unmapped label is counted;
-- split, identity-group and dedup reports are recorded;
-- `internal-only` cannot reach `require_packageable`;
-- baseline component results exist for all six attributes;
-- the optional track check runs, or its skip is recorded;
-- a gap report lists measured coverage per attribute value, for example "no beige or multicolour vehicle labels" and "no hood or helmet negatives".
-
-**Tests are discriminating:** each guard above has a test that a plausible mutant would fail, as in #138.
+**Met when:**
+- releases are pinned and their bytes verify by hash;
+- structural parsing and intended-use authorisation are enforced separately;
+- PA-100K and UPAR import through one adapter seam;
+- official splits are preserved;
+- authentic and synthetic groups are distinguished;
+- exact duplicates are resolved deterministically, and near-duplicate screening cannot delete colour-distinct images;
+- mappings are explicit and hash-bound;
+- missing, unsupported and unscorable rows are counted;
+- source-native and proxy metrics never present themselves as MAVI operational metrics;
+- baselines carry honest identities;
+- disposition follows actual lineage and the delivery route;
+- public stills cannot become frozen-qualification data;
+- the person vertical produces reproducible component measurements while VeRi and MEVA are still pending.
 
 **Run before merging:** the full `tools/qualification/tests`, `tools/verify_repo.py` and `git diff --check`.
 
 **Non-goals:**
-- training or fine-tuning a candidate, or running OMZ, SigLIP or DINOv2 (S2c.3 environment);
+- candidate training;
+- SigLIP, DINOv2 or OMZ execution;
 - Model Pack changes;
-- frozen-qualification data;
-- changes to the corpus-manifest schema for stills;
+- frozen-qualification work;
+- B0 changes;
 - a generic downloader;
-- more datasets;
-- commercial colour relabelling;
-- B0 records or the 63 decisions.
+- corpus-manifest changes for stills;
+- new policy;
+- further dataset surveys unless a pinned release proves unusable.
 
-## 11. Follow-on
+## 11. Rights items (R-5 owns interpretation) and follow-on
 
-1. The S2c.3 evaluation environment and candidate runners on these manifests.
-2. MAVI colour labels on PA-100K or UVH-26 crops, for packageable colour heads.
-3. A `require_packageable` call in the training-manifest and Model Pack provenance path (S2c.6).
-4. More sources only against a measured gap from §10, for example UFPR-VCR for night and beige.
-5. Commissioned protected capture for the frozen test (ADR-015 §6). This stays separate.
+**Rights items:**
+1. PA-100K: the rights inventory for the declared non-commercial profile, given undocumented capture rights; a privacy basis for internal processing of surveillance crops.
+2. UPAR: whether NC-SA covers the requested purposes, and whether share-alike attaches to labels or artefacts derived from them.
+3. VeRi-776: the owner's written request and the reply recorded as evidence; R-5 maps it to the inventory.
+4. MEVA: attribution notice.
+
+**Follow-on:**
+- S2c.3 evaluation environment and candidate runners on these manifests;
+- wiring `artefact_disposition` into training-manifest and pack provenance (S2c.6);
+- MAVI's own labels where a gap or a rights limit is measured;
+- further sources only against measured gaps;
+- protected capture for the frozen test, kept separate.
