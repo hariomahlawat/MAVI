@@ -160,20 +160,22 @@ def measure_person(manifest: dict, pa_release: dict, pa_root: Path, upar_release
     releases = {pa_release["releaseId"]: pa_release, upar_release["releaseId"]: upar_release}
     cache: dict[tuple, list[str]] = {}
 
-    def blockers(release_id: str, purpose: str, member: str) -> list[str]:
-        key = (release_id, purpose, member)
+    def blockers(release_id: str, purposes: tuple[str, ...], member: str) -> list[str]:
+        key = (release_id, purposes, member)
         if key not in cache:
-            cache[key] = authorise_release_use(releases[release_id], [purpose], (), member)
+            cache[key] = authorise_release_use(releases[release_id], list(purposes), (), member)
         return cache[key]
 
     samples = [s for s in manifest["samples"] if s["role"] in roles]
     refused = []
     for sample in samples:
-        purpose = measurement_purpose(sample["role"])
-        found = [f"{sample['releaseId']}:{b}" for b in blockers(sample["releaseId"], purpose, sample["memberPath"])]
+        # A diagnostic never stands alone: like a smoke build, it needs the role's own purpose too,
+        # so a `development` grant cannot open training, selection or tuning rows by itself.
+        purposes = tuple(sorted({ROLE_PURPOSE[sample["role"]], measurement_purpose(sample["role"])}))
+        found = [f"{sample['releaseId']}:{b}" for b in blockers(sample["releaseId"], purposes, sample["memberPath"])]
         for entry in sample["attributes"].values():
             if entry["truth"] == "present":
-                found += [f"{entry['labelReleaseId']}:{b}" for b in blockers(entry["labelReleaseId"], purpose, entry["labelMember"])]
+                found += [f"{entry['labelReleaseId']}:{b}" for b in blockers(entry["labelReleaseId"], purposes, entry["labelMember"])]
         if found:
             refused.append(f"{sample['memberPath']}:{sorted(set(found))[0]}")
     require(not refused, f"component_result_unauthorised:{len(refused)}:{refused[0] if refused else ''}")
