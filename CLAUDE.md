@@ -1,6 +1,6 @@
 # Claude Code Instructions for MAVI
 
-Follow `AGENTS.md` as the binding engineering policy. Before a non-trivial change, read the relevant ADRs and specification under `docs/`.
+Follow `AGENTS.md` as the binding engineering policy, and work implementation-first per `docs/architecture/engineering-operating-principles.md`. Before a non-trivial change, read the relevant ADRs and specification under `docs/`.
 
 When reviewing or implementing:
 
