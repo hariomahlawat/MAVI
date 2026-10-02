@@ -171,15 +171,14 @@ def build_person_manifest(pa_release: dict, pa_root: Path, upar_release: dict, u
     roles = assign_roles(rows, policy)
     selected = smoke_subset(rows) if smoke else rows
 
-    label_release_of = {rule["attributeType"]: PERSON_MAPPINGS[m] for m, doc in mappings.items() for rule in doc["attributes"]}
-    authorised: dict[tuple[str, str], list[str]] = {}
+    authorised: dict[tuple, list[str]] = {}
 
-    def release_blockers(release_id: str, purpose: str, member: str | None) -> list[str]:
-        if member is not None:
-            return authorise_release_use(releases[release_id], [purpose], (), member)
-        key = (release_id, purpose)
+    def release_blockers(release_id: str, purposes: tuple[str, ...], member: str) -> list[str]:
+        """Authorisation of one concrete member (an image, or the annotation file a label came
+        from) for these purposes; label members repeat, so their results are cached."""
+        key = (release_id, purposes, member)
         if key not in authorised:
-            authorised[key] = authorise_release_use(releases[release_id], [purpose])
+            authorised[key] = authorise_release_use(releases[release_id], list(purposes), (), member)
         return authorised[key]
 
     candidates, refused, fingerprints = [], [], {}
@@ -192,25 +191,29 @@ def build_person_manifest(pa_release: dict, pa_root: Path, upar_release: dict, u
             member = row["memberPath"]
             require(member in members, f"still_dataset_image_missing:{member}")
             role = roles[member]
-            purpose = ROLE_PURPOSE[role]
+            # A smoke build is a diagnostic run (plan §3.4): it also needs development authorisation.
+            purposes = tuple(sorted({ROLE_PURPOSE[role]} | ({DIAGNOSTICS_PURPOSE} if smoke else set())))
             attributes = {}
             for mapping_id, mapping in mappings.items():
                 label_release = PERSON_MAPPINGS[mapping_id]
                 if mapping["adapter"] == "pa100k":
                     mapped = apply_mapping(mapping, row["labels"])
+                    label_member = pa100k.ANNOTATION_ARCHIVE
                 else:
                     source = upar_rows.get(member)
                     mapped = apply_mapping(mapping, source["labels"]) if source else {r["attributeType"]: None for r in mapping["attributes"]}
+                    label_member = upar.FILES[source["uparSplit"]] if source else None
                 for attribute, result in mapped.items():
                     attributes[attribute] = {"truth": "missing" if result is None else "present",
                                              "outcome": None if result is None else result["outcome"],
                                              "value": None if result is None else result["value"],
                                              "semantics": mapping_rule_semantics(mapping, attribute),
-                                             "labelReleaseId": label_release, "mappingId": mapping_id}
-            blockers = [f"{pa_release['releaseId']}:{b}" for b in release_blockers(pa_release["releaseId"], purpose, member)]
+                                             "labelReleaseId": label_release, "labelMember": None if result is None else label_member,
+                                             "mappingId": mapping_id}
+            blockers = [f"{pa_release['releaseId']}:{b}" for b in release_blockers(pa_release["releaseId"], purposes, member)]
             for attribute, entry in attributes.items():
-                if entry["truth"] == "present" and label_release_of[attribute] != pa_release["releaseId"]:
-                    blockers += [f"{label_release_of[attribute]}:{b}" for b in release_blockers(label_release_of[attribute], purpose, None)]
+                if entry["truth"] == "present":  # every label is authorised through its own annotation member
+                    blockers += [f"{entry['labelReleaseId']}:{b}" for b in release_blockers(entry["labelReleaseId"], purposes, entry["labelMember"])]
             # Every copy, authorised or not, takes part in exact-duplicate resolution: a refused
             # evaluation copy must still remove its training duplicates (no role leakage).
             data = archive.read(member)

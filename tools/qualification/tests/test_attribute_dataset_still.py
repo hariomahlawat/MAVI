@@ -280,10 +280,10 @@ def test_truth_lineage_and_missing_coverage(tmp_path):
     manifest, _ = build(tmp_path, upar_train=[(f"PA100k/{member(1)}", colour_values(("Red", "Blue"), "Other"))], upar_val=[])
     one, two = by_member(manifest)[member(1)], by_member(manifest)[member(2)]
     assert one["attributes"]["person-upper-colour"] == {"truth": "present", "outcome": "unscorable", "value": "ambiguous", "semantics": "source-native",
-                                                         "labelReleaseId": UP, "mappingId": "upar-task1-person-colour-v1"}
+                                                         "labelReleaseId": UP, "labelMember": upar.FILES["train"], "mappingId": "upar-task1-person-colour-v1"}
     assert one["attributes"]["person-lower-colour"]["outcome"] == "unmapped"
     assert two["attributes"]["person-upper-colour"] == {"truth": "missing", "outcome": None, "value": None, "semantics": "source-native",
-                                                         "labelReleaseId": UP, "mappingId": "upar-task1-person-colour-v1"}
+                                                         "labelReleaseId": UP, "labelMember": None, "mappingId": "upar-task1-person-colour-v1"}
     assert two["attributes"]["person-bag"]["labelReleaseId"] == PA and two["attributes"]["person-bag"]["semantics"] == "proxy"
     assert manifest["sourceCoverage"]["uparPa100kRowsByOfficialSplit"] == {"train": 1, "val": 0, "test": 0}
 
@@ -497,3 +497,38 @@ def test_the_real_pins_are_the_recorded_identities():
         "data/annotations/task1/val/gt.csv": (4131332, "783be600e359052c9dafe856cbfa2aee45bbd4e3eac10309394e2388bcf7c2bc"),
     }
     assert upar.PINNED_REVISION == "a19ab2fb6470140606d3c1982c303937b58fbd14"
+
+
+# ---------------------------------------------------------------- final Codex findings on #142
+
+
+def test_each_label_is_authorised_through_its_own_annotation_member(tmp_path):
+    # Excluding the PA-100K annotation file withdraws its labels, though the images share the release.
+    with pytest.raises(CorpusError, match="still_dataset_empty"):
+        build(tmp_path, excluded=[pa100k.ANNOTATION_ARCHIVE])
+
+
+def test_excluding_one_upar_file_withdraws_only_its_labels(tmp_path):
+    from attribute_dataset_fixtures import release_record as rr
+    manifest, _ = build(tmp_path)
+    pa_root, up_root = tmp_path / "pa", tmp_path / "upar"
+    pin_fixture_files(pa_root, up_root)
+    pa = rr(PA, pa_root, "cc-by-4.0")
+    up = rr(UP, up_root, "cc-by-nc-sa-3.0-de", excluded=[upar.FILES["val"]], pinned=upar.PINNED_REVISION)
+    partial, _ = sm.build_person_manifest(pa, pa_root, up, up_root)
+    kept = by_member(partial)
+    # Train-file labels (official train images) remain; val-file labels (official test images) are withdrawn.
+    assert kept[member(1)]["attributes"]["person-upper-colour"]["labelMember"] == upar.FILES["train"]
+    assert member(1301) not in kept
+    assert any(f"member-excluded:{upar.FILES['val']}" in b for r in partial["refusedSamples"] if r["memberPath"] == member(1301) for b in r["blockers"])
+    assert kept[member(1)]["attributes"]["person-bag"]["labelMember"] == pa100k.ANNOTATION_ARCHIVE
+
+
+def test_a_smoke_build_also_needs_development_authorisation(tmp_path):
+    no_development = determination("cc-by-4.0", purposes=["benchmarking", "selection", "training", "tuning"])
+    # The development role maps to the tuning purpose, so the full build keeps every role...
+    full, _ = build(tmp_path, pa_det=no_development, up_det=determination("cc-by-nc-sa-3.0-de", purposes=["benchmarking", "selection", "training", "tuning"]))
+    assert full["counts"]["roles"] == {"benchmark": 100, "development": 100, "selection": 500, "training": 700}
+    # ...but a smoke build is a diagnostic run and needs the development purpose itself.
+    with pytest.raises(CorpusError, match="still_dataset_empty"):
+        build(tmp_path, smoke=True, pa_det=no_development)
