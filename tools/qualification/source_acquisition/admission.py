@@ -235,6 +235,22 @@ def derive_state(meta: dict, decision: dict | None) -> tuple[str, list[str]]:
     return "ADMITTED_FOR_PILOT", blockers
 
 
+# Review fields that name a person, a ruling or evidence. Each is null (not yet reviewed) or
+# non-empty text; any other JSON value would otherwise pass the truthiness checks below.
+_REVIEW_TEXT_FIELDS = {"rights": ("reviewedBy", "determination", "evidence"), "privacy": ("reviewedBy", "basis"),
+                       "r5Ruling": ("ruledBy", "ruling", "reference")}
+
+
+def _is_text(value: object) -> bool:
+    return isinstance(value, str) and value.strip() != ""
+
+
+def _require_review_text(section: dict, fields: tuple[str, ...], code: str) -> None:
+    for name in fields:
+        value = section.get(name)
+        require(value is None or (_is_text(value) and len(value) <= 2000), f"{code}:review_text:{name}")
+
+
 def parse_determination(value: object, code: str) -> dict:
     """Structure of a reusable rights/privacy determination: one review covering every file
     that names it.
@@ -254,6 +270,9 @@ def parse_determination(value: object, code: str) -> dict:
     require(isinstance(value["rights"], dict) and isinstance(value["privacy"], dict), f"{code}:reviews")
     require(value["privacy"].get("disposition") in PRIVACY_DISPOSITIONS, f"{code}:privacy_disposition")
     require(value["r5Ruling"] is None or isinstance(value["r5Ruling"], dict), f"{code}:r5")
+    for section, fields in _REVIEW_TEXT_FIELDS.items():
+        if isinstance(value[section], dict):
+            _require_review_text(value[section], fields, f"{code}:{section}")
     return value
 
 
@@ -289,6 +308,12 @@ def parse_purpose_approvals(document: object) -> list[dict]:
         parse_purposes(approval["purposes"], acode, PUBLIC)
         require(approval["determinationId"] in determinations, f"{acode}:determination_unknown")
         require(approval["b0Decision"] is None or approval["b0Decision"] in HUMAN_STATES, f"{acode}:b0_decision")
+        if "b0RejectionReview" in approval:
+            review = approval["b0RejectionReview"]
+            require(isinstance(review, dict), f"{acode}:rejection_review")
+            _require_review_text(review, ("reviewedBy", "basis"), f"{acode}:rejection_review")
+            flag = review.get("rightsOrPrivacyRejection")
+            require(flag is None or isinstance(flag, bool), f"{acode}:rejection_review:rightsOrPrivacyRejection")
         resolved.append({**approval, "approvedBy": document["approvedBy"], "approvedOn": document["approvedOn"],
                          "determination": determinations[approval["determinationId"]]})
     return resolved
@@ -297,7 +322,7 @@ def parse_purpose_approvals(document: object) -> list[dict]:
 def r5_permits(determination: dict) -> bool:
     """R-5 has ruled ``PERMITTED`` and the ruling names who ruled and where it is recorded."""
     r5 = determination.get("r5Ruling") or {}
-    return bool(r5.get("ruledBy") and r5.get("ruling") == "PERMITTED" and r5.get("reference"))
+    return _is_text(r5.get("ruledBy")) and r5.get("ruling") == "PERMITTED" and _is_text(r5.get("reference"))
 
 
 def determination_blockers(determination: dict, licence_codes: list[str | None], purposes: tuple[str, ...] | list[str], r5_required: bool) -> list[str]:
@@ -317,12 +342,12 @@ def determination_blockers(determination: dict, licence_codes: list[str | None],
         elif licence not in (determination.get("licenceCodes") or []):
             blockers.append("licence-not-covered-by-determination")
     rights = determination.get("rights") or {}
-    if not (rights.get("reviewedBy") and rights.get("determination") == "PERMITTED_FOR_ENGINEERING_USE" and rights.get("evidence")):
+    if not (_is_text(rights.get("reviewedBy")) and rights.get("determination") == "PERMITTED_FOR_ENGINEERING_USE" and _is_text(rights.get("evidence"))):
         blockers.append("rights-determination-missing")
     privacy = determination.get("privacy") or {}
     if privacy.get("disposition") == "DENIED":
         blockers.append("privacy-denied")
-    elif not (privacy.get("disposition") == "PERMITTED" and privacy.get("reviewedBy") and privacy.get("basis")):
+    elif not (privacy.get("disposition") == "PERMITTED" and _is_text(privacy.get("reviewedBy")) and _is_text(privacy.get("basis"))):
         blockers.append("privacy-determination-missing")
     if r5_required and not r5_permits(determination):
         blockers.append("r5-ruling-missing")
@@ -368,7 +393,7 @@ def purpose_approval_blockers(meta: dict, approval: dict, decision: dict | None 
         rejection = approval.get("b0RejectionReview") or {}
         if rejection.get("rightsOrPrivacyRejection") is not False:
             blockers.append("b0-rights-or-privacy-rejection" if rejection.get("rightsOrPrivacyRejection") is True else "b0-rejection-review-missing")
-        elif not (rejection.get("reviewedBy") and rejection.get("basis")):
+        elif not (_is_text(rejection.get("reviewedBy")) and _is_text(rejection.get("basis"))):
             blockers.append("b0-rejection-review-missing")
     if r5_required and r5_permits(determination) and licence is not None and "file-licence-unknown" in blockers:
         blockers.remove("file-licence-unknown")  # R-5 has interpreted this licence code

@@ -329,3 +329,36 @@ def test_qualification_tooling_reads_matlab_5_files():
     savemat(buffer, {"train_label": np.array([[0, 1], [1, 0]], dtype=np.uint8)}, format="5")
     assert buffer.getvalue()[:19] == b"MATLAB 5.0 MAT-file"
     assert loadmat(io.BytesIO(buffer.getvalue()))["train_label"].tolist() == [[0, 1], [1, 0]]
+
+
+# ---------------------------------------------------------------- non-string approval fields (Codex P1 on #141)
+
+NON_TEXT = [True, 1, 0.5, ["R-5"], {"name": "R-5"}, "", "   "]
+TEXT_FIELDS = [("rights", "reviewedBy"), ("rights", "evidence"), ("rights", "determination"),
+               ("privacy", "reviewedBy"), ("privacy", "basis")]
+
+
+@pytest.mark.parametrize("section,field", TEXT_FIELDS)
+@pytest.mark.parametrize("value", NON_TEXT)
+def test_a_non_text_review_field_is_refused_and_never_authorises(section, field, value):
+    det = determination()
+    det[section] = {**det[section], field: value}
+    with pytest.raises(CorpusError, match="review_text"):
+        release(det=det)
+    # Bypassing the parser does not help: the authorisation check requires real text too.
+    assert admission.determination_blockers(det, ["cc-by-4.0"], ["benchmarking"], False)
+
+
+@pytest.mark.parametrize("field", ["ruledBy", "ruling", "reference"])
+@pytest.mark.parametrize("value", NON_TEXT)
+def test_a_non_text_r5_field_is_refused_and_never_permits(field, value):
+    ruling = {"ruledBy": "R-5", "ruling": "PERMITTED", "reference": "R-5 ruling #2", field: value}
+    det = determination(licenceCodes=["cc-by-sa-4.0"], r5Ruling=ruling)
+    with pytest.raises(CorpusError, match="review_text"):
+        release(det=det, licence={"codes": ["cc-by-sa-4.0"], "url": None, "textSha256": "b" * 64})
+    assert not admission.r5_permits(det)
+
+
+def test_null_review_fields_parse_and_block():
+    det = determination(rights={"reviewedBy": None, "determination": None, "evidence": None, "inventory": dict(INVENTORY_ALL)})
+    assert "rights-determination-missing" in rel.authorise_release_use(release(det=det), ["benchmarking"])

@@ -201,6 +201,21 @@ def test_a_b0_rejection_cannot_be_bypassed_by_a_new_purpose(store):
     assert decision == before and receipt["admissionState"] == "REJECTED" and receipt["requestedState"] == "REJECTED"
 
 
+@pytest.mark.parametrize("edit", [
+    lambda d: d["determinations"][0]["rights"].update(reviewedBy=True),
+    lambda d: d["determinations"][0]["rights"].update(evidence=1),
+    lambda d: d["determinations"][0]["privacy"].update(basis=["internal"]),
+    lambda d: d["determinations"][0].update(r5Ruling={"ruledBy": {"n": "R-5"}, "ruling": "PERMITTED", "reference": "r"}),
+    lambda d: d["approvals"][0].update(b0Decision="REJECTED", b0RejectionReview={"reviewedBy": True, "rightsOrPrivacyRejection": False, "basis": "b"}),
+    lambda d: d["approvals"][0].update(b0Decision="REJECTED", b0RejectionReview={"reviewedBy": "x", "rightsOrPrivacyRejection": 0, "basis": "b"}),
+])
+def test_commons_approvals_refuse_non_text_review_fields(edit):
+    doc = document([entry()])
+    edit(doc)
+    with pytest.raises(CorpusError, match="review_text|rejection_review"):
+        admission.parse_purpose_approvals(doc)
+
+
 def test_r5_settles_share_alike_and_unrecognised_licence_codes_but_never_nc_nd_or_a_missing_licence():
     assert admission.purpose_approval_blockers(meta(license="cc-by-4.0"), approval(det=determination(r5Ruling=None))) == []
     assert admission.purpose_approval_blockers(meta(license="cc-by-sa-3.0-nl"), approval()) == []
