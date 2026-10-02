@@ -39,7 +39,7 @@ from attributes.corpus.canonical import CorpusError, canonical_json, lf_normalis
 from attributes.corpus.task import CANDIDATE_TASK_PATH, load_task
 
 from .adapters import pa100k
-from .colour_probe import ABSTENTIONS, ColourProbe, probe_sha256
+from .colour_probe import ABSTENTIONS, ColourProbe, parse_probe_config, probe_sha256
 from .mapping import mapping_sha256
 from .release import authorise_release_use, release_sha256, verify_release_files
 from .still_manifest import ROLE_PURPOSE, load_person_mappings, parse_still_dataset, still_dataset_sha256
@@ -50,6 +50,15 @@ PRESENCE_ATTRIBUTES = ("person-backpack", "person-bag", "person-headwear")
 CLAIM = ("component-level measurement on public still images under source-native or proxy label semantics; "
          "not MAVI operational accuracy and not qualification evidence")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+GROUP_CAVEAT = {
+    "synthetic-allocation": "synthetic allocation groups of consecutive image numbers are not identity- or tracklet-disjoint; "
+                            "leakage between training, selection and development rows is possible",
+    "authentic": "authentic source groups (for example vehicle ids) are kept within one role",
+}
+PUBLIC_DATA_CAVEAT = ("public datasets are widely used in pretraining and public benchmarks; candidate models may have seen these "
+                      "images, so figures are not independent generalisation evidence")
+COLOUR_KEYS = {"rows", "truth", "eligible", "unsupportedValues", "abstentions", "predicted", "coverage", "confusion", "perValue", "aggregate"}
+PRESENCE_KEYS = {"rows", "truth", "support", "prevalence", "predictions", "predictorNote"}
 
 
 def measurement_purpose(role: str) -> str:
@@ -202,15 +211,23 @@ def measure_person(manifest: dict, pa_release: dict, pa_root: Path, upar_release
                                  "coverageNote": None if rule is None else rule["coverage"],
                                  "method": probe.config["methodId"] if attribute in COLOUR_ATTRIBUTES else "dataset-prevalence-diagnostic-v1",
                                  "byRole": by_role}
+    group_kinds = sorted({s["group"]["kind"] for s in samples})
+    contamination = {
+        "groupKinds": group_kinds,
+        "groupCaveat": "; ".join(GROUP_CAVEAT[k] for k in group_kinds) if group_kinds else None,
+        "knownExposure": {r["releaseId"]: [f"{e['subject']}: {e['evidence']}" for e in r["knownExposure"]] for r in (pa_release, upar_release)},
+        "publicDataCaveat": PUBLIC_DATA_CAVEAT,
+    }
     result = {
         "schemaVersion": RESULT_SCHEMA,
         "evidenceLevel": "component",
         "claim": CLAIM,
         "evidence": {"stillDatasetSha256": manifest_sha, "stillDatasetId": manifest["datasetId"], "smoke": manifest["smoke"] is not None,
-                     "methodId": probe.config["methodId"], "methodConfigSha256": probe.sha256,
+                     "methodId": probe.config["methodId"], "methodConfigSha256": probe.sha256, "methodConfig": probe.config,
                      "code": code if code is not None else code_identity()},
         "rolesMeasured": roles,
         "measurementPurposes": {r: measurement_purpose(r) for r in roles},
+        "contamination": contamination,
         "attributes": attributes,
     }
     return parse_component_result(result)
@@ -237,12 +254,25 @@ def parse_component_result(document: object) -> dict:
         for digest in digests.values():
             require_sha256(digest, f"{code}:code_identity:{key}")
     require(document.get("claim") == CLAIM and document.get("evidenceLevel") == "component", f"{code}:claim")
+    config = evidence.get("methodConfig")
+    parse_probe_config(config)
+    require(probe_sha256(config) == evidence["methodConfigSha256"], f"{code}:method_config_differs")
     roles = document.get("rolesMeasured")
-    require(isinstance(roles, list) and roles and all(r in ROLE_PURPOSE for r in roles), f"{code}:roles")
-    for attribute, entry in (document.get("attributes") or {}).items():
-        if attribute in PRESENCE_ATTRIBUTES:
-            for metrics in entry["byRole"].values():
+    require(isinstance(roles, list) and roles and roles == sorted(set(roles)) and all(r in ROLE_PURPOSE for r in roles), f"{code}:roles")
+    require(document.get("measurementPurposes") == {r: measurement_purpose(r) for r in roles}, f"{code}:measurement_purposes")
+    contamination = document.get("contamination")
+    require(isinstance(contamination, dict) and isinstance(contamination.get("groupKinds"), list) and isinstance(contamination.get("knownExposure"), dict)
+            and isinstance(contamination.get("groupCaveat"), str) and contamination.get("publicDataCaveat") == PUBLIC_DATA_CAVEAT, f"{code}:contamination")
+    attributes = document.get("attributes")
+    require(isinstance(attributes, dict) and set(attributes) == set(COLOUR_ATTRIBUTES + PRESENCE_ATTRIBUTES), f"{code}:attribute_set")
+    for attribute, entry in attributes.items():
+        require(isinstance(entry, dict) and isinstance(entry.get("byRole"), dict) and sorted(entry["byRole"]) == roles, f"{code}:by_role:{attribute}")
+        for metrics in entry["byRole"].values():
+            if attribute in PRESENCE_ATTRIBUTES:
                 require(metrics.get("predictions") is None and "confusion" not in metrics and "perValue" not in metrics, f"{code}:presence_prediction_metrics")
+                require(isinstance(metrics, dict) and set(metrics) == PRESENCE_KEYS, f"{code}:presence_metrics:{attribute}")
+            else:
+                require(isinstance(metrics, dict) and set(metrics) == COLOUR_KEYS, f"{code}:colour_metrics:{attribute}")
     return document
 
 

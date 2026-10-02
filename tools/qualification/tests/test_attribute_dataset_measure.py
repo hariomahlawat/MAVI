@@ -347,3 +347,55 @@ def test_code_identity_binds_the_task_vocabulary_and_data_files_lf_normalised():
     assert "measure.py" in identity["moduleSha256"] and "adapters/pa100k.py" in identity["moduleSha256"]
     from attributes.corpus.canonical import lf_normalised_sha256
     assert identity["dataSha256"]["data/mavi-dev-colour-probe-v1.json"] == lf_normalised_sha256(cp.CONFIG_PATH)
+
+
+# ---------------------------------------------------------------- Codex findings on #143
+
+
+@pytest.mark.parametrize("edit,code", [
+    (lambda r: r.update(attributes={}), "attribute_set"),
+    (lambda r: r.pop("attributes"), "attribute_set"),
+    (lambda r: r["attributes"].pop("person-bag"), "attribute_set"),
+    (lambda r: r["attributes"]["person-upper-colour"]["byRole"].pop("benchmark"), "by_role"),
+    (lambda r: r["attributes"]["person-upper-colour"]["byRole"]["benchmark"].pop("confusion"), "colour_metrics"),
+    (lambda r: r["attributes"]["person-backpack"]["byRole"]["benchmark"].pop("prevalence"), "presence_metrics"),
+    (lambda r: r.pop("measurementPurposes"), "measurement_purposes"),
+    (lambda r: r.update(measurementPurposes={"benchmark": "training"}), "measurement_purposes"),
+])
+def test_a_result_with_a_missing_or_partial_measurement_payload_is_refused(tmp_path, edit, code):
+    result = copy.deepcopy(measure(tmp_path, benchmark_case(tmp_path)))
+    edit(result)
+    with pytest.raises(CorpusError, match=code):
+        ms.parse_component_result(result)
+
+
+def test_the_exact_method_configuration_travels_with_the_result(tmp_path):
+    custom = copy.deepcopy(cp.load_probe_config())
+    custom["minWinningShare"] = 0.35
+    result = measure(tmp_path, benchmark_case(tmp_path), config=custom)
+    assert result["evidence"]["methodConfig"] == custom
+    assert cp.probe_sha256(result["evidence"]["methodConfig"]) == result["evidence"]["methodConfigSha256"]
+    forged = copy.deepcopy(result)
+    forged["evidence"]["methodConfig"]["minWinningShare"] = 0.5
+    with pytest.raises(CorpusError, match="method_config_differs"):
+        ms.parse_component_result(forged)
+    forged = copy.deepcopy(result)
+    forged["evidence"]["methodConfig"].pop("centres")
+    with pytest.raises(CorpusError, match="colour_probe_config_invalid"):
+        ms.parse_component_result(forged)
+
+
+def test_every_result_carries_its_contamination_caveats(tmp_path):
+    result = measure(tmp_path, benchmark_case(tmp_path), roles=("benchmark", "selection", "training"))
+    contamination = result["contamination"]
+    assert contamination["groupKinds"] == ["synthetic-allocation"]
+    assert "not identity- or tracklet-disjoint" in contamination["groupCaveat"]
+    assert contamination["knownExposure"] == {PA: [], UP: []}  # the fixtures declare none; real releases do
+    assert "pretraining" in contamination["publicDataCaveat"]
+    for edit, code in ((lambda r: r.pop("contamination"), "contamination"),
+                       (lambda r: r["contamination"].update(groupCaveat=None), "contamination"),
+                       (lambda r: r["contamination"].pop("knownExposure"), "contamination")):
+        forged = copy.deepcopy(result)
+        edit(forged)
+        with pytest.raises(CorpusError, match=code):
+            ms.parse_component_result(forged)
