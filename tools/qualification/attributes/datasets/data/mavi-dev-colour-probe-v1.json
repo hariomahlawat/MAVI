@@ -1,0 +1,336 @@
+{
+  "schemaVersion": "mavi-dev-colour-probe-config-v1",
+  "methodId": "mavi-dev-colour-probe-v1",
+  "status": "development probe; not PC-B0 or VC-B0, and fixes nothing about them",
+  "decoding": {
+    "library": "Pillow",
+    "convert": "RGB",
+    "resize": "none",
+    "onDecodeError": "abstain:undecodable"
+  },
+  "regions": {
+    "person-upper-colour": {
+      "objectClass": "person",
+      "implemented": true,
+      "rows": [
+        0.15,
+        0.5
+      ],
+      "columns": [
+        0.2,
+        0.8
+      ]
+    },
+    "person-lower-colour": {
+      "objectClass": "person",
+      "implemented": true,
+      "rows": [
+        0.55,
+        0.9
+      ],
+      "columns": [
+        0.2,
+        0.8
+      ]
+    },
+    "vehicle-colour": {
+      "objectClass": "vehicle",
+      "implemented": false,
+      "rows": [
+        0.25,
+        0.75
+      ],
+      "columns": [
+        0.1,
+        0.9
+      ]
+    }
+  },
+  "regionRounding": "pixel bounds are floor(fraction * size); start inclusive, end exclusive",
+  "srgbLinearisation": {
+    "threshold": 0.04045,
+    "linearDivisor": 12.92,
+    "offset": 0.055,
+    "scale": 1.055,
+    "exponent": 2.4,
+    "inputScale": 255
+  },
+  "srgbToXyz": [
+    [
+      0.4124564,
+      0.3575761,
+      0.1804375
+    ],
+    [
+      0.2126729,
+      0.7151522,
+      0.072175
+    ],
+    [
+      0.0193339,
+      0.119192,
+      0.9503041
+    ]
+  ],
+  "whitePointD65": [
+    0.95047,
+    1.0,
+    1.08883
+  ],
+  "cieLab": {
+    "epsilon": 0.008856451679035631,
+    "kappa": 903.2962962962963,
+    "cubeRootExponent": [
+      1,
+      3
+    ],
+    "lightnessScale": 116,
+    "lightnessOffset": 16,
+    "aScale": 500,
+    "bScale": 200
+  },
+  "arithmetic": "float64 throughout; no quantisation",
+  "centres": {
+    "person": {
+      "black": [
+        8.757,
+        0.0,
+        0.0
+      ],
+      "blue": [
+        32.6315,
+        21.6727,
+        -52.0745
+      ],
+      "brown": [
+        33.6671,
+        13.8498,
+        24.9064
+      ],
+      "green": [
+        47.9328,
+        -42.1342,
+        30.1247
+      ],
+      "grey": [
+        53.585,
+        0.0,
+        0.0
+      ],
+      "orange": [
+        61.9589,
+        37.3733,
+        62.7809
+      ],
+      "pink": [
+        70.8255,
+        34.1097,
+        -3.0823
+      ],
+      "purple": [
+        32.8973,
+        42.1677,
+        -39.14
+      ],
+      "red": [
+        39.2215,
+        57.737,
+        34.4453
+      ],
+      "white": [
+        93.0481,
+        0.0,
+        0.0
+      ],
+      "yellow": [
+        83.4803,
+        -9.4643,
+        77.7303
+      ]
+    },
+    "vehicle": {
+      "beige": [
+        79.5257,
+        0.9724,
+        22.7033
+      ],
+      "black": [
+        8.757,
+        0.0,
+        0.0
+      ],
+      "blue": [
+        32.6315,
+        21.6727,
+        -52.0745
+      ],
+      "brown": [
+        33.6671,
+        13.8498,
+        24.9064
+      ],
+      "green": [
+        47.9328,
+        -42.1342,
+        30.1247
+      ],
+      "grey": [
+        46.4355,
+        0.0,
+        0.0
+      ],
+      "orange": [
+        61.9589,
+        37.3733,
+        62.7809
+      ],
+      "red": [
+        39.2215,
+        57.737,
+        34.4453
+      ],
+      "silver": [
+        77.7044,
+        0.0,
+        0.0
+      ],
+      "white": [
+        94.7962,
+        0.0,
+        0.0
+      ],
+      "yellow": [
+        83.4803,
+        -9.4643,
+        77.7303
+      ]
+    }
+  },
+  "centreDerivation": {
+    "note": "Lab of the sRGB swatches below under this configuration's own formulas, rounded to 4 decimals",
+    "person": {
+      "black": [
+        25,
+        25,
+        25
+      ],
+      "blue": [
+        40,
+        70,
+        160
+      ],
+      "brown": [
+        110,
+        70,
+        40
+      ],
+      "green": [
+        40,
+        130,
+        60
+      ],
+      "grey": [
+        128,
+        128,
+        128
+      ],
+      "orange": [
+        230,
+        120,
+        30
+      ],
+      "pink": [
+        230,
+        150,
+        180
+      ],
+      "purple": [
+        110,
+        50,
+        140
+      ],
+      "red": [
+        180,
+        30,
+        40
+      ],
+      "white": [
+        235,
+        235,
+        235
+      ],
+      "yellow": [
+        230,
+        210,
+        40
+      ]
+    },
+    "vehicle": {
+      "beige": [
+        215,
+        195,
+        155
+      ],
+      "black": [
+        25,
+        25,
+        25
+      ],
+      "blue": [
+        40,
+        70,
+        160
+      ],
+      "brown": [
+        110,
+        70,
+        40
+      ],
+      "green": [
+        40,
+        130,
+        60
+      ],
+      "grey": [
+        110,
+        110,
+        110
+      ],
+      "orange": [
+        230,
+        120,
+        30
+      ],
+      "red": [
+        180,
+        30,
+        40
+      ],
+      "silver": [
+        192,
+        192,
+        192
+      ],
+      "white": [
+        240,
+        240,
+        240
+      ],
+      "yellow": [
+        230,
+        210,
+        40
+      ]
+    }
+  },
+  "distance": "cie76",
+  "pixelTies": "first centre in task schema order",
+  "winnerTies": "first name in task schema order",
+  "minRegionPixels": 400,
+  "minWinningShare": 0.4,
+  "abstentionReasons": [
+    "ambiguous",
+    "insufficient-area",
+    "undecodable"
+  ]
+}
