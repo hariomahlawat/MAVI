@@ -359,11 +359,11 @@ A result without all three is refused.
 **Narrow R-5 determination for items 1 and 2 (2026-10-02).**
 - **Decision.** Aarav, R-5 Licence Review Owner, approved by phone ("I agree. Go ahead. All the best for your work.") the narrow request for PA-100K and UPAR Task 1.
 - **What it covers:** the `benchmarking` and `development` purposes and the `evaluate` operation, for internal, local, offline, non-commercial research evaluation. It also covers:
-  - PA-100K privacy processing for that use;
+  - PA-100K privacy processing for that use (the reply states no separate privacy basis, and the records assert none beyond this scope);
   - for UPAR, that evaluation and the reporting of its metrics under the NC/SA terms.
 - **Still `pending-r5`:** `train`, `create-derivatives`, `run-operationally` and `redistribute-derived-weights`. Training, tuning and selection are not covered.
 - **Not decided:** whether NC/SA obligations attach to trained heads, tuned thresholds, weights or other derived artefacts.
-- **Evidence.** The reply was relayed verbatim by the MAVI owner; no screenshot or e-mail exists. The relay and the request package are kept, outside Git, in `E:\MAVI-Controlled\Evidence\S2c\2026-10-02-r5-pa100k-upar-eval`, whose decision record has SHA-256 `68b1f7386c7a24dfc53ce4abe4d5c23c8df8f00d4f203d50486d8e6d47ef83a4`.
+- **Evidence.** The reply was relayed verbatim by the MAVI owner; no screenshot or e-mail exists. The request is kept as prepared, not as transmitted. The relay and the request package are kept, outside Git, in `E:\MAVI-Controlled\Evidence\S2c\2026-10-02-r5-pa100k-upar-eval`, whose decision record has SHA-256 `68b1f7386c7a24dfc53ce4abe4d5c23c8df8f00d4f203d50486d8e6d47ef83a4`.
 - **Step 5 canonical evidence.** Built on `main@699e7672` with no local changes, from the retained release records, and kept outside Git in `E:\MAVI-Controlled\Processing\S2c\2026-01\s2c-step5-person-component-2026-10-02`. Every rerun is byte-identical.
 
   | Run | Benchmark rows | Rows refused by role purpose | Manifest SHA-256 | Benchmark result SHA-256 |
