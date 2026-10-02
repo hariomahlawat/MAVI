@@ -13,6 +13,12 @@
 
 **What it never does:** evaluate or select a model, tune a threshold, or score the frozen test.
 
+**C+ source policy (2026-10-02):** ADR-015 governs **public-first development, protected final qualification**. Approved public data may support training, tuning, component evaluation, selection with contamination/domain caveats, reference benchmarks and regression/challenge; public origin alone does not imply `REFERENCE_ONLY`. Final frozen qualification requires eligible protected newly commissioned/owner-captured real video, verified checkpoint/capture chronology, rights/privacy, real processing, audit/separation, annotation and seal/access evidence. Missing evidence never admits a file automatically.
+
+Keep Training, Development/Tuning, Public Benchmark/Reference, Selection, Qualification Candidate, Frozen Qualification and Regression/Challenge separate, plus the existing engineering-calibration/E3 split. Still-image training/evaluation uses a separate manifest and is component evidence, never an invented Track or an operational camera. Raw holdout capture may precede final executable freeze only under protected custody inaccessible to development/selection; the annotated seal still follows R1 before candidate corpus execution. Final-test exposure to change the system requires a new independent holdout, preserving the existing recovery history.
+
+**Enforcement boundary:** this documentation does not implement the ADR's source eligibility. The partitioner selects held-out sites/date blocks without testing public/commissioned origin; `excludedFromFrozenTrackIds` moves offending frozen clusters to training. A separately reviewed execution mechanism must enforce C+ reproducibly before mixed-source partitioning/sealing; do not assume a valid current manifest proves chronology or provenance. Existing grouping, camera floors, audits and F1 gates remain unchanged, and neither two nor ten raw hours establishes support. B0 S1 closure and all 63 human decisions remain immutable; a new approved engineering purpose does not change the original decision. Policy concepts are not new corpus schema/state values.
+
 **Dependencies:**
 - the Python standard library;
 - **Pillow**, already a declared MAVI Vision project dependency (`src/vision/pyproject.toml`; `config/dependencies/offline-dependency-policy-v1.json`), used only for the near-duplicate fingerprint.

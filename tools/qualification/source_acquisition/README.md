@@ -2,6 +2,12 @@
 
 A small helper that discovers, admits and retains **individual public video files** for the S2c B0 source-acquisition pilot. The only provider it implements is Wikimedia Commons. Design and pilot plan: `docs/qualification/stage2-s2c/s2c-b0-source-acquisition-record.md`.
 
+**Current policy (2026-10-02):** ADR-015 and owner-decision record §8 adopt **C+ — Public-first development, protected final qualification**. Public origin alone does not imply `REFERENCE_ONLY`: purpose-cleared public material is actively used for training/fine-tuning, training-only calibration fitting, development/tuning, component/base-model/attribute evaluation, selection with contamination/domain caveats, benchmarks, hard negatives/rare cases, failure analysis, regression/challenge, decoder/tracker/adapter tests and vocabulary work. No public source enters final frozen qualification.
+
+**Policy is not implemented state.** `DESCRIBED`, `REVIEWED`, `ROLE_ELIGIBLE`, `RIGHTS/PRIVACY_CLEARED`, `ACQUIRED` and `PARTITIONED` are separate policy facts; this amendment adds no enum or transition and does not equate them to `ADMISSIBLE`/`FROZEN_QUALIFICATION`. The state table and `ADMITTED_FOR_PILOT` gates below describe the unchanged helper. In particular, it does not download `REFERENCE_ONLY` files. An additional approved engineering purpose must preserve the original B0 decision and use a separately reviewed acquisition path; do not relabel a file to bypass the gate. Current capture/freshness requirements for this helper are not a universal restriction on other public development workflows.
+
+**Closed campaign:** B0 S1 remains closed with 63/63 reviewed, 38 `REJECT_OPERATIONAL_QUALIFICATION`, 15 `REFERENCE_ONLY`, 10 `REJECTED`, 0 operationally admissible seconds. New discovery requires a new purpose-specific declaration for explicit engineering needs; it is not another S1 attempt. Recommended 20–30 reviews/5–10 acquisitions are workload bounds, not implemented wrapper limits, adequacy thresholds or permission. Screen terms early; detailed R-5/rights/privacy review follows usefulness and precedes acquisition/processing/use requiring clearance. ShareAlike alone is not disqualifying. No runtime/tool behavior changes in this documentation amendment.
+
 It is **not**:
 - a corpus builder;
 - a partitioner;
