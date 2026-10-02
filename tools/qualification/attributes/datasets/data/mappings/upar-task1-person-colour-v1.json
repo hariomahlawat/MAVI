@@ -1,0 +1,155 @@
+{
+  "schemaVersion": "mavi-attribute-label-mapping-v1",
+  "mappingId": "upar-task1-person-colour-v1",
+  "adapter": "upar-task1",
+  "sourceLabels": [
+    "Age-Young",
+    "Age-Adult",
+    "Age-Old",
+    "Gender-Female",
+    "Hair-Length-Short",
+    "Hair-Length-Long",
+    "Hair-Length-Bald",
+    "UpperBody-Length-Short",
+    "UpperBody-Color-Black",
+    "UpperBody-Color-Blue",
+    "UpperBody-Color-Brown",
+    "UpperBody-Color-Green",
+    "UpperBody-Color-Grey",
+    "UpperBody-Color-Orange",
+    "UpperBody-Color-Pink",
+    "UpperBody-Color-Purple",
+    "UpperBody-Color-Red",
+    "UpperBody-Color-White",
+    "UpperBody-Color-Yellow",
+    "UpperBody-Color-Other",
+    "LowerBody-Length-Short",
+    "LowerBody-Color-Black",
+    "LowerBody-Color-Blue",
+    "LowerBody-Color-Brown",
+    "LowerBody-Color-Green",
+    "LowerBody-Color-Grey",
+    "LowerBody-Color-Orange",
+    "LowerBody-Color-Pink",
+    "LowerBody-Color-Purple",
+    "LowerBody-Color-Red",
+    "LowerBody-Color-White",
+    "LowerBody-Color-Yellow",
+    "LowerBody-Color-Other",
+    "LowerBody-Type-Trousers&Shorts",
+    "LowerBody-Type-Skirt&Dress",
+    "Accessory-Backpack",
+    "Accessory-Bag",
+    "Accessory-Glasses-Normal",
+    "Accessory-Glasses-Sun",
+    "Accessory-Hat"
+  ],
+  "attributes": [
+    {
+      "attributeType": "person-upper-colour",
+      "rule": "one-hot-colour",
+      "columns": {
+        "UpperBody-Color-Black": "black",
+        "UpperBody-Color-Blue": "blue",
+        "UpperBody-Color-Brown": "brown",
+        "UpperBody-Color-Green": "green",
+        "UpperBody-Color-Grey": "grey",
+        "UpperBody-Color-Orange": "orange",
+        "UpperBody-Color-Pink": "pink",
+        "UpperBody-Color-Purple": "purple",
+        "UpperBody-Color-Red": "red",
+        "UpperBody-Color-White": "white",
+        "UpperBody-Color-Yellow": "yellow",
+        "UpperBody-Color-Other": null
+      },
+      "semantics": "source-native",
+      "coverage": "UPAR per-image colour under its own definition; Other is unmapped, never multicolour; several positives are unscorable:ambiguous; images UPAR removed for unknown colour have no truth."
+    },
+    {
+      "attributeType": "person-lower-colour",
+      "rule": "one-hot-colour",
+      "columns": {
+        "LowerBody-Color-Black": "black",
+        "LowerBody-Color-Blue": "blue",
+        "LowerBody-Color-Brown": "brown",
+        "LowerBody-Color-Green": "green",
+        "LowerBody-Color-Grey": "grey",
+        "LowerBody-Color-Orange": "orange",
+        "LowerBody-Color-Pink": "pink",
+        "LowerBody-Color-Purple": "purple",
+        "LowerBody-Color-Red": "red",
+        "LowerBody-Color-White": "white",
+        "LowerBody-Color-Yellow": "yellow",
+        "LowerBody-Color-Other": null
+      },
+      "semantics": "source-native",
+      "coverage": "UPAR per-image colour under its own definition; Other is unmapped, never multicolour; several positives are unscorable:ambiguous; images UPAR removed for unknown colour have no truth."
+    }
+  ],
+  "unmapped": [
+    {
+      "label": "Age-Young",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Age-Adult",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Age-Old",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Gender-Female",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Hair-Length-Short",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Hair-Length-Long",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Hair-Length-Bald",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "UpperBody-Length-Short",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "LowerBody-Length-Short",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "LowerBody-Type-Trousers&Shorts",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "LowerBody-Type-Skirt&Dress",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Accessory-Backpack",
+      "reason": "separately licensed second opinion; agreement diagnostic only, not truth in vertical 1"
+    },
+    {
+      "label": "Accessory-Bag",
+      "reason": "separately licensed second opinion; agreement diagnostic only, not truth in vertical 1"
+    },
+    {
+      "label": "Accessory-Glasses-Normal",
+      "reason": "separately licensed second opinion; agreement diagnostic only, not truth in vertical 1"
+    },
+    {
+      "label": "Accessory-Glasses-Sun",
+      "reason": "separately licensed second opinion; agreement diagnostic only, not truth in vertical 1"
+    },
+    {
+      "label": "Accessory-Hat",
+      "reason": "separately licensed second opinion; agreement diagnostic only, not truth in vertical 1"
+    }
+  ]
+}

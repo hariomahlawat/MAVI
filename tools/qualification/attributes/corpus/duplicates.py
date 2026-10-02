@@ -61,6 +61,38 @@ def hamming(a: int, b: int) -> int:
     return (a ^ b).bit_count()
 
 
+def pigeonhole_pairs(values: dict[str, int], threshold: int, same_group: Callable[[str, str], bool] | None = None,
+                     bucket_cap: int | None = None) -> tuple[list[tuple[str, str, int]], list[dict]]:
+    """Near pairs among 64-bit hashes without an all-pairs comparison.
+
+    With ``threshold < 8``, two hashes within that Hamming distance agree exactly on at least
+    one of their eight bytes, so only ids sharing a byte bucket are compared. Returns
+    ``(pairs, degenerate)``. ``pairs`` holds sorted ``(a, b, distance)`` with ``a < b`` and
+    distance at most the threshold. A bucket larger than ``bucket_cap`` is not expanded; it
+    is listed in ``degenerate`` (``byte``, ``value``, ``members``), so the caller can report
+    it. ``same_group(a, b)`` excludes pairs that belong together by construction."""
+    require_int(threshold, "duplicate_threshold", 0, 7)  # pigeonhole bound: t < 8 bytes
+    buckets: dict[tuple[int, int], list[str]] = defaultdict(list)
+    for key, value in values.items():
+        for byte in range(8):
+            buckets[(byte, (value >> (8 * byte)) & 0xFF)].append(key)
+    found: dict[tuple[str, str], int] = {}
+    degenerate = []
+    for (byte, value), members in sorted(buckets.items()):
+        if bucket_cap is not None and len(members) > bucket_cap:
+            degenerate.append({"byte": byte, "value": value, "members": len(members)})
+            continue
+        members.sort()
+        for i, a in enumerate(members):
+            for b in members[i + 1:]:
+                if (a, b) in found or (same_group is not None and same_group(a, b)):
+                    continue
+                distance = hamming(values[a], values[b])
+                if distance <= threshold:
+                    found[(a, b)] = distance
+    return sorted((a, b, d) for (a, b), d in found.items()), degenerate
+
+
 def fingerprint_corpus(corpus: CorpusManifest, read_crop: Callable[[str], bytes]) -> dict[str, str]:
     """dHash of every crop, read by SHA-256 from a local evidence store the caller owns.
 
@@ -101,19 +133,9 @@ def find_pairs(corpus: CorpusManifest, fingerprints: dict[str, str], threshold: 
             for b in ids[i + 1:]:
                 pairs[(a, b)] = {"a": a, "b": b, "kind": "exact", "distance": 0}
     values = {o: int(h, 16) for o, h in fingerprints.items()}
-    buckets: dict[tuple[int, int], list[str]] = defaultdict(list)
-    for observation_id, value in values.items():
-        for byte in range(8):
-            buckets[(byte, (value >> (8 * byte)) & 0xFF)].append(observation_id)
-    for members in buckets.values():
-        members.sort()
-        for i, a in enumerate(members):
-            for b in members[i + 1:]:
-                if (a, b) in pairs or observations[a].track_id == observations[b].track_id:
-                    continue
-                distance = hamming(values[a], values[b])
-                if distance <= threshold:
-                    pairs[(a, b)] = {"a": a, "b": b, "kind": "near", "distance": distance}
+    near, _ = pigeonhole_pairs(values, threshold, lambda a, b: (a, b) in pairs or observations[a].track_id == observations[b].track_id)
+    for a, b, distance in near:
+        pairs[(a, b)] = {"a": a, "b": b, "kind": "near", "distance": distance}
     return [pairs[key] for key in sorted(pairs)]
 
 
