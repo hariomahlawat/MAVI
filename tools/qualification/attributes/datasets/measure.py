@@ -209,7 +209,7 @@ def measure_person(manifest: dict, pa_release: dict, pa_root: Path, upar_release
                 by_role[role] = _presence_metrics(presence_entries[(attribute, role)])
         attributes[attribute] = {"kind": "colour" if attribute in COLOUR_ATTRIBUTES else "presence", "semantics": semantics, "mappingId": mapping_id,
                                  "coverageNote": None if rule is None else rule["coverage"],
-                                 "method": probe.config["methodId"] if attribute in COLOUR_ATTRIBUTES else "dataset-prevalence-diagnostic-v1",
+                                 "method": probe.config["methodId"] if attribute in COLOUR_ATTRIBUTES else PREVALENCE_METHOD,
                                  "byRole": by_role}
     group_kinds = sorted({s["group"]["kind"] for s in samples})
     contamination = {
@@ -231,6 +231,86 @@ def measure_person(manifest: dict, pa_release: dict, pa_root: Path, upar_release
         "attributes": attributes,
     }
     return parse_component_result(result)
+
+
+PREVALENCE_METHOD = "dataset-prevalence-diagnostic-v1"
+
+
+def _count(value: object, code: str) -> int:
+    require(isinstance(value, int) and not isinstance(value, bool) and value >= 0, f"{code}:count")
+    return value
+
+
+def _check_fraction(value: object, code: str) -> None:
+    if value is None:
+        return
+    require(isinstance(value, dict) and set(value) == {"numerator", "denominator"}, f"{code}:fraction")
+    numerator, denominator = value["numerator"], value["denominator"]
+    require(isinstance(numerator, int) and isinstance(denominator, int) and not isinstance(numerator, bool) and not isinstance(denominator, bool)
+            and denominator > 0 and 0 <= numerator <= denominator, f"{code}:fraction")
+
+
+def _check_colour_metrics(m: dict, values: list[str], code: str) -> None:
+    """Types, allowed keys and the identities that tie the counts together."""
+    _count(m["rows"], code)
+    require(isinstance(m["truth"], dict) and set(m["truth"]) == {"missing", "unmapped", "unscorable", "value"}, f"{code}:truth")
+    for v in m["truth"].values():
+        _count(v, code)
+    _count(m["eligible"], code)
+    _count(m["predicted"], code)
+    require(isinstance(m["unsupportedValues"], list) and all(isinstance(v, str) for v in m["unsupportedValues"]), f"{code}:unsupported")
+    require(isinstance(m["abstentions"], dict) and set(m["abstentions"]) == set(ABSTENTIONS), f"{code}:abstentions")
+    for v in m["abstentions"].values():
+        _count(v, code)
+    confusion = m["confusion"]
+    require(isinstance(confusion, dict) and set(confusion) == set(values)
+            and all(isinstance(r, dict) and set(r) == set(values) for r in confusion.values()), f"{code}:confusion")
+    for row in confusion.values():
+        for v in row.values():
+            _count(v, code)
+    _check_fraction(m["coverage"], code)
+    require(isinstance(m["perValue"], dict) and set(m["perValue"]) == set(values), f"{code}:per_value")
+    for entry in m["perValue"].values():
+        require(isinstance(entry, dict) and set(entry) == {"support", "predictedAs", "correct", "recallOverSupport", "precisionOverPredicted"}, f"{code}:per_value")
+        for key in ("support", "predictedAs", "correct"):
+            _count(entry[key], code)
+        _check_fraction(entry["recallOverSupport"], code)
+        _check_fraction(entry["precisionOverPredicted"], code)
+    aggregate = m["aggregate"]
+    require(isinstance(aggregate, dict) and set(aggregate) == {"correctOverEligible", "correctOverPredicted", "macroRecallOverSupportedValues", "supportedValues"},
+            f"{code}:aggregate")
+    for key in ("correctOverEligible", "correctOverPredicted", "macroRecallOverSupportedValues"):
+        _check_fraction(aggregate[key], code)
+    _count(aggregate["supportedValues"], code)
+    correct = sum(confusion[v][v] for v in values)
+    consistent = (
+        sum(m["truth"].values()) == m["rows"]
+        and m["eligible"] == m["truth"]["value"]
+        and m["predicted"] == m["eligible"] - sum(m["abstentions"].values())
+        and sum(sum(r.values()) for r in confusion.values()) == m["predicted"]
+        and m["coverage"] == _fraction(m["predicted"], m["eligible"])
+        and aggregate["correctOverEligible"] == _fraction(correct, m["eligible"])
+        and aggregate["correctOverPredicted"] == _fraction(correct, m["predicted"])
+        and all(e["correct"] == confusion[v][v] and e["predictedAs"] == sum(confusion[t][v] for t in values)
+                and e["recallOverSupport"] == _fraction(e["correct"], e["support"])
+                and e["precisionOverPredicted"] == _fraction(e["correct"], e["predictedAs"]) for v, e in m["perValue"].items())
+        and sum(e["support"] for e in m["perValue"].values()) == m["eligible"]
+        and aggregate["supportedValues"] == sum(1 for e in m["perValue"].values() if e["support"])
+    )
+    require(consistent, f"{code}:invariant")
+
+
+def _check_presence_metrics(m: dict, code: str) -> None:
+    _count(m["rows"], code)
+    require(isinstance(m["truth"], dict) and set(m["truth"]) == {"missing", "source-binary:negative", "source-binary:positive"}, f"{code}:truth")
+    for v in m["truth"].values():
+        _count(v, code)
+    _count(m["support"], code)
+    _check_fraction(m["prevalence"], code)
+    positive = m["truth"]["source-binary:positive"]
+    consistent = (sum(m["truth"].values()) == m["rows"] and m["support"] == positive + m["truth"]["source-binary:negative"]
+                  and m["prevalence"] == _fraction(positive, m["support"]))
+    require(consistent, f"{code}:invariant")
 
 
 def parse_component_result(document: object) -> dict:
@@ -257,6 +337,7 @@ def parse_component_result(document: object) -> dict:
     config = evidence.get("methodConfig")
     parse_probe_config(config)
     require(probe_sha256(config) == evidence["methodConfigSha256"], f"{code}:method_config_differs")
+    require(evidence["methodId"] == config["methodId"], f"{code}:method_id")
     roles = document.get("rolesMeasured")
     require(isinstance(roles, list) and roles and roles == sorted(set(roles)) and all(r in ROLE_PURPOSE for r in roles), f"{code}:roles")
     require(document.get("measurementPurposes") == {r: measurement_purpose(r) for r in roles}, f"{code}:measurement_purposes")
@@ -265,14 +346,19 @@ def parse_component_result(document: object) -> dict:
             and isinstance(contamination.get("groupCaveat"), str) and contamination.get("publicDataCaveat") == PUBLIC_DATA_CAVEAT, f"{code}:contamination")
     attributes = document.get("attributes")
     require(isinstance(attributes, dict) and set(attributes) == set(COLOUR_ATTRIBUTES + PRESENCE_ATTRIBUTES), f"{code}:attribute_set")
+    task = load_task()
     for attribute, entry in attributes.items():
         require(isinstance(entry, dict) and isinstance(entry.get("byRole"), dict) and sorted(entry["byRole"]) == roles, f"{code}:by_role:{attribute}")
+        expected_method = config["methodId"] if attribute in COLOUR_ATTRIBUTES else PREVALENCE_METHOD
+        require(entry.get("method") == expected_method, f"{code}:attribute_method:{attribute}")
         for metrics in entry["byRole"].values():
             if attribute in PRESENCE_ATTRIBUTES:
                 require(metrics.get("predictions") is None and "confusion" not in metrics and "perValue" not in metrics, f"{code}:presence_prediction_metrics")
                 require(isinstance(metrics, dict) and set(metrics) == PRESENCE_KEYS, f"{code}:presence_metrics:{attribute}")
+                _check_presence_metrics(metrics, f"{code}:{attribute}")
             else:
                 require(isinstance(metrics, dict) and set(metrics) == COLOUR_KEYS, f"{code}:colour_metrics:{attribute}")
+                _check_colour_metrics(metrics, list(task.attribute(attribute).values), f"{code}:{attribute}")
     return document
 
 

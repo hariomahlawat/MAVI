@@ -399,3 +399,51 @@ def test_every_result_carries_its_contamination_caveats(tmp_path):
         edit(forged)
         with pytest.raises(CorpusError, match=code):
             ms.parse_component_result(forged)
+
+
+# ---------------------------------------------------------------- final Codex findings on #143
+
+UPPER, BAG = ("attributes", "person-upper-colour", "byRole", "benchmark"), ("attributes", "person-bag", "byRole", "benchmark")
+
+
+def at(result, path):
+    for key in path:
+        result = result[key]
+    return result
+
+
+@pytest.mark.parametrize("edit,code", [
+    (lambda r: r["evidence"].update(methodId="some-other-probe"), "method_id"),
+    (lambda r: r["attributes"]["person-upper-colour"].update(method="some-other-probe"), "attribute_method"),
+    (lambda r: r["attributes"]["person-bag"].update(method="mavi-dev-colour-probe-v1"), "attribute_method"),
+])
+def test_the_declared_method_must_match_its_configuration(tmp_path, edit, code):
+    result = copy.deepcopy(measure(tmp_path, benchmark_case(tmp_path)))
+    edit(result)
+    with pytest.raises(CorpusError, match=code):
+        ms.parse_component_result(result)
+
+
+@pytest.mark.parametrize("edit,code", [
+    (lambda r: at(r, UPPER).update(confusion="corrupt"), "confusion"),
+    (lambda r: at(r, UPPER).update(eligible=None), "count"),
+    (lambda r: at(r, UPPER).update(rows=-1), "count"),
+    (lambda r: at(r, UPPER)["truth"].update(value=True), "count"),
+    (lambda r: at(r, UPPER).update(coverage={"numerator": 5, "denominator": 0}), "fraction"),
+    (lambda r: at(r, UPPER).update(coverage={"numerator": 17, "denominator": 16}), "fraction"),
+    (lambda r: at(r, UPPER).update(coverage=None), "invariant"),
+    (lambda r: at(r, UPPER)["confusion"]["red"].update(magenta=1), "confusion"),
+    (lambda r: at(r, UPPER)["confusion"]["red"].update(red=11), "invariant"),
+    (lambda r: at(r, UPPER).update(predicted=16), "invariant"),
+    (lambda r: at(r, UPPER).update(eligible=17), "invariant"),
+    (lambda r: at(r, UPPER)["abstentions"].update(guess=1), "abstentions"),
+    (lambda r: at(r, UPPER)["perValue"]["red"].update(correct=None), "count"),
+    (lambda r: at(r, BAG).update(support=99), "invariant"),
+    (lambda r: at(r, BAG).update(prevalence={"numerator": 1, "denominator": 100}), "invariant"),
+    (lambda r: at(r, BAG)["truth"].update({"source-binary:positive": "many"}), "count"),
+])
+def test_corrupted_metric_values_are_refused(tmp_path, edit, code):
+    result = copy.deepcopy(measure(tmp_path, benchmark_case(tmp_path)))
+    edit(result)
+    with pytest.raises(CorpusError, match=code):
+        ms.parse_component_result(result)
