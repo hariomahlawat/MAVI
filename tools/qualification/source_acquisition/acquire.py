@@ -7,8 +7,10 @@ Store layout (outside every Git worktree):
     <store>/media/commons/<pageId>/<sha1>/<safe file name>
     <store>/source-acquisition-summary.json
 
-Only ADMITTED_FOR_PILOT items are downloaded. Nothing here partitions, annotates,
-creates ground truth, reads candidate output, or writes an F1 record.
+Bytes are downloaded only for an ADMITTED_FOR_PILOT item or for an item whose purpose
+approval is APPROVED (``admission.purpose_approval_blockers``). A purpose approval never
+changes the B0 decision or admission state recorded in the receipt. Nothing here
+partitions, annotates, creates ground truth, reads candidate output, or writes an F1 record.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from pathlib import Path
 from attributes.corpus.canonical import canonical_json, sha256_hex
 
 from . import commons
-from .admission import SUMMARY_SCHEMA, build_receipt, require_file_title
+from .admission import SUMMARY_SCHEMA, build_receipt, parse_purpose_approvals, require_file_title
 from .transport import Transport, TransportError, file_digests
 
 _SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -86,6 +88,11 @@ def load_decisions(path: Path) -> list[dict]:
     return decisions
 
 
+def load_purpose_approvals(path: Path) -> list[dict]:
+    """A reviewed purpose-approvals document, resolved against its determinations."""
+    return parse_purpose_approvals(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
 def discover(store: Path, titles: list[str], transport: Transport) -> dict:
     """Metadata-only discovery: automatic pending states and a decisions template.
 
@@ -120,28 +127,35 @@ def discover(store: Path, titles: list[str], transport: Transport) -> dict:
     return {"discoveryReportSha256": report_sha, "decisionsTemplate": out.name, "items": items}
 
 
-def acquire(store: Path, decisions: list[dict], transport: Transport) -> dict:
-    """Process every decision; returns the summary (also written to the store)."""
+def acquire(store: Path, decisions: list[dict], transport: Transport, approvals: list[dict] | None = None) -> dict:
+    """Process every decided or purpose-approved file; returns the summary (also written to the store).
+
+    A file may have a B0 decision, a purpose approval, or both. The decision alone sets the
+    admission state; the approval only adds an acquisition basis."""
     root = assert_controlled_store(store)
+    by_decision = {d["fileTitle"]: d for d in decisions}
+    by_approval = {a["fileTitle"]: a for a in approvals or []}
     rows = []
-    for decision in sorted(decisions, key=lambda d: d["fileTitle"]):
-        title = decision["fileTitle"]
-        row = {"fileTitle": title, "receiptSha256": None, "admissionState": None, "acquisitionStatus": None, "error": None}
+    for title in sorted(set(by_decision) | set(by_approval)):
+        decision, approval = by_decision.get(title), by_approval.get(title)
+        row = {"fileTitle": title, "receiptSha256": None, "admissionState": None, "acquisitionBases": [], "acquisitionStatus": None, "error": None}
         try:
             meta, raw = commons.fetch_file_metadata(transport, title)
             evidence_sha = _retain(root / "evidence", json.loads(raw.decode("utf-8")))
-            preview = build_receipt(meta, decision, evidence_sha, None)
+            preview = build_receipt(meta, decision, evidence_sha, None, approval)
             acquisition = None
-            if preview["admissionState"] == "ADMITTED_FOR_PILOT":
+            if preview["acquisitionBases"]:
                 acquisition = _acquire_file(root, meta, transport)
-            receipt = build_receipt(meta, decision, evidence_sha, acquisition)
+            receipt = build_receipt(meta, decision, evidence_sha, acquisition, approval)
             row.update(receiptSha256=_retain(root / "receipts", receipt), admissionState=receipt["admissionState"],
+                       acquisitionBases=receipt["acquisitionBases"],
                        acquisitionStatus=None if acquisition is None else acquisition["status"])
         except (TransportError, StoreError, ValueError) as exc:
             row.update(acquisitionStatus="FAILED", error=str(exc))
         rows.append(row)
     summary = {"schemaVersion": SUMMARY_SCHEMA, "provider": commons.PROVIDER, "items": rows,
                "counts": {s: sum(1 for r in rows if r["admissionState"] == s) for s in sorted({r["admissionState"] for r in rows if r["admissionState"]})},
+               "purposeApproved": sum(1 for r in rows if "PURPOSE_APPROVAL" in r["acquisitionBases"]),
                "failed": sum(1 for r in rows if r["acquisitionStatus"] == "FAILED")}
     blob = canonical_json(summary)
     target = root / "source-acquisition-summary.json"

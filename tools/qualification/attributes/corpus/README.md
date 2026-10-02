@@ -17,7 +17,7 @@
 
 Keep Training, Development/Tuning, Public Benchmark/Reference, Selection, Qualification Candidate, Frozen Qualification and Regression/Challenge separate, plus the existing engineering-calibration/E3 split. Still-image training/evaluation uses a separate manifest and is component evidence, never an invented Track or an operational camera. Raw holdout capture may precede final executable freeze only under protected custody inaccessible to development/selection; the annotated seal still follows R1 before candidate corpus execution. Final-test exposure to change the system requires a new independent holdout, preserving the existing recovery history.
 
-**Enforcement boundary:** this documentation does not implement the ADR's source eligibility. The partitioner selects held-out sites/date blocks without testing public/commissioned origin; `excludedFromFrozenTrackIds` moves offending frozen clusters to training. A separately reviewed execution mechanism must enforce C+ reproducibly before mixed-source partitioning/sealing; do not assume a valid current manifest proves chronology or provenance. Existing grouping, camera floors, audits and F1 gates remain unchanged, and neither two nor ten raw hours establishes support. B0 S1 closure and all 63 human decisions remain immutable; a new approved engineering purpose does not change the original decision. Policy concepts are not new corpus schema/state values.
+**Enforcement boundary:** the machine-checkable part of the ADR-015 §3 frozen contract is enforced in code. A source's `provenance` (§3.1) must show a protected origin, an approved `frozen-qualification` purpose and no prior exposure. The partitioner never holds out or freezes other footage (§4.5), and `verify_partition` and the seal re-check every frozen Track. Passing that check is necessary, not sufficient: chronology, capture evidence, rights and privacy remain human inputs, and a valid manifest does not prove them. Existing grouping, camera floors, audits and F1 gates remain unchanged, and neither two nor ten raw hours establishes support. B0 S1 closure and all 63 human decisions remain immutable; a new approved engineering purpose does not change the original decision. Policy concepts are not new corpus schema/state values.
 
 **Dependencies:**
 - the Python standard library;
@@ -78,7 +78,8 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
   - the MAVI UUIDs, `processingRunId` and `videoAssetId`;
   - `siteId` and `cameraId`, as corpus-local pseudonyms;
   - `recordingDate`, as a date only;
-  - conditions: lighting, setting, frame size, source class.
+  - conditions: lighting, setting, frame size, source class;
+  - optional `provenance` (`provenance.py`, owner decision C+): `origin` (`public` / `private` / `commissioned` / `owner-captured`), `approvedPurposes`, `acquisitionReceiptSha256` (required for public footage) and `priorExposures` (`{use, recordSha256}`). A corpus revision may not change a source's origin or drop an exposure, even if the source is renamed (it is matched by VideoAsset as well). A source whose provenance was undeclared may be declared later, but never as frozen-eligible. `frozen-qualification` may be combined only with `training`/`tuning`/`selection`, whose exposure the partitioner records.
 - **Site:** MAVI has no Site entity (a Camera has only a free-text `LocationName`), so the Corpus Custodian assigns site pseudonyms.
 - **Track:** the MAVI Track UUID and object class.
 - **Observation:** exactly the S2b lease fields (`LeaseObservation`): Observation UUID, role (`representative` / `near-view` / `early-diverse` / `late-diverse`), evidence rank, size, SHA-256; plus optional crop width and height. A Track needs its Representative, and roles and ranks are unique.
@@ -97,21 +98,23 @@ Records never contain local paths or locators; parsers refuse them (`canonical.r
    - whole clusters move, never single Tracks, so a site-date block is never fragmented;
    - moves only ever go into training, so an evaluation partition can lose clusters but never gain a leaking one;
    - every move is recorded (`clusterId`, `from`, `to`, `reasons`), and each cluster keeps its `initialPartition`. Nothing is deleted.
-5. **Checks:** Track and camera counts per partition, and cameras unseen outside the frozen test. Shortfalls (fewer than `minimumCamerasPerPartition`, no unseen frozen camera) are recorded as **limitations**, never waived.
-6. **Pinned training Tracks.** The optional `policy.pinnedTrainingTrackIds` names Tracks that must stay in training. Their clusters move to training (reason `pinned-training`) before link resolution. The policy is embedded in the manifest, so this is reproducible.
+5. **Frozen eligibility (C+).** A Track may be frozen only if its source's provenance has a protected origin (`commissioned` / `owner-captured`), approves `frozen-qualification` and records no exposure. An operational source with no provenance is never eligible; a synthetic fixture without provenance keeps its earlier behaviour. Ineligible clusters are never held out or temporally frozen: they join the training/tuning/selection pool, and the limitation `frozen_ineligible_clusters:<n>` is recorded. With every cluster eligible, the assignment is unchanged. `partition_exposures` lists each source's training/tuning/selection exposure, for `priorExposures` in a later revision.
+6. **Checks:** Track and camera counts per partition, and cameras unseen outside the frozen test. Shortfalls (fewer than `minimumCamerasPerPartition`, no unseen frozen camera) are recorded as **limitations**, never waived.
+7. **Pinned training Tracks.** The optional `policy.pinnedTrainingTrackIds` names Tracks that must stay in training. Their clusters move to training (reason `pinned-training`) before link resolution. The policy is embedded in the manifest, so this is reproducible.
    - Pinning moves whole clusters, so it can cost the held-out camera: a pinned Track in a held-out site pulls that site's cluster into training. That shortfall is recorded as a limitation.
    - The optional `policy.excludedFromFrozenTrackIds` names Tracks that may not enter the frozen test. A cluster holding one that would be frozen goes to training (reason `excluded-from-frozen`).
    - **R1 recovery after a compromised seal:**
      - every Track of the old seal's partition was exposed (frozen labels leaked; training, tuning and selection were open to candidates), so the replacement frozen test must come from **new footage**;
      - revise the corpus to add it, label the new Tracks, and re-partition with the pilot pinned and every previously exposed Track in `excludedFromFrozenTrackIds`;
      - `test_r1_recovery_needs_new_footage_and_then_reaches_pass` walks this path.
-7. **Audits are bound.** The manifest records the recurrence and duplicate audit hashes. An operational corpus cannot be partitioned without both audits (`partition_operational_requires_audits`).
+8. **Audits are bound.** The manifest records the recurrence and duplicate audit hashes. An operational corpus cannot be partitioned without both audits (`partition_operational_requires_audits`).
 
 `verify_partition` takes the audits actually supplied, re-derives everything and refuses:
 - audit hashes that differ from the manifest's;
 - a Track assigned twice or missing;
 - an empty partition;
 - a Track whose partition differs from its cluster's;
+- a frozen Track from footage that is not frozen-eligible (`partition_frozen_track_not_eligible`);
 - a move that is not into training;
 - a link group spanning partitions;
 - any non-reproducible difference.
@@ -222,7 +225,7 @@ Agreement and pilot reports accept only ledger-registered batches.
   - the frozen ground-truth SHA-256 and the evaluation-view SHA-256, both views of one ground truth;
   - the annotation-ledger head.
 
-  Every frozen Track must be labelled first.
+  Every frozen Track must be labelled first, and its footage must be frozen-eligible (§4.5; `seal_frozen_tracks_not_eligible`).
 - **Access log:**
   - The access log opens with the seal. Only `seal` creates it; every other command refuses a missing or empty log, so deleting it cannot reset it.
   - Every access is logged **before** anything is returned.

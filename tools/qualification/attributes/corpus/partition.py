@@ -22,6 +22,12 @@ Algorithm (deterministic; the only inputs are the corpus, the policy and the aud
    training, so an evaluation partition can lose Tracks but never gain one it should not
    have. Every cluster move is recorded with its reasons; nothing is deleted.
 
+**Frozen eligibility (C+).** Only clusters whose every source is frozen-eligible
+(``provenance.frozen_blockers``: protected origin, ``frozen-qualification`` approved, no
+earlier exposure) can be held out or temporally frozen. Ineligible clusters go to the
+training/tuning/selection pool. When every cluster is eligible the algorithm is unchanged.
+``verify_partition`` and the seal re-check each frozen Track independently.
+
 The date-block epoch is pinned in the policy (``dateEpoch``), so adding an earlier
 source in a corpus revision cannot silently shift every block boundary.
 """
@@ -46,6 +52,7 @@ from .canonical import (
     require_uuid,
 )
 from .manifest import CorpusManifest
+from .provenance import frozen_blockers
 
 PARTITION_SCHEMA = "mavi-attribute-partition-manifest-v1"
 TRAINING, TUNING, SELECTION, FROZEN = "training", "tuning", "selection", "frozen-test"
@@ -118,10 +125,20 @@ def _clusters(corpus: CorpusManifest, block_days: int, epoch: date) -> tuple[dat
     return epoch, clusters
 
 
-def _initial_assignment(clusters: dict[str, dict], policy: dict) -> dict[str, str]:
+def track_frozen_blockers(corpus: CorpusManifest, track_id: str) -> list[str]:
+    return frozen_blockers(corpus.source_of(track_id).provenance, corpus.corpus_kind)
+
+
+def frozen_ineligible_clusters(corpus: CorpusManifest, clusters: dict[str, dict]) -> set[str]:
+    return {cid for cid, c in clusters.items() if any(track_frozen_blockers(corpus, t) for t in c["trackIds"])}
+
+
+def _initial_assignment(clusters: dict[str, dict], policy: dict, ineligible: set[str] = frozenset()) -> dict[str, str]:
     seed = policy["seed"]
     sites = sorted({c["siteId"] for c in clusters.values()}, key=lambda s: hash_rank(seed, "site", s))
-    held_out = set(sites[: policy["heldOutSites"]])
+    # A site can be held out only if none of its footage is frozen-ineligible.
+    tainted = {clusters[c]["siteId"] for c in ineligible}
+    held_out = set([s for s in sites if s not in tainted][: policy["heldOutSites"]])
     require(len(held_out) < len(sites) or not sites, "partition_all_sites_held_out")
     assignment: dict[str, str] = {}
     for cluster_id, cluster in clusters.items():
@@ -130,7 +147,7 @@ def _initial_assignment(clusters: dict[str, dict], policy: dict) -> dict[str, st
     for site in sites:
         if site in held_out:
             continue
-        blocks = sorted((c for c in clusters.values() if c["siteId"] == site), key=lambda c: c["dateBlock"])
+        blocks = sorted((c for c in clusters.values() if c["siteId"] == site and c["clusterId"] not in ineligible), key=lambda c: c["dateBlock"])
         frozen_count = int(len(blocks) * policy["frozenLatestBlockFraction"])
         for cluster in blocks[len(blocks) - frozen_count:] if frozen_count else []:
             assignment[cluster["clusterId"]] = FROZEN
@@ -217,11 +234,13 @@ def build_partition(corpus: CorpusManifest, policy: dict, links: list[LinkGroup]
         require(group.track_ids <= corpus.tracks.keys(), f"partition_link_unknown_track:{group.group_id}")
         require(len(group.track_ids) >= 2, f"partition_link_too_small:{group.group_id}")
     epoch, clusters = _clusters(corpus, policy["dateBlockDays"], date.fromisoformat(policy["dateEpoch"]))
-    initial = _initial_assignment(clusters, policy)
+    ineligible = frozen_ineligible_clusters(corpus, clusters)
+    initial = _initial_assignment(clusters, policy, ineligible)
     pinned = tuple(policy.get("pinnedTrainingTrackIds", []))
     excluded = tuple(policy.get("excludedFromFrozenTrackIds", []))
     require(set(pinned) <= corpus.tracks.keys() and set(excluded) <= corpus.tracks.keys(), "partition_pinned_unknown_track")
     final, moves = _resolve(clusters, initial, links, pinned, excluded)
+    require(not any(final[c] == FROZEN for c in ineligible), "partition_frozen_cluster_not_eligible")
     track_cluster = {t: c for c, cluster in clusters.items() for t in cluster["trackIds"]}
     document = {
         "schemaVersion": PARTITION_SCHEMA,
@@ -269,6 +288,10 @@ def partition_checks(corpus: CorpusManifest, document: dict) -> dict:
             limitations.append(f"cameras_below_minimum:{partition}:{len(cameras[partition])}")
     if policy["requireUnseenFrozenCamera"] and not unseen:
         limitations.append("no_unseen_frozen_camera")
+    ineligible = {e["clusterId"] for e in document["assignments"] if track_frozen_blockers(corpus, e["trackId"])}
+    if ineligible:
+        # Recorded, never silent: these clusters could not be frozen (public or exposed footage).
+        limitations.append(f"frozen_ineligible_clusters:{len(ineligible)}")
     return {
         "trackCounts": counts,
         "cameraCounts": {p: len(cameras[p]) for p in PARTITIONS},
@@ -300,6 +323,10 @@ def verify_partition(corpus: CorpusManifest, document: dict, links: list[LinkGro
     require(set(ids) == set(corpus.tracks), "partition_track_coverage")
     for entry in assignments:
         require(entry["partition"] in PARTITIONS, f"partition_unknown:{entry['partition']}")
+        # Independent of reproduction: no frozen Track may come from ineligible footage.
+        if entry["partition"] == FROZEN:
+            blockers = track_frozen_blockers(corpus, entry["trackId"])
+            require(not blockers, f"partition_frozen_track_not_eligible:{entry['trackId']}:{','.join(blockers)}")
     counts = {p: sum(a["partition"] == p for a in assignments) for p in PARTITIONS}
     for partition in PARTITIONS:
         require(counts[partition] > 0, f"partition_empty:{partition}")  # tuning and selection may not collapse
@@ -316,6 +343,19 @@ def verify_partition(corpus: CorpusManifest, document: dict, links: list[LinkGro
     require(expected["clusters"] == document["clusters"], "partition_clusters_not_reproducible")
     require(expected["assignments"] == assignments and expected["moves"] == document["moves"], "partition_not_reproducible")
     require(expected["checks"] == document["checks"], "partition_checks_mismatch")
+
+
+def partition_exposures(corpus: CorpusManifest, document: dict) -> dict[str, list[dict]]:
+    """The exposure each source gains from a training, tuning or selection assignment, bound
+    to this partition manifest. Carry it into the source's ``provenance.priorExposures`` in
+    any later corpus revision, so the footage can never be frozen afterwards. Frozen-test
+    assignments are not listed: their exposure is governed by the seal (``frozen.py``)."""
+    record = document_sha256(document)
+    uses: dict[str, set[str]] = defaultdict(set)
+    for entry in document["assignments"]:
+        if entry["partition"] != FROZEN:
+            uses[corpus.source_of(entry["trackId"]).source_id].add(f"partition-{entry['partition']}")
+    return {sid: [{"use": u, "recordSha256": record} for u in sorted(us)] for sid, us in sorted(uses.items())}
 
 
 def partition_of(document: dict) -> dict[str, str]:

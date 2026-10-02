@@ -1,7 +1,7 @@
 """Command line for the B0 source-acquisition pilot (Development only).
 
     discover --store S --contact C (--search TEXT | --category "Category:...") [--limit N]
-    acquire  --store S --contact C --decisions reviewed-decisions.json
+    acquire  --store S --contact C [--decisions reviewed-decisions.json] [--purpose-approvals approvals.json]
     verify   --store S
 """
 
@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from . import commons
-from .acquire import StoreError, acquire, discover, load_decisions, verify
+from .acquire import StoreError, acquire, discover, load_decisions, load_purpose_approvals, verify
 from .transport import Transport, TransportError
 
 USER_AGENT = "MAVI-S2c-B0-source-acquisition/1.0 (Development qualification tooling; contact: {contact})"
@@ -38,7 +38,8 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("acquire")
     a.add_argument("--store", required=True, type=Path)
     a.add_argument("--contact", required=True)
-    a.add_argument("--decisions", required=True, type=Path)
+    a.add_argument("--decisions", type=Path)
+    a.add_argument("--purpose-approvals", type=Path)
     v = sub.add_parser("verify")
     v.add_argument("--store", required=True, type=Path)
     args = parser.parse_args(argv)
@@ -55,8 +56,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"discoveryReportSha256": result["discoveryReportSha256"], "decisionsTemplate": result["decisionsTemplate"],
                               "states": sorted({str(i["admissionState"]) for i in result["items"]}), "items": len(result["items"])}, indent=2))
             return 0
-        summary = acquire(args.store, load_decisions(args.decisions), transport)
-        print(json.dumps({"counts": summary["counts"], "failed": summary["failed"]}, indent=2))
+        if args.decisions is None and args.purpose_approvals is None:
+            raise StoreError("acquire needs --decisions, --purpose-approvals or both")
+        decisions = load_decisions(args.decisions) if args.decisions else []
+        approvals = load_purpose_approvals(args.purpose_approvals) if args.purpose_approvals else []
+        summary = acquire(args.store, decisions, transport, approvals)
+        print(json.dumps({"counts": summary["counts"], "purposeApproved": summary["purposeApproved"], "failed": summary["failed"]}, indent=2))
         return 1 if summary["failed"] else 0
     except (StoreError, TransportError, ValueError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
