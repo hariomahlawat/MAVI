@@ -164,6 +164,9 @@ def parse_release(document: object) -> dict:
         require_keys(entry, f"{code}:exposure", ("subject", "evidence"))
         require_free_text(entry["subject"], f"{code}:exposure", 200)
         require_free_text(entry["evidence"], f"{code}:exposure", 1000)
+    # Like every other list here: one canonical order, so the release identity is stable.
+    keys = [(e["subject"], e["evidence"]) for e in exposure]
+    require(keys == sorted(set(keys)), f"{code}:exposure_not_sorted_unique")
     return document
 
 
@@ -179,7 +182,9 @@ def _r5_required(codes: list[str]) -> bool:
 def authorise_release_use(release: dict, purposes, operations=(), member: str | None = None) -> list[str]:
     """Blockers that stop this release, or one member of it, being used for these purposes.
 
-    ``operations`` names any operation exercised beyond those the purposes require. Every
+    ``operations`` names any operation exercised beyond those the purposes require. Without a
+    ``member``, the question is whole-release use, which is blocked while any member is
+    excluded. Every
     required operation must be ``granted`` in the determination's rights inventory:
     ``not-granted`` blocks; ``not-stated`` and ``pending-r5`` block pending R-5's
     interpretation. An empty result authorises the use."""
@@ -192,10 +197,14 @@ def authorise_release_use(release: dict, purposes, operations=(), member: str | 
     for operation in extra:
         require(operation in DATASET_USE_OPERATIONS, f"dataset_operation_not_a_use_operation:{operation}")
     blockers = []
+    excluded = {e["path"] for e in release["excludedMembers"]}
     if member is not None:
         _member_path(member, "dataset_use_member")
-        if member in {e["path"] for e in release["excludedMembers"]}:
+        if member in excluded:
             blockers.append(f"member-excluded:{member}")
+    elif excluded:
+        # Whole-release use would include the excluded members: authorise member by member.
+        blockers.append(f"release-has-excluded-members:{len(excluded)}")
     determination = release["determination"]
     if determination is None:
         return sorted(blockers + ["determination-missing"])

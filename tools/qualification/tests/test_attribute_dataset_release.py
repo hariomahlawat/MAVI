@@ -393,3 +393,40 @@ def test_cli_refuses_an_unhashable_licence_code_with_exit_2(store, tmp_path, cap
     path.write_text(json.dumps(record), encoding="utf-8")
     assert cli.main(["verify-release", "--release", str(path), "--root", str(store), "--purpose", "benchmarking"]) == 2
     assert "REFUSED" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- exclusions and exposure identity (Codex P2s on #141)
+
+
+def test_whole_release_use_is_blocked_while_members_are_excluded():
+    excluded = [{"path": "release_data/000042.jpg", "reason": "privacy: identifiable face at close range"}]
+    r = release(excludedMembers=excluded)
+    assert "release-has-excluded-members:1" in rel.authorise_release_use(r, ["benchmarking"])
+    assert rel.authorise_release_use(r, ["benchmarking"], (), "release_data/000043.jpg") == []  # per member is fine
+    assert rel.authorise_release_use(release(), ["benchmarking"]) == []  # no exclusions: whole release is fine
+
+
+def test_cli_cannot_report_a_release_with_exclusions_as_wholly_authorised(store, tmp_path, capsys):
+    from attributes.datasets import cli
+    record = release(excludedMembers=[{"path": "release_data/000042.jpg", "reason": "privacy review"}])
+    path = tmp_path / "release.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    assert cli.main(["verify-release", "--release", str(path), "--root", str(store), "--purpose", "benchmarking"]) == 1
+    assert "release-has-excluded-members:1" in json.loads(capsys.readouterr().out)["blockers"]
+
+
+@pytest.mark.parametrize("exposure", [
+    [{"subject": "b", "evidence": "x"}, {"subject": "a", "evidence": "x"}],
+    [{"subject": "a", "evidence": "y"}, {"subject": "a", "evidence": "x"}],
+    [{"subject": "a", "evidence": "x"}, {"subject": "a", "evidence": "x"}],
+])
+def test_known_exposure_must_be_sorted_and_duplicate_free(exposure):
+    with pytest.raises(CorpusError, match="exposure_not_sorted_unique"):
+        release(knownExposure=exposure)
+
+
+def test_reordering_known_exposure_cannot_create_a_second_identity():
+    entries = [{"subject": "PO-7", "evidence": "reported trained on PA-100K"}, {"subject": "pretraining", "evidence": "widely used"}]
+    assert rel.release_sha256(release(knownExposure=entries))
+    with pytest.raises(CorpusError):
+        release(knownExposure=list(reversed(entries)))
