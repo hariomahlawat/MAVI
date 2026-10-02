@@ -1957,7 +1957,7 @@ def main() -> int:
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")
-    print(" - contract examples: 13 (incl. completion v3 and v3.2 goldens, digest pins and invalid vectors)")
+    print(" - contract examples: 16 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors)")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret/wheel scan: clean")

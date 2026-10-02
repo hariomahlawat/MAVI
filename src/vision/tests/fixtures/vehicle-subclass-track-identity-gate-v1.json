@@ -74,8 +74,8 @@
         "startOffsetMs": 0,
         "endOffsetMs": 1900,
         "detectionCount": 20,
-        "meanConfidence": 0.9,
-        "maxConfidence": 0.9,
+        "meanConfidence": 0.9899999999999999,
+        "maxConfidence": 0.99,
         "trajectory": {
           "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/trajectories/vehicle-000001.msgpack",
           "sizeBytes": 449,
@@ -88,7 +88,7 @@
             "rank": 0,
             "offsetMs": 0,
             "sourceFrameNumber": 0,
-            "confidence": 0.9,
+            "confidence": 0.99,
             "boundingBox": [
               0.625,
               0.08333333333333333,
@@ -109,7 +109,7 @@
             "rank": 1,
             "offsetMs": 600,
             "sourceFrameNumber": 6,
-            "confidence": 0.9,
+            "confidence": 0.99,
             "boundingBox": [
               0.63125,
               0.08333333333333333,
@@ -130,7 +130,7 @@
             "rank": 2,
             "offsetMs": 1600,
             "sourceFrameNumber": 16,
-            "confidence": 0.9,
+            "confidence": 0.99,
             "boundingBox": [
               0.65,
               0.08333333333333333,
@@ -154,8 +154,8 @@
         "startOffsetMs": 0,
         "endOffsetMs": 1900,
         "detectionCount": 20,
-        "meanConfidence": 0.835,
-        "maxConfidence": 0.85,
+        "meanConfidence": 0.7114999999999999,
+        "maxConfidence": 0.97,
         "trajectory": {
           "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/trajectories/vehicle-000002.msgpack",
           "sizeBytes": 449,
@@ -168,7 +168,7 @@
             "rank": 0,
             "offsetMs": 0,
             "sourceFrameNumber": 0,
-            "confidence": 0.85,
+            "confidence": 0.97,
             "boundingBox": [
               0.3125,
               0.08333333333333333,
@@ -189,7 +189,7 @@
             "rank": 1,
             "offsetMs": 600,
             "sourceFrameNumber": 6,
-            "confidence": 0.85,
+            "confidence": 0.97,
             "boundingBox": [
               0.31875,
               0.08333333333333333,
@@ -210,7 +210,7 @@
             "rank": 2,
             "offsetMs": 1600,
             "sourceFrameNumber": 16,
-            "confidence": 0.8,
+            "confidence": 0.5,
             "boundingBox": [
               0.3375,
               0.08333333333333333,
@@ -234,8 +234,8 @@
         "startOffsetMs": 0,
         "endOffsetMs": 1900,
         "detectionCount": 20,
-        "meanConfidence": 0.8,
-        "maxConfidence": 0.8,
+        "meanConfidence": 0.45,
+        "maxConfidence": 0.45,
         "trajectory": {
           "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/trajectories/vehicle-000003.msgpack",
           "sizeBytes": 449,
@@ -248,7 +248,7 @@
             "rank": 0,
             "offsetMs": 0,
             "sourceFrameNumber": 0,
-            "confidence": 0.8,
+            "confidence": 0.45,
             "boundingBox": [
               0.3125,
               0.5833333333333334,
@@ -263,48 +263,6 @@
               "sha256": "93e54a00427e253279d5d29766addc831567886acd15772431078b8017d2f6be",
               "fileSha256": "93e54a00427e253279d5d29766addc831567886acd15772431078b8017d2f6be"
             }
-          },
-          {
-            "role": "near-view",
-            "rank": 1,
-            "offsetMs": 600,
-            "sourceFrameNumber": 6,
-            "confidence": 0.8,
-            "boundingBox": [
-              0.31875,
-              0.5833333333333334,
-              0.3125,
-              0.33333333333333326
-            ],
-            "qualityMicro": 751440,
-            "selectionMicro": 751440,
-            "crop": {
-              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000003-near-view.jpg",
-              "sizeBytes": 2380,
-              "sha256": "5d49a9b1509659177ce90274baec7689fab338987118460d68c2c1bf83caa258",
-              "fileSha256": "5d49a9b1509659177ce90274baec7689fab338987118460d68c2c1bf83caa258"
-            }
-          },
-          {
-            "role": "early-diverse",
-            "rank": 2,
-            "offsetMs": 1600,
-            "sourceFrameNumber": 16,
-            "confidence": 0.8,
-            "boundingBox": [
-              0.3375,
-              0.5833333333333334,
-              0.3125,
-              0.33333333333333326
-            ],
-            "qualityMicro": 753250,
-            "selectionMicro": 753250,
-            "crop": {
-              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000003-early-diverse.jpg",
-              "sizeBytes": 2383,
-              "sha256": "64df7a5af6252c919c147801c9b89eb74ef63c87c272ea66a384c8073796f779",
-              "fileSha256": "64df7a5af6252c919c147801c9b89eb74ef63c87c272ea66a384c8073796f779"
-            }
           }
         ]
       }
@@ -318,18 +276,18 @@
         8699
       ],
       "near-view": [
-        4,
-        4,
+        3,
+        3,
         0,
-        8696,
-        8696
+        6316,
+        6316
       ],
       "early-diverse": [
-        3,
-        3,
+        2,
+        2,
         0,
-        6372,
-        6372
+        3989,
+        3989
       ],
       "late-diverse": [
         0,

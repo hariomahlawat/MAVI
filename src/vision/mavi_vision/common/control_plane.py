@@ -1048,6 +1048,15 @@ class VisionCompletionTrackV33(VisionCompletionTrackV3):
         default=None, exclude_if=lambda value: value is None
     )
 
+    @field_validator("object_subclass", mode="before")
+    @classmethod
+    def refuse_explicit_null(cls, value: object) -> object:
+        # Absence means "not resolved"; an explicit null is refused, as by the schema
+        # and the platform (the default is never validated, so absence still passes).
+        if value is None:
+            raise ValueError("objectSubclass is omitted, never null")
+        return value
+
     @model_validator(mode="after")
     def validate_subclass_class(self) -> "VisionCompletionTrackV33":
         if self.object_subclass is not None and self.object_class != "vehicle":

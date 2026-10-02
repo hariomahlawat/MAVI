@@ -854,8 +854,8 @@ def test_python_v3_model_follows_the_shared_integer_conformance_corpus() -> None
 # longer emitted (the platform still reads it).
 
 def test_the_worker_recognises_completion_3_3_as_an_asynchronous_version() -> None:
-    assert SUPPORTED_COMPLETION_SCHEMA_VERSIONS == ("3.0", "3.1", "3.2", "3.3")
-    assert ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS == frozenset({"3.1", "3.2", "3.3"})
+    assert SUPPORTED_COMPLETION_SCHEMA_VERSIONS == ("3.0", "3.1", "3.3")
+    assert ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS == frozenset({"3.1", "3.3"})
 
 
 def test_the_default_body_validates_against_the_3_3_schema_and_model(tmp_path: Path) -> None:

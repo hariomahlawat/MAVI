@@ -78,13 +78,14 @@ class WorkerSettings(BaseSettings):
     device_index: int = Field(default=0, ge=0, le=255)
     device_resolution_reason: str | None = None
     production_mode: bool = False
-    # The completion schema is the role's declared provenance contract (3.2, P-16).
-    # The only way to run another version is this explicit, Development-only,
-    # non-qualifying override: "3.1" for a platform with asynchronous finalization
-    # enabled, "3.0" for one held at VisionFinalization:Enabled=false. It is refused
-    # in production_mode, forces verificationStatus "unverified", drops the 3.2-only
-    # component identity from completions and is logged at startup and on every
-    # completion (completion_schema_override_active).
+    # The completion schema is the role's declared provenance contract (3.3 since
+    # Stage 3, P-16). The only way to run another version is this explicit,
+    # Development-only, non-qualifying override: "3.1" for a platform with
+    # asynchronous finalization enabled, "3.0" for one held at
+    # VisionFinalization:Enabled=false. It is refused in production_mode, forces
+    # verificationStatus "unverified", drops the component identity and the vehicle
+    # subclass from completions and is logged at startup and on every completion
+    # (completion_schema_override_active).
     completion_schema_override: Literal["3.0", "3.1"] | None = None
     inference_watchdog_seconds: float = Field(default=120.0, ge=5.0, le=3600.0)
     watchdog_grace_seconds: float = Field(default=15.0, ge=1.0, le=300.0)

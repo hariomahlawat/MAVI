@@ -61,6 +61,13 @@ public sealed class AddTrackObjectSubclass : Migration
             table: "tracks",
             sql: "object_subclass IS NULL OR (object_subclass_vocabulary = 'mavi-vehicle-subclass-v1' AND object_subclass IN ('car', 'truck', 'bus', 'motorcycle'))");
 
+        // Every vocabulary and source a row may name: v1, and the detector-native source of
+        // one pipeline profile. A future source or vocabulary is added by its own migration.
+        migrationBuilder.AddCheckConstraint(
+            name: "ck_tracks_object_subclass_identity",
+            table: "tracks",
+            sql: "(object_subclass_vocabulary IS NULL OR object_subclass_vocabulary = 'mavi-vehicle-subclass-v1') AND (object_subclass_source IS NULL OR object_subclass_source ~ '^detector-native:[0-9a-f]{64}$')");
+
         migrationBuilder.CreateIndex(
             name: "IX_tracks_object_subclass_start_timestamp_utc",
             table: "tracks",
@@ -72,6 +79,10 @@ public sealed class AddTrackObjectSubclass : Migration
     {
         migrationBuilder.DropIndex(
             name: "IX_tracks_object_subclass_start_timestamp_utc",
+            table: "tracks");
+
+        migrationBuilder.DropCheckConstraint(
+            name: "ck_tracks_object_subclass_identity",
             table: "tracks");
 
         migrationBuilder.DropCheckConstraint(

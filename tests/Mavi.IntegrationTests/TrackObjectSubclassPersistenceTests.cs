@@ -41,6 +41,9 @@ public sealed class TrackObjectSubclassPersistenceTests(PostgresFixture fixture)
     [InlineData("historical", "UPDATE tracks SET object_subclass = 'car' WHERE id = $1", "ck_tracks_object_subclass_state")]
     [InlineData("resolved", "UPDATE tracks SET object_subclass = 'bicycle' WHERE id = $1", "ck_tracks_object_subclass_value")]
     [InlineData("resolved", "UPDATE tracks SET object_subclass_vocabulary = 'mavi-vehicle-subclass-v2' WHERE id = $1", "ck_tracks_object_subclass_value")]
+    [InlineData("abstained", "UPDATE tracks SET object_subclass_vocabulary = 'anything' WHERE id = $1", "ck_tracks_object_subclass_identity")]
+    [InlineData("abstained", "UPDATE tracks SET object_subclass_source = 'classifier:x' WHERE id = $1", "ck_tracks_object_subclass_identity")]
+    [InlineData("resolved", "UPDATE tracks SET object_subclass_source = 'detector-native:4444' WHERE id = $1", "ck_tracks_object_subclass_identity")]
     public async Task EveryOtherCombinationIsRefusedByTheDatabase(string row, string sql, string constraint)
     {
         var ids = await SeedAsync();
@@ -51,6 +54,7 @@ public sealed class TrackObjectSubclassPersistenceTests(PostgresFixture fixture)
         {
             "person" => ids.Person,
             "historical" => ids.Historical,
+            "abstained" => ids.Abstained,
             "resolved" => ids.Resolved,
             _ => throw new ArgumentOutOfRangeException(nameof(row)),
         });

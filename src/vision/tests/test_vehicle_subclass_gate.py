@@ -53,7 +53,7 @@ def test_only_the_subclass_is_added(tmp_path: Path) -> None:
     on = {track.track_id: track.object_subclass for track in gate.run(tmp_path / "on", vehicle_subclass=True).tracks}
     off = {track.track_id: track.object_subclass for track in gate.run(tmp_path / "off", vehicle_subclass=False).tracks}
 
-    # The bus is always a bus; vehicle A is a car for 14 of 20 frames (share 0.71); vehicle C
-    # alternates car and truck at equal confidence, an exact tie, so it abstains.
+    # The bus is always a bus; vehicle A is a car by confidence (8.73 vs 5.5, share 0.61) though
+    # a truck by count; vehicle C alternates car and truck at equal confidence, so it abstains.
     assert on == {"person-000001": None, "vehicle-000001": "bus", "vehicle-000002": "car", "vehicle-000003": None}
     assert set(off.values()) == {None}

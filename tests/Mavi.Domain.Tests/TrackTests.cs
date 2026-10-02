@@ -56,6 +56,9 @@ public sealed class TrackTests
     [InlineData(ObjectClass.Vehicle, "suv", VehicleSubclass.VocabularyV1, Source)]
     [InlineData(ObjectClass.Vehicle, "truck", "mavi-vehicle-subclass-v2", Source)]
     [InlineData(ObjectClass.Vehicle, "truck", VehicleSubclass.VocabularyV1, "")]
+    [InlineData(ObjectClass.Vehicle, null, VehicleSubclass.VocabularyV1, "classifier:4444444444444444444444444444444444444444444444444444444444444444")]
+    [InlineData(ObjectClass.Vehicle, null, VehicleSubclass.VocabularyV1, "detector-native:4444")]
+    [InlineData(ObjectClass.Vehicle, "car", VehicleSubclass.VocabularyV1, "detector-native:AAAA444444444444444444444444444444444444444444444444444444444444")]
     public void AnyOtherSubclassCombinationIsRefused(ObjectClass objectClass, string? subclass, string? vocabulary, string? source)
     {
         var error = Assert.Throws<Mavi.Domain.Common.DomainValidationException>(() => Create(objectClass, subclass, vocabulary, source));

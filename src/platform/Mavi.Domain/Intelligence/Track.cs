@@ -102,7 +102,7 @@ public sealed class Track
         if (subclass is null && vocabulary is null && source is null)
             return;
         if (objectClass != ObjectClass.Vehicle || vocabulary != VehicleSubclass.VocabularyV1 ||
-            string.IsNullOrEmpty(source) || source.Length > VehicleSubclass.MaximumSourceLength ||
+            !VehicleSubclass.IsDetectorNativeSource(source) ||
             (subclass is not null && !VehicleSubclass.ValuesV1.Contains(subclass)))
             throw new DomainValidationException("track_object_subclass_invalid", "The track subclass data is invalid.");
     }

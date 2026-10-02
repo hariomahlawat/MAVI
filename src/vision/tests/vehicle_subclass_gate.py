@@ -7,10 +7,17 @@ tracker, because the native ByteTrack backend exists only in the qualified runti
 job; the ByteTrack adapter's pass-through of the native class has its own test.
 
 - a Person;
-- vehicle A, labelled ``car`` for 14 frames and ``truck`` for 6 (resolves to car);
+- vehicle A, a confident ``car`` for 9 frames and a weak ``truck`` for 11. By
+  confidence it resolves to car (share 0.61); by count alone it would abstain
+  (truck 0.55), so the gate pins the weighting;
 - vehicle B, always ``bus`` (resolves to bus);
 - vehicle C, alternating ``car`` and ``truck`` at equal confidence (an exact tie,
   so it abstains).
+
+The gate proves the Track accumulator, evidence and artefacts are unchanged for a
+fixed association. Real ByteTrack association is not exercised here: the adapter's
+pass-through of the native class has its own test, and the native backend runs only
+in the qualified runtime job.
 
 Decoding is replaced by synthetic frames so the result does not depend on a
 codec build. The scenario uses only interfaces that also exist before Stage 3,
@@ -49,7 +56,7 @@ WIDTH, HEIGHT = 160, 120
 VOCABULARY = ("person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck")
 PROFILE = Path(mavi_vision.__file__).resolve().parents[1] / "config/pipelines/phase1-detection-tracking-v1.json"
 # The detector orders each frame's detections by class, then descending confidence,
-# then box: Person, bus (0.9), vehicle A (0.85 or 0.8, upper box), vehicle C (0.8).
+# then box: Person, bus (0.99), vehicle A (0.97 or 0.5), vehicle C (0.45), every frame.
 TRACK_BY_INDEX = ("person-000001", "vehicle-000001", "vehicle-000002", "vehicle-000003")
 
 
@@ -62,9 +69,9 @@ def _detections(frame: int) -> tuple[RawDetection, ...]:
 
     return (
         raw("person", 0.9, (10.0, 20.0, 35.0, 100.0)),
-        raw("car" if frame < 14 else "truck", 0.85 if frame < 14 else 0.8, (50.0, 10.0, 90.0, 40.0)),
-        raw("bus", 0.9, (100.0, 10.0, 150.0, 45.0)),
-        raw("car" if frame % 2 == 0 else "truck", 0.8, (50.0, 70.0, 100.0, 110.0)),
+        raw("car" if frame < 9 else "truck", 0.97 if frame < 9 else 0.5, (50.0, 10.0, 90.0, 40.0)),
+        raw("bus", 0.99, (100.0, 10.0, 150.0, 45.0)),
+        raw("car" if frame % 2 == 0 else "truck", 0.45, (50.0, 70.0, 100.0, 110.0)),
     )
 
 

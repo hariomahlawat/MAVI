@@ -25,7 +25,6 @@ from mavi_vision.common.control_plane import (
     VisionGpuIdentity,
     VisionJobCompleteResponse,
     VisionJobCompleteV3,
-    VisionJobCompleteV32,
     VisionJobCompleteV33,
     VisionCompletionTrackV33,
     VisionJobFail,
@@ -52,12 +51,13 @@ _SAFE_PROBLEM_CODE: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$", re.ASCII)
 # The completion contracts this worker can emit. Which one it emits is the role's
 # resolved completion contract (S2a plan P-16): "3.3", the role's declared
 # provenance contract, carrying component identity and the detector-native vehicle
-# subclass (ADR-016); "3.2" is still readable by the platform; "3.1" (asynchronous hand-off)
+# subclass (ADR-016); "3.1" (asynchronous hand-off)
 # or "3.0" (synchronous) only under the explicit, Development-only, non-qualifying
 # MAVI_COMPLETION_SCHEMA_OVERRIDE. The platform must advertise exactly that version;
 # there is never a fallback to another one.
-SUPPORTED_COMPLETION_SCHEMA_VERSIONS: Final = ("3.0", "3.1", "3.2", "3.3")
-ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS: Final = frozenset({"3.1", "3.2", "3.3"})
+# 3.2 is no longer emitted (the platform still reads it from older workers).
+SUPPORTED_COMPLETION_SCHEMA_VERSIONS: Final = ("3.0", "3.1", "3.3")
+ASYNCHRONOUS_COMPLETION_SCHEMA_VERSIONS: Final = frozenset({"3.1", "3.3"})
 _CONTRACT_VERSION_UNSUPPORTED: Final = "worker_contract_version_unsupported"
 
 
@@ -264,11 +264,10 @@ class WorkerApiClient:
         processing_duration_ms: int,
         provenance: RuntimeProvenance,
     ) -> VisionJobCompleteV3:
-        # 3.2 and 3.3 carry the component identity; the P-16 override versions (3.1,
-        # 3.0) drop it, because those bodies must not carry it (plan §4.5). Only 3.3
-        # carries the vehicle subclass (ADR-016); older bodies must not.
-        version = self.completion_schema_version
-        subclass_body = version == "3.3"
+        # 3.3 carries the component identity and the vehicle subclass (ADR-016); the
+        # P-16 override versions (3.1, 3.0) drop both, because those bodies must not
+        # carry them (plan §4.5).
+        subclass_body = self.completion_schema_version == "3.3"
         extra: dict[str, object] = {}
         if subclass_body:
             model: type[VisionJobCompleteV3] = VisionJobCompleteV33
@@ -277,9 +276,6 @@ class WorkerApiClient:
                 "objectSubclassVocabulary": VEHICLE_SUBCLASS_VOCABULARY_V1,
                 "objectSubclassSource": detector_native_source(provenance.pipeline_profile_sha256),
             }
-        elif version == "3.2":
-            model = VisionJobCompleteV32
-            mapped = self._map_provenance_v32(provenance)
         else:
             model = VisionJobCompleteV3
             mapped = self._map_provenance(provenance)

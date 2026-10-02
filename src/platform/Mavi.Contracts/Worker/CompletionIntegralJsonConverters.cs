@@ -358,11 +358,6 @@ public sealed class BoundedVisionObservationListJsonConverter
 }
 
 /// <summary>
-/// For version-exclusive members (completion 2.0 <c>representative</c>, 3.0
-/// <c>evidenceAccounting</c>): the member is either absent or an object. An explicit JSON
-/// <c>null</c> is rejected during binding, as the schemas require.
-/// </summary>
-/// <summary>
 /// A string member that may be absent but never an explicit JSON null: absence
 /// deserialises to null, a null token is refused (the published schema allows no
 /// null either). Used by the completion 3.3 vehicle-subclass members (ADR-016).
@@ -388,6 +383,11 @@ public sealed class PresentStringJsonConverter : JsonConverter<string?>
     }
 }
 
+/// <summary>
+/// For version-exclusive members (completion 2.0 <c>representative</c>, 3.0
+/// <c>evidenceAccounting</c>): the member is either absent or an object. An explicit JSON
+/// <c>null</c> is rejected during binding, as the schemas require.
+/// </summary>
 public sealed class PresentObjectJsonConverter<T> : JsonConverter<T?>
     where T : class
 {

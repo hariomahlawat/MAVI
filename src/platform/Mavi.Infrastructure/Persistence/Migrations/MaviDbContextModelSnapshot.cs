@@ -363,6 +363,8 @@ namespace Mavi.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("ck_tracks_duration", "duration_ms = end_offset_ms - start_offset_ms");
 
+                            t.HasCheckConstraint("ck_tracks_object_subclass_identity", "(object_subclass_vocabulary IS NULL OR object_subclass_vocabulary = 'mavi-vehicle-subclass-v1') AND (object_subclass_source IS NULL OR object_subclass_source ~ '^detector-native:[0-9a-f]{64}$')");
+
                             t.HasCheckConstraint("ck_tracks_object_subclass_state", "(object_subclass IS NULL AND object_subclass_vocabulary IS NULL AND object_subclass_source IS NULL) OR (object_class = 'Vehicle' AND object_subclass_vocabulary IS NOT NULL AND object_subclass_source IS NOT NULL)");
 
                             t.HasCheckConstraint("ck_tracks_object_subclass_value", "object_subclass IS NULL OR (object_subclass_vocabulary = 'mavi-vehicle-subclass-v1' AND object_subclass IN ('car', 'truck', 'bus', 'motorcycle'))");
