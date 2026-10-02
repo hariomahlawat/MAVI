@@ -67,6 +67,8 @@ Do not make normal operator setup depend on manual PATH edits, package-manager c
 
 ## Engineering practice
 
+Work implementation-first: see `docs/architecture/engineering-operating-principles.md`.
+
 - Prefer small, cohesive modules and explicit interfaces.
 - Keep model-specific libraries behind Python vision interfaces.
 - Add tests with each behavior change.
