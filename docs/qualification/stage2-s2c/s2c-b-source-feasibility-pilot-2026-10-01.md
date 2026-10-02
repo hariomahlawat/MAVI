@@ -1,6 +1,8 @@
 # S2c Slice B preparation — public-source feasibility pilot (first run), 2026-10-01
 
 **Baseline:** `main@cef1b6585da125428c371a3af3eeca8d7ce8e09d`.
+
+**Historical record; current policy amendment, 2026-10-02.** This document retains the first run's observations, hashes, lost-evidence disclosures and as-of-run pending inputs. The owner has since closed the B0 S1 campaign (63/63 reviewed; 38 `REJECT_OPERATIONAL_QUALIFICATION`, 15 `REFERENCE_ONLY`, 10 `REJECTED`; 0 operationally admissible seconds) and adopted C+ in owner-decision record §8 and ADR-015. Nothing is `ADMISSIBLE` or `FROZEN_QUALIFICATION`. Pending eligibility language and §8's proposed continuation below are historical, not current instructions: do not reopen the closed campaign. New public work requires a new purpose-specific declaration. §6.2's roughly ten-hour brief is superseded for future planning by ADR-015 §6's bounded two-hour qualification-candidate proposal; neither is a minimum or evidence of statistical adequacy. Commissioning alone does not establish disjointness; ADR-015 §3's verified chronology, custody and exposure conditions apply.
 **Governing documents:**
 - execution plan `docs/superpowers/plans/2026-09-30-stage2-s2c-real-qualification-execution.md` §5 and §17 (Slice B);
 - execution record `real-qualification-execution-record.md` §2–§3 and §4.3.12;
@@ -190,7 +192,9 @@ Share-alike (`cc-by-sa-4.0`) is a machine pre-classification only. Whether SA te
 
 The floor these rules impose is much smaller than the brief below. As few as about two sites with three cameras each can satisfy it, because cameras from several sites fill a partition, and the same cameras can serve training, tuning and selection in different date blocks. Camera floors do not establish statistical adequacy (plan §5).
 
-### 6.2 Recommended capture brief (planning choices for owner decision, not tool minimums)
+### 6.2 Historical capture brief (superseded by ADR-015 §6; not a minimum)
+
+The original proposal below is preserved as history. Its duration and construction-disjointness claims are not current guidance: the approximately two-hour C+ qualification-candidate proposal replaces it, and capture chronology, custody and prior exposure must be verified under ADR-015 §3. Neither commissioning alone nor a raw-hour total proves eligibility or adequacy.
 
 | Item | Recommendation | Reason |
 |---|---|---|
@@ -217,7 +221,7 @@ The corpus manifest has a single `rawEvidencePin` field for the whole corpus, so
 
 The Corpus Custodian must populate the pin from the ProcessingRun's recorded `pipelineProfileSha256` and selector/scorer versions, not from this table. `manifest.py` validates only the pin's shape and does not cross-check it against provenance, so this is a custody duty, not an automatic check. If the profile, selector or scorer changes before or during corpus processing (S1.4 is open), affected crops are re-derived under the new pin. This record does not claim S1.4 closure.
 
-## 8. Next bounded Slice B step (proposed; requires owner action)
+## 8. Historical next-step proposal (superseded by C+; do not reopen S1)
 
 1. **Owner inputs**, all from §2:
    - R-3 designates the controlled source store;

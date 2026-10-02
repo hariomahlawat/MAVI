@@ -9,6 +9,21 @@
 
 **Tooling:** `tools/qualification/source_acquisition/` (README), a Development-only helper.
 
+**Prospective policy amendment, 2026-10-02.** The owner adopts **C+ — Public-first development, protected final qualification** in ADR-015 and owner-decision record §8. The original S1 campaign is closed: 63/63 reviewed, 38 `REJECT_OPERATIONAL_QUALIFICATION`, 15 `REFERENCE_ONLY`, 10 `REJECTED`, 0 operationally admissible seconds; nothing is `ADMISSIBLE` or `FROZEN_QUALIFICATION`. This record's original §1–§10 narrative describes preparation and proposals at their dates, not permission to reopen that campaign. Where it conflicts, the amendment below governs new work.
+
+### Current C+ guidance (supersedes conflicting source-purpose and acquisition proposals below)
+
+- Cleared public material is actively used for the non-frozen purposes in ADR-015: training/fine-tuning, training-only calibration fitting, development/tuning, component/base-model/attribute evaluation, selection with contamination/domain caveats, benchmarks, hard negatives, rare cases, failure analysis, regression/challenge, decoder/tracker/adapter tests and vocabulary work. Public origin alone does not imply `REFERENCE_ONLY`.
+- The 15 existing `REFERENCE_ONLY` decisions and all other final B0 decisions stay unchanged. A separate approved engineering purpose may be recorded later without changing the original decision, satisfying its own rights/privacy/provenance review and access rules. It does not count towards the closed S1 tally or promote a file to qualification.
+- New public discovery requires a **new purpose-specific declaration** for an explicit engineering coverage gap. Do not rerun the closed S1 scopes as continuation of that campaign. Target camera geometry, subject scale, continuous traffic, lighting, density/occlusion, attributes or media-format robustness; generic freshness is not a development requirement.
+- Start with roughly 20–30 distinct reviews and at most 5–10 high-value acquisitions, expanding only against documented deficits. These are recommended workload bounds, not adequacy thresholds or implemented limits.
+- Screen terms early; perform detailed R-5/rights/privacy review after usefulness is established from existing evidence or permitted previews and before any acquisition/processing/use requiring that permission. ShareAlike is not automatically disqualifying; a model licence determination does not clear footage.
+- `DESCRIBED`, `REVIEWED`, `ROLE_ELIGIBLE`, `RIGHTS/PRIVACY_CLEARED`, `ACQUIRED` and `PARTITIONED` are distinct policy facts, not newly implemented states or synonyms for `ADMISSIBLE`/`FROZEN_QUALIFICATION`. The existing helper only acquires `ADMITTED_FOR_PILOT`; a reference decision does not trigger downloading. Follow ADR-015 §2's execution-gap boundary rather than weakening the gate.
+- Public and synthetic material cannot enter the final frozen qualification set. Protected commissioned/owner capture must pass ADR-015 §3, including checkpoint/capture chronology, custody, real processing, support, annotation, audits and seal/access separation. Capture alone and an upload date do not establish disjointness.
+- Commission non-frozen material only for demonstrated public-data gaps. ADR-015 §6's provisional two-site, three-viewpoint, two-block campaign is about two raw hours, a bounded qualification-candidate proposal only. There is no universal raw-minute minimum; expand only for predeclared support/coverage/independence deficits, never poor candidate results.
+
+The §5 real MAVI processing handoff, per-source original-file hashes, single raw-evidence pin and privacy boundaries remain requirements for operational video. Still-image component evidence is separate and never fabricated into Tracks. The unchanged R1/b-1/b-2 partition and access firewalls remain in force.
+
 **Status.** B0 is **preparation only**. It adds a per-file admission receipt, a Commons-only acquisition seam, and the pilot plan below. It does **not**:
 - start Slice B corpus execution;
 - acquire any footage (no real discovery or download ran in this pass; see §9);
@@ -19,6 +34,8 @@
 Both MSRs remain `PLANNED`, and no model is selected. No candidate gains credibility or shortlist status from source acquisition. Candidate evaluation permission (execution record §4.3.8) stays separate from operational, deployment and licence clearance.
 
 ## 1. What "MAVI-acquired operational footage" means
+
+**Historical B0 interpretation.** ADR-015 now excludes public sources from final frozen qualification, permits cleared non-frozen engineering purposes, and replaces any automatic construction-disjointness claim with verified chronology/custody/exposure conditions. The quoted parent wording below is the wording at B0 preparation, since amended in parent §10.2.
 
 Parent plan §10.2 says the qualification corpus is "owner-supplied recorded video … processed through the real MAVI VisionJob". It also says "frozen test is MAVI-sourced, so disjoint … by construction". Hari Om has no private corpus, so B0 reads these clauses as follows:
 
@@ -49,6 +66,8 @@ The licence notes are summaries for R-5 review, not determinations.
 
 ### 2.1 Reference/development datasets (stills or tracking benchmarks)
 
+**Historical source-purpose shortlist, not current blanket permissions or exclusions.** The REF/TRAIN restrictions below record the original proposal, not the 63 final human decisions. C+ permits additional separately approved engineering purposes under exact-source rights/privacy/provenance review; age alone does not exclude non-frozen uses. No licence summary here replaces R-5's source-specific determination.
+
 | Source | Nature | Role | Reason and condition |
 |---|---|---|---|
 | PA-100K | Pedestrian-attribute **stills** | REF; TRAIN only if R-5 clears the licence | Parent §10.2 allows training use subject to licence review, never the frozen test. Stills can never become Tracks. Its research-only terms must be reviewed. A full download is out of scope. |
@@ -66,6 +85,8 @@ The licence notes are summaries for R-5 review, not determinations.
 All of these predate the candidate checkpoints and are widely used in pre-training, so none of them can support the freshness argument. They are never frozen-test or operational material.
 
 ### 2.2 Fresh-video candidates
+
+**Historical operational-source proposal.** Commons cannot enter the final frozen test under C+. Commissioning is required there but is insufficient without ADR-015 §3's conditions; construction-disjointness language in this original table is superseded.
 
 | Source | Role | Reason and condition |
 |---|---|---|
@@ -186,6 +207,8 @@ An admitted file enters qualification only through this path. B0 executes none o
 - Using admitted footage to tune or select before the corpus freeze and seal.
 
 ## 7. Separation rules
+
+**Current amendment:** the original reference-bank restrictions below preserve the B0 campaign's recorded purposes. A separately approved engineering purpose may later use an existing candidate in an appropriate non-frozen pool without changing its immutable human decision. No public item may enter Frozen Qualification. See ADR-015 §1–§2 for pool separation and current tooling boundaries.
 
 - **Reference bank.** `REFERENCE_ONLY` items and every §2.1 dataset stay in a separate reference area of the controlled store. They are never mixed into the qualification source pool. They are never used to fill a partition, and they never count towards the 1–2 h target.
 - **Annotation boundary.** Acquisition writes no label, vocabulary decision or ground truth. Annotation starts only in Slice B under the annotation guide, on crops produced by the handoff (§5). Candidate outputs never influence ground truth.

@@ -15,7 +15,8 @@
 Read these baseline authorities before implementation:
 
 - `AGENTS.md`; ADR-013 and ADR-014 under `docs/decisions/`.
-- `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md`, including R1, R2 and R3.
+- ADR-015, `docs/decisions/ADR-015-public-first-protected-qualification.md`, and owner-decision record §8: C+ is adopted policy, not implemented acquisition/partition enforcement or an independent review.
+- `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md`, including R1, R2, R3 and R4.
 - `docs/qualification/model-selection/README.md`, `candidate-credibility.md`, both selection templates and both event MSRs.
 - `docs/qualification/model-selection/s2c-quality-statistics.md` and `s2c-quality-statistics-contract.json`.
 - `docs/qualification/model-selection/s2c-operational-selection.md` and `s2c-operational-selection-contract.json`.
@@ -93,6 +94,12 @@ Store weights, images and large prediction data outside Git in the controlled ev
 ## 5. Corpus, label access and the two preparation boundaries
 
 There is one final machine experiment freeze, preceded by preparation under an approved recipe; these are not additional event states.
+
+**C+ source policy (2026-10-02).** Public material is actively used for cleared non-frozen purposes under ADR-015; public selection carries explicit contamination/domain caveats, and private selection is added only for a demonstrated preparation gap. Public footage cannot enter the frozen qualification test. Preserve the B0 S1 closure and all 63 human decisions; any separate engineering purpose is recorded without changing its original B0 decision. Future public discovery requires a new purpose-specific declaration. Training, Development/Tuning, Public Benchmark/Reference, Selection, Qualification Candidate, Frozen Qualification and Regression/Challenge are separate pools; engineering calibration/E3 separation below remains unchanged.
+
+Protected commissioned/owner footage may be **physically captured before final executable freeze**, after applicable checkpoint pinning/chronology requirements, only while sealed in controlled custody and inaccessible to development/selection. Raw capture custody is not the annotated corpus seal. The latter still follows R1 before candidate execution on corpus data. Final sequence: public/private development → training/tuning → selection protocol fixed → candidate executable(s) frozen → selection on separate data and implementation choice → authorized protected final-holdout access → final qualification. Preparation methods are fixed before training; the final selection protocol binds actual trained artefact hashes before selection access. Existing integration/E3/CLOSED prerequisites and S5-only final-test scoring are unchanged.
+
+If developers use final-test imagery, labels or results to change the system, that test becomes exposed regression/challenge evidence, subject to permissions; a new independent holdout is required for a new final qualification claim. No poor-result corpus expansion or same-test rescue is allowed. Duration, clusters, attributes and conditions are assessed through the predeclared support recipe, not a universal raw-hour minimum. Current tooling gaps in reference acquisition/mixed-source frozen enforcement are execution prerequisites (ADR-015 §2), not permission to bypass a validator.
 
 **Before candidate corpus execution (R1):** retain a content-addressed preparation recipe before the first training read. It enumerates upstream candidate identities and bytes; metric, aggregation and calibration families; threshold-selection procedure; training/tuning search spaces; equal-budget rules; seeds; and partition allowlists/data-access rules. Freeze annotation guide, partition method, aggregation family and threshold-selection procedure; run the pilot on training; freeze the task; complete annotation/adjudication; seal the frozen qualification test. Keep frozen imagery and ground truth outside candidate environments, not merely hidden labels in an accessible directory.
 
@@ -445,4 +452,3 @@ These are expected implementation/input prerequisites, not contradictions in the
 **Recommended order:** A → B → C1 → C2 → D → E → F → G → H → I → J. Model-neutral harness/contract self-tests may proceed while real corpus work is pending, but candidate corpus execution cannot precede R1/seal controls and selection cannot precede final freeze.
 
 **Architecture closure is preserved.** This plan instantiates accepted event policy and implements missing execution paths; it adds no selection layer or statistical method. The method, numerical choices and evidence must be approved/frozen before use. Architecture redesign, new scores/ranks, adaptive composition expansion, frozen-test rescue, new attributes, unrelated UI/search work, speculative optimization and Production rollout are out of scope. Submit this plan for review before implementation; do not open a PR or execute a real run as part of producing it.
-

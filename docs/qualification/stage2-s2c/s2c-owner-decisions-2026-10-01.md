@@ -165,7 +165,7 @@ This closes, for the local copy, the gap that the pilot record §4a left open ("
 | Durable custody of the pilot bundle | **Recorded locally** (§4) |
 | Independent reviewer for actions in which Hari Om acts (§2) | **MISSING**: required before the actions listed in §2 |
 | `freshnessReferenceDate` | **MISSING**; a provisional proposal only, in §6.1 |
-| Acceptance of the B0 §1 reading (public-source eligibility) | **PENDING**; options in §6.2 |
+| Acceptance of the B0 §1 reading (public-source eligibility) | **PENDING as of 2026-10-01; resolved prospectively on 2026-10-02 by C+ (§8)**; historical options remain in §6.2 |
 | User-Agent operator contact | PENDING owner confirmation (pilot record §2) |
 | R-3 confirmation of the 2026-10-01 pilot run | PENDING. If given, it is a later ratification (§1). |
 | Commissioned or owner-captured footage | PENDING (B0 §2.2; pilot record §6.2) |
@@ -188,7 +188,9 @@ B0 §4 defines the reference date as the latest public release date of any candi
 
 Under the strictly-after rule (`admission.py`: the capture start must be after the reference date), 2025-02-20 would make 2025-02-21 the first acceptable capture day. Freshness is necessary, not proof of independence (B0 §1.3).
 
-### 6.2 Public-source eligibility decision (B0 §1): pending
+### 6.2 Public-source eligibility alternatives (historical proposals; resolved by §8)
+
+**2026-10-02 update:** the owner has adopted C+ in §8 and ADR-015. The following A/B/C wording and pending-state discussion are retained as the 2026-10-01 proposal, not current instructions.
 
 The B0 record assigns this to "R-2 / owner". With Hari Om now holding R-1 and R-2, it can be recorded as an **owner decision**. It must not be described as an independent R-2 review (§2). The pilot record §8 says, as of the run, that "R-2 rules on the B0 §1 interpretation". That ruling will be answered through the owner route when the owner decides; it has not been decided. Three options:
 
@@ -257,7 +259,7 @@ After this record was merged (PR #132, `main@a0d235456e255b8a8fef8d90bd5c4524599
 
 **What it does not do.** This amendment authorizes no `acquire` run, and it admits nothing. Every file still needs its own per-file rights review (with R-5's determination first for share-alike files; §1) and its own privacy review before admission.
 
-**Still unresolved:**
+**Unresolved as of this layout amendment (eligibility subsequently resolved by §8):**
 - `freshnessReferenceDate` (§6.1);
 - public-source eligibility (§6.2);
 - the independent reviews listed in §2. Owner approval does not replace them.
@@ -279,3 +281,15 @@ After this record was merged (PR #132, `main@a0d235456e255b8a8fef8d90bd5c4524599
 **Hard-kill trade-off.** §6.3 advised against an outer kill timer because the first pilot's kill lost P2's report. The wrapper's hard deadline is a last resort, 5 minutes after the soft deadline. It loses only the in-flight scope's discovery report. Attempt records, response bodies and per-item evidence are already on disk, and `finalize` reconstructs the run status from them.
 
 **Stale statements in §6.3.** §6.3's notes that "none of the scripts or helper changes it mentions exist" and that the raw list responses "are still not retained" are superseded by this wrapper. The `siteinfo` preflight is now built into the wrapper instead of being a separate script.
+
+## 8. C+ eligibility policy adopted (owner decision, 2026-10-02, prospective)
+
+Hari Om Ahlawat, repository owner/R-1, adopts **C+ — Public-first development, protected final qualification**, as defined in `docs/decisions/ADR-015-public-first-protected-qualification.md`. This resolves §6.2 through the owner route; it is not an independent R-2/R-7 review and changes none of the roles or model-licence determinations recorded above.
+
+> Adopt C+ — Public-first development, protected final qualification. Actively use cleared public material for training, fine-tuning, calibration, development/tuning, base-model and component/attribute evaluation, model/component selection, public benchmark comparison, hard-negative mining, rare-case supplementation, failure analysis, regression/challenge, decoder/tracker/adapter tests and vocabulary/ontology development. Reserve FROZEN_QUALIFICATION for eligible protected newly commissioned or owner-captured real video. Commission non-frozen footage only where public material leaves a demonstrated operational gap. Preserve the closed B0 S1 campaign and all 63 human decisions unchanged.
+
+The owner's verified S1 closure inputs are **63/63 reviewed; 38 `REJECT_OPERATIONAL_QUALIFICATION`; 15 `REFERENCE_ONLY`; 10 `REJECTED`; 0 operationally admissible seconds**. Nothing is `ADMISSIBLE` or `FROZEN_QUALIFICATION`. The signed workbook SHA-256 is `b5439b4a1337e891667e64a051e041aa6f01ff0dbfdeaeb0ace6db9380b6e97f`; the workbook remains outside Git and is not modified by this decision. Earlier pilot-run observations remain historical, including §7's as-of-implementation statement that no retry had run. This policy does not recreate or reopen the S1 campaign.
+
+Public origin alone does not imply `REFERENCE_ONLY`. Existing human decisions remain immutable: a candidate may later receive a **separate approved engineering purpose**, with exact-source rights/privacy/provenance review and exposure records, without altering its B0 decision. Public selection is permitted with contamination/domain caveats. A small private selection set is justified only by a demonstrated preparation gap; no public source enters the protected final test.
+
+ADR-015 supplies the frozen eligibility contract, sequencing, purpose-specific discovery declaration, staged R-5 review and bounded two-hour protected-capture proposal. Neither two hours nor the earlier ten-hour brief establishes statistical adequacy or a universal minimum. The freshness reference in §6.1 remains provisional; its unresolved evidence is still a prerequisite where applicable. Existing helper gates remain in force, and reference acquisition/mixed-source frozen enforcement need separate reviewed execution support. No discovery, acquisition, state transition or qualification pass is authorized by this documentation adoption.

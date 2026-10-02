@@ -454,6 +454,16 @@ Public-source sufficiency is UNRESOLVED. The available evidence is exported to a
 
 The run itself is not re-attributed. R-3's confirmation of it stays pending; if given, it is a later ratification, not a delegation.
 
+#### 4.3.14 C+ corpus policy adoption and owner-reported S1 closure, 2026-10-02
+
+Hari Om Ahlawat, repository owner/R-1, instructs adoption of **C+ — Public-first development, protected final qualification**. ADR-015 is the governing prospective source policy; `s2c-owner-decisions-2026-10-01.md` §8 records the owner decision. This is not an independent R-2/R-7 execution review. §4.3.12–§4.3.13 remain historical preparation/first-run records; their pending eligibility and proposed continuation do not reopen the subsequently closed S1 campaign.
+
+**Immutable S1 closure inputs:** 63/63 reviewed; 38 `REJECT_OPERATIONAL_QUALIFICATION`; 15 `REFERENCE_ONLY`; 10 `REJECTED`; 0 operationally admissible seconds. Nothing is `ADMISSIBLE` or `FROZEN_QUALIFICATION`. The supplied signed workbook, `MAVI_B0_63_Candidate_Signoff_Final(1).xlsx`, hashes to `b5439b4a1337e891667e64a051e041aa6f01ff0dbfdeaeb0ace6db9380b6e97f`. This documentation pass verifies the available copy's hash and leaves it unchanged; it does not independently execute or regenerate the owner's discovery/review campaign, and the workstation evidence bundles are not available in this workspace.
+
+C+ actively uses purpose-cleared public material for non-frozen development, learning, selection and engineering. Existing human decisions remain immutable; additional engineering use needs its own approval, not a changed B0 state. New public discovery requires a new purpose-specific declaration. Final frozen footage is eligible protected commissioned/owner capture with the strict chronology/custody/separation contract in ADR-015. Protected raw capture may precede final executable freeze while inaccessible to development/selection; existing R1 sealing and S5-only scoring remain unchanged.
+
+The earlier ten-hour brief is not mandatory. ADR-015 proposes an approximately two-hour initial protected qualification-candidate campaign, without claiming adequacy; expansion follows predeclared support/coverage/independence deficits, never poor candidate results. The current helper/partitioner have documented execution gaps; no code or gates are weakened here. **F1 remains OPEN, both MSRs remain `PLANNED`, and S1.4 remains separately governed.** No discovery, media acquisition, admission, annotation, training, partition, seal or final-test access occurs in this documentation pass.
+
 ## 5. PC-B0 / VC-B0 status and a discrepancy with the plan
 
 The plan's Slice A says "implement PC-B0/VC-B0". Implementing either baseline now would be premature, for four reasons:
