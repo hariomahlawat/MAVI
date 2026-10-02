@@ -60,7 +60,7 @@ Licence lines were checked on official pages on 2026-10-02. "Among the sources r
 | 2 (vehicle) | **VeRi-776** | the release received by e-mail, pinned at receipt (archive SHA-256 and the native colour table) | "used for non-commercial purposes" (vehiclereid.github.io/VeRi) | Owner request with the scope of use; R-5 item 3 |
 | optional | **MEVA**, at most 6 static ground-camera clips | a list of S3 object keys and SHA-256s, pinned before any download | "All MEVA data is available for use under a CC BY-4.0 license" (mevadata.org) | Attribution only |
 
-**PA-100K pinned** (step 1, 2026-10-02; files in the controlled source-media store, release record `pa-100k-2017`, SHA-256 `fa8cc479098993582ae3f0adf5292d46cc1749f08901aa096a3d81a8df25e6e7`, with `determination: null` until R-5 decides):
+**PA-100K pinned** (step 1, 2026-10-02; files in the controlled source-media store, release record `pa-100k-2017`, first pinned with `determination: null` as SHA-256 `fa8cc479098993582ae3f0adf5292d46cc1749f08901aa096a3d81a8df25e6e7`; since the narrow R-5 determination of §11 it is SHA-256 `bec9a026c8afe53a90a4a93ed94b5d3f67d45525daead0b7596fe96f76eec558`, with every pinned file unchanged):
 
 | File | Bytes | SHA-256 |
 |---|---|---|
@@ -73,7 +73,7 @@ Licence lines were checked on official pages on 2026-10-02. "Among the sources r
 - **`annotation.zip`:** contains `annotation.mat` (579,061 bytes, SHA-256 `2838933c41ba1ca8a76284f47ef671dc4c61d1326fb5899ddac915a1917e96d3`). It is a **MATLAB 5.0 MAT-file**: little-endian, created 2017-07-26. Its variables are `train_images_name`, `val_images_name`, `test_images_name`, `train_label`, `val_label`, `test_label` (n × 26) and `attributes` (26 × 1). The adapter reads it with `scipy.io.loadmat`, under the `scipy` pin.
 - **`data.zip`:** stored without compression, with exactly 100,000 members named `release_data/release_data/NNNNNN.jpg`. These are UPAR's keys without its `PA100k/` prefix.
 
-**UPAR pinned** (2026-10-02): files in the controlled source-media store, release record `upar-challenge-2027-a19ab2fb`, SHA-256 `3889472a59b2f54edce14ce16488b4e8f9ba21482c1f7a73d95a0d376299384c`, with `determination: null` until R-5 decides. The licence statement is the README at the pinned revision (SHA-256 `03af31a3cbb6a5fe95336b81793b8c7f68e56b80bf00e92b821b2ee49e948a0e`).
+**UPAR pinned** (2026-10-02): files in the controlled source-media store, release record `upar-challenge-2027-a19ab2fb`, first pinned with `determination: null` as SHA-256 `3889472a59b2f54edce14ce16488b4e8f9ba21482c1f7a73d95a0d376299384c`; since the narrow R-5 determination of §11 it is SHA-256 `b6bec458b8d847a358584eceab96888b413317c5e4b6ddd873dbb82533cd4b22`, with every pinned file unchanged. The licence statement is the README at the pinned revision (SHA-256 `03af31a3cbb6a5fe95336b81793b8c7f68e56b80bf00e92b821b2ee49e948a0e`).
 
 **UPAR format** (probed at the pinned revision; probe files deleted; summary retained here):
 - **Header and rows:** UTF-8 CSV. The header line is `# image,` followed by 40 attribute names. Each row is `PA100k/release_data/release_data/NNNNNN.jpg` (or a Market1501 or PETA path) followed by 40 integers in {0,1}.
@@ -355,6 +355,23 @@ A result without all three is refused.
 2. UPAR: whether NC-SA covers the requested purposes, and whether share-alike attaches to labels or artefacts derived from them.
 3. VeRi-776: the owner's written request and the reply recorded as evidence; R-5 maps it to the inventory.
 4. MEVA: attribution notice.
+
+**Narrow R-5 determination for items 1 and 2 (2026-10-02).**
+- **Decision.** Aarav, R-5 Licence Review Owner, approved by phone ("I agree. Go ahead. All the best for your work.") the narrow request for PA-100K and UPAR Task 1.
+- **What it covers:** the `benchmarking` and `development` purposes and the `evaluate` operation, for internal, local, offline, non-commercial research evaluation. It also covers:
+  - PA-100K privacy processing for that use;
+  - for UPAR, that evaluation and the reporting of its metrics under the NC/SA terms.
+- **Still `pending-r5`:** `train`, `create-derivatives`, `run-operationally` and `redistribute-derived-weights`. Training, tuning and selection are not covered.
+- **Not decided:** whether NC/SA obligations attach to trained heads, tuned thresholds, weights or other derived artefacts.
+- **Evidence.** The reply was relayed verbatim by the MAVI owner; no screenshot or e-mail exists. The relay and the request package are kept, outside Git, in `E:\MAVI-Controlled\Evidence\S2c\2026-10-02-r5-pa100k-upar-eval`, whose decision record has SHA-256 `68b1f7386c7a24dfc53ce4abe4d5c23c8df8f00d4f203d50486d8e6d47ef83a4`.
+- **Step 5 canonical evidence.** Built on `main@699e7672` with no local changes, from the retained release records, and kept outside Git in `E:\MAVI-Controlled\Processing\S2c\2026-01\s2c-step5-person-component-2026-10-02`. Every rerun is byte-identical.
+
+  | Run | Benchmark rows | Rows refused by role purpose | Manifest SHA-256 | Benchmark result SHA-256 |
+  |---|---|---|---|---|
+  | Smoke | 200 | 1,800 | `703e43cbbba82b40b101838daf9500f60f6d25ee15ac829a4835b5f522f0dde0` | `c0ff58cbbfb94093b3037d7685b8c26a15f000e1136bb6f0b8cc9b67396163d9` |
+  | Full | 10,000 | 90,000 | `9eb1cedcb088eeb0233a6926b16013858e12f933943a2585ebced19c63d5e50b` | `d929cc092bfc39b7de6d14dc0ef5c69d916290da6a85ff5954110133e3858898` |
+
+  Training, development and selection rows are refused because their roles map to `training`, `tuning` and `selection`.
 
 **Follow-on:**
 - S2c.3 evaluation environment and candidate runners on these manifests;
