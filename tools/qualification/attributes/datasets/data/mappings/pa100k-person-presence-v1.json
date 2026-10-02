@@ -1,0 +1,153 @@
+{
+  "schemaVersion": "mavi-attribute-label-mapping-v1",
+  "mappingId": "pa100k-person-presence-v1",
+  "adapter": "pa100k",
+  "sourceLabels": [
+    "Female",
+    "AgeOver60",
+    "Age18-60",
+    "AgeLess18",
+    "Front",
+    "Side",
+    "Back",
+    "Hat",
+    "Glasses",
+    "HandBag",
+    "ShoulderBag",
+    "Backpack",
+    "HoldObjectsInFront",
+    "ShortSleeve",
+    "LongSleeve",
+    "UpperStride",
+    "UpperLogo",
+    "UpperPlaid",
+    "UpperSplice",
+    "LowerStripe",
+    "LowerPattern",
+    "LongCoat",
+    "Trousers",
+    "Shorts",
+    "Skirt&Dress",
+    "boots"
+  ],
+  "attributes": [
+    {
+      "attributeType": "person-backpack",
+      "rule": "binary-any",
+      "sourceLabels": [
+        "Backpack"
+      ],
+      "semantics": "source-native",
+      "coverage": "PA-100K Backpack under its own annotation semantics; not shown equivalent to annotation guide 5.1. A source 0 cannot tell absent from not visible."
+    },
+    {
+      "attributeType": "person-bag",
+      "rule": "binary-any",
+      "sourceLabels": [
+        "HandBag",
+        "ShoulderBag"
+      ],
+      "semantics": "proxy",
+      "coverage": "HandBag or ShoulderBag only; may miss totes, briefcases, shopping and carrier bags that MAVI counts. HoldObjectsInFront is never a bag."
+    },
+    {
+      "attributeType": "person-headwear",
+      "rule": "binary-any",
+      "sourceLabels": [
+        "Hat"
+      ],
+      "semantics": "proxy",
+      "coverage": "Hat is a subset of MAVI headwear; Hat=0 is not evidence that a helmet, hood or headscarf is absent."
+    }
+  ],
+  "unmapped": [
+    {
+      "label": "HoldObjectsInFront",
+      "reason": "an object held in front is not a bag (annotation guide 5.2)"
+    },
+    {
+      "label": "Female",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "AgeOver60",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Age18-60",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "AgeLess18",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Front",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Side",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Back",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Glasses",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "ShortSleeve",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "LongSleeve",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "UpperStride",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "UpperLogo",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "UpperPlaid",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "UpperSplice",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "LowerStripe",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "LowerPattern",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "LongCoat",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Trousers",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Shorts",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "Skirt&Dress",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    },
+    {
+      "label": "boots",
+      "reason": "not a MAVI v1 attribute (excluded or out of scope)"
+    }
+  ]
+}
