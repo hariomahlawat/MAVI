@@ -25,7 +25,7 @@ These principles apply alongside the binding rules in `AGENTS.md` and the accept
    - reputable public datasets and benchmarks;
    - established industry practice.
 
-   Reuse or adapt a proven approach when it meets MAVI's requirements, and record why when it does not.
+   Reuse or adapt a proven approach when it meets MAVI's requirements; record the rationale when the departure is consequential or non-obvious.
 5. **Use open and public knowledge intelligently.** Public research, open datasets, benchmarks and open-source implementations are strategic engineering resources. Judge each against the role it is meant to serve, not merely because it is public. ADR-015 applies this to S2c source material.
 6. **Use evidence proportionately.** Apply qualification-grade controls where the claim requires them, such as frozen qualification, Production release or authoritative operational evidence. Ordinary development, training and reference work does not carry final-qualification overhead unless it is technically necessary.
 7. **Keep MAVI modular.** Components, models and algorithms have explicit interfaces, versioned identities and measurable contracts, so each can be upgraded or replaced without redesigning the system.
