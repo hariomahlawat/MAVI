@@ -33,18 +33,42 @@ public sealed class TrackObjectSubclassPersistenceTests(PostgresFixture fixture)
         AssertState(tracks[ids.Resolved], "truck", VehicleSubclass.VocabularyV1, Source);
     }
 
+    // Three independent invariants: state (which Tracks may carry subclass data, and that
+    // vocabulary and source travel together), value (a subclass is a v1 value under the v1
+    // vocabulary) and identity (the only vocabulary and source a row may name). Each row
+    // below breaks exactly one of them, so the constraint that fires is determined.
     [Theory]
-    [InlineData("person", "UPDATE tracks SET object_subclass = 'car', object_subclass_vocabulary = 'mavi-vehicle-subclass-v1', object_subclass_source = 'detector-native:x' WHERE id = $1", "ck_tracks_object_subclass_state")]
-    [InlineData("person", "UPDATE tracks SET object_subclass_vocabulary = 'mavi-vehicle-subclass-v1', object_subclass_source = 'detector-native:x' WHERE id = $1", "ck_tracks_object_subclass_state")]
-    [InlineData("resolved", "UPDATE tracks SET object_subclass_vocabulary = NULL WHERE id = $1", "ck_tracks_object_subclass_state")]
+    [InlineData("person", "UPDATE tracks SET object_subclass = 'car', object_subclass_vocabulary = 'mavi-vehicle-subclass-v1', object_subclass_source = '" + Source + "' WHERE id = $1", "ck_tracks_object_subclass_state")]
+    [InlineData("person", "UPDATE tracks SET object_subclass_vocabulary = 'mavi-vehicle-subclass-v1', object_subclass_source = '" + Source + "' WHERE id = $1", "ck_tracks_object_subclass_state")]
+    [InlineData("resolved", "UPDATE tracks SET object_subclass_vocabulary = NULL, object_subclass = NULL WHERE id = $1", "ck_tracks_object_subclass_state")]
     [InlineData("resolved", "UPDATE tracks SET object_subclass_source = NULL WHERE id = $1", "ck_tracks_object_subclass_state")]
+    [InlineData("historical", "UPDATE tracks SET object_subclass_vocabulary = 'mavi-vehicle-subclass-v1' WHERE id = $1", "ck_tracks_object_subclass_state")]
+    // The value check is NULL (so it passes) when the vocabulary is NULL: only state fires.
     [InlineData("historical", "UPDATE tracks SET object_subclass = 'car' WHERE id = $1", "ck_tracks_object_subclass_state")]
     [InlineData("resolved", "UPDATE tracks SET object_subclass = 'bicycle' WHERE id = $1", "ck_tracks_object_subclass_value")]
-    [InlineData("resolved", "UPDATE tracks SET object_subclass_vocabulary = 'mavi-vehicle-subclass-v2' WHERE id = $1", "ck_tracks_object_subclass_value")]
     [InlineData("abstained", "UPDATE tracks SET object_subclass_vocabulary = 'anything' WHERE id = $1", "ck_tracks_object_subclass_identity")]
     [InlineData("abstained", "UPDATE tracks SET object_subclass_source = 'classifier:x' WHERE id = $1", "ck_tracks_object_subclass_identity")]
     [InlineData("resolved", "UPDATE tracks SET object_subclass_source = 'detector-native:4444' WHERE id = $1", "ck_tracks_object_subclass_identity")]
-    public async Task EveryOtherCombinationIsRefusedByTheDatabase(string row, string sql, string constraint)
+    public async Task EachInvariantRefusesTheRowThatBreaksOnlyIt(string row, string sql, string constraint)
+    {
+        var error = await RefusedAsync(row, sql);
+        Assert.Equal(constraint, error.ConstraintName);
+    }
+
+    // These rows break more than one invariant at once; PostgreSQL may report any of them,
+    // so only the refusal and the set of acceptable constraints are asserted.
+    [Theory]
+    [InlineData("resolved", "UPDATE tracks SET object_subclass_vocabulary = 'mavi-vehicle-subclass-v2' WHERE id = $1",
+        "ck_tracks_object_subclass_value", "ck_tracks_object_subclass_identity")]
+    [InlineData("person", "UPDATE tracks SET object_subclass = 'car', object_subclass_vocabulary = 'mavi-vehicle-subclass-v1', object_subclass_source = 'detector-native:x' WHERE id = $1",
+        "ck_tracks_object_subclass_state", "ck_tracks_object_subclass_identity")]
+    public async Task ARowBreakingSeveralInvariantsIsRefused(string row, string sql, string first, string second)
+    {
+        var error = await RefusedAsync(row, sql);
+        Assert.Contains(error.ConstraintName, new[] { first, second });
+    }
+
+    private async Task<PostgresException> RefusedAsync(string row, string sql)
     {
         var ids = await SeedAsync();
         await using var connection = new NpgsqlConnection(fixture.ConnectionString);
@@ -58,9 +82,7 @@ public sealed class TrackObjectSubclassPersistenceTests(PostgresFixture fixture)
             "resolved" => ids.Resolved,
             _ => throw new ArgumentOutOfRangeException(nameof(row)),
         });
-
-        var error = await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync());
-        Assert.Equal(constraint, error.ConstraintName);
+        return await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync());
     }
 
     [Fact]

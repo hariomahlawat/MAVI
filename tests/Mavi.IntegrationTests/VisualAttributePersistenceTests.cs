@@ -141,16 +141,28 @@ public sealed class VisualAttributePersistenceTests(PostgresFixture fixture)
 
     private async Task<Guid> SeedTrackAtPrecedingSchemaAsync()
     {
-        // Only tables this slice leaves unchanged, written with their own entity types.
+        // Tables unchanged since the preceding schema are written with their own entity types.
         await using var db = fixture.CreateDbContext();
         var camera = Mavi.Domain.Cameras.Camera.Create("CAM-VA-MIG", "Migration camera", "UTC");
         var source = Artifact.Create(ArtifactType.SourceVideo, $"source/CAM-VA-MIG/{Guid.CreateVersion7()}.mp4", "video/mp4", 1, new string('a', 64));
         var video = VideoAsset.Create(camera.Id, source.Id, "m.mp4", Now.AddHours(-1), 1_000, 25, 1, 64, 64, "h264", TimestampSource.Manual, 1.0);
         var run = Mavi.Domain.Processing.ProcessingRun.Create(video.Id, "phase1-detection-tracking-v1", "{}", Now.AddMinutes(-5));
-        var track = Mavi.Domain.Intelligence.Track.Create(run.Id, video.Id, 1, Mavi.Domain.Intelligence.ObjectClass.Person, 0, 1_000, Now.AddHours(-1), 1, 0.5, 0.5);
-        db.AddRange(camera, source, video, run, track);
+        db.AddRange(camera, source, video, run);
         await db.SaveChangesAsync();
-        return track.Id;
+
+        // tracks has gained columns since (Stage 3, AddTrackObjectSubclass), so the current
+        // entity cannot be written at this schema: insert with the preceding column list.
+        var trackId = Guid.CreateVersion7();
+        var start = Now.AddHours(-1);
+        await ExecuteAsync(
+            """
+            INSERT INTO tracks (id, processing_run_id, video_asset_id, local_track_number, object_class,
+                start_offset_ms, end_offset_ms, start_timestamp_utc, end_timestamp_utc, duration_ms,
+                detection_count, mean_confidence, max_confidence, review_status, created_at_utc)
+            VALUES ($1, $2, $3, 1, 'Person', 0, 1000, $4, $5, 1000, 1, 0.5, 0.5, 'Unreviewed', $4)
+            """,
+            trackId, run.Id, video.Id, start, start.AddMilliseconds(1_000));
+        return trackId;
     }
 
     private async Task AssertViolatesAsync(string constraint, string sql, params object[] parameters)
