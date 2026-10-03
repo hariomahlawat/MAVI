@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-source-pool-v1.schema.json",
+  "title": "vehicle-subclass-source-pool-v1",
+  "description": "The frozen S3.2 source pool (plan T7): release members selected from source-side facts only, before any MAVI import, with their release hashes and probe records. Metadata and hashes only; committed (or its digest committed) before the first T9 import. A pilot pool holds 6 to 10 members; any later pool is supplemental.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseId",
+    "releaseRecordSha256",
+    "kind",
+    "selectionProcedure",
+    "members"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vehicle-subclass-source-pool-v1"
+    },
+    "releaseId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$"
+    },
+    "releaseRecordSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "kind": {
+      "enum": [
+        "pilot",
+        "supplemental"
+      ]
+    },
+    "selectionProcedure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "const": "s3-2-source-pool-manual-v1"
+        }
+      }
+    },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member",
+          "sha256",
+          "sizeBytes",
+          "probeSha256",
+          "sourceCamera",
+          "inclusionReason"
+        ],
+        "properties": {
+          "member": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "pattern": "^(?!/)(?!.*(^|/)\\.{1,2}(/|$))(?!.*//)[^\\\\:\\r\\n\\x00]+(?<!/)$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "probeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "sourceCamera": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^\\S([^\\r\\n]*\\S)?$"
+          },
+          "inclusionReason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^\\S([^\\r\\n]*\\S)?$"
+          }
+        }
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "kind": {
+        "const": "pilot"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "members": {
+        "minItems": 6,
+        "maxItems": 10
+      }
+    }
+  }
+}

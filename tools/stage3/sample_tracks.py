@@ -98,6 +98,8 @@ def _derivations(paths: list[Path], exports: dict[str, a.Export]) -> tuple[list[
     for path in paths:
         data = a.read_bytes(path, "derivation_unreadable")
         document = a.parse_json(data, "derivation_unreadable")
+        # The T8 contract first (derivation_invalid:schema); the semantic checks below stay as defence in depth.
+        a.validate(document, DERIVATION_SCHEMA, "derivation_invalid")
         a.require(isinstance(document, dict) and document.get("schemaVersion") == DERIVATION_SCHEMA, "derivation_invalid")
         release = document.get("release")
         authorisation = document.get("authorisation")

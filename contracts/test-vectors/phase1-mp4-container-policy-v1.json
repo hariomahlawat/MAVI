@@ -1,0 +1,235 @@
+{
+  "schemaVersion": "phase1-mp4-container-policy-vector-v1",
+  "policy": "phase1-mp4-container-v1",
+  "description": "Pinned results of PhaseOneMp4ContainerPolicy.IsSupported (Mavi.Application) for the S3.2 probe port (tools/stage3/probe_media.container_supported). Both sides consume this file; a change to either implementation without this vector fails one side.",
+  "cases": [
+    {
+      "name": "iso-isom",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "isom",
+      "supported": true
+    },
+    {
+      "name": "iso-mp42",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "mp42",
+      "supported": true
+    },
+    {
+      "name": "iso-mp41",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "mp41",
+      "supported": true
+    },
+    {
+      "name": "iso-avc1",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "avc1",
+      "supported": true
+    },
+    {
+      "name": "quicktime-qt-padded",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "qt  ",
+      "supported": false
+    },
+    {
+      "name": "quicktime-qt",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "qt",
+      "supported": false
+    },
+    {
+      "name": "3gp4",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "3gp4",
+      "supported": false
+    },
+    {
+      "name": "3g2a",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "3g2a",
+      "supported": false
+    },
+    {
+      "name": "3gp-upper",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "3GP6",
+      "supported": false
+    },
+    {
+      "name": "non-mp4-matroska",
+      "formatName": "matroska,webm",
+      "majorBrand": "isom",
+      "supported": false
+    },
+    {
+      "name": "non-mp4-mov-only",
+      "formatName": "mov",
+      "majorBrand": "isom",
+      "supported": false
+    },
+    {
+      "name": "format-substring-not-token",
+      "formatName": "mp4x,mov",
+      "majorBrand": "isom",
+      "supported": false
+    },
+    {
+      "name": "brand-missing",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": null,
+      "supported": false
+    },
+    {
+      "name": "brand-empty",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "",
+      "supported": false
+    },
+    {
+      "name": "brand-whitespace-only",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "   ",
+      "supported": false
+    },
+    {
+      "name": "brand-nul-padded-empty",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "\u0000\u0000\u0000\u0000",
+      "supported": false
+    },
+    {
+      "name": "brand-space-then-nul-empty",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": " \u0000",
+      "supported": false
+    },
+    {
+      "name": "brand-upper-qt-padded",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "QT  ",
+      "supported": false
+    },
+    {
+      "name": "brand-upper-isom",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "ISOM",
+      "supported": true
+    },
+    {
+      "name": "format-upper-token",
+      "formatName": "MOV,MP4",
+      "majorBrand": "isom",
+      "supported": true
+    },
+    {
+      "name": "format-space-padded-token",
+      "formatName": "mov, mp4 ,m4a",
+      "majorBrand": "isom",
+      "supported": true
+    },
+    {
+      "name": "format-only-mp4",
+      "formatName": "mp4",
+      "majorBrand": "isom",
+      "supported": true
+    },
+    {
+      "name": "format-empty-entries",
+      "formatName": ",,mp4,,",
+      "majorBrand": "isom",
+      "supported": true
+    },
+    {
+      "name": "format-empty",
+      "formatName": "",
+      "majorBrand": "isom",
+      "supported": false
+    },
+    {
+      "name": "brand-leading-whitespace",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "  isom",
+      "supported": true
+    },
+    {
+      "name": "brand-leading-whitespace-qt",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": " qt",
+      "supported": false
+    },
+    {
+      "name": "brand-tab-padded-qt",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "\tqt\t",
+      "supported": false
+    },
+    {
+      "name": "brand-nbsp-padded-qt",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "\u00a0qt\u00a0",
+      "supported": false
+    },
+    {
+      "name": "brand-ideographic-space-padded-qt",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "\u3000qt\u3000",
+      "supported": false
+    },
+    {
+      "name": "brand-qt-nul",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "qt\u0000",
+      "supported": false
+    },
+    {
+      "name": "brand-qt-space-nul",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "qt \u0000",
+      "supported": true
+    },
+    {
+      "name": "brand-isom-nul",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "isom\u0000",
+      "supported": true
+    },
+    {
+      "name": "brand-nul-qt",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "\u0000qt",
+      "supported": true
+    },
+    {
+      "name": "brand-x1c-padded-qt",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "\u001cqt\u001c",
+      "supported": true
+    },
+    {
+      "name": "brand-x1c-only",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "\u001c",
+      "supported": true
+    },
+    {
+      "name": "format-x1c-padded-token",
+      "formatName": "mov,\u001cmp4",
+      "majorBrand": "isom",
+      "supported": false
+    },
+    {
+      "name": "brand-3gp-prefix-after-trim",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": " 3gp5 ",
+      "supported": false
+    },
+    {
+      "name": "brand-qt-suffix-not-equal",
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "qtx",
+      "supported": true
+    }
+  ]
+}

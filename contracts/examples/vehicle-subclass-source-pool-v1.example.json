@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "vehicle-subclass-source-pool-v1",
+  "releaseId": "synthetic-traffic-release",
+  "releaseRecordSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+  "kind": "pilot",
+  "selectionProcedure": {
+    "id": "s3-2-source-pool-manual-v1"
+  },
+  "members": [
+    {
+      "member": "videos/c001/clip-00.mkv",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 98000000,
+      "probeSha256": "0000000000000000000000000000000000000000000000000000000000000064",
+      "sourceCamera": "c001",
+      "inclusionReason": "distinct camera and scene; probe viable"
+    },
+    {
+      "member": "videos/c002/clip-01.mkv",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "sizeBytes": 98000001,
+      "probeSha256": "0000000000000000000000000000000000000000000000000000000000000065",
+      "sourceCamera": "c002",
+      "inclusionReason": "distinct camera and scene; probe viable"
+    },
+    {
+      "member": "videos/c003/clip-02.mkv",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "sizeBytes": 98000002,
+      "probeSha256": "0000000000000000000000000000000000000000000000000000000000000066",
+      "sourceCamera": "c003",
+      "inclusionReason": "distinct camera and scene; probe viable"
+    },
+    {
+      "member": "videos/c001/clip-03.mkv",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "sizeBytes": 98000003,
+      "probeSha256": "0000000000000000000000000000000000000000000000000000000000000067",
+      "sourceCamera": "c001",
+      "inclusionReason": "distinct camera and scene; probe viable"
+    },
+    {
+      "member": "videos/c002/clip-04.mkv",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "sizeBytes": 98000004,
+      "probeSha256": "0000000000000000000000000000000000000000000000000000000000000068",
+      "sourceCamera": "c002",
+      "inclusionReason": "distinct camera and scene; probe viable"
+    },
+    {
+      "member": "videos/c003/clip-05.mkv",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+      "sizeBytes": 98000005,
+      "probeSha256": "0000000000000000000000000000000000000000000000000000000000000069",
+      "sourceCamera": "c003",
+      "inclusionReason": "distinct camera and scene; probe viable"
+    }
+  ]
+}

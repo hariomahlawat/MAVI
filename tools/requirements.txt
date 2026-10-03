@@ -3,3 +3,6 @@ jsonschema[format-nongpl]>=4.23,<5
 # Qualification tooling: scipy.io.loadmat reads the PA-100K MATLAB 5.0 annotation file. Same pin as
 # the vision-runtime extra, so the two environments never resolve different SciPy versions.
 scipy==1.18.1
+# S3.2 ingestion-map validation (tools/stage3/ingestion_map.py): the IANA database for zoneinfo, which
+# Windows does not ship (zoneinfo prefers a system database where one exists, e.g. on Linux).
+tzdata==2026.4

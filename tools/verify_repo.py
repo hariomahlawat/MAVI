@@ -1020,6 +1020,9 @@ def check_contracts(errors: list[str]) -> None:
         "vehicle-subclass-sample-v1", "vehicle-subclass-labeling-pack-v1", "vehicle-subclass-track-labels-v1",
         "vehicle-subclass-adjudication-v1", "vehicle-subclass-requirements-v1", "vehicle-subclass-measurement-v1",
         "vehicle-subclass-requirement-comparison-v1",
+        # Stage 3 S3.2b media, derivation and Development-host execution artefacts.
+        "vehicle-subclass-media-probe-v1", "vehicle-subclass-source-pool-v1", "vehicle-subclass-derivation-v1",
+        "vehicle-subclass-ingestion-map-v1", "vehicle-subclass-t9-execution-v1",
     ]
     pairs = [(stem, f"{stem}.example.json") for stem in stems]
     for stem, example_name in pairs:
@@ -1962,7 +1965,7 @@ def main() -> int:
     print(" - direct dependency/offline packaging policy: synchronized")
     print(" - offline binary/version catalog: synchronized")
     print(" - ordinary Git executable/archive/large-file gate: clean")
-    print(" - contract examples: 24 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, and the S3.2 measurement artefacts)")
+    print(" - contract examples: 29 (incl. completion v3, v3.2 and v3.3 goldens, digest pins and invalid vectors, and the S3.2 measurement, media, derivation and T9 artefacts)")
     print(" - Task-17 acceptance schemas/configuration: validated")
     print(" - production Internet URL scan: clean")
     print(" - tracked model/media/secret/wheel scan: clean")

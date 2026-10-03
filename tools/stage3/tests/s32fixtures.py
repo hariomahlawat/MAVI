@@ -165,23 +165,42 @@ def write_export(directory: Path, *, run_id: str, video_id: str, camera: str, so
     return path
 
 
+def probe_record(source: bytes, *, mp4: bool = True, codec: str = "h264") -> dict[str, Any]:
+    """A schema-valid ``vehicle-subclass-media-probe-v1`` record for synthetic bytes (no media is read)."""
+    return {
+        "schemaVersion": "vehicle-subclass-media-probe-v1", "sourceSha256": a.sha256_hex(source),
+        "sourceSizeBytes": len(source), "ffprobe": {"version": "synthetic-7.1", "sha256": "c" * 64},
+        "format": {"formatName": "mov,mp4,m4a,3gp,3g2,mj2" if mp4 else "matroska,webm",
+                   "majorBrand": "isom" if mp4 else None, "durationMs": 60000},
+        "videoStreamCount": 1,
+        "video": {"codec": codec, "profile": None, "width": 1920, "height": 1080, "frameRateNumerator": 25,
+                  "frameRateDenominator": 1, "durationMs": 60000, "frameCount": None, "frameCountSource": None},
+        "maviImport": {"policy": "phase1-mp4-container-v1", "containerSupported": mp4, "metadataValid": True},
+    }
+
+
 def write_derivation(path: Path, *, source: bytes, release_id: str = "synthetic-release-1",
                      release_record_sha: str = "e" * 64, member: str = "videos/clip.mp4", mode: str = "passthrough",
                      authorisation: dict[str, Any] | None = None) -> Path:
-    """A T8-shaped manifest (consumer view only). ``source`` is the derived MP4 the export names; for a remux
-    or transcode the release member's own bytes differ, so its digest is synthetic here."""
-    sha = a.sha256_hex(source)
+    """A schema-valid T8 manifest (consumer view only). ``source`` is the derived MP4 the export names; for a
+    remux or transcode the release member's own bytes differ, so they are synthetic here."""
+    import derive_mp4
+
     derived = mode != "passthrough"
+    member_bytes = b"release member " + source[:64] if derived else source
     document = {
         "schemaVersion": "vehicle-subclass-derivation-v1",
         "release": {"releaseId": release_id, "releaseRecordSha256": release_record_sha, "member": member},
         "authorisation": authorisation if authorisation is not None else {
             "purposes": ["benchmarking", "development"],
             "operations": ["create-derivatives"] if derived else [], "blockers": []},
-        "sourceSha256": a.sha256_hex(b"release member " + source[:64]) if derived else sha,
-        "sourceMedia": {"container": "mkv" if derived else "mp4"}, "mode": mode,
-        "ffmpegVersion": "7.1" if derived else None, "ffmpegSha256": ("b" * 64) if derived else None,
-        "args": ["-c", "copy"] if derived else [], "outputSha256": sha, "outputMedia": {"container": "mp4"},
+        "sourceSha256": a.sha256_hex(member_bytes),
+        "sourceMedia": probe_record(member_bytes, mp4=not derived),
+        "mode": mode,
+        "ffmpegVersion": "synthetic-7.1" if derived else None, "ffmpegSha256": ("b" * 64) if derived else None,
+        "args": derive_mp4.ARGS.get(mode, []), "outputSha256": a.sha256_hex(source),
+        "outputMedia": probe_record(source),
+        "importLimitBytes": 3 * 1024 ** 3,
     }
     path.write_bytes(a.canonical_json(document))
     return path
