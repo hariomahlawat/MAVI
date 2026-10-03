@@ -58,7 +58,7 @@ public release ──T7 verify/record──▶ release record (+R-5) ──T8 de
 - each artefact records the SHA-256 identities of its inputs;
 - each consumer re-verifies them and refuses on mismatch;
 - data artefacts live outside Git under `E:\MAVI-Controlled\…\S3\`;
-- only schemas, tools, tests, the hash-only evidence record (§20) and three small pre-registration documents (requirements, labelling guide, and in S3.2b the frozen source pool and the Development ingestion convention; metadata only) are committed.
+- only schemas, tools, tests, the hash-only evidence record (§20) and small pre-registration documents (requirements, labelling guide, and in S3.2b the frozen source pool, the ingestion map and, where used, the Development ingestion convention; metadata only) are committed.
 
 ## 4. Slice boundaries
 
@@ -77,7 +77,7 @@ public release ──T7 verify/record──▶ release record (+R-5) ──T8 de
 |---|---|---|
 | none | – | **S3.2b-1 can begin immediately** |
 | dataset access; the owner's acceptance of its terms; the R-5 determination | S3.2b-2 real execution | S3.2b-1 |
-| a Development MAVI host; the real Model Pack and runtime | S3.2b-3 | S3.2b-1, S3.2b-2 |
+| a Development MAVI host with a fresh, dedicated catalogue and media store (created after the pool freeze); the real Model Pack and runtime | S3.2b-3 | S3.2b-1, S3.2b-2 |
 | committed approved labelling guide; committed pre-registered requirements; a confirmed independent second reviewer | T10 (S3.2c) | S3.2b-1, S3.2b-2, S3.2b-3 |
 
 ## 5. Contracts and schemas (all new, under `contracts/schemas/`, each with an example validated by `verify_repo`)
@@ -100,6 +100,7 @@ public release ──T7 verify/record──▶ release record (+R-5) ──T8 de
 | `vehicle-subclass-media-probe-v1` | one probed media file | see T7 |
 | `vehicle-subclass-source-pool-v1` | the frozen source pool | see T7 |
 | `vehicle-subclass-derivation-v1` | one derived MP4 (T8 produces it; T3 consumes it) | see T8 |
+| `vehicle-subclass-ingestion-map-v1` | the T9 camera, time-zone and recording-start input | see T9 |
 | `vehicle-subclass-t9-execution-v1` | release member → MAVI run → export mapping | see T9 |
 
 The S3.1 Phase-1 ground-truth schema is not changed: Track-level labels are a different unit and get their own artefact, and the two never overlap.
@@ -432,9 +433,9 @@ S3.2b runs as three slices, in order. Each is fail-closed: a slice never starts 
 
 | Slice | Content | Real data | Gates |
 |---|---|---|---|
-| **S3.2b-1 — T7/T8 tooling, fixtures only** | media probing, the approved-binary loader, derivation tooling, the `vehicle-subclass-media-probe-v1`, `vehicle-subclass-derivation-v1`, `vehicle-subclass-source-pool-v1` and `vehicle-subclass-t9-execution-v1` contracts, the release/rights consumer checks, the import-policy parity vector, the T9 tool against a stubbed API (it needs no host), deterministic synthetic tests | none: no CityFlow, no R-5 decision, no Development host | **none; it can begin immediately** |
+| **S3.2b-1 — T7/T8 tooling, fixtures only** | media probing, the approved-binary loader, derivation tooling, the `vehicle-subclass-media-probe-v1`, `vehicle-subclass-derivation-v1`, `vehicle-subclass-source-pool-v1`, `vehicle-subclass-ingestion-map-v1` and `vehicle-subclass-t9-execution-v1` contracts, the release/rights consumer checks, the import-policy parity vector, the T9 tool against a stubbed API (it needs no host), deterministic synthetic tests | none: no CityFlow, no R-5 decision, no Development host | **none; it can begin immediately** |
 | **S3.2b-2 — real corpus intake and derivation** | the owner's dataset access; retained, hashed terms/licence; the R-5 determination; the release record; real `verify_release_files`; probes; the frozen 6–10 video source pool; real T8 derivations | the real release, kept outside Git | access and terms accepted by the owner; the R-5 determination |
-| **S3.2b-3 — T9 Development-host execution** | MAVI camera creation; import through the public API; real processing; T1 export; the T9 execution record and its producer/run checks | T8 outputs from S3.2b-2 | a Development MAVI host; the real Model Pack and runtime; the shipped `1.3.0-candidate` profile |
+| **S3.2b-3 — T9 Development-host execution** | the committed ingestion map; MAVI camera creation; import through the public API; real processing; T1 export; the T9 execution record and its producer/run checks | T8 outputs from S3.2b-2 | a Development MAVI host with a fresh, dedicated catalogue and media store created after the pool freeze; the real Model Pack and runtime; the shipped `1.3.0-candidate` profile |
 
 The T10 human decisions (final labelling-guide rules, pre-registered requirements, the confirmed second reviewer) do **not** block S3.2b-1, S3.2b-2 or S3.2b-3.
 
@@ -699,32 +700,85 @@ The schema states the mode rules:
 - change platform import or processing semantics.
 
 **Inputs:**
-- the committed source-pool record (or its committed digest file), with its commit (git binding as above);
+- the frozen source-pool record and its git binding (or its committed digest file; §T7);
+- the committed ingestion map (`vehicle-subclass-ingestion-map-v1`, below) and its git binding;
 - the T8 output directories;
 - the measured pipeline profile file (the shipped `1.3.0-candidate`);
 - the API base URL and a resume-journal location, which are runtime-only.
 
-**Host requirements.** The MAVI host runs with `MediaProcessing:AllowPathFallbackInDevelopment=false` and the same verified FFmpeg dependency pack T7/T8 used. Its manifest SHA-256 is recorded in the execution record.
+**Before any API call,** T9 verifies:
+- both git bindings;
+- that the map's `sourcePoolSha256` is the pool's;
+- that the map has exactly one entry per pool member and no extras.
 
-**Clean start; runs are never reused.** S3.2b-3 runs on a Development MAVI instance whose catalogue contains none of the pool's derived SHA-256s before T9's first import. T9 checks this as it imports: an import answered `video_duplicate` for an asset T9 did not create is `t9_asset_preexisting`. This also closes the path by which MAVI output for a pool member could have existed, and been seen, before the freeze.
-- **Journal.** Every member's run is queued by T9 itself, and the queued run id is written to a T9 resume journal before polling.
-- **Resuming.** On a re-run, a `video_duplicate` answer is bound to the returned `videoAssetId` only when the journal shows that a previous T9 invocation, for this same pool commit, created that asset, and its camera and recording start match.
-- **Polling.** The public API exposes only the latest run, so while polling T9 requires `latestRun.processingRunId` to equal the run it queued (`t9_run_substituted`). A reprocessed or substituted run is never accepted.
+It creates no camera and imports nothing until all of these pass.
 
-**Cameras.** On a re-run, cameras are looked up by code (`GET /api/cameras`) and must match the recorded name and time zone (`t9_camera_mismatch`); they are never re-created.
-
-**Recording time and time zone.** Import requires a local recording start and uses the camera's time zone. This plan invents no CityFlow timestamps:
-- **Trusted metadata:** if T7 finds trustworthy recording-time and time-zone metadata in the release, it is used and recorded per member.
-- **Otherwise:** a Development-only ingestion convention is written and committed before the first import, as `docs/qualification/stage3/s3-2-ingestion-convention.md`. It must not imply a true source timestamp. Its SHA-256 and commit are recorded in the execution record. The convention itself is chosen only after T7 establishes what the release contains.
-
-**Execution record `vehicle-subclass-t9-execution-v1`.** New; a small canonical evidence artefact, not a qualification framework.
+**Ingestion map `vehicle-subclass-ingestion-map-v1` (new; the machine-readable T9 camera and time input).** It is written after T7 has established what source metadata the release really carries, and committed before the first T9 import as `docs/qualification/stage3/s3-2-ingestion-map.json` (metadata only). If R-5 finds the terms forbid recording member names in the repository, the same committed-digest-file rule as the source pool applies: `docs/qualification/stage3/s3-2-ingestion-map.sha256`. Contents:
 
 | Member | Content |
 |---|---|
-| bindings | `sourcePoolSha256` (with `gitCommit`), `releaseRecordSha256`, `measuredProfileSha256`, `mediaToolsManifestSha256`, `recordingTime`: `{kind: "development-convention", sha256, gitCommit}` or `{kind: "release-metadata", sha256: <releaseRecordSha256>, gitCommit: null}` |
+| `schemaVersion` | `vehicle-subclass-ingestion-map-v1` |
+| `sourcePoolSha256` | the frozen pool record it maps |
+| `cameras[]` | `{sourceCamera, cameraCode, name, timeZoneId}`: one per distinct pool `sourceCamera`. `cameraCode` is deterministic: `S32-` + the `sourceCamera` upper-cased with every character outside `A–Z`, `0–9` and `-` replaced by `-`, truncated to MAVI's 32-character limit (`Camera.Create` upper-cases and refuses longer codes); a collision after this normalisation is a duplicate camera code; `name` is the display name `POST /api/cameras` requires; `timeZoneId` is an explicit IANA id |
+| `members[]` | exactly one per frozen member: `{member, cameraCode, recordingStartLocal, recordingTime}` |
+| `recordingStartLocal` | a time-zone-less local wall-clock time, `YYYY-MM-DDTHH:MM:SS`, never with an offset or `Z`. It always travels with its camera's `timeZoneId`, exactly as MAVI's import interprets it |
+| `recordingTime` | `{source: "release-metadata", evidence: {releaseRecordSha256, member}}` naming the release file that carries the value; or `{source: "development-convention", convention: {sha256, gitCommit, gitPath: "docs/qualification/stage3/s3-2-ingestion-convention.md"}}` |
+
+- **Mixed cases.** Members may differ: some take trustworthy release metadata, others the Development convention.
+- **Release metadata.** When the release provides trustworthy recording time and time zone, the map records those values and names the release evidence file (listed in the release record) that supports them.
+- **Development convention.** Otherwise `docs/qualification/stage3/s3-2-ingestion-convention.md` is committed. It states how the deterministic Development-only `recordingStartLocal` and time-zone values are assigned, and that they are not claimed as actual source capture times. The convention document explains; the map is what T9 reads. Every map entry that uses it binds its SHA-256 and commit, and T9 verifies that binding (`artefacts.git_binding`).
+
+**Map refusals** (`ingestion_map_invalid:*`, all before any API call):
+- a pool member missing, an extra member, or a duplicate member;
+- a member naming an unknown `cameraCode`;
+- a duplicate `cameraCode`, or two cameras for one `sourceCamera`;
+- an invalid or non-IANA `timeZoneId`;
+- a malformed `recordingStartLocal`, or one that does not exist or is ambiguous in its zone (the importer refuses both);
+- `sourcePoolSha256` not the pool's;
+- a release-metadata entry whose release or member is not the pool's release and a listed file;
+- a convention entry whose file is not byte-identical at its commit, or whose commit is not an ancestor of `HEAD`.
+
+Zone validation uses Python's `zoneinfo`. Its `tzdata` package is present in the repository venv but undeclared, so S3.2b-1 declares it in `tools/requirements.txt` and the offline dependency policy, per the dependency rule.
+
+**Host preconditions** (operational; T9 does not start without them):
+- **A fresh, dedicated catalogue.** S3.2b-3 runs on a newly initialised Development MAVI catalogue (database) and managed-media store, provisioned for this S3.2 event only and created after the pilot source pool has been frozen and committed. No pre-existing application data or source video is present when T9 starts. If such a catalogue cannot be provided, T9 does not start.
+- **Native-media verification.** The host runs with `MediaProcessing:AllowPathFallbackInDevelopment=false` and its normal native-media startup verification enabled. The product's own startup behaviour enforces this (`NativeMediaToolStartup`).
+
+**What each control proves, and what it does not.**
+- **The source-side-only selection procedure** (the committed pool record and its tool, which accepts no MAVI output) prevents this S3.2 event from choosing the pilot pool based on its own MAVI outputs.
+- **The fresh, dedicated T9 catalogue** prevents T9 from reusing pre-freeze MAVI state within this controlled event.
+- **Hashes do not prove freshness.** A release member could earlier have been imported as a different derivation with a different SHA-256, so source hashes are never treated as proof of freshness.
+- **No proof about other machines.** MAVI cannot prove that the corpus bytes were never processed on some unrelated machine in the past, and the plan claims no such thing.
+
+**Runs are never reused.**
+- **Journal.** Every member's run is queued by T9 itself, and the queued run id is written to the T9 resume journal before polling.
+- **Resume.** Resuming is allowed only within the same dedicated T9 instance, using the journal. A `video_duplicate` answer is accepted only when the journal shows that this same T9 event created or bound that asset, with the same camera and recording start; otherwise it is `t9_asset_preexisting`.
+- **No outside runs.** A run is never taken from outside the journal.
+- **Polling.** The public API exposes only the latest run, so while polling T9 requires `latestRun.processingRunId` to equal the run it queued (`t9_run_substituted`).
+
+**Cameras.**
+- Each map camera is created once with its `code`, `name` and `timeZoneId`.
+- On a resume, cameras are looked up by code (`GET /api/cameras`) and must match the map's name and time zone (`t9_camera_mismatch`); they are never re-created.
+- Each import sends the member's `recordingStartLocal` with that camera's `cameraId`.
+
+**Media tools and what is not recorded.**
+- T7 and T8 bind the exact verified FFmpeg/ffprobe pack (manifest, executable SHA-256s, versions) used for probing and derivation.
+- T9 does not and cannot identify the running host's native-media pack: neither the product API nor the processing-run attestation exposes it, and no such field is recorded.
+- This is acceptable because:
+  - the copy, remux or transcode that creates the measured input is fully provenance-bound by T8;
+  - T9 imports that exact hash-bound MP4 through the real product API;
+  - the model and runtime producer identity stays bound by the processing-run attestation.
+
+If a future qualification needs the native-media pack as part of the processing-run producer identity, that requires a separate product-provenance change, not a field fabricated by S3.2 tooling.
+
+**Execution record `vehicle-subclass-t9-execution-v1`.** New; a small canonical evidence artefact, not a qualification framework. Its camera and time fields come only from the verified ingestion map.
+
+| Member | Content |
+|---|---|
+| bindings | `sourcePoolSha256` (with `gitCommit`), `ingestionMapSha256` (with `gitCommit`), `releaseRecordSha256`, `measuredProfileSha256` |
 | `producer` | the single producer identity carried by every attestation: model, checkpoint and manifest, pipeline and runtime profile, Model Pack, runtime pack, binding, `maviBuild`, `maviCommit`. Host identity only as far as the attestation already carries it (platform fields); no new host identifier |
-| `cameras[]` | `{sourceCamera, cameraCode, cameraId, timeZoneId}` |
-| `members[]` | per frozen member: `{member, derivationManifestSha256, derivedSha256, cameraCode, recordingStartLocal, videoAssetId, processingRunId, attestationSha256, exportSha256}`, where `attestationSha256` is the canonical SHA-256 of the export's embedded attestation |
+| `cameras[]` | `{sourceCamera, cameraCode, name, timeZoneId}` from the map, plus the `cameraId` MAVI assigned |
+| `members[]` | per frozen member: `{member, derivationManifestSha256, derivedSha256, cameraCode, recordingStartLocal, recordingTime, videoAssetId, processingRunId, attestationSha256, exportSha256}`, with `cameraCode`, `recordingStartLocal` and `recordingTime` copied from the map, and `attestationSha256` the canonical SHA-256 of the export's embedded attestation |
 
 **Exit, checked before the record is written** (refusals `t9_*`):
 - exactly one derivation per pool member; each schema-validates, its `release.releaseRecordSha256` is the pool's, its `release.member` is that pool member and its `sourceSha256` is that member's `sha256`;
@@ -741,7 +795,21 @@ The schema states the mode rules:
 
 T10 runs this check before building packs (T10 step 2), and its result is part of §20.
 
-**Tests (S3.2b-1, fixtures, stubbed API):** every exit refusal; `t9_asset_preexisting`, journal resume and `t9_run_substituted`; camera reuse and mismatch; both recording-time kinds; the sample verifier's three refusals and its acceptance; determinism of the record.
+**Tests (S3.2b-1, fixtures, stubbed API):**
+- **Ingestion map:**
+  - a missing, extra or duplicate member;
+  - an unknown camera; a duplicate camera code;
+  - an invalid or non-IANA time zone;
+  - a malformed, nonexistent or ambiguous local recording time;
+  - a source-pool hash mismatch;
+  - a wrong convention or release-evidence binding;
+  - a deterministic valid mixed-source map (release metadata and the convention together).
+
+  Each refusal happens before any stub API call.
+- **Fresh catalogue:** `t9_asset_preexisting` for a duplicate answer the journal does not explain, including a member imported earlier as a different derivation; journal resume within the same instance; no run taken from outside the journal; `t9_run_substituted`.
+- **Cameras:** created from the map; resumed by code; `t9_camera_mismatch`.
+- **Record:** every exit refusal; camera and time fields equal the map's; no media-pack field; determinism.
+- **Sample verifier:** its three refusals and its acceptance.
 
 ### T10 — Pilot (S3.2c; ⚠ human)
 
@@ -918,7 +986,8 @@ The T1 attestation-factory extraction is behaviour-preserving and proven by the 
 | Probe | media pack missing, wrong runtime, hash or version (`media_tools_invalid`); input unreadable; ffprobe failure; invalid media; existing output |
 | Source pool | release unparseable or files failing verification; member not listed, excluded or not matching its entry; duplicate members or identical member content; probe not of the member; authorisation blockers; not 6–10 pilot members; invalid inclusion reason |
 | Derivation | malformed release; release root inside Git or files failing verification; member not listed, excluded or changed; authorisation blockers for the member and mode; invalid mode; probe failure; passthrough not importable; remux codec unsupported; FFmpeg missing, unverified or failing; output not importable; output identity inconsistent; non-deterministic repeat; existing output |
-| Execution (T9) | source pool not committed unchanged; asset pre-existing before T9 (`t9_asset_preexisting`); latest run not the queued one (`t9_run_substituted`); camera mismatch; derivation not of its pool member or release; missing, extra or substituted member or run; export source not the T8 output; duplicate video; mixed producers or wrong profile; run not completed; a pilot sample not drawn from exactly the recorded exports and derivations |
+| Ingestion map | missing, extra or duplicate member; unknown or duplicate camera code; invalid or non-IANA time zone; malformed, nonexistent or ambiguous local recording time; source-pool hash mismatch; wrong convention or release-evidence binding |
+| Execution (T9) | source pool or ingestion map not committed unchanged; a duplicate import the journal does not explain (`t9_asset_preexisting`); latest run not the queued one (`t9_run_substituted`); camera mismatch; derivation not of its pool member or release; missing, extra or substituted member or run; export source not the T8 output; duplicate video; mixed producers or wrong profile; run not completed; a pilot sample not drawn from exactly the recorded exports and derivations |
 | Release use | `authorise_release_use` blockers for the member and operations (R-5 absent, or an operation not granted) |
 
 Every refusal exits with code 2, writes nothing, and gives a stable code.
@@ -933,7 +1002,7 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
 - **Labelling page:** opens from disk with no server.
 - **Paths:** stored relative and forward-slashed inside artefacts, and never absolute.
 - **Line endings:** every generated or copied text artefact (canonical JSON, the pack's HTML, JS and CSS) is written as UTF-8 with LF, and hashed from those bytes; a CRLF checkout does not change any identity (T4 regression test). Existing repository line-ending controls are unchanged.
-- **Dependencies:** no new dependency. FFmpeg/ffprobe are the existing `ffmpeg-win-x64` dependency, and T9 uses the standard library for local HTTP. S3.2b-1 extends that entry's `setupIntegration` text in `offline-dependency-policy-v1.json` to name the Development tooling consumers (`tools/stage3` probe and derivation) alongside the application, so the policy states every consumer.
+- **Dependencies:** FFmpeg/ffprobe are the existing `ffmpeg-win-x64` dependency, and T9 uses the standard library for local HTTP. One declaration is added in S3.2b-1: `tzdata` (already installed in the repository venv but undeclared) is declared in `tools/requirements.txt` and the offline dependency policy, because T9 validates IANA zones with `zoneinfo` on Windows. S3.2b-1 extends that entry's `setupIntegration` text in `offline-dependency-policy-v1.json` to name the Development tooling consumers (`tools/stage3` probe and derivation) alongside the application, so the policy states every consumer.
 - **Runtime-only paths:** `--release-root`, `--media-tools`, the T8 output location and the API base URL are inputs, never artefact content.
 
 ## 19. Risks and open questions
@@ -947,7 +1016,8 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
 5. The labelling work itself.
 6. The expansion decision.
 7. A Development host with the real Model Pack for T9. Blocks S3.2b-3.
-8. Whether the release carries trustworthy recording time and time zone, and otherwise the Development ingestion convention (decided after T7, before the first import).
+8. Whether the release carries trustworthy recording time and time zone, and otherwise the Development ingestion convention; then the ingestion map (decided after T7, committed before the first import).
+9. A fresh, dedicated Development catalogue and media store for S3.2b-3, created after the pool freeze. Without it T9 does not start.
 
 **Risks**
 - **Domain bias.** CityFlow is US intersection footage from fixed traffic cameras. Results describe that domain only.
@@ -973,7 +1043,10 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
    - the media probe hashes of every pool member and derived output;
    - the derivation manifest hashes, each with the member-scoped authorisation its mode requires;
    - the deterministic repeat evidence for the first real remux and transcode, where exercised;
-   - the T9 execution record and its SHA-256, with the recording-time convention it binds;
+   - the committed ingestion map and, where used, the ingestion convention, with their SHA-256s and commits;
+   - a statement that T9 ran on a fresh, dedicated catalogue and media store created after the pool freeze;
+   - the T9 execution record and its SHA-256;
+   - the FFmpeg/ffprobe pack identity bound by T7/T8 (the T9 host's native-media pack is a host precondition, not recorded provenance);
    - the T1 export hashes, all attesting one producer identity and the measured profile across the pilot pool.
 3. **A committed requirements file,** bound by hash and commit into every sample, and matched by the runner.
 4. **A recorded pilot.** Every input hash recorded (release, derivations, exports, sample, packs, label sets, adjudication, requirements, labelling guide, result) and the T9 sample-verifier result, plus:
