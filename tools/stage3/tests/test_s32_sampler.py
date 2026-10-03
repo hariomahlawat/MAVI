@@ -372,3 +372,24 @@ def test_derivation_authorisation_contract_is_exact(world, tmp_path, capsys, mod
     out = tmp_path / "s.json"
     refused(capsys, p.sample(world, out, target=4, derivations=_derived(world, tmp_path, "bad", mode=mode,
                                                                         authorisation=authorisation)), code, out)
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "1e309", "0", "1.5"])
+def test_invalid_overlap_fractions_are_stable_refusals(world, tmp_path, capsys, value):
+    out = tmp_path / "s.json"
+    refused(capsys, p.sample(world, out, target=4, overlap=value), "overlap_fraction_invalid", out)
+
+
+def test_two_runs_of_one_video_are_refused(tmp_path, capsys):
+    world = f.build_world(tmp_path / "w", {"CAM-A": f.numbered(1, 3)})
+    video = world.videos[0]
+    again = f.write_export(tmp_path / "reprocessed", run_id="00000000-0000-0000-0000-00000000aaaa",
+                           video_id=video.video_id, camera=video.camera, source=video.source_path.read_bytes(),
+                           profile_sha=world.profile_sha, tracks=f.numbered(10, 2), seed=7)
+    out = tmp_path / "s.json"
+    refused(capsys, p.sample(world, out, target=2, exports=[video.export_path, again]), "export_video_duplicate", out)
+    # A different video asset of byte-identical source content is the same scene too.
+    copy = f.write_export(tmp_path / "copy", run_id="00000000-0000-0000-0000-00000000bbbb",
+                          video_id="00000000-0000-0000-0000-00000000cccc", camera=video.camera,
+                          source=video.source_path.read_bytes(), profile_sha=world.profile_sha, tracks=f.numbered(20, 2), seed=8)
+    refused(capsys, p.sample(world, out, target=2, exports=[video.export_path, copy]), "export_video_duplicate", out)

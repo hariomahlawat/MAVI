@@ -233,6 +233,7 @@ def sample(exports: dict[str, a.Export], *, target: int, overlap_fraction: float
            previously_sampled: set[tuple[str, str]]) -> dict[str, Any]:
     """The selection, from blinded Tracks only."""
     a.require(isinstance(target, int) and target >= 1, "target_invalid")
+    a.require(isinstance(overlap_fraction, float) and math.isfinite(overlap_fraction), "overlap_fraction_invalid")
     fraction = Fraction(repr(overlap_fraction))
     a.require(0 < fraction <= 1, "overlap_fraction_invalid")
 

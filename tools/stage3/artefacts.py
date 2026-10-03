@@ -303,15 +303,22 @@ class Export:
 
 
 def load_exports(paths: list[Path]) -> dict[str, Export]:
-    """Exports keyed by their SHA-256; one per run."""
+    """Exports keyed by their SHA-256; one per run, and one run per video. Two runs of one video asset or
+    of one source (a reprocessing) would count the same scene twice, so they are refused."""
     exports: dict[str, Export] = {}
     runs: set[str] = set()
+    videos: set[str] = set()
+    sources: set[str] = set()
     for path in paths:
         export = Export(path)
         require(export.sha256 not in exports, "export_duplicate")
         require(export.run_id not in runs, "export_run_duplicate")
+        require(export.video["videoAssetId"] not in videos and export.video["sourceSha256"] not in sources,
+                "export_video_duplicate")
         exports[export.sha256] = export
         runs.add(export.run_id)
+        videos.add(export.video["videoAssetId"])
+        sources.add(export.video["sourceSha256"])
     return exports
 
 
