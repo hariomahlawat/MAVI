@@ -1,0 +1,982 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-measurement-v1.schema.json",
+  "title": "vehicle-subclass-measurement-v1",
+  "description": "The Track-conditional vehicle subclass measurement (S3.2 plan T2): descriptive point estimates as exact fractions (value null when undefined), with no thresholds and no confidence intervals. primary aggregates the pilot and valid same-design continuations; each of those batches is also reported alone; supplemental batches are reported only under supplemental[] and never change primary.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scope",
+    "labelVocabulary",
+    "subclassVocabulary",
+    "producer",
+    "inputs",
+    "primary",
+    "batches",
+    "supplemental"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vehicle-subclass-measurement-v1"
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$"
+    },
+    "labelVocabulary": {
+      "const": "mavi-vehicle-subclass-labels-v1"
+    },
+    "subclassVocabulary": {
+      "const": "mavi-vehicle-subclass-v1"
+    },
+    "producer": {
+      "type": "object",
+      "required": [
+        "modelId",
+        "pipelineProfileSha256",
+        "maviCommit",
+        "subclassSource",
+        "processingRunIds"
+      ]
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measuredProfileSha256",
+        "requirementsSha256",
+        "exportSha256s",
+        "sourceVideoSha256s",
+        "batches"
+      ],
+      "properties": {
+        "measuredProfileSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "requirementsSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "exportSha256s": {
+          "$ref": "#/$defs/sha256List"
+        },
+        "sourceVideoSha256s": {
+          "$ref": "#/$defs/sha256List"
+        },
+        "batches": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sampleSha256",
+              "designKind",
+              "labelingGuideSha256",
+              "primaryPackSha256",
+              "primaryLabelsSha256",
+              "overlapPackSha256",
+              "overlapLabelsSha256",
+              "adjudicationSha256"
+            ],
+            "properties": {
+              "sampleSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "designKind": {
+                "enum": [
+                  "continuation",
+                  "supplemental"
+                ]
+              },
+              "labelingGuideSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "primaryPackSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "primaryLabelsSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "overlapPackSha256": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/sha256"
+                  }
+                ]
+              },
+              "overlapLabelsSha256": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/sha256"
+                  }
+                ]
+              },
+              "adjudicationSha256": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/sha256"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "primary": {
+      "$ref": "#/$defs/section"
+    },
+    "batches": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/batch"
+      }
+    },
+    "supplemental": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/batch"
+      }
+    }
+  },
+  "$defs": {
+    "fraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator",
+        "value"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "car",
+        "truck",
+        "bus",
+        "motorcycle",
+        "undetermined"
+      ],
+      "properties": {
+        "car": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truck": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "motorcycle": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "undetermined": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sha256List": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "uniqueItems": true
+    },
+    "itemId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "confusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "car",
+        "truck",
+        "bus",
+        "motorcycle"
+      ],
+      "properties": {
+        "car": {
+          "$ref": "#/$defs/row"
+        },
+        "truck": {
+          "$ref": "#/$defs/row"
+        },
+        "bus": {
+          "$ref": "#/$defs/row"
+        },
+        "motorcycle": {
+          "$ref": "#/$defs/row"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "labelledTracks",
+        "humanUnknown",
+        "evaluableTracks",
+        "resolved",
+        "abstained",
+        "coverageOverEvaluable",
+        "confusion",
+        "unknownRow",
+        "perClass",
+        "accuracyOverEvaluable",
+        "accuracyOverResolved",
+        "macroRecallOverClassesWithSupport"
+      ],
+      "properties": {
+        "labelledTracks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "humanUnknown": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "occluded",
+            "too-small",
+            "ambiguous-type",
+            "mixed-track",
+            "not-a-vehicle",
+            "other"
+          ],
+          "properties": {
+            "occluded": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "too-small": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ambiguous-type": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "mixed-track": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "not-a-vehicle": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "other": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "evaluableTracks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "resolved": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "abstained": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "coverageOverEvaluable": {
+          "$ref": "#/$defs/fraction"
+        },
+        "confusion": {
+          "$ref": "#/$defs/confusion"
+        },
+        "unknownRow": {
+          "$ref": "#/$defs/row"
+        },
+        "perClass": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "car",
+            "truck",
+            "bus",
+            "motorcycle"
+          ],
+          "properties": {
+            "car": {
+              "$ref": "#/$defs/classMetrics"
+            },
+            "truck": {
+              "$ref": "#/$defs/classMetrics"
+            },
+            "bus": {
+              "$ref": "#/$defs/classMetrics"
+            },
+            "motorcycle": {
+              "$ref": "#/$defs/classMetrics"
+            }
+          }
+        },
+        "accuracyOverEvaluable": {
+          "$ref": "#/$defs/fraction"
+        },
+        "accuracyOverResolved": {
+          "$ref": "#/$defs/fraction"
+        },
+        "macroRecallOverClassesWithSupport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "classes",
+            "numerator",
+            "denominator",
+            "value"
+          ],
+          "properties": {
+            "classes": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle"
+                ]
+              }
+            },
+            "numerator": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "denominator": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "classMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "support",
+        "predicted",
+        "correct",
+        "precision",
+        "recall"
+      ],
+      "properties": {
+        "support": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "predicted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "correct": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "precision": {
+          "$ref": "#/$defs/fraction"
+        },
+        "recall": {
+          "$ref": "#/$defs/fraction"
+        }
+      }
+    },
+    "labelRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "car",
+        "truck",
+        "bus",
+        "motorcycle",
+        "unknown"
+      ],
+      "properties": {
+        "car": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truck": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "motorcycle": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sampleSha256s",
+        "metrics",
+        "clusters",
+        "errorReferences",
+        "reliability"
+      ],
+      "properties": {
+        "sampleSha256s": {
+          "$ref": "#/$defs/sha256List"
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "clusters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "videoCount",
+            "cameraCount",
+            "perVideo",
+            "perCamera"
+          ],
+          "properties": {
+            "videoCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cameraCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "perVideo": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "processingRunId",
+                  "videoAssetId",
+                  "cameraCode",
+                  "labelledTracks",
+                  "evaluableTracks",
+                  "resolved",
+                  "correct",
+                  "confusion"
+                ],
+                "properties": {
+                  "processingRunId": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "videoAssetId": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "cameraCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^\\S(.*\\S)?$"
+                  },
+                  "labelledTracks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "evaluableTracks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "resolved": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "correct": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "confusion": {
+                    "$ref": "#/$defs/confusion"
+                  }
+                }
+              }
+            },
+            "perCamera": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "cameraCode",
+                  "videoCount",
+                  "labelledTracks",
+                  "evaluableTracks",
+                  "resolved",
+                  "correct",
+                  "confusion"
+                ],
+                "properties": {
+                  "cameraCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^\\S(.*\\S)?$"
+                  },
+                  "videoCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "labelledTracks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "evaluableTracks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "resolved": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "correct": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "confusion": {
+                    "$ref": "#/$defs/confusion"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "errorReferences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "itemId",
+              "packSha256",
+              "processingRunId",
+              "trackId",
+              "label",
+              "predicted"
+            ],
+            "properties": {
+              "itemId": {
+                "$ref": "#/$defs/itemId"
+              },
+              "packSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "processingRunId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "trackId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "label": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle"
+                ]
+              },
+              "predicted": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle",
+                  "undetermined"
+                ]
+              }
+            }
+          }
+        },
+        "reliability": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "overlapTracks",
+                "labelAgreements",
+                "exactAgreements",
+                "disagreement"
+              ],
+              "properties": {
+                "overlapTracks": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "labelAgreements": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "exactAgreements": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "disagreement": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "car",
+                    "truck",
+                    "bus",
+                    "motorcycle",
+                    "unknown"
+                  ],
+                  "properties": {
+                    "car": {
+                      "$ref": "#/$defs/labelRow"
+                    },
+                    "truck": {
+                      "$ref": "#/$defs/labelRow"
+                    },
+                    "bus": {
+                      "$ref": "#/$defs/labelRow"
+                    },
+                    "motorcycle": {
+                      "$ref": "#/$defs/labelRow"
+                    },
+                    "unknown": {
+                      "$ref": "#/$defs/labelRow"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sampleSha256s",
+        "metrics",
+        "clusters",
+        "errorReferences",
+        "reliability",
+        "sampleSha256",
+        "design"
+      ],
+      "properties": {
+        "sampleSha256s": {
+          "$ref": "#/$defs/sha256List"
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "clusters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "videoCount",
+            "cameraCount",
+            "perVideo",
+            "perCamera"
+          ],
+          "properties": {
+            "videoCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cameraCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "perVideo": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "processingRunId",
+                  "videoAssetId",
+                  "cameraCode",
+                  "labelledTracks",
+                  "evaluableTracks",
+                  "resolved",
+                  "correct",
+                  "confusion"
+                ],
+                "properties": {
+                  "processingRunId": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "videoAssetId": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "cameraCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^\\S(.*\\S)?$"
+                  },
+                  "labelledTracks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "evaluableTracks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "resolved": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "correct": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "confusion": {
+                    "$ref": "#/$defs/confusion"
+                  }
+                }
+              }
+            },
+            "perCamera": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "cameraCode",
+                  "videoCount",
+                  "labelledTracks",
+                  "evaluableTracks",
+                  "resolved",
+                  "correct",
+                  "confusion"
+                ],
+                "properties": {
+                  "cameraCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^\\S(.*\\S)?$"
+                  },
+                  "videoCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "labelledTracks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "evaluableTracks": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "resolved": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "correct": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "confusion": {
+                    "$ref": "#/$defs/confusion"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "errorReferences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "itemId",
+              "packSha256",
+              "processingRunId",
+              "trackId",
+              "label",
+              "predicted"
+            ],
+            "properties": {
+              "itemId": {
+                "$ref": "#/$defs/itemId"
+              },
+              "packSha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "processingRunId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "trackId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "label": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle"
+                ]
+              },
+              "predicted": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle",
+                  "undetermined"
+                ]
+              }
+            }
+          }
+        },
+        "reliability": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "overlapTracks",
+                "labelAgreements",
+                "exactAgreements",
+                "disagreement"
+              ],
+              "properties": {
+                "overlapTracks": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "labelAgreements": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "exactAgreements": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "disagreement": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "car",
+                    "truck",
+                    "bus",
+                    "motorcycle",
+                    "unknown"
+                  ],
+                  "properties": {
+                    "car": {
+                      "$ref": "#/$defs/labelRow"
+                    },
+                    "truck": {
+                      "$ref": "#/$defs/labelRow"
+                    },
+                    "bus": {
+                      "$ref": "#/$defs/labelRow"
+                    },
+                    "motorcycle": {
+                      "$ref": "#/$defs/labelRow"
+                    },
+                    "unknown": {
+                      "$ref": "#/$defs/labelRow"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "sampleSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "design": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "parentSampleSha256s"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "continuation",
+                "supplemental"
+              ]
+            },
+            "parentSampleSha256s": {
+              "$ref": "#/$defs/sha256List"
+            }
+          }
+        }
+      }
+    }
+  }
+}

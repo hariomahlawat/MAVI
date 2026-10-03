@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-requirement-comparison-v1.schema.json",
+  "title": "vehicle-subclass-requirement-comparison-v1",
+  "description": "The pre-registered requirements applied to the primary aggregate of one measurement (S3.2 plan T6). Each criterion reports only its status; no mechanism verdict is encoded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "measurementSha256",
+    "requirementsSha256",
+    "criteria"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vehicle-subclass-requirement-comparison-v1"
+    },
+    "measurementSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "requirementsSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "criterion",
+          "class",
+          "minimum",
+          "observed",
+          "support",
+          "minimumSupport",
+          "status"
+        ],
+        "properties": {
+          "criterion": {
+            "enum": [
+              "coverageOverEvaluable",
+              "precision",
+              "recall"
+            ]
+          },
+          "class": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle"
+                ]
+              }
+            ]
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            ]
+          },
+          "observed": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "numerator",
+              "denominator",
+              "value"
+            ],
+            "properties": {
+              "numerator": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "denominator": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "value": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            }
+          },
+          "support": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minimumSupport": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "enum": [
+              "meets",
+              "does-not-meet",
+              "insufficient-support",
+              "no-requirement"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

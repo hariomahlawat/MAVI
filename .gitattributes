@@ -6,3 +6,4 @@
 docs/qualification/model-selection/s2c-quality-statistics.md text eol=lf
 docs/qualification/model-selection/s2c-operational-selection.md text eol=lf
 tools/qualification/model_selection/acquire_s2c_candidates.ps1 text eol=lf
+tools/stage3/labeling/* text eol=lf

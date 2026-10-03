@@ -1,0 +1,35 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1d1d1f;
+  --muted: #5f6368;
+  --accent: #0b57d0;
+  --line: #d0d4da;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --fg: #e8eaed;
+    --muted: #a6abb2;
+    --accent: #8ab4f8;
+    --line: #3c4043;
+  }
+}
+body {
+  margin: 0 auto;
+  max-width: 1400px;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.4 system-ui, sans-serif;
+}
+header p, #itemId, #others, #status, #progress { color: var(--muted); }
+nav, footer { display: flex; gap: 12px; align-items: center; margin: 12px 0; }
+#views { display: flex; flex-wrap: wrap; gap: 12px; }
+figure { margin: 0; }
+figure img { max-height: 360px; max-width: 100%; border: 1px solid var(--line); }
+figcaption { color: var(--muted); font-size: 13px; }
+#labels { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+button { font: inherit; padding: 6px 12px; }
+button.chosen { outline: 3px solid var(--accent); }
+label { display: block; margin: 8px 0; }
+input[type="text"] { width: min(480px, 100%); }

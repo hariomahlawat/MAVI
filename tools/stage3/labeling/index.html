@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAVI vehicle labelling</title>
+<link rel="stylesheet" href="labeling.css">
+</head>
+<body>
+<header>
+  <h1>Vehicle type labelling</h1>
+  <p id="mode"></p>
+  <p><a href="labeling-guide.md" target="_blank">Labelling guide</a> · Keys: 1 car, 2 truck, 3 bus, 4 motorcycle, 0 unknown, ← → move.</p>
+  <label>Reviewer <input id="reviewer" type="text" maxlength="80" autocomplete="off"></label>
+</header>
+<main>
+  <nav>
+    <button id="previous" type="button">Previous</button>
+    <span id="position"></span>
+    <button id="next" type="button">Next</button>
+  </nav>
+  <section id="item">
+    <p id="itemId"></p>
+    <div id="views"></div>
+  </section>
+  <section id="decision">
+    <p id="others"></p>
+    <div id="labels"></div>
+    <label id="reasonLine">Unknown reason
+      <select id="reason">
+        <option value="">choose…</option>
+        <option value="occluded">occluded</option>
+        <option value="too-small">too-small</option>
+        <option value="ambiguous-type">ambiguous-type</option>
+        <option value="mixed-track">mixed-track</option>
+        <option value="not-a-vehicle">not-a-vehicle</option>
+        <option value="other">other</option>
+      </select>
+    </label>
+    <label id="noteLine">Note (optional, one line) <input id="note" type="text" maxlength="200"></label>
+    <p id="status"></p>
+  </section>
+  <footer>
+    <span id="progress"></span>
+    <button id="export" type="button">Export decisions</button>
+  </footer>
+</main>
+<script src="pack-data.js"></script>
+<script src="adjudication-data.js"></script>
+<script src="labeling.js"></script>
+</body>
+</html>

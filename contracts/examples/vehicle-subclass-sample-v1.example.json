@@ -1,0 +1,221 @@
+{
+  "allocation": {
+    "00000000-0000-0000-0000-000000001000": {
+      "available": 6,
+      "cameraCode": "CAM-A",
+      "exportSha256": "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+      "floor": 2,
+      "overlapFloor": 1,
+      "overlapQuota": 2,
+      "quota": 6,
+      "videoAssetId": "00000000-0000-0000-0000-000000002000"
+    },
+    "00000000-0000-0000-0000-000000001001": {
+      "available": 4,
+      "cameraCode": "CAM-B",
+      "exportSha256": "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023",
+      "floor": 2,
+      "overlapFloor": 1,
+      "overlapQuota": 1,
+      "quota": 4,
+      "videoAssetId": "00000000-0000-0000-0000-000000002001"
+    }
+  },
+  "available": {
+    "density:0": 3,
+    "density:1": 3,
+    "density:2": 4,
+    "duration:0": 3,
+    "duration:1": 3,
+    "duration:2": 4,
+    "luma:0": 3,
+    "luma:1": 3,
+    "luma:2": 4,
+    "quality:0": 3,
+    "quality:1": 3,
+    "quality:2": 4,
+    "scale:0": 3,
+    "scale:1": 3,
+    "scale:2": 4
+  },
+  "derivationSha256s": [
+    "1fffcc6297720705bf9974a6ea95a379e40c9928946f96626bb7181fdb8b2e2c",
+    "232157baeff43f05a13c6ff988bede3844a4a9de440830c71ec479cef13da9f4"
+  ],
+  "design": {
+    "kind": "continuation",
+    "parameters": {
+      "overlapFraction": 0.3
+    },
+    "parentSampleSha256s": [],
+    "releaseId": "synthetic-release-1",
+    "samplingAlgorithm": "s3-2-video-quota-diversity-v1"
+  },
+  "excluded": {
+    "not-vehicle": 1
+  },
+  "excludedSampleSha256s": [],
+  "exportSha256s": [
+    "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+    "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023"
+  ],
+  "overlapSelected": [
+    {
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000002"
+    },
+    {
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000004"
+    },
+    {
+      "processingRunId": "00000000-0000-0000-0000-000000001001",
+      "trackId": "00000000-0000-4000-8000-000000000022"
+    }
+  ],
+  "releaseRecordSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "requirements": {
+    "gitCommit": "a267fc88cf41bc9259655ae21f33ea7b23c5c9b9",
+    "gitPath": "docs/qualification/stage3/s3-2-subclass-requirements.json",
+    "sha256": "126256664acf46cbaa7bd09de75af1aaddae1d7888781933ebcb47d554c51550"
+  },
+  "schemaVersion": "vehicle-subclass-sample-v1",
+  "seed": "s32-seed",
+  "selected": [
+    {
+      "bins": {
+        "density": 2,
+        "duration": 1,
+        "luma": 1,
+        "quality": 1,
+        "scale": 1
+      },
+      "exportSha256": "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "bins": {
+        "density": 2,
+        "duration": 1,
+        "luma": 2,
+        "quality": 0,
+        "scale": 0
+      },
+      "exportSha256": "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000002"
+    },
+    {
+      "bins": {
+        "density": 1,
+        "duration": 2,
+        "luma": 1,
+        "quality": 2,
+        "scale": 2
+      },
+      "exportSha256": "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000003"
+    },
+    {
+      "bins": {
+        "density": 1,
+        "duration": 0,
+        "luma": 2,
+        "quality": 0,
+        "scale": 0
+      },
+      "exportSha256": "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000004"
+    },
+    {
+      "bins": {
+        "density": 2,
+        "duration": 2,
+        "luma": 0,
+        "quality": 2,
+        "scale": 2
+      },
+      "exportSha256": "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000005"
+    },
+    {
+      "bins": {
+        "density": 1,
+        "duration": 0,
+        "luma": 0,
+        "quality": 2,
+        "scale": 2
+      },
+      "exportSha256": "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000006"
+    },
+    {
+      "bins": {
+        "density": 2,
+        "duration": 2,
+        "luma": 2,
+        "quality": 1,
+        "scale": 1
+      },
+      "exportSha256": "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023",
+      "processingRunId": "00000000-0000-0000-0000-000000001001",
+      "trackId": "00000000-0000-4000-8000-000000000020"
+    },
+    {
+      "bins": {
+        "density": 0,
+        "duration": 1,
+        "luma": 2,
+        "quality": 1,
+        "scale": 0
+      },
+      "exportSha256": "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023",
+      "processingRunId": "00000000-0000-0000-0000-000000001001",
+      "trackId": "00000000-0000-4000-8000-000000000021"
+    },
+    {
+      "bins": {
+        "density": 0,
+        "duration": 0,
+        "luma": 1,
+        "quality": 0,
+        "scale": 2
+      },
+      "exportSha256": "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023",
+      "processingRunId": "00000000-0000-0000-0000-000000001001",
+      "trackId": "00000000-0000-4000-8000-000000000022"
+    },
+    {
+      "bins": {
+        "density": 0,
+        "duration": 2,
+        "luma": 0,
+        "quality": 2,
+        "scale": 1
+      },
+      "exportSha256": "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023",
+      "processingRunId": "00000000-0000-0000-0000-000000001001",
+      "trackId": "00000000-0000-4000-8000-000000000023"
+    }
+  ],
+  "strata": {
+    "cutPositions": [
+      3,
+      6
+    ],
+    "dimensions": [
+      "scale",
+      "duration",
+      "density",
+      "luma",
+      "quality"
+    ],
+    "poolSize": 10
+  },
+  "target": 10
+}

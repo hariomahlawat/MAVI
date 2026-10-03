@@ -1,0 +1,295 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-requirements-v1.schema.json",
+  "title": "vehicle-subclass-requirements-v1",
+  "description": "The pre-registered bar for the S3.2 measurement (plan section 13): an operational requirement whose values may each be null (no defensible requirement yet), a separate minimum evidence support, and the insufficient-support outcome. Committed before any Track is labelled and bound by hash and commit into every sample. Criteria apply to descriptive point estimates of the primary aggregate only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "labelVocabulary",
+    "operational",
+    "minimumSupport",
+    "insufficientSupportOutcome"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vehicle-subclass-requirements-v1"
+    },
+    "labelVocabulary": {
+      "const": "mavi-vehicle-subclass-labels-v1"
+    },
+    "operational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverageOverEvaluable",
+        "perClass"
+      ],
+      "properties": {
+        "coverageOverEvaluable": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum"
+          ],
+          "properties": {
+            "minimum": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              ]
+            }
+          }
+        },
+        "perClass": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "car",
+            "truck",
+            "bus",
+            "motorcycle"
+          ],
+          "properties": {
+            "car": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "precision",
+                "recall"
+              ],
+              "properties": {
+                "precision": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "minimum"
+                  ],
+                  "properties": {
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ]
+                    }
+                  }
+                },
+                "recall": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "minimum"
+                  ],
+                  "properties": {
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "truck": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "precision",
+                "recall"
+              ],
+              "properties": {
+                "precision": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "minimum"
+                  ],
+                  "properties": {
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ]
+                    }
+                  }
+                },
+                "recall": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "minimum"
+                  ],
+                  "properties": {
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "bus": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "precision",
+                "recall"
+              ],
+              "properties": {
+                "precision": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "minimum"
+                  ],
+                  "properties": {
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ]
+                    }
+                  }
+                },
+                "recall": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "minimum"
+                  ],
+                  "properties": {
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "motorcycle": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "precision",
+                "recall"
+              ],
+              "properties": {
+                "precision": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "minimum"
+                  ],
+                  "properties": {
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ]
+                    }
+                  }
+                },
+                "recall": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "minimum"
+                  ],
+                  "properties": {
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "minimumSupport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evaluablePerClass",
+        "evaluableTotal"
+      ],
+      "properties": {
+        "evaluablePerClass": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "evaluableTotal": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "insufficientSupportOutcome": {
+      "const": "insufficient-support"
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "adjudicatedOn": "2026-10-04",
+  "adjudicator": "Adjudicator C",
+  "items": [
+    {
+      "adjudicatedLabel": "truck",
+      "overlap": {
+        "label": "truck"
+      },
+      "primary": {
+        "label": "truck"
+      },
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "resolution": "carried",
+      "trackId": "00000000-0000-4000-8000-000000000002"
+    },
+    {
+      "adjudicatedLabel": "unknown",
+      "adjudicatedUnknownReason": "too-small",
+      "overlap": {
+        "label": "unknown",
+        "unknownReason": "too-small"
+      },
+      "primary": {
+        "label": "car"
+      },
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "resolution": "adjudicated",
+      "trackId": "00000000-0000-4000-8000-000000000004"
+    },
+    {
+      "adjudicatedLabel": "motorcycle",
+      "overlap": {
+        "label": "motorcycle"
+      },
+      "primary": {
+        "label": "motorcycle"
+      },
+      "processingRunId": "00000000-0000-0000-0000-000000001001",
+      "resolution": "carried",
+      "trackId": "00000000-0000-4000-8000-000000000022"
+    }
+  ],
+  "overlapLabelsSha256": "7259211fa518bdc8284ea2d9c5e7b467f64f370abb8355fcee32513b1d300cdc",
+  "primaryLabelsSha256": "f5b12ab555ff96a36bb785ed9b246da92d4b9726ecf3ef321bac42aa59eaab89",
+  "schemaVersion": "vehicle-subclass-adjudication-v1",
+  "vocabulary": "mavi-vehicle-subclass-labels-v1"
+}

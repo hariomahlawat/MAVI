@@ -1,0 +1,357 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-track-labels-v1.schema.json",
+  "title": "vehicle-subclass-track-labels-v1",
+  "description": "One reviewer's frozen decisions on one labelling pack (S3.2 plan T5), resolved to (processingRunId, trackId) through the verified pack manifest and sorted by that pair. viewKind and parentPackSha256 are copied from the manifest so pack lineage can be checked without the pack. reviewedOn is a declared fact, not a generated timestamp.",
+  "anyOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "packSha256",
+        "labelingGuideSha256",
+        "sampleSha256",
+        "exportSha256s",
+        "reviewer",
+        "reviewedOn",
+        "vocabulary",
+        "decisions",
+        "viewKind"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "vehicle-subclass-track-labels-v1"
+        },
+        "packSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "labelingGuideSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sampleSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "exportSha256s": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "uniqueItems": true
+        },
+        "reviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "role"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          }
+        },
+        "reviewedOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "format": "date"
+        },
+        "vocabulary": {
+          "const": "mavi-vehicle-subclass-labels-v1"
+        },
+        "decisions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "itemId",
+                  "processingRunId",
+                  "trackId",
+                  "videoSourceSha256",
+                  "label"
+                ],
+                "properties": {
+                  "itemId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{16}$"
+                  },
+                  "processingRunId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "trackId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "videoSourceSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "label": {
+                    "enum": [
+                      "car",
+                      "truck",
+                      "bus",
+                      "motorcycle"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\r\\n]*$"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "itemId",
+                  "processingRunId",
+                  "trackId",
+                  "videoSourceSha256",
+                  "label",
+                  "unknownReason"
+                ],
+                "properties": {
+                  "itemId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{16}$"
+                  },
+                  "processingRunId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "trackId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "videoSourceSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "label": {
+                    "const": "unknown"
+                  },
+                  "unknownReason": {
+                    "enum": [
+                      "occluded",
+                      "too-small",
+                      "ambiguous-type",
+                      "mixed-track",
+                      "not-a-vehicle",
+                      "other"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\r\\n]*$"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "viewKind": {
+          "const": "primary"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "packSha256",
+        "labelingGuideSha256",
+        "sampleSha256",
+        "exportSha256s",
+        "reviewer",
+        "reviewedOn",
+        "vocabulary",
+        "decisions",
+        "viewKind",
+        "parentPackSha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "vehicle-subclass-track-labels-v1"
+        },
+        "packSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "labelingGuideSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sampleSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "exportSha256s": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "uniqueItems": true
+        },
+        "reviewer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "role"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          }
+        },
+        "reviewedOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "format": "date"
+        },
+        "vocabulary": {
+          "const": "mavi-vehicle-subclass-labels-v1"
+        },
+        "decisions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "itemId",
+                  "processingRunId",
+                  "trackId",
+                  "videoSourceSha256",
+                  "label"
+                ],
+                "properties": {
+                  "itemId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{16}$"
+                  },
+                  "processingRunId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "trackId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "videoSourceSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "label": {
+                    "enum": [
+                      "car",
+                      "truck",
+                      "bus",
+                      "motorcycle"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\r\\n]*$"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "itemId",
+                  "processingRunId",
+                  "trackId",
+                  "videoSourceSha256",
+                  "label",
+                  "unknownReason"
+                ],
+                "properties": {
+                  "itemId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{16}$"
+                  },
+                  "processingRunId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "trackId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "videoSourceSha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "label": {
+                    "const": "unknown"
+                  },
+                  "unknownReason": {
+                    "enum": [
+                      "occluded",
+                      "too-small",
+                      "ambiguous-type",
+                      "mixed-track",
+                      "not-a-vehicle",
+                      "other"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\r\\n]*$"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "viewKind": {
+          "const": "overlap"
+        },
+        "parentPackSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  ]
+}
