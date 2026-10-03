@@ -359,6 +359,12 @@ def execute(args: argparse.Namespace) -> bytes:
         repository, args.source_pool, POOL_SCHEMA, "t9_source_pool", POOL_PATHS, args.source_pool_commit,
         args.source_pool_digest, args.source_pool_digest_commit)
     a.require(pool["kind"] == "pilot", "t9_source_pool:kind")
+    # A committed or digest-bound pool is not necessarily T7's output: duplicate rows would collapse in the
+    # member mappings below and let fewer videos satisfy a nominal 6-10 member pool.
+    names = [member["member"] for member in pool["members"]]
+    a.require(len(names) == len(set(names)), "t9_source_pool:duplicate_member")
+    contents = [member["sha256"] for member in pool["members"]]
+    a.require(len(contents) == len(set(contents)), "t9_source_pool:duplicate_content")
     release, release_sha = rb.read_release(args.release, "t9_release_invalid")
     a.require(release_sha == pool["releaseRecordSha256"] and release["releaseId"] == pool["releaseId"],
               "t9_release_mismatch")

@@ -150,7 +150,8 @@ def derive(*, media_tools_dir: Path, release_path: Path, release_root: Path, mem
             "outputMedia": output_media,
             "importLimitBytes": max_import_bytes,
         }
-        check_consistency(manifest, a.sha256_hex(video.read_bytes()))
+        # Streamed: a derivation may be several gigabytes.
+        check_consistency(manifest, probe_media._file_identity(video)[0])
         a.validate(manifest, SCHEMA, "derivation_output_inconsistent")
         data = a.canonical_json(manifest)
         (staging / MANIFEST).write_bytes(data)

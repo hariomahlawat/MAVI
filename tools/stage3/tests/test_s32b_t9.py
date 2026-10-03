@@ -25,7 +25,8 @@ CAMERAS = {"c0": "Europe/London", "c1": "America/New_York", "c2": "UTC"}
 class World:
     """A committed synthetic pool, map and convention; passthrough derivations; a stub API."""
 
-    def __init__(self, root: Path, *, map_edit=None, pool_digest: bool = False, members: int = 6) -> None:
+    def __init__(self, root: Path, *, map_edit=None, pool_edit=None, pool_digest: bool = False,
+                 members: int = 6) -> None:
         self.root = root
         self.members = {f"cams/c{i % 3}/clip-{i:02d}.mp4": f"synthetic video {i}".encode() * 4 for i in range(members)}
         self.files = {**self.members, "meta/recording-times.csv": b"member,start\n"}
@@ -49,6 +50,8 @@ class World:
                          "probeSha256": a.sha256_hex(b"probe " + data), "sourceCamera": name.split("/")[1],
                          "inclusionReason": "camera diversity"} for name, data in sorted(self.members.items())],
         }
+        if pool_edit:
+            pool_edit(self.pool)
         self.pool_bytes = a.canonical_json(self.pool)
         self.pool_sha = a.sha256_hex(self.pool_bytes)
         self.map = self.default_map()
@@ -292,6 +295,19 @@ def test_a_journalled_asset_whose_recording_start_changed_is_refused(world, caps
     world.api.state.substitute_run = False
     world.api.state.videos[0]["recordingStartUtc"] = "1999-01-01T00:00:00+00:00"
     refused(world, capsys, "t9_asset_preexisting:journal")
+
+
+@pytest.mark.parametrize("edit, code", [
+    (lambda pool: pool["members"].append(copy.deepcopy(pool["members"][0])), "t9_source_pool:duplicate_member"),
+    (lambda pool: pool["members"].append({**pool["members"][0], "member": "cams/c0/alias.mp4"}),
+     "t9_source_pool:duplicate_content"),
+])
+def test_a_committed_pool_with_duplicate_rows_is_refused_before_any_api_call(tmp_path, capsys, edit, code):
+    w = World(tmp_path, pool_edit=edit)
+    try:
+        refused(w, capsys, code, no_calls=True)
+    finally:
+        w.api.close()
 
 
 def test_the_valid_map_mixes_release_metadata_and_the_convention(world):
