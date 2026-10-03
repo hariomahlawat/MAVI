@@ -174,7 +174,7 @@ These are review reasons, not `ObjectSubclass` values.
 - a `videoSourceSha256` differing from the export's;
 - a duplicate decision;
 - an adjudication referring to items outside the overlap, or to label sets other than the two given, or whose carried values differ from those label files;
-- overlap labels whose pack is not the overlap pack derived from the primary labels' pack (`parentPackSha256`);
+- overlap labels whose recorded `viewKind` is not `overlap` or whose `parentPackSha256` is not the primary labels' `packSha256`, or primary labels whose `viewKind` is not `primary` (`overlap_pack_not_derived`);
 - labels whose `sampleSha256` is not a supplied sample, or a sample whose requirements binding differs from another batch's;
 - every S3.1 producer and source refusal (mixed producers, profile mismatch, missing or foreign source, missing attestation).
 
@@ -226,7 +226,7 @@ These are review reasons, not `ObjectSubclass` values.
 
 **Design.** `--design` is required and is recorded with `samplingAlgorithm: "s3-2-video-quota-diversity-v1"`, the sampling parameters, the release id and `parentSampleSha256s` (the `--exclude-sample` hashes):
 - **pilot:** `continuation` with no `--exclude-sample`, so no parent;
-- **later continuation:** `continuation` with one or more parent samples; every export must be in the parents' exact `exportSha256s` set, so it draws only from the already processed pilot source pool (`continuation_pool_mismatch`);
+- **later continuation:** `continuation` with one or more parent samples; its set of exports must equal the pilot's `exportSha256s` set exactly (no added and no omitted video), so it draws only from the already processed pilot source pool (`continuation_pool_mismatch`);
 - **supplemental:** `--reason` is required, non-empty, single line, at most 200 characters;
 - `--reason` with `continuation` is refused, and `supplemental` without a reason is refused (`design_invalid`).
 
@@ -255,7 +255,7 @@ These are review reasons, not `ObjectSubclass` values.
 
 The sample records, per selected Track, its video and its five bins, and per video `a_v`, `f_v` and `q_v`, so the allocation can be re-checked from the artefact.
 
-**Refusals:** a bad export hash or schema; a target larger than the usable pool; a duplicate Track; requirements missing, schema-invalid, uncommitted or differing from the named commit (`requirements_not_committed`); an invalid exclusion sample; an invalid design (`design_invalid`: missing `--design`, `--reason` given with `continuation`, or `supplemental` with a missing, empty, multi-line or over-long reason); a continuation with an export outside its parents' pool (`continuation_pool_mismatch`).
+**Refusals:** a bad export hash or schema; a target larger than the usable pool; a duplicate Track; requirements missing, schema-invalid, uncommitted or differing from the named commit (`requirements_not_committed`); an invalid exclusion sample; an invalid design (`design_invalid`: missing `--design`, `--reason` given with `continuation`, or `supplemental` with a missing, empty, multi-line or over-long reason); a continuation whose export set differs from the pilot's (`continuation_pool_mismatch`).
 
 **Tests**
 - determinism;
@@ -265,7 +265,7 @@ The sample records, per selected Track, its video and its five bins, and per vid
 - **allocation, executable:** on a fixture with hand-computed quotas, `q_v` equals the expected values exactly, including a largest-remainder tie, a capped video whose excess is re-shared, and floors that hold; quotas always sum to `T`;
 - **balancing, executable:** on a fixture where each video's hash order is deliberately skewed toward one bin in every dimension, the selection equals a pinned golden, and its per-dimension bin imbalance (Σ over dimensions and bins of `(count − q_v/3)²`) is strictly below that of the hash-order-only selection of the same quotas; a mutant that ignores the bins fails;
 - tercile cuts on a fixture with tied values match hand-computed bins;
-- design: the pilot (`continuation`, no parent) and a later continuation with parents succeed; `continuation --reason …`, `supplemental` without or with an empty, multi-line or 201-character reason, and a continuation with a new export are each refused with their code; the recorded `design` matches the CLI;
+- design: the pilot (`continuation`, no parent) and a later continuation with parents succeed; `continuation --reason …`, `supplemental` without or with an empty, multi-line or 201-character reason, and a continuation with an added or an omitted export are each refused with their code; the recorded `design` matches the CLI;
 - excluded counts add up;
 - overlap ⊂ selected, with its per-video allocation as hand-computed.
 
@@ -338,7 +338,7 @@ The sample records, per selected Track, its video and its five bins, and per vid
 - `adjudicate-prepare --primary <labels> --overlap <labels> --pack <primary-pack-dir> --out <new-dir>`
 - `adjudicate --primary <labels> --overlap <labels> --decisions <file> --adjudicator <n> --out <file>`, where `--decisions` holds `{itemId (the primary pack's), adjudicatedLabel, adjudicatedUnknownReason?}` for each item needing adjudication
 
-**`vehicle-subclass-track-labels-v1`:** `{packSha256, sampleSha256, exportSha256s, reviewer{name, role}, reviewedOn, vocabulary, decisions[{itemId, processingRunId, trackId, videoSourceSha256, label, unknownReason?, note?}]}`, sorted by `(processingRunId, trackId)` and resolved through the pack manifest.
+**`vehicle-subclass-track-labels-v1`:** `{packSha256, viewKind, parentPackSha256?, sampleSha256, exportSha256s, reviewer{name, role}, reviewedOn, vocabulary, decisions[{itemId, processingRunId, trackId, videoSourceSha256, label, unknownReason?, note?}]}`, sorted by `(processingRunId, trackId)` and resolved through the pack manifest. `viewKind` and `parentPackSha256` (overlap only) are copied from the verified manifest, so T2 can check pack lineage without the packs.
 
 **Freeze refusals**
 - the draft's `packSha256` ≠ the pack's;
@@ -367,7 +367,7 @@ The sample records, per selected Track, its video and its five bins, and per vid
 - The artefacts used in a recorded measurement are named by hash in §20.
 - Corrections produce **new** artefacts and a new measurement record; nothing is edited in place.
 
-**Tests:** every refusal; determinism; the adjudication carry-through (same label, and `unknown` with the same reason); `unknown` with different reasons requires an explicit final reason; `car` vs `unknown`/`too-small` adjudicated to `unknown` requires and records `adjudicatedUnknownReason`, and is refused without it; a reason on a non-`unknown` final label is refused; both originals are preserved in the result inputs; **adjudication blindness:** the two adjudication commands' argument parsers accept no export, result or attestation option, and the leak test of T4 run over the adjudication sheet and the adjudication artefact finds no `objectSubclass*` key, subclass prediction or confidence.
+**Tests:** every refusal; determinism; frozen labels carry the manifest's `viewKind` and, for an overlap pack, its `parentPackSha256`; the adjudication carry-through (same label, and `unknown` with the same reason); `unknown` with different reasons requires an explicit final reason; `car` vs `unknown`/`too-small` adjudicated to `unknown` requires and records `adjudicatedUnknownReason`, and is refused without it; a reason on a non-`unknown` final label is refused; both originals are preserved in the result inputs; **adjudication blindness:** the two adjudication commands' argument parsers accept no export, result or attestation option, and the leak test of T4 run over the adjudication sheet and the adjudication artefact finds no `objectSubclass*` key, subclass prediction or confidence.
 
 **Exit:** CI green.
 
@@ -592,10 +592,10 @@ The T1 attestation-factory extraction is behaviour-preserving and proven by the 
 | Stage | Refused when |
 |---|---|
 | Export | run or job not terminal; attestation integrity; pipeline-profile file not the attested one, or malformed; Track/run/video linkage; orphan observation; malformed subclass state; non-Stage-3 profile; evidence or source bytes changed; missing artefacts |
-| Sample | bad export hash or schema; invalid design or reason; continuation export outside the parents' pool; target exceeds usable pool; duplicate Track; requirements not committed unchanged; invalid exclusion sample |
+| Sample | bad export hash or schema; invalid design or reason; continuation export set differing from the pilot's; target exceeds usable pool; duplicate Track; requirements not committed unchanged; invalid exclusion sample |
 | Pack | source MP4, profile, evidence or frame mismatch; text asset not UTF-8; `pack-data.js` not regenerating from the manifest |
 | Freeze/adjudicate | labels not frozen before adjudication; pack identity altered; missing or duplicate item; item outside the pack; vocabulary violation; reason without `unknown`; note invalid; reviewer missing; overlap coverage mismatch; adjudicated unknown reason missing, invalid or not allowed; decision for a carried item |
-| Evaluate | export hash; continuation design or source-pool mismatch; label for a non-exported or non-Vehicle Track; video hash mismatch; duplicates; batch pairing; adjudication not matching its label files; overlapping batches; mixed producers; profile mismatch; missing or foreign subclass source; missing attestation |
+| Evaluate | export hash; continuation design or source-pool mismatch; overlap pack not derived from the primary pack; label for a non-exported or non-Vehicle Track; video hash mismatch; duplicates; batch pairing; adjudication not matching its label files; overlapping batches; mixed producers; profile mismatch; missing or foreign subclass source; missing attestation |
 | Run/compare | missing requirements; overlap labels without a frozen adjudication; requirements differing from the samples' binding; any input hash mismatch |
 | Derivation | source not in the release; unknown codec; non-deterministic output; passthrough hash mismatch; member not authorised for its mode (`evaluate` for passthrough; `evaluate` and `create-derivatives` for remux or transcode) |
 | Release use | `authorise_release_use` blockers for the member and operations (R-5 absent, or an operation not granted) |
