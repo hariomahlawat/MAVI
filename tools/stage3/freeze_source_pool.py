@@ -34,6 +34,16 @@ PILOT_MIN, PILOT_MAX = 6, 10
 TEXT_MAX = 200
 
 
+def require_pool_invariants(members: list[dict[str, Any]], code: str) -> None:
+    """Producer invariants that define the experiment's identity, which a schema cannot express: unique
+    member names, and unique original content (the same footage under two names would enter twice, even
+    through derivations whose output hashes differ)."""
+    names = [member["member"] for member in members]
+    a.require(len(names) == len(set(names)), f"{code}:duplicate_member")
+    contents = [member["sha256"] for member in members]
+    a.require(len(contents) == len(set(contents)), f"{code}:duplicate_content")
+
+
 def _selection(path: Path) -> list[dict[str, str]]:
     document = a.parse_json(a.read_bytes(path, f"{CODE}:selection"), f"{CODE}:selection")
     a.require(isinstance(document, dict) and set(document) == {"members"} and isinstance(document["members"], list),
@@ -83,9 +93,8 @@ def freeze(*, release_path: Path, release_root: Path, probe_paths: list[Path], s
         members.append({"member": entry["member"], "sha256": listed["sha256"], "sizeBytes": listed["sizeBytes"],
                         "probeSha256": probe_sha, "sourceCamera": entry["sourceCamera"],
                         "inclusionReason": entry["inclusionReason"]})
-    contents = [member["sha256"] for member in members]
     # Identical content under two names would later be one scene counted twice (export_video_duplicate).
-    a.require(len(contents) == len(set(contents)), f"{CODE}:duplicate_content")
+    require_pool_invariants(members, CODE)
     # A probe that describes no selected member is a probe of something else.
     a.require(used_probes == set(probes), f"{CODE}:probe_unmatched")
 

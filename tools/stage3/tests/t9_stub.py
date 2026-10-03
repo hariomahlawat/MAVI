@@ -33,6 +33,7 @@ class StubState:
         self.fail_run_for: set[str] = set()  # upload sha256s whose runs fail
         self.running_polls = 1  # polls answering Running before Completed
         self.shift_start = False  # import answers a recording start other than the one sent
+        self.redirect_to: str | None = None  # every request answers 307 to this URL
         self.lock = threading.Lock()
 
     def next_id(self) -> str:
@@ -69,6 +70,12 @@ def make_handler(state: StubState):
         def do_GET(self):
             with state.lock:
                 state.calls.append(("GET", self.path))
+                if state.redirect_to:
+                    self.send_response(307)
+                    self.send_header("Location", state.redirect_to + self.path)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 if self.path == "/api/cameras":
                     return self._send(200, state.cameras)
                 if self.path == "/api/videos":

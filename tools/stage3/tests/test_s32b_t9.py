@@ -284,6 +284,58 @@ def test_a_non_loopback_api_is_refused_before_any_call(world, capsys):
     assert world.api.state.calls == []
 
 
+def test_a_redirect_is_refused_and_never_followed(world, capsys):
+    """A 3xx from the loopback API never causes another request, even to another local server."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import threading
+
+    hits = []
+
+    class Sentinel(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            hits.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"[]")
+
+        do_POST = do_GET
+
+    sentinel = HTTPServer(("127.0.0.1", 0), Sentinel)
+    thread = threading.Thread(target=sentinel.serve_forever, daemon=True)
+    thread.start()
+    try:
+        world.api.state.redirect_to = f"http://127.0.0.1:{sentinel.server_address[1]}"
+        refused(world, capsys, "t9_api_redirect_refused:307")
+        assert hits == []
+        assert len(world.api.state.calls) == 1  # the one refused request; nothing after it
+    finally:
+        sentinel.shutdown()
+        sentinel.server_close()
+
+
+@pytest.mark.parametrize("edit, code", [
+    (lambda p: p.update(profileVersion="1.2.0"), "t9_profile_not_s32:profileVersion"),
+    (lambda p: p.update(profileId="phase1-detection-tracking-v2"), "t9_profile_not_s32:profileId"),
+    (lambda p: p.update(schemaVersion="1.1"), "t9_profile_not_s32:schemaVersion"),
+    (lambda p: p.pop("vehicleSubclass"), "t9_profile_not_s32:vehicleSubclass"),
+    (lambda p: p["vehicleSubclass"].update(vocabularyId="mavi-vehicle-subclass-v2"), "t9_profile_not_s32:vehicleSubclass"),
+])
+def test_only_the_s32_measurement_profile_is_accepted_before_any_api_call(world, capsys, edit, code):
+    profile = copy.deepcopy(s32.PROFILE)
+    edit(profile)
+    world.profile.write_bytes(json.dumps(profile).encode())
+    refused(world, capsys, code, no_calls=True)
+
+
+def test_the_merged_stage3_profile_passes_the_identity_gate():
+    shipped = a.ROOT / "src/vision/config/pipelines/phase1-detection-tracking-v1.json"
+    t9.require_measurement_profile(shipped.read_bytes())
+
+
 def test_an_import_recording_start_other_than_the_maps_is_refused(world, capsys):
     world.api.state.shift_start = True
     refused(world, capsys, "t9_import_refused:recording")

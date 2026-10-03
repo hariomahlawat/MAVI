@@ -214,6 +214,32 @@ def test_an_ffmpeg_failure_leaves_no_output(setup, monkeypatch):
     refused("derivation_ffmpeg_failed", lambda: setup.derive("videos/b.mkv", "remux"), setup.root / "out")
 
 
+@pytest.mark.parametrize("member, mode", [("videos/a.mp4", "passthrough"), ("videos/b.mkv", "remux")])
+def test_the_video_payload_is_never_read_whole(setup, monkeypatch, member, mode):
+    """The final consistency re-hash (and every other read of the payload) streams: no Path.read_bytes()."""
+    original = Path.read_bytes
+
+    def guarded(self):
+        assert self.name != d.VIDEO, "video.mp4 read whole"
+        return original(self)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded)
+    setup.derive(member, mode)
+    assert (setup.root / "out" / d.MANIFEST).is_file()
+
+
+def test_the_final_rehash_proves_the_output_did_not_change(setup, monkeypatch):
+    original = d.probe_media.file_identity
+
+    def changed_after_probe(path, code="probe_input_unreadable"):
+        sha, size = original(path, code)
+        return ("0" * 64, size) if code == "derivation_output_inconsistent:output" else (sha, size)
+
+    monkeypatch.setattr(d.probe_media, "file_identity", changed_after_probe)
+    refused("derivation_output_inconsistent:output", lambda: setup.derive("videos/a.mp4", "passthrough"),
+            setup.root / "out")
+
+
 def test_an_existing_destination_is_refused(setup):
     (setup.root / "out").mkdir()
     refused("output_exists", lambda: setup.derive("videos/a.mp4", "passthrough"))

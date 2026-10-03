@@ -178,7 +178,8 @@ def describe(ffprobe_output: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _file_identity(path: Path) -> tuple[str, int]:
+def file_identity(path: Path, code: str = "probe_input_unreadable") -> tuple[str, int]:
+    """(SHA-256, size) of a file, streamed in blocks: media files may be several gigabytes."""
     digest = hashlib.sha256()
     size = 0
     try:
@@ -187,7 +188,7 @@ def _file_identity(path: Path) -> tuple[str, int]:
                 digest.update(block)
                 size += len(block)
     except OSError as exc:
-        raise a.S32Error("probe_input_unreadable") from exc
+        raise a.S32Error(code) from exc
     return digest.hexdigest(), size
 
 
@@ -195,7 +196,7 @@ def probe(ffprobe: media_tools.Tool, path: Path) -> dict[str, Any]:
     """A ``vehicle-subclass-media-probe-v1`` record for the file at ``path`` (never naming it)."""
     path = Path(path)
     a.require(path.is_file(), "probe_input_unreadable")
-    sha256, size = _file_identity(path)
+    sha256, size = file_identity(path)
     media_tools.require_unchanged(ffprobe)
     try:
         result = subprocess.run([str(ffprobe.path), *FFPROBE_ARGS, str(path)], capture_output=True,
@@ -209,7 +210,7 @@ def probe(ffprobe: media_tools.Tool, path: Path) -> dict[str, Any]:
         raise a.S32Error("probe_failed") from exc
     a.require(isinstance(output, dict), "probe_failed")
     # The input file is re-hashed after probing so the record describes the bytes ffprobe read.
-    a.require(_file_identity(path) == (sha256, size), "probe_input_unreadable:changed")
+    a.require(file_identity(path) == (sha256, size), "probe_input_unreadable:changed")
     record = {"schemaVersion": SCHEMA, "sourceSha256": sha256, "sourceSizeBytes": size,
               "ffprobe": ffprobe.identity, **describe(output)}
     a.validate(record, SCHEMA, "probe_invalid")

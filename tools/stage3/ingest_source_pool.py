@@ -35,7 +35,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import subprocess
@@ -55,7 +54,9 @@ sys.path.insert(0, str(HERE.parent / "phase1"))
 import artefacts as a  # noqa: E402
 import derive_mp4  # noqa: E402
 import evaluate_vehicle_subclass as evaluator  # noqa: E402
+import freeze_source_pool  # noqa: E402
 import ingestion_map  # noqa: E402
+import probe_media  # noqa: E402
 import release_bridge as rb  # noqa: E402
 
 SCHEMA = "vehicle-subclass-t9-execution-v1"
@@ -89,18 +90,6 @@ def bound_artefact(repository: Path, path: Path, schema: str, code: str, paths: 
     return document, sha, {"gitCommit": binding["gitCommit"], "gitPath": binding["gitPath"]}
 
 
-def file_sha256(path: Path, code: str) -> tuple[str, int]:
-    digest, size = hashlib.sha256(), 0
-    try:
-        with open(path, "rb") as stream:
-            for block in iter(lambda: stream.read(1 << 20), b""):
-                digest.update(block)
-                size += len(block)
-    except OSError as exc:
-        raise a.S32Error(f"{code}:unreadable") from exc
-    return digest.hexdigest(), size
-
-
 def load_derivations(directories: list[Path], pool: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Exactly one verified T8 derivation per pool member, bound to that member."""
     members = {member["member"]: member for member in pool["members"]}
@@ -109,7 +98,7 @@ def load_derivations(directories: list[Path], pool: dict[str, Any]) -> dict[str,
         manifest, _, manifest_sha = a.read_artefact(Path(directory) / derive_mp4.MANIFEST, DERIVATION_SCHEMA,
                                                     "t9_derivation_invalid")
         video = Path(directory) / derive_mp4.VIDEO
-        video_sha, size = file_sha256(video, "t9_derivation_invalid:video")
+        video_sha, size = probe_media.file_identity(video, "t9_derivation_invalid:video:unreadable")
         try:
             derive_mp4.check_consistency(manifest, video_sha)
         except a.S32Error as exc:
@@ -158,6 +147,13 @@ class Multipart:
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """No MAVI endpoint T9 uses redirects: a 3xx is surfaced as is and never followed."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
 class Api:
     """The local MAVI API only: a loopback URL, and never a system or environment proxy, so neither
     the calls nor the corpus uploads can leave the host."""
@@ -167,7 +163,7 @@ class Api:
         a.require(parsed.scheme in ("http", "https") and parsed.hostname in LOOPBACK_HOSTS
                   and not parsed.username and not parsed.query, "t9_api_not_local")
         self.base = base.rstrip("/")
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
     def call(self, method: str, path: str, *, json_body: Any = None, multipart: Multipart | None = None) -> tuple[int, Any]:
         headers = {"Accept": "application/json"}
@@ -187,6 +183,7 @@ class Api:
             status, raw = exc.code, exc.read()
         except (urllib.error.URLError, OSError) as exc:
             raise a.S32Error("t9_api_unreachable") from exc
+        a.require(not 300 <= status < 400, f"t9_api_redirect_refused:{status}")
         try:
             body = json.loads(raw.decode("utf-8")) if raw else None
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -341,6 +338,23 @@ def ensure_export(run: str, profile: Path, export_root: Path, command: list[str]
     return path
 
 
+# The S3.2 event identity of the measured profile (the merged Stage-3 candidate). Only an identity gate: the
+# vision runtime owns profile validation, and the exact byte identity is the attested pipelineProfileSha256.
+MEASUREMENT_PROFILE = {"schemaVersion": "1.2", "profileId": "phase1-detection-tracking-v1",
+                       "profileVersion": "1.3.0-candidate"}
+MEASUREMENT_VOCABULARY = "mavi-vehicle-subclass-v1"
+
+
+def require_measurement_profile(data: bytes) -> None:
+    profile = a.parse_json(data, "t9_profile_invalid")
+    a.require(isinstance(profile, dict), "t9_profile_invalid")
+    for key, value in MEASUREMENT_PROFILE.items():
+        a.require(profile.get(key) == value, f"t9_profile_not_s32:{key}")
+    subclass = profile.get("vehicleSubclass")
+    a.require(isinstance(subclass, dict) and subclass.get("vocabularyId") == MEASUREMENT_VOCABULARY,
+              "t9_profile_not_s32:vehicleSubclass")
+
+
 def producer(exports: dict[str, a.Export], measured_profile_sha: str) -> dict[str, Any]:
     attestations = [export.attestation for export in exports.values()]
     try:
@@ -359,12 +373,10 @@ def execute(args: argparse.Namespace) -> bytes:
         repository, args.source_pool, POOL_SCHEMA, "t9_source_pool", POOL_PATHS, args.source_pool_commit,
         args.source_pool_digest, args.source_pool_digest_commit)
     a.require(pool["kind"] == "pilot", "t9_source_pool:kind")
-    # A committed or digest-bound pool is not necessarily T7's output: duplicate rows would collapse in the
-    # member mappings below and let fewer videos satisfy a nominal 6-10 member pool.
-    names = [member["member"] for member in pool["members"]]
-    a.require(len(names) == len(set(names)), "t9_source_pool:duplicate_member")
-    contents = [member["sha256"] for member in pool["members"]]
-    a.require(len(contents) == len(set(contents)), "t9_source_pool:duplicate_content")
+    # A committed or digest-bound pool is not necessarily T7's output, so T7's invariants are re-checked before
+    # any mapping is built from it: duplicate rows would collapse, and duplicate footage could enter twice
+    # through derivations with different output hashes (which load_exports cannot see).
+    freeze_source_pool.require_pool_invariants(pool["members"], "t9_source_pool")
     release, release_sha = rb.read_release(args.release, "t9_release_invalid")
     a.require(release_sha == pool["releaseRecordSha256"] and release["releaseId"] == pool["releaseId"],
               "t9_release_mismatch")
@@ -375,7 +387,9 @@ def execute(args: argparse.Namespace) -> bytes:
                                   repository=repository)
     entries = {entry["member"]: entry for entry in document["members"]}
     derivations = load_derivations(args.derivation, pool)
-    profile_sha = a.sha256_hex(a.read_bytes(args.pipeline_profile, "pipeline_profile_unreadable"))
+    profile_bytes = a.read_bytes(args.pipeline_profile, "pipeline_profile_unreadable")
+    require_measurement_profile(profile_bytes)
+    profile_sha = a.sha256_hex(profile_bytes)
     a.require(args.export_root.is_dir(), "t9_export_root_missing")
 
     # Every input is verified; only now does T9 touch the API.
