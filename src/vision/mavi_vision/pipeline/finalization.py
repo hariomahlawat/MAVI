@@ -29,6 +29,7 @@ class PreparedTrack:
     max_confidence: float
     evidence: tuple[ResolvedEvidence, ...]
     trajectory: TrajectorySummary
+    object_subclass: str | None = None
 
     @property
     def confidence(self) -> float:
@@ -47,6 +48,7 @@ def prepare_track(
     observation_count: int,
     evidence: tuple[ResolvedEvidence, ...],
     trajectory: TrajectorySummary,
+    object_subclass: str | None = None,
 ) -> PreparedTrack:
     """Prepare deterministic track payloads without performing external side effects.
 
@@ -105,6 +107,7 @@ def prepare_track(
         max_confidence=max_confidence,
         evidence=evidence,
         trajectory=trajectory,
+        object_subclass=object_subclass,
     )
 
 

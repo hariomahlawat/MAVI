@@ -32,11 +32,11 @@ def settings(tmp_path: Path) -> WorkerSettings:
 
 
 def client_for(worker_settings: WorkerSettings, injected: httpx.AsyncClient) -> WorkerApiClient:
-    # The role's contract as resolved at composition: completion 3.2, no override.
+    # The role's contract as resolved at composition: completion 3.3, no override.
     return WorkerApiClient(
         worker_settings,
         injected,
-        completion=CompletionContract(version="3.2", override=None),
+        completion=CompletionContract(version="3.3", override=None),
         component_binding_sha256=BINDING_SHA,
     )
 
@@ -239,9 +239,10 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == f"/api/vision/jobs/{expected.job_id}/complete"
         payload = json.loads(request.content)
-        # Default composition: completion 3.2 (the role's provenanceContract),
+        # Default composition: completion 3.3 (the role's provenanceContract),
         # the durable hand-off the platform answers with "finalizing".
-        assert payload["schemaVersion"] == "3.2"
+        assert payload["schemaVersion"] == "3.3"
+        assert payload["objectSubclassVocabulary"] == "mavi-vehicle-subclass-v1"
         assert payload["jobId"] == str(expected.job_id)
         assert payload["workerId"] == expected.worker_id
         assert payload["leaseToken"] == expected.lease_token
@@ -261,7 +262,7 @@ def test_complete_uses_canonical_path_and_projects_runtime_provenance(tmp_path: 
         return httpx.Response(
             200,
             json={
-                "schemaVersion": "3.2",
+                "schemaVersion": "3.3",
                 "jobId": str(expected.job_id),
                 "processingRunId": str(expected.processing_run_id),
                 "state": "finalizing",
@@ -292,7 +293,7 @@ def test_complete_projects_physical_gpu_identity_and_resolution_reason(
             return httpx.Response(
                 200,
                 json={
-                    "schemaVersion": "3.2",
+                    "schemaVersion": "3.3",
                     "jobId": str(expected.job_id),
                     "processingRunId": str(expected.processing_run_id),
                     "state": "finalizing",

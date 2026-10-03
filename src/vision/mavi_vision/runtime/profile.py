@@ -11,6 +11,7 @@ from typing import Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from mavi_vision.common.analytical import ObjectClass
+from mavi_vision.common.subclass import VehicleSubclassPolicy
 from mavi_vision.evidence.policy import (
     PRODUCTION_ENCODER_POLICY,
     EncoderPolicy,
@@ -110,6 +111,9 @@ class PipelineProfile:
     tracker: ByteTrackProfile
     frame_policy: Literal["every-frame"]
     evidence: EvidencePolicy
+    # Detector-native vehicle subclass vote (ADR-016). Every loaded profile carries
+    # it; only hand-built test profiles may omit it, and then no Track gets a subclass.
+    vehicle_subclass: VehicleSubclassPolicy | None = None
 
 
 class _StrictModel(BaseModel):
@@ -236,8 +240,24 @@ class _EvidenceProfileSchema(_StrictModel):
         )
 
 
+class _VehicleSubclassSchema(_StrictModel):
+    vocabulary_id: str = Field(alias="vocabularyId")
+    mapping: dict[str, str]
+    min_share: float = Field(alias="minShare", gt=0.5, le=1.0, allow_inf_nan=False)
+    min_matched_detections: int = Field(alias="minMatchedDetections", ge=1, le=10_000)
+
+    def to_policy(self) -> VehicleSubclassPolicy:
+        return VehicleSubclassPolicy(
+            vocabulary_id=self.vocabulary_id,
+            mapping=MappingProxyType(dict(self.mapping)),
+            min_share_micro=decimal_micro_units(self.min_share, "vehicle_subclass_min_share"),
+            min_matched_detections=self.min_matched_detections,
+        )
+
+
 class _PipelineProfileSchema(_StrictModel):
-    schema_version: Literal["1.1"] = Field(alias="schemaVersion")
+    # 1.2 adds the required vehicleSubclass block (ADR-016).
+    schema_version: Literal["1.2"] = Field(alias="schemaVersion")
     profile_id: str = Field(alias="profileId")
     profile_version: str = Field(alias="profileVersion")
     model_id: str = Field(alias="modelId")
@@ -252,6 +272,7 @@ class _PipelineProfileSchema(_StrictModel):
     tracker: _ByteTrackProfileSchema
     frame_policy: Literal["every-frame"] = Field(alias="framePolicy")
     evidence: _EvidenceProfileSchema
+    vehicle_subclass: _VehicleSubclassSchema = Field(alias="vehicleSubclass")
 
     @field_validator("profile_id", "profile_version", "model_id")
     @classmethod
@@ -279,8 +300,13 @@ class _PipelineProfileSchema(_StrictModel):
         # §4 two-tier amendment).
         if self.evidence.confidence_floor > self.tracker.track_activation_threshold:
             raise ValueError("evidence_confidence_floor_above_activation")
-        # Validate the evidence policy eagerly so a bad profile fails at load.
+        # Validate the evidence and subclass policies eagerly so a bad profile fails at load.
         self.evidence.to_policy()
+        self.vehicle_subclass.to_policy()
+        # Every vehicle source class, and only those, has a subclass value.
+        vehicle_sources = {c for c, mapped in self.class_mapping.items() if mapped is ObjectClass.VEHICLE}
+        if set(self.vehicle_subclass.mapping) != vehicle_sources:
+            raise ValueError("vehicle_subclass_mapping_not_the_vehicle_classes")
         return self
 
 
@@ -293,6 +319,7 @@ def load_pipeline_profile(path: Path) -> PipelineProfile:
 
     try:
         evidence = parsed.evidence.to_policy()
+        vehicle_subclass = parsed.vehicle_subclass.to_policy()
     except ValueError as exc:
         raise ReleaseMetadataError("pipeline_profile_invalid") from exc
 
@@ -315,6 +342,7 @@ def load_pipeline_profile(path: Path) -> PipelineProfile:
         tracker=tracker,
         frame_policy=parsed.frame_policy,
         evidence=evidence,
+        vehicle_subclass=vehicle_subclass,
     )
 
 

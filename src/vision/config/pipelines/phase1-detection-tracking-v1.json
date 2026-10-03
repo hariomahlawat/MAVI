@@ -1,7 +1,7 @@
 {
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "profileId": "phase1-detection-tracking-v1",
-  "profileVersion": "1.2.0-candidate",
+  "profileVersion": "1.3.0-candidate",
   "modelId": "rtmdet-m-coco-phase1",
   "detectorInferenceFloor": 0.05,
   "allowedSourceClasses": [
@@ -62,5 +62,17 @@
       ]
     },
     "runEvidenceCropQuotaBytes": 1073741824
+  }
+,
+  "vehicleSubclass": {
+    "vocabularyId": "mavi-vehicle-subclass-v1",
+    "mapping": {
+      "car": "car",
+      "motorcycle": "motorcycle",
+      "bus": "bus",
+      "truck": "truck"
+    },
+    "minShare": 0.6,
+    "minMatchedDetections": 3
   }
 }

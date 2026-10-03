@@ -61,6 +61,7 @@ class FixtureTracker:
                     object_class=detection.object_class,
                     confidence=detection.confidence,
                     bounding_box=detection.bounding_box,
+                    source_class=detection.source_class,
                 )
             )
 

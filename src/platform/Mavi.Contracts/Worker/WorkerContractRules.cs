@@ -24,6 +24,20 @@ public static class WorkerContractRules
     /// domain. Asynchronous-only, like 3.1.
     /// </summary>
     public const string CompletionSchemaVersionV32 = "3.2";
+    /// <summary>
+    /// Completion exchange 3.3 (Stage 3, ADR-016): the 3.2 body plus the detector-native
+    /// vehicle subclass, under its own digest domain. Asynchronous-only, like 3.1 and 3.2.
+    /// </summary>
+    public const string CompletionSchemaVersionV33 = "3.3";
+
+    /// <summary>The vehicle-subclass vocabulary a completion 3.3 body declares.</summary>
+    public const string VehicleSubclassVocabularyV1 = "mavi-vehicle-subclass-v1";
+
+    /// <summary>The values of <see cref="VehicleSubclassVocabularyV1"/>, in vocabulary order.</summary>
+    public static IReadOnlyList<string> VehicleSubclassValuesV1 { get; } = ["car", "truck", "bus", "motorcycle"];
+
+    /// <summary>Prefix of a detector-native subclass source; the rest is the pipeline profile SHA-256.</summary>
+    public const string DetectorNativeSubclassSourcePrefix = "detector-native:";
 
     /// <summary>
     /// The completion versions accepted at <c>POST …/complete</c> and advertised at
@@ -35,11 +49,11 @@ public static class WorkerContractRules
         [CompletionSchemaVersionV2, CompletionSchemaVersionV3];
 
     /// <summary>
-    /// The set activated with the F3 finalizer: 2.0 unchanged, 3.1 and 3.2 answered by a
+    /// The set activated with the F3 finalizer: 2.0 unchanged, 3.1, 3.2 and 3.3 answered by a
     /// durable hand-off, 3.0 retired at that activation (never reinterpreted as 3.1).
     /// </summary>
     public static IReadOnlyList<string> AsynchronousCompletionSchemaVersions { get; } =
-        [CompletionSchemaVersionV2, CompletionSchemaVersionV31, CompletionSchemaVersionV32];
+        [CompletionSchemaVersionV2, CompletionSchemaVersionV31, CompletionSchemaVersionV32, CompletionSchemaVersionV33];
 
     /// <summary>The live set for one activation state; advertisement and acceptance both derive from it.</summary>
     public static IReadOnlyList<string> CompletionSchemaVersions(bool asynchronousFinalizationEnabled) =>
@@ -47,17 +61,18 @@ public static class WorkerContractRules
 
     public static bool IsAcceptedCompletionSchemaVersion(string? value, bool asynchronousFinalizationEnabled) =>
         asynchronousFinalizationEnabled
-            ? value is CompletionSchemaVersionV2 or CompletionSchemaVersionV31 or CompletionSchemaVersionV32
+            ? value is CompletionSchemaVersionV2 or CompletionSchemaVersionV31 or CompletionSchemaVersionV32 or
+                CompletionSchemaVersionV33
             : value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3;
 
     /// <summary>Every completion version the platform can read, accepted or not.</summary>
     public static bool IsKnownCompletionSchemaVersion(string? value) =>
         value is CompletionSchemaVersionV2 or CompletionSchemaVersionV3 or CompletionSchemaVersionV31 or
-            CompletionSchemaVersionV32;
+            CompletionSchemaVersionV32 or CompletionSchemaVersionV33;
 
     /// <summary>Whether a completion version is answered by a hand-off rather than a completion.</summary>
     public static bool IsAsynchronousCompletionSchemaVersion(string? value) =>
-        value is CompletionSchemaVersionV31 or CompletionSchemaVersionV32;
+        value is CompletionSchemaVersionV31 or CompletionSchemaVersionV32 or CompletionSchemaVersionV33;
 
     /// <summary>Wire values of <see cref="VisionJobFinalizationResponse.State"/>.</summary>
     public const string FinalizationStateFinalizing = "finalizing";

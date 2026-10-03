@@ -72,7 +72,12 @@ public static class FinalizationGraphBuilder
                 accepted.DetectionCount,
                 accepted.MeanConfidence,
                 accepted.MaxConfidence,
-                createdAtUtc);
+                createdAtUtc,
+                // A 3.3 body states the vocabulary and source for its Vehicle Tracks,
+                // resolved or not (ADR-016). Person Tracks and older bodies carry none.
+                objectSubclass: accepted.ObjectSubclass,
+                objectSubclassVocabulary: accepted.ObjectClass == ObjectClass.Vehicle ? result.ObjectSubclassVocabulary : null,
+                objectSubclassSource: accepted.ObjectClass == ObjectClass.Vehicle ? result.ObjectSubclassSource : null);
             track.AttachTrajectoryArtifact(trajectoryArtifact.Id);
 
             var observations = new List<FinalizationGraphObservation>(accepted.Observations.Count);

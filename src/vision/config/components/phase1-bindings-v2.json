@@ -35,7 +35,7 @@
       ],
       "entryPoint": "mavi_vision.worker.main",
       "readinessContract": "worker-health-v2",
-      "provenanceContract": "vision-job-complete-v3.2"
+      "provenanceContract": "vision-job-complete-v3.3"
     }
   ],
   "capabilityBindings": [

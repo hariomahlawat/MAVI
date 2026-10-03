@@ -296,7 +296,7 @@ def _settings(tmp_path: Path):
 
 
 _COMPOSITION = SimpleNamespace(
-    completion=SimpleNamespace(version="3.2", override=None),
+    completion=SimpleNamespace(version="3.3", override=None),
     binding=SimpleNamespace(component_binding_sha256="b" * 64),
 )
 

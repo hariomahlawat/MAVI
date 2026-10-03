@@ -6,6 +6,7 @@ from math import isfinite
 from re import fullmatch
 from uuid import UUID
 
+from mavi_vision.common.subclass import VEHICLE_SUBCLASS_VALUES_V1
 from mavi_vision.evidence.policy import SCORE_SCALE
 from mavi_vision.evidence.roles import ROLE_ORDER, EvidenceRole, role_cap_bytes
 
@@ -158,10 +159,16 @@ class ProcessedTrack:
     max_confidence: float
     observations: tuple[ObservationDescriptor, ...]
     trajectory_artifact: ArtifactDescriptor
+    # Detector-native vehicle subclass (ADR-016); None for Person and for an abstained vote.
+    object_subclass: str | None = None
 
     def __post_init__(self) -> None:
         if fullmatch(_TRACK_ID_PATTERN, self.track_id) is None:
             raise ValueError("track_id_invalid")
+        if self.object_subclass is not None and (
+            self.object_class is not ObjectClass.VEHICLE or self.object_subclass not in VEHICLE_SUBCLASS_VALUES_V1
+        ):
+            raise ValueError("track_object_subclass_invalid")
         if self.start_offset_ms < 0 or self.end_offset_ms < self.start_offset_ms:
             raise ValueError("track_offsets_invalid")
         if self.detection_count <= 0:

@@ -87,6 +87,7 @@ class ArtifactPublisher:
             max_confidence=prepared.max_confidence,
             observations=tuple(observations),
             trajectory_artifact=trajectory_artifact,
+            object_subclass=prepared.object_subclass,
         )
 
     def remove_omitted(

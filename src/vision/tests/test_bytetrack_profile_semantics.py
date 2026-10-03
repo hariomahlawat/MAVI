@@ -9,12 +9,12 @@ import pytest
 
 from mavi_vision.runtime.manifest import ReleaseMetadataError
 from mavi_vision.runtime.profile import ByteTrackProfile, load_pipeline_profile
-from tests.profile_fixtures import PRODUCTION_EVIDENCE_SECTION
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_SECTION, VEHICLE_SUBCLASS_SECTION
 
 
 def _payload() -> dict:
     return {
-        "schemaVersion": "1.1",
+        "schemaVersion": "1.2",
         "profileId": "phase1-detection-tracking-v1",
         "profileVersion": "1.1.0-candidate",
         "modelId": "rtmdet-m-coco-phase1",
@@ -37,6 +37,7 @@ def _payload() -> dict:
         },
         "framePolicy": "every-frame",
         "evidence": copy.deepcopy(PRODUCTION_EVIDENCE_SECTION),
+        "vehicleSubclass": copy.deepcopy(VEHICLE_SUBCLASS_SECTION),
     }
 
 

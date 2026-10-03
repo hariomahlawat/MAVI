@@ -1,0 +1,301 @@
+{
+  "description": "Stage 3 Track-identity gate (ADR-016): tests/vehicle_subclass_gate.py run against main@68b5b48b8cb2495d477aee04f0609249af0e5194, before Stage 3. Every Track field, artefact and accounting value must be reproduced exactly by the current code; only the vehicle subclass may be added. Crop bytes are compared only under the same encodingIdentity (the test_evidence_encoder rule).",
+  "generatedFrom": "main@68b5b48b8cb2495d477aee04f0609249af0e5194",
+  "encodingIdentity": [
+    "win32",
+    "11.3.0",
+    "3.1.1"
+  ],
+  "summary": {
+    "framesProcessed": 20,
+    "tracks": [
+      {
+        "trackId": "person-000001",
+        "objectClass": "person",
+        "startOffsetMs": 0,
+        "endOffsetMs": 1900,
+        "detectionCount": 20,
+        "meanConfidence": 0.9,
+        "maxConfidence": 0.9,
+        "trajectory": {
+          "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/trajectories/person-000001.msgpack",
+          "sizeBytes": 449,
+          "sha256": "f1d41f0828b3b946148daa5d878d97f7c0968fbf741a389ef897f74797546ba3",
+          "fileSha256": "f1d41f0828b3b946148daa5d878d97f7c0968fbf741a389ef897f74797546ba3"
+        },
+        "observations": [
+          {
+            "role": "representative",
+            "rank": 0,
+            "offsetMs": 1600,
+            "sourceFrameNumber": 16,
+            "confidence": 0.9,
+            "boundingBox": [
+              0.0875,
+              0.16666666666666666,
+              0.15625,
+              0.6666666666666667
+            ],
+            "qualityMicro": 768192,
+            "selectionMicro": 768192,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/person-000001-representative.jpg",
+              "sizeBytes": 2340,
+              "sha256": "31b531490faa78bf5ab8574ed80a1f919ae8301faed5f33ebe9cd4dc5ed2c538",
+              "fileSha256": "31b531490faa78bf5ab8574ed80a1f919ae8301faed5f33ebe9cd4dc5ed2c538"
+            }
+          },
+          {
+            "role": "near-view",
+            "rank": 1,
+            "offsetMs": 600,
+            "sourceFrameNumber": 6,
+            "confidence": 0.9,
+            "boundingBox": [
+              0.06875,
+              0.16666666666666666,
+              0.15625,
+              0.6666666666666667
+            ],
+            "qualityMicro": 715969,
+            "selectionMicro": 715969,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/person-000001-near-view.jpg",
+              "sizeBytes": 2344,
+              "sha256": "7f9cbbffae8197b7d2fdbe54c6912c1b92033cf7b868e84f65fd781acf4534f9",
+              "fileSha256": "7f9cbbffae8197b7d2fdbe54c6912c1b92033cf7b868e84f65fd781acf4534f9"
+            }
+          }
+        ]
+      },
+      {
+        "trackId": "vehicle-000001",
+        "objectClass": "vehicle",
+        "startOffsetMs": 0,
+        "endOffsetMs": 1900,
+        "detectionCount": 20,
+        "meanConfidence": 0.9899999999999999,
+        "maxConfidence": 0.99,
+        "trajectory": {
+          "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/trajectories/vehicle-000001.msgpack",
+          "sizeBytes": 449,
+          "sha256": "3c62fcfb3272a6de990c7d019873b988c1605bf945ab75750c46241533615098",
+          "fileSha256": "3c62fcfb3272a6de990c7d019873b988c1605bf945ab75750c46241533615098"
+        },
+        "observations": [
+          {
+            "role": "representative",
+            "rank": 0,
+            "offsetMs": 0,
+            "sourceFrameNumber": 0,
+            "confidence": 0.99,
+            "boundingBox": [
+              0.625,
+              0.08333333333333333,
+              0.3125,
+              0.2916666666666667
+            ],
+            "qualityMicro": 679552,
+            "selectionMicro": 679552,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000001-representative.jpg",
+              "sizeBytes": 2336,
+              "sha256": "c519525e83224f82b2cdd6a3a37ccaf3a6b5bb9dd17f3860d18a2724ea263b7a",
+              "fileSha256": "c519525e83224f82b2cdd6a3a37ccaf3a6b5bb9dd17f3860d18a2724ea263b7a"
+            }
+          },
+          {
+            "role": "near-view",
+            "rank": 1,
+            "offsetMs": 600,
+            "sourceFrameNumber": 6,
+            "confidence": 0.99,
+            "boundingBox": [
+              0.63125,
+              0.08333333333333333,
+              0.3125,
+              0.2916666666666667
+            ],
+            "qualityMicro": 666600,
+            "selectionMicro": 666600,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000001-near-view.jpg",
+              "sizeBytes": 2344,
+              "sha256": "25b8655a6edf794abc026b3cc2c91a9e00d97285e14a18cdab66f2937b16fa65",
+              "fileSha256": "25b8655a6edf794abc026b3cc2c91a9e00d97285e14a18cdab66f2937b16fa65"
+            }
+          },
+          {
+            "role": "early-diverse",
+            "rank": 2,
+            "offsetMs": 1600,
+            "sourceFrameNumber": 16,
+            "confidence": 0.99,
+            "boundingBox": [
+              0.65,
+              0.08333333333333333,
+              0.3125,
+              0.2916666666666667
+            ],
+            "qualityMicro": 636873,
+            "selectionMicro": 636873,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000001-early-diverse.jpg",
+              "sizeBytes": 2350,
+              "sha256": "2c709bfa6910e46f3e92973b0874546148fcb6a1d2d5ace9f50b9d0fb04e61ad",
+              "fileSha256": "2c709bfa6910e46f3e92973b0874546148fcb6a1d2d5ace9f50b9d0fb04e61ad"
+            }
+          }
+        ]
+      },
+      {
+        "trackId": "vehicle-000002",
+        "objectClass": "vehicle",
+        "startOffsetMs": 0,
+        "endOffsetMs": 1900,
+        "detectionCount": 20,
+        "meanConfidence": 0.7114999999999999,
+        "maxConfidence": 0.97,
+        "trajectory": {
+          "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/trajectories/vehicle-000002.msgpack",
+          "sizeBytes": 449,
+          "sha256": "1ced0536950ed5f58b01661cd91d69989f8e5246e638004231d25f8ca38ec226",
+          "fileSha256": "1ced0536950ed5f58b01661cd91d69989f8e5246e638004231d25f8ca38ec226"
+        },
+        "observations": [
+          {
+            "role": "representative",
+            "rank": 0,
+            "offsetMs": 0,
+            "sourceFrameNumber": 0,
+            "confidence": 0.97,
+            "boundingBox": [
+              0.3125,
+              0.08333333333333333,
+              0.25,
+              0.25
+            ],
+            "qualityMicro": 675482,
+            "selectionMicro": 675482,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000002-representative.jpg",
+              "sizeBytes": 1647,
+              "sha256": "3155215d755b7c3e9eac3f75aa8e1b63a8ba9c98ed90980da8f3886e8b54a674",
+              "fileSha256": "3155215d755b7c3e9eac3f75aa8e1b63a8ba9c98ed90980da8f3886e8b54a674"
+            }
+          },
+          {
+            "role": "near-view",
+            "rank": 1,
+            "offsetMs": 600,
+            "sourceFrameNumber": 6,
+            "confidence": 0.97,
+            "boundingBox": [
+              0.31875,
+              0.08333333333333333,
+              0.25,
+              0.25
+            ],
+            "qualityMicro": 679708,
+            "selectionMicro": 679708,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000002-near-view.jpg",
+              "sizeBytes": 1628,
+              "sha256": "e2539ddb0730fb8261c131cde870eaa3c27430de60f42da501de11d94b1ab40b",
+              "fileSha256": "e2539ddb0730fb8261c131cde870eaa3c27430de60f42da501de11d94b1ab40b"
+            }
+          },
+          {
+            "role": "early-diverse",
+            "rank": 2,
+            "offsetMs": 1600,
+            "sourceFrameNumber": 16,
+            "confidence": 0.5,
+            "boundingBox": [
+              0.3375,
+              0.08333333333333333,
+              0.25,
+              0.25
+            ],
+            "qualityMicro": 688039,
+            "selectionMicro": 688039,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000002-early-diverse.jpg",
+              "sizeBytes": 1639,
+              "sha256": "d2323f54e8533af70a29c24c1ae63268d9c7c4782ccfa8a87069b559afbce969",
+              "fileSha256": "d2323f54e8533af70a29c24c1ae63268d9c7c4782ccfa8a87069b559afbce969"
+            }
+          }
+        ]
+      },
+      {
+        "trackId": "vehicle-000003",
+        "objectClass": "vehicle",
+        "startOffsetMs": 0,
+        "endOffsetMs": 1900,
+        "detectionCount": 20,
+        "meanConfidence": 0.45,
+        "maxConfidence": 0.45,
+        "trajectory": {
+          "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/trajectories/vehicle-000003.msgpack",
+          "sizeBytes": 449,
+          "sha256": "ac5c48441baba3b586e532c3f13fdbd0264b49eea8d5b34900c01489ca59b777",
+          "fileSha256": "ac5c48441baba3b586e532c3f13fdbd0264b49eea8d5b34900c01489ca59b777"
+        },
+        "observations": [
+          {
+            "role": "representative",
+            "rank": 0,
+            "offsetMs": 0,
+            "sourceFrameNumber": 0,
+            "confidence": 0.45,
+            "boundingBox": [
+              0.3125,
+              0.5833333333333334,
+              0.3125,
+              0.33333333333333326
+            ],
+            "qualityMicro": 743740,
+            "selectionMicro": 743740,
+            "crop": {
+              "storageKey": "staging/018fa7b6-2b31-7f42-9f33-9fd9f6fdd7a3/attempt-0001/evidence/vehicle-000003-representative.jpg",
+              "sizeBytes": 2376,
+              "sha256": "93e54a00427e253279d5d29766addc831567886acd15772431078b8017d2f6be",
+              "fileSha256": "93e54a00427e253279d5d29766addc831567886acd15772431078b8017d2f6be"
+            }
+          }
+        ]
+      }
+    ],
+    "evidenceAccounting": {
+      "representative": [
+        4,
+        4,
+        0,
+        8699,
+        8699
+      ],
+      "near-view": [
+        3,
+        3,
+        0,
+        6316,
+        6316
+      ],
+      "early-diverse": [
+        2,
+        2,
+        0,
+        3989,
+        3989
+      ],
+      "late-diverse": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  }
+}

@@ -68,7 +68,7 @@ def test_development_resolves_an_unpacked_environment_truthfully(overlay: Overla
     assert resolved.runtime_pack.runtime_pack_id is None
     assert resolved.runtime_variant == "linux-x86_64-cpu"
     assert resolved.component_binding_sha256 == sha256_bytes(overlay.binding_path.read_bytes())
-    assert resolved.completion == CompletionContract(version="3.2", override=None)
+    assert resolved.completion == CompletionContract(version="3.3", override=None)
     capability = resolved.capabilities["detector"]
     assert capability.model_pack_id == overlay.derived_model_pack_id()
     assert capability.manifest_sha256 == sha256_bytes(overlay.manifest_path.read_bytes())
@@ -115,7 +115,7 @@ def test_the_committed_composition_resolves_up_to_the_model_store(tmp_path: Path
             runtime_pack_manifest_path=None,
             production_mode=False,
         ),
-        completion=CompletionContract(version="3.2", override=None),
+        completion=CompletionContract(version="3.3", override=None),
         binding=binding,
     )
     assert _code(lambda: composition.resolve(runtime_variant="linux-x86_64-cpu", python_version="3.12.14")) == (
@@ -622,13 +622,13 @@ def test_development_may_run_the_same_windows_cuda_pack_unverified(overlay: Over
 # --------------------------------------------------------------------------- completion contract (P-16)
 
 
-def _role(contract: str = "vision-job-complete-v3.2"):
+def _role(contract: str = "vision-job-complete-v3.3"):
     return SimpleNamespace(provenance_contract=contract)
 
 
 def test_the_role_contract_is_the_default_completion() -> None:
     assert resolve_completion_contract(_role(), override=None, production_mode=False, emittable_versions=EMITTABLE) == (
-        CompletionContract(version="3.2", override=None)
+        CompletionContract(version="3.3", override=None)
     )
 
 
@@ -644,6 +644,8 @@ def test_the_development_override_selects_a_pre_cut_over_version(override: str) 
     ("role", "override", "production_mode", "emittable", "code"),
     [
         (_role("vision-job-complete-v3.1"), None, False, EMITTABLE, "role_provenance_contract_unknown"),
+        # Readable since S2a.3, but no longer a contract a role is resolved on (ADR-016).
+        (_role("vision-job-complete-v3.2"), None, False, EMITTABLE, "role_provenance_contract_unknown"),
         (_role(), "3.1", True, EMITTABLE, "completion_override_forbidden_in_production"),
         (_role(), "3.2", False, EMITTABLE, "completion_override_invalid"),
         (_role(), "2.0", False, EMITTABLE, "completion_override_invalid"),

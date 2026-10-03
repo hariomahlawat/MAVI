@@ -199,7 +199,7 @@ public sealed class CompletionExchange32Tests
     [Fact]
     public void TheHandOffEchoesTheAsynchronousVersionTheWorkerSpoke()
     {
-        foreach (var version in new[] { "3.1", "3.2" })
+        foreach (var version in new[] { "3.1", "3.2", "3.3" })
         {
             var finalizing = VisionJobFinalizationResponse.Finalizing(version, JobId, RunId, Accepted, 3);
             var completed = VisionJobFinalizationResponse.Completed(version, JobId, RunId, Accepted, 3, Accepted.AddSeconds(90));
@@ -209,7 +209,7 @@ public sealed class CompletionExchange32Tests
         }
 
         // A hand-off never answers a synchronous or unknown version.
-        foreach (var version in new[] { "2.0", "3.0", "3.3", "" })
+        foreach (var version in new[] { "2.0", "3.0", "3.4", "" })
         {
             Assert.Throws<ArgumentException>(() => VisionJobFinalizationResponse.Finalizing(version, JobId, RunId, Accepted, 3));
             Assert.Throws<ArgumentException>(() =>

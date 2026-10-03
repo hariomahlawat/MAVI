@@ -138,7 +138,7 @@ public sealed class VisionFinalizationActivationGateTests
 
         using var probe = await client.GetAsync("/api/vision/contract");
         var advertised = await probe.Content.ReadAsStringAsync();
-        Assert.Contains("\"completionSchemaVersions\":[\"2.0\",\"3.1\",\"3.2\"]", advertised, StringComparison.Ordinal);
+        Assert.Contains("\"completionSchemaVersions\":[\"2.0\",\"3.1\",\"3.2\",\"3.3\"]", advertised, StringComparison.Ordinal);
         Assert.DoesNotContain("\"3.0\"", advertised, StringComparison.Ordinal);
 
         using var retired = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request);
@@ -171,7 +171,7 @@ public sealed class VisionFinalizationActivationGateTests
         var advertised = body.RootElement.GetProperty("completionSchemaVersions").EnumerateArray().Select(x => x.GetString()!).ToHashSet();
         Assert.Equal(WorkerContractRules.CompletionSchemaVersions(activated).ToHashSet(), advertised);
 
-        foreach (var version in new[] { "2.0", "3.0", "3.1", "3.2" })
+        foreach (var version in new[] { "2.0", "3.0", "3.1", "3.2", "3.3" })
         {
             // A 2.0 body needs a 2.0 shape; probing the version gate is enough for the point.
             using var response = await client.PostAsJsonAsync($"/api/vision/jobs/{lease.JobId}/complete", request with { SchemaVersion = version });

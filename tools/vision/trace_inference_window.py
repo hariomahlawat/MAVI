@@ -385,7 +385,7 @@ def build_runtime(
             binding.role("vision"),
             override=None,
             production_mode=False,
-            emittable_versions=("3.2",),
+            emittable_versions=("3.3",),
         ),
         binding=binding,
     )

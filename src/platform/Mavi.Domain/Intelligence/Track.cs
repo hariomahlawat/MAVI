@@ -17,12 +17,16 @@ public sealed class Track
         int detectionCount,
         double meanConfidence,
         double maxConfidence,
-        DateTimeOffset? createdAtUtc = null)
+        DateTimeOffset? createdAtUtc = null,
+        string? objectSubclass = null,
+        string? objectSubclassVocabulary = null,
+        string? objectSubclassSource = null)
     {
         if (processingRunId == Guid.Empty || videoAssetId == Guid.Empty || localTrackNumber < 0 ||
             startOffsetMs < 0 || endOffsetMs < startOffsetMs || detectionCount <= 0)
             throw Invalid();
         if (!InRange(meanConfidence) || !InRange(maxConfidence) || maxConfidence < meanConfidence) throw Invalid();
+        ValidateSubclass(objectClass, objectSubclass, objectSubclassVocabulary, objectSubclassSource);
 
         var start = recordingStartUtc.ToUniversalTime();
         return new Track
@@ -40,6 +44,9 @@ public sealed class Track
             DetectionCount = detectionCount,
             MeanConfidence = meanConfidence,
             MaxConfidence = maxConfidence,
+            ObjectSubclass = objectSubclass,
+            ObjectSubclassVocabulary = objectSubclassVocabulary,
+            ObjectSubclassSource = objectSubclassSource,
             ReviewStatus = ReviewStatus.Unreviewed,
             CreatedAtUtc = (createdAtUtc ?? DateTimeOffset.UtcNow).ToUniversalTime(),
         };
@@ -75,9 +82,29 @@ public sealed class Track
     public double MaxConfidence { get; private set; }
     public Guid? RepresentativeObservationId { get; private set; }
     public Guid? TrajectoryArtifactId { get; private set; }
+
+    /// <summary>
+    /// The detector-native vehicle subclass (ADR-016), with the vocabulary and source that
+    /// resolved it. All three are null for a Person Track and for a Track processed before
+    /// Stage 3; a Stage-3 Vehicle Track always has vocabulary and source, and a subclass
+    /// only when its vote resolved one.
+    /// </summary>
+    public string? ObjectSubclass { get; private set; }
+    public string? ObjectSubclassVocabulary { get; private set; }
+    public string? ObjectSubclassSource { get; private set; }
     public ReviewStatus ReviewStatus { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
     private static bool InRange(double value) => double.IsFinite(value) && value is >= 0 and <= 1;
+
+    private static void ValidateSubclass(ObjectClass objectClass, string? subclass, string? vocabulary, string? source)
+    {
+        if (subclass is null && vocabulary is null && source is null)
+            return;
+        if (objectClass != ObjectClass.Vehicle || vocabulary != VehicleSubclass.VocabularyV1 ||
+            !VehicleSubclass.IsDetectorNativeSource(source) ||
+            (subclass is not null && !VehicleSubclass.ValuesV1.Contains(subclass)))
+            throw new DomainValidationException("track_object_subclass_invalid", "The track subclass data is invalid.");
+    }
     private static DomainValidationException Invalid() => new("track_invalid", "The track data is invalid.");
 }

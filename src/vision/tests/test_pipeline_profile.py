@@ -10,12 +10,12 @@ import pytest
 from mavi_vision.common.analytical import ObjectClass
 from mavi_vision.runtime.manifest import ReleaseMetadataError
 from mavi_vision.runtime.profile import load_pipeline_profile, validate_profile_against_manifest
-from tests.profile_fixtures import PRODUCTION_EVIDENCE_SECTION
+from tests.profile_fixtures import PRODUCTION_EVIDENCE_SECTION, VEHICLE_SUBCLASS_SECTION
 
 
 def _profile_payload() -> dict:
     return {
-        "schemaVersion": "1.1",
+        "schemaVersion": "1.2",
         "profileId": "phase1-detection-tracking-v1",
         "profileVersion": "1.1.0-candidate",
         "modelId": "model-a",
@@ -38,6 +38,7 @@ def _profile_payload() -> dict:
         },
         "framePolicy": "every-frame",
         "evidence": copy.deepcopy(PRODUCTION_EVIDENCE_SECTION),
+        "vehicleSubclass": copy.deepcopy(VEHICLE_SUBCLASS_SECTION),
     }
 
 
@@ -136,3 +137,49 @@ def test_a_matching_detector_section_is_accepted(tmp_path: Path) -> None:
     validate_profile_against_manifest(
         load_pipeline_profile(path), model_id="model-a", class_vocabulary=_VOCABULARY
     )
+
+
+def test_pipeline_profile_loads_the_vehicle_subclass_policy(tmp_path: Path) -> None:
+    path = tmp_path / "profile.json"
+    _write_json(path, _profile_payload())
+
+    policy = load_pipeline_profile(path).vehicle_subclass
+
+    assert policy is not None
+    assert policy.vocabulary_id == "mavi-vehicle-subclass-v1"
+    assert dict(policy.mapping) == {"car": "car", "motorcycle": "motorcycle", "bus": "bus", "truck": "truck"}
+    assert policy.min_share_micro == 600_000
+    assert policy.min_matched_detections == 3
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p.pop("vehicleSubclass"),
+        lambda p: p.__setitem__("schemaVersion", "1.1"),
+        lambda p: p["vehicleSubclass"].__setitem__("vocabularyId", "mavi-vehicle-subclass-v2"),
+        lambda p: p["vehicleSubclass"]["mapping"].pop("motorcycle"),
+        lambda p: p["vehicleSubclass"]["mapping"].__setitem__("bicycle", "bicycle"),
+        lambda p: p["vehicleSubclass"]["mapping"].__setitem__("truck", "car"),
+        lambda p: p["vehicleSubclass"].__setitem__("minShare", 0.5),
+        lambda p: p["vehicleSubclass"].__setitem__("minShare", 1.01),
+        lambda p: p["vehicleSubclass"].__setitem__("minShare", 0.6000001),
+        lambda p: p["vehicleSubclass"].__setitem__("minMatchedDetections", 0),
+        lambda p: p["vehicleSubclass"].__setitem__("extra", 1),
+    ],
+)
+def test_pipeline_profile_rejects_an_invalid_vehicle_subclass_block(tmp_path: Path, mutate) -> None:
+    payload = _profile_payload()
+    mutate(payload)
+    path = tmp_path / "profile.json"
+    _write_json(path, payload)
+
+    with pytest.raises(ReleaseMetadataError, match="pipeline_profile_invalid"):
+        load_pipeline_profile(path)
+
+
+def test_the_committed_profile_is_the_stage_3_candidate() -> None:
+    profile = load_pipeline_profile(Path(__file__).resolve().parents[1] / "config/pipelines/phase1-detection-tracking-v1.json")
+    assert profile.schema_version == "1.2"
+    assert profile.profile_version == "1.3.0-candidate"
+    assert profile.vehicle_subclass is not None

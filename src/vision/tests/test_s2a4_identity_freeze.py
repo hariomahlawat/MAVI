@@ -14,10 +14,14 @@ import pytest
 
 ROOT = Path(__file__).parents[3]
 
+# Re-issued deliberately by Stage 3 (ADR-016), and only for these two files: the binding
+# now declares completion 3.3 (was 081c0c89...), and the qualification record binds the
+# 1.3.0-candidate pipeline profile (was 100b8f10...). The manifest and the runtime profile
+# are unchanged, and so are the Model Pack and Runtime Pack ids below.
 FROZEN_SHA256 = {
-    "src/vision/config/components/phase1-bindings-v2.json": "081c0c8948a16480626dd6d05f18c4037758e1cf513c8bf891d06ee7fb9f2819",
+    "src/vision/config/components/phase1-bindings-v2.json": "7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205",
     "models/manifests/rtmdet-m-coco-phase1-v2.json": "bc8127c1c00513a90f1b00325dcae3d4f31243ef1ce04ebe38350f945cb79c90",
-    "models/qualifications/rtmdet-m-coco-phase1-v2.json": "100b8f102697dfaa7ac4cd02abfc7d83fd0fbbe73adaa1908fbf3f6dcfa40e40",
+    "models/qualifications/rtmdet-m-coco-phase1-v2.json": "2c2ba3d674cebf18955af1b224ef41c8c1a1fbc189cc28a6d605436c46c2a224",
     "src/vision/runtime/mmdetection-phase1-v1/runtime.json": "296b034d5f80ee13ab3f3bf86ed41b84109abd47d0103600b15b24078412acfb",
 }
 MODEL_PACK_ID = "mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700"

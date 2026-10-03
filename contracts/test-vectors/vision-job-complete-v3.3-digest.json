@@ -1,0 +1,19 @@
+{
+  "description": "Pinned server-side completion digests of the completion 3.3 golden examples (ADR-016): one installed Runtime Pack with a resolved truck, one unpacked environment with an abstained vehicle. Domain mavi:vision-completion-digest:v3.3.",
+  "vectors": [
+    {
+      "name": "installed-pack",
+      "example": "contracts/examples/vision-job-complete-v3.3.example.json",
+      "exampleSha256": "56f7753058fd27f8b8206e183e9f4b46b1b50175514b40ae5f0b40b307207287",
+      "videoDurationMs": 3600000,
+      "completionDigest": "5f7b4f312225f48980d07692fe6ba0cb510e612c02de54c4c43f4e4c0aec47f7"
+    },
+    {
+      "name": "unpacked-environment",
+      "example": "contracts/examples/vision-job-complete-v3.3-unpacked-environment.example.json",
+      "exampleSha256": "68c39116ff69ea5f7ed7f030f02d44c2beceb26093d6eb461466c97092a225e4",
+      "videoDurationMs": 3600000,
+      "completionDigest": "0b511df0cf682be0da6cd6c99cf5a7f2e59b0e671437f6a44b87813c4efcc3b1"
+    }
+  ]
+}
