@@ -1,0 +1,124 @@
+{
+  "criteria": [
+    {
+      "class": null,
+      "criterion": "coverageOverEvaluable",
+      "minimum": 0.5,
+      "minimumSupport": 3,
+      "observed": {
+        "denominator": 8,
+        "numerator": 7,
+        "value": 0.875
+      },
+      "status": "meets",
+      "support": 8
+    },
+    {
+      "class": "car",
+      "criterion": "precision",
+      "minimum": 0.5,
+      "minimumSupport": 2,
+      "observed": {
+        "denominator": 3,
+        "numerator": 2,
+        "value": 0.6666666666666666
+      },
+      "status": "meets",
+      "support": 4
+    },
+    {
+      "class": "car",
+      "criterion": "recall",
+      "minimum": 0.5,
+      "minimumSupport": 2,
+      "observed": {
+        "denominator": 4,
+        "numerator": 2,
+        "value": 0.5
+      },
+      "status": "meets",
+      "support": 4
+    },
+    {
+      "class": "truck",
+      "criterion": "precision",
+      "minimum": 0.9,
+      "minimumSupport": 2,
+      "observed": {
+        "denominator": 3,
+        "numerator": 2,
+        "value": 0.6666666666666666
+      },
+      "status": "does-not-meet",
+      "support": 3
+    },
+    {
+      "class": "truck",
+      "criterion": "recall",
+      "minimum": null,
+      "minimumSupport": 2,
+      "observed": {
+        "denominator": 3,
+        "numerator": 2,
+        "value": 0.6666666666666666
+      },
+      "status": "no-requirement",
+      "support": 3
+    },
+    {
+      "class": "bus",
+      "criterion": "precision",
+      "minimum": null,
+      "minimumSupport": 2,
+      "observed": {
+        "denominator": 0,
+        "numerator": 0,
+        "value": null
+      },
+      "status": "no-requirement",
+      "support": 0
+    },
+    {
+      "class": "bus",
+      "criterion": "recall",
+      "minimum": null,
+      "minimumSupport": 2,
+      "observed": {
+        "denominator": 0,
+        "numerator": 0,
+        "value": null
+      },
+      "status": "no-requirement",
+      "support": 0
+    },
+    {
+      "class": "motorcycle",
+      "criterion": "precision",
+      "minimum": 0.5,
+      "minimumSupport": 2,
+      "observed": {
+        "denominator": 1,
+        "numerator": 1,
+        "value": 1.0
+      },
+      "status": "insufficient-support",
+      "support": 1
+    },
+    {
+      "class": "motorcycle",
+      "criterion": "recall",
+      "minimum": 0.5,
+      "minimumSupport": 2,
+      "observed": {
+        "denominator": 1,
+        "numerator": 1,
+        "value": 1.0
+      },
+      "status": "insufficient-support",
+      "support": 1
+    }
+  ],
+  "measurementSha256": "e743b968d7829804484570bfb86b3596709e5adbe1f052ae695bffa26b9e7f1d",
+  "requirementsSha256": "126256664acf46cbaa7bd09de75af1aaddae1d7888781933ebcb47d554c51550",
+  "schemaVersion": "vehicle-subclass-requirement-comparison-v1"
+}

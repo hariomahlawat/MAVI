@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-sample-v1.schema.json",
+  "title": "vehicle-subclass-sample-v1",
+  "description": "The prediction-blind selection of Tracks to label (S3.2 plan T3, algorithm s3-2-video-quota-diversity-v1), bound to its exports, derivations, release record and the committed requirements. Records enough allocation and bin detail to re-check the selection; no prediction or confidence is read or recorded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "seed",
+    "target",
+    "exportSha256s",
+    "derivationSha256s",
+    "releaseRecordSha256",
+    "requirements",
+    "excludedSampleSha256s",
+    "design",
+    "allocation",
+    "strata",
+    "available",
+    "selected",
+    "overlapSelected",
+    "excluded"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vehicle-subclass-sample-v1"
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$"
+    },
+    "target": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "exportSha256s": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "uniqueItems": true
+    },
+    "derivationSha256s": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "uniqueItems": true
+    },
+    "releaseRecordSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "gitCommit",
+        "gitPath"
+      ],
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "gitCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "gitPath": {
+          "const": "docs/qualification/stage3/s3-2-subclass-requirements.json"
+        }
+      }
+    },
+    "excludedSampleSha256s": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "uniqueItems": true
+    },
+    "design": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "samplingAlgorithm",
+            "parameters",
+            "releaseId",
+            "parentSampleSha256s"
+          ],
+          "properties": {
+            "kind": {
+              "const": "continuation"
+            },
+            "samplingAlgorithm": {
+              "const": "s3-2-video-quota-diversity-v1"
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "overlapFraction"
+              ],
+              "properties": {
+                "overlapFraction": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            "releaseId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "parentSampleSha256s": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "samplingAlgorithm",
+            "parameters",
+            "releaseId",
+            "parentSampleSha256s",
+            "reason"
+          ],
+          "properties": {
+            "kind": {
+              "const": "supplemental"
+            },
+            "samplingAlgorithm": {
+              "const": "s3-2-video-quota-diversity-v1"
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "overlapFraction"
+              ],
+              "properties": {
+                "overlapFraction": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            "releaseId": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "parentSampleSha256s": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "uniqueItems": true
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n]*$"
+            }
+          }
+        }
+      ]
+    },
+    "allocation": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "exportSha256",
+          "videoAssetId",
+          "cameraCode",
+          "available",
+          "floor",
+          "quota",
+          "overlapFloor",
+          "overlapQuota"
+        ],
+        "properties": {
+          "exportSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "videoAssetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "cameraCode": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$"
+          },
+          "available": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "floor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "quota": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overlapFloor": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overlapQuota": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "strata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dimensions",
+        "poolSize",
+        "cutPositions",
+        "lumaDecoder"
+      ],
+      "properties": {
+        "dimensions": {
+          "const": [
+            "scale",
+            "duration",
+            "density",
+            "luma",
+            "quality"
+          ]
+        },
+        "poolSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cutPositions": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "lumaDecoder": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pillow",
+            "numpy"
+          ],
+          "properties": {
+            "pillow": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "numpy": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          }
+        }
+      }
+    },
+    "available": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(scale|duration|density|luma|quality):[012]$"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "selected": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "processingRunId",
+          "trackId",
+          "exportSha256",
+          "bins"
+        ],
+        "properties": {
+          "processingRunId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "trackId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "exportSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bins": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scale",
+              "duration",
+              "density",
+              "luma",
+              "quality"
+            ],
+            "properties": {
+              "scale": {
+                "enum": [
+                  0,
+                  1,
+                  2
+                ]
+              },
+              "duration": {
+                "enum": [
+                  0,
+                  1,
+                  2
+                ]
+              },
+              "density": {
+                "enum": [
+                  0,
+                  1,
+                  2
+                ]
+              },
+              "luma": {
+                "enum": [
+                  0,
+                  1,
+                  2
+                ]
+              },
+              "quality": {
+                "enum": [
+                  0,
+                  1,
+                  2
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "overlapSelected": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "processingRunId",
+          "trackId"
+        ],
+        "properties": {
+          "processingRunId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "trackId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      }
+    },
+    "excluded": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "not-vehicle",
+          "no-verified-evidence",
+          "previously-sampled"
+        ]
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    }
+  }
+}

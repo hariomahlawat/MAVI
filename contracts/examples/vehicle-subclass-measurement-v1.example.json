@@ -1,0 +1,806 @@
+{
+  "batches": [
+    {
+      "clusters": {
+        "cameraCount": 2,
+        "perCamera": [
+          {
+            "cameraCode": "CAM-A",
+            "confusion": {
+              "bus": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 0,
+                "truck": 0,
+                "undetermined": 0
+              },
+              "car": {
+                "bus": 0,
+                "car": 1,
+                "motorcycle": 0,
+                "truck": 0,
+                "undetermined": 1
+              },
+              "motorcycle": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 0,
+                "truck": 0,
+                "undetermined": 0
+              },
+              "truck": {
+                "bus": 0,
+                "car": 1,
+                "motorcycle": 0,
+                "truck": 1,
+                "undetermined": 0
+              }
+            },
+            "correct": 2,
+            "evaluableTracks": 4,
+            "labelledTracks": 6,
+            "resolved": 3,
+            "videoCount": 1
+          },
+          {
+            "cameraCode": "CAM-B",
+            "confusion": {
+              "bus": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 0,
+                "truck": 0,
+                "undetermined": 0
+              },
+              "car": {
+                "bus": 0,
+                "car": 1,
+                "motorcycle": 0,
+                "truck": 1,
+                "undetermined": 0
+              },
+              "motorcycle": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 1,
+                "truck": 0,
+                "undetermined": 0
+              },
+              "truck": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 0,
+                "truck": 1,
+                "undetermined": 0
+              }
+            },
+            "correct": 3,
+            "evaluableTracks": 4,
+            "labelledTracks": 4,
+            "resolved": 4,
+            "videoCount": 1
+          }
+        ],
+        "perVideo": [
+          {
+            "cameraCode": "CAM-A",
+            "confusion": {
+              "bus": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 0,
+                "truck": 0,
+                "undetermined": 0
+              },
+              "car": {
+                "bus": 0,
+                "car": 1,
+                "motorcycle": 0,
+                "truck": 0,
+                "undetermined": 1
+              },
+              "motorcycle": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 0,
+                "truck": 0,
+                "undetermined": 0
+              },
+              "truck": {
+                "bus": 0,
+                "car": 1,
+                "motorcycle": 0,
+                "truck": 1,
+                "undetermined": 0
+              }
+            },
+            "correct": 2,
+            "evaluableTracks": 4,
+            "labelledTracks": 6,
+            "processingRunId": "00000000-0000-0000-0000-000000001000",
+            "resolved": 3,
+            "videoAssetId": "00000000-0000-0000-0000-000000002000"
+          },
+          {
+            "cameraCode": "CAM-B",
+            "confusion": {
+              "bus": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 0,
+                "truck": 0,
+                "undetermined": 0
+              },
+              "car": {
+                "bus": 0,
+                "car": 1,
+                "motorcycle": 0,
+                "truck": 1,
+                "undetermined": 0
+              },
+              "motorcycle": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 1,
+                "truck": 0,
+                "undetermined": 0
+              },
+              "truck": {
+                "bus": 0,
+                "car": 0,
+                "motorcycle": 0,
+                "truck": 1,
+                "undetermined": 0
+              }
+            },
+            "correct": 3,
+            "evaluableTracks": 4,
+            "labelledTracks": 4,
+            "processingRunId": "00000000-0000-0000-0000-000000001001",
+            "resolved": 4,
+            "videoAssetId": "00000000-0000-0000-0000-000000002001"
+          }
+        ],
+        "videoCount": 2
+      },
+      "design": {
+        "kind": "continuation",
+        "parentSampleSha256s": []
+      },
+      "errorReferences": [
+        {
+          "itemId": "881b994f13e527f4",
+          "label": "truck",
+          "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+          "predicted": "car",
+          "processingRunId": "00000000-0000-0000-0000-000000001000",
+          "trackId": "00000000-0000-4000-8000-000000000002"
+        },
+        {
+          "itemId": "49cfd8b687e1a2f2",
+          "label": "car",
+          "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+          "predicted": "undetermined",
+          "processingRunId": "00000000-0000-0000-0000-000000001000",
+          "trackId": "00000000-0000-4000-8000-000000000006"
+        },
+        {
+          "itemId": "047519bd51eb603d",
+          "label": "car",
+          "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+          "predicted": "truck",
+          "processingRunId": "00000000-0000-0000-0000-000000001001",
+          "trackId": "00000000-0000-4000-8000-000000000021"
+        }
+      ],
+      "metrics": {
+        "abstained": 1,
+        "accuracyOverEvaluable": {
+          "denominator": 8,
+          "numerator": 5,
+          "value": 0.625
+        },
+        "accuracyOverResolved": {
+          "denominator": 7,
+          "numerator": 5,
+          "value": 0.7142857142857143
+        },
+        "confusion": {
+          "bus": {
+            "bus": 0,
+            "car": 0,
+            "motorcycle": 0,
+            "truck": 0,
+            "undetermined": 0
+          },
+          "car": {
+            "bus": 0,
+            "car": 2,
+            "motorcycle": 0,
+            "truck": 1,
+            "undetermined": 1
+          },
+          "motorcycle": {
+            "bus": 0,
+            "car": 0,
+            "motorcycle": 1,
+            "truck": 0,
+            "undetermined": 0
+          },
+          "truck": {
+            "bus": 0,
+            "car": 1,
+            "motorcycle": 0,
+            "truck": 2,
+            "undetermined": 0
+          }
+        },
+        "coverageOverEvaluable": {
+          "denominator": 8,
+          "numerator": 7,
+          "value": 0.875
+        },
+        "evaluableTracks": 8,
+        "humanUnknown": {
+          "ambiguous-type": 0,
+          "mixed-track": 0,
+          "not-a-vehicle": 0,
+          "occluded": 1,
+          "other": 0,
+          "too-small": 1
+        },
+        "labelledTracks": 10,
+        "macroRecallOverClassesWithSupport": {
+          "classes": [
+            "car",
+            "truck",
+            "motorcycle"
+          ],
+          "denominator": 18,
+          "numerator": 13,
+          "value": 0.7222222222222222
+        },
+        "perClass": {
+          "bus": {
+            "correct": 0,
+            "precision": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": null
+            },
+            "predicted": 0,
+            "recall": {
+              "denominator": 0,
+              "numerator": 0,
+              "value": null
+            },
+            "support": 0
+          },
+          "car": {
+            "correct": 2,
+            "precision": {
+              "denominator": 3,
+              "numerator": 2,
+              "value": 0.6666666666666666
+            },
+            "predicted": 3,
+            "recall": {
+              "denominator": 4,
+              "numerator": 2,
+              "value": 0.5
+            },
+            "support": 4
+          },
+          "motorcycle": {
+            "correct": 1,
+            "precision": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1.0
+            },
+            "predicted": 1,
+            "recall": {
+              "denominator": 1,
+              "numerator": 1,
+              "value": 1.0
+            },
+            "support": 1
+          },
+          "truck": {
+            "correct": 2,
+            "precision": {
+              "denominator": 3,
+              "numerator": 2,
+              "value": 0.6666666666666666
+            },
+            "predicted": 3,
+            "recall": {
+              "denominator": 3,
+              "numerator": 2,
+              "value": 0.6666666666666666
+            },
+            "support": 3
+          }
+        },
+        "resolved": 7,
+        "unknownRow": {
+          "bus": 1,
+          "car": 1,
+          "motorcycle": 0,
+          "truck": 0,
+          "undetermined": 0
+        }
+      },
+      "reliability": {
+        "disagreement": {
+          "bus": {
+            "bus": 0,
+            "car": 0,
+            "motorcycle": 0,
+            "truck": 0,
+            "unknown": 0
+          },
+          "car": {
+            "bus": 0,
+            "car": 0,
+            "motorcycle": 0,
+            "truck": 0,
+            "unknown": 1
+          },
+          "motorcycle": {
+            "bus": 0,
+            "car": 0,
+            "motorcycle": 1,
+            "truck": 0,
+            "unknown": 0
+          },
+          "truck": {
+            "bus": 0,
+            "car": 0,
+            "motorcycle": 0,
+            "truck": 1,
+            "unknown": 0
+          },
+          "unknown": {
+            "bus": 0,
+            "car": 0,
+            "motorcycle": 0,
+            "truck": 0,
+            "unknown": 0
+          }
+        },
+        "exactAgreements": 2,
+        "labelAgreements": 2,
+        "overlapTracks": 3
+      },
+      "sampleSha256": "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731",
+      "sampleSha256s": [
+        "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731"
+      ]
+    }
+  ],
+  "inputs": {
+    "batches": [
+      {
+        "adjudicationSha256": "f7fe1f2fce70079a0391b87ec109b73ef4163fb7fbf1de5c263e7b0d3b903223",
+        "designKind": "continuation",
+        "labelingGuideSha256": "86290e751bf46ae9a1a9fc5e460ca69f7227c53e59eb4293bc3e38baeeee7c3b",
+        "overlapLabelsSha256": "9403204537e23acfe9b4e29ec45d294ca59dfbe7cb8d7cca1320c95230012ca2",
+        "overlapPackSha256": "94c16ae712e45fa472c2d4f0bd1279619027f76aaadca820dac9b6dbf914ebda",
+        "primaryLabelsSha256": "124164bde5a79d2b612cf13f343182076566d1412a79b929dea3e2ab7fd629ea",
+        "primaryPackSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+        "sampleSha256": "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731"
+      }
+    ],
+    "exportSha256s": [
+      "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+      "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023"
+    ],
+    "measuredProfileSha256": "9c4b366ab08a031d6054977a7935967baf15e546e83c83ce2e9ad8c695074227",
+    "requirementsSha256": "126256664acf46cbaa7bd09de75af1aaddae1d7888781933ebcb47d554c51550",
+    "sourceVideoSha256s": [
+      "0b3f6bef6bc893a31496c63deaa2c76d7e850a2cdae4712a33b99364bf82f856",
+      "134c20fa6e74b93489be3f98a9ad5791a398d8cde21f94154c8a82617d983a47"
+    ]
+  },
+  "labelVocabulary": "mavi-vehicle-subclass-labels-v1",
+  "primary": {
+    "clusters": {
+      "cameraCount": 2,
+      "perCamera": [
+        {
+          "cameraCode": "CAM-A",
+          "confusion": {
+            "bus": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 0,
+              "truck": 0,
+              "undetermined": 0
+            },
+            "car": {
+              "bus": 0,
+              "car": 1,
+              "motorcycle": 0,
+              "truck": 0,
+              "undetermined": 1
+            },
+            "motorcycle": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 0,
+              "truck": 0,
+              "undetermined": 0
+            },
+            "truck": {
+              "bus": 0,
+              "car": 1,
+              "motorcycle": 0,
+              "truck": 1,
+              "undetermined": 0
+            }
+          },
+          "correct": 2,
+          "evaluableTracks": 4,
+          "labelledTracks": 6,
+          "resolved": 3,
+          "videoCount": 1
+        },
+        {
+          "cameraCode": "CAM-B",
+          "confusion": {
+            "bus": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 0,
+              "truck": 0,
+              "undetermined": 0
+            },
+            "car": {
+              "bus": 0,
+              "car": 1,
+              "motorcycle": 0,
+              "truck": 1,
+              "undetermined": 0
+            },
+            "motorcycle": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 1,
+              "truck": 0,
+              "undetermined": 0
+            },
+            "truck": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 0,
+              "truck": 1,
+              "undetermined": 0
+            }
+          },
+          "correct": 3,
+          "evaluableTracks": 4,
+          "labelledTracks": 4,
+          "resolved": 4,
+          "videoCount": 1
+        }
+      ],
+      "perVideo": [
+        {
+          "cameraCode": "CAM-A",
+          "confusion": {
+            "bus": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 0,
+              "truck": 0,
+              "undetermined": 0
+            },
+            "car": {
+              "bus": 0,
+              "car": 1,
+              "motorcycle": 0,
+              "truck": 0,
+              "undetermined": 1
+            },
+            "motorcycle": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 0,
+              "truck": 0,
+              "undetermined": 0
+            },
+            "truck": {
+              "bus": 0,
+              "car": 1,
+              "motorcycle": 0,
+              "truck": 1,
+              "undetermined": 0
+            }
+          },
+          "correct": 2,
+          "evaluableTracks": 4,
+          "labelledTracks": 6,
+          "processingRunId": "00000000-0000-0000-0000-000000001000",
+          "resolved": 3,
+          "videoAssetId": "00000000-0000-0000-0000-000000002000"
+        },
+        {
+          "cameraCode": "CAM-B",
+          "confusion": {
+            "bus": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 0,
+              "truck": 0,
+              "undetermined": 0
+            },
+            "car": {
+              "bus": 0,
+              "car": 1,
+              "motorcycle": 0,
+              "truck": 1,
+              "undetermined": 0
+            },
+            "motorcycle": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 1,
+              "truck": 0,
+              "undetermined": 0
+            },
+            "truck": {
+              "bus": 0,
+              "car": 0,
+              "motorcycle": 0,
+              "truck": 1,
+              "undetermined": 0
+            }
+          },
+          "correct": 3,
+          "evaluableTracks": 4,
+          "labelledTracks": 4,
+          "processingRunId": "00000000-0000-0000-0000-000000001001",
+          "resolved": 4,
+          "videoAssetId": "00000000-0000-0000-0000-000000002001"
+        }
+      ],
+      "videoCount": 2
+    },
+    "errorReferences": [
+      {
+        "itemId": "881b994f13e527f4",
+        "label": "truck",
+        "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+        "predicted": "car",
+        "processingRunId": "00000000-0000-0000-0000-000000001000",
+        "trackId": "00000000-0000-4000-8000-000000000002"
+      },
+      {
+        "itemId": "49cfd8b687e1a2f2",
+        "label": "car",
+        "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+        "predicted": "undetermined",
+        "processingRunId": "00000000-0000-0000-0000-000000001000",
+        "trackId": "00000000-0000-4000-8000-000000000006"
+      },
+      {
+        "itemId": "047519bd51eb603d",
+        "label": "car",
+        "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+        "predicted": "truck",
+        "processingRunId": "00000000-0000-0000-0000-000000001001",
+        "trackId": "00000000-0000-4000-8000-000000000021"
+      }
+    ],
+    "metrics": {
+      "abstained": 1,
+      "accuracyOverEvaluable": {
+        "denominator": 8,
+        "numerator": 5,
+        "value": 0.625
+      },
+      "accuracyOverResolved": {
+        "denominator": 7,
+        "numerator": 5,
+        "value": 0.7142857142857143
+      },
+      "confusion": {
+        "bus": {
+          "bus": 0,
+          "car": 0,
+          "motorcycle": 0,
+          "truck": 0,
+          "undetermined": 0
+        },
+        "car": {
+          "bus": 0,
+          "car": 2,
+          "motorcycle": 0,
+          "truck": 1,
+          "undetermined": 1
+        },
+        "motorcycle": {
+          "bus": 0,
+          "car": 0,
+          "motorcycle": 1,
+          "truck": 0,
+          "undetermined": 0
+        },
+        "truck": {
+          "bus": 0,
+          "car": 1,
+          "motorcycle": 0,
+          "truck": 2,
+          "undetermined": 0
+        }
+      },
+      "coverageOverEvaluable": {
+        "denominator": 8,
+        "numerator": 7,
+        "value": 0.875
+      },
+      "evaluableTracks": 8,
+      "humanUnknown": {
+        "ambiguous-type": 0,
+        "mixed-track": 0,
+        "not-a-vehicle": 0,
+        "occluded": 1,
+        "other": 0,
+        "too-small": 1
+      },
+      "labelledTracks": 10,
+      "macroRecallOverClassesWithSupport": {
+        "classes": [
+          "car",
+          "truck",
+          "motorcycle"
+        ],
+        "denominator": 18,
+        "numerator": 13,
+        "value": 0.7222222222222222
+      },
+      "perClass": {
+        "bus": {
+          "correct": 0,
+          "precision": {
+            "denominator": 0,
+            "numerator": 0,
+            "value": null
+          },
+          "predicted": 0,
+          "recall": {
+            "denominator": 0,
+            "numerator": 0,
+            "value": null
+          },
+          "support": 0
+        },
+        "car": {
+          "correct": 2,
+          "precision": {
+            "denominator": 3,
+            "numerator": 2,
+            "value": 0.6666666666666666
+          },
+          "predicted": 3,
+          "recall": {
+            "denominator": 4,
+            "numerator": 2,
+            "value": 0.5
+          },
+          "support": 4
+        },
+        "motorcycle": {
+          "correct": 1,
+          "precision": {
+            "denominator": 1,
+            "numerator": 1,
+            "value": 1.0
+          },
+          "predicted": 1,
+          "recall": {
+            "denominator": 1,
+            "numerator": 1,
+            "value": 1.0
+          },
+          "support": 1
+        },
+        "truck": {
+          "correct": 2,
+          "precision": {
+            "denominator": 3,
+            "numerator": 2,
+            "value": 0.6666666666666666
+          },
+          "predicted": 3,
+          "recall": {
+            "denominator": 3,
+            "numerator": 2,
+            "value": 0.6666666666666666
+          },
+          "support": 3
+        }
+      },
+      "resolved": 7,
+      "unknownRow": {
+        "bus": 1,
+        "car": 1,
+        "motorcycle": 0,
+        "truck": 0,
+        "undetermined": 0
+      }
+    },
+    "reliability": {
+      "disagreement": {
+        "bus": {
+          "bus": 0,
+          "car": 0,
+          "motorcycle": 0,
+          "truck": 0,
+          "unknown": 0
+        },
+        "car": {
+          "bus": 0,
+          "car": 0,
+          "motorcycle": 0,
+          "truck": 0,
+          "unknown": 1
+        },
+        "motorcycle": {
+          "bus": 0,
+          "car": 0,
+          "motorcycle": 1,
+          "truck": 0,
+          "unknown": 0
+        },
+        "truck": {
+          "bus": 0,
+          "car": 0,
+          "motorcycle": 0,
+          "truck": 1,
+          "unknown": 0
+        },
+        "unknown": {
+          "bus": 0,
+          "car": 0,
+          "motorcycle": 0,
+          "truck": 0,
+          "unknown": 0
+        }
+      },
+      "exactAgreements": 2,
+      "labelAgreements": 2,
+      "overlapTracks": 3
+    },
+    "sampleSha256s": [
+      "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731"
+    ]
+  },
+  "producer": {
+    "checkpointSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "componentBindingSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+    "maviCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "modelId": "rtmdet-m",
+    "modelManifestSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "modelVersion": "1",
+    "pipelineProfileId": "phase1-detection-tracking-v1",
+    "pipelineProfileSha256": "9c4b366ab08a031d6054977a7935967baf15e546e83c83ce2e9ad8c695074227",
+    "pipelineProfileVersion": "1.3.0-candidate",
+    "processingRunIds": [
+      "00000000-0000-0000-0000-000000001000",
+      "00000000-0000-0000-0000-000000001001"
+    ],
+    "qualificationSha256": null,
+    "resolvedConfigSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "runtimeProfileId": "runtime-v1",
+    "runtimeProfileSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "runtimeVariant": "linux-x86_64-cpu",
+    "subclassSource": "detector-native:9c4b366ab08a031d6054977a7935967baf15e546e83c83ce2e9ad8c695074227",
+    "verificationStatus": "unverified"
+  },
+  "schemaVersion": "vehicle-subclass-measurement-v1",
+  "scope": "This measurement is Track-conditional. It evaluates subclass classification given that MAVI produced the Track. It is not an end-to-end detection or tracking accuracy measurement. Development/evaluation evidence; not frozen qualification.",
+  "subclassVocabulary": "mavi-vehicle-subclass-v1",
+  "supplemental": []
+}

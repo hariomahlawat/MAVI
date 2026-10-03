@@ -1,0 +1,42 @@
+{
+  "decisions": [
+    {
+      "itemId": "ee6ce8dce7a5e5dd",
+      "label": "truck",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000002",
+      "videoSourceSha256": "134c20fa6e74b93489be3f98a9ad5791a398d8cde21f94154c8a82617d983a47"
+    },
+    {
+      "itemId": "1fd347acd1674a79",
+      "label": "unknown",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000004",
+      "unknownReason": "too-small",
+      "videoSourceSha256": "134c20fa6e74b93489be3f98a9ad5791a398d8cde21f94154c8a82617d983a47"
+    },
+    {
+      "itemId": "d12fc183d992bf35",
+      "label": "motorcycle",
+      "processingRunId": "00000000-0000-0000-0000-000000001001",
+      "trackId": "00000000-0000-4000-8000-000000000022",
+      "videoSourceSha256": "0b3f6bef6bc893a31496c63deaa2c76d7e850a2cdae4712a33b99364bf82f856"
+    }
+  ],
+  "exportSha256s": [
+    "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+    "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023"
+  ],
+  "labelingGuideSha256": "86290e751bf46ae9a1a9fc5e460ca69f7227c53e59eb4293bc3e38baeeee7c3b",
+  "packSha256": "94c16ae712e45fa472c2d4f0bd1279619027f76aaadca820dac9b6dbf914ebda",
+  "parentPackSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+  "reviewedOn": "2026-10-03",
+  "reviewer": {
+    "name": "Reviewer B",
+    "role": "fixture reviewer"
+  },
+  "sampleSha256": "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731",
+  "schemaVersion": "vehicle-subclass-track-labels-v1",
+  "viewKind": "overlap",
+  "vocabulary": "mavi-vehicle-subclass-labels-v1"
+}

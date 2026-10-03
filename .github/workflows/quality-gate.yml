@@ -50,6 +50,8 @@ jobs:
         run: python tools/verify_repo.py
       - name: Test Task 17 acceptance tooling
         run: python -m pytest -q tools/phase1/tests
+      - name: Test Stage 3 measurement tooling
+        run: python -m pytest -q tools/stage3/tests
 
   dotnet-tests:
     name: dotnet shard ${{ matrix.shard }}

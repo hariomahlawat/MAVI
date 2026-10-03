@@ -1,0 +1,509 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-labeling-pack-v1.schema.json",
+  "title": "vehicle-subclass-labeling-pack-v1",
+  "description": "The manifest (pack-manifest.json) of one reviewer's blind labelling pack (S3.2 plan T4). packSha256 is the SHA-256 of these canonical bytes and is never stored here; files[] lists every pack file except this manifest and the derived pack-data.js. The run/Track mapping lives only here; no prediction, confidence or producer detail appears in the pack.",
+  "anyOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "seed",
+        "sampleSha256",
+        "exportSha256s",
+        "pipelineProfileSha256",
+        "evidenceSelectorVersion",
+        "evidenceScorerVersion",
+        "labelingGuide",
+        "extraction",
+        "items",
+        "files",
+        "viewKind"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "vehicle-subclass-labeling-pack-v1"
+        },
+        "seed": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "sampleSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "exportSha256s": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "uniqueItems": true
+        },
+        "pipelineProfileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evidenceSelectorVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "evidenceScorerVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "labelingGuide": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "gitCommit",
+            "gitPath",
+            "path"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "gitCommit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "gitPath": {
+              "const": "docs/qualification/stage3/s3-2-labeling-guide.md"
+            },
+            "path": {
+              "const": "labeling-guide.md"
+            }
+          }
+        },
+        "extraction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decoder",
+            "renderer",
+            "renderRuleVersion",
+            "maxLongEdgePx"
+          ],
+          "properties": {
+            "decoder": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "av",
+                "libavcodec"
+              ],
+              "properties": {
+                "av": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$"
+                },
+                "libavcodec": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$"
+                }
+              }
+            },
+            "renderer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "pillow"
+              ],
+              "properties": {
+                "pillow": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$"
+                }
+              }
+            },
+            "renderRuleVersion": {
+              "const": "context-v1"
+            },
+            "maxLongEdgePx": {
+              "const": 1280
+            }
+          }
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "itemId",
+              "processingRunId",
+              "trackId",
+              "videoSourceSha256",
+              "views"
+            ],
+            "properties": {
+              "itemId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "processingRunId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "trackId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "videoSourceSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "views": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 8,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "evidenceRole",
+                    "sourceFrameNumber",
+                    "videoOffsetMs",
+                    "path",
+                    "sha256",
+                    "sizeBytes"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "crop",
+                        "context"
+                      ]
+                    },
+                    "evidenceRole": {
+                      "enum": [
+                        "Representative",
+                        "NearView",
+                        "EarlyDiverse",
+                        "LateDiverse"
+                      ]
+                    },
+                    "sourceFrameNumber": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "videoOffsetMs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "^items/[0-9a-f]{16}/[a-z0-9-]+\\.(jpg|png)$"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "sizeBytes": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256",
+              "sizeBytes"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "viewKind": {
+          "const": "primary"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "seed",
+        "sampleSha256",
+        "exportSha256s",
+        "pipelineProfileSha256",
+        "evidenceSelectorVersion",
+        "evidenceScorerVersion",
+        "labelingGuide",
+        "extraction",
+        "items",
+        "files",
+        "viewKind",
+        "parentPackSha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "vehicle-subclass-labeling-pack-v1"
+        },
+        "seed": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "sampleSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "exportSha256s": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "uniqueItems": true
+        },
+        "pipelineProfileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evidenceSelectorVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "evidenceScorerVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "labelingGuide": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "gitCommit",
+            "gitPath",
+            "path"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "gitCommit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "gitPath": {
+              "const": "docs/qualification/stage3/s3-2-labeling-guide.md"
+            },
+            "path": {
+              "const": "labeling-guide.md"
+            }
+          }
+        },
+        "extraction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decoder",
+            "renderer",
+            "renderRuleVersion",
+            "maxLongEdgePx"
+          ],
+          "properties": {
+            "decoder": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "av",
+                "libavcodec"
+              ],
+              "properties": {
+                "av": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$"
+                },
+                "libavcodec": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$"
+                }
+              }
+            },
+            "renderer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "pillow"
+              ],
+              "properties": {
+                "pillow": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$"
+                }
+              }
+            },
+            "renderRuleVersion": {
+              "const": "context-v1"
+            },
+            "maxLongEdgePx": {
+              "const": 1280
+            }
+          }
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "itemId",
+              "processingRunId",
+              "trackId",
+              "videoSourceSha256",
+              "views"
+            ],
+            "properties": {
+              "itemId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "processingRunId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "trackId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "videoSourceSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "views": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 8,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "evidenceRole",
+                    "sourceFrameNumber",
+                    "videoOffsetMs",
+                    "path",
+                    "sha256",
+                    "sizeBytes"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "crop",
+                        "context"
+                      ]
+                    },
+                    "evidenceRole": {
+                      "enum": [
+                        "Representative",
+                        "NearView",
+                        "EarlyDiverse",
+                        "LateDiverse"
+                      ]
+                    },
+                    "sourceFrameNumber": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "videoOffsetMs": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "path": {
+                      "type": "string",
+                      "pattern": "^items/[0-9a-f]{16}/[a-z0-9-]+\\.(jpg|png)$"
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "sizeBytes": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sha256",
+              "sizeBytes"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "viewKind": {
+          "const": "overlap"
+        },
+        "parentPackSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  ]
+}

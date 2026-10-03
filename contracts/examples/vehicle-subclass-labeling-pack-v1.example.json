@@ -1,0 +1,163 @@
+{
+  "evidenceScorerVersion": "quality-v2",
+  "evidenceSelectorVersion": "evidence-selector-v1-two-tier",
+  "exportSha256s": [
+    "1861527dc94965f57060f097766bffd9dd5aa491ff8767ffb3b8d620de071fba",
+    "ce2607d6c501d92909be04ccad4e2bd965739f144fb92bab9ef83ed494e70023"
+  ],
+  "extraction": {
+    "decoder": {
+      "av": "16.1.0",
+      "libavcodec": "62.11.100"
+    },
+    "maxLongEdgePx": 1280,
+    "renderRuleVersion": "context-v1",
+    "renderer": {
+      "pillow": "11.3.0"
+    }
+  },
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "86ceff07309a02135b15b2532a2a1a96bb12d5097125179ea4841766e7b83814",
+      "sizeBytes": 1743
+    },
+    {
+      "path": "items/1fd347acd1674a79/context-0.png",
+      "sha256": "25c97f78f4fc1e3437d29a96445b45a9a63b8964e4973ca60ce14bc3bc5d6d98",
+      "sizeBytes": 394
+    },
+    {
+      "path": "items/1fd347acd1674a79/crop-0.jpg",
+      "sha256": "eb0179ac0748ec5e0638acd58e2cfbc2cb6eeca4342ca3242311d61e24b66b8e",
+      "sizeBytes": 1331
+    },
+    {
+      "path": "items/d12fc183d992bf35/context-0.png",
+      "sha256": "33c34f844b7a3eac9548c992e0cc1c0f4dffb961361f68a85e514089ee588d8f",
+      "sizeBytes": 394
+    },
+    {
+      "path": "items/d12fc183d992bf35/crop-0.jpg",
+      "sha256": "658f4aaa12ca0c106730addd813ca4b6ca4395db18143ac0fe9b74296079aa36",
+      "sizeBytes": 1382
+    },
+    {
+      "path": "items/ee6ce8dce7a5e5dd/context-0.png",
+      "sha256": "a98443777b59e68acc13bad2c4e51f6be6c84e91f720f99c89f2a8f07af80a1e",
+      "sizeBytes": 393
+    },
+    {
+      "path": "items/ee6ce8dce7a5e5dd/crop-0.jpg",
+      "sha256": "7df3991e977d2dc6227ab30c26cc3ba0cf378369611551083be813088d1ff059",
+      "sizeBytes": 1077
+    },
+    {
+      "path": "labeling-guide.md",
+      "sha256": "86290e751bf46ae9a1a9fc5e460ca69f7227c53e59eb4293bc3e38baeeee7c3b",
+      "sizeBytes": 639
+    },
+    {
+      "path": "labeling.css",
+      "sha256": "afa0cdbf0271fdd6b1459973b4e2f11c9ac0546a77bdde688f1d3ea49864634c",
+      "sizeBytes": 1030
+    },
+    {
+      "path": "labeling.js",
+      "sha256": "d380c6ebba7e66f0edb8a5c7bb17c7a1b11616dc13347734fa483d7540e0a618",
+      "sizeBytes": 7450
+    }
+  ],
+  "items": [
+    {
+      "itemId": "1fd347acd1674a79",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000004",
+      "videoSourceSha256": "134c20fa6e74b93489be3f98a9ad5791a398d8cde21f94154c8a82617d983a47",
+      "views": [
+        {
+          "evidenceRole": "Representative",
+          "kind": "crop",
+          "path": "items/1fd347acd1674a79/crop-0.jpg",
+          "sha256": "eb0179ac0748ec5e0638acd58e2cfbc2cb6eeca4342ca3242311d61e24b66b8e",
+          "sizeBytes": 1331,
+          "sourceFrameNumber": 2,
+          "videoOffsetMs": 100
+        },
+        {
+          "evidenceRole": "Representative",
+          "kind": "context",
+          "path": "items/1fd347acd1674a79/context-0.png",
+          "sha256": "25c97f78f4fc1e3437d29a96445b45a9a63b8964e4973ca60ce14bc3bc5d6d98",
+          "sizeBytes": 394,
+          "sourceFrameNumber": 2,
+          "videoOffsetMs": 100
+        }
+      ]
+    },
+    {
+      "itemId": "d12fc183d992bf35",
+      "processingRunId": "00000000-0000-0000-0000-000000001001",
+      "trackId": "00000000-0000-4000-8000-000000000022",
+      "videoSourceSha256": "0b3f6bef6bc893a31496c63deaa2c76d7e850a2cdae4712a33b99364bf82f856",
+      "views": [
+        {
+          "evidenceRole": "Representative",
+          "kind": "crop",
+          "path": "items/d12fc183d992bf35/crop-0.jpg",
+          "sha256": "658f4aaa12ca0c106730addd813ca4b6ca4395db18143ac0fe9b74296079aa36",
+          "sizeBytes": 1382,
+          "sourceFrameNumber": 2,
+          "videoOffsetMs": 3000
+        },
+        {
+          "evidenceRole": "Representative",
+          "kind": "context",
+          "path": "items/d12fc183d992bf35/context-0.png",
+          "sha256": "33c34f844b7a3eac9548c992e0cc1c0f4dffb961361f68a85e514089ee588d8f",
+          "sizeBytes": 394,
+          "sourceFrameNumber": 2,
+          "videoOffsetMs": 3000
+        }
+      ]
+    },
+    {
+      "itemId": "ee6ce8dce7a5e5dd",
+      "processingRunId": "00000000-0000-0000-0000-000000001000",
+      "trackId": "00000000-0000-4000-8000-000000000002",
+      "videoSourceSha256": "134c20fa6e74b93489be3f98a9ad5791a398d8cde21f94154c8a82617d983a47",
+      "views": [
+        {
+          "evidenceRole": "Representative",
+          "kind": "crop",
+          "path": "items/ee6ce8dce7a5e5dd/crop-0.jpg",
+          "sha256": "7df3991e977d2dc6227ab30c26cc3ba0cf378369611551083be813088d1ff059",
+          "sizeBytes": 1077,
+          "sourceFrameNumber": 2,
+          "videoOffsetMs": 500
+        },
+        {
+          "evidenceRole": "Representative",
+          "kind": "context",
+          "path": "items/ee6ce8dce7a5e5dd/context-0.png",
+          "sha256": "a98443777b59e68acc13bad2c4e51f6be6c84e91f720f99c89f2a8f07af80a1e",
+          "sizeBytes": 393,
+          "sourceFrameNumber": 2,
+          "videoOffsetMs": 500
+        }
+      ]
+    }
+  ],
+  "labelingGuide": {
+    "gitCommit": "ab782a4a59123b00ff6ef71c32976e791938c7eb",
+    "gitPath": "docs/qualification/stage3/s3-2-labeling-guide.md",
+    "path": "labeling-guide.md",
+    "sha256": "86290e751bf46ae9a1a9fc5e460ca69f7227c53e59eb4293bc3e38baeeee7c3b"
+  },
+  "parentPackSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+  "pipelineProfileSha256": "9c4b366ab08a031d6054977a7935967baf15e546e83c83ce2e9ad8c695074227",
+  "sampleSha256": "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731",
+  "schemaVersion": "vehicle-subclass-labeling-pack-v1",
+  "seed": "pack-seed",
+  "viewKind": "overlap"
+}

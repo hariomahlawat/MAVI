@@ -72,3 +72,26 @@ The read-only measurement export of S3.2 (`docs/superpowers/plans/2026-10-03-sta
 - The JSON is canonical (UTF-8 without BOM, members sorted by ordinal name at every depth, no insignificant whitespace, round-trip numbers, no wall-clock member); the export's identity is the SHA-256 of those bytes, and a repeat over the same persisted state is byte-identical.
 
 The schema constrains only the attestation's producer-identity members; the attestation endpoint owns the rest of its shape. The checked-in example is a real export trimmed to three Tracks and pretty-printed.
+
+## Stage 3 measurement tooling artefacts (S3.2a-2, T2–T6)
+
+Development artefacts of the S3.2 measurement (`docs/superpowers/plans/2026-10-03-stage3-s3-2-vehicle-subclass-measurement.md`); none is an API, worker or search contract. Each is canonical JSON written once (`tools/stage3/artefacts.py`: UTF-8 without BOM, members sorted at every depth, no insignificant whitespace, no trailing newline, round-trip numbers, no generated timestamp) and identified by the SHA-256 of its bytes. Consumers re-hash every input and refuse with a stable code. T1 exports are identified by their exact bytes and are never re-canonicalised.
+
+| Schema | Producer | Binds |
+|---|---|---|
+| `vehicle-subclass-requirements-v1` | the owner, committed before sampling | nothing; every operational value may be `null` |
+| `vehicle-subclass-sample-v1` | `tools/stage3/sample_tracks.py` (T3) | exports, derivations, one release record, the requirements file at a commit that is an ancestor of `HEAD` |
+| `vehicle-subclass-labeling-pack-v1` | `tools/stage3/build_labeling_pack.py` (T4) | the sample, exports, verified profile, the labelling guide at a commit; `parentPackSha256` for an overlap pack |
+| `vehicle-subclass-track-labels-v1` | `tools/stage3/freeze_labels.py freeze` (T5) | the pack (and its view and parent), guide, sample, exports |
+| `vehicle-subclass-adjudication-v1` | `tools/stage3/freeze_labels.py adjudicate` (T5) | both frozen label files |
+| `vehicle-subclass-measurement-v1` | `tools/phase1/evaluate_vehicle_subclass.py --track-labels` (T2) | every input above |
+| `vehicle-subclass-requirement-comparison-v1` | `tools/stage3/run_subclass_measurement.py` (T6) | the measurement and the requirements |
+
+- **Prediction blindness.** The sampler decides from an allow-list projection of each Track that never includes `objectSubclass*` or the confidence summaries. Packs show reviewers only item ids and images. The adjudication commands accept no export, result or attestation. Predictions first appear in T6's `measurement-summary.md`, after every label and adjudication is frozen.
+- **Pack identity.** `packSha256` is the SHA-256 of `pack-manifest.json`. `files[]` lists every pack file except the manifest and `pack-data.js`. `pack-data.js` is derived from the manifest and checked by regenerating it.
+- **Final truth.** The primary decision applies outside the overlap; the adjudication decides overlap Tracks. Human `unknown` is reported and never scored, and MAVI's abstention is never a correct classification.
+- **Batches.** The primary aggregate is the pilot plus same-design continuations only. Supplemental batches are always reported separately and never pooled.
+- **Derivation manifests.** T3 reads `vehicle-subclass-derivation-v1` manifests as a consumer only. It checks the release, the output digest and the authorisation T8 must have obtained: exactly `{purposes, operations, blockers}`, with purposes `["benchmarking", "development"]`, operations `[]` for passthrough and `["create-derivatives"]` for remux or transcode, and no blockers. T3 makes no legal or R-5 decision. T8 itself, and its schema, belong to S3.2b.
+- **Requirement statuses** are decided in this order: `no-requirement` when the minimum is null; `insufficient-support` when evaluable support is below the pre-registered minimum; `does-not-meet` when the estimate is undefined (for example precision for a class MAVI never predicted) despite adequate support, while the raw value stays `null`; otherwise an exact rational comparison gives `meets` or `does-not-meet`.
+- **Adjudication sessions.** `adjudicate-prepare` writes a `sessionId` derived from the exact frozen primary and overlap label hashes. The page resumes adjudication by that session and labelling by `packSha256`. The exported decisions carry the `sessionId`, and `adjudicate` recomputes it and refuses decisions made for another pair, even of the same pack.
+- **Examples.** The examples come from the synthetic fixture pipeline (`tools/stage3/tests/test_s32_pipeline.py`). The requirements example shows the shape only, with every operational value `null`; it is not the owner's pre-registration.
