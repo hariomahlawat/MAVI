@@ -281,7 +281,8 @@ def test_every_export_must_be_exactly_one_authorised_derivation(world, tmp_path,
     document = json.loads(world.derivations()[1].read_text(encoding="utf-8"))
     document["authorisation"]["blockers"] = ["determination-missing"]
     blocked.write_bytes(a.canonical_json(document))
-    refused(capsys, p.sample(world, out, target=4, derivations=[world.derivations()[0], blocked]), "derivation_invalid", out)
+    refused(capsys, p.sample(world, out, target=4, derivations=[world.derivations()[0], blocked]),
+            "derivation_invalid:schema", out)
 
 
 def test_target_larger_than_the_usable_pool_is_refused(world, tmp_path, capsys):
@@ -354,19 +355,19 @@ def test_valid_derivation_authorisations_are_accepted(world, tmp_path, mode):
 
 
 @pytest.mark.parametrize("mode, authorisation, code", [
-    ("passthrough", {"purposes": ["development"], "operations": [], "blockers": []}, "derivation_invalid"),
-    ("passthrough", {"purposes": ["development", "benchmarking"], "operations": [], "blockers": []}, "derivation_invalid"),
-    ("passthrough", {"operations": [], "blockers": []}, "derivation_invalid"),
+    ("passthrough", {"purposes": ["development"], "operations": [], "blockers": []}, "derivation_invalid:schema"),
+    ("passthrough", {"purposes": ["development", "benchmarking"], "operations": [], "blockers": []}, "derivation_invalid:schema"),
+    ("passthrough", {"operations": [], "blockers": []}, "derivation_invalid:schema"),
     ("passthrough", {"purposes": ["benchmarking", "development"], "operations": ["create-derivatives"], "blockers": []},
-     "derivation_invalid"),
-    ("remux", {"purposes": ["benchmarking", "development"], "operations": [], "blockers": []}, "derivation_invalid"),
-    ("transcode", {"purposes": ["benchmarking", "development"], "operations": [], "blockers": []}, "derivation_invalid"),
+     "derivation_invalid:schema"),
+    ("remux", {"purposes": ["benchmarking", "development"], "operations": [], "blockers": []}, "derivation_invalid:schema"),
+    ("transcode", {"purposes": ["benchmarking", "development"], "operations": [], "blockers": []}, "derivation_invalid:schema"),
     ("transcode", {"purposes": ["benchmarking", "development"], "operations": ["create-derivatives", "train"], "blockers": []},
-     "derivation_invalid"),
+     "derivation_invalid:schema"),
     ("remux", {"purposes": ["benchmarking", "development"], "operations": ["create-derivatives"],
-               "blockers": ["rights-operation-pending-r5:create-derivatives"]}, "derivation_invalid"),
+               "blockers": ["rights-operation-pending-r5:create-derivatives"]}, "derivation_invalid:schema"),
     ("passthrough", {"purposes": ["benchmarking", "development"], "operations": [], "blockers": [], "note": "x"},
-     "derivation_invalid"),
+     "derivation_invalid:schema"),
 ])
 def test_derivation_authorisation_contract_is_exact(world, tmp_path, capsys, mode, authorisation, code):
     out = tmp_path / "s.json"
@@ -393,3 +394,19 @@ def test_two_runs_of_one_video_are_refused(tmp_path, capsys):
                           video_id="00000000-0000-0000-0000-00000000cccc", camera=video.camera,
                           source=video.source_path.read_bytes(), profile_sha=world.profile_sha, tracks=f.numbered(20, 2), seed=8)
     refused(capsys, p.sample(world, out, target=2, exports=[video.export_path, copy]), "export_video_duplicate", out)
+
+
+def test_semantic_derivation_checks_remain_behind_the_schema(world, tmp_path, capsys):
+    """Equalities the schema cannot express are still refused by T3's own checks (defence in depth)."""
+    out = tmp_path / "s.json"
+    path = _derived(world, tmp_path, "mismatch", mode="passthrough")[1]
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document["sourceSha256"] = "0" * 64
+    a.validate(document, "vehicle-subclass-derivation-v1", "unexpected")
+    path.write_bytes(a.canonical_json(document))
+    refused(capsys, p.sample(world, out, target=4, derivations=[world.derivations()[0], path]),
+            "derivation_invalid:passthrough", out)
+    valid = f.write_derivation(tmp_path / "valid.json", source=world.videos[1].source_path.read_bytes())
+    path.write_bytes(json.dumps(json.loads(valid.read_bytes()), indent=1).encode("utf-8"))
+    refused(capsys, p.sample(world, out, target=4, derivations=[world.derivations()[0], path]),
+            "derivation_invalid:not_canonical", out)

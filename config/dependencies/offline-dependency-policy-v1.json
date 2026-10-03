@@ -103,7 +103,8 @@
       "tools/requirements.txt": {
         "requirements": [
           "jsonschema[format-nongpl]>=4.23,<5",
-          "scipy==1.18.1"
+          "scipy==1.18.1",
+          "tzdata==2026.4"
         ]
       }
     }
@@ -152,7 +153,7 @@
       ],
       "stagingPath": "vendor/ffmpeg",
       "packagedAs": "application/tools/ffmpeg",
-      "setupIntegration": "application-local dependency resolved by NativeMediaToolStartup/MediaToolPathResolver",
+      "setupIntegration": "application-local dependency resolved by NativeMediaToolStartup/MediaToolPathResolver; the S3.2 development tools (tools/stage3/media_tools.py, probe_media.py, derive_mp4.py) consume the same staged pack only through --media-tools with the same manifest, runtime-id, SHA-256 and version checks, never PATH",
       "verification": "manifest SHA-256 plus executable/version viability before serving requests",
       "licenceHandling": "FFmpeg licence/notices retained with the application payload"
     },

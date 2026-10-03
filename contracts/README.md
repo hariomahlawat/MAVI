@@ -91,7 +91,25 @@ Development artefacts of the S3.2 measurement (`docs/superpowers/plans/2026-10-0
 - **Pack identity.** `packSha256` is the SHA-256 of `pack-manifest.json`. `files[]` lists every pack file except the manifest and `pack-data.js`. `pack-data.js` is derived from the manifest and checked by regenerating it.
 - **Final truth.** The primary decision applies outside the overlap; the adjudication decides overlap Tracks. Human `unknown` is reported and never scored, and MAVI's abstention is never a correct classification.
 - **Batches.** The primary aggregate is the pilot plus same-design continuations only. Supplemental batches are always reported separately and never pooled.
-- **Derivation manifests.** T3 reads `vehicle-subclass-derivation-v1` manifests as a consumer only. It checks the release, the output digest and the authorisation T8 must have obtained: exactly `{purposes, operations, blockers}`, with purposes `["benchmarking", "development"]`, operations `[]` for passthrough and `["create-derivatives"]` for remux or transcode, and no blockers. T3 makes no legal or R-5 decision. T8 itself, and its schema, belong to S3.2b.
+- **Derivation manifests.** T3 reads `vehicle-subclass-derivation-v1` manifests as a consumer only. It checks the release, the output digest and the authorisation T8 must have obtained: exactly `{purposes, operations, blockers}`, with purposes `["benchmarking", "development"]`, operations `[]` for passthrough and `["create-derivatives"]` for remux or transcode, and no blockers. T3 makes no legal or R-5 decision. Since S3.2b-1, T3 first validates each manifest against the `vehicle-subclass-derivation-v1` schema (`derivation_invalid:schema`); the checks above remain as defence in depth.
 - **Requirement statuses** are decided in this order: `no-requirement` when the minimum is null; `insufficient-support` when evaluable support is below the pre-registered minimum; `does-not-meet` when the estimate is undefined (for example precision for a class MAVI never predicted) despite adequate support, while the raw value stays `null`; otherwise an exact rational comparison gives `meets` or `does-not-meet`.
 - **Adjudication sessions.** `adjudicate-prepare` writes a `sessionId` derived from the exact frozen primary and overlap label hashes. The page resumes adjudication by that session and labelling by `packSha256`. The exported decisions carry the `sessionId`, and `adjudicate` recomputes it and refuses decisions made for another pair, even of the same pack.
 - **Examples.** The examples come from the synthetic fixture pipeline (`tools/stage3/tests/test_s32_pipeline.py`). The requirements example shows the shape only, with every operational value `null`; it is not the owner's pre-registration.
+
+## Stage 3 media, derivation and Development-host execution artefacts (S3.2b-1, T7–T9)
+
+Same canonical form and write-once rule as above; none is an API, worker or search contract. Local paths (release root, media pack, API URL, journal, export root) are runtime-only and never recorded.
+
+| Schema | Producer | Binds |
+|---|---|---|
+| `vehicle-subclass-media-probe-v1` | `tools/stage3/probe_media.py` (T7) | the probed bytes' SHA-256 and size, the verified ffprobe `{version, sha256}` |
+| `vehicle-subclass-source-pool-v1` | `tools/stage3/freeze_source_pool.py` (T7) | the release record (`release_sha256`), each member's release hash and probe record |
+| `vehicle-subclass-derivation-v1` | `tools/stage3/derive_mp4.py` (T8); consumed by T3 and T9 | the release record and member, the authorisation obtained, source and output probes, the FFmpeg identity and pinned args, the host import limit |
+| `vehicle-subclass-ingestion-map-v1` | the operator, committed before the first T9 import | the source pool; release metadata or the committed Development convention per member |
+| `vehicle-subclass-t9-execution-v1` | `tools/stage3/ingest_source_pool.py` (T9) | the committed pool and map, the release, the measured profile, the single producer identity; per member its derivation, MAVI asset, journalled run, attestation and export |
+
+- **Approved binaries.** FFmpeg and ffprobe come only from a MAVI FFmpeg dependency pack (`--media-tools`; manifest, runtime id, SHA-256, version), never from PATH. Artefacts record the manifest's version token and the executable SHA-256 only.
+- **Import parity.** `maviImport.containerSupported` is an exact port of `PhaseOneMp4ContainerPolicy.IsSupported`. `contracts/test-vectors/phase1-mp4-container-policy-v1.json` pins it and is consumed by both `Mavi.Application.Tests` and the Python probe tests.
+- **Rights.** Release records stay `mavi-attribute-dataset-release-v1` and are checked only by `tools/qualification/attributes/datasets/release.py`. T8 authorises `operations=[]` for passthrough and `["create-derivatives"]` for remux or transcode and writes nothing on a blocker. No S3.2 tool makes a legal or R-5 decision.
+- **Freshness.** T9 refuses a catalogue that holds anything its own journal does not explain, never adopts a duplicate import, and never polls a run it did not queue. The execution record carries no native-media pack identity, because no product surface exposes one.
+- **Examples** are synthetic and name no real release, camera or member.

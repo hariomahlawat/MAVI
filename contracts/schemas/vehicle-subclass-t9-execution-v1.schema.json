@@ -1,0 +1,424 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-t9-execution-v1.schema.json",
+  "title": "vehicle-subclass-t9-execution-v1",
+  "description": "The T9 execution record (S3.2 plan T9): frozen release member -> T8 derivation -> derived SHA-256 -> MAVI camera and VideoAsset -> processing run (queued and journalled by T9) -> attestation -> T1 export, bound to the committed source pool and ingestion map, the release record, the measured profile and the single producer identity every attestation carries. Camera and time fields come only from the ingestion map. It records no native-media pack identity (no product surface exposes one) and no local path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sourcePoolSha256",
+    "sourcePoolBinding",
+    "ingestionMapSha256",
+    "ingestionMapBinding",
+    "releaseRecordSha256",
+    "measuredProfileSha256",
+    "producer",
+    "cameras",
+    "members"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vehicle-subclass-t9-execution-v1"
+    },
+    "sourcePoolSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sourcePoolBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gitCommit",
+        "gitPath"
+      ],
+      "properties": {
+        "gitCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "gitPath": {
+          "enum": [
+            "docs/qualification/stage3/s3-2-source-pool.json",
+            "docs/qualification/stage3/s3-2-source-pool.sha256"
+          ]
+        }
+      }
+    },
+    "ingestionMapSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ingestionMapBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gitCommit",
+        "gitPath"
+      ],
+      "properties": {
+        "gitCommit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "gitPath": {
+          "enum": [
+            "docs/qualification/stage3/s3-2-ingestion-map.json",
+            "docs/qualification/stage3/s3-2-ingestion-map.sha256"
+          ]
+        }
+      }
+    },
+    "releaseRecordSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "measuredProfileSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelId",
+        "modelVersion",
+        "pipelineProfileId",
+        "pipelineProfileVersion",
+        "runtimeProfileId",
+        "runtimeVariant",
+        "verificationStatus",
+        "maviCommit",
+        "maviBuild",
+        "modelPackId",
+        "runtimePackId",
+        "runtimePackSource",
+        "modelManifestSha256",
+        "checkpointSha256",
+        "resolvedConfigSha256",
+        "pipelineProfileSha256",
+        "runtimeProfileSha256",
+        "qualificationSha256",
+        "componentBindingSha256",
+        "platform"
+      ],
+      "properties": {
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "modelVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "pipelineProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "pipelineProfileVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "runtimeProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "runtimeVariant": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "verificationStatus": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "maviCommit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "maviBuild": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "modelPackId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "runtimePackId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "runtimePackSource": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "modelManifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "checkpointSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "resolvedConfigSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "pipelineProfileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "runtimeProfileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "qualificationSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "componentBindingSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "platform": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        }
+      }
+    },
+    "cameras": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceCamera",
+          "cameraCode",
+          "name",
+          "timeZoneId",
+          "cameraId"
+        ],
+        "properties": {
+          "sourceCamera": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^\\S([^\\r\\n]*\\S)?$"
+          },
+          "cameraCode": {
+            "type": "string",
+            "pattern": "^S32-[A-Z0-9-]{1,28}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^\\S([^\\r\\n]*\\S)?$"
+          },
+          "timeZoneId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_+\\-]+(/[A-Za-z0-9_+\\-]+)*$"
+          },
+          "cameraId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        }
+      }
+    },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member",
+          "derivationManifestSha256",
+          "derivedSha256",
+          "cameraCode",
+          "recordingStartLocal",
+          "recordingTime",
+          "videoAssetId",
+          "processingRunId",
+          "attestationSha256",
+          "exportSha256"
+        ],
+        "properties": {
+          "member": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "pattern": "^(?!/)(?!.*(^|/)\\.{1,2}(/|$))(?!.*//)[^\\\\:\\r\\n\\x00]+(?<!/)$"
+          },
+          "derivationManifestSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "derivedSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "cameraCode": {
+            "type": "string",
+            "pattern": "^S32-[A-Z0-9-]{1,28}$"
+          },
+          "recordingStartLocal": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}$"
+          },
+          "recordingTime": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "source",
+                  "evidence"
+                ],
+                "properties": {
+                  "source": {
+                    "const": "release-metadata"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "releaseRecordSha256",
+                      "member"
+                    ],
+                    "properties": {
+                      "releaseRecordSha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "member": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "pattern": "^(?!/)(?!.*(^|/)\\.{1,2}(/|$))(?!.*//)[^\\\\:\\r\\n\\x00]+(?<!/)$"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "source",
+                  "convention"
+                ],
+                "properties": {
+                  "source": {
+                    "const": "development-convention"
+                  },
+                  "convention": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "sha256",
+                      "gitCommit",
+                      "gitPath"
+                    ],
+                    "properties": {
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "gitCommit": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      },
+                      "gitPath": {
+                        "const": "docs/qualification/stage3/s3-2-ingestion-convention.md"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "videoAssetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "processingRunId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "attestationSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "exportSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

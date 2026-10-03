@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-media-probe-v1.schema.json",
+  "title": "vehicle-subclass-media-probe-v1",
+  "description": "One probed media file (S3.2 plan T7): what the platform's FfprobeVideoMetadataReader reads from it, with the verified ffprobe identity, and what MAVI's Phase-1 importer would decide (containerSupported is an exact port of PhaseOneMp4ContainerPolicy, pinned by contracts/test-vectors/phase1-mp4-container-policy-v1.json). Never names a file or path. Development tooling evidence; never an API surface.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sourceSha256",
+    "sourceSizeBytes",
+    "ffprobe",
+    "format",
+    "videoStreamCount",
+    "video",
+    "maviImport"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vehicle-subclass-media-probe-v1"
+    },
+    "sourceSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sourceSizeBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ffprobe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "sha256"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "format": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "formatName",
+        "majorBrand",
+        "durationMs"
+      ],
+      "properties": {
+        "formatName": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "majorBrand": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 1
+            }
+          ]
+        }
+      }
+    },
+    "videoStreamCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "video": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "codec",
+            "profile",
+            "width",
+            "height",
+            "frameRateNumerator",
+            "frameRateDenominator",
+            "durationMs",
+            "frameCount",
+            "frameCountSource"
+          ],
+          "properties": {
+            "codec": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$"
+                }
+              ]
+            },
+            "profile": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$"
+                }
+              ]
+            },
+            "width": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              ]
+            },
+            "height": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              ]
+            },
+            "frameRateNumerator": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              ]
+            },
+            "frameRateDenominator": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              ]
+            },
+            "durationMs": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              ]
+            },
+            "frameCount": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              ]
+            },
+            "frameCountSource": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "const": "container"
+                }
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "frameCount": {
+                      "type": "null"
+                    },
+                    "frameCountSource": {
+                      "type": "null"
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "frameCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "frameCountSource": {
+                      "const": "container"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "anyOf": [
+                {
+                  "properties": {
+                    "frameRateNumerator": {
+                      "type": "null"
+                    },
+                    "frameRateDenominator": {
+                      "type": "null"
+                    }
+                  }
+                },
+                {
+                  "properties": {
+                    "frameRateNumerator": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    },
+                    "frameRateDenominator": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "maviImport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "containerSupported",
+        "metadataValid"
+      ],
+      "properties": {
+        "policy": {
+          "const": "phase1-mp4-container-v1"
+        },
+        "containerSupported": {
+          "type": "boolean"
+        },
+        "metadataValid": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "properties": {
+            "videoStreamCount": {
+              "const": 0
+            },
+            "video": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "videoStreamCount": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "video": {
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "if": {
+        "properties": {
+          "maviImport": {
+            "properties": {
+              "metadataValid": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "format": {
+            "properties": {
+              "formatName": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "video": {
+            "type": "object",
+            "properties": {
+              "codec": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "width": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "height": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "frameRateNumerator": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "frameRateDenominator": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "durationMs": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

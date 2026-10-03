@@ -1,0 +1,706 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-derivation-v1.schema.json",
+  "title": "vehicle-subclass-derivation-v1",
+  "description": "One derived MP4 (S3.2 plan T8): the authorised, hash-bound path from one release member to the video.mp4 that T9 imports. T8 (tools/stage3/derive_mp4.py) is its producer and T3 consumes it. The schema pins the mode constants (purposes, operations, args, FFmpeg identity presence); equality between members (passthrough output equals source; probe hashes equal the recorded hashes) is enforced by T8 and T3 code. No local path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "release",
+    "authorisation",
+    "sourceSha256",
+    "sourceMedia",
+    "mode",
+    "ffmpegVersion",
+    "ffmpegSha256",
+    "args",
+    "outputSha256",
+    "outputMedia",
+    "importLimitBytes"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "vehicle-subclass-derivation-v1"
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "releaseId",
+        "releaseRecordSha256",
+        "member"
+      ],
+      "properties": {
+        "releaseId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "releaseRecordSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "member": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*(^|/)\\.{1,2}(/|$))(?!.*//)[^\\\\:\\r\\n\\x00]+(?<!/)$"
+        }
+      }
+    },
+    "authorisation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "purposes",
+        "operations",
+        "blockers"
+      ],
+      "properties": {
+        "purposes": {
+          "const": [
+            "benchmarking",
+            "development"
+          ]
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "const": "create-derivatives"
+          },
+          "maxItems": 1
+        },
+        "blockers": {
+          "const": []
+        }
+      }
+    },
+    "sourceSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "sourceMedia": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/probe"
+        },
+        {
+          "properties": {
+            "videoStreamCount": {
+              "const": 1
+            }
+          }
+        }
+      ]
+    },
+    "mode": {
+      "enum": [
+        "passthrough",
+        "remux",
+        "transcode"
+      ]
+    },
+    "ffmpegVersion": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        }
+      ]
+    },
+    "ffmpegSha256": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      ]
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "outputMedia": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/probe"
+        },
+        {
+          "properties": {
+            "videoStreamCount": {
+              "const": 1
+            },
+            "maviImport": {
+              "properties": {
+                "containerSupported": {
+                  "const": true
+                },
+                "metadataValid": {
+                  "const": true
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "importLimitBytes": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "mode": {
+          "const": "passthrough"
+        },
+        "authorisation": {
+          "properties": {
+            "operations": {
+              "const": []
+            }
+          }
+        },
+        "args": {
+          "const": []
+        },
+        "ffmpegVersion": {
+          "type": "null"
+        },
+        "ffmpegSha256": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "properties": {
+        "mode": {
+          "const": "remux"
+        },
+        "authorisation": {
+          "properties": {
+            "operations": {
+              "const": [
+                "create-derivatives"
+              ]
+            }
+          }
+        },
+        "args": {
+          "const": [
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "{input}",
+            "-map",
+            "0:v:0",
+            "-c:v",
+            "copy",
+            "-an",
+            "-sn",
+            "-dn",
+            "-map_metadata",
+            "-1",
+            "-map_chapters",
+            "-1",
+            "-fflags",
+            "+bitexact",
+            "-flags:v",
+            "+bitexact",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+            "{output}"
+          ]
+        },
+        "ffmpegVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "ffmpegSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sourceMedia": {
+          "properties": {
+            "video": {
+              "properties": {
+                "codec": {
+                  "enum": [
+                    "h264"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "mode": {
+          "const": "transcode"
+        },
+        "authorisation": {
+          "properties": {
+            "operations": {
+              "const": [
+                "create-derivatives"
+              ]
+            }
+          }
+        },
+        "args": {
+          "const": [
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            "{input}",
+            "-map",
+            "0:v:0",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "slow",
+            "-crf",
+            "16",
+            "-pix_fmt",
+            "yuv420p",
+            "-threads",
+            "1",
+            "-an",
+            "-sn",
+            "-dn",
+            "-map_metadata",
+            "-1",
+            "-map_chapters",
+            "-1",
+            "-fflags",
+            "+bitexact",
+            "-flags:v",
+            "+bitexact",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+            "{output}"
+          ]
+        },
+        "ffmpegVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "ffmpegSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "sourceSha256",
+        "sourceSizeBytes",
+        "ffprobe",
+        "format",
+        "videoStreamCount",
+        "video",
+        "maviImport"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "vehicle-subclass-media-probe-v1"
+        },
+        "sourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sourceSizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ffprobe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "sha256"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "format": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "formatName",
+            "majorBrand",
+            "durationMs"
+          ],
+          "properties": {
+            "formatName": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "majorBrand": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "durationMs": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              ]
+            }
+          }
+        },
+        "videoStreamCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "video": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "codec",
+                "profile",
+                "width",
+                "height",
+                "frameRateNumerator",
+                "frameRateDenominator",
+                "durationMs",
+                "frameCount",
+                "frameCountSource"
+              ],
+              "properties": {
+                "codec": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^\\S(.*\\S)?$"
+                    }
+                  ]
+                },
+                "profile": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^\\S(.*\\S)?$"
+                    }
+                  ]
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    }
+                  ]
+                },
+                "frameRateNumerator": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    }
+                  ]
+                },
+                "frameRateDenominator": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    }
+                  ]
+                },
+                "durationMs": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  ]
+                },
+                "frameCount": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  ]
+                },
+                "frameCountSource": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "const": "container"
+                    }
+                  ]
+                }
+              },
+              "allOf": [
+                {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "frameCount": {
+                          "type": "null"
+                        },
+                        "frameCountSource": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "frameCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "frameCountSource": {
+                          "const": "container"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "frameRateNumerator": {
+                          "type": "null"
+                        },
+                        "frameRateDenominator": {
+                          "type": "null"
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "frameRateNumerator": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 2147483647
+                        },
+                        "frameRateDenominator": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 2147483647
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "maviImport": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "policy",
+            "containerSupported",
+            "metadataValid"
+          ],
+          "properties": {
+            "policy": {
+              "const": "phase1-mp4-container-v1"
+            },
+            "containerSupported": {
+              "type": "boolean"
+            },
+            "metadataValid": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "videoStreamCount": {
+                  "const": 0
+                },
+                "video": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "videoStreamCount": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "video": {
+                  "type": "object"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "maviImport": {
+                "properties": {
+                  "metadataValid": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "format": {
+                "properties": {
+                  "formatName": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "video": {
+                "type": "object",
+                "properties": {
+                  "codec": {
+                    "not": {
+                      "type": "null"
+                    }
+                  },
+                  "width": {
+                    "not": {
+                      "type": "null"
+                    }
+                  },
+                  "height": {
+                    "not": {
+                      "type": "null"
+                    }
+                  },
+                  "frameRateNumerator": {
+                    "not": {
+                      "type": "null"
+                    }
+                  },
+                  "frameRateDenominator": {
+                    "not": {
+                      "type": "null"
+                    }
+                  },
+                  "durationMs": {
+                    "not": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "vehicle-subclass-derivation-v1",
+  "release": {
+    "releaseId": "synthetic-traffic-release",
+    "releaseRecordSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+    "member": "videos/c001/clip.mkv"
+  },
+  "authorisation": {
+    "purposes": [
+      "benchmarking",
+      "development"
+    ],
+    "operations": [
+      "create-derivatives"
+    ],
+    "blockers": []
+  },
+  "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "sourceMedia": {
+    "schemaVersion": "vehicle-subclass-media-probe-v1",
+    "sourceSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "sourceSizeBytes": 98000000,
+    "ffprobe": {
+      "version": "9.0.1-essentials_build-www.gyan.dev",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "format": {
+      "formatName": "matroska,webm",
+      "majorBrand": null,
+      "durationMs": 300000
+    },
+    "videoStreamCount": 1,
+    "video": {
+      "codec": "h264",
+      "profile": "High",
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 10,
+      "frameRateDenominator": 1,
+      "durationMs": 300000,
+      "frameCount": null,
+      "frameCountSource": null
+    },
+    "maviImport": {
+      "policy": "phase1-mp4-container-v1",
+      "containerSupported": false,
+      "metadataValid": true
+    }
+  },
+  "mode": "remux",
+  "ffmpegVersion": "9.0.1-essentials_build-www.gyan.dev",
+  "ffmpegSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "args": [
+    "-nostdin",
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-i",
+    "{input}",
+    "-map",
+    "0:v:0",
+    "-c:v",
+    "copy",
+    "-an",
+    "-sn",
+    "-dn",
+    "-map_metadata",
+    "-1",
+    "-map_chapters",
+    "-1",
+    "-fflags",
+    "+bitexact",
+    "-flags:v",
+    "+bitexact",
+    "-movflags",
+    "+faststart",
+    "-f",
+    "mp4",
+    "{output}"
+  ],
+  "outputSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "outputMedia": {
+    "schemaVersion": "vehicle-subclass-media-probe-v1",
+    "sourceSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "sourceSizeBytes": 97500000,
+    "ffprobe": {
+      "version": "9.0.1-essentials_build-www.gyan.dev",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "format": {
+      "formatName": "mov,mp4,m4a,3gp,3g2,mj2",
+      "majorBrand": "isom",
+      "durationMs": 300000
+    },
+    "videoStreamCount": 1,
+    "video": {
+      "codec": "h264",
+      "profile": "High",
+      "width": 1920,
+      "height": 1080,
+      "frameRateNumerator": 10,
+      "frameRateDenominator": 1,
+      "durationMs": 300000,
+      "frameCount": 3000,
+      "frameCountSource": "container"
+    },
+    "maviImport": {
+      "policy": "phase1-mp4-container-v1",
+      "containerSupported": true,
+      "metadataValid": true
+    }
+  },
+  "importLimitBytes": 3221225472
+}

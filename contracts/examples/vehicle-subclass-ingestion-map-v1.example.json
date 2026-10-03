@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "vehicle-subclass-ingestion-map-v1",
+  "sourcePoolSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "cameras": [
+    {
+      "sourceCamera": "c001",
+      "cameraCode": "S32-C001",
+      "name": "Synthetic camera c001",
+      "timeZoneId": "America/New_York"
+    },
+    {
+      "sourceCamera": "c002",
+      "cameraCode": "S32-C002",
+      "name": "Synthetic camera c002",
+      "timeZoneId": "America/New_York"
+    },
+    {
+      "sourceCamera": "c003",
+      "cameraCode": "S32-C003",
+      "name": "Synthetic camera c003",
+      "timeZoneId": "America/New_York"
+    }
+  ],
+  "members": [
+    {
+      "member": "videos/c001/clip-00.mkv",
+      "cameraCode": "S32-C001",
+      "recordingStartLocal": "2026-04-01T09:00:00",
+      "recordingTime": {
+        "source": "development-convention",
+        "convention": {
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "gitCommit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "gitPath": "docs/qualification/stage3/s3-2-ingestion-convention.md"
+        }
+      }
+    },
+    {
+      "member": "videos/c002/clip-01.mkv",
+      "cameraCode": "S32-C002",
+      "recordingStartLocal": "2026-04-02T09:00:00",
+      "recordingTime": {
+        "source": "release-metadata",
+        "evidence": {
+          "releaseRecordSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+          "member": "metadata/timestamps.txt"
+        }
+      }
+    },
+    {
+      "member": "videos/c003/clip-02.mkv",
+      "cameraCode": "S32-C003",
+      "recordingStartLocal": "2026-04-03T09:00:00",
+      "recordingTime": {
+        "source": "development-convention",
+        "convention": {
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "gitCommit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "gitPath": "docs/qualification/stage3/s3-2-ingestion-convention.md"
+        }
+      }
+    },
+    {
+      "member": "videos/c001/clip-03.mkv",
+      "cameraCode": "S32-C001",
+      "recordingStartLocal": "2026-04-04T09:00:00",
+      "recordingTime": {
+        "source": "release-metadata",
+        "evidence": {
+          "releaseRecordSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+          "member": "metadata/timestamps.txt"
+        }
+      }
+    },
+    {
+      "member": "videos/c002/clip-04.mkv",
+      "cameraCode": "S32-C002",
+      "recordingStartLocal": "2026-04-05T09:00:00",
+      "recordingTime": {
+        "source": "development-convention",
+        "convention": {
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "gitCommit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "gitPath": "docs/qualification/stage3/s3-2-ingestion-convention.md"
+        }
+      }
+    },
+    {
+      "member": "videos/c003/clip-05.mkv",
+      "cameraCode": "S32-C003",
+      "recordingStartLocal": "2026-04-06T09:00:00",
+      "recordingTime": {
+        "source": "release-metadata",
+        "evidence": {
+          "releaseRecordSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+          "member": "metadata/timestamps.txt"
+        }
+      }
+    }
+  ]
+}
