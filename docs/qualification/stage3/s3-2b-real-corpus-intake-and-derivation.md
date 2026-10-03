@@ -137,7 +137,14 @@ Set-Location $Repo
 
 **Retain.** `pack-identity.json`, the pack's `win-x64\LICENSE.txt`, and the catalog entry it came from.
 
-**Exit.** Use `$Pack` unchanged for every §8, §13 and §14 command. If the pack changes mid-event, all later probes and derivations differ in identity. Avoid that: if it must change, record why and re-probe.
+**Exit.** Use `$Pack` unchanged for every §8, §13 and §14 command. `pack-identity.json` is immutable for the event.
+
+**Frozen pack rule.** The pack must not change during an event. If the live pack no longer matches `pack-identity.json` (a §16(c) `MISMATCH` or any `media_tools_invalid:*`):
+1. **Stop** all processing for the event.
+2. If the original, byte-identical pack can be restored (for example from its retained copy or the verified offline kit), restore it into `$Pack`. Continue only if §16(c) then passes in full: the live pack and every existing probe and derivation must match `pack-identity.json`. Artefacts already made with a different pack are write-once and cannot be replaced (the frozen pool binds the probe hashes), so if any exist, abandon the event.
+3. Otherwise, **abandon the event**. Retain its store as evidence, and start a new event, with a new store and a newly frozen `pack-identity.json`, from §1.
+
+Re-probing or re-deriving with a different pack never rehabilitates the existing event: §16(c) and E21 still refuse it.
 
 ---
 
@@ -385,7 +392,7 @@ $SrcSha = (Get-FileHash -Algorithm SHA256 $Src).Hash.ToLowerInvariant()
 **Media facts, not rights facts.** `containerSupported=false` or `metadataValid=false` only selects a derivation mode (§13). It never affects rights.
 
 **Stop.**
-- `media_tools_invalid:*`: fix the pack (§2).
+- `media_tools_invalid:*`: apply the §2 frozen pack rule (restore the byte-identical frozen pack, or abandon the event).
 - `probe_input_unreadable` or `probe_failed`: the file is unreadable or not media, so the member is not a candidate. Note it in the review sheet.
 - `probe_invalid_media`: likewise not a candidate.
 
@@ -767,7 +774,8 @@ print("pack-consistent" if not bad else f"MISMATCH {bad}"); sys.exit(1 if bad el
 **Stop.** Any refusal, assertion or `MISMATCH`:
 - `t9_derivation_*`: a derivation does not match its pool member or release;
 - `*:not_committed:*`: a binding commit is wrong (§11.3);
-- `ingestion_map_invalid:*`: §12.
+- `ingestion_map_invalid:*`: §12;
+- (c) `MISMATCH`: apply the §2 frozen pack rule. Never re-probe or re-derive with a different pack within the same event.
 
 ---
 
@@ -839,6 +847,7 @@ $MaxImportBytes=<HOST_VideoImport_MaximumFileSizeBytes>; Set-Location $Repo
   ForEach-Object { New-Item -ItemType Directory -Force "$Store\$_" | Out-Null }
 
 # --- media tools (§2)
+# once per event, before any probe; never repeated within the event (§2 frozen pack rule)
 & "$Repo\tools\setup\Prepare-MaviFfmpegWindows.ps1"; Copy-Item -Recurse "$Repo\vendor\ffmpeg" $Pack
 # then run the §2 verification snippet -> $Store\media-tools\pack-identity.json (written once)
 
@@ -881,7 +890,7 @@ Every refusal is fail-closed:
 
 | Refusal family | Meaning | Action |
 |---|---|---|
-| `media_tools_invalid:*` (`manifest`, `schema`, `version`, `runtime`, `artifacts`, `not_listed`, `sha256_invalid`, `missing`, `sha256_mismatch`, `start`, `version_mismatch`, `changed`, `architecture`, `platform`) | the pack is not the verified pack, or a binary changed after verification | stop all probing and derivation; re-verify or re-prepare the pack (§2); outputs made with another pack are a different identity |
+| `media_tools_invalid:*` (`manifest`, `schema`, `version`, `runtime`, `artifacts`, `not_listed`, `sha256_invalid`, `missing`, `sha256_mismatch`, `start`, `version_mismatch`, `changed`, `architecture`, `platform`) | the pack is not the verified pack, or a binary changed after verification | before `pack-identity.json` exists (§2), fix or re-prepare the pack and freeze it. After that, stop all probing and derivation and apply the §2 frozen pack rule: restore the byte-identical frozen pack and confirm it with §16(c), or abandon the event and start a new one with a newly frozen identity. Never re-prepare the pack within the same event; outputs made with another pack can never satisfy E21 |
 | `probe_input_unreadable`, `probe_failed`, `probe_invalid_media` | unreadable, not media, or ffprobe failed | exclude the file from candidacy; note it in the review sheet |
 | `probe_invalid:schema:*` | the probe record failed its own schema (a tool defect, not a media property) | retain the input and log; engineering issue |
 | `source_pool_invalid:release*` | the record does not parse, the root is in Git, or the store does not verify | §7; restore bytes; never re-hash to match |
