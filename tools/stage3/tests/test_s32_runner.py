@@ -28,7 +28,8 @@ def fraction(numerator, denominator):
     (0.5, fraction(49, 100), 30, "does-not-meet"),  # below
     (0.5, fraction(51, 100), 30, "meets"),       # above
     (0.5, fraction(30, 30), 29, "insufficient-support"),  # one below the minimum support
-    (0.5, fraction(0, 0), 30, "insufficient-support"),    # undefined (null) metric
+    (0.5, fraction(0, 0), 30, "does-not-meet"),           # undefined with adequate support: not demonstrated
+    (0.5, fraction(0, 0), 29, "insufficient-support"),    # undefined and below the minimum support
     (0.1, fraction(1, 10), 30, "meets"),         # exact rational compare: 1/10 is not below 0.1
 ])
 def test_status_rules(minimum, observed, support, expected):
@@ -145,3 +146,56 @@ def test_a_decision_moved_to_another_track_is_refused(built, tmp_path, capsys):
     rebound.write_bytes(a.canonical_json(adjudication))
     refused(capsys, measure_args(world, batch, tmp_path / "o", labels=[swapped], adjudications=[rebound]),
             "pack_labels_mismatch", tmp_path / "o")
+
+
+def test_undefined_precision_with_adequate_support_does_not_meet_and_stays_null(tmp_path):
+    # Humans call three Tracks a bus; MAVI never predicts bus. Bus precision is 0/0 (null) with support 3,
+    # above the synthetic minimum of 2, against a non-null precision requirement: not demonstrated.
+    requirements = json.loads(json.dumps(f.SYNTHETIC_REQUIREMENTS))
+    requirements["operational"]["perClass"]["bus"]["precision"]["minimum"] = 0.5
+    requirements["operational"]["perClass"]["motorcycle"]["precision"]["minimum"] = 0.5
+    world = f.build_world(tmp_path / "w", LAYOUT, requirements=requirements)
+    humans = {n: (("bus", None) if n <= 3 else ("motorcycle", None) if n == 4 else ("car", None)) for n in range(1, 9)}
+    batch = p.batch(world, tmp_path / "pilot", target=8, seed="undefined", primary=humans)
+    p.run(rm.main, measure_args(world, batch, tmp_path / "out"))
+    result = json.loads((tmp_path / "out" / rm.RESULT).read_text(encoding="utf-8"))
+    comparison = json.loads((tmp_path / "out" / rm.COMPARISON).read_text(encoding="utf-8"))
+    rows = {(c["criterion"], c["class"]): c for c in comparison["criteria"]}
+    bus = result["primary"]["metrics"]["perClass"]["bus"]
+    assert bus["support"] == 3 and bus["predicted"] == 0
+    assert bus["precision"] == {"numerator": 0, "denominator": 0, "value": None}  # the raw value stays null
+    assert rows[("precision", "bus")]["status"] == "does-not-meet"
+    # Motorcycle: also never predicted, but support 1 is below the minimum of 2.
+    assert rows[("precision", "motorcycle")]["status"] == "insufficient-support"
+    assert "insufficient-support" in (tmp_path / "out" / rm.SUMMARY).read_text(encoding="utf-8")
+
+
+def test_a_decision_moved_to_another_track_is_refused(built, tmp_path, capsys):
+    world, batch, _ = built
+    labels = json.loads(batch["primaryLabels"].read_text(encoding="utf-8"))
+    first, second = labels["decisions"][0], labels["decisions"][1]
+    first["trackId"], second["trackId"] = second["trackId"], first["trackId"]
+    swapped = tmp_path / "swapped.json"
+    swapped.write_bytes(a.canonical_json(labels))
+    adjudication = json.loads(batch["adjudication"].read_text(encoding="utf-8"))
+    adjudication["primaryLabelsSha256"] = a.sha256_hex(swapped.read_bytes())
+    rebound = tmp_path / "adjudication.json"
+    rebound.write_bytes(a.canonical_json(adjudication))
+    refused(capsys, measure_args(world, batch, tmp_path / "o", labels=[swapped], adjudications=[rebound]),
+            "pack_labels_mismatch", tmp_path / "o")
+
+
+def test_undefined_precision_with_adequate_support_does_not_meet_and_stays_null(built, tmp_path):
+    world, batch, _ = built
+    p.run(rm.main, measure_args(world, batch, tmp_path / "out"))
+    result = json.loads((tmp_path / "out" / rm.RESULT).read_text(encoding="utf-8"))
+    comparison = json.loads((tmp_path / "out" / rm.COMPARISON).read_text(encoding="utf-8"))
+    car = result["primary"]["metrics"]["perClass"]["car"]
+    # Fixture: every Track is a human car; MAVI predicts car or truck, so truck is never right and car has support 8.
+    truck_precision = next(c for c in comparison["criteria"] if (c["criterion"], c["class"]) == ("precision", "truck"))
+    assert truck_precision["observed"]["value"] is None or truck_precision["observed"]["denominator"] >= 0
+    rows = {(c["criterion"], c["class"]): c for c in comparison["criteria"]}
+    assert car["support"] == 8
+    # truck has zero human support (below the minimum of 2): insufficient, whatever its precision.
+    assert rows[("precision", "truck")]["status"] == "insufficient-support"
+    assert rm.status(0.9, {"numerator": 0, "denominator": 0, "value": None}, car["support"], 2) == "does-not-meet"

@@ -19,7 +19,8 @@
   var queue = adjudication
     ? adjudication.items.filter(function (entry) { return entry.needsDecision; }).map(function (entry) { return entry.itemId; })
     : pack.items.map(function (item) { return item.itemId; });
-  var storeKey = (adjudication ? "mavi-s32-adjudication:" : "mavi-s32-labels:") + pack.packSha256;
+  // Labelling resumes per pack; adjudication resumes per frozen primary/overlap pair (its session).
+  var storeKey = adjudication ? "mavi-s32-adjudication:" + adjudication.sessionId : "mavi-s32-labels:" + pack.packSha256;
   var state = { reviewer: "", decisions: {} };
   try {
     var saved = window.localStorage.getItem(storeKey);
@@ -125,7 +126,8 @@
       return sortedObject(out);
     });
     var document_ = adjudication
-      ? { decisions: decisions, overlapLabelsSha256: adjudication.overlapLabelsSha256, primaryLabelsSha256: adjudication.primaryLabelsSha256 }
+      ? { decisions: decisions, overlapLabelsSha256: adjudication.overlapLabelsSha256, primaryLabelsSha256: adjudication.primaryLabelsSha256,
+          sessionId: adjudication.sessionId }
       : { decisions: decisions, packSha256: pack.packSha256, reviewerName: (state.reviewer || "").trim() };
     var blob = new Blob([JSON.stringify(sortedObject(document_))], { type: "application/json" });
     var link = document.createElement("a");

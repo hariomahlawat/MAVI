@@ -166,14 +166,22 @@ def write_export(directory: Path, *, run_id: str, video_id: str, camera: str, so
 
 
 def write_derivation(path: Path, *, source: bytes, release_id: str = "synthetic-release-1",
-                     release_record_sha: str = "e" * 64, member: str = "videos/clip.mp4") -> Path:
+                     release_record_sha: str = "e" * 64, member: str = "videos/clip.mp4", mode: str = "passthrough",
+                     authorisation: dict[str, Any] | None = None) -> Path:
+    """A T8-shaped manifest (consumer view only). ``source`` is the derived MP4 the export names; for a remux
+    or transcode the release member's own bytes differ, so its digest is synthetic here."""
     sha = a.sha256_hex(source)
+    derived = mode != "passthrough"
     document = {
         "schemaVersion": "vehicle-subclass-derivation-v1",
         "release": {"releaseId": release_id, "releaseRecordSha256": release_record_sha, "member": member},
-        "authorisation": {"purposes": ["benchmarking", "development"], "operations": [], "blockers": []},
-        "sourceSha256": sha, "sourceMedia": {"container": "mp4"}, "mode": "passthrough",
-        "ffmpegVersion": None, "ffmpegSha256": None, "args": [], "outputSha256": sha, "outputMedia": {"container": "mp4"},
+        "authorisation": authorisation if authorisation is not None else {
+            "purposes": ["benchmarking", "development"],
+            "operations": ["create-derivatives"] if derived else [], "blockers": []},
+        "sourceSha256": a.sha256_hex(b"release member " + source[:64]) if derived else sha,
+        "sourceMedia": {"container": "mkv" if derived else "mp4"}, "mode": mode,
+        "ffmpegVersion": "7.1" if derived else None, "ffmpegSha256": ("b" * 64) if derived else None,
+        "args": ["-c", "copy"] if derived else [], "outputSha256": sha, "outputMedia": {"container": "mp4"},
     }
     path.write_bytes(a.canonical_json(document))
     return path

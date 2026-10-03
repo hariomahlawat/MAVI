@@ -75,7 +75,7 @@
   ],
   "releaseRecordSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "requirements": {
-    "gitCommit": "1a0ffc2eb857f8ac996aa223bf94da256c95f751",
+    "gitCommit": "ab782a4a59123b00ff6ef71c32976e791938c7eb",
     "gitPath": "docs/qualification/stage3/s3-2-subclass-requirements.json",
     "sha256": "126256664acf46cbaa7bd09de75af1aaddae1d7888781933ebcb47d554c51550"
   },

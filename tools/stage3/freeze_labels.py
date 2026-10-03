@@ -104,6 +104,11 @@ def freeze(pack_dir: Path, draft_path: Path, reviewer_name: str, reviewer_role: 
 # adjudication
 
 
+def session_id(primary_sha: str, overlap_sha: str) -> str:
+    """The adjudication session: one exact frozen primary/overlap pair, nothing else."""
+    return a.h("mavi-s32-adjudication-session", primary_sha, overlap_sha)
+
+
 def read_labels(path: Path, code: str) -> tuple[dict[str, Any], str]:
     document, _, sha = a.read_artefact(path, LABELS_SCHEMA, code)
     return document, sha
@@ -158,15 +163,18 @@ def adjudicate_prepare(primary_path: Path, overlap_path: Path, pack_dir: Path, s
                 entry[side]["note"] = row[f"{side}Note"]
         items.append(entry)
     payload = {"packSha256": pack_sha, "primaryLabelsSha256": primary_sha, "overlapLabelsSha256": overlap_sha,
-               "items": sorted(items, key=lambda item: item["itemId"])}
+               "sessionId": session_id(primary_sha, overlap_sha), "items": sorted(items, key=lambda item: item["itemId"])}
     (staging / ADJUDICATION_DATA).write_bytes(b"window.MAVI_ADJUDICATION = " + a.canonical_json(payload) + b";\n")
 
 
 def adjudicate(primary_path: Path, overlap_path: Path, decisions_path: Path, adjudicator: str, adjudicated_on: str) -> bytes:
     primary, primary_sha, overlap, overlap_sha = pair_labels(primary_path, overlap_path)
     decisions = a.parse_json(a.read_bytes(decisions_path, "adjudication_decisions_unreadable"), "adjudication_decisions_unreadable")
-    a.require(isinstance(decisions, dict) and set(decisions) == {"primaryLabelsSha256", "overlapLabelsSha256", "decisions"}
+    a.require(isinstance(decisions, dict)
+              and set(decisions) == {"primaryLabelsSha256", "overlapLabelsSha256", "sessionId", "decisions"}
               and isinstance(decisions["decisions"], list), "adjudication_decisions_invalid")
+    # Decisions made for another frozen pair (even of the same pack) are never reused.
+    a.require(decisions["sessionId"] == session_id(primary_sha, overlap_sha), "adjudication_session_mismatch")
     a.require(decisions["primaryLabelsSha256"] == primary_sha and decisions["overlapLabelsSha256"] == overlap_sha,
               "adjudication_decisions_mismatch")
     name = a.text_value(adjudicator, "adjudicator_invalid", 120)

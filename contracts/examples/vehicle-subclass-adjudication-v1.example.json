@@ -41,8 +41,8 @@
       "trackId": "00000000-0000-4000-8000-000000000022"
     }
   ],
-  "overlapLabelsSha256": "05c8ad73a6e0dacfb96c104d06f681c400b28c0513d8db39a38ff48dd03840cf",
-  "primaryLabelsSha256": "512937e7ac3bb84030fdb466f0b37fca4b3b61cecaad90288e3f534fbca059d4",
+  "overlapLabelsSha256": "9403204537e23acfe9b4e29ec45d294ca59dfbe7cb8d7cca1320c95230012ca2",
+  "primaryLabelsSha256": "124164bde5a79d2b612cf13f343182076566d1412a79b929dea3e2ab7fd629ea",
   "schemaVersion": "vehicle-subclass-adjudication-v1",
   "vocabulary": "mavi-vehicle-subclass-labels-v1"
 }

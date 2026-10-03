@@ -64,8 +64,8 @@
     },
     {
       "path": "labeling.js",
-      "sha256": "08eddaa2338294458867803dd42312bd39db34d36ee99807ed39dfbc0de2a138",
-      "sizeBytes": 7281
+      "sha256": "d380c6ebba7e66f0edb8a5c7bb17c7a1b11616dc13347734fa483d7540e0a618",
+      "sizeBytes": 7450
     }
   ],
   "items": [
@@ -149,14 +149,14 @@
     }
   ],
   "labelingGuide": {
-    "gitCommit": "1a0ffc2eb857f8ac996aa223bf94da256c95f751",
+    "gitCommit": "ab782a4a59123b00ff6ef71c32976e791938c7eb",
     "gitPath": "docs/qualification/stage3/s3-2-labeling-guide.md",
     "path": "labeling-guide.md",
     "sha256": "86290e751bf46ae9a1a9fc5e460ca69f7227c53e59eb4293bc3e38baeeee7c3b"
   },
-  "parentPackSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
+  "parentPackSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
   "pipelineProfileSha256": "9c4b366ab08a031d6054977a7935967baf15e546e83c83ce2e9ad8c695074227",
-  "sampleSha256": "800c2d53e1310967d70e3687ce102e612263667b9ff8051fb21aaf3a9b6a5ab0",
+  "sampleSha256": "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731",
   "schemaVersion": "vehicle-subclass-labeling-pack-v1",
   "seed": "pack-seed",
   "viewKind": "overlap"

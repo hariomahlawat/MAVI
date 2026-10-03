@@ -38,13 +38,17 @@ COMPARISON_SCHEMA = "vehicle-subclass-requirement-comparison-v1"
 
 
 def status(minimum: float | None, observed: dict[str, Any], support: int, minimum_support: int) -> str:
-    """``no-requirement`` without a bound; ``insufficient-support`` below the minimum support *or* when the
-    estimate is undefined (for example precision with no prediction of the class: there is nothing to
-    compare); otherwise ``meets`` or ``does-not-meet`` by exact rational comparison."""
+    """In this order: ``no-requirement`` when the minimum is null; ``insufficient-support`` when the evaluable
+    support is below the pre-registered minimum support; ``does-not-meet`` when the estimate is undefined
+    (denominator 0, e.g. precision for a class MAVI never predicted) despite adequate support, because the
+    requirement has not been demonstrated (the raw value stays null); otherwise ``meets`` or
+    ``does-not-meet`` by exact rational comparison with the minimum."""
     if minimum is None:
         return "no-requirement"
-    if support < minimum_support or observed["denominator"] == 0:
+    if support < minimum_support:
         return "insufficient-support"
+    if observed["denominator"] == 0:
+        return "does-not-meet"
     return "meets" if Fraction(observed["numerator"], observed["denominator"]) >= Fraction(repr(minimum)) else "does-not-meet"
 
 

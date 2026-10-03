@@ -124,9 +124,10 @@ def batch(world: f.World, root: Path, *, target: int, seed: str, primary: dict[i
         if d["trackId"] in overlap_tracks and primary[number] != second[number]:
             label, why = (adjudicated or {})[number]
             decisions.append({"itemId": d["itemId"], "adjudicatedLabel": label, **({"adjudicatedUnknownReason": why} if why else {})})
+    primary_sha, overlap_sha = a.sha256_hex(primary_labels.read_bytes()), a.sha256_hex(overlap_labels.read_bytes())
     (root / "adjudication-decisions.json").write_text(json.dumps({
-        "primaryLabelsSha256": a.sha256_hex(primary_labels.read_bytes()),
-        "overlapLabelsSha256": a.sha256_hex(overlap_labels.read_bytes()), "decisions": decisions}), encoding="utf-8")
+        "primaryLabelsSha256": primary_sha, "overlapLabelsSha256": overlap_sha,
+        "sessionId": freeze_labels.session_id(primary_sha, overlap_sha), "decisions": decisions}), encoding="utf-8")
     adjudication = root / "adjudication.json"
     run(freeze_labels.main, ["adjudicate", "--primary", str(primary_labels), "--overlap", str(overlap_labels),
                              "--decisions", str(root / "adjudication-decisions.json"), "--adjudicator", "Adjudicator C",

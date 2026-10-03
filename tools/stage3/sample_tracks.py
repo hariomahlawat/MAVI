@@ -36,6 +36,10 @@ ALGORITHM = "s3-2-video-quota-diversity-v1"
 DIMENSIONS = ("scale", "duration", "density", "luma", "quality")
 DERIVATION_SCHEMA = "vehicle-subclass-derivation-v1"
 DERIVATION_MODES = ("passthrough", "remux", "transcode")
+# What T8 must have obtained (plan §8, §15): the established purposes, and create-derivatives
+# exactly when a new media artefact was made. T3 checks the record; it decides nothing.
+DERIVATION_PURPOSES = ["benchmarking", "development"]
+DERIVATION_OPERATIONS = {"passthrough": [], "remux": ["create-derivatives"], "transcode": ["create-derivatives"]}
 
 # The only Track members a sampling decision could be biased by. They are named here so
 # that the projection below can be checked against them; nothing in this module reads them.
@@ -100,8 +104,13 @@ def _derivations(paths: list[Path], exports: dict[str, a.Export]) -> tuple[list[
         a.require(isinstance(release, dict) and isinstance(release.get("releaseId"), str) and release["releaseId"].strip()
                   and a.SHA256_RE.fullmatch(str(release.get("releaseRecordSha256", "")))
                   and isinstance(release.get("member"), str) and release["member"].strip(), "derivation_invalid:release")
-        a.require(isinstance(authorisation, dict) and authorisation.get("blockers") == [], "derivation_invalid:authorisation")
         a.require(document.get("mode") in DERIVATION_MODES, "derivation_invalid:mode")
+        a.require(isinstance(authorisation, dict) and set(authorisation) == {"purposes", "operations", "blockers"},
+                  "derivation_invalid:authorisation")
+        a.require(authorisation["purposes"] == DERIVATION_PURPOSES, "derivation_invalid:authorisation:purposes")
+        a.require(authorisation["operations"] == DERIVATION_OPERATIONS[document["mode"]],
+                  "derivation_invalid:authorisation:operations")
+        a.require(authorisation["blockers"] == [], "derivation_invalid:authorisation:blockers")
         for key in ("sourceSha256", "outputSha256"):
             a.require(a.SHA256_RE.fullmatch(str(document.get(key, ""))), f"derivation_invalid:{key}")
         a.require(document["mode"] != "passthrough" or document["outputSha256"] == document["sourceSha256"],

@@ -63,6 +63,7 @@ def pipeline(world: f.World, out: Path) -> dict[str, Path]:
                                  "--pack", str(primary_pack), "--out", str(sheet)])
     data = json.loads((sheet / "adjudication-data.js").read_text(encoding="utf-8").removeprefix("window.MAVI_ADJUDICATION = ").rstrip(";\n"))
     decisions = {"primaryLabelsSha256": data["primaryLabelsSha256"], "overlapLabelsSha256": data["overlapLabelsSha256"],
+                 "sessionId": data["sessionId"],
                  "decisions": [{"itemId": item["itemId"], "adjudicatedLabel": "unknown", "adjudicatedUnknownReason": "too-small"}
                                for item in data["items"] if item["needsDecision"]]}
     (out / "adjudication-decisions.json").write_text(json.dumps(decisions), encoding="utf-8")

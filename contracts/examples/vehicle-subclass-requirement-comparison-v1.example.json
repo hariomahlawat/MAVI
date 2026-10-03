@@ -118,7 +118,7 @@
       "support": 1
     }
   ],
-  "measurementSha256": "b1ad2862a4c1078d8e9696e0f1ef2793f035af7e9c09384a465b8aaf5f63db11",
+  "measurementSha256": "e743b968d7829804484570bfb86b3596709e5adbe1f052ae695bffa26b9e7f1d",
   "requirementsSha256": "126256664acf46cbaa7bd09de75af1aaddae1d7888781933ebcb47d554c51550",
   "schemaVersion": "vehicle-subclass-requirement-comparison-v1"
 }

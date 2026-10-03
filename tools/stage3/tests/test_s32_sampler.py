@@ -338,3 +338,37 @@ def test_every_exported_video_counts_in_the_allocation(tmp_path):
     assert empty == {**empty, "available": 0, "floor": 0, "quota": 0}
     assert all(v["floor"] == 1 for v in document["allocation"].values() if v["available"])  # 6 // (2 × 3)
     assert set(document["strata"]["lumaDecoder"]) == {"pillow", "numpy"}
+
+
+def _derived(world, tmp_path, name, **kwargs):
+    """The second video's derivation replaced by one with the given mode/authorisation."""
+    path = tmp_path / f"{name}.json"
+    f.write_derivation(path, source=world.videos[1].source_path.read_bytes(), **kwargs)
+    return [world.derivations()[0], path]
+
+
+@pytest.mark.parametrize("mode", ["passthrough", "remux", "transcode"])
+def test_valid_derivation_authorisations_are_accepted(world, tmp_path, mode):
+    document = make(world, tmp_path / "s.json", target=4, derivations=_derived(world, tmp_path, mode, mode=mode))
+    assert len(document["derivationSha256s"]) == 2
+
+
+@pytest.mark.parametrize("mode, authorisation, code", [
+    ("passthrough", {"purposes": ["development"], "operations": [], "blockers": []}, "derivation_invalid"),
+    ("passthrough", {"purposes": ["development", "benchmarking"], "operations": [], "blockers": []}, "derivation_invalid"),
+    ("passthrough", {"operations": [], "blockers": []}, "derivation_invalid"),
+    ("passthrough", {"purposes": ["benchmarking", "development"], "operations": ["create-derivatives"], "blockers": []},
+     "derivation_invalid"),
+    ("remux", {"purposes": ["benchmarking", "development"], "operations": [], "blockers": []}, "derivation_invalid"),
+    ("transcode", {"purposes": ["benchmarking", "development"], "operations": [], "blockers": []}, "derivation_invalid"),
+    ("transcode", {"purposes": ["benchmarking", "development"], "operations": ["create-derivatives", "train"], "blockers": []},
+     "derivation_invalid"),
+    ("remux", {"purposes": ["benchmarking", "development"], "operations": ["create-derivatives"],
+               "blockers": ["rights-operation-pending-r5:create-derivatives"]}, "derivation_invalid"),
+    ("passthrough", {"purposes": ["benchmarking", "development"], "operations": [], "blockers": [], "note": "x"},
+     "derivation_invalid"),
+])
+def test_derivation_authorisation_contract_is_exact(world, tmp_path, capsys, mode, authorisation, code):
+    out = tmp_path / "s.json"
+    refused(capsys, p.sample(world, out, target=4, derivations=_derived(world, tmp_path, "bad", mode=mode,
+                                                                        authorisation=authorisation)), code, out)

@@ -174,8 +174,9 @@ def adjudicate_args(first, second, decisions_path, out):
 
 
 def write_decisions(first, second, decisions, path):
-    path.write_text(json.dumps({"primaryLabelsSha256": a.sha256_hex(first.read_bytes()),
-                                "overlapLabelsSha256": a.sha256_hex(second.read_bytes()), "decisions": decisions}), encoding="utf-8")
+    primary_sha, overlap_sha = a.sha256_hex(first.read_bytes()), a.sha256_hex(second.read_bytes())
+    path.write_text(json.dumps({"primaryLabelsSha256": primary_sha, "overlapLabelsSha256": overlap_sha,
+                                "sessionId": fl.session_id(primary_sha, overlap_sha), "decisions": decisions}), encoding="utf-8")
     return path
 
 
@@ -236,6 +237,7 @@ def test_decisions_for_carried_items_and_missing_decisions_are_refused(built, tm
     refused(capsys, adjudicate_args(first, second, stranger, tmp_path / "a3.json"), "adjudication_item_unknown")
     stale = tmp_path / "d4.json"
     stale.write_text(json.dumps({"primaryLabelsSha256": "0" * 64, "overlapLabelsSha256": a.sha256_hex(second.read_bytes()),
+                                 "sessionId": fl.session_id(a.sha256_hex(first.read_bytes()), a.sha256_hex(second.read_bytes())),
                                  "decisions": [{"itemId": disputed, "adjudicatedLabel": "bus"}]}), encoding="utf-8")
     refused(capsys, adjudicate_args(first, second, stale, tmp_path / "a4.json"), "adjudication_decisions_mismatch")
 
@@ -259,7 +261,9 @@ def test_adjudication_sheet_shows_evidence_and_both_human_decisions_only(built, 
                     "--out", str(sheet)])
     payload = json.loads((sheet / fl.ADJUDICATION_DATA).read_text(encoding="utf-8")
                          .removeprefix("window.MAVI_ADJUDICATION = ").rstrip(";\n"))
-    assert set(payload) == {"packSha256", "primaryLabelsSha256", "overlapLabelsSha256", "items"}
+    assert set(payload) == {"packSha256", "primaryLabelsSha256", "overlapLabelsSha256", "sessionId", "items"}
+    assert payload["sessionId"] == fl.session_id(a.sha256_hex(first.read_bytes()), a.sha256_hex(second.read_bytes()))
+    assert payload["sessionId"] == a.h("mavi-s32-adjudication-session", payload["primaryLabelsSha256"], payload["overlapLabelsSha256"])
     for item in payload["items"]:
         assert set(item) == {"itemId", "primary", "overlap", "needsDecision"}
     assert sum(item["needsDecision"] for item in payload["items"]) == 1
@@ -275,3 +279,50 @@ def test_adjudication_commands_accept_no_prediction_inputs():
     for name in ("adjudicate-prepare", "adjudicate"):
         options = {option for action in commands[name]._actions for option in action.option_strings}
         assert not {o for o in options if any(word in o for word in ("export", "result", "attestation", "measurement", "profile"))}
+
+
+def test_each_frozen_pair_is_its_own_adjudication_session(built, tmp_path, capsys):
+    _, _, primary_pack, _, _ = built
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    first_pair = frozen_pair(built, tmp_path / "one", {0: ("car", None)}, {0: ("bus", None)})
+    second_pair = frozen_pair(built, tmp_path / "two", {0: ("car", None)}, {0: ("truck", None)})
+    sessions = []
+    for index, (first, second) in enumerate((first_pair, second_pair)):
+        sheet = tmp_path / f"sheet-{index}"
+        p.run(fl.main, ["adjudicate-prepare", "--primary", str(first), "--overlap", str(second), "--pack", str(primary_pack),
+                        "--out", str(sheet)])
+        payload = json.loads((sheet / fl.ADJUDICATION_DATA).read_text(encoding="utf-8")
+                             .removeprefix("window.MAVI_ADJUDICATION = ").rstrip(";\n"))
+        assert payload["packSha256"] == a.sha256_hex((primary_pack / bp.MANIFEST).read_bytes())
+        sessions.append(payload["sessionId"])
+    assert sessions[0] != sessions[1]  # same primary pack, different frozen pairs
+
+    first, second = first_pair
+    item = primary_item(first, built, 0)
+    stale = write_decisions(first, second, [{"itemId": item, "adjudicatedLabel": "bus"}], tmp_path / "stale.json")
+    later_first, later_second = second_pair
+    # As exported for the first pair: refused against the second.
+    refused(capsys, adjudicate_args(later_first, later_second, stale, tmp_path / "a1.json"), "adjudication_session_mismatch",
+            tmp_path / "a1.json")
+    # Even with its file hashes rewritten to the second pair, the stale session is refused.
+    document = json.loads(stale.read_text(encoding="utf-8"))
+    document["primaryLabelsSha256"] = a.sha256_hex(later_first.read_bytes())
+    document["overlapLabelsSha256"] = a.sha256_hex(later_second.read_bytes())
+    rewritten = tmp_path / "rewritten.json"
+    rewritten.write_text(json.dumps(document), encoding="utf-8")
+    refused(capsys, adjudicate_args(later_first, later_second, rewritten, tmp_path / "a2.json"), "adjudication_session_mismatch",
+            tmp_path / "a2.json")
+    # A decisions document without a session is malformed.
+    del document["sessionId"]
+    rewritten.write_text(json.dumps(document), encoding="utf-8")
+    refused(capsys, adjudicate_args(later_first, later_second, rewritten, tmp_path / "a3.json"), "adjudication_decisions_invalid",
+            tmp_path / "a3.json")
+
+
+def test_page_resume_keys_labelling_by_pack_and_adjudication_by_session():
+    script = (bp.TEMPLATES / "labeling.js").read_text(encoding="utf-8")
+    assert '"mavi-s32-adjudication:" + adjudication.sessionId' in script
+    assert '"mavi-s32-labels:" + pack.packSha256' in script
+    assert '"mavi-s32-adjudication:" + pack.packSha256' not in script
+    assert "sessionId: adjudication.sessionId" in script  # carried in the exported decisions

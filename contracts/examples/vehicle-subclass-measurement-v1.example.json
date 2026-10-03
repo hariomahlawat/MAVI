@@ -171,7 +171,7 @@
         {
           "itemId": "881b994f13e527f4",
           "label": "truck",
-          "packSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
+          "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
           "predicted": "car",
           "processingRunId": "00000000-0000-0000-0000-000000001000",
           "trackId": "00000000-0000-4000-8000-000000000002"
@@ -179,7 +179,7 @@
         {
           "itemId": "49cfd8b687e1a2f2",
           "label": "car",
-          "packSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
+          "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
           "predicted": "undetermined",
           "processingRunId": "00000000-0000-0000-0000-000000001000",
           "trackId": "00000000-0000-4000-8000-000000000006"
@@ -187,7 +187,7 @@
         {
           "itemId": "047519bd51eb603d",
           "label": "car",
-          "packSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
+          "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
           "predicted": "truck",
           "processingRunId": "00000000-0000-0000-0000-000000001001",
           "trackId": "00000000-0000-4000-8000-000000000021"
@@ -373,23 +373,23 @@
         "labelAgreements": 2,
         "overlapTracks": 3
       },
-      "sampleSha256": "800c2d53e1310967d70e3687ce102e612263667b9ff8051fb21aaf3a9b6a5ab0",
+      "sampleSha256": "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731",
       "sampleSha256s": [
-        "800c2d53e1310967d70e3687ce102e612263667b9ff8051fb21aaf3a9b6a5ab0"
+        "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731"
       ]
     }
   ],
   "inputs": {
     "batches": [
       {
-        "adjudicationSha256": "4e7296b9f4714b813cec8ba768c2c93a796be71e7fcf11ff8e96e7b54666ad36",
+        "adjudicationSha256": "f7fe1f2fce70079a0391b87ec109b73ef4163fb7fbf1de5c263e7b0d3b903223",
         "designKind": "continuation",
         "labelingGuideSha256": "86290e751bf46ae9a1a9fc5e460ca69f7227c53e59eb4293bc3e38baeeee7c3b",
-        "overlapLabelsSha256": "05c8ad73a6e0dacfb96c104d06f681c400b28c0513d8db39a38ff48dd03840cf",
-        "overlapPackSha256": "3e742572a2d13c0a56f178a8119986fbde19563ead67d8aeaf002e83aae5059a",
-        "primaryLabelsSha256": "512937e7ac3bb84030fdb466f0b37fca4b3b61cecaad90288e3f534fbca059d4",
-        "primaryPackSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
-        "sampleSha256": "800c2d53e1310967d70e3687ce102e612263667b9ff8051fb21aaf3a9b6a5ab0"
+        "overlapLabelsSha256": "9403204537e23acfe9b4e29ec45d294ca59dfbe7cb8d7cca1320c95230012ca2",
+        "overlapPackSha256": "94c16ae712e45fa472c2d4f0bd1279619027f76aaadca820dac9b6dbf914ebda",
+        "primaryLabelsSha256": "124164bde5a79d2b612cf13f343182076566d1412a79b929dea3e2ab7fd629ea",
+        "primaryPackSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
+        "sampleSha256": "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731"
       }
     ],
     "exportSha256s": [
@@ -571,7 +571,7 @@
       {
         "itemId": "881b994f13e527f4",
         "label": "truck",
-        "packSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
+        "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
         "predicted": "car",
         "processingRunId": "00000000-0000-0000-0000-000000001000",
         "trackId": "00000000-0000-4000-8000-000000000002"
@@ -579,7 +579,7 @@
       {
         "itemId": "49cfd8b687e1a2f2",
         "label": "car",
-        "packSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
+        "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
         "predicted": "undetermined",
         "processingRunId": "00000000-0000-0000-0000-000000001000",
         "trackId": "00000000-0000-4000-8000-000000000006"
@@ -587,7 +587,7 @@
       {
         "itemId": "047519bd51eb603d",
         "label": "car",
-        "packSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
+        "packSha256": "62bf3b4daee72e8f407cf6039c77327846369c8c7f9c2601e71eb3e3d7babe3e",
         "predicted": "truck",
         "processingRunId": "00000000-0000-0000-0000-000000001001",
         "trackId": "00000000-0000-4000-8000-000000000021"
@@ -774,7 +774,7 @@
       "overlapTracks": 3
     },
     "sampleSha256s": [
-      "800c2d53e1310967d70e3687ce102e612263667b9ff8051fb21aaf3a9b6a5ab0"
+      "d2d512041c4b5cb7a0eba6301227977bba65bddb1a58bd94d77d04d759206731"
     ]
   },
   "producer": {
