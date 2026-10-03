@@ -61,3 +61,14 @@ The schema is generated from the 3.1 schema by the one delta in `tools/verify_re
 - **Artefacts:** the schema is generated from the 3.2 schema by `expected_completion_v33_schema` in `tools/verify_repo.py`. `vision-job-complete-v3.3.example.json` (a resolved truck) and `vision-job-complete-v3.3-unpacked-environment.example.json` (an abstained vehicle) are the 3.2 examples plus one Vehicle Track and the subclass members. `test-vectors/vision-job-complete-v3.3-digest.json` pins both, and `test-vectors/control-plane-v3.3-invalid.json` is the negative corpus.
 
 **Worker emission (Stage 3).** 3.3 is the vision role's `provenanceContract` and the worker's default. 3.2 is no longer emitted; the platform still accepts and replays it. The Development-only override (3.0, 3.1) drops the subclass members together with the component identity.
+
+## Stage 3 measurement export (`vehicle-subclass-measurement-export-v1`)
+
+The read-only measurement export of S3.2 (`docs/superpowers/plans/2026-10-03-stage3-s3-2-vehicle-subclass-measurement.md`, T1) is a development artefact, not a worker or API contract: subclass stays off every API and search surface. `tools/dotnet/Mavi.MeasurementExport --run <guid> --pipeline-profile <file> --out <new-dir>` writes one completed run as `subclass-measurement-export.json` plus `evidence/<sha256>.jpg`.
+
+- The embedded `attestation` is the attestation endpoint's response for that run, built by the same `ProcessingRunAttestationFactory` from the export's own read-only `REPEATABLE READ` snapshot.
+- The supplied pipeline profile must hash to the attested `pipelineProfileSha256`; the evidence selector and scorer versions are read from that verified file. A path is never inferred from a hash.
+- Every evidence image and the source video are re-hashed against their artifact rows; any gap refuses with a stable `export_*` code, exit 2, and no output directory.
+- The JSON is canonical (UTF-8 without BOM, members sorted by ordinal name at every depth, no insignificant whitespace, round-trip numbers, no wall-clock member); the export's identity is the SHA-256 of those bytes, and a repeat over the same persisted state is byte-identical.
+
+The schema constrains only the attestation's producer-identity members; the attestation endpoint owns the rest of its shape. The checked-in example is a real export trimmed to three Tracks and pretty-printed.

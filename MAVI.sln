@@ -18,6 +18,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mavi.Application.Tests", "t
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mavi.IntegrationTests", "tests\Mavi.IntegrationTests\Mavi.IntegrationTests.csproj", "{6BFDAAF7-76D7-4513-98C5-E116ECC84BF1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mavi.MeasurementExport", "tools\dotnet\Mavi.MeasurementExport\Mavi.MeasurementExport.csproj", "{30891D2C-60AE-4E47-8E3A-386AB3A44AAF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -56,5 +58,9 @@ Global
 		{6BFDAAF7-76D7-4513-98C5-E116ECC84BF1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6BFDAAF7-76D7-4513-98C5-E116ECC84BF1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6BFDAAF7-76D7-4513-98C5-E116ECC84BF1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{30891D2C-60AE-4E47-8E3A-386AB3A44AAF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{30891D2C-60AE-4E47-8E3A-386AB3A44AAF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{30891D2C-60AE-4E47-8E3A-386AB3A44AAF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{30891D2C-60AE-4E47-8E3A-386AB3A44AAF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

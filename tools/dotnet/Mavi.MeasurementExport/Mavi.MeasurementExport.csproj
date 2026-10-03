@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Read-only vehicle subclass measurement export (Stage 3, S3.2 plan T1).
+    Configuration comes from the ASP.NET Core shared framework the platform already
+    requires and everything else from Mavi.Infrastructure. The one package reference pins
+    EF Core Relational to the version Infrastructure is built against, exactly as Mavi.Api
+    does; Npgsql's own dependency would otherwise resolve an older assembly.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Mavi.MeasurementExport</RootNamespace>
+    <AssemblyName>Mavi.MeasurementExport</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\platform\Mavi.Infrastructure\Mavi.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

@@ -38,6 +38,9 @@
         "Npgsql": "10.0.3",
         "xunit": "2.9.3",
         "xunit.runner.visualstudio": "3.1.5"
+      },
+      "tools/dotnet/Mavi.MeasurementExport/Mavi.MeasurementExport.csproj": {
+        "Microsoft.EntityFrameworkCore.Relational": "10.0.11"
       }
     },
     "npm": {

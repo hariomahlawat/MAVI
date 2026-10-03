@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\platform\Mavi.Api\Mavi.Api.csproj" />
+    <ProjectReference Include="..\..\tools\dotnet\Mavi.MeasurementExport\Mavi.MeasurementExport.csproj" />
   </ItemGroup>
 </Project>
