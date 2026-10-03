@@ -79,7 +79,7 @@ public release ──T7 verify/record──▶ release record (+R-5) ──T8 de
 | Schema | Purpose | Key members |
 |---|---|---|
 | `vehicle-subclass-measurement-export-v1` | one completed run | see T1 |
-| `vehicle-subclass-sample-v1` | the selected Tracks | `seed`, `target`, `exportSha256s[]`, `requirements{sha256, gitCommit, gitPath}`, `excludedSampleSha256s[]`, `strata`, `selected[]`, `overlapSelected[]`, `excluded{reason:count}`, `available{stratum:count}` |
+| `vehicle-subclass-sample-v1` | the selected Tracks | `seed`, `target`, `exportSha256s[]`, `requirements{sha256, gitCommit, gitPath}`, `excludedSampleSha256s[]`, `design{kind, samplingAlgorithm, parameters, releaseId, parentSampleSha256s, reason?}`, `allocation{video: {available, floor, quota}}`, `strata`, `selected[]`, `overlapSelected[]`, `excluded{reason:count}`, `available{stratum:count}` |
 | `vehicle-subclass-labeling-pack-v1` | the manifest of reviewer-visible evidence | see T4 |
 | `vehicle-subclass-track-labels-v1` | one reviewer's committed decisions on one pack | see T5 |
 | `vehicle-subclass-adjudication-v1` | resolution of overlap disagreements | see T5 |
@@ -101,8 +101,8 @@ These are review reasons, not `ObjectSubclass` values.
 
 **Files**
 - **New:** `src/platform/Mavi.Application/Modules/Processing/ProcessingRunAttestationFactory.cs`, `static ProcessingRunAttestationResponse Build(ProcessingRunAttestationSource, ParsedVisionRuntimeProvenance)`. The construction moves here, unchanged, from `ProcessingEndpoints.AttestationAsync`, which then calls it.
-- **New:** `src/platform/Mavi.Infrastructure/Measurement/SubclassMeasurementExporter.cs`, `Task<SubclassMeasurementExport> ExportAsync(Guid runId, CancellationToken)`.
-- **New:** `tools/dotnet/Mavi.MeasurementExport/` (console csproj referencing Infrastructure; added to `MAVI.sln`, so CI builds it). CLI: `Mavi.MeasurementExport --run <guid> --out <new-dir>`, reading the existing machine configuration for the connection string.
+- **New:** `src/platform/Mavi.Infrastructure/Measurement/SubclassMeasurementExporter.cs`, `Task<SubclassMeasurementExport> ExportAsync(Guid runId, string pipelineProfilePath, CancellationToken)`.
+- **New:** `tools/dotnet/Mavi.MeasurementExport/` (console csproj referencing Infrastructure; added to `MAVI.sln`, so CI builds it). CLI: `Mavi.MeasurementExport --run <guid> --pipeline-profile <file> --out <new-dir>`, reading the existing machine configuration for the connection string. The profile file is always supplied explicitly; the exporter never infers a path from a hash.
 - **New:** `contracts/schemas/vehicle-subclass-measurement-export-v1.schema.json` plus an example.
 
 **Contract**
@@ -112,13 +112,13 @@ These are review reasons, not `ObjectSubclass` values.
 | `schemaVersion` | |
 | `processingRun` | `processingRunId`, `videoAssetId`, `status: "Completed"`, `completedAtUtc` (a stored fact, not wall-clock), `attestation` (the factory's response object) |
 | `video` | `videoAssetId`, `cameraCode`, `sourceSha256`, `sourceSizeBytes`, `durationMs`, `width`, `height`, `frameRateNumerator`, `frameRateDenominator` |
-| `profile` | `pipelineProfileSha256`, `evidenceSelectorVersion`, `evidenceScorerVersion`, read from the attestation and **not** re-derived |
+| `profile` | `pipelineProfileSha256` (the attested value, which the supplied file must match), `evidenceSelectorVersion`, `evidenceScorerVersion` (parsed from the verified file) |
 | `tracks[]`, by `localTrackNumber` | `id`, `localTrackNumber`, `objectClass`, `startOffsetMs`, `endOffsetMs`, `detectionCount`, `meanConfidence`, `maxConfidence`; Phase-1 `representative` `{videoOffsetMs, boundingBox}`; `objectSubclass`, `objectSubclassVocabulary`, `objectSubclassSource`; `observations[]` `{evidenceRole, evidenceRank, sourceFrameNumber, videoOffsetMs, boundingBox, qualityScore, evidenceSha256, evidenceSizeBytes, evidencePath}` (`qualityScore` is the stored `Observation.QualityScore`, the selector's quality signal; T3 stratifies on it); `trajectorySha256` |
 
 - **Evidence bytes:** copied into `evidence/<sha256>.jpg`, each re-hashed.
 - **Identity:** `exportSha256`, the SHA-256 of the export JSON.
 
-The two evidence version members are taken from the profile file named by `pipelineProfileSha256` only after re-hashing it; otherwise the export refuses.
+**Pipeline-profile verification.** The exporter hashes the bytes of the `--pipeline-profile` file and requires that SHA-256 to equal the attested `pipelineProfileSha256` (`export_pipeline_profile_mismatch`). Only then does it parse the file and read the evidence selector and scorer versions and the vehicle-subclass block from it. A file that cannot be read or parsed, or lacks either version, is `export_pipeline_profile_invalid`; a verified profile with no vehicle-subclass block is `export_profile_not_stage3`.
 
 **Snapshot invariant.** One `REPEATABLE READ` read-only transaction reads the run, its job, video asset, source artefact, Tracks, observations and evidence artefacts. Then:
 - **Run and job:** the run is `Completed` with `CompletedAtUtc`, and its VisionJob is `Completed`, so finalisation is done. Otherwise `export_run_not_terminal`.
@@ -127,7 +127,7 @@ The two evidence version members are taken from the profile file named by `pipel
   - every Track's run and video must be the run's (`export_track_run_mismatch`);
   - every observation's Track must be in the set (`export_observation_orphan`);
   - the run's video asset must be the one exported (`export_video_mismatch`).
-- **Subclass state:** must be one of the four domain states, and a Stage-3 profile run must have vocabulary and source on every Vehicle Track (`export_subclass_state_invalid`). A run whose attested profile has no vehicle-subclass block is refused (`export_profile_not_stage3`).
+- **Subclass state:** must be one of the four domain states, and a Stage-3 profile run must have vocabulary and source on every Vehicle Track (`export_subclass_state_invalid`). A run whose verified profile has no vehicle-subclass block is refused (`export_profile_not_stage3`).
 - **Bytes:**
   - each evidence file is re-hashed against its artefact row (`export_evidence_changed`);
   - the source video file is re-hashed against its source artefact (`export_source_changed`);
@@ -139,7 +139,7 @@ The two evidence version members are taken from the profile file named by `pipel
 - **`SubclassMeasurementExportTests` (integration):**
   - a seeded 3.3 run with all four subclass states and a Person Track;
   - byte-identical repeat;
-  - each refusal (*discriminating*: a run still `Finalizing`, a tampered evidence file, a Track re-pointed to another run by SQL, a malformed subclass row inserted after the test drops the subclass check constraints in the test database);
+  - each refusal (*discriminating*: a run still `Finalizing`, a tampered evidence file, a Track re-pointed to another run by SQL, a malformed subclass row inserted after the test drops the subclass check constraints in the test database, a **wrong profile** (a valid profile file whose hash differs from the attested one, refused as `export_pipeline_profile_mismatch` with no output), and a malformed profile whose bytes are made to be the attested ones in a seeded run, refused as `export_pipeline_profile_invalid`);
   - only the requested run is exported.
 
 **Windows/offline:** runs on the Development host, writes to E:, no network.
@@ -152,7 +152,7 @@ The two evidence version members are taken from the profile file named by `pipel
 
 **Files**
 - **Changed:** `tools/phase1/evaluate_vehicle_subclass.py`, adding `evaluate_track_labels(batches, exports, measured_profile_sha256) -> dict` and a CLI mode `--sample <file>… --track-labels <file>… [--overlap-labels <file>… --adjudication <file>…] --export <file>… --pipeline-profile <file>`.
-- **Batches.** A batch is one sample with its frozen primary labels and, optionally, its frozen overlap labels and adjudication. The pilot is one batch; an expansion adds a batch (§14). Files are paired by hash: labels to a sample by `sampleSha256`, an adjudication to its labels by `primaryLabelsSha256` and `overlapLabelsSha256`. A file that pairs with nothing, or with two things, is refused (`batch_pairing_invalid`).
+- **Batches.** A batch is one sample with its frozen primary labels and, optionally, its frozen overlap labels and adjudication. The pilot is one batch; an expansion adds a batch whose sample declares its design, `continuation` or `supplemental` (T3, §14). Files are paired by hash: labels to a sample by `sampleSha256`, an adjudication to its labels by `primaryLabelsSha256` and `overlapLabelsSha256`. A file that pairs with nothing, or with two things, is refused (`batch_pairing_invalid`).
 - **Thresholds.** The evaluator takes no requirements and applies no threshold. Support status against the pre-registered minimum is computed only by T6.
 - **Refactor:** `_producer`, the per-Track source check and the confusion/metric arithmetic become shared internal functions. The event mode's behaviour and tests are unchanged.
 
@@ -162,7 +162,10 @@ The two evidence version members are taken from the profile file named by `pipel
 - **Profile:** the attested profile must equal the measured profile file's SHA-256.
 - **Overlap and adjudication:** both frozen label files are supplied and re-hashed. The adjudication's `primaryLabelsSha256` and `overlapLabelsSha256` must equal those hashes, and each adjudicated item's `primary` and `overlap` values must equal the decisions in those files for that Track (`adjudication_not_from_labels`). Reliability is computed from the two label files themselves, never from the adjudication's copies.
 - **Truth set:** per batch, the primary label set, with the adjudicated label replacing the primary on overlap items where they disagreed. Both originals stay referenced.
-- **Combining batches:** batches must be Track-disjoint (`batch_tracks_overlap`), and every batch's sample must bind the same requirements hash (T3); the result is computed over the union and also reported per batch.
+- **Combining batches:** batches must be Track-disjoint (`batch_tracks_overlap`), and every batch's sample must bind the same requirements hash (T3).
+  - **Primary aggregate:** the pilot plus any `continuation` batches only. A continuation is pooled only if its sample names the pilot sample as parent and has the same release, sampling algorithm version, sampling parameters and requirements hash, and its exports attest the same producer and profile (`continuation_design_mismatch` otherwise).
+  - **Supplemental batches** are never pooled into the primary aggregate's prevalence-sensitive figures (coverage, precision, accuracy, macro recall). Each is reported in its own `supplemental[]` entry with its full metric set. The single exception is a weighting design named in the requirements file, which the samples bind before sampling; the evaluator applies only such a declared design and otherwise refuses to pool (`supplemental_pooling_not_declared`).
+  - Every batch is also reported on its own; the pilot's own result is reproduced unchanged inside any later result.
 
 **Refusals**
 - an export hash mismatch;
@@ -191,6 +194,7 @@ The two evidence version members are taken from the profile file named by `pipel
 | `clusters` | `videoCount`, `cameraCount`, and per video and per camera: support, resolved, correct and the confusion, so the reader sees how concentrated the outcomes are |
 | `errorReferences` | every mismatch and abstention as `{itemId, processingRunId, trackId, label, predicted}` |
 | `reliability` | overlap agreement counts and the class-level disagreement matrix |
+| `batches[]`, `supplemental[]` | per-batch results (design, sample hash, full metrics); supplemental measurements kept apart from the primary aggregate |
 
 **Why no intervals.** Tracks are sampled from 6–10 videos on shared cameras, so outcomes are correlated within a scene, and CityFlow cameras can see the same vehicle. A binomial interval with the Track count as `n` would treat them as independent and understate uncertainty, and a clustered interval over so few clusters is itself unreliable. The pilot therefore reports descriptive estimates with the per-video and per-camera breakdown. If the owner wants an interval-based criterion, §13 must name a clustered method (for example a video-level cluster bootstrap with a fixed seed) and the minimum number of videos it needs; it is then added in T6, not chosen after the results.
 
@@ -202,7 +206,9 @@ The two evidence version members are taken from the profile file named by `pipel
 - `null` for undefined precision (no predictions of a class);
 - *mutation-style*: counting human `unknown` as evaluable, counting abstention as correct, or using the primary label where the adjudication differs each changes a pinned result;
 - an adjudication whose carried `overlap` value was edited is refused, and reliability changes when the overlap file changes;
-- two batches combine to the union, and Track-overlapping batches are refused;
+- a pilot and a continuation batch combine to the union, and Track-overlapping batches are refused;
+- a continuation with a different sampling algorithm version, release or requirements is refused for pooling;
+- a supplemental batch leaves the primary aggregate byte-identical to the pilot-only aggregate and appears only under `supplemental[]`;
 - the per-video and per-camera breakdowns sum to the totals;
 - the event-mode tests are untouched.
 
@@ -214,7 +220,9 @@ The two evidence version members are taken from the profile file named by `pipel
 
 **Requirements binding (the pre-registration lock, §13).** The sampler refuses unless the requirements file is schema-valid and byte-identical to `git show <commit>:docs/qualification/stage3/s3-2-subclass-requirements.json`, with `<commit>` an ancestor of `HEAD`. The sample records `requirements {sha256, gitCommit, gitPath}`. Because labels bind the pack, the pack binds the sample, and the result names the sample, every result is chained to the requirements fixed before any Track was labelled.
 
-**Exclusions (expansion).** Each `--exclude-sample` is a previous sample artefact, schema-checked and recorded by hash in `excludedSampleSha256s`. Its `selected[]` Tracks are removed from the pool before stratification and counted under `excluded{previously-sampled}`.
+**Exclusions (expansion).** Each `--exclude-sample` is a previous sample artefact, schema-checked and recorded by hash in `excludedSampleSha256s`. Its `selected[]` Tracks are removed from the pool before binning and counted under `excluded{previously-sampled}`.
+
+**Design (expansion).** `--design continuation|supplemental` (default `continuation` for the pilot, which has no parent) is recorded with `samplingAlgorithm: "s3-2-video-quota-diversity-v1"`, the sampling parameters, the release id and `parentSampleSha256s`. A `supplemental` sample also records a one-line `reason`.
 
 **Blindness, enforced in code.** One function, `_blind(track)`, returns the Track without `objectSubclass*`, `meanConfidence` and `maxConfidence`, and the sampler reads only its output.
 
@@ -222,31 +230,37 @@ The two evidence version members are taken from the profile file named by `pipel
 - Detection count is **not** filtered, because it drives the vote's abstention.
 - Exclusions are counted by reason.
 
-**Strata (prediction-independent):**
-- camera / video;
-- apparent scale: representative box area as a fraction of the frame, in terciles;
-- duration, in terciles;
-- traffic density: concurrent Vehicle Tracks, in terciles;
-- lighting proxy: mean luma of the representative crop, in terciles;
-- evidence-quality proxy: the Representative's `qualityScore`, in terciles. It is a selector quality signal, not a subclass prediction.
+**Algorithm `s3-2-video-quota-diversity-v1`** (all on `_blind` output; `h(x)` is SHA-256 of the UTF-8 bytes, compared as hex).
 
-**Selection**
-- **Allocation:** proportional to availability, with each camera guaranteed a floor of ⌊target / (2·cameras)⌋.
-- **Within a stratum:** the smallest `sha256(seed‖runId‖trackId)` first.
+1. **Diversity bins.** Five prediction-independent dimensions, each binned into terciles 0/1/2 over the whole usable pool:
+   - scale: the Representative box area as a fraction of the frame;
+   - duration: `endOffsetMs − startOffsetMs`;
+   - density: the number of other Vehicle Tracks in the same run whose time span overlaps this Track's;
+   - luma: mean luma of the Representative crop;
+   - quality: the Representative's `qualityScore` (a selector quality signal, not a subclass prediction).
 
-**Overlap for the second reviewer.** About 20 % of the selected items, drawn by `sha256(seed‖"overlap"‖runId‖trackId)` with each camera stratum represented.
-- It is chosen in the same run, so it depends neither on predictions nor on any label.
+   Where the Representative's bytes do not verify, the lowest-ranked verified observation stands in. Tercile cuts: sort the pool by `(value, h(seed‖runId‖trackId))`; positions below ⌊n/3⌋ are bin 0, below ⌊2n/3⌋ bin 1, the rest bin 2. No cross-product of dimensions is ever formed.
+2. **Primary allocation, by video (run).** With `V` videos, `a_v` usable Tracks in video `v` and target `T`:
+   - floor `f_v = min(a_v, ⌊T / (2V)⌋)`, the minimum-coverage intent (every camera has at least one video, so every camera is covered);
+   - the remainder `T − Σf_v` is shared in proportion to `a_v − f_v` by largest remainder, ties broken by smallest `h(seed‖"alloc"‖runId)`;
+   - a quota above `a_v` is capped and the excess re-shared the same way among videos with spare Tracks, until the quotas sum to `T`.
+3. **Within each video's quota `q_v`: greedy marginal balancing.** Keep counts `c[d][b]` of Tracks already selected **in this video** per dimension `d` and bin `b`. Repeat `q_v` times: choose the unselected candidate with the smallest score `Σ_d c[d][bin_d]`, breaking ties by smallest `h(seed‖runId‖trackId)`; then update the counts. This favours bins under-represented so far in every dimension at once.
+4. **Overlap for the second reviewer.** `k = ⌈overlapFraction × T⌉`, allocated over videos by step 2's rule applied to the selected counts (floor 1 per video while `k ≥ V`); within a video, the selected Tracks with the smallest `h(seed‖"overlap"‖runId‖trackId)`. It is chosen in the same run from blinded data, so it depends neither on predictions nor on any label.
 
-**Refusals:** a bad export hash or schema; a target larger than the usable pool; a duplicate Track; requirements missing, schema-invalid, uncommitted or differing from the named commit (`requirements_not_committed`); an invalid exclusion sample.
+The sample records, per selected Track, its video and its five bins, and per video `a_v`, `f_v` and `q_v`, so the allocation can be re-checked from the artefact.
+
+**Refusals:** a bad export hash or schema; a target larger than the usable pool; a duplicate Track; requirements missing, schema-invalid, uncommitted or differing from the named commit (`requirements_not_committed`); an invalid exclusion sample; an invalid design (a `continuation` without a parent sample after the pilot, or a `supplemental` without a reason).
 
 **Tests**
 - determinism;
 - an edited, uncommitted requirements file is refused (fixture git repository under the pytest temp dir);
 - excluded Tracks never reappear, and the exclusion count adds up;
 - *discriminating*: the selection and the overlap are identical when subclass and confidence values are permuted, deleted or replaced; a mutant reading `objectSubclass` fails;
-- the camera floor holds;
+- **allocation, executable:** on a fixture with hand-computed quotas, `q_v` equals the expected values exactly, including a largest-remainder tie, a capped video whose excess is re-shared, and floors that hold; quotas always sum to `T`;
+- **balancing, executable:** on a fixture where each video's hash order is deliberately skewed toward one bin in every dimension, the selection equals a pinned golden, and its per-dimension bin imbalance (Σ over dimensions and bins of `(count − q_v/3)²`) is strictly below that of the hash-order-only selection of the same quotas; a mutant that ignores the bins fails;
+- tercile cuts on a fixture with tied values match hand-computed bins;
 - excluded counts add up;
-- overlap ⊂ selected.
+- overlap ⊂ selected, with its per-video allocation as hand-computed.
 
 **Exit:** CI green.
 
@@ -254,7 +268,7 @@ The two evidence version members are taken from the profile file named by `pipel
 
 **Files**
 - **New:** `tools/stage3/build_labeling_pack.py`.
-- **New:** `tools/stage3/labeling/index.html`, `labeling.js`, `labeling.css` (static, copied into each pack).
+- **New:** `tools/stage3/labeling/index.html`, `labeling.js`, `labeling.css` (static, copied into each pack). `.gitattributes` gains `tools/stage3/labeling/* text eol=lf`; existing line-ending rules are unchanged.
 - CLI: `--sample <file> --export <file>… --source <mp4>… --pipeline-profile <file> --seed <text> --reviewer-view primary|overlap --out <new-dir>`.
 
 **Per item**
@@ -282,6 +296,8 @@ The two evidence version members are taken from the profile file named by `pipel
 
 **Derived `pack-data.js`.** Written after the manifest, as a deterministic function of the manifest bytes: `window.MAVI_PACK = {packSha256, items:[{itemId, views:[{path, label}]}]}`. It loads from `file://` with no server, so the page has the hash without fetching anything. It is outside `files[]` to avoid a circular hash; instead T5 and T6 regenerate it from the manifest and refuse if the on-disk bytes differ (`pack_data_mismatch`).
 
+**Canonical bytes for text assets.** Every text file the builder writes, copied or generated (`index.html`, `labeling.js`, `labeling.css`, `pack-data.js`, the manifest), is written as UTF-8 without BOM with LF line endings: the builder decodes the template, normalises CRLF and CR to LF, and writes those bytes. Hashes are computed from the written canonical bytes, so a CRLF checkout cannot change any file hash or `packSha256`. A template that is not valid UTF-8 is refused (`pack_asset_not_utf8`).
+
 **Reviewer-visible files:** `index.html`, `labeling.js`, `labeling.css`, `pack-data.js` and the images. The run→Track mapping lives only in `pack-manifest.json`, which also carries no predictions.
 
 **Page behaviour**
@@ -301,6 +317,7 @@ The two evidence version members are taken from the profile file named by `pipel
 - **leak test:** reviewer-visible files contain no `objectSubclass*` key, no subclass value adjacent to an item, no confidence and no Track or run ids;
 - the drawn box matches the observation box (pixel check on a synthetic video);
 - static page check: no `http(s)://`, no `fetch` or `XMLHttpRequest`;
+- **Windows regression:** building from a copy of the templates converted to CRLF gives the same file hashes and the same `packSha256` as from the LF templates; every written text file contains no `\r`;
 - primary and overlap packs share Tracks but no `itemId`.
 
 **Windows/offline:** PyAV, Pillow and numpy are already in the venv. The page opens from disk in Edge or Chrome. No dependency change.
@@ -311,6 +328,7 @@ The two evidence version members are taken from the profile file named by `pipel
 
 **File:** `tools/stage3/freeze_labels.py`.
 - `freeze --pack <dir> --decisions <draft> --reviewer-name <n> --reviewer-role <r> --reviewed-on <YYYY-MM-DD> --out <file>`
+- `adjudicate-prepare --primary <labels> --overlap <labels> --pack <primary-pack-dir> --out <new-dir>`
 - `adjudicate --primary <labels> --overlap <labels> --decisions <file> --adjudicator <n> --out <file>`
 
 **`vehicle-subclass-track-labels-v1`:** `{packSha256, sampleSha256, exportSha256s, reviewer{name, role}, reviewedOn, vocabulary, decisions[{itemId, processingRunId, trackId, videoSourceSha256, label, unknownReason?, note?}]}`, sorted by `(processingRunId, trackId)` and resolved through the pack manifest.
@@ -330,11 +348,17 @@ The two evidence version members are taken from the profile file named by `pipel
 - It refuses unless both label sets cover the same Tracks on the overlap, and both are complete.
 - Agreed items are carried through unchanged; disagreements need an adjudicated label.
 
+**Prediction-blind adjudication**
+- **When:** only after both label sets are frozen; `adjudicate-prepare` refuses unfrozen or non-schema label files.
+- **What the adjudicator sees:** the reviewer evidence from the primary pack and the two human decisions for each disagreement, as an adjudication sheet (`adjudication-data.js` beside the pack page, items by primary `itemId`). Nothing else.
+- **Predictions stay hidden:** `adjudicate-prepare` and `adjudicate` take no export, result or attestation input. Their only inputs are the frozen label files, the pack and the adjudicator's decisions, none of which carry predictions or confidences.
+- **Diagnostic review comes last:** predictions are first shown by T6's `measurement-summary.md`, which T6 writes only when every batch with overlap labels has a frozen adjudication (`adjudication_missing`).
+
 **Immutability.** Artefacts are content-addressed and written once.
 - The artefacts used in a recorded measurement are named by hash in §20.
 - Corrections produce **new** artefacts and a new measurement record; nothing is edited in place.
 
-**Tests:** every refusal; determinism; the adjudication carry-through; both originals are preserved in the result inputs.
+**Tests:** every refusal; determinism; the adjudication carry-through; both originals are preserved in the result inputs; **adjudication blindness:** the two adjudication commands' argument parsers accept no export, result or attestation option, and the leak test of T4 run over the adjudication sheet and the adjudication artefact finds no `objectSubclass*` key, subclass prediction or confidence.
 
 **Exit:** CI green.
 
@@ -355,6 +379,7 @@ The two evidence version members are taken from the profile file named by `pipel
 
 **Refusals**
 - the requirements file is missing or fails its schema;
+- overlap labels without a frozen adjudication (`adjudication_missing`);
 - any input hash mismatch;
 - an existing output.
 
@@ -368,11 +393,11 @@ The two evidence version members are taken from the profile file named by `pipel
 
 ### T7 — Corpus verification and release record (S3.2b; ⚠ real release, ⚠ R-5)
 
-See §8. **Exit:** the release record parses, `verify_release_files` passes, and `authorise_release_use(release, ["development", "benchmarking"])` returns no blockers.
+See §8. **Exit:** the release record parses, `verify_release_files` passes, and for every selected source member `authorise_release_use(release, ["benchmarking", "development"], member=<member>)` returns no blockers. The rights inventory's `create-derivatives` status is recorded as R-5 determined it; this plan makes no assumption about it.
 
 ### T8 — MP4 derivation (S3.2b; ⚠ real release)
 
-See §8. **File:** `tools/stage3/derive_mp4.py`. **Exit:** every pilot video, including any already importable, has a derivation manifest whose output re-derives byte-identically.
+See §8. **File:** `tools/stage3/derive_mp4.py`. **Exit:** every pilot video, including any already importable, has a derivation manifest whose output re-derives byte-identically, and whose recorded authorisation for its mode returned no blockers (passthrough: `evaluate`; remux or transcode: `evaluate` and `create-derivatives`).
 
 ### T9 — Import, process, export (S3.2b; ⚠ Development host)
 
@@ -398,7 +423,7 @@ Run in order:
 
 ### T11 — Expansion (S3.2d; conditional; ⚠ human)
 
-See §14.
+See §14. The expansion is declared `continuation` or `supplemental` before its sample is drawn, and the pilot's measurement record is never edited.
 
 ## 7. Testing strategy
 
@@ -444,9 +469,9 @@ See §14.
 
 ## 9. Sampling
 
-As T3. Before labels exist, stratification uses only prediction-independent metadata. No class balance is claimed, because no trusted independent type label exists.
+As T3. Before labels exist, allocation and balancing use only prediction-independent metadata. No class balance is claimed, because no trusted independent type label exists.
 
-After the pilot, the **human** class support is inspected. Rare-class supplementation (§14) is decided only then, and only by sampling more footage, never by selecting on MAVI predictions.
+After the pilot, the **human** class support is inspected. Rare-class supplementation (§14) is decided only then, and only by sampling more footage, never by selecting on MAVI predictions. Because it is chosen after seeing labels, it is a `supplemental` batch, reported apart from the pilot's aggregate.
 
 ## 10. Labelling workflow
 
@@ -457,7 +482,7 @@ After the pilot, the **human** class support is inspected. Rare-class supplement
 **Independence**
 - Each works from their own pack.
 - The overlap pack hides the primary's decisions and all predictions.
-- Adjudication happens only after both have frozen.
+- Adjudication happens only after both have frozen. The adjudicator sees the reviewer evidence and the two human decisions, never MAVI's predicted subclass or confidence; those stay hidden until the adjudication is frozen (T5).
 
 **What the unknown reasons diagnose:**
 - `occluded` and `too-small`: imagery;
@@ -476,7 +501,7 @@ As T5. Labels bind to the exact pack the reviewer used (`packSha256`, which cove
 
 As T2 and T6. Reported metrics are exact fractions with explicit denominators; undefined metrics are `null`. They are descriptive: no confidence intervals in the pilot, because Track outcomes are clustered by video and camera (T2, "Why no intervals"). The per-video and per-camera breakdown is reported instead. No per-class conclusions are drawn beyond T6's support status.
 
-**Error review** (diagnostic, after freeze): `errorReferences` index into the pack, so a reviewer can look at mismatches with predictions shown.
+**Error review** (diagnostic, only after all labels and adjudications are frozen): `errorReferences` index into the pack, so a reviewer can look at mismatches with predictions shown.
 
 ## 13. Pre-registered decision requirements
 
@@ -516,11 +541,12 @@ The tooling cannot prove when a person first looked at numbers; it proves that t
 - more source diversity is needed;
 - error analysis shows the pilot is unrepresentative.
 
-**How expansion works**
-- It reuses T3–T6 with a new seed. T3 is given the pilot sample(s) as `--exclude-sample`, so no pilot Track is resampled, and it binds the same requirements.
-- It processes more corpus videos if needed (T8–T9). The new exports must attest the same producer identity as the pilot's; otherwise the batches cannot be combined.
-- T2/T6 run with the pilot and expansion as two batches: the combined result covers the union, with each batch also reported.
-- It produces new artefacts and a new measurement record; the pilot record is not edited.
+**How expansion works.** It reuses T3–T6 with a new seed, gives T3 the earlier sample(s) as `--exclude-sample` so no Track is resampled, and binds the same requirements. Its design is declared before sampling:
+
+- **A. Same-design continuation** (`--design continuation`): the same source population (the same release, with any added videos chosen by T9's pre-declared rule), the same `s3-2-video-quota-diversity-v1` algorithm and parameters, earlier Tracks excluded, and the same producer, profile and requirements. It may be pooled with the pilot into the primary aggregate, with every batch still reported on its own.
+- **B. Targeted supplementation** (`--design supplemental`): rare-class targeting after inspecting pilot labels, a new dataset, source or domain, or a deliberately altered allocation. It is reported as a separate supplemental or challenge measurement and never mixed into the pilot's prevalence-sensitive aggregate precision, accuracy or coverage, unless a weighting design was named in the requirements file before sampling.
+
+Either way it produces new artefacts and a new measurement record. **The pilot measurement is immutable**: the pilot record is not edited, and later results reproduce the pilot's own result unchanged.
 
 The expansion decision, or the decision not to expand, is recorded in §20. S3.2 may finish after the pilot.
 
@@ -534,11 +560,15 @@ The expansion decision, or the decision not to expand, is recorded in §20. S3.2
 
 **One governance path.** The release record, licence evidence, file hashes, purpose authorisation and exposure all use the existing release machinery (`mavi-attribute-dataset-release-v1`, `authorise_release_use`). No parallel mechanism.
 
-**Requested use:** `development` and `benchmarking`, operation `evaluate` only.
+**Requested use.** Purposes `["benchmarking", "development"]`, the repository's established purpose tokens; both exercise `evaluate` only. Authorisation is member-scoped, one call per selected source member:
+- **measurement and passthrough derivation:** `authorise_release_use(release, ["benchmarking", "development"], member=<member>)`;
+- **remux or transcode derivation** (a new media artefact): `authorise_release_use(release, ["benchmarking", "development"], operations=["create-derivatives"], member=<member>)`.
 
-**Blocked until R-5 decides.** With `determination: null`, `authorise_release_use` refuses, and T8 refuses to run without a passing authorisation.
+If `create-derivatives` is not `granted` in R-5's rights inventory, T8 refuses remux and transcode for that member (`derivation_not_authorised`, with the blockers), and only passthrough-eligible videos can be used. This plan does not infer or make the legal decision; R-5 supplies the determination.
 
-**Never frozen qualification.** Public origin never confers frozen-qualification eligibility (`provenance.parse_purposes` refuses `frozen-qualification` for public origin). Every S3.2 artefact carries `purpose: development-evaluation`, and the result scope says it is not qualification evidence.
+**Blocked until R-5 decides.** With `determination: null`, `authorise_release_use` returns blockers, and T8 refuses to run without the passing authorisation for its mode; the call and its empty result are recorded in the derivation manifest.
+
+**Never frozen qualification.** Public origin never confers frozen-qualification eligibility (`provenance.parse_purposes` refuses `frozen-qualification` for public origin). S3.2 artefacts record the authorised purposes `["benchmarking", "development"]`; no new purpose token is introduced. The result `scope` states that it is development/evaluation evidence and not frozen qualification.
 
 **Media stays out of Git.** No CityFlow media, frames or crops are committed. Only hashes and metadata go in §20.
 
@@ -552,14 +582,14 @@ The T1 attestation-factory extraction is behaviour-preserving and proven by the 
 
 | Stage | Refused when |
 |---|---|
-| Export | run or job not terminal; attestation integrity; Track/run/video linkage; orphan observation; malformed subclass state; non-Stage-3 profile; evidence or source bytes changed; missing artefacts |
-| Sample | bad export hash or schema; target exceeds usable pool; duplicate Track; requirements not committed unchanged; invalid exclusion sample |
-| Pack | source MP4, profile, evidence or frame mismatch; `pack-data.js` not regenerating from the manifest |
-| Freeze/adjudicate | pack identity altered; missing or duplicate item; item outside the pack; vocabulary violation; reason without `unknown`; note invalid; reviewer missing; overlap coverage mismatch |
-| Evaluate | export hash; label for a non-exported or non-Vehicle Track; video hash mismatch; duplicates; batch pairing; adjudication not matching its label files; overlapping batches; mixed producers; profile mismatch; missing or foreign subclass source; missing attestation |
-| Run/compare | missing requirements; requirements differing from the samples' binding; any input hash mismatch |
-| Derivation | source not in the release; unknown codec; non-deterministic output; passthrough hash mismatch |
-| Release use | `authorise_release_use` blockers (R-5 absent) |
+| Export | run or job not terminal; attestation integrity; pipeline-profile file not the attested one, or malformed; Track/run/video linkage; orphan observation; malformed subclass state; non-Stage-3 profile; evidence or source bytes changed; missing artefacts |
+| Sample | bad export hash or schema; invalid design; target exceeds usable pool; duplicate Track; requirements not committed unchanged; invalid exclusion sample |
+| Pack | source MP4, profile, evidence or frame mismatch; text asset not UTF-8; `pack-data.js` not regenerating from the manifest |
+| Freeze/adjudicate | labels not frozen before adjudication; pack identity altered; missing or duplicate item; item outside the pack; vocabulary violation; reason without `unknown`; note invalid; reviewer missing; overlap coverage mismatch |
+| Evaluate | export hash; continuation design mismatch; supplemental pooling not declared; label for a non-exported or non-Vehicle Track; video hash mismatch; duplicates; batch pairing; adjudication not matching its label files; overlapping batches; mixed producers; profile mismatch; missing or foreign subclass source; missing attestation |
+| Run/compare | missing requirements; overlap labels without a frozen adjudication; requirements differing from the samples' binding; any input hash mismatch |
+| Derivation | source not in the release; unknown codec; non-deterministic output; passthrough hash mismatch; member not authorised for its mode (`evaluate` for passthrough; `evaluate` and `create-derivatives` for remux or transcode) |
+| Release use | `authorise_release_use` blockers for the member and operations (R-5 absent, or an operation not granted) |
 
 Every refusal exits with code 2, writes nothing, and gives a stable code.
 
@@ -572,7 +602,7 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
 - **Storage:** data under `E:\MAVI-Controlled\…\S3\`, scratch under `E:\MAVI-Working`.
 - **Labelling page:** opens from disk with no server.
 - **Paths:** stored relative and forward-slashed inside artefacts, and never absolute.
-- **Line endings:** canonical JSON is written with LF.
+- **Line endings:** every generated or copied text artefact (canonical JSON, the pack's HTML, JS and CSS) is written as UTF-8 with LF, and hashed from those bytes; a CRLF checkout does not change any identity (T4 regression test). Existing repository line-ending controls are unchanged.
 - **Dependencies:** `offline-dependency-policy-v1.json` is unchanged.
 
 ## 19. Risks and open questions
@@ -600,11 +630,11 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
 **S3.2 is complete when all of the following exist:**
 1. **S3.2a merged with CI green,** including:
    - export snapshot-invariant tests;
-   - the sampler blindness test;
-   - the pack leak test;
+   - the sampler blindness and executable allocation/balancing tests;
+   - the pack leak test, the CRLF pack-identity regression and the adjudication-blindness test;
    - evaluator mutation pins;
    - the byte-stable end-to-end synthetic pipeline.
-2. **A release record** with verified hashes, terms evidence, exposure and the R-5 determination; and derivation manifests that re-derive byte-identically.
+2. **A release record** with verified hashes, terms evidence, exposure and the R-5 determination; and derivation manifests that re-derive byte-identically, each with the member-scoped authorisation its mode requires.
 3. **A committed requirements file,** bound by hash and commit into every sample, and matched by the runner.
 4. **A recorded pilot.** Every input hash recorded (release, derivations, exports, sample, packs, label sets, adjudication, requirements, result), plus:
    - the requirement-comparison table;
