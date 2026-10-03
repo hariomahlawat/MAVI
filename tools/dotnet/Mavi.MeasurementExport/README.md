@@ -13,10 +13,14 @@ Mavi.MeasurementExport --run <processing-run-guid> --pipeline-profile <file> --o
   (`MAVI_MACHINE_CONFIG`, or the environment's default path), then environment
   variables. It needs `ConnectionStrings:Mavi`, `MediaStorage:RootPath` and
   `MediaStorage:EvidenceRootPath`; there is no separate configuration path.
-  The environment comes from `ASPNETCORE_ENVIRONMENT`, then `DOTNET_ENVIRONMENT`, and
-  defaults to **Production**, as for the web host. On the Development host set
-  `ASPNETCORE_ENVIRONMENT=Development` (or point `MAVI_MACHINE_CONFIG` at the file).
-  The tool prints which configuration it read before anything else.
+  The environment is resolved exactly as the web host's `WebApplication.CreateBuilder`
+  resolves it: `DOTNET_ENVIRONMENT`, then `ASPNETCORE_ENVIRONMENT`, defaulting to
+  **Production**. On the Development host set `DOTNET_ENVIRONMENT=Development` (or point
+  `MAVI_MACHINE_CONFIG` at the file). A file named by `MAVI_MACHINE_CONFIG` must exist; a
+  missing default file is skipped, as the host skips it. An unloadable machine file
+  (missing explicit file, unreadable, malformed JSON) is refused as
+  `export_configuration_invalid`. The tool prints which configuration it read before
+  anything else.
 - **Pipeline profile:** always given explicitly. Its SHA-256 must equal the run's
   attested `pipelineProfileSha256`.
 - **Output:** a new directory holding `subclass-measurement-export.json`
