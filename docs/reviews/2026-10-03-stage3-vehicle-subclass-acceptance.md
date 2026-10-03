@@ -4,7 +4,7 @@
 **Date opened:** 2026-10-03\
 **Baseline:** `main@379b7b22a3d8722d8c4d99df50794805494155aa` (merge of PR #150)
 
-This register is the only authoritative exit gate for Stage 3 (`docs/architecture/README.md`, "Documentation precedence" item 4). Plans and runbooks reference these row IDs rather than keep a second acceptance list. The S3.2b-2 runbook's pre-flight checklist (PF1–PF20) is an evidence-collection aid that maps onto the E rows below.
+This register is the only authoritative exit gate for Stage 3 (`docs/architecture/README.md`, "Documentation precedence" item 4). Plans and runbooks reference these row IDs rather than keep a second acceptance list. The S3.2b-2 runbook's pre-flight checklist (PF1–PF21) is an evidence-collection aid that maps onto the E rows below.
 
 **Nothing unexecuted is marked PASS.** A row becomes PASS only when its evidence is entered here: commits, run IDs, or artefact SHA-256s with their retained location. Corpus bytes never enter Git.
 
@@ -141,6 +141,7 @@ All rows start OPEN. Evidence is hash-only; bytes stay in the controlled store. 
 | E18 | First real transcode determinism repeat byte-identical (NOT TRIGGERED if transcode unused) [PF17] | OPEN |
 | E19 | Every derivation's `importLimitBytes` equals the intended S3.2b-3 host's `VideoImport:MaximumFileSizeBytes` [PF18] | OPEN |
 | E20 | No corpus media, archive, frame, crop or log committed to Git [PF19] | OPEN |
+| E21 | One verified FFmpeg/ffprobe pack identity retained for the event: each tool's `{version, sha256}` and the manifest SHA-256. Every probe's `ffprobe`, every derivation's `sourceMedia.ffprobe`/`outputMedia.ffprobe`, and every remux/transcode `ffmpegVersion`/`ffmpegSha256` equal it (plan §20) [PF21] | OPEN |
 
 ## F. S3.2b-3 — Development-host execution (T9)
 
@@ -167,6 +168,7 @@ S3.2b-3 may be scheduled only when every E row is PASS (or NOT TRIGGERED, for E1
 | G6 | Adjudication completed where needed | OPEN |
 | G7 | Labels frozen | OPEN |
 | G8 | T6 measurement and requirement comparison produced | OPEN |
+| G9 | Threshold freeze decision recorded on the measurement (ADR-016 §3). Either `minShare`/`minMatchedDetections` are frozen at the measured profile's values; or any change is a new pipeline-profile version, which needs its own Development tuning/evaluation path and a new measurement before G9 can PASS | OPEN |
 
 ## H. S3.2d — expansion (T11)
 
@@ -178,6 +180,6 @@ S3.2b-3 may be scheduled only when every E row is PASS (or NOT TRIGGERED, for E1
 
 | ID | Requirement | Status |
 |---|---|---|
-| X1 | Exposure decision (expose or decline) recorded on S3.2 measurement evidence (G8, and H1 where triggered) | OPEN |
+| X1 | Exposure decision (expose or decline) recorded on S3.2 measurement evidence (G8, G9, and H1 where triggered); exposure is decided only for a profile whose thresholds G9 froze | OPEN |
 | X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment (NOT TRIGGERED if X1 declines) | OPEN |
 | X3 | Every pre-existing Vehicle search returns the same Tracks (implementation roadmap Stage-3 acceptance; NOT TRIGGERED if X1 declines) | OPEN |

@@ -7,7 +7,7 @@
 **Authority and prerequisites.** The precedence order is `docs/architecture/README.md`, "Documentation precedence".
 - **ADR-016 (accepted, 2026-10-02): the Stage-3 subclass-source decision.** `capability-implementation-roadmap.md` records Stage 3's source precondition as satisfied by it. It decides the source (detector-native) and requires **evaluation first** (§7): measurement on MAVI-held development clips before any operator exposure. S3.2 is that measurement.
 - **The capability roadmap.** `capability-roadmap.md` records Stage 3 as **In progress (Development measurement; not operator-exposed)**. API, search and UI exposure stays deferred under ADR-016 §7 until this measurement supports it. Nothing in this runbook exposes anything.
-- **The register.** `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md` is Stage 3's only authoritative exit gate and owns every acceptance state this runbook gathers evidence for (rows E1–E20; §18).
+- **The register.** `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md` is Stage 3's only authoritative exit gate and owns every acceptance state this runbook gathers evidence for (rows E1–E21; §18).
 - **The plan.** `docs/superpowers/plans/2026-10-03-stage3-s3-2-vehicle-subclass-measurement.md` (T7, T8, T9, §8, §15, §20) states how ADR-016 §7 is carried out.
 - **Tooling:** as merged in PR #150 (`main@379b7b22`).
 - **Gate before §3.** R-1 records, in the ledger (§17), that ADR-016 is still `Accepted` and not superseded on the `main` used for this event, and that neither roadmap names any other unmet prerequisite for this measurement. If either check fails, **stop**: a superseding decision governs, not this runbook.
@@ -738,7 +738,25 @@ Arguments by mode:
 - **Mode A:** `<POOL_FILE>` and `<MAP_FILE>` are the committed `docs\qualification\stage3\s3-2-source-pool.json` and `...\s3-2-ingestion-map.json`; pass `-` for both digests.
 - **Mode B:** the files are `$Store\pool\source-pool.json` and `$Store\ingestion\ingestion-map.json`; the digests are the committed `...\s3-2-source-pool.sha256` and `...\s3-2-ingestion-map.sha256`.
 
-**Stop.** Any refusal or assertion:
+**(c) One media-tool pack for the whole event.** This checks that every probe and every derivation used the frozen §2 pack: ffprobe identity in every probe and derivation probe, and ffmpeg identity in every remux/transcode manifest.
+
+```powershell
+@'
+import sys, json; sys.path.insert(0, "tools/stage3")
+import media_tools
+from pathlib import Path
+pack, store = sys.argv[1], Path(sys.argv[2])
+probe_id, ffmpeg_id = media_tools.load(pack, "ffprobe").identity, media_tools.load(pack, "ffmpeg").identity
+bad = [p.name for p in (store / "probes").glob("*.probe.json") if json.loads(p.read_bytes())["ffprobe"] != probe_id]
+for d in sys.argv[3:]:
+    m = json.loads((Path(d) / "derivation-manifest.json").read_bytes())
+    if m["sourceMedia"]["ffprobe"] != probe_id or m["outputMedia"]["ffprobe"] != probe_id: bad.append(d)
+    if m["mode"] != "passthrough" and {"version": m["ffmpegVersion"], "sha256": m["ffmpegSha256"]} != ffmpeg_id: bad.append(d)
+print("pack-consistent" if not bad else f"MISMATCH {bad}"); sys.exit(1 if bad else 0)
+'@ | & $Py - $Pack $Store <RUN1_DIR_1> <RUN1_DIR_2> ... <RUN2_DIRS>
+```
+
+**Stop.** Any refusal, assertion or `MISMATCH`:
 - `t9_derivation_*`: a derivation does not match its pool member or release;
 - `*:not_committed:*`: a binding commit is wrong (§11.3);
 - `ingestion_map_invalid:*`: §12.
@@ -796,6 +814,7 @@ Event header:
 | PF18 | Every derivation manifest's `importLimitBytes` equals the S3.2b-3 host's configured `VideoImport:MaximumFileSizeBytes` | manifests, host configuration | E19 |
 | PF19 | `git ls-files` shows no corpus media, archive, frame, crop or log in the repository | `git ls-files` output | E20 |
 | PF20 | `tools/verify_repo.py` passes on each binding commit (pool, convention, map) | log | E12, E13, E14 |
+| PF21 | §16(c) shows every probe and derivation bound to the one pack identity in `media-tools\pack-identity.txt` (§2) | §16(c) log, `pack-identity.txt` | E21 |
 
 S3.2b-3's own gates (plan §4 and register F rows) apply after that: a fresh, dedicated Development catalogue created after the pool freeze, the real Model Pack and runtime, and the shipped `1.3.0-candidate` profile. This runbook never starts T9.
 
