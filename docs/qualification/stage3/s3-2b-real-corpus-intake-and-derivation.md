@@ -74,7 +74,7 @@ Set-Location $Repo
     media\           videos extracted from those archives
     evidence\        terms/licence text, readme, version text, source metadata files, exposure statements
   release\         release-record.json, files-inventory.json, authorisation reports
-  media-tools\     ffmpeg\ (the verified pack), pack-identity.txt
+  media-tools\     ffmpeg\ (the verified pack), pack-identity.json (frozen identity, §2)
   probes\          <sourceSha256>.probe.json (one per candidate video)
   selection\       candidate-review.csv (§9), selection.json (§10)
   pool\            source-pool.json (the frozen record)
@@ -122,19 +122,20 @@ Set-Location $Repo
    @'
    import hashlib, sys; sys.path.insert(0, "tools/stage3")
    from pathlib import Path
-   import media_tools
-   lines = [f"{tool} {media_tools.load(sys.argv[1], tool).identity}" for tool in ("ffprobe", "ffmpeg")]
-   lines.append("manifest.json " + hashlib.sha256((Path(sys.argv[1]) / "manifest.json").read_bytes()).hexdigest())
-   Path(sys.argv[2]).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n"); print("\n".join(lines))
-   '@ | & $Py - $Pack "$Store\media-tools\pack-identity.txt"
+   import artefacts as a, media_tools
+   identity = {tool: media_tools.load(sys.argv[1], tool).identity for tool in ("ffprobe", "ffmpeg")}
+   identity["manifestSha256"] = hashlib.sha256((Path(sys.argv[1]) / "manifest.json").read_bytes()).hexdigest()
+   a.write_once(Path(sys.argv[2]), a.canonical_json(identity)); print(identity)
+   '@ | & $Py - $Pack "$Store\media-tools\pack-identity.json"
    ```
-   Python writes the identity file itself, so it stays UTF-8 in every PowerShell version.
+   - `pack-identity.json` is **the frozen pack identity** for the event. It is written once (the write refuses an existing file) as canonical UTF-8 JSON in every PowerShell version.
+   - §16(c) compares both the live pack and every artefact against this file.
 
 **Expected.** One `{version, sha256}` line each for ffprobe and ffmpeg, then the manifest SHA-256.
 
 **Stop.** Any `media_tools_invalid:*`.
 
-**Retain.** `pack-identity.txt`, the pack's `win-x64\LICENSE.txt`, and the catalog entry it came from.
+**Retain.** `pack-identity.json`, the pack's `win-x64\LICENSE.txt`, and the catalog entry it came from.
 
 **Exit.** Use `$Pack` unchanged for every §8, §13 and §14 command. If the pack changes mid-event, all later probes and derivations differ in identity. Avoid that: if it must change, record why and re-probe.
 
@@ -738,16 +739,23 @@ Arguments by mode:
 - **Mode A:** `<POOL_FILE>` and `<MAP_FILE>` are the committed `docs\qualification\stage3\s3-2-source-pool.json` and `...\s3-2-ingestion-map.json`; pass `-` for both digests.
 - **Mode B:** the files are `$Store\pool\source-pool.json` and `$Store\ingestion\ingestion-map.json`; the digests are the committed `...\s3-2-source-pool.sha256` and `...\s3-2-ingestion-map.sha256`.
 
-**(c) One media-tool pack for the whole event.** This checks that every probe and every derivation used the frozen §2 pack: ffprobe identity in every probe and derivation probe, and ffmpeg identity in every remux/transcode manifest.
+**(c) One media-tool pack for the whole event.** The reference is the frozen `pack-identity.json` (§2), never whatever is currently in `$Pack`. The check:
+1. verifies that the live pack still equals the frozen identity, including the manifest SHA-256, so a replaced or re-prepared pack is caught;
+2. compares the ffprobe identity in every probe and every derivation's source and output probes against the frozen identity;
+3. compares the ffmpeg identity in every remux/transcode manifest against the frozen identity.
 
 ```powershell
 @'
-import sys, json; sys.path.insert(0, "tools/stage3")
+import hashlib, sys, json; sys.path.insert(0, "tools/stage3")
 import media_tools
 from pathlib import Path
 pack, store = sys.argv[1], Path(sys.argv[2])
-probe_id, ffmpeg_id = media_tools.load(pack, "ffprobe").identity, media_tools.load(pack, "ffmpeg").identity
-bad = [p.name for p in (store / "probes").glob("*.probe.json") if json.loads(p.read_bytes())["ffprobe"] != probe_id]
+frozen = json.loads((store / "media-tools/pack-identity.json").read_bytes())
+probe_id, ffmpeg_id = frozen["ffprobe"], frozen["ffmpeg"]
+live = {tool: media_tools.load(pack, tool).identity for tool in ("ffprobe", "ffmpeg")}
+live["manifestSha256"] = hashlib.sha256((Path(pack) / "manifest.json").read_bytes()).hexdigest()
+bad = [] if live == frozen else ["live pack differs from pack-identity.json"]
+bad += [p.name for p in (store / "probes").glob("*.probe.json") if json.loads(p.read_bytes())["ffprobe"] != probe_id]
 for d in sys.argv[3:]:
     m = json.loads((Path(d) / "derivation-manifest.json").read_bytes())
     if m["sourceMedia"]["ffprobe"] != probe_id or m["outputMedia"]["ffprobe"] != probe_id: bad.append(d)
@@ -814,7 +822,7 @@ Event header:
 | PF18 | Every derivation manifest's `importLimitBytes` equals the S3.2b-3 host's configured `VideoImport:MaximumFileSizeBytes` | manifests, host configuration | E19 |
 | PF19 | `git ls-files` shows no corpus media, archive, frame, crop or log in the repository | `git ls-files` output | E20 |
 | PF20 | `tools/verify_repo.py` passes on each binding commit (pool, convention, map) | log | E12, E13, E14 |
-| PF21 | §16(c) shows every probe and derivation bound to the one pack identity in `media-tools\pack-identity.txt` (§2) | §16(c) log, `pack-identity.txt` | E21 |
+| PF21 | §16(c) shows the live pack and every probe and derivation equal to the frozen identity in `media-tools\pack-identity.json` (§2) | §16(c) log, `pack-identity.json` | E21 |
 
 S3.2b-3's own gates (plan §4 and register F rows) apply after that: a fresh, dedicated Development catalogue created after the pool freeze, the real Model Pack and runtime, and the shipped `1.3.0-candidate` profile. This runbook never starts T9.
 
@@ -832,7 +840,7 @@ $MaxImportBytes=<HOST_VideoImport_MaximumFileSizeBytes>; Set-Location $Repo
 
 # --- media tools (§2)
 & "$Repo\tools\setup\Prepare-MaviFfmpegWindows.ps1"; Copy-Item -Recurse "$Repo\vendor\ffmpeg" $Pack
-# then run the §2 verification snippet -> $Store\media-tools\pack-identity.txt
+# then run the §2 verification snippet -> $Store\media-tools\pack-identity.json (written once)
 
 # --- human: §3 acquisition, §4 release-root assembly, §5 record, §6 R-5 determination
 # --- §4 inventory snippet -> $Store\release\files-inventory.json ; §7 verification snippet -> authorisation-report.txt
