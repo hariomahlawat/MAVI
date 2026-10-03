@@ -1,0 +1,252 @@
+{
+  "processingRun": {
+    "attestation": {
+      "actualDevice": "cpu",
+      "capabilityId": "detector",
+      "checkpointSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "completedAtUtc": "2026-10-03T09:00:00+00:00",
+      "componentBindingSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "configuredDeviceIndex": 0,
+      "configuredDevicePolicy": "cpu",
+      "dependencyVersions": {
+        "av": "16.1.0",
+        "mmcv": "2.1.0",
+        "mmdet": "3.3.0",
+        "mmengine": "0.10.7",
+        "numpy": "2.5.3",
+        "opencv": "5.0.0",
+        "opencvPython": "5.0.0.93",
+        "pillow": "11.3.0",
+        "python": "3.12.14",
+        "scipy": "1.18.1",
+        "supervision": "0.30.2",
+        "torch": "2.6.0",
+        "torchvision": "0.21.0",
+        "trackers": "2.6.0"
+      },
+      "detectorName": "rtmdet-m",
+      "detectorVersion": "1",
+      "deviceResolutionReason": null,
+      "framesProcessed": 900,
+      "gpu": null,
+      "maviBuild": "build-attestation",
+      "maviCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "modelId": "rtmdet-m",
+      "modelManifestSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "modelPackId": "mavi-model-v2-7777777777777777777777777777777777777777777777777777777777777777",
+      "modelVersion": "1",
+      "pipelineProfileId": "phase1-detection-tracking-v1",
+      "pipelineProfileSha256": "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf",
+      "pipelineProfileVersion": "1.3.0-candidate",
+      "pipelineVersion": "phase1-detection-tracking-v1",
+      "platform": {
+        "machine": "x86_64",
+        "processor": "x86_64",
+        "pythonBuild": [
+          "main",
+          "Sep 2026"
+        ],
+        "pythonCompiler": "GCC",
+        "pythonImplementation": "CPython",
+        "pythonVersion": "3.12.14",
+        "release": "6.8",
+        "system": "Linux",
+        "version": "qualified"
+      },
+      "platformLockSha256": null,
+      "processingDurationMs": 30000,
+      "processingRunId": "01a0ffb2-cb2e-77c1-9f44-256be4fcc32b",
+      "qualificationId": null,
+      "qualificationSha256": null,
+      "resolvedConfigSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "runtimePackId": "mavi-runtime-v2-8888888888888888888888888888888888888888888888888888888888888888",
+      "runtimePackSource": "installed-pack",
+      "runtimeProfileId": "runtime-v1",
+      "runtimeProfileSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "runtimeVariant": "linux-x86_64-cpu",
+      "trackerName": "ByteTrack",
+      "trackerVersion": "2.6.0",
+      "tracksCreated": 3,
+      "verificationStatus": "unverified",
+      "videoAssetId": "01a0ffb2-c9b2-73ea-8fcd-11523f478870"
+    },
+    "completedAtUtc": "2026-10-03T09:00:00+00:00",
+    "processingRunId": "01a0ffb2-cb2e-77c1-9f44-256be4fcc32b",
+    "status": "Completed",
+    "videoAssetId": "01a0ffb2-c9b2-73ea-8fcd-11523f478870"
+  },
+  "profile": {
+    "evidenceScorerVersion": "quality-v2",
+    "evidenceSelectorVersion": "evidence-selector-v1-two-tier",
+    "pipelineProfileSha256": "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf"
+  },
+  "schemaVersion": "vehicle-subclass-measurement-export-v1",
+  "tracks": [
+    {
+      "detectionCount": 6,
+      "endOffsetMs": 9000,
+      "id": "01a0ffb2-cba1-7d7d-86f3-0bdbb65e5b21",
+      "localTrackNumber": 1,
+      "maxConfidence": 0.95,
+      "meanConfidence": 0.71,
+      "objectClass": "Vehicle",
+      "objectSubclass": "car",
+      "objectSubclassSource": "detector-native:afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf",
+      "objectSubclassVocabulary": "mavi-vehicle-subclass-v1",
+      "observations": [
+        {
+          "boundingBox": {
+            "height": 0.3,
+            "width": 0.3,
+            "x": 0.1,
+            "y": 0.2
+          },
+          "evidencePath": "evidence/4b7ca8a5e1f3782216760e4c0bdc5f079e23e53a0be4f8ffa2ea1e486c952c49.jpg",
+          "evidenceRank": 0,
+          "evidenceRole": "Representative",
+          "evidenceSha256": "4b7ca8a5e1f3782216760e4c0bdc5f079e23e53a0be4f8ffa2ea1e486c952c49",
+          "evidenceSizeBytes": 121,
+          "qualityScore": 0.8,
+          "sourceFrameNumber": 25,
+          "videoOffsetMs": 1000
+        },
+        {
+          "boundingBox": {
+            "height": 0.3,
+            "width": 0.3,
+            "x": 0.11,
+            "y": 0.2
+          },
+          "evidencePath": "evidence/7a3e552a51adf249aade43beaf8c6827671cda39da6f001c76e375c078727635.jpg",
+          "evidenceRank": 1,
+          "evidenceRole": "NearView",
+          "evidenceSha256": "7a3e552a51adf249aade43beaf8c6827671cda39da6f001c76e375c078727635",
+          "evidenceSizeBytes": 128,
+          "qualityScore": 0.75,
+          "sourceFrameNumber": 35,
+          "videoOffsetMs": 1400
+        }
+      ],
+      "representative": {
+        "boundingBox": {
+          "height": 0.3,
+          "width": 0.3,
+          "x": 0.1,
+          "y": 0.2
+        },
+        "videoOffsetMs": 1000
+      },
+      "startOffsetMs": 1000,
+      "trajectorySha256": "fd4087216ca4b3bd64c815110338892f2437320429fb4a9f8c659e393868525c"
+    },
+    {
+      "detectionCount": 10,
+      "endOffsetMs": 13000,
+      "id": "01a0ffb2-cbdf-79c2-961d-1780bda2b69a",
+      "localTrackNumber": 5,
+      "maxConfidence": 0.95,
+      "meanConfidence": 0.75,
+      "objectClass": "Vehicle",
+      "objectSubclass": null,
+      "objectSubclassSource": "detector-native:afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf",
+      "objectSubclassVocabulary": "mavi-vehicle-subclass-v1",
+      "observations": [
+        {
+          "boundingBox": {
+            "height": 0.5,
+            "width": 0.3,
+            "x": 0.1,
+            "y": 0.2
+          },
+          "evidencePath": "evidence/d269a85908cae7b5f12654c9fd928c95a193c423874924b074346e519e5ca771.jpg",
+          "evidenceRank": 0,
+          "evidenceRole": "Representative",
+          "evidenceSha256": "d269a85908cae7b5f12654c9fd928c95a193c423874924b074346e519e5ca771",
+          "evidenceSizeBytes": 125,
+          "qualityScore": 0.8,
+          "sourceFrameNumber": 125,
+          "videoOffsetMs": 5000
+        }
+      ],
+      "representative": {
+        "boundingBox": {
+          "height": 0.5,
+          "width": 0.3,
+          "x": 0.1,
+          "y": 0.2
+        },
+        "videoOffsetMs": 5000
+      },
+      "startOffsetMs": 5000,
+      "trajectorySha256": "68ef5dfcff5f9dc29ec7308a8506ca10acbb5fc9133c156280d6ac5187f36b00"
+    },
+    {
+      "detectionCount": 11,
+      "endOffsetMs": 14000,
+      "id": "01a0ffb2-cbe0-7e89-a3c9-dc2b8515d3a6",
+      "localTrackNumber": 6,
+      "maxConfidence": 0.95,
+      "meanConfidence": 0.76,
+      "objectClass": "Person",
+      "objectSubclass": null,
+      "objectSubclassSource": null,
+      "objectSubclassVocabulary": null,
+      "observations": [
+        {
+          "boundingBox": {
+            "height": 0.55,
+            "width": 0.3,
+            "x": 0.1,
+            "y": 0.2
+          },
+          "evidencePath": "evidence/6256e4e359159ba3d67b9f1941070605faec5701fc01ed52fcfd8b1c0bbde0c2.jpg",
+          "evidenceRank": 0,
+          "evidenceRole": "Representative",
+          "evidenceSha256": "6256e4e359159ba3d67b9f1941070605faec5701fc01ed52fcfd8b1c0bbde0c2",
+          "evidenceSizeBytes": 126,
+          "qualityScore": 0.8,
+          "sourceFrameNumber": 150,
+          "videoOffsetMs": 6000
+        },
+        {
+          "boundingBox": {
+            "height": 0.55,
+            "width": 0.3,
+            "x": 0.11,
+            "y": 0.2
+          },
+          "evidencePath": "evidence/a2f3695805d4b87d24b8c8468e65b9a97a1027a176b8ce906c883b17946856b7.jpg",
+          "evidenceRank": 1,
+          "evidenceRole": "NearView",
+          "evidenceSha256": "a2f3695805d4b87d24b8c8468e65b9a97a1027a176b8ce906c883b17946856b7",
+          "evidenceSizeBytes": 133,
+          "qualityScore": 0.75,
+          "sourceFrameNumber": 160,
+          "videoOffsetMs": 6400
+        }
+      ],
+      "representative": {
+        "boundingBox": {
+          "height": 0.55,
+          "width": 0.3,
+          "x": 0.1,
+          "y": 0.2
+        },
+        "videoOffsetMs": 6000
+      },
+      "startOffsetMs": 6000,
+      "trajectorySha256": "002ca2458b038c8cb7dd46de660bb61d9038d174f730e0cedd46bd42711e5dc7"
+    }
+  ],
+  "video": {
+    "cameraCode": "CAM-S32",
+    "durationMs": 60000,
+    "frameRateDenominator": 1,
+    "frameRateNumerator": 25,
+    "height": 1080,
+    "sourceSha256": "8b1b709f673f68f46802fbf81af06e604c8fb8e734bf2bcccd3defb28406306f",
+    "sourceSizeBytes": 512,
+    "videoAssetId": "01a0ffb2-c9b2-73ea-8fcd-11523f478870",
+    "width": 1920
+  }
+}

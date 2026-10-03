@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/vehicle-subclass-measurement-export-v1.schema.json",
+  "title": "vehicle-subclass-measurement-export-v1",
+  "description": "One completed processing run's Tracks, Evidence Set and detector-native subclass facts, bound to the run's attestation and the verified pipeline profile (Stage 3, S3.2 plan T1). Development measurement input only; never an API or search surface. Written as canonical JSON (sorted members, no insignificant whitespace); its identity is the SHA-256 of those bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "processingRun", "video", "profile", "tracks"],
+  "properties": {
+    "schemaVersion": { "const": "vehicle-subclass-measurement-export-v1" },
+    "processingRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["processingRunId", "videoAssetId", "status", "completedAtUtc", "attestation"],
+      "properties": {
+        "processingRunId": { "$ref": "#/$defs/uuid" },
+        "videoAssetId": { "$ref": "#/$defs/uuid" },
+        "status": { "const": "Completed" },
+        "completedAtUtc": { "type": "string", "format": "date-time" },
+        "attestation": { "$ref": "#/$defs/attestation" }
+      }
+    },
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["videoAssetId", "cameraCode", "sourceSha256", "sourceSizeBytes", "durationMs", "width", "height", "frameRateNumerator", "frameRateDenominator"],
+      "properties": {
+        "videoAssetId": { "$ref": "#/$defs/uuid" },
+        "cameraCode": { "type": "string", "minLength": 1 },
+        "sourceSha256": { "$ref": "#/$defs/sha256" },
+        "sourceSizeBytes": { "type": "integer", "minimum": 1 },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "frameRateNumerator": { "type": "integer", "minimum": 1 },
+        "frameRateDenominator": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pipelineProfileSha256", "evidenceSelectorVersion", "evidenceScorerVersion"],
+      "properties": {
+        "pipelineProfileSha256": { "$ref": "#/$defs/sha256" },
+        "evidenceSelectorVersion": { "$ref": "#/$defs/text" },
+        "evidenceScorerVersion": { "$ref": "#/$defs/text" }
+      }
+    },
+    "tracks": {
+      "description": "Every Track of the run, ordered by localTrackNumber.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/track" }
+    }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "text": { "type": "string", "minLength": 1, "pattern": "^\\S(.*\\S)?$" },
+    "unitInterval": { "type": "number", "minimum": 0, "maximum": 1 },
+    "boundingBox": {
+      "description": "Normalised [0, 1] box as stored (single precision, shortest round-trip form).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number" },
+        "height": { "type": "number" }
+      }
+    },
+    "attestation": {
+      "description": "GET /api/processing/runs/{id}/attestation for this run, built by the same factory from the export's snapshot. Only the producer identity members are constrained here; the attestation endpoint owns the rest of its shape.",
+      "type": "object",
+      "required": [
+        "processingRunId", "videoAssetId", "completedAtUtc", "modelId", "modelVersion", "modelManifestSha256",
+        "checkpointSha256", "resolvedConfigSha256", "pipelineProfileId", "pipelineProfileVersion",
+        "pipelineProfileSha256", "verificationStatus", "runtimeProfileId", "runtimeProfileSha256",
+        "runtimeVariant", "maviCommit"
+      ],
+      "properties": {
+        "processingRunId": { "$ref": "#/$defs/uuid" },
+        "videoAssetId": { "$ref": "#/$defs/uuid" },
+        "modelManifestSha256": { "$ref": "#/$defs/sha256" },
+        "checkpointSha256": { "$ref": "#/$defs/sha256" },
+        "resolvedConfigSha256": { "$ref": "#/$defs/sha256" },
+        "pipelineProfileSha256": { "$ref": "#/$defs/sha256" },
+        "runtimeProfileSha256": { "$ref": "#/$defs/sha256" },
+        "qualificationSha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] },
+        "componentBindingSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceRole", "evidenceRank", "sourceFrameNumber", "videoOffsetMs", "boundingBox", "qualityScore", "evidenceSha256", "evidenceSizeBytes", "evidencePath"],
+      "properties": {
+        "evidenceRole": { "enum": ["Representative", "NearView", "EarlyDiverse", "LateDiverse"] },
+        "evidenceRank": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "sourceFrameNumber": { "type": "integer", "minimum": 0 },
+        "videoOffsetMs": { "type": "integer", "minimum": 0 },
+        "boundingBox": { "$ref": "#/$defs/boundingBox" },
+        "qualityScore": { "description": "The stored Observation.QualityScore, the selector's quality signal; not a subclass prediction.", "type": "number" },
+        "evidenceSha256": { "$ref": "#/$defs/sha256" },
+        "evidenceSizeBytes": { "type": "integer", "minimum": 1 },
+        "evidencePath": { "description": "Relative, forward-slashed; the file's name is its content digest.", "type": "string", "pattern": "^evidence/[0-9a-f]{64}\\.jpg$" }
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "localTrackNumber", "objectClass", "startOffsetMs", "endOffsetMs", "detectionCount",
+        "meanConfidence", "maxConfidence", "representative", "objectSubclass", "objectSubclassVocabulary",
+        "objectSubclassSource", "observations", "trajectorySha256"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "localTrackNumber": { "type": "integer", "minimum": 0 },
+        "objectClass": { "enum": ["Person", "Vehicle"] },
+        "startOffsetMs": { "type": "integer", "minimum": 0 },
+        "endOffsetMs": { "type": "integer", "minimum": 0 },
+        "detectionCount": { "type": "integer", "minimum": 1 },
+        "meanConfidence": { "$ref": "#/$defs/unitInterval" },
+        "maxConfidence": { "$ref": "#/$defs/unitInterval" },
+        "representative": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["videoOffsetMs", "boundingBox"],
+              "properties": {
+                "videoOffsetMs": { "type": "integer", "minimum": 0 },
+                "boundingBox": { "$ref": "#/$defs/boundingBox" }
+              }
+            }
+          ]
+        },
+        "objectSubclass": { "enum": [null, "car", "truck", "bus", "motorcycle"] },
+        "objectSubclassVocabulary": { "enum": [null, "mavi-vehicle-subclass-v1"] },
+        "objectSubclassSource": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^detector-native:[0-9a-f]{64}$" }] },
+        "observations": {
+          "description": "The Track's Evidence Set, ordered by evidenceRank.",
+          "type": "array",
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/observation" }
+        },
+        "trajectorySha256": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "objectClass": { "const": "Person" } } },
+          "then": { "properties": { "objectSubclass": { "const": null }, "objectSubclassVocabulary": { "const": null }, "objectSubclassSource": { "const": null } } }
+        },
+        {
+          "if": { "properties": { "objectClass": { "const": "Vehicle" } } },
+          "then": { "properties": { "objectSubclassVocabulary": { "const": "mavi-vehicle-subclass-v1" }, "objectSubclassSource": { "type": "string" } } }
+        }
+      ]
+    }
+  }
+}

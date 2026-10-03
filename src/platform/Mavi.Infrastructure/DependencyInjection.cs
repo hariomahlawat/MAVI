@@ -35,10 +35,7 @@ public static class DependencyInjection
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var connectionString = configuration.GetConnectionString("Mavi")
-            ?? throw new InvalidOperationException("Connection string 'Mavi' is required.");
-        services.AddDbContext<MaviDbContext>(options =>
-            options.UseNpgsql(connectionString, npgsql => npgsql.UseVector()));
+        services.AddMaviDbContext(configuration);
         services.AddScoped<ICameraRepository, CameraRepository>();
         services.AddScoped<CameraService>();
         services.AddScoped<IVideoCatalog, VideoCatalog>();
@@ -74,13 +71,7 @@ public static class DependencyInjection
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ITimeZoneService, SystemTimeZoneService>();
 
-        services.AddOptions<MediaStorageOptions>()
-            .Bind(configuration.GetSection(MediaStorageOptions.SectionName))
-            .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath), "MediaStorage:RootPath is required.")
-            .Validate(options => !string.IsNullOrWhiteSpace(options.EvidenceRootPath), "MediaStorage:EvidenceRootPath is required.")
-            .Validate(options => StorageRootSafety.AreDisjointAndLinkFree(options.RootPath, options.EvidenceRootPath),
-                "MediaStorage roots must be physically disjoint and may not traverse symbolic-link/reparse components.")
-            .ValidateOnStart();
+        services.AddMediaStorageOptions(configuration);
         services.AddOptions<StagingJanitorOptions>()
             .Bind(configuration.GetSection(StagingJanitorOptions.SectionName))
             .Validate(options => options.IsValid, "StagingJanitor settings are out of range.")
@@ -140,6 +131,29 @@ public static class DependencyInjection
         services.AddSingleton<IAcceptedEvidenceReader, AcceptedEvidenceReader>();
         services.AddSingleton<ILocalMediaPathResolver>(provider => provider.GetRequiredService<LocalMediaStore>());
         services.AddSingleton<IVideoMetadataReader, FfprobeVideoMetadataReader>();
+        return services;
+    }
+
+    /// <summary>The platform database context; shared with the read-only operator tools.</summary>
+    internal static IServiceCollection AddMaviDbContext(this IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("Mavi")
+            ?? throw new InvalidOperationException("Connection string 'Mavi' is required.");
+        services.AddDbContext<MaviDbContext>(options =>
+            options.UseNpgsql(connectionString, npgsql => npgsql.UseVector()));
+        return services;
+    }
+
+    /// <summary>The media and evidence storage roots; shared with the read-only operator tools.</summary>
+    internal static IServiceCollection AddMediaStorageOptions(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<MediaStorageOptions>()
+            .Bind(configuration.GetSection(MediaStorageOptions.SectionName))
+            .Validate(options => !string.IsNullOrWhiteSpace(options.RootPath), "MediaStorage:RootPath is required.")
+            .Validate(options => !string.IsNullOrWhiteSpace(options.EvidenceRootPath), "MediaStorage:EvidenceRootPath is required.")
+            .Validate(options => StorageRootSafety.AreDisjointAndLinkFree(options.RootPath, options.EvidenceRootPath),
+                "MediaStorage roots must be physically disjoint and may not traverse symbolic-link/reparse components.")
+            .ValidateOnStart();
         return services;
     }
 
