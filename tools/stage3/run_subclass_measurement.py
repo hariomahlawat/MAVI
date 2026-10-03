@@ -38,6 +38,9 @@ COMPARISON_SCHEMA = "vehicle-subclass-requirement-comparison-v1"
 
 
 def status(minimum: float | None, observed: dict[str, Any], support: int, minimum_support: int) -> str:
+    """``no-requirement`` without a bound; ``insufficient-support`` below the minimum support *or* when the
+    estimate is undefined (for example precision with no prediction of the class: there is nothing to
+    compare); otherwise ``meets`` or ``does-not-meet`` by exact rational comparison."""
     if minimum is None:
         return "no-requirement"
     if support < minimum_support or observed["denominator"] == 0:
@@ -172,6 +175,12 @@ def run(args: argparse.Namespace, staging: Path) -> str:
                   and manifest["exportSha256s"] == labels["exportSha256s"]
                   and manifest["labelingGuide"]["sha256"] == labels["labelingGuideSha256"]
                   and manifest.get("parentPackSha256") == labels.get("parentPackSha256"), "pack_labels_mismatch")
+        items = {item["itemId"]: item for item in manifest["items"]}
+        a.require({d["itemId"] for d in labels["decisions"]} == set(items), "pack_labels_mismatch:items")
+        for decision in labels["decisions"]:
+            item = items[decision["itemId"]]
+            a.require((decision["processingRunId"], decision["trackId"], decision["videoSourceSha256"])
+                      == (item["processingRunId"], item["trackId"], item["videoSourceSha256"]), "pack_labels_mismatch:item")
         used.add(labels["packSha256"])
     a.require(used == set(packs), "pack_unused")
     a.require(len(inputs["adjudications"]) == len(inputs["overlap_labels"]), "adjudication_missing")
@@ -212,7 +221,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--export", type=Path, action="append", required=True)
     p.add_argument("--pipeline-profile", type=Path, required=True)
     p.add_argument("--requirements", type=Path, required=True)
-    p.add_argument("--repository", type=Path, default=Path.cwd())
+    p.add_argument("--repository", type=Path, default=a.ROOT,
+                   help="the git repository holding the committed requirements (default: this MAVI checkout)")
     p.add_argument("--out", type=Path, required=True)
     return p
 

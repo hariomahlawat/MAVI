@@ -130,3 +130,18 @@ def test_existing_output_is_refused(built, tmp_path, capsys):
     assert rm.main(measure_args(world, batch, out)) == 2
     assert "refused output_exists" in capsys.readouterr().err
     assert list(out.iterdir()) == []
+
+
+def test_a_decision_moved_to_another_track_is_refused(built, tmp_path, capsys):
+    world, batch, _ = built
+    labels = json.loads(batch["primaryLabels"].read_text(encoding="utf-8"))
+    first, second = labels["decisions"][0], labels["decisions"][1]
+    first["trackId"], second["trackId"] = second["trackId"], first["trackId"]
+    swapped = tmp_path / "swapped.json"
+    swapped.write_bytes(a.canonical_json(labels))
+    adjudication = json.loads(batch["adjudication"].read_text(encoding="utf-8"))
+    adjudication["primaryLabelsSha256"] = a.sha256_hex(swapped.read_bytes())
+    rebound = tmp_path / "adjudication.json"
+    rebound.write_bytes(a.canonical_json(adjudication))
+    refused(capsys, measure_args(world, batch, tmp_path / "o", labels=[swapped], adjudications=[rebound]),
+            "pack_labels_mismatch", tmp_path / "o")

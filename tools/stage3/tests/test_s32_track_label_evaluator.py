@@ -198,9 +198,46 @@ def test_continuation_pools_only_for_the_same_design(tmp_path):
     pilot_alone = evaluate(world, [pilot])
     assert result["batches"][0] == pilot_alone["batches"][0]  # the pilot's own result is reproduced unchanged
 
-    different = p.batch(world, tmp_path / "different", target=4, seed="different", primary=LARGER_HUMANS,
-                        exclude=[pilot["sample"]], overlap_fraction="0.5")
-    refused("continuation_design_mismatch", lambda: evaluate(world, [pilot, different]))
+
+
+def rebind_sample(batch: dict[str, Path], root: Path, mutate) -> dict[str, Path]:
+    """The same batch with an edited sample, re-bound through both label files and the adjudication,
+    so T2's own pooling guards are reached (T3 refuses such samples before any labelling)."""
+    root.mkdir()
+    sample = json.loads(batch["sample"].read_text(encoding="utf-8"))
+    mutate(sample)
+    out = {"sample": root / "sample.json"}
+    out["sample"].write_bytes(a.canonical_json(sample))
+    sample_sha = a.sha256_hex(out["sample"].read_bytes())
+    for key in ("primaryLabels", "overlapLabels"):
+        labels = json.loads(batch[key].read_text(encoding="utf-8"))
+        labels["sampleSha256"] = sample_sha
+        labels["exportSha256s"] = sorted(sample["exportSha256s"])
+        out[key] = root / f"{key}.json"
+        out[key].write_bytes(a.canonical_json(labels))
+    adjudication = json.loads(batch["adjudication"].read_text(encoding="utf-8"))
+    adjudication["primaryLabelsSha256"] = a.sha256_hex(out["primaryLabels"].read_bytes())
+    adjudication["overlapLabelsSha256"] = a.sha256_hex(out["overlapLabels"].read_bytes())
+    out["adjudication"] = root / "adjudication.json"
+    out["adjudication"].write_bytes(a.canonical_json(adjudication))
+    return out
+
+
+def test_t2_pools_a_continuation_only_for_the_pilot_design(tmp_path):
+    world = f.build_world(tmp_path / "w", larger())
+    pilot = p.batch(world, tmp_path / "pilot", target=8, seed="pilot", primary=LARGER_HUMANS)
+    follow = p.batch(world, tmp_path / "follow", target=4, seed="follow", primary=LARGER_HUMANS, exclude=[pilot["sample"]])
+    assert evaluate(world, [pilot, follow])["primary"]["metrics"]["labelledTracks"] == 12
+    for name, mutate in [
+        ("parameters", lambda s: s["design"]["parameters"].update(overlapFraction=0.5)),
+        ("release", lambda s: s["design"].update(releaseId="another-release")),
+        ("release-record", lambda s: s.update(releaseRecordSha256="d" * 64)),
+        ("parent", lambda s: s["design"].update(parentSampleSha256s=["c" * 64])),
+    ]:
+        changed = rebind_sample(follow, tmp_path / name, mutate)
+        refused("continuation_design_mismatch", lambda: evaluate(world, [pilot, changed]))
+    second_pilot = rebind_sample(follow, tmp_path / "second-pilot", lambda s: s["design"].update(parentSampleSha256s=[]))
+    refused("batch_pilot_invalid", lambda: evaluate(world, [pilot, second_pilot]))
 
 
 def test_overlapping_batches_and_mismatched_requirements_or_guides_are_refused(tmp_path):
@@ -210,19 +247,24 @@ def test_overlapping_batches_and_mismatched_requirements_or_guides_are_refused(t
                     reason="rare classes")
     refused("batch_tracks_overlap", lambda: evaluate(world, [pilot, clash]))
 
-    world.guide.write_text(world.guide.read_text(encoding="utf-8") + "\n## Amended\n", encoding="utf-8")
+    world.guide.write_bytes(world.guide.read_bytes() + b"\n## Amended\n")
     f.git(world.repository, "commit", "-q", "-am", "guide amended")
     world.commit = f.git(world.repository, "rev-parse", "HEAD")
     regrouped = p.batch(world, tmp_path / "regrouped", target=4, seed="regrouped", primary=LARGER_HUMANS, exclude=[pilot["sample"]])
     refused("labeling_guide_mismatch", lambda: evaluate(world, [pilot, regrouped]))
 
+    # Requirements changed after the pilot: T3 refuses the continuation before any labelling...
     requirements = json.loads(world.requirements.read_text(encoding="utf-8"))
     requirements["minimumSupport"]["evaluableTotal"] = 99
-    world.requirements.write_text(json.dumps(requirements, indent=2), encoding="utf-8")
+    world.requirements.write_bytes(json.dumps(requirements, indent=2).encode("utf-8"))
     f.git(world.repository, "commit", "-q", "-am", "requirements changed")
     world.commit = f.git(world.repository, "rev-parse", "HEAD")
-    later = p.batch(world, tmp_path / "later", target=4, seed="later", primary=LARGER_HUMANS, exclude=[pilot["sample"]])
-    refused("requirements_mismatch", lambda: evaluate(world, [pilot, later]))
+    with pytest.raises(AssertionError, match="continuation_design_mismatch"):
+        p.batch(world, tmp_path / "later", target=4, seed="later", primary=LARGER_HUMANS, exclude=[pilot["sample"]])
+    # ...and T2 refuses batches bound to different requirements however they were made.
+    other = rebind_sample(pilot, tmp_path / "other-requirements",
+                          lambda s: s["requirements"].update(sha256=a.sha256_hex(world.requirements.read_bytes())))
+    refused("requirements_mismatch", lambda: evaluate(world, [pilot, other]))
 
 
 def test_supplemental_never_changes_the_primary_aggregate(tmp_path):
@@ -242,19 +284,13 @@ def test_supplemental_never_changes_the_primary_aggregate(tmp_path):
     assert a.canonical_json(evaluate(world, [pilot, extra, unrelated])["primary"]) == a.canonical_json(alone["primary"])
 
 
-def test_a_continuation_that_does_not_name_the_pilot_is_refused(tmp_path):
-    world = f.build_world(tmp_path / "w", larger())
-    pilot = p.batch(world, tmp_path / "pilot", target=6, seed="pilot", primary=LARGER_HUMANS)
-    side = p.batch(world, tmp_path / "side", target=3, seed="side", primary=LARGER_HUMANS, exclude=[pilot["sample"]],
-                   design="supplemental", reason="side batch")
-    orphan = p.batch(world, tmp_path / "orphan", target=3, seed="orphan", primary=LARGER_HUMANS, exclude=[side["sample"]])
-    # The orphan's parent is the supplemental batch, not the pilot; it also shares no Track with the pilot by luck only.
-    with pytest.raises((a.S32Error, ev.SubclassEvaluationError)) as error:
-        evaluate(world, [pilot, side, orphan])
-    assert str(error.value).split(":", 1)[0] in ("continuation_design_mismatch", "batch_tracks_overlap")
-
-
 def test_the_event_mode_entry_point_is_unchanged():
     parser_options = {"--ground-truth", "--tracks", "--profile", "--pipeline-profile", "--attestation", "--out"}
     assert "--track-labels" not in parser_options
     assert callable(ev.evaluate) and ev.SCHEMA_VERSION == "mavi-vehicle-subclass-evaluation-v2"
+
+
+def test_the_equals_form_of_track_labels_selects_the_track_label_mode(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ev, "main_track_labels", lambda argv: seen.append(argv) or 0)
+    assert ev.main(["--track-labels=x.json", "--out", "o"]) == 0 and seen

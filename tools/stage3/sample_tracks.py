@@ -129,14 +129,23 @@ def _requirements(repository: Path, path: Path, commit: str) -> dict[str, str]:
 
 
 def _design(kind: str | None, reason: str | None, parents: list[dict[str, Any]], export_set: list[str],
-            release_record: str) -> dict[str, Any]:
+            release_record: str, overlap_fraction: float, requirements_sha: str) -> dict[str, Any]:
     a.require(kind in ("continuation", "supplemental"), "design_invalid:kind")
     if kind == "continuation":
         a.require(reason is None, "design_invalid:reason_with_continuation")
-        for parent in parents:
+        if parents:
+            # The pilot is the parent that is itself a continuation without parents; earlier
+            # supplemental batches may be excluded too, but only the pilot defines the design.
+            pilots = [p for p in parents if p["design"]["kind"] == "continuation" and not p["design"]["parentSampleSha256s"]]
+            a.require(len(pilots) == 1, "continuation_pool_mismatch:pilot")
+            pilot = pilots[0]
             # A continuation draws only from the pilot's processed pool: no added and no omitted video.
-            a.require(sorted(parent["exportSha256s"]) == export_set, "continuation_pool_mismatch")
-            a.require(parent["releaseRecordSha256"] == release_record, "continuation_pool_mismatch:release")
+            a.require(sorted(pilot["exportSha256s"]) == export_set, "continuation_pool_mismatch")
+            a.require(pilot["releaseRecordSha256"] == release_record, "continuation_pool_mismatch:release")
+            # Fail before any labelling work on what T2 would refuse to pool.
+            a.require(pilot["design"]["parameters"] == {"overlapFraction": overlap_fraction}
+                      and pilot["design"]["samplingAlgorithm"] == ALGORITHM
+                      and pilot["requirements"]["sha256"] == requirements_sha, "continuation_design_mismatch")
         return {"kind": kind}
     a.require(reason is not None, "design_invalid:reason_missing")
     a.require(isinstance(reason, str) and reason.strip() == reason and 0 < len(reason) <= a.REASON_MAX
@@ -195,6 +204,14 @@ def _greedy(candidates: list[BlindTrack], quota: int, bins: dict[str, dict[tuple
     return chosen
 
 
+def _luma_decoder() -> dict[str, str]:
+    """The luma bins depend on JPEG decoding; the sample records what decoded them."""
+    import numpy
+    from PIL import __version__ as pillow
+
+    return {"pillow": pillow, "numpy": numpy.__version__}
+
+
 def _luma(data: bytes) -> float:
     import numpy
     from PIL import Image
@@ -247,9 +264,10 @@ def sample(exports: dict[str, a.Export], *, target: int, overlap_fraction: float
 
     a.require(target <= len(pool), "target_exceeds_pool")
     bins = {d: _tercile_bins(pool, values[d], seed) for d in DIMENSIONS}
-    by_run: dict[str, list[BlindTrack]] = {}
+    # Every exported video counts in V, including one with no usable Track (a_v = 0).
+    by_run: dict[str, list[BlindTrack]] = {export.run_id: [] for export in exports.values()}
     for track in pool:
-        by_run.setdefault(track.run_id, []).append(track)
+        by_run[track.run_id].append(track)
     runs = sorted(by_run)
     floors, quotas = allocate({run: len(by_run[run]) for run in runs}, target, target // (2 * len(runs)), seed)
 
@@ -270,7 +288,8 @@ def sample(exports: dict[str, a.Export], *, target: int, overlap_fraction: float
                              "overlapFloor": overlap_floors.get(run, 0), "overlapQuota": overlap_quotas.get(run, 0),
                              "exportSha256": export_of[run], "videoAssetId": video_of[run]["videoAssetId"],
                              "cameraCode": video_of[run]["cameraCode"]} for run in runs},
-        "strata": {"dimensions": list(DIMENSIONS), "poolSize": len(pool), "cutPositions": [len(pool) // 3, (2 * len(pool)) // 3]},
+        "strata": {"dimensions": list(DIMENSIONS), "poolSize": len(pool), "cutPositions": [len(pool) // 3, (2 * len(pool)) // 3],
+                   "lumaDecoder": _luma_decoder()},
         "available": available_counts,
         "selected": sorted(
             ({"processingRunId": t.run_id, "trackId": t.track_id, "exportSha256": export_of[t.run_id],
@@ -299,7 +318,8 @@ def build(args: argparse.Namespace) -> bytes:
         parent_shas.append(sha)
         previously.update((item["processingRunId"], item["trackId"]) for item in document["selected"])
 
-    design = _design(args.design, args.reason, parents, export_set, release_record)
+    design = _design(args.design, args.reason, parents, export_set, release_record, args.overlap_fraction,
+                     requirements["sha256"])
     a.require(isinstance(args.seed, str) and args.seed.strip() == args.seed and args.seed, "seed_invalid")
     result = sample(exports, target=args.target, overlap_fraction=args.overlap_fraction, seed=args.seed,
                     previously_sampled=previously)
@@ -333,7 +353,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--design")
     p.add_argument("--reason")
     p.add_argument("--exclude-sample", type=Path, action="append", default=[])
-    p.add_argument("--repository", type=Path, default=Path.cwd())
+    p.add_argument("--repository", type=Path, default=a.ROOT,
+                   help="the git repository holding the committed requirements (default: this MAVI checkout)")
     p.add_argument("--out", type=Path, required=True)
     return p
 

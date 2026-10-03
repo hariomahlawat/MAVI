@@ -203,7 +203,7 @@ def test_parent_built_under_another_guide_commit_is_refused(tmp_path, capsys):
     p.run(p.sample_tracks.main, p.sample(world, sample, target=4, overlap="0.5"))
     primary = tmp_path / "primary"
     p.run(bp.main, p.pack(world, sample, primary))
-    world.guide.write_text(world.guide.read_text(encoding="utf-8") + "\n## Amended\n", encoding="utf-8")
+    world.guide.write_bytes(world.guide.read_bytes() + b"\n## Amended\n")
     f.git(world.repository, "commit", "-q", "-am", "guide amended")
     world.commit = f.git(world.repository, "rev-parse", "HEAD")
     refused(capsys, p.pack(world, sample, tmp_path / "o", view="overlap", parent=primary), "parent_pack_invalid:guide", tmp_path / "o")
@@ -260,3 +260,30 @@ def test_changed_evidence_and_out_of_range_frames_are_refused(tmp_path, capsys):
     late_sample = tmp_path / "late.json"
     p.run(p.sample_tracks.main, p.sample(late, late_sample, target=1))
     refused(capsys, p.pack(late, late_sample, tmp_path / "late-pack"), "frame_outside_video", tmp_path / "late-pack")
+
+
+def test_guide_checked_out_with_crlf_still_binds_under_the_lf_rule(tmp_path):
+    world = f.build_world(tmp_path / "w", LAYOUT)
+    (world.repository / ".gitattributes").write_text("docs/qualification/stage3/*.md text eol=lf\n", encoding="utf-8")
+    f.git(world.repository, "add", ".gitattributes")
+    f.git(world.repository, "commit", "-q", "-m", "lf rule")
+    world.commit = f.git(world.repository, "rev-parse", "HEAD")
+    f.git(world.repository, "config", "core.autocrlf", "true")
+    world.guide.unlink()
+    subprocess_checkout = ["-c", "core.autocrlf=true", "checkout", "--", a.LABELING_GUIDE_GIT_PATH]
+    import subprocess
+    subprocess.run(["git", "-C", str(world.repository), *subprocess_checkout], check=True)
+    assert b"\r" not in world.guide.read_bytes()
+    sample = tmp_path / "s.json"
+    p.run(p.sample_tracks.main, p.sample(world, sample, target=3))
+    p.run(bp.main, p.pack(world, sample, tmp_path / "pack"))
+
+
+def test_a_committed_guide_that_is_not_canonical_text_is_refused(tmp_path, capsys):
+    world = f.build_world(tmp_path / "w", LAYOUT)
+    world.guide.write_bytes(world.guide.read_bytes().replace(b"\n", b"\r\n"))
+    f.git(world.repository, "commit", "-q", "-am", "crlf guide")
+    world.commit = f.git(world.repository, "rev-parse", "HEAD")
+    sample = tmp_path / "s.json"
+    p.run(p.sample_tracks.main, p.sample(world, sample, target=3))
+    refused(capsys, p.pack(world, sample, tmp_path / "pack"), "labeling_guide_not_canonical", tmp_path / "pack")

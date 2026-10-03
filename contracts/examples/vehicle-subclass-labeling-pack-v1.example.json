@@ -149,14 +149,14 @@
     }
   ],
   "labelingGuide": {
-    "gitCommit": "a267fc88cf41bc9259655ae21f33ea7b23c5c9b9",
+    "gitCommit": "1a0ffc2eb857f8ac996aa223bf94da256c95f751",
     "gitPath": "docs/qualification/stage3/s3-2-labeling-guide.md",
     "path": "labeling-guide.md",
     "sha256": "86290e751bf46ae9a1a9fc5e460ca69f7227c53e59eb4293bc3e38baeeee7c3b"
   },
-  "parentPackSha256": "fb27d27f394faee5a39ea83f71dc7634e916cada39706f1bfd8c5417032aae23",
+  "parentPackSha256": "f36ca298d0b7925b956de9daf2d3baf71e0a4b31f8859a11ea16f95bd42f4759",
   "pipelineProfileSha256": "9c4b366ab08a031d6054977a7935967baf15e546e83c83ce2e9ad8c695074227",
-  "sampleSha256": "5eb72947493038e7963e54e2afa0af3d674328774fe69e7dbd7b0cee0ddbb70b",
+  "sampleSha256": "800c2d53e1310967d70e3687ce102e612263667b9ff8051fb21aaf3a9b6a5ab0",
   "schemaVersion": "vehicle-subclass-labeling-pack-v1",
   "seed": "pack-seed",
   "viewKind": "overlap"

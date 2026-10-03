@@ -249,7 +249,8 @@
       "required": [
         "dimensions",
         "poolSize",
-        "cutPositions"
+        "cutPositions",
+        "lumaDecoder"
       ],
       "properties": {
         "dimensions": {
@@ -273,6 +274,26 @@
           },
           "minItems": 2,
           "maxItems": 2
+        },
+        "lumaDecoder": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pillow",
+            "numpy"
+          ],
+          "properties": {
+            "pillow": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "numpy": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          }
         }
       }
     },

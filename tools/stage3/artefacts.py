@@ -173,6 +173,13 @@ def write_once(path: Path, data: bytes, code: str = "output_exists") -> None:
             os.link(temporary, path)
         except FileExistsError as exc:
             raise S32Error(code) from exc
+        except OSError:
+            # No hard links on this volume: exclusive create, then write.
+            try:
+                with open(path, "xb") as stream:
+                    stream.write(data)
+            except FileExistsError as exc:
+                raise S32Error(code) from exc
     finally:
         temporary.unlink(missing_ok=True)
 

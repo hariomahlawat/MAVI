@@ -75,7 +75,7 @@
   ],
   "releaseRecordSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
   "requirements": {
-    "gitCommit": "a267fc88cf41bc9259655ae21f33ea7b23c5c9b9",
+    "gitCommit": "1a0ffc2eb857f8ac996aa223bf94da256c95f751",
     "gitPath": "docs/qualification/stage3/s3-2-subclass-requirements.json",
     "sha256": "126256664acf46cbaa7bd09de75af1aaddae1d7888781933ebcb47d554c51550"
   },
@@ -215,6 +215,10 @@
       "luma",
       "quality"
     ],
+    "lumaDecoder": {
+      "numpy": "2.5.3",
+      "pillow": "11.3.0"
+    },
     "poolSize": 10
   },
   "target": 10

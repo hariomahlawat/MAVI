@@ -305,3 +305,36 @@ def test_existing_output_is_refused(world, tmp_path, capsys):
     assert st.main(p.sample(world, out, target=4)) == 2
     assert out.read_text(encoding="utf-8") == "keep"
     assert "refused output_exists" in capsys.readouterr().err
+
+
+def test_continuation_after_a_wider_supplemental_checks_the_pilot_only(tmp_path, capsys):
+    world = f.build_world(tmp_path / "w", {**layout(), "CAM-C": f.numbered(80, 3)})
+    two = [e for e in world.exports() if "export-2" not in str(e)]
+    two_derivations = [d for d in world.derivations() if "derivation-2" not in str(d)]
+    pilot = tmp_path / "pilot.json"
+    make(world, pilot, target=6, exports=two, derivations=two_derivations)
+    wider = tmp_path / "wider.json"
+    make(world, wider, target=4, seed="wider", design="supplemental", reason="third camera", exclude=[pilot])
+    # The continuation excludes both earlier samples; its pool is the pilot's two videos.
+    follow = make(world, tmp_path / "follow.json", target=3, seed="follow", exclude=[pilot, wider], exports=two,
+                  derivations=two_derivations)
+    assert follow["design"]["kind"] == "continuation" and len(follow["design"]["parentSampleSha256s"]) == 2
+    # A design the pilot does not share is refused before any labelling.
+    out = tmp_path / "other.json"
+    refused(capsys, p.sample(world, out, target=3, seed="other", exclude=[pilot], exports=two,
+                             derivations=two_derivations, overlap="0.5"), "continuation_design_mismatch", out)
+    # A continuation whose only parent is supplemental has no pilot to continue.
+    refused(capsys, p.sample(world, out, target=3, seed="orphan", exclude=[wider]), "continuation_pool_mismatch", out)
+
+
+def test_every_exported_video_counts_in_the_allocation(tmp_path):
+    shapes = layout()
+    shapes["CAM-C"] = [f.TrackSpec(number=95, object_class="Person", subclass=None,
+                                   track_id="00000000-0000-4000-8000-000000000095")]
+    world = f.build_world(tmp_path / "w", shapes)
+    document = make(world, tmp_path / "s.json", target=6)
+    assert len(document["allocation"]) == 3
+    empty = next(v for v in document["allocation"].values() if v["cameraCode"] == "CAM-C")
+    assert empty == {**empty, "available": 0, "floor": 0, "quota": 0}
+    assert all(v["floor"] == 1 for v in document["allocation"].values() if v["available"])  # 6 // (2 × 3)
+    assert set(document["strata"]["lumaDecoder"]) == {"pillow", "numpy"}

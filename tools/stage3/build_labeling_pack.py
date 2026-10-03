@@ -190,6 +190,8 @@ def build(args: argparse.Namespace, staging: Path) -> tuple[dict[str, Any], str]
     profile_sha, selector, scorer = _profile(args.pipeline_profile, exports)
     guide_binding = a.git_binding(args.repository, args.labeling_guide, args.labeling_guide_commit,
                                   a.LABELING_GUIDE_GIT_PATH, "labeling_guide_not_committed")
+    guide_bytes = a.read_bytes(args.labeling_guide, "labeling_guide_not_committed")
+    a.require(a.canonical_text(guide_bytes, "labeling_guide_not_canonical") == guide_bytes, "labeling_guide_not_canonical")
     guide = {"sha256": guide_binding["sha256"], "gitCommit": guide_binding["gitCommit"],
              "gitPath": guide_binding["gitPath"], "path": GUIDE}
     a.require(isinstance(args.seed, str) and args.seed.strip() == args.seed and args.seed, "seed_invalid")
@@ -251,7 +253,7 @@ def build(args: argparse.Namespace, staging: Path) -> tuple[dict[str, Any], str]
 
     for name in TEMPLATE_FILES:
         files[name] = _template(args.templates, name)
-    files[GUIDE] = a.canonical_text(a.read_bytes(args.labeling_guide, "labeling_guide_not_committed"), "pack_asset_not_utf8")
+    files[GUIDE] = guide_bytes  # canonical, and byte-identical to the committed blob
     for item in items:
         for view in item["views"]:
             view["sha256"] = a.sha256_hex(files[view["path"]])
@@ -296,7 +298,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", required=True)
     p.add_argument("--reviewer-view", required=True)
     p.add_argument("--parent-pack", type=Path)
-    p.add_argument("--repository", type=Path, default=Path.cwd())
+    p.add_argument("--repository", type=Path, default=a.ROOT,
+                   help="the git repository holding the committed guide (default: this MAVI checkout)")
     p.add_argument("--templates", type=Path, default=TEMPLATES, help=argparse.SUPPRESS)
     p.add_argument("--out", type=Path, required=True)
     return p

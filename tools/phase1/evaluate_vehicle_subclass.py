@@ -557,7 +557,7 @@ def _sha256(path: Path) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if "--track-labels" in argv:
+    if any(arg == "--track-labels" or arg.startswith("--track-labels=") for arg in argv):
         return main_track_labels(argv)
     return _main_events(argv)
 
