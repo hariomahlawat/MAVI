@@ -8,3 +8,5 @@ docs/qualification/model-selection/s2c-operational-selection.md text eol=lf
 tools/qualification/model_selection/acquire_s2c_candidates.ps1 text eol=lf
 tools/stage3/labeling/* text eol=lf
 docs/qualification/stage3/*.md text eol=lf
+# S3.2 committed digests (s3-2-source-pool.sha256, s3-2-ingestion-map.sha256) are compared as exact bytes by T9.
+docs/qualification/stage3/*.sha256 text eol=lf

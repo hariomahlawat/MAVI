@@ -1030,6 +1030,8 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
 
 ## 20. Exit evidence
 
+> **Authority note (2026-10-03).** The Stage-3 acceptance register, `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md`, is the only authoritative exit gate (`docs/architecture/README.md`, "Documentation precedence"). This section lists the evidence its rows require; it is not a second acceptance list. Evidence is recorded in the register, not here; the evidence-record placeholder at the end of this section is superseded.
+
 **S3.2 is complete when all of the following exist:**
 1. **S3.2a merged with CI green,** including:
    - export snapshot-invariant tests;
