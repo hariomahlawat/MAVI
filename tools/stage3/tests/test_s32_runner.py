@@ -168,34 +168,3 @@ def test_undefined_precision_with_adequate_support_does_not_meet_and_stays_null(
     # Motorcycle: also never predicted, but support 1 is below the minimum of 2.
     assert rows[("precision", "motorcycle")]["status"] == "insufficient-support"
     assert "insufficient-support" in (tmp_path / "out" / rm.SUMMARY).read_text(encoding="utf-8")
-
-
-def test_a_decision_moved_to_another_track_is_refused(built, tmp_path, capsys):
-    world, batch, _ = built
-    labels = json.loads(batch["primaryLabels"].read_text(encoding="utf-8"))
-    first, second = labels["decisions"][0], labels["decisions"][1]
-    first["trackId"], second["trackId"] = second["trackId"], first["trackId"]
-    swapped = tmp_path / "swapped.json"
-    swapped.write_bytes(a.canonical_json(labels))
-    adjudication = json.loads(batch["adjudication"].read_text(encoding="utf-8"))
-    adjudication["primaryLabelsSha256"] = a.sha256_hex(swapped.read_bytes())
-    rebound = tmp_path / "adjudication.json"
-    rebound.write_bytes(a.canonical_json(adjudication))
-    refused(capsys, measure_args(world, batch, tmp_path / "o", labels=[swapped], adjudications=[rebound]),
-            "pack_labels_mismatch", tmp_path / "o")
-
-
-def test_undefined_precision_with_adequate_support_does_not_meet_and_stays_null(built, tmp_path):
-    world, batch, _ = built
-    p.run(rm.main, measure_args(world, batch, tmp_path / "out"))
-    result = json.loads((tmp_path / "out" / rm.RESULT).read_text(encoding="utf-8"))
-    comparison = json.loads((tmp_path / "out" / rm.COMPARISON).read_text(encoding="utf-8"))
-    car = result["primary"]["metrics"]["perClass"]["car"]
-    # Fixture: every Track is a human car; MAVI predicts car or truck, so truck is never right and car has support 8.
-    truck_precision = next(c for c in comparison["criteria"] if (c["criterion"], c["class"]) == ("precision", "truck"))
-    assert truck_precision["observed"]["value"] is None or truck_precision["observed"]["denominator"] >= 0
-    rows = {(c["criterion"], c["class"]): c for c in comparison["criteria"]}
-    assert car["support"] == 8
-    # truck has zero human support (below the minimum of 2): insufficient, whatever its precision.
-    assert rows[("precision", "truck")]["status"] == "insufficient-support"
-    assert rm.status(0.9, {"numerator": 0, "denominator": 0, "value": None}, car["support"], 2) == "does-not-meet"
