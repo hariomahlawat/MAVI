@@ -3,7 +3,7 @@
 **Status:** Authoritative implementation-level roadmap. `capability-roadmap.md` answers *what we build next*; this document answers *how the stages depend on one another, what each changes technically, and what must be true before advancing*.  
 **Baseline:** `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d` (Scene Analytics Stage 1 / PR #70 merged and post-merge verified).  
 **Written:** 2026-09-20. Planning only; no feature code, migration, dependency or runtime change accompanies this document.  
-**Companion:** `2026-09-20-spatial-temporal-track-analytics.md` is the completed parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s7-hardening-acceptance.md` is the closure plan; `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md` is the final acceptance register. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 and Scene Analytics Slices 0–7 are merged. Stage 1 is fully closed: exit-gate items 1–20 PASS, including post-merge verification on `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`.** The current capability is **Stage 2 — Visual Attributes** (status 2026-09-28: S1 merged, B1–B6 OPEN pending S1.4 evidence; S2a closed in PR #112; S2b closed through PR #114; PR #115 merged the accepted S2c plan at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; S2c.0 closed through PR #116; S2c.1 task/corpus/labels tooling merged in PR #117 with F1 OPEN; S2c.2a candidate admissibility & credibility merged in PR #118; S2c.2b-1 quality/statistical protocol merged in PR #119; S2c.2b-2 architecture merged in PR #121 (`main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`); protocol/validator/replay implementation merged in PR #122 (`main@7b8913982dc6796a1676de075cf1dc22a7676891`; `docs/qualification/stage2-s2c/s2c-2b2-implementation-record.md`); the real qualification execution plan merged in PR #123 (`main@d0db6efff201a003b9699cde675d8069259f980e`), with Slice A preparation recorded in `docs/qualification/stage2-s2c/real-qualification-execution-record.md` (both MSRs remain PLANNED)). Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
+**Companion:** `2026-09-20-spatial-temporal-track-analytics.md` is the completed parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s7-hardening-acceptance.md` is the closure plan; `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md` is the final acceptance register. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 and Scene Analytics Slices 0–7 are merged. Stage 1 is fully closed: exit-gate items 1–20 PASS, including post-merge verification on `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`.** The current capability is **Stage 2 — Visual Attributes** (status 2026-09-28: S1 merged, B1–B6 OPEN pending S1.4 evidence; S2a closed in PR #112; S2b closed through PR #114; PR #115 merged the accepted S2c plan at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; S2c.0 closed through PR #116; S2c.1 task/corpus/labels tooling merged in PR #117 with F1 OPEN; S2c.2a candidate admissibility & credibility merged in PR #118; S2c.2b-1 quality/statistical protocol merged in PR #119; S2c.2b-2 architecture merged in PR #121 (`main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`); protocol/validator/replay implementation merged in PR #122 (`main@7b8913982dc6796a1676de075cf1dc22a7676891`; `docs/qualification/stage2-s2c/s2c-2b2-implementation-record.md`); the real qualification execution plan merged in PR #123 (`main@d0db6efff201a003b9699cde675d8069259f980e`), with Slice A preparation recorded in `docs/qualification/stage2-s2c/real-qualification-execution-record.md` (both MSRs remain PLANNED)). **Stage 3 — Vehicle Subclass** runs in parallel as a bounded Development measurement under ADR-016 (S3.1, S3.2a and S3.2b-1 merged; S3.2b-2 current; register `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md`). Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
 
 ## 0. The baseline this roadmap builds on
 
@@ -66,7 +66,7 @@ Facts below were read from the code at the baseline SHA, not from earlier plans.
 | 9 NL translation ← 8 Structured search | Hard | The translator emits stage-8 predicates; nothing to translate into otherwise. |
 | 8 Structured search ← 1, 2, 4 | Hard for the predicates each contributes; the search layer itself is incremental | Each stage adds its own predicates as it lands; stage 8 is the consolidation and query-composition work, not the first appearance of predicates. |
 | 10 Review/cases ← 6 | Hard for Entity confirmation; soft for Track review alone | Writing `Track.EntityId` is an attributable operator decision; identity and audit exist for that. Plain confirm/reject could be built earlier but is deferred by product decision. |
-| 2 Attributes ↔ 3 Classes | Soft, overlapping | Vehicle subclass is both a class-vocabulary question (detector) and an attribute question (classifier); the roadmap allows either ordering, and the stage-3 evaluation decides which mechanism produces subclass. |
+| 2 Attributes ↔ 3 Classes | Soft; **resolved for the current source by ADR-016** | Vehicle subclass could come from the detector's class vocabulary or from a Stage-2-style classifier. Accepted ADR-016 chose **detector-native**, so Stage-3 measurement proceeds in parallel with unfinished Stage 2. This roadmap pursues a classifier as a future replacement source only if the S3.2 measurement shows detector-native performance inadequate; introducing one needs a new ADR on source resolution (ADR-016 §6) and its own Model Pack qualification. |
 | 4 ANPR ← 3 Classes | Soft | Plate detection benefits from knowing a Track is a car/truck but works on the broad `Vehicle` class. |
 | 4 ANPR ↔ 5/6 | Independent | ANPR may land before or after similarity. |
 | 1 Analytics ← trajectory v2 (bottom-centre per sample) | Soft | Stage 1 starts on v1 centre points; a worker-side trajectory v2 improves ground-contact geometry later without blocking stage 1 (see the stage-1 plan §J). |
@@ -123,19 +123,35 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 
 ### Stage 3 — Expanded operational object / vehicle classes
 
+**State: IN PROGRESS — Development measurement before exposure.** The acceptance register is authoritative: `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md`.
+
 - **Objective.** Search by "truck" or "motorcycle" rather than "vehicle"; keep every existing "Vehicle" query working.
-- **Preconditions.** Stage 2's decision on where subclass comes from.
-- **Evaluation first.** RTMDet-m COCO already emits `car`, `truck`, `bus`, `motorcycle`, `bicycle`; the qualified pipeline maps them to `Vehicle`. The stage evaluates whether detector classes (cheap, no new model) or the stage-2 classifier (better for SUV/van) yields reliable subclass, and whether `bicycle` belongs in `Vehicle` at all.
-- **Domain/data.** Keep `ObjectClass` (Person/Vehicle) as the broad grouping; add `ObjectSubclass` (nullable, versioned vocabulary) on Track. Historical Tracks have null subclass.
-- **Vision/AI.** Existing detector output (class vocabulary change) or the stage-2 classifier; no new model if the detector route is chosen.
-- **Pipeline placement.** Worker pipeline mapping and completion contract (additive `subclass` field).
-- **API/UI.** `objectSubclass` predicate; subclass shown beside class.
-- **Persistence.** Additive column and index; no migration of historical rows.
-- **Offline/dependency.** None if detector route; otherwise inherits stage 2.
-- **Qualification.** A class-vocabulary change alters the qualified runtime profile and model manifest bindings → qualification record re-issued (as PR #49 did for the runtime-profile digest); detector checkpoint change would be a new Model Pack qualification.
-- **Acceptance.** Subclass search works; every pre-existing Vehicle search returns the same Tracks.
-- **Non-goals.** Vehicle make/model; pedestrian subtypes.
-- **Exit gate.** Backward-compatibility test suite green; qualification record re-derived and reviewed.
+- **Preconditions (satisfied).** The source decision this stage needed from Stage 2 has been made by **ADR-016 (accepted 2026-10-02)**: subclass is **detector-native**, the qualified detector's own class carried through tracking.
+  - Stage 3 does not wait for the rest of Stage 2.
+  - No source-precedence rule for a second source is needed until such a source exists (ADR-016 §6).
+- **Evaluation first (current gate).** The S3.2 measurement on MAVI-held Development clips is the pre-exposure evidence gate (ADR-016 §7). Its plan is `2026-10-03-stage3-s3-2-vehicle-subclass-measurement.md`; the S3.2b-2 runbook is `docs/qualification/stage3/s3-2b-real-corpus-intake-and-derivation.md`.
+  - A Stage-2-style classifier remains a possible **future replacement source**. This roadmap pursues one only if the measurement shows detector-native performance inadequate. Introducing it needs a new ADR on source resolution (ADR-016 §6) and its own Model Pack qualification.
+- **Vocabulary.** `mavi-vehicle-subclass-v1` = `car | truck | bus | motorcycle`.
+  - **Bicycle is excluded** from both the Phase-1/Stage-3 source-class path and the vocabulary. The pipeline drops `bicycle` before tracking, so no current Vehicle Track includes a bicycle.
+  - SUV, van and make/model are not offered.
+- **Domain/data (implemented, S3.1, PR #145).** `ObjectClass` (Person/Vehicle) stays the broad grouping. Three immutable, nullable Track fields (`object_subclass`, `object_subclass_vocabulary`, `object_subclass_source`) have database-enforced states. Historical and Person Tracks carry none.
+- **Vision/AI (implemented).** No new model. The detector's native class is carried through tracking and resolved once per Vehicle Track by a confidence-weighted vote that may abstain. The thresholds live in pipeline profile `1.3.0-candidate` (schema 1.2, `vehicleSubclass`) and stay provisional until the measurement freezes them.
+- **Pipeline placement (implemented).** Completion 3.3 (additive vocabulary/source and per-Track subclass, with its own digest domain). 3.2 is still accepted and replayed.
+- **Measurement tooling (implemented).**
+  - S3.2a T1–T6: export, evaluator, sampler, labelling, freeze/adjudication, runner (PRs #146–#148).
+  - S3.2b-1 T7/T8 and fixture-only T9 tooling (PRs #149–#150).
+  - **Current slice:** S3.2b-2, real corpus intake and derivation.
+- **API/UI (future; not started).** `objectSubclass` predicate; subclass shown beside class. Built as a later increment, only if the S3.2 measurement supports exposure.
+- **Persistence.** Additive columns and constraints, already merged; no migration of historical rows.
+- **Offline/dependency.** No new model or runtime dependency for the detector-native route.
+- **Qualification.**
+  - Checkpoint, model manifest, Model Pack id, runtime profile and runtime packs are unchanged.
+  - The pipeline profile is a new version, so the qualification record's policies were re-derived. The record remains `pending`, and existing qualification evidence does not cover subclass quality.
+  - Stage-3 work is Development capability and evidence, not Production qualification.
+  - A future replacement source (classifier or new checkpoint) would need its own Model Pack qualification.
+- **Acceptance.** Subclass search works, and every pre-existing Vehicle search returns the same Tracks (register X rows).
+- **Non-goals.** Vehicle make/model; pedestrian subtypes; bicycle as a Vehicle subclass.
+- **Exit gate.** The Stage-3 acceptance register is the only authoritative acceptance list. Stage 3 is complete only when its measurement, exposure and compatibility rows are PASS; completing an intermediate slice such as S3.2b-2 does not complete Stage 3.
 
 ### Stage 4 — ANPR / OCR
 
@@ -257,7 +273,7 @@ Impact classes: **none**, **additive** (new artefacts, existing evidence untouch
 |---|---|---|---|---|---|---|---|---|---|
 | 1 Analytics | none | none | none (worker untouched; C6 evidence, once produced, is bound to the pipeline that ran and is unaffected by .NET-side analytics) | none | additive (new whitelisted predicates; fingerprint extended; existing queries unchanged) | additive (new tables) | additive | none | none for the frozen candidate's worker/runtime; the API/UI candidate changes, so Task 18's application-artefact identity changes if re-frozen |
 | 2 Attributes | new model qualification (attribute Model Pack) | requalification likely if new Python packages enter the lock; none if the model runs on the existing graph | same as CPU pack for the CUDA lock; C6/C7 E2E evidence must be re-executed for the changed pipeline | requalification likely (lock change) or none | additive | additive (`visual_attributes` populated; possible summary table) | additive | additive (new model in the kit) | potentially invalidated (worker pipeline change) |
-| 3 Classes | requalification likely (manifest/vocabulary re-issued) or new model qualification if checkpoint changes | none | none for runtime; pipeline evidence re-executed | none | additive | additive (subclass column) | additive | none or additive | potentially invalidated (pipeline output change) |
+| 3 Classes | detector-native route (ADR-016): checkpoint, manifest and Model Pack unchanged; pipeline profile `1.3.0-candidate` re-derives the qualification record's policies (record `pending`); a future replacement source would be a new model qualification | none | none for runtime; pipeline evidence re-executed | none | additive (later exposure increment) | additive (subclass columns) | additive (later exposure increment) | none | potentially invalidated (pipeline output change) |
 | 4 ANPR/OCR | new model qualification (plate detector) | new runtime qualification (OCR engine in the pack) | new runtime qualification for the CUDA pack too | requalification likely | additive | additive | additive | additive (OCR engine, packs) | potentially invalidated |
 | 5 Similarity | new model qualification (embedding) | requalification likely (if in-worker) | as CPU pack | requalification likely | additive | additive (first vector column and index) | additive | additive | potentially invalidated if in-worker; none if separate embedding worker on sealed crops |
 | 6 ReID | none | none | none | none | additive | additive | additive | none | none |

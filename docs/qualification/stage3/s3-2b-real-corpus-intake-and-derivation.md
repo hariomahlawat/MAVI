@@ -2,11 +2,12 @@
 
 **Status:** execution runbook, not yet executed. No real corpus, release record, determination, source pool, ingestion map or derivation exists. Executing it requires the gates in §0.
 
-**Scope.** It covers real release intake, rights and R-5 recording, media probing, the source-pool freeze, ingestion-map preparation and T8 derivation. It ends at the S3.2b-3 GO/NO-GO checklist (§18). It does not cover T9 (S3.2b-3) or T10/T11.
+**Scope.** It covers real release intake, rights and R-5 recording, media probing, the source-pool freeze, ingestion-map preparation and T8 derivation. It ends at the S3.2b-3 pre-flight checklist (§18). It does not cover T9 (S3.2b-3) or T10/T11.
 
 **Authority and prerequisites.** The precedence order is `docs/architecture/README.md`, "Documentation precedence".
-- **ADR-016 (accepted, 2026-10-02): the Stage-3 subclass-source decision.** It is the precondition `capability-implementation-roadmap.md` names for Stage 3 ("Stage 2's decision on where subclass comes from"). It decides the source (detector-native) and requires **evaluation first** (§7): measurement on MAVI-held development clips before any operator exposure. S3.2 is that measurement.
-- **The capability roadmap.** `capability-roadmap.md` keeps expanded subclasses at **Planned**. That status is the product capability (API, search and UI exposure), which ADR-016 §7 defers until this measurement supports it. Nothing in this runbook exposes anything.
+- **ADR-016 (accepted, 2026-10-02): the Stage-3 subclass-source decision.** `capability-implementation-roadmap.md` records Stage 3's source precondition as satisfied by it. It decides the source (detector-native) and requires **evaluation first** (§7): measurement on MAVI-held development clips before any operator exposure. S3.2 is that measurement.
+- **The capability roadmap.** `capability-roadmap.md` records Stage 3 as **In progress (Development measurement; not operator-exposed)**. API, search and UI exposure stays deferred under ADR-016 §7 until this measurement supports it. Nothing in this runbook exposes anything.
+- **The register.** `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md` is Stage 3's only authoritative exit gate and owns every acceptance state this runbook gathers evidence for (rows E1–E20; §18).
 - **The plan.** `docs/superpowers/plans/2026-10-03-stage3-s3-2-vehicle-subclass-measurement.md` (T7, T8, T9, §8, §15, §20) states how ADR-016 §7 is carried out.
 - **Tooling:** as merged in PR #150 (`main@379b7b22`).
 - **Gate before §3.** R-1 records, in the ledger (§17), that ADR-016 is still `Accepted` and not superseded on the `main` used for this event, and that neither roadmap names any other unmet prerequisite for this measurement. If either check fails, **stop**: a superseding decision governs, not this runbook.
@@ -79,7 +80,7 @@ Set-Location $Repo
   pool\            source-pool.json (the frozen record)
   ingestion\       ingestion-map.json, convention notes
   derivations\     <memberSlug>__<mode>__run1\ (and __run2\ for determinism repeats)
-  evidence\        ledger (§17), extraction re-check, GO/NO-GO record
+  evidence\        ledger (§17), extraction re-check, pre-flight (§18) evidence
   logs\            command transcripts (they contain local paths and stay here)
 ```
 
@@ -564,7 +565,7 @@ R-5's terms outcome decides the mode; this runbook does not pre-decide it.
 - A release-metadata time that is nonexistent or ambiguous in that zone cannot be imported. Record the conflict, then move that member to the Development convention; the plan allows this. Never shift the time.
 - A zone present in `tzdata` that .NET cannot map to Windows is still refused by the MAVI API at S3.2b-3 (`ingestion_map.py` docstring). Prefer canonical IANA region ids.
 
-**Slice placement.** The plan's slice table lists "the committed ingestion map" under S3.2b-3. This runbook prepares, validates and commits the map in S3.2b-2, because the S3.2b-2 request asks for it there. Committing it before the S3.2b-3 host exists starts nothing: T9 still runs only after §18 says GO.
+**Slice placement.** The plan's slice table lists "the committed ingestion map" under S3.2b-3. This runbook prepares, validates and commits the map in S3.2b-2, which is where the Stage-3 register places it (row E14). Committing it before the S3.2b-3 host exists starts nothing: T9 runs only after every register E row is PASS.
 
 ### 12.3 Template (placeholders only)
 
@@ -765,33 +766,38 @@ Event header:
 
 ---
 
-## 18. S3.2b-3 GO/NO-GO pre-flight checklist (operational)
+## 18. S3.2b-3 pre-flight checklist (evidence collection, not acceptance)
 
-**This is not an acceptance gate.**
-- Per `docs/architecture/README.md` ("Documentation precedence" item 4), a stage's only authoritative exit gate is its acceptance register (`docs/reviews/<date>-<stage>-acceptance.md`). No Stage 3 register exists yet; creating one is outside this runbook.
-- This list is operational procedure, which is a runbook's role. It decides only whether S3.2b-3 may be **scheduled**. It does not accept S3.2b-2, S3.2 or Stage 3, and it does not replace the plan's §20 evidence or any future register.
-- A pre-flight check fails if any item is **NO**. Every item can be checked against retained evidence.
+**The register owns acceptance state.** `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md` is Stage 3's only authoritative exit gate (`docs/architecture/README.md`, "Documentation precedence" item 4).
+- This checklist is a pre-flight and evidence-collection aid. It gathers the evidence each register row needs, and it does not decide any acceptance itself.
+- An item ticked here is not a PASS. A row becomes PASS only when its evidence is entered in the register.
+- **Scheduling S3.2b-3 requires every register E row to be PASS** (or NOT TRIGGERED, for E17/E18), not merely these items being ticked.
+- This runbook does not complete or accept S3.2b-2, S3.2 or Stage 3. Completing the E rows does not complete Stage 3 (register "Scope and completion levels").
 
-| ID | Check | Evidence | YES/NO |
+| PF | Pre-flight evidence check | Evidence to enter | Register row |
 |---|---|---|---|
-| G1 | Official source, release name, version and retrieval date are retained | `release-root\evidence\`, the record's `pinnedSource` | |
-| G2 | Exact terms/licence are retained and their SHA-256 equals `licence.textSha256` | `terms\`, the record | |
-| G3 | The R-5 determination is in the record (`determination` ≠ null) | the record, `authorisation-report.txt` | |
-| G4 | The release record parses (`release_invalid` not raised) | §7 log | |
-| G5 | `verify_release_files` reports 0 problems against the root outside Git | §7 log | |
-| G6 | No selected member is in `excludedMembers` | pool record vs record | |
-| G7 | Every selected member's `evaluate` authorisation is `OK` | `authorisation-report.txt` | |
-| G8 | Every selected member has exactly one probe whose `sourceSha256` equals its `files[]` sha256 | `probes\`, pool `probeSha256` | |
-| G9 | The pool record has 6 ≤ members ≤ 10 and `kind` = `pilot`; it is committed (Mode A JSON or Mode B 65-byte digest); `git merge-base --is-ancestor $PoolCommit HEAD` succeeds on the checkout S3.2b-3 will use | §16(b) log | |
-| G10 | The ingestion map passes §12.4 and §16(b) and is committed (Mode A or B); `git merge-base --is-ancestor` succeeds for `$MapCommit` and, if used, `$ConvCommit` on that same checkout | §16(b) log | |
-| G11 | `load_derivations` accepts exactly one `__run1` derivation per pool member (§16(a)) | §16(a) log | |
-| G12 | Every remux/transcode manifest records `operations: ["create-derivatives"]` and `blockers: []` | manifests | |
-| G13 | For each of remux and transcode that was used, its first-member `__run1`/`__run2` comparison shows both files `identical=True` | `evidence\determinism-*.txt` | |
-| G14 | Every derivation manifest's `importLimitBytes` equals the S3.2b-3 host's configured `VideoImport:MaximumFileSizeBytes` | manifests, host configuration | |
-| G15 | `git ls-files` shows no corpus media, archive, frame, crop or log in the repository | `git ls-files` output | |
-| G16 | `tools/verify_repo.py` passes on the commit holding the pool/map/convention | log | |
+| PF1 | Official source, release name, version and retrieval date retained | `release-root\evidence\`, the record's `pinnedSource` | E1 |
+| PF2 | Exact terms/licence retained; SHA-256 equals `licence.textSha256` | `terms\`, the record | E2 |
+| PF3 | R-5 determination in the record (`determination` ≠ null) | the record, `authorisation-report.txt` | E3 |
+| PF4 | The release record parses (`release_invalid` not raised) | §7 log | E4 |
+| PF5 | `verify_release_files` reports 0 problems against the root outside Git | §7 log | E5 |
+| PF6 | No selected member is in `excludedMembers` | pool record vs record | E6 |
+| PF7 | Every selected member's `evaluate` authorisation is `OK` | `authorisation-report.txt` | E7 |
+| PF8 | Every selected member has exactly one probe whose `sourceSha256` equals its `files[]` sha256 | `probes\`, pool `probeSha256` | E8 |
+| PF9 | Every selected member confirmed derivable before the freeze (§10) | ledger, probes, §7 report | E9 |
+| PF10 | Intended mode and reason recorded for every member before the freeze (§10, §13) | ledger | E10 |
+| PF11 | Pool record has 6 ≤ members ≤ 10 and `kind` = `pilot` | pool record | E11 |
+| PF12 | Pool committed on `main` (Mode A JSON or Mode B 65-byte digest); `git merge-base --is-ancestor $PoolCommit HEAD` succeeds on the S3.2b-3 checkout | §16(b) log | E12 |
+| PF13 | Convention (if used) committed on `main` before the map; `$ConvCommit` ancestry-valid on that checkout | ledger, §12.2 | E13 |
+| PF14 | Map passes §12.4 and §16(b); committed or digest-bound on `main`; `$MapCommit` ancestry-valid | §16(b) log | E14 |
+| PF15 | `load_derivations` accepts exactly one `__run1` derivation per pool member (§16(a)) | §16(a) log | E15 |
+| PF16 | Every remux/transcode manifest records `operations: ["create-derivatives"]` and `blockers: []` | manifests | E16 |
+| PF17 | First remux and first transcode `__run1`/`__run2` comparisons show both files `identical=True` (only for modes used) | `evidence\determinism-*.txt` | E17, E18 |
+| PF18 | Every derivation manifest's `importLimitBytes` equals the S3.2b-3 host's configured `VideoImport:MaximumFileSizeBytes` | manifests, host configuration | E19 |
+| PF19 | `git ls-files` shows no corpus media, archive, frame, crop or log in the repository | `git ls-files` output | E20 |
+| PF20 | `tools/verify_repo.py` passes on each binding commit (pool, convention, map) | log | E12, E13, E14 |
 
-**GO** = items G1–G16 all YES; S3.2b-3 may then be scheduled under its own gates (plan §4: a fresh, dedicated Development catalogue created after the pool freeze, the real Model Pack and runtime, and the shipped `1.3.0-candidate` profile). **NO-GO** = any NO. This runbook never starts T9.
+S3.2b-3's own gates (plan §4 and register F rows) apply after that: a fresh, dedicated Development catalogue created after the pool freeze, the real Model Pack and runtime, and the shipped `1.3.0-candidate` profile. This runbook never starts T9.
 
 ---
 
