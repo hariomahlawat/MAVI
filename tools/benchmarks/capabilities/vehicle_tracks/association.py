@@ -47,6 +47,7 @@ from tools.benchmarks.capabilities.vehicle_tracks import alignment
 from tools.benchmarks.capabilities.vehicle_tracks import ground_truth as gt_module
 from tools.benchmarks.capabilities.vehicle_tracks.ground_truth import Box, GtSequence, GtTrack
 from tools.benchmarks.capabilities.vehicle_tracks.mavi_tracks import MaviRun, MaviTrack
+from tools.benchmarks.capabilities.vehicle_tracks import policy as policies
 from tools.benchmarks.capabilities.vehicle_tracks.policy import IGNORED_MAVI_SHARE, Policy
 from tools.benchmarks.core import envelope as envelopes
 from tools.benchmarks.core.identity import (
@@ -363,8 +364,18 @@ def associate(*, envelope: dict[str, Any], policy: Policy, sequences: Sequence[t
     envelopes.check(envelope)
     require(envelope["tooling"]["associationPolicySha256"] == policy.sha256, "association_policy_invalid:not_bound")
     bound = {item["sequenceId"]: item["groundTruthSha256"] for item in envelope["sequences"]}
+    videos = {item["sequenceId"]: item["derivedVideoSha256"] for item in envelope["sequences"]}
     require(sorted(bound) == sorted(document.get("sequenceId") for document, _ in sequences)
             and len(sequences) == len(bound), f"{CODE}:sequences")
+    # Every MAVI run is the one the envelope names for its sequence: the run processed that sequence's derived
+    # video, and the runs' exports and trajectories are exactly the envelope's (no swapped, foreign or repeated run).
+    for document, run in sequences:
+        require(run.source_sha256 == videos[document["sequenceId"]], f"{CODE}:run_video:{document['sequenceId']}")
+    exports = [run.export_sha256 for _, run in sequences]
+    require(len(exports) == len(set(exports)) and sorted(exports) == envelope["mavi"]["exportSha256s"],
+            f"{CODE}:run_exports")
+    trajectories = sorted(set().union(*(run.trajectory_sha256s for _, run in sequences)))
+    require(trajectories == envelope["mavi"]["trajectorySha256s"], f"{CODE}:run_trajectories")
     rates = {run.frame_rate for _, run in sequences}
     require(len(rates) == 1, f"{CODE}:mixed_source_rate")
     source_rate = rates.pop()
@@ -391,6 +402,9 @@ def check(artefact: dict[str, Any]) -> dict[str, Any]:
     validate(artefact, SCHEMA, CODE)
     require_canonical_rationals(artefact, CODE)
     envelopes.check(artefact["envelope"])
+    # The embedded policy is the one the run identity binds (the same rule associate() enforces).
+    require(policies.load(artefact["policy"]).sha256 == artefact["envelope"]["tooling"]["associationPolicySha256"],
+            "association_policy_invalid:not_bound")
     body = {key: artefact[key] for key in ("policy", "sequences", "alignment")}
     require(artefact["associationBodySha256"] == document_sha256(body), f"{CODE}:body_sha256")
     for entry in artefact["sequences"]:

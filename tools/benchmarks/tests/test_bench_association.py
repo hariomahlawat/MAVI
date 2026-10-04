@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 from fractions import Fraction
 
@@ -378,16 +379,64 @@ def test_envelope_must_bind_the_policy_and_the_ground_truth():
     mavi_run = run(track(1, follow(B1, range(10)), [obs(2)]))
     policy = policies.v1()
     other = policies.load({**policies.POLICY_V1, "minOverlapFrames": 4})
-    envelope = f.envelope_for([document], other)
+    envelope = f.envelope_for([document], [mavi_run], other)
     with pytest.raises(S32Error, match="^association_policy_invalid:not_bound$"):
         a.associate(envelope=envelope, policy=policy, sequences=[(document, mavi_run)], labelled_rate=Fraction(5))
-    envelope = f.envelope_for([document], policy)
+    envelope = f.envelope_for([document], [mavi_run], policy)
     changed = copy.deepcopy(document)
     changed["tracks"][0]["nativeClass"] = "bus"
     with pytest.raises(S32Error, match="^association_invalid:ground_truth_hash:seq-1$"):
         a.associate(envelope=envelope, policy=policy, sequences=[(changed, mavi_run)], labelled_rate=Fraction(5))
     with pytest.raises(S32Error, match="^association_invalid:sequences$"):
         a.associate(envelope=envelope, policy=policy, sequences=[], labelled_rate=Fraction(5))
+
+
+def _two_sequences():
+    documents = [gt_document({"1": static(B1, range(4))}, sequence="s1"),
+                 gt_document({"1": static(B2, range(4))}, sequence="s2")]
+    runs = [run(track(1, follow(B1, range(4)), [obs(1)]), video=1),
+            run(track(2, follow(B2, range(4)), [obs(1, B2)]), video=2)]
+    return documents, runs
+
+
+def test_each_run_must_be_the_one_the_envelope_names_for_its_sequence():
+    documents, runs = _two_sequences()
+    policy = policies.v1()
+    envelope = f.envelope_for(documents, runs, policy)
+    swapped = list(zip(documents, reversed(runs)))  # mis-zipped: s1 scored with s2's run
+    with pytest.raises(S32Error, match="^association_invalid:run_video:s1$"):
+        a.associate(envelope=envelope, policy=policy, sequences=swapped, labelled_rate=Fraction(5))
+    foreign = run(track(1, follow(B1, range(4)), [obs(1)]), video=1)
+    foreign = dataclasses.replace(foreign, export_sha256="e" * 64)  # same video, another export set
+    with pytest.raises(S32Error, match="^association_invalid:run_exports$"):
+        a.associate(envelope=envelope, policy=policy, sequences=[(documents[0], foreign), (documents[1], runs[1])],
+                    labelled_rate=Fraction(5))
+    extra = dataclasses.replace(runs[0], trajectory_sha256s=runs[0].trajectory_sha256s | {"c" * 64})
+    with pytest.raises(S32Error, match="^association_invalid:run_trajectories$"):
+        a.associate(envelope=envelope, policy=policy, sequences=[(documents[0], extra), (documents[1], runs[1])],
+                    labelled_rate=Fraction(5))
+    a.associate(envelope=envelope, policy=policy, sequences=list(zip(documents, runs)), labelled_rate=Fraction(5))
+
+
+def test_a_repeated_run_is_refused():
+    documents = [gt_document({"1": static(B1, range(4))}, sequence="s1"),
+                 gt_document({"1": static(B1, range(4))}, sequence="s2")]
+    same = run(track(1, follow(B1, range(4)), [obs(1)]), video=1)
+    other = dataclasses.replace(same, export_sha256="e" * 64)  # the honest second run (same footage, own export)
+    policy = policies.v1()
+    envelope = f.envelope_for(documents, [same, other], policy)
+    with pytest.raises(S32Error, match="^association_invalid:run_exports$"):  # caller passes the first run twice
+        a.associate(envelope=envelope, policy=policy, sequences=[(documents[0], same), (documents[1], same)],
+                    labelled_rate=Fraction(5))
+
+
+def test_check_refuses_a_policy_the_run_identity_does_not_bind():
+    artefact = f.associate([gt_document({"1": static(B1, range(10))})], [run(track(1, follow(B1, range(10)), [obs(2)]))])
+    swapped = copy.deepcopy(artefact)
+    swapped["policy"]["minOverlapFrames"] = 4
+    swapped["associationBodySha256"] = document_sha256({k: swapped[k] for k in ("policy", "sequences", "alignment")})
+    with pytest.raises(S32Error, match="^association_policy_invalid:not_bound$"):
+        a.check(swapped)
 
 
 def test_policy_change_changes_identity_and_threshold():
