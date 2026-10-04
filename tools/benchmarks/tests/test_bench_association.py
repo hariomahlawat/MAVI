@@ -534,6 +534,61 @@ def test_irregular_recorded_timestamps_associate():
     only(entry, assigned=["1"], assignedMavi=[mid(1)])
 
 
+IRREGULAR = [Fraction(0), Fraction(180), Fraction(420), Fraction(450), Fraction(700)]
+
+
+def _moving_irregular_gt():
+    # The box moves from x 0.1 at 180 ms to x 0.5 at 420 ms, then stays.
+    xs = {0: 0.1, 1: 0.1, 2: 0.5, 3: 0.5, 4: 0.5}
+    return gt_document({"1": {k: (x, 0.3, 0.2, 0.2) for k, x in xs.items()}}, instants=IRREGULAR)
+
+
+def _interpolated_x(time_ms: int) -> float:
+    if time_ms <= 180:
+        return 0.1
+    if time_ms >= 420:
+        return 0.5
+    return 0.1 + (0.5 - 0.1) * float(Fraction(time_ms - 180, 240))
+
+
+def test_irregular_timestamps_interpolate_an_observation_between_labels_through_a_real_export(tmp_path):
+    # 5 fps source and a nominal 5 fps per-frame-timestamp descriptor: equal rates do not make the 200 ms MAVI
+    # frame a labelled instant, so its observation is judged against the GT box interpolated between 180 and 420 ms,
+    # not the 180 ms box that owns its alignment window.
+    points = [(t, _interpolated_x(t) + 0.1, 0.4) for t in (0, 200, 400, 600, 800)]  # 5 fps frame grid
+    observations = [(0, (0.1, 0.3, 0.2, 0.2)), (200, (_interpolated_x(200), 0.3, 0.2, 0.2))]
+    path = f.write_export(tmp_path / "run", tmp_path / "evidence",
+                          [{"n": 1, "points": points, "observations": observations}], rate=(5, 1))
+    projected = mt.project(next(iter(mavi.load_exports([path]).values())), tmp_path / "evidence")
+    irregular = f.descriptor(kind="per-frame-timestamp", fpsNumerator=5, fpsDenominator=1)
+    entry = f.one(_moving_irregular_gt(), projected, descriptor_document=irregular)
+    ious = entry["pairs"][0]["spotCheckIoU"]
+    assert ious[0] == 1.0  # 0 ms is a labelled instant: the exact labelled box
+    assert ious[1] > 0.999  # 200 ms: the interpolated box
+    from tools.benchmarks.capabilities.vehicle_tracks.ground_truth import Box
+
+    at_180 = Box(0.1, 0.3, 0.2, 0.2).iou(Box(_interpolated_x(200), 0.3, 0.2, 0.2))
+    assert at_180 < 0.72  # the 180 ms box would have scored this observation materially lower
+
+
+def test_an_observation_exactly_on_an_irregular_labelled_time_uses_that_box():
+    sequence = a._Sequence(ground_truth.project(_moving_irregular_gt()), run(track(1, [(0, 0.2, 0.4)])),
+                           policies.v1(), Fraction(5), False)
+    gt_track = sequence.gt.tracks[0]
+    assert sequence.gt_box_at(gt_track, 180) == gt_track.frames[1].box  # exactly a labelled instant
+    assert sequence.gt_box_at(gt_track, 420) == gt_track.frames[2].box
+    interpolated = sequence.gt_box_at(gt_track, 200)
+    assert interpolated.x == pytest.approx(_interpolated_x(200)) and interpolated != gt_track.frames[1].box
+
+
+def test_labelled_rate_mode_needs_index_at_fps_not_just_equal_rates():
+    index = f.descriptor()
+    irregular = f.descriptor(kind="per-frame-timestamp", fpsNumerator=5, fpsDenominator=1)
+    assert a.labelled_rate_mode(index, Fraction(5), Fraction(5)) is True
+    assert a.labelled_rate_mode(index, Fraction(30), Fraction(5)) is False
+    assert a.labelled_rate_mode(irregular, Fraction(5), Fraction(5)) is False
+
+
 def test_per_frame_timestamps_without_a_declared_rate_are_refused():
     document = gt_document({"1": static(B1, range(4))})
     undeclared = f.descriptor(kind="per-frame-timestamp")

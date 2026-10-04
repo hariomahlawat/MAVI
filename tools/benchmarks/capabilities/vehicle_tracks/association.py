@@ -383,6 +383,17 @@ def labelled_timing(descriptor: dict[str, Any], envelope: dict[str, Any]) -> Fra
     return Fraction(frame_time["fpsNumerator"], frame_time["fpsDenominator"])
 
 
+def labelled_rate_mode(descriptor: dict[str, Any], source_rate: Fraction, labelled_rate: Fraction) -> bool:
+    """Whether every MAVI frame is a labelled instant, so an observation takes its window instant's box (§7.2).
+
+    Only ``index-at-fps`` proves it: its instants are verified to be exactly the frame times of the declared rate,
+    so a source at that rate is the labelled-frame encode. Recorded ``per-frame-timestamp`` instants are irregular;
+    an equal nominal rate does not make a MAVI frame a labelled instant, so observations there use the exact
+    labelled box only when they fall exactly on a labelled time, and are interpolated otherwise.
+    """
+    return descriptor["frameTime"]["kind"] == "index-at-fps" and source_rate == labelled_rate
+
+
 def _require_instants_follow_descriptor(document: dict[str, Any], descriptor: dict[str, Any]) -> None:
     """Under ``index-at-fps`` every labelled instant is the descriptor's frame time of its index (exact)."""
     if descriptor["frameTime"]["kind"] != "index-at-fps":
@@ -435,7 +446,8 @@ def associate(*, envelope: dict[str, Any], policy: Policy, descriptor: dict[str,
         require(document_sha256(document) == bound[gt.sequence_id], f"{CODE}:ground_truth_hash:{gt.sequence_id}")
         require(document["split"] == envelope["dataset"]["split"], f"{CODE}:split_mismatch:{gt.sequence_id}")
         _require_instants_follow_descriptor(document, descriptor)
-        entry, evaluable, points = associate_sequence(gt, run, policy, labelled_rate, source_rate == labelled_rate)
+        entry, evaluable, points = associate_sequence(gt, run, policy, labelled_rate,
+                                                      labelled_rate_mode(descriptor, source_rate, labelled_rate))
         entries.append(entry)
         evaluable_total += evaluable
         point_total += points
