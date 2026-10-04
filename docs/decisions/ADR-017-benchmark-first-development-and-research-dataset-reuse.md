@@ -24,7 +24,12 @@ Before proposing a manual annotation campaign, new bespoke ground truth, owner c
 
 ### 2. Manual annotation rule
 
-Manual annotation is proposed only when all of these hold: no suitable labelled benchmark exists for the specific capability; the capability remains operationally important; the evidence gap is documented; and the owner explicitly accepts the annotation effort. It is not required merely because MAVI's desired ontology differs slightly from a benchmark, one class is missing from one dataset, or another public dataset uses another vocabulary.
+Two kinds of manual labelling are distinguished by what the labels are for, not by a numeric limit.
+
+- **Small diagnostic annotation** is ordinary engineering and needs no approval: a handful of examples to debug an association failure, check a label's semantics, confirm an adapter bug, or look at an edge case. A one-line technical rationale in the work's record is enough. Such labels are diagnostic; they are not capability evidence and never enter a measurement as ground truth.
+- **A significant annotation campaign** creates labels meant to carry capability evidence: a new benchmark corpus, sustained reviewer effort, or labels that a measurement will treat as truth. It is proposed only when all of these hold: no suitable labelled benchmark exists for the specific capability; the capability remains operationally important; the evidence gap is documented; and the owner explicitly accepts the annotation effort. It is not required merely because MAVI's desired ontology differs slightly from a benchmark, one class is missing from one dataset, or another public dataset uses another vocabulary.
+
+Benchmark first, label last; and no administrative overhead around small engineering diagnostics.
 
 ### 3. Capability and evidence flexibility
 
@@ -52,6 +57,8 @@ Benchmark evaluation uses a deterministic association layer built only from pred
 
 Rules: research-use permission is sufficient for Development; non-commercial or research-only wording does not by itself eliminate a dataset from academic Development use; ambiguity is recorded, not converted into a prohibition; an explicit prohibition of the intended use blocks; payment, authentication and access controls are never bypassed; public availability never authorises redistribution; dataset bytes stay out of ordinary Git. The status, its basis and the source terms are recorded with the dataset's provenance before the data is used.
 
+**Release-level by default.** For a public research benchmark whose terms and access conditions apply uniformly to the release, one dataset- or release-level provenance and admissibility record covers the selected release. Per-file rights or admissibility reviews are not required unless the source or terms materially vary by file (for example a collection assembled from individually licensed uploads). A normal benchmark record holds: dataset name; exact release or version; source; access mechanism; intended Development or research use; the ADR-017 status and its basis; the terms reference; the split identity; the release manifest or file hashes; and known-exposure notes. That record is normally sufficient; a 100,000-file release does not need 100,000 decisions. The per-file review path of ADR-015 §5 remains the procedure for frozen-qualification and operational-role sources, and for collections whose terms vary by file.
+
 ### 8. No silent benchmark contamination claims
 
 Public benchmark exposure is recorded honestly. A public benchmark score is Development or reference evidence. If a candidate model may have trained on the same benchmark or its source imagery, known or possible exposure is recorded with the result. A respected benchmark does not make a score independent final qualification.
@@ -60,9 +67,15 @@ Public benchmark exposure is recorded honestly. A public benchmark score is Deve
 
 Development and benchmarking may use public research datasets aggressively under §7. Final protected Production qualification, where MAVI wants a strong independent claim, uses a separately protected holdout under the governing qualification policy (ADR-015 §3–§4). Nothing here changes that boundary, Production gates, role independence or existing machine schemas.
 
-### 10. Implementation-first consequence
+### 10. Implementation-first consequence and the lightest adequate process
 
 This policy exists partly to accelerate Development. Weeks are not spent constructing new mini-datasets when an established labelled benchmark answers the engineering question. Executable adapters, mappings, association and tests are preferred to prose.
+
+Development benchmarking uses the lightest evidence process appropriate to the claim (operating principle 6a): reproducibility, provenance, deterministic evaluation and honest limitations are required; Production qualification ceremony, frozen-holdout controls, human-independence controls and approval sequencing are not inherited unless the result is used for a Production qualification claim. Acceptance rows that record benchmark evidence (for Stage 3, register H2–H5) are evidence outcomes, not mandated PR boundaries or approval meetings; one implementation or one benchmark run may satisfy several of them.
+
+### 11. A reusable benchmark harness
+
+The benchmark framework is capability-neutral, with Stage-3 vehicle subclass as its first consumer. Its shape is: dataset release → dataset adapter → canonical ground truth → MAVI execution → association or alignment → capability evaluator → benchmark result and evidence. Adapters, the canonical ground-truth representation, association and provenance are shared; each capability (detection, tracking, vehicle subclass, person attributes, vehicle colour, ReID, ANPR/OCR, or others later) supplies its own evaluator. Nothing in the first implementation may preclude that reuse, and no single dataset is hard-coded as the only path. This ADR promises the direction, not the implementation of every evaluator.
 
 ## Consequences
 
