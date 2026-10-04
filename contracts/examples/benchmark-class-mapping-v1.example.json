@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "benchmark-class-mapping-v1",
+  "datasetId": "synthetic-vehicles",
+  "release": "synthetic-v1",
+  "capability": "mavi-vehicle-subclass-v1",
+  "mappings": [
+    {
+      "nativeClass": "bus",
+      "maviClass": "bus",
+      "kind": "exact",
+      "reason": "Synthetic definition coincides with the MAVI class.",
+      "evaluation": "scored"
+    },
+    {
+      "nativeClass": "car",
+      "maviClass": "car",
+      "kind": "exact",
+      "reason": "Synthetic definition coincides with the MAVI class.",
+      "evaluation": "scored"
+    },
+    {
+      "nativeClass": "motorcycle",
+      "maviClass": "motorcycle",
+      "kind": "exact",
+      "reason": "Synthetic definition coincides with the MAVI class.",
+      "evaluation": "scored"
+    },
+    {
+      "nativeClass": "pedestrian",
+      "maviClass": null,
+      "kind": "unsupported",
+      "reason": "Not a Vehicle in MAVI's broad class.",
+      "evaluation": "excluded",
+      "unsupportedKind": "outside-capability"
+    },
+    {
+      "nativeClass": "truck",
+      "maviClass": "truck",
+      "kind": "exact",
+      "reason": "Synthetic definition coincides with the MAVI class.",
+      "evaluation": "scored"
+    },
+    {
+      "nativeClass": "van",
+      "maviClass": null,
+      "kind": "unsupported",
+      "reason": "Van body type is not resolved in the native labels.",
+      "evaluation": "excluded",
+      "unsupportedKind": "vehicle-unresolved"
+    }
+  ]
+}

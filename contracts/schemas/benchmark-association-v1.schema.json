@@ -1,0 +1,810 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/benchmark-association-v1.schema.json",
+  "title": "benchmark-association-v1",
+  "description": "Class-free GT-to-MAVI Track association of one benchmark run (S3.2d-1 plan §7). No class, subclass or confidence field anywhere. associationBodySha256 is the SHA-256 of the canonical bytes of policy, sequences and alignment alone (the class-free body the class-independence tests compare); the envelope is provenance. Ratios are exact fractions; policy thresholds and rates are exact rationals. Producer: the association slice (S3.2d-1 slice 2); the contract is fixed here so later slices populate it, not redefine it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "envelope",
+    "associationBodySha256",
+    "policy",
+    "sequences",
+    "alignment",
+    "limitation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "benchmark-association-v1"
+    },
+    "envelope": {
+      "$ref": "#/$defs/envelope"
+    },
+    "associationBodySha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "alignment",
+        "minOverlapFrames",
+        "minContainment",
+        "minGtCoverage",
+        "minMaviCoverage",
+        "minSpotCheckIoU",
+        "ambiguityMargin",
+        "distanceAmbiguityMargin",
+        "minConsecutiveContainedFrames"
+      ],
+      "properties": {
+        "version": {
+          "const": "vehicle-tracks-association-v1"
+        },
+        "alignment": {
+          "const": "midpoint-windows-v1"
+        },
+        "minOverlapFrames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "minContainment": {
+          "$ref": "#/$defs/rational"
+        },
+        "minGtCoverage": {
+          "$ref": "#/$defs/rational"
+        },
+        "minMaviCoverage": {
+          "$ref": "#/$defs/rational"
+        },
+        "minSpotCheckIoU": {
+          "$ref": "#/$defs/rational"
+        },
+        "ambiguityMargin": {
+          "$ref": "#/$defs/rational"
+        },
+        "distanceAmbiguityMargin": {
+          "$ref": "#/$defs/rational"
+        },
+        "minConsecutiveContainedFrames": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "sequences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sequenceId",
+          "videoAssetId",
+          "processingRunId",
+          "pairs",
+          "ambiguousGt",
+          "fragmentedGt",
+          "mergedGt",
+          "unverifiedGt",
+          "unmatchedGt",
+          "ignoredGt",
+          "fragmentMavi",
+          "unverifiedMavi",
+          "unmatchedMavi",
+          "ignoredMavi"
+        ],
+        "properties": {
+          "sequenceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+          },
+          "videoAssetId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "processingRunId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "pairs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/pairEvidence"
+            }
+          },
+          "ambiguousGt": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/gtEntry"
+            }
+          },
+          "fragmentedGt": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/gtEntry"
+            }
+          },
+          "mergedGt": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/gtEntry"
+            }
+          },
+          "unverifiedGt": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/gtEntry"
+            }
+          },
+          "unmatchedGt": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/gtEntry"
+            }
+          },
+          "ignoredGt": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "gtTrackId",
+                "nonIgnoredFrames"
+              ],
+              "properties": {
+                "gtTrackId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+                },
+                "nonIgnoredFrames": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "fragmentMavi": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/maviEntry"
+            }
+          },
+          "unverifiedMavi": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/maviEntry"
+            }
+          },
+          "unmatchedMavi": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/maviEntry"
+            }
+          },
+          "ignoredMavi": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "maviTrackId",
+                "evaluablePoints",
+                "pointsInIgnoreRegions"
+              ],
+              "properties": {
+                "maviTrackId": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "evaluablePoints": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "pointsInIgnoreRegions": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "alignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRate",
+        "labelledRate",
+        "evaluablePointsTotal",
+        "maviPointsTotal"
+      ],
+      "properties": {
+        "sourceRate": {
+          "$ref": "#/$defs/rational"
+        },
+        "labelledRate": {
+          "$ref": "#/$defs/rational"
+        },
+        "evaluablePointsTotal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maviPointsTotal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "limitation": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$"
+    }
+  },
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "benchmarkRunId",
+        "dataset",
+        "sequences",
+        "derivationManifestSha256",
+        "mavi",
+        "tooling",
+        "exposure"
+      ],
+      "properties": {
+        "benchmarkRunId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "dataset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "datasetId",
+            "release",
+            "split",
+            "descriptorSha256"
+          ],
+          "properties": {
+            "datasetId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+            },
+            "release": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "split": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+            },
+            "descriptorSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "sequences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequenceId",
+              "derivedVideoSha256",
+              "groundTruthSha256"
+            ],
+            "properties": {
+              "sequenceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "derivedVideoSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "groundTruthSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "derivationManifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mavi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maviCommit",
+            "pipelineProfileSha256",
+            "producer",
+            "exportSha256s",
+            "trajectorySha256s"
+          ],
+          "properties": {
+            "maviCommit": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "pipelineProfileSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "producer": {
+              "$ref": "#/$defs/producer"
+            },
+            "exportSha256s": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "trajectorySha256s": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "tooling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapterId",
+            "adapterVersion",
+            "mappingSha256",
+            "associationPolicySha256",
+            "requirementsSha256",
+            "runnerVersion",
+            "toolingCommit",
+            "toolingSha256",
+            "toolingFiles"
+          ],
+          "properties": {
+            "adapterId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+            },
+            "adapterVersion": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "mappingSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "associationPolicySha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "requirementsSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "runnerVersion": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "toolingCommit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "toolingSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "toolingFiles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "pattern": "^(?!/)(?!.*(^|/)\\.{1,2}(/|$))(?!.*//)[^\\\\:\\r\\n\\x00]+(?<!/)$"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "minItems": 1
+            }
+          }
+        },
+        "exposure": {
+          "$ref": "#/$defs/exposure"
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelId",
+        "modelVersion",
+        "pipelineProfileId",
+        "pipelineProfileVersion",
+        "runtimeProfileId",
+        "runtimeVariant",
+        "verificationStatus",
+        "maviCommit",
+        "maviBuild",
+        "modelPackId",
+        "runtimePackId",
+        "runtimePackSource",
+        "modelManifestSha256",
+        "checkpointSha256",
+        "resolvedConfigSha256",
+        "pipelineProfileSha256",
+        "runtimeProfileSha256",
+        "qualificationSha256",
+        "componentBindingSha256",
+        "platform"
+      ],
+      "properties": {
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "modelVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "pipelineProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "pipelineProfileVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "runtimeProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "runtimeVariant": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "verificationStatus": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "maviCommit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "maviBuild": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "modelPackId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "runtimePackId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "runtimePackSource": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "modelManifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "checkpointSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "resolvedConfigSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "pipelineProfileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "runtimeProfileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "qualificationSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "componentBindingSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "platform": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        }
+      }
+    },
+    "exposure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "basis"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "known",
+            "possible",
+            "unknown",
+            "none-known"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        }
+      }
+    },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "fraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator",
+        "value"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        }
+      }
+    },
+    "pairEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gtTrackId",
+        "maviTrackId",
+        "overlapFrames",
+        "containment",
+        "meanNormalisedDistance",
+        "gtCoverage",
+        "maviCoverage",
+        "longestContainedRun",
+        "spotCheckIoU"
+      ],
+      "properties": {
+        "gtTrackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+        },
+        "maviTrackId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "overlapFrames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "containment": {
+          "$ref": "#/$defs/fraction"
+        },
+        "meanNormalisedDistance": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number",
+              "minimum": 0
+            }
+          ]
+        },
+        "gtCoverage": {
+          "$ref": "#/$defs/fraction"
+        },
+        "maviCoverage": {
+          "$ref": "#/$defs/fraction"
+        },
+        "longestContainedRun": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "spotCheckIoU": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "gtEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gtTrackId",
+        "candidates"
+      ],
+      "properties": {
+        "gtTrackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pairEvidence"
+          }
+        }
+      }
+    },
+    "maviEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maviTrackId",
+        "candidates"
+      ],
+      "properties": {
+        "maviTrackId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pairEvidence"
+          }
+        }
+      }
+    }
+  }
+}

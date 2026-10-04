@@ -70,6 +70,8 @@ jobs:
         env:
           MAVI_REQUIRE_MEDIA_TESTS: '1'
         run: python -m pytest -q tools/stage3/tests
+      - name: Test benchmark harness
+        run: python -m pytest -q tools/benchmarks/tests
 
   dotnet-tests:
     name: dotnet shard ${{ matrix.shard }}

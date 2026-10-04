@@ -1,0 +1,282 @@
+{
+  "schemaVersion": "benchmark-association-v1",
+  "envelope": {
+    "benchmarkRunId": "ae8a236dd2dfbcdf5ad683eafb7b84a81af4c71e5df7d75ab7ea8c34e546aef3",
+    "dataset": {
+      "datasetId": "synthetic-vehicles",
+      "release": "synthetic-v1",
+      "split": "val",
+      "descriptorSha256": "2d6413a34f4bd10e8e75f1d4293bd29362ad38c489089059c901e5f0044989a1"
+    },
+    "sequences": [
+      {
+        "sequenceId": "seq-a",
+        "derivedVideoSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "groundTruthSha256": "0eff8e6f79f7f47f71ee9d5abd6e1e269c21759b20ba6c5bbe517dacb68fe86c"
+      },
+      {
+        "sequenceId": "seq-b",
+        "derivedVideoSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "groundTruthSha256": "a000de5becbc23bba28e4a137c20acf148de7f654465053954c22f02a9207816"
+      }
+    ],
+    "derivationManifestSha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "mavi": {
+      "maviCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "pipelineProfileSha256": "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf",
+      "producer": {
+        "modelId": "rtmdet-m",
+        "modelVersion": "1",
+        "pipelineProfileId": "phase1-detection-tracking-v1",
+        "pipelineProfileVersion": "1.3.0-candidate",
+        "runtimeProfileId": "runtime-v1",
+        "runtimeVariant": "linux-x86_64-cpu",
+        "verificationStatus": "unverified",
+        "maviCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "modelManifestSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "checkpointSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "resolvedConfigSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "pipelineProfileSha256": "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf",
+        "runtimeProfileSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "qualificationSha256": null,
+        "componentBindingSha256": "9999999999999999999999999999999999999999999999999999999999999999",
+        "maviBuild": "build-attestation",
+        "modelPackId": "mavi-model-v2-7777777777777777777777777777777777777777777777777777777777777777",
+        "runtimePackId": "mavi-runtime-v2-8888888888888888888888888888888888888888888888888888888888888888",
+        "runtimePackSource": "installed-pack",
+        "platform": {
+          "machine": "x86_64",
+          "processor": "x86_64",
+          "pythonBuild": [
+            "main",
+            "Sep 2026"
+          ],
+          "pythonCompiler": "GCC",
+          "pythonImplementation": "CPython",
+          "pythonVersion": "3.12.14",
+          "release": "6.8",
+          "system": "Linux",
+          "version": "qualified"
+        }
+      },
+      "exportSha256s": [
+        "7777777777777777777777777777777777777777777777777777777777777777",
+        "8888888888888888888888888888888888888888888888888888888888888888"
+      ],
+      "trajectorySha256s": [
+        "9999999999999999999999999999999999999999999999999999999999999999",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+    },
+    "tooling": {
+      "adapterId": "synthetic",
+      "adapterVersion": "1",
+      "mappingSha256": "51495930d886a798f389e849d87d350178203250436e1c7a1e5be6e9353b8db6",
+      "associationPolicySha256": "a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05",
+      "requirementsSha256": "ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75",
+      "runnerVersion": "1",
+      "toolingCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "toolingSha256": "90dc79e2f6fdefbab0f1590aeac6128378d02cb4e913ae1dd58ff77bbbb2610d",
+      "toolingFiles": [
+        {
+          "path": "contracts/schemas/benchmark-association-v1.schema.json",
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "path": "tools/benchmarks/core/envelope.py",
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "path": "tools/stage3/artefacts.py",
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      ]
+    },
+    "exposure": {
+      "status": "none-known",
+      "basis": "Synthetic data; no MAVI component has seen it."
+    }
+  },
+  "associationBodySha256": "56d1a4a6e3e776e81e643882bb4d3af695c3c56a2b27bf2376cc8ec94ee6c68f",
+  "policy": {
+    "version": "vehicle-tracks-association-v1",
+    "alignment": "midpoint-windows-v1",
+    "minOverlapFrames": 3,
+    "minContainment": {
+      "numerator": 1,
+      "denominator": 2
+    },
+    "minGtCoverage": {
+      "numerator": 1,
+      "denominator": 2
+    },
+    "minMaviCoverage": {
+      "numerator": 1,
+      "denominator": 2
+    },
+    "minSpotCheckIoU": {
+      "numerator": 3,
+      "denominator": 10
+    },
+    "ambiguityMargin": {
+      "numerator": 1,
+      "denominator": 10
+    },
+    "distanceAmbiguityMargin": {
+      "numerator": 1,
+      "denominator": 10
+    },
+    "minConsecutiveContainedFrames": 3
+  },
+  "sequences": [
+    {
+      "sequenceId": "seq-a",
+      "videoAssetId": "aaaaaaaa-0000-4000-8000-000000000001",
+      "processingRunId": "bbbbbbbb-0000-4000-8000-000000000001",
+      "pairs": [
+        {
+          "gtTrackId": "1",
+          "maviTrackId": "11111111-1111-4111-8111-111111111111",
+          "overlapFrames": 8,
+          "containment": {
+            "numerator": 8,
+            "denominator": 8,
+            "value": 1.0
+          },
+          "meanNormalisedDistance": 0.05,
+          "gtCoverage": {
+            "numerator": 8,
+            "denominator": 8,
+            "value": 1.0
+          },
+          "maviCoverage": {
+            "numerator": 8,
+            "denominator": 8,
+            "value": 1.0
+          },
+          "longestContainedRun": 8,
+          "spotCheckIoU": [
+            0.82,
+            0.79
+          ]
+        }
+      ],
+      "ambiguousGt": [],
+      "fragmentedGt": [],
+      "mergedGt": [],
+      "unverifiedGt": [
+        {
+          "gtTrackId": "2",
+          "candidates": [
+            {
+              "gtTrackId": "2",
+              "maviTrackId": "22222222-2222-4222-8222-222222222222",
+              "overlapFrames": 6,
+              "containment": {
+                "numerator": 5,
+                "denominator": 6,
+                "value": 0.8333333333333334
+              },
+              "meanNormalisedDistance": 0.21,
+              "gtCoverage": {
+                "numerator": 5,
+                "denominator": 6,
+                "value": 0.8333333333333334
+              },
+              "maviCoverage": {
+                "numerator": 5,
+                "denominator": 6,
+                "value": 0.8333333333333334
+              },
+              "longestContainedRun": 5,
+              "spotCheckIoU": [
+                0.12
+              ]
+            }
+          ]
+        }
+      ],
+      "unmatchedGt": [],
+      "ignoredGt": [
+        {
+          "gtTrackId": "3",
+          "nonIgnoredFrames": 2
+        }
+      ],
+      "fragmentMavi": [],
+      "unverifiedMavi": [
+        {
+          "maviTrackId": "22222222-2222-4222-8222-222222222222",
+          "candidates": [
+            {
+              "gtTrackId": "2",
+              "maviTrackId": "22222222-2222-4222-8222-222222222222",
+              "overlapFrames": 6,
+              "containment": {
+                "numerator": 5,
+                "denominator": 6,
+                "value": 0.8333333333333334
+              },
+              "meanNormalisedDistance": 0.21,
+              "gtCoverage": {
+                "numerator": 5,
+                "denominator": 6,
+                "value": 0.8333333333333334
+              },
+              "maviCoverage": {
+                "numerator": 5,
+                "denominator": 6,
+                "value": 0.8333333333333334
+              },
+              "longestContainedRun": 5,
+              "spotCheckIoU": [
+                0.12
+              ]
+            }
+          ]
+        }
+      ],
+      "unmatchedMavi": [],
+      "ignoredMavi": []
+    },
+    {
+      "sequenceId": "seq-b",
+      "videoAssetId": "aaaaaaaa-0000-4000-8000-000000000002",
+      "processingRunId": "bbbbbbbb-0000-4000-8000-000000000002",
+      "pairs": [],
+      "ambiguousGt": [],
+      "fragmentedGt": [],
+      "mergedGt": [],
+      "unverifiedGt": [],
+      "unmatchedGt": [
+        {
+          "gtTrackId": "7",
+          "candidates": []
+        }
+      ],
+      "ignoredGt": [],
+      "fragmentMavi": [],
+      "unverifiedMavi": [],
+      "unmatchedMavi": [
+        {
+          "maviTrackId": "33333333-3333-4333-8333-333333333333",
+          "candidates": []
+        }
+      ],
+      "ignoredMavi": []
+    }
+  ],
+  "alignment": {
+    "sourceRate": {
+      "numerator": 5,
+      "denominator": 1
+    },
+    "labelledRate": {
+      "numerator": 5,
+      "denominator": 1
+    },
+    "evaluablePointsTotal": 14,
+    "maviPointsTotal": 14
+  },
+  "limitation": "Centre-only trajectories: per-frame IoU is available only at the observation frames; the rest of the overlap is checked by exclusive containment, both coverage floors and continuity (S3.2d-1 plan §7.7)."
+}

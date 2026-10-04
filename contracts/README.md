@@ -113,3 +113,20 @@ Same canonical form and write-once rule as above; none is an API, worker or sear
 - **Rights.** Release records stay `mavi-attribute-dataset-release-v1` and are checked only by `tools/qualification/attributes/datasets/release.py`. T8 authorises `operations=[]` for passthrough and `["create-derivatives"]` for remux or transcode and writes nothing on a blocker. No S3.2 tool makes a legal or R-5 decision.
 - **Freshness.** T9 refuses a catalogue that holds anything its own journal does not explain, never adopts a duplicate import, and never polls a run it did not queue. The execution record carries no native-media pack identity, because no product surface exposes one.
 - **Examples** are synthetic and name no real release, camera or member.
+
+## Stage 3 benchmark harness contracts (S3.2d-1)
+
+Development artefacts of the benchmark harness (`docs/superpowers/plans/2026-10-04-stage3-s3-2d-benchmark-harness.md`, ADR-017); none is an API, worker or search contract. Same canonical form as the S3.2 artefacts (`tools/stage3/artefacts.py`), identified by the SHA-256 of their bytes; refusals print `refused <code>`.
+
+| Schema | Producer | Binds |
+|---|---|---|
+| `benchmark-dataset-release-v1` | the operator (descriptor); `python -m tools.benchmarks.cli describe --freeze-manifest` fills the manifest once | release-level provenance and ADR-017 §7 status, splits, native taxonomy, frame time, exposure, source manifest |
+| `benchmark-class-mapping-v1` | the operator, per release | the release; one row per native class |
+| `benchmark-association-v1` | the association slice (S3.2d-1 slice 2; contract only until then) | the run envelope; class-free association body |
+| `benchmark-vehicle-subclass-result-v1` | the evaluator slice (S3.2d-1 slice 3; contract only until then) | the run envelope, the association and mapping hashes, the registered requirements |
+
+- **Manifest.** A descriptor may exist with an empty manifest; `prepare` refuses it (`source_manifest_missing`) and first reconciles the whole frozen manifest against the source root, before any discovery: `source_manifest_incomplete` (a member is absent), `source_manifest_unexpected` (an unlisted file), `source_manifest_mismatch` (size or bytes differ). Paths are relative POSIX, sorted by code point; links are refused (`source_root_invalid`). `BLOCKED` releases are refused (`descriptor_blocked`).
+- **Mappings.** Native classes are unique, sorted and exactly the descriptor's taxonomy (`mapping_incomplete`); `unsupported` rows carry `unsupportedKind` (`vehicle-unresolved` or `outside-capability`); at most one `exact` native class per MAVI class and no `subset` beside an `exact` one (`mapping_invalid`).
+- **Envelope.** `$defs/envelope` is written identically in both schemas that embed it. `benchmarkRunId` is the SHA-256 of the envelope without that member, so the descriptor (and so the manifest), each sequence's derived-video and canonical ground-truth hashes, the derivation manifest, the MAVI producer, exports and trajectories, the mapping, association policy, registered requirements, tooling and exposure are all bound. `toolingSha256` hashes the behaviour-bearing files the benchmark process loaded (every module under `tools/`, tests excluded, plus the four benchmark schemas), listed in `toolingFiles` and taken from the blobs at `toolingCommit`; any enumerated file that differs from that commit is refused (`tooling_dirty`). Version labels are recorded, never relied on for uniqueness.
+- **Exact numbers.** Ratios are `{numerator, denominator, value}` fractions as in `vehicle-subclass-measurement-v1`; policy thresholds, rates and frame times are exact `{numerator, denominator}` rationals in lowest terms.
+- **Examples** come from the synthetic dataset adapter (`tools/benchmarks/datasets/synthetic.py`); the descriptor and mapping examples are its output exactly (a test keeps them equal), and the association and result examples are shape illustrations whose identities recompute.

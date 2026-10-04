@@ -1,0 +1,1196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/benchmark-vehicle-subclass-result-v1.schema.json",
+  "title": "benchmark-vehicle-subclass-result-v1",
+  "description": "The vehicle subclass benchmark result of one run (S3.2d-1 plan §8): scope A end-to-end association coverage (detection and tracking; not subclass accuracy) and scope B Track-conditional subclass quality on assigned pairs, each with its own scope statement. Precision is over judgeable predictions and not-available when any prediction of the class landed on a vehicle-unresolved track; recall and support are over assigned exact-GT pairs; not-in-dataset recall for a class without exact GT. requirements.sha256 equals the envelope's tooling.requirementsSha256. Producer: the evaluator slice (S3.2d-1 slice 3); the contract is fixed here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "envelope",
+    "associationSha256",
+    "mappingSha256",
+    "requirements",
+    "scopeA",
+    "scopeB"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "benchmark-vehicle-subclass-result-v1"
+    },
+    "envelope": {
+      "$ref": "#/$defs/envelope"
+    },
+    "associationSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mappingSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gitPath",
+        "sha256",
+        "supportFloor"
+      ],
+      "properties": {
+        "gitPath": {
+          "const": "docs/qualification/stage3/s3-2-subclass-requirements.json"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "supportFloor": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "scopeA": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "expectedVehicleGt",
+        "associationRate",
+        "coverageLimitedGtRate",
+        "escalationThreshold",
+        "coverageLimited",
+        "outsideCapabilityGt",
+        "ignoredGt",
+        "maviTracks",
+        "maviUnverifiedRate",
+        "alignment",
+        "perNativeClass",
+        "sequences"
+      ],
+      "properties": {
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "expectedVehicleGt": {
+          "$ref": "#/$defs/gtCounts"
+        },
+        "associationRate": {
+          "$ref": "#/$defs/fraction"
+        },
+        "coverageLimitedGtRate": {
+          "$ref": "#/$defs/fraction"
+        },
+        "escalationThreshold": {
+          "$ref": "#/$defs/rational"
+        },
+        "coverageLimited": {
+          "type": "boolean"
+        },
+        "outsideCapabilityGt": {
+          "$ref": "#/$defs/outsideCounts"
+        },
+        "ignoredGt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maviTracks": {
+          "$ref": "#/$defs/maviCounts"
+        },
+        "maviUnverifiedRate": {
+          "$ref": "#/$defs/fraction"
+        },
+        "alignment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceRate",
+            "labelledRate",
+            "evaluablePointsTotal",
+            "maviPointsTotal"
+          ],
+          "properties": {
+            "sourceRate": {
+              "$ref": "#/$defs/rational"
+            },
+            "labelledRate": {
+              "$ref": "#/$defs/rational"
+            },
+            "evaluablePointsTotal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maviPointsTotal": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "perNativeClass": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nativeClass",
+              "kind",
+              "gt"
+            ],
+            "properties": {
+              "nativeClass": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "kind": {
+                "enum": [
+                  "exact",
+                  "subset",
+                  "unsupported"
+                ]
+              },
+              "unsupportedKind": {
+                "enum": [
+                  "outside-capability",
+                  "vehicle-unresolved"
+                ]
+              },
+              "gt": {
+                "$ref": "#/$defs/gtCounts"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "unsupported"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "unsupportedKind"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "unsupportedKind"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "sequences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequenceId",
+              "expectedVehicleGt",
+              "outsideCapabilityGt",
+              "ignoredGt",
+              "maviTracks"
+            ],
+            "properties": {
+              "sequenceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "expectedVehicleGt": {
+                "$ref": "#/$defs/gtCounts"
+              },
+              "outsideCapabilityGt": {
+                "$ref": "#/$defs/outsideCounts"
+              },
+              "ignoredGt": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maviTracks": {
+                "$ref": "#/$defs/maviCounts"
+              }
+            }
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "scopeB": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "classes",
+        "confusion",
+        "subsetBlocks",
+        "excluded",
+        "macro"
+      ],
+      "properties": {
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "classes": {
+          "type": "array",
+          "description": "Exactly one row per MAVI class, in vocabulary order (car, truck, bus, motorcycle).",
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/classResult"
+                },
+                {
+                  "properties": {
+                    "maviClass": {
+                      "const": "car"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/classResult"
+                },
+                {
+                  "properties": {
+                    "maviClass": {
+                      "const": "truck"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/classResult"
+                },
+                {
+                  "properties": {
+                    "maviClass": {
+                      "const": "bus"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/classResult"
+                },
+                {
+                  "properties": {
+                    "maviClass": {
+                      "const": "motorcycle"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false,
+          "minItems": 4
+        },
+        "confusion": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nativeClass",
+              "truth",
+              "outcome",
+              "count"
+            ],
+            "properties": {
+              "nativeClass": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "truth": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle"
+                ]
+              },
+              "outcome": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle",
+                  "undetermined"
+                ]
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "subsetBlocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nativeClass",
+              "maviClass",
+              "assigned",
+              "resolvedToMapped",
+              "undeterminedShare",
+              "outcomes"
+            ],
+            "properties": {
+              "nativeClass": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "maviClass": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle"
+                ]
+              },
+              "assigned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resolvedToMapped": {
+                "$ref": "#/$defs/fraction"
+              },
+              "undeterminedShare": {
+                "$ref": "#/$defs/fraction"
+              },
+              "outcomes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "outcome",
+                    "count"
+                  ],
+                  "properties": {
+                    "outcome": {
+                      "enum": [
+                        "car",
+                        "truck",
+                        "bus",
+                        "motorcycle",
+                        "undetermined"
+                      ]
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "excluded": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "nativeClass",
+              "unsupportedKind",
+              "assigned",
+              "outcomes"
+            ],
+            "properties": {
+              "nativeClass": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "unsupportedKind": {
+                "enum": [
+                  "outside-capability",
+                  "vehicle-unresolved"
+                ]
+              },
+              "assigned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outcomes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "outcome",
+                    "count"
+                  ],
+                  "properties": {
+                    "outcome": {
+                      "enum": [
+                        "car",
+                        "truck",
+                        "bus",
+                        "motorcycle",
+                        "undetermined"
+                      ]
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "macro": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "classes",
+            "recall",
+            "accuracyOverResolved"
+          ],
+          "properties": {
+            "classes": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "recall": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/fraction"
+                }
+              ]
+            },
+            "accuracyOverResolved": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/fraction"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "benchmarkRunId",
+        "dataset",
+        "sequences",
+        "derivationManifestSha256",
+        "mavi",
+        "tooling",
+        "exposure"
+      ],
+      "properties": {
+        "benchmarkRunId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "dataset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "datasetId",
+            "release",
+            "split",
+            "descriptorSha256"
+          ],
+          "properties": {
+            "datasetId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+            },
+            "release": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "split": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+            },
+            "descriptorSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "sequences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sequenceId",
+              "derivedVideoSha256",
+              "groundTruthSha256"
+            ],
+            "properties": {
+              "sequenceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "derivedVideoSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "groundTruthSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "minItems": 1
+        },
+        "derivationManifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mavi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maviCommit",
+            "pipelineProfileSha256",
+            "producer",
+            "exportSha256s",
+            "trajectorySha256s"
+          ],
+          "properties": {
+            "maviCommit": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "pipelineProfileSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "producer": {
+              "$ref": "#/$defs/producer"
+            },
+            "exportSha256s": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "trajectorySha256s": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "tooling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapterId",
+            "adapterVersion",
+            "mappingSha256",
+            "associationPolicySha256",
+            "requirementsSha256",
+            "runnerVersion",
+            "toolingCommit",
+            "toolingSha256",
+            "toolingFiles"
+          ],
+          "properties": {
+            "adapterId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+            },
+            "adapterVersion": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "mappingSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "associationPolicySha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "requirementsSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "runnerVersion": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            },
+            "toolingCommit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "toolingSha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "toolingFiles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "sha256"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024,
+                    "pattern": "^(?!/)(?!.*(^|/)\\.{1,2}(/|$))(?!.*//)[^\\\\:\\r\\n\\x00]+(?<!/)$"
+                  },
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              },
+              "minItems": 1
+            }
+          }
+        },
+        "exposure": {
+          "$ref": "#/$defs/exposure"
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelId",
+        "modelVersion",
+        "pipelineProfileId",
+        "pipelineProfileVersion",
+        "runtimeProfileId",
+        "runtimeVariant",
+        "verificationStatus",
+        "maviCommit",
+        "maviBuild",
+        "modelPackId",
+        "runtimePackId",
+        "runtimePackSource",
+        "modelManifestSha256",
+        "checkpointSha256",
+        "resolvedConfigSha256",
+        "pipelineProfileSha256",
+        "runtimeProfileSha256",
+        "qualificationSha256",
+        "componentBindingSha256",
+        "platform"
+      ],
+      "properties": {
+        "modelId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "modelVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "pipelineProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "pipelineProfileVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "runtimeProfileId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "runtimeVariant": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "verificationStatus": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "maviCommit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "maviBuild": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "modelPackId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "runtimePackId": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "runtimePackSource": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$"
+            }
+          ]
+        },
+        "modelManifestSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "checkpointSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "resolvedConfigSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "pipelineProfileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "runtimeProfileSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "qualificationSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "componentBindingSha256": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "platform": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        }
+      }
+    },
+    "exposure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "basis"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "known",
+            "possible",
+            "unknown",
+            "none-known"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        }
+      }
+    },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "fraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numerator",
+        "denominator",
+        "value"
+      ],
+      "properties": {
+        "numerator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "denominator": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        }
+      }
+    },
+    "gtCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "assigned",
+        "ambiguous",
+        "fragmented",
+        "merged",
+        "unverified",
+        "unmatched"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "assigned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ambiguous": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fragmented": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "merged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unmatched": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "maviCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "assigned",
+        "fragment",
+        "ignored",
+        "unverified",
+        "unmatched"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "assigned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fragment": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ignored": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unmatched": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "outsideCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "vehicleTracksOnOutsideCapabilityGt"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "vehicleTracksOnOutsideCapabilityGt": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "classResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maviClass",
+        "support",
+        "supportStatus",
+        "recall",
+        "precision",
+        "undeterminedShare",
+        "accuracyOverResolved",
+        "accuracyOverEvaluable"
+      ],
+      "properties": {
+        "maviClass": {
+          "enum": [
+            "car",
+            "truck",
+            "bus",
+            "motorcycle"
+          ]
+        },
+        "support": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supportStatus": {
+          "enum": [
+            "adequate",
+            "insufficient-support"
+          ]
+        },
+        "recall": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "value"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "computed",
+                "not-in-dataset"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/fraction"
+                }
+              ]
+            }
+          }
+        },
+        "precision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "value",
+            "precisionAmongJudgedTracks",
+            "unjudgeablePredictions",
+            "judgeableNativeClasses"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "computed",
+                "not-available",
+                "no-judgeable-predictions"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/fraction"
+                }
+              ]
+            },
+            "precisionAmongJudgedTracks": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/fraction"
+                }
+              ]
+            },
+            "unjudgeablePredictions": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "judgeableNativeClasses": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "undeterminedShare": {
+          "$ref": "#/$defs/fraction"
+        },
+        "accuracyOverResolved": {
+          "$ref": "#/$defs/fraction"
+        },
+        "accuracyOverEvaluable": {
+          "$ref": "#/$defs/fraction"
+        }
+      }
+    }
+  }
+}
