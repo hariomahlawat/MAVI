@@ -21,7 +21,7 @@ from typing import Any
 from tools.benchmarks import prepare as preparation
 from tools.benchmarks.capabilities.vehicle_tracks import mavi_tracks
 from tools.benchmarks.core._stage3 import artefacts
-from tools.benchmarks.core.identity import require, sha256_hex
+from tools.benchmarks.core.identity import S32Error, require, sha256_hex
 
 import ingest_source_pool as t9  # noqa: E402  (tools/stage3, on the path via _stage3)
 
@@ -43,7 +43,19 @@ def camera_code(sequence_id: str) -> str:
 def execute(*, derived: Path, profile_path: Path, api_url: str, journal_path: Path, export_root: Path,
             export_command: list[str], evidence_root: Path, poll_seconds: float = 5.0,
             timeout_seconds: float = 6 * 3600) -> list[dict[str, Any]]:
-    """Runs MAVI once per prepared sequence; returns ``[{sequenceId, videoAssetId, processingRunId, exportSha256}]``."""
+    """Runs MAVI once per prepared sequence; returns ``[{sequenceId, videoAssetId, processingRunId, exportSha256}]``.
+    Malformed inputs are refusals (``benchmark_input_invalid``), never raw exceptions, as in ``evaluate``."""
+    try:
+        return _execute(derived, profile_path, api_url, journal_path, export_root, export_command, evidence_root,
+                        poll_seconds, timeout_seconds)
+    except S32Error:
+        raise
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+        raise S32Error(f"benchmark_input_invalid:{type(exc).__name__}") from exc
+
+
+def _execute(derived, profile_path, api_url, journal_path, export_root, export_command, evidence_root, poll_seconds,
+             timeout_seconds) -> list[dict[str, Any]]:
     manifest, manifest_sha, _ = preparation.load(derived)
     profile_bytes = artefacts.read_bytes(profile_path, "pipeline_profile_unreadable")
     t9.require_measurement_profile(profile_bytes)

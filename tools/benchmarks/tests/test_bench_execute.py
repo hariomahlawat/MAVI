@@ -128,6 +128,20 @@ def test_inputs_are_verified_before_any_api_call(bench):
     assert bench.api.state.calls == []
 
 
+def test_a_malformed_derivation_manifest_is_a_refusal_not_a_traceback(bench, capsys):
+    path = bench.derived / prepare.MANIFEST
+    manifest = json.loads(path.read_bytes())
+    del manifest["sequences"][0]["sequenceId"]
+    path.write_bytes(canonical_json(manifest))
+    with pytest.raises(S32Error, match="^benchmark_input_invalid:KeyError$"):
+        bench.run()
+    code = cli.main(["execute", "--derived", str(bench.derived), "--pipeline-profile", str(bench.profile),
+                     "--api", bench.api.url, "--journal", str(bench.journal), "--exports", str(bench.exports),
+                     "--evidence-root", str(bench.evidence), "--export-exe", sys.executable])
+    assert code == 2 and "refused benchmark_input_invalid:KeyError" in capsys.readouterr().err
+    assert bench.api.state.calls == []
+
+
 @pytest.mark.parametrize("tamper, code", [("source", "benchmark_export_mismatch:seq-a"),
                                           ("trajectory", "trajectory_missing")])
 def test_exit_checks(bench, tamper, code):

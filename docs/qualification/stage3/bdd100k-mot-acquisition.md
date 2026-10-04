@@ -12,7 +12,7 @@
 
 ## Acquisition (operator action)
 
-1. Sign in to the official BDD100K user portal at `bdd-data.berkeley.edu` (download page `download.html`) and accept the BDD100K licence there ("I Agree"). The documented host `dl.cv.ethz.ch` no longer resolves in DNS (checked 2026-10-04), and the portal's HTTPS certificate names another host, so the portal page is reached over HTTP. Registration, sign-in and licence acceptance are the operator's own actions: never automated, never bypassed, and download links are never fetched without them.
+1. Sign in to the official BDD100K user portal (`bdd-data.berkeley.edu`, download page `download.html`) **over verified HTTPS only**, and accept the BDD100K licence there ("I Agree"). The documented host `dl.cv.ethz.ch` no longer resolves in DNS, and on 2026-10-04 the portal's HTTPS certificate named another host (`unlisted.berkeleyvision.org`). A certificate that does not match the portal is a hard stop: never sign in, accept the licence or download over plain HTTP or past a certificate warning. Wait for, or obtain from the dataset maintainers, a verified official HTTPS endpoint. Registration, sign-in and licence acceptance are the operator's own actions: never automated, never bypassed, and download links are never fetched without them.
 2. From the portal, download the *MOT 2020 Labels* and the val part of *MOT 2020 Images*. Check the labels archive against the published md5 above, and record each archive's name, size and SHA-256 for the descriptor's provenance.
 3. Keep archives, images and labels outside Git and outside the repository working tree, on local storage the operator controls. Never commit dataset bytes, crops, screenshots, derived MP4s or trajectories.
 
