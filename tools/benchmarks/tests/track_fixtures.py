@@ -74,9 +74,29 @@ def run(*tracks: MaviTrack, rate: Fraction = Fraction(5), video: int = 1) -> Mav
     from tools.benchmarks.core.identity import sha256_hex
 
     ordered = tuple(sorted(tracks, key=lambda item: item.mavi_track_id))
+    attestation = producer()
     return MaviRun(f"aaaaaaaa-0000-4000-8000-{video:012x}", f"bbbbbbbb-0000-4000-8000-{video:012x}", rate, ordered,
                    sha256_hex(f"export-{video}".encode()), sha256_hex(f"video-{video}".encode()),
-                   frozenset(sha256_hex(f"trajectory-{video}-{item.mavi_track_id}".encode()) for item in ordered))
+                   frozenset(sha256_hex(f"trajectory-{video}-{item.mavi_track_id}".encode()) for item in ordered),
+                   attestation["pipelineProfileSha256"], attestation["maviCommit"])
+
+
+def producer() -> dict[str, Any]:
+    """The single attested producer of the example export (every fixture run shares it)."""
+    from tools.benchmarks.core import mavi
+
+    attestation = json.loads(EXPORT_EXAMPLE.read_text(encoding="utf-8"))["processingRun"]["attestation"]
+    return {key: attestation.get(key) for key in (*mavi.PRODUCER_KEYS, *mavi.PRODUCER_EXTRA)}
+
+
+def descriptor(**frame_time: Any) -> dict[str, Any]:
+    """The synthetic release descriptor (5 fps ``index-at-fps``), optionally with another ``frameTime``."""
+    from tools.benchmarks.datasets import synthetic
+
+    document = synthetic.descriptor()
+    if frame_time:
+        document["frameTime"] = dict(frame_time)
+    return document
 
 
 def static(box: tuple[float, float, float, float], frames: range | list[int]) -> dict[int, Any]:
@@ -84,21 +104,20 @@ def static(box: tuple[float, float, float, float], frames: range | list[int]) ->
 
 
 def envelope_for(documents: list[dict[str, Any]], runs: list[MaviRun], policy: policies.Policy,
-                 mapping_sha256: str = "d" * 64, **changes: Any) -> dict[str, Any]:
+                 mapping_sha256: str = "d" * 64, descriptor_document: dict[str, Any] | None = None,
+                 **changes: Any) -> dict[str, Any]:
     """The envelope Slice 3 builds: GT hashes from the documents; video, export and trajectory hashes from the runs
     (paired by position, as ``associate`` receives them)."""
-    attestation = json.loads(EXPORT_EXAMPLE.read_text(encoding="utf-8"))["processingRun"]["attestation"]
-    from tools.benchmarks.core import mavi
-
-    producer = {key: attestation.get(key) for key in (*mavi.PRODUCER_KEYS, *mavi.PRODUCER_EXTRA)}
+    attested = producer()
+    release = descriptor_document if descriptor_document is not None else descriptor()
     inputs = {
-        "dataset": {"datasetId": "synthetic-vehicles", "release": "synthetic-v1", "split": "val",
-                    "descriptorSha256": "a" * 64},
+        "dataset": {"datasetId": release["datasetId"], "release": release["release"], "split": "val",
+                    "descriptorSha256": document_sha256(release)},
         "sequences": [{"sequenceId": document["sequenceId"], "derivedVideoSha256": mavi_run.source_sha256,
                        "groundTruthSha256": document_sha256(document)} for document, mavi_run in zip(documents, runs)],
         "derivation_manifest_sha256": "6" * 64,
-        "mavi": {"maviCommit": producer["maviCommit"], "pipelineProfileSha256": producer["pipelineProfileSha256"],
-                 "producer": producer, "exportSha256s": sorted(mavi_run.export_sha256 for mavi_run in runs),
+        "mavi": {"maviCommit": attested["maviCommit"], "pipelineProfileSha256": attested["pipelineProfileSha256"],
+                 "producer": attested, "exportSha256s": sorted(mavi_run.export_sha256 for mavi_run in runs),
                  "trajectorySha256s": sorted(set().union(*(mavi_run.trajectory_sha256s for mavi_run in runs)))},
         "tooling": {"adapterId": "synthetic", "adapterVersion": "1", "mappingSha256": mapping_sha256,
                     "associationPolicySha256": policy.sha256, "requirementsSha256": "f" * 64, "runnerVersion": "1",
@@ -111,10 +130,12 @@ def envelope_for(documents: list[dict[str, Any]], runs: list[MaviRun], policy: p
 
 
 def associate(documents: list[dict[str, Any]], runs: list[MaviRun], *, policy: policies.Policy | None = None,
-              labelled_rate: Fraction = Fraction(5), **envelope_changes: Any) -> dict[str, Any]:
+              descriptor_document: dict[str, Any] | None = None, **envelope_changes: Any) -> dict[str, Any]:
     policy = policy or policies.v1()
-    return a.associate(envelope=envelope_for(documents, runs, policy, **envelope_changes), policy=policy,
-                       sequences=list(zip(documents, runs)), labelled_rate=labelled_rate)
+    release = descriptor_document if descriptor_document is not None else descriptor()
+    return a.associate(envelope=envelope_for(documents, runs, policy, descriptor_document=release,
+                                             **envelope_changes),
+                       policy=policy, descriptor=release, sequences=list(zip(documents, runs)))
 
 
 def one(document: dict[str, Any], mavi_run: MaviRun, **kwargs: Any) -> dict[str, Any]:

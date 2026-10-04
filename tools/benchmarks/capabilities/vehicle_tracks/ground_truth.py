@@ -28,6 +28,7 @@ from tools.benchmarks.core.identity import S32Error, from_rational, require
 
 CODE = "ground_truth_invalid"
 GT_TRACK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}")
+SPLIT = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")  # the descriptor's split-name slug
 _EPSILON = 1e-9  # pixel-to-normalised conversion may overshoot 1.0 by one ulp
 
 
@@ -142,6 +143,10 @@ def _project(document: Any) -> GtSequence:
     require(set(document) <= allowed and set(document) >= allowed - {"ignoreRegions"}, f"{CODE}:fields")
     sequence_id = document["sequenceId"]
     require(isinstance(sequence_id, str) and GT_TRACK_ID.fullmatch(sequence_id), f"{CODE}:sequenceId")
+    require(isinstance(document["split"], str) and SPLIT.fullmatch(document["split"]), f"{CODE}:split")
+    size = document["frameSize"]
+    require(isinstance(size, dict) and set(size) == {"width", "height"}
+            and all(type(size[key]) is int and size[key] > 0 for key in size), f"{CODE}:frameSize")
     positions, times = _instants(document)
     tracks: list[GtTrack] = []
     rows = document["tracks"]

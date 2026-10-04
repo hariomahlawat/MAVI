@@ -50,10 +50,12 @@ class MaviRun:
     processing_run_id: str
     frame_rate: Fraction
     tracks: tuple[MaviTrack, ...]  # sorted by mavi_track_id
-    # Input identities (hashes only), checked against the run envelope before anything is scored.
+    # Provenance (identities only, no prediction field), reconciled with the run envelope before anything is scored.
     export_sha256: str
     source_sha256: str  # the imported video: the sequence's derived video
     trajectory_sha256s: frozenset[str]
+    pipeline_profile_sha256: str  # from the run's attestation
+    mavi_commit: str
 
     @property
     def point_count(self) -> int:
@@ -91,4 +93,5 @@ def project(export: artefacts.Export, evidence_root: Path) -> MaviRun:
     run = export.document["processingRun"]
     trajectories = frozenset(track["trajectorySha256"] for track in mavi.vehicle_tracks(export))
     return MaviRun(run["videoAssetId"], run["processingRunId"], frame_rate(export), tuple(tracks), export.sha256,
-                   export.video["sourceSha256"], trajectories)
+                   export.video["sourceSha256"], trajectories, export.attestation["pipelineProfileSha256"],
+                   export.attestation["maviCommit"])

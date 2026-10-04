@@ -94,6 +94,17 @@ def test_one_ineligible_track_alone_never_makes_a_gt_fragmented():
     only(entry, unmatchedGt=["1"], unmatchedMavi=[mid(1)])
 
 
+def test_complementary_alternating_tracks_make_the_gt_fragmented():
+    # B: A contained on frames 1,3,5,7,9 and B on 2,4,6,8,10; each containment 1/2, coverage 1/2, run 1 (fails
+    # continuity, so neither eligible nor verification-failed); together they cover every frame.
+    odd = [(200 * k, *((0.2, 0.2) if k % 2 == 0 else (0.9, 0.1))) for k in range(10)]
+    even = [(200 * k, *((0.2, 0.2) if k % 2 == 1 else (0.9, 0.05))) for k in range(10)]
+    entry = one(gt_document({"1": static(B1, range(10))}), run(track(1, odd, [obs(0)]), track(2, even, [obs(1)])))
+    only(entry, fragmentedGt=["1"], unmatchedMavi=[mid(1), mid(2)])
+    first = candidate(entry, "fragmentedGt", "gtTrackId", "1", "maviTrackId", mid(1))
+    assert first["containment"]["value"] == first["gtCoverage"]["value"] == 0.5 and first["longestContainedRun"] == 1
+
+
 def test_full_lifetime_track_beats_a_half_duplicate_fragment():
     entry = one(gt_document({"1": static(B1, range(10))}),
                 run(track(1, follow(B1, range(10)), [obs(2)]), track(2, follow(B1, range(5)), [obs(2)])))
@@ -264,6 +275,27 @@ def test_symmetric_crossing_with_an_identity_switch_is_ambiguous():
     only(entry, ambiguousGt=["1", "2"], unmatchedMavi=[mid(1), mid(2)])
 
 
+def test_an_ambiguity_rejected_track_never_blocks_another_track_from_its_gt():
+    # m (mid 1) spans g1 (frames 3–9) and g2 (10–16) equally and is rejected as MAVI-side ambiguous first; m2 (mid 2)
+    # is a lower-ranked but eligible Track on g1 (contained 2–9). The rejected m can never be assigned, so it is no
+    # rival for g1: g1 goes to m2, g2 stays ambiguous, and m is a fragment of the assigned g1.
+    document = gt_document({"g1": static(B1, range(10)), "g2": static(B2, range(10, 17))})
+    spanning = follow(B1, range(3, 10)) + follow(B2, range(10, 17))
+    fallback = follow(NOWHERE, range(2)) + follow(B1, range(2, 10))
+    entry = one(document, run(track(1, spanning, [obs(5), obs(12, B2)]), track(2, fallback, [obs(5)])))
+    only(entry, assigned=["g1"], assignedMavi=[mid(2)], ambiguousGt=["g2"], fragmentMavi=[mid(1)])
+
+
+def test_an_iou_exactly_at_the_floor_passes_the_gate():
+    full = (0.0, 0.0, 1.0, 1.0)
+    observation = (0.0, 0.0, 0.3, 1.0)  # IoU with the full frame is the float 0.3
+    from tools.benchmarks.capabilities.vehicle_tracks.ground_truth import Box
+
+    assert Box(*full).iou(Box(*observation)) == 0.3
+    entry = one(gt_document({"1": static(full, range(4))}), run(track(1, follow(full, range(4)), [(200, observation)])))
+    only(entry, assigned=["1"], assignedMavi=[mid(1)])
+
+
 def test_nearer_track_wins_over_an_equal_coverage_track_near_the_edge():
     entry = one(gt_document({"1": static(BIG, range(10))}),
                 run(track(1, follow(BIG, range(10)), [obs(2, BIG)]),
@@ -381,14 +413,14 @@ def test_envelope_must_bind_the_policy_and_the_ground_truth():
     other = policies.load({**policies.POLICY_V1, "minOverlapFrames": 4})
     envelope = f.envelope_for([document], [mavi_run], other)
     with pytest.raises(S32Error, match="^association_policy_invalid:not_bound$"):
-        a.associate(envelope=envelope, policy=policy, sequences=[(document, mavi_run)], labelled_rate=Fraction(5))
+        a.associate(envelope=envelope, policy=policy, sequences=[(document, mavi_run)], descriptor=f.descriptor())
     envelope = f.envelope_for([document], [mavi_run], policy)
     changed = copy.deepcopy(document)
     changed["tracks"][0]["nativeClass"] = "bus"
     with pytest.raises(S32Error, match="^association_invalid:ground_truth_hash:seq-1$"):
-        a.associate(envelope=envelope, policy=policy, sequences=[(changed, mavi_run)], labelled_rate=Fraction(5))
+        a.associate(envelope=envelope, policy=policy, sequences=[(changed, mavi_run)], descriptor=f.descriptor())
     with pytest.raises(S32Error, match="^association_invalid:sequences$"):
-        a.associate(envelope=envelope, policy=policy, sequences=[], labelled_rate=Fraction(5))
+        a.associate(envelope=envelope, policy=policy, sequences=[], descriptor=f.descriptor())
 
 
 def _two_sequences():
@@ -399,35 +431,125 @@ def _two_sequences():
     return documents, runs
 
 
-def test_each_run_must_be_the_one_the_envelope_names_for_its_sequence():
+def _associate(envelope, documents, runs):
+    return a.associate(envelope=envelope, policy=policies.v1(), descriptor=f.descriptor(),
+                       sequences=list(zip(documents, runs)))
+
+
+def test_runs_bound_by_the_envelope_associate_deterministically():
     documents, runs = _two_sequences()
-    policy = policies.v1()
-    envelope = f.envelope_for(documents, runs, policy)
-    swapped = list(zip(documents, reversed(runs)))  # mis-zipped: s1 scored with s2's run
-    with pytest.raises(S32Error, match="^association_invalid:run_video:s1$"):
-        a.associate(envelope=envelope, policy=policy, sequences=swapped, labelled_rate=Fraction(5))
-    foreign = run(track(1, follow(B1, range(4)), [obs(1)]), video=1)
-    foreign = dataclasses.replace(foreign, export_sha256="e" * 64)  # same video, another export set
-    with pytest.raises(S32Error, match="^association_invalid:run_exports$"):
-        a.associate(envelope=envelope, policy=policy, sequences=[(documents[0], foreign), (documents[1], runs[1])],
-                    labelled_rate=Fraction(5))
-    extra = dataclasses.replace(runs[0], trajectory_sha256s=runs[0].trajectory_sha256s | {"c" * 64})
-    with pytest.raises(S32Error, match="^association_invalid:run_trajectories$"):
-        a.associate(envelope=envelope, policy=policy, sequences=[(documents[0], extra), (documents[1], runs[1])],
-                    labelled_rate=Fraction(5))
-    a.associate(envelope=envelope, policy=policy, sequences=list(zip(documents, runs)), labelled_rate=Fraction(5))
+    envelope = f.envelope_for(documents, runs, policies.v1())
+    first, second = _associate(envelope, documents, runs), _associate(copy.deepcopy(envelope), documents, runs)
+    assert canonical_json(first) == canonical_json(second)
 
 
-def test_a_repeated_run_is_refused():
+def test_a_run_from_another_export_set_is_refused():
+    documents, runs = _two_sequences()
+    envelope = f.envelope_for(documents, runs, policies.v1())
+    foreign = dataclasses.replace(runs[0], export_sha256="e" * 64)  # same footage, another export set
+    with pytest.raises(S32Error, match="^association_invalid:mavi_export_mismatch$"):
+        _associate(envelope, documents, [foreign, runs[1]])
+
+
+def test_a_swapped_run_is_refused():
+    documents, runs = _two_sequences()
+    envelope = f.envelope_for(documents, runs, policies.v1())
+    with pytest.raises(S32Error, match="^association_invalid:video_asset_mismatch:s1$"):
+        _associate(envelope, documents, list(reversed(runs)))  # s1 scored with s2's run and vice versa
+
+
+def test_the_same_run_supplied_twice_is_refused():
     documents = [gt_document({"1": static(B1, range(4))}, sequence="s1"),
                  gt_document({"1": static(B1, range(4))}, sequence="s2")]
     same = run(track(1, follow(B1, range(4)), [obs(1)]), video=1)
-    other = dataclasses.replace(same, export_sha256="e" * 64)  # the honest second run (same footage, own export)
-    policy = policies.v1()
-    envelope = f.envelope_for(documents, [same, other], policy)
-    with pytest.raises(S32Error, match="^association_invalid:run_exports$"):  # caller passes the first run twice
-        a.associate(envelope=envelope, policy=policy, sequences=[(documents[0], same), (documents[1], same)],
-                    labelled_rate=Fraction(5))
+    other = dataclasses.replace(same, export_sha256="e" * 64, processing_run_id="bbbbbbbb-0000-4000-8000-0000000000ff",
+                                video_asset_id="aaaaaaaa-0000-4000-8000-0000000000ff")
+    envelope = f.envelope_for(documents, [same, other], policies.v1())  # honest: two runs of the same footage
+    with pytest.raises(S32Error, match="^association_invalid:processing_run_duplicate$"):
+        _associate(envelope, documents, [same, same])
+    reused_run_id = dataclasses.replace(other, processing_run_id=same.processing_run_id)
+    with pytest.raises(S32Error, match="^association_invalid:processing_run_duplicate$"):
+        _associate(envelope, documents, [same, reused_run_id])
+
+
+def test_an_altered_trajectory_set_is_refused():
+    documents, runs = _two_sequences()
+    envelope = f.envelope_for(documents, runs, policies.v1())
+    for changed in (runs[0].trajectory_sha256s | {"c" * 64}, frozenset()):
+        altered = dataclasses.replace(runs[0], trajectory_sha256s=changed)
+        with pytest.raises(S32Error, match="^association_invalid:trajectory_set_mismatch$"):
+            _associate(envelope, documents, [altered, runs[1]])
+
+
+def test_a_run_from_another_producer_is_refused():
+    documents, runs = _two_sequences()
+    envelope = f.envelope_for(documents, runs, policies.v1())
+    for change in ({"pipeline_profile_sha256": "0" * 64}, {"mavi_commit": "another"}):
+        with pytest.raises(S32Error, match="^association_invalid:producer_mismatch$"):
+            _associate(envelope, documents, [dataclasses.replace(runs[0], **change), runs[1]])
+
+
+def test_projected_runs_carry_identities_and_no_prediction_field(tmp_path):
+    path = f.write_export(tmp_path / "run", tmp_path / "evidence",
+                          [{"n": 1, "points": follow(B1, range(4)), "observations": [obs(1)], "subclass": "bus"}])
+    export = next(iter(mavi.load_exports([path]).values()))
+    projected = mt.project(export, tmp_path / "evidence")
+    assert projected.export_sha256 == export.sha256 and projected.source_sha256 == export.video["sourceSha256"]
+    assert projected.trajectory_sha256s == frozenset(t["trajectorySha256"] for t in export.tracks)
+    assert projected.pipeline_profile_sha256 == export.attestation["pipelineProfileSha256"]
+    names = {field.name for field in dataclasses.fields(mt.MaviRun)}
+    assert not [name for name in names if any(w in name for w in ("class", "subclass", "confidence", "outcome"))]
+
+
+# Timing comes from the bound descriptor
+
+
+def test_bound_descriptor_timing_succeeds_and_rebinding_it_is_refused():
+    documents, runs = _two_sequences()
+    envelope = f.envelope_for(documents, runs, policies.v1())
+    artefact = _associate(envelope, documents, runs)
+    assert artefact["alignment"]["labelledRate"] == {"numerator": 5, "denominator": 1}
+    other_rate = f.descriptor(kind="index-at-fps", fpsNumerator=10, fpsDenominator=1)  # same envelope, new timing
+    with pytest.raises(S32Error, match="^association_invalid:descriptor_mismatch$"):
+        a.associate(envelope=envelope, policy=policies.v1(), descriptor=other_rate, sequences=list(zip(documents, runs)))
+
+
+def test_wrong_labelled_rate_cannot_produce_another_valid_artefact():
+    # A 10 fps descriptor bound into its own envelope still refuses GT instants that are 5 fps frame times.
+    documents, runs = _two_sequences()
+    runs = [dataclasses.replace(item, frame_rate=Fraction(30)) for item in runs]  # a source fast enough for 10 fps
+    ten = f.descriptor(kind="index-at-fps", fpsNumerator=10, fpsDenominator=1)
+    envelope = f.envelope_for(documents, runs, policies.v1(), descriptor_document=ten)
+    with pytest.raises(S32Error, match="^association_invalid:instant_time:s1$"):
+        a.associate(envelope=envelope, policy=policies.v1(), descriptor=ten, sequences=list(zip(documents, runs)))
+    assert "labelled_rate" not in a.associate.__code__.co_varnames[:a.associate.__code__.co_kwonlyargcount]
+
+
+def test_irregular_recorded_timestamps_associate():
+    instants = [Fraction(0), Fraction(180), Fraction(420), Fraction(450), Fraction(700)]
+    document = gt_document({"1": static(B1, range(5))}, instants=instants)
+    points = [(int(time), 0.2, 0.2) for time in instants]
+    irregular = f.descriptor(kind="per-frame-timestamp", fpsNumerator=5, fpsDenominator=1)
+    entry = f.one(document, run(track(1, points, [(180, B1)])), descriptor_document=irregular)
+    only(entry, assigned=["1"], assignedMavi=[mid(1)])
+
+
+def test_per_frame_timestamps_without_a_declared_rate_are_refused():
+    document = gt_document({"1": static(B1, range(4))})
+    undeclared = f.descriptor(kind="per-frame-timestamp")
+    with pytest.raises(S32Error, match="^association_invalid:labelled_rate_undeclared$"):
+        f.one(document, run(track(1, follow(B1, range(4)), [obs(1)])), descriptor_document=undeclared)
+
+
+def test_single_instant_window_uses_the_declared_rate():
+    document = gt_document({"1": {0: B1}, "2": {0: B2}}, frames=1)
+    near = [(99, 0.2, 0.2)]   # inside ±100 ms of a 5 fps declaration
+    far = [(101, 0.2, 0.2)]   # outside it
+    policy = policies.load({**policies.POLICY_V1, "minOverlapFrames": 1, "minConsecutiveContainedFrames": 1})
+    inside = f.one(document, run(track(1, near, [(99, B1)])), policy=policy)
+    assert inside["pairs"] and inside["pairs"][0]["overlapFrames"] == 1
+    outside = f.one(document, run(track(1, far, [(101, B1)])), policy=policy)
+    assert not outside["pairs"]
 
 
 def test_check_refuses_a_policy_the_run_identity_does_not_bind():
@@ -437,6 +559,34 @@ def test_check_refuses_a_policy_the_run_identity_does_not_bind():
     swapped["associationBodySha256"] = document_sha256({k: swapped[k] for k in ("policy", "sequences", "alignment")})
     with pytest.raises(S32Error, match="^association_policy_invalid:not_bound$"):
         a.check(swapped)
+
+
+def test_check_accepts_the_bound_policy_and_refuses_sequence_rows_that_do_not_match_the_envelope():
+    documents, runs = _two_sequences()
+    artefact = _associate(f.envelope_for(documents, runs, policies.v1()), documents, runs)
+    a.check(artefact)  # correct policy and sequence set pass
+
+    def rehash(document):
+        document["associationBodySha256"] = document_sha256({k: document[k] for k in ("policy", "sequences",
+                                                                                      "alignment")})
+        return document
+
+    duplicate = copy.deepcopy(artefact)
+    duplicate["sequences"].insert(1, copy.deepcopy(duplicate["sequences"][0]))
+    missing = copy.deepcopy(artefact)
+    missing["sequences"].pop()
+    extra = copy.deepcopy(artefact)
+    extra["sequences"].append({**copy.deepcopy(extra["sequences"][1]), "sequenceId": "s3"})
+    for tampered in (duplicate, missing, extra):
+        with pytest.raises(S32Error, match="^association_invalid:sequences$"):
+            a.check(rehash(tampered))
+
+
+def test_ground_truth_for_another_split_is_refused():
+    document = gt_document({"1": static(B1, range(4))})
+    document["split"] = "train"
+    with pytest.raises(S32Error, match="^association_invalid:split_mismatch:seq-1$"):
+        f.one(document, run(track(1, follow(B1, range(4)), [obs(1)])))
 
 
 def test_policy_change_changes_identity_and_threshold():

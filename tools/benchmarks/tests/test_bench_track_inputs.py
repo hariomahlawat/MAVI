@@ -63,6 +63,11 @@ def test_native_class_never_changes_the_projection():
 @pytest.mark.parametrize("edit, code", [
     (lambda doc: doc.pop("instants"), "ground_truth_invalid:fields"),
     (lambda doc: doc.update(extra=1), "ground_truth_invalid:fields"),
+    (lambda doc: doc.update(split="Val Split"), "ground_truth_invalid:split"),
+    (lambda doc: doc.update(split=None), "ground_truth_invalid:split"),
+    (lambda doc: doc.update(frameSize={"width": 0, "height": 18}), "ground_truth_invalid:frameSize"),
+    (lambda doc: doc.update(frameSize={"width": 32}), "ground_truth_invalid:frameSize"),
+    (lambda doc: doc.update(frameSize={"width": 32.0, "height": 18}), "ground_truth_invalid:frameSize"),
     (lambda doc: doc["instants"].reverse(), "ground_truth_invalid:instants_order"),
     (lambda doc: doc["instants"][1].update(videoOffsetMs={"numerator": 400, "denominator": 2}),
      "ground_truth_invalid:instant_time:not_lowest_terms"),

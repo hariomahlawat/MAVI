@@ -27,9 +27,9 @@ eligible Track m′ for g comparable on containment, gtCoverage and distance (po
 otherwise another unassigned eligible GT g′ for m comparable on containment, maviCoverage and distance makes m
 ambiguous. Neither candidate is assigned; both stay available to others.
 
-**Outcomes** are mutually exclusive by precedence — GT: ``ambiguousGt`` → ``mergedGt`` → ``fragmentedGt`` (at
-least two distinct contained fragments, each below the coverage floor alone, together covering it) →
-``unverifiedGt`` → ``unmatchedGt``; MAVI:
+**Outcomes** are mutually exclusive by precedence — GT: ``ambiguousGt`` → ``mergedGt`` → ``fragmentedGt`` (no
+eligible pair; at least two distinct contained fragments, none verification-failed, together covering the floor)
+→ ``unverifiedGt`` → ``unmatchedGt``; MAVI:
 ``fragmentMavi`` → ``ignoredMavi`` → ``unverifiedMavi`` → ``unmatchedMavi``. Ignored GT tracks are ``ignoredGt``.
 """
 
@@ -49,9 +49,11 @@ from tools.benchmarks.capabilities.vehicle_tracks.ground_truth import Box, GtSeq
 from tools.benchmarks.capabilities.vehicle_tracks.mavi_tracks import MaviRun, MaviTrack
 from tools.benchmarks.capabilities.vehicle_tracks import policy as policies
 from tools.benchmarks.capabilities.vehicle_tracks.policy import IGNORED_MAVI_SHARE, Policy
+from tools.benchmarks.core import descriptor as descriptors
 from tools.benchmarks.core import envelope as envelopes
 from tools.benchmarks.core.identity import (
-    S32Error, canonical_json, document_sha256, rational, require, require_canonical_rationals, validate, write_once)
+    S32Error, canonical_json, document_sha256, from_rational, rational, require, require_canonical_rationals,
+    validate, write_once)
 
 SCHEMA = "benchmark-association-v1"
 CODE = "association_invalid"
@@ -172,7 +174,10 @@ class _Sequence:
         geometric = (result.overlap >= p.min_overlap_frames and result.containment >= p.min_containment
                      and result.gt_coverage >= p.min_gt_coverage and result.mavi_coverage >= p.min_mavi_coverage
                      and result.run >= p.min_consecutive_contained_frames)
-        verified = bool(ious) and all(Fraction(value) >= p.min_spot_check_iou for value in ious)
+        # IoU is a float, so the floor is compared as the same float (an IoU of exactly 0.3 meets 3/10; the exact
+        # rational of the double 0.3 is a hair below 3/10 and would wrongly fail).
+        floor = float(p.min_spot_check_iou)
+        verified = bool(ious) and all(value >= floor for value in ious)
         result.eligible = geometric and verified
         result.verification_failed = geometric and not verified
         return result
@@ -256,12 +261,15 @@ def _assign(pairs: list[Pair], policy: Policy) -> tuple[dict[str, Pair], set[str
         if pair.gt in assigned_gt or pair.mavi in assigned_mavi or pair.gt in rejected_gt \
                 or pair.mavi in rejected_mavi:
             continue
+        # A rival must still be assignable: assigned or ambiguity-rejected candidates never compete again.
         rivals = [other for other in by_gt[pair.gt] if other.mavi != pair.mavi and other.mavi not in assigned_mavi
+                  and other.mavi not in rejected_mavi
                   and _comparable(pair, other, "gt_coverage", policy)]
         if rivals:
             rejected_gt.add(pair.gt)
             continue
         rivals = [other for other in by_mavi[pair.mavi] if other.gt != pair.gt and other.gt not in assigned_gt
+                  and other.gt not in rejected_gt
                   and _comparable(pair, other, "mavi_coverage", policy)]
         if rivals:
             rejected_mavi.add(pair.mavi)
@@ -281,12 +289,14 @@ def _gt_state(track: GtTrack, pairs: list[Pair], assigned_gt: dict[str, Pair], a
            and pair.containment >= policy.min_containment and pair.overlap >= policy.min_overlap_frames
            and pair.gt_coverage >= policy.min_gt_coverage for pair in pairs):
         return "mergedGt"
-    # A fragment is a *part* of the object's lifetime: contained, long enough, and below the coverage floor on its
-    # own. A Track that alone covers the floor is a whole (if failed) candidate, not a piece of a split, so several
-    # full-lifetime verification-failed Tracks make the GT unverifiedGt, not fragmentedGt (plan §7.4 "MAVI saw the
-    # object but as several Tracks"; §9 fixture "one GT with three verification-failed MAVI fragments").
+    # A fragment is contained spatial evidence of part of the identity: containment and overlap at their floors,
+    # neither eligible nor verification-failed. A pair that passes every non-IoU condition and fails only the IoU
+    # gate is a verification failure, never a fragment, so several such Tracks make the GT unverifiedGt
+    # (plan §7.4; §9 "one GT with three verification-failed MAVI fragments"). Two or more fragments whose contained
+    # instants together reach the coverage floor make the GT fragmentedGt.
     fragments = [pair for pair in pairs if pair.containment >= policy.min_containment
-                 and pair.overlap >= policy.min_overlap_frames and pair.gt_coverage < policy.min_gt_coverage]
+                 and pair.overlap >= policy.min_overlap_frames
+                 and not pair.eligible and not pair.verification_failed]
     covered = frozenset().union(*(pair.contained_instants for pair in fragments)) if fragments else frozenset()
     if not any(pair.eligible for pair in pairs) and len({pair.mavi for pair in fragments}) >= 2 \
             and Fraction(len(covered), len(track.evaluable)) >= policy.min_gt_coverage:
@@ -355,36 +365,76 @@ def associate_sequence(gt: GtSequence, run: MaviRun, policy: Policy, labelled_ra
 # The artefact
 
 
-def associate(*, envelope: dict[str, Any], policy: Policy, sequences: Sequence[tuple[dict[str, Any], MaviRun]],
-              labelled_rate: Fraction) -> dict[str, Any]:
+def labelled_timing(descriptor: dict[str, Any], envelope: dict[str, Any]) -> Fraction:
+    """The labelled rate from the descriptor the envelope binds (never a caller-chosen value).
+
+    The descriptor must hash to ``dataset.descriptorSha256`` and name the envelope's dataset and release. Its
+    ``frameTime`` declares the labelled rate (``index-at-fps``) or the nominal rate of recorded timestamps
+    (``per-frame-timestamp``); association needs it for the labelled-rate test and a single-instant window, so an
+    undeclared rate is refused.
+    """
+    descriptors.check(descriptor)
+    dataset = envelope["dataset"]
+    require(document_sha256(descriptor) == dataset["descriptorSha256"], f"{CODE}:descriptor_mismatch")
+    require(descriptor["datasetId"] == dataset["datasetId"] and descriptor["release"] == dataset["release"],
+            f"{CODE}:descriptor_mismatch")
+    frame_time = descriptor["frameTime"]
+    require("fpsNumerator" in frame_time, f"{CODE}:labelled_rate_undeclared")
+    return Fraction(frame_time["fpsNumerator"], frame_time["fpsDenominator"])
+
+
+def _require_instants_follow_descriptor(document: dict[str, Any], descriptor: dict[str, Any]) -> None:
+    """Under ``index-at-fps`` every labelled instant is the descriptor's frame time of its index (exact)."""
+    if descriptor["frameTime"]["kind"] != "index-at-fps":
+        return  # recorded timestamps are carried by the canonical GT, whose hash the envelope binds
+    for row in document["instants"]:
+        require(from_rational(row["videoOffsetMs"], CODE) == descriptors.index_offset_ms(descriptor, row["frameIndex"]),
+                f"{CODE}:instant_time:{document['sequenceId']}")
+
+
+def _reconcile_runs(envelope: dict[str, Any], sequences: Sequence[tuple[dict[str, Any], MaviRun]]) -> None:
+    """Every MAVI run is exactly the evidence the envelope binds for its sequence (identities, not counts)."""
+    runs = [run for _, run in sequences]
+    for key in ("processing_run_id", "video_asset_id", "export_sha256"):
+        values = [getattr(run, key) for run in runs]
+        require(len(values) == len(set(values)), f"{CODE}:processing_run_duplicate")
+    videos = {item["sequenceId"]: item["derivedVideoSha256"] for item in envelope["sequences"]}
+    for document, run in sequences:
+        require(run.source_sha256 == videos[document["sequenceId"]],
+                f"{CODE}:video_asset_mismatch:{document['sequenceId']}")
+    mavi = envelope["mavi"]
+    require(sorted(run.export_sha256 for run in runs) == mavi["exportSha256s"], f"{CODE}:mavi_export_mismatch")
+    require(sorted(set().union(*(run.trajectory_sha256s for run in runs))) == mavi["trajectorySha256s"],
+            f"{CODE}:trajectory_set_mismatch")
+    require(all(run.pipeline_profile_sha256 == mavi["pipelineProfileSha256"] and run.mavi_commit == mavi["maviCommit"]
+                for run in runs), f"{CODE}:producer_mismatch")
+
+
+def associate(*, envelope: dict[str, Any], policy: Policy, descriptor: dict[str, Any],
+              sequences: Sequence[tuple[dict[str, Any], MaviRun]]) -> dict[str, Any]:
     """The ``benchmark-association-v1`` artefact for canonical GT documents paired with their MAVI runs.
 
-    The envelope must bind this policy and exactly these sequences and canonical GT documents.
+    Everything that can change the result is bound by the envelope and checked first: the policy
+    (``associationPolicySha256``), the labelled timing (the descriptor, ``descriptorSha256``), each sequence's
+    canonical GT (``groundTruthSha256``) and the MAVI evidence (derived videos, exports, trajectories, producer).
     """
     envelopes.check(envelope)
     require(envelope["tooling"]["associationPolicySha256"] == policy.sha256, "association_policy_invalid:not_bound")
+    labelled_rate = labelled_timing(descriptor, envelope)
     bound = {item["sequenceId"]: item["groundTruthSha256"] for item in envelope["sequences"]}
-    videos = {item["sequenceId"]: item["derivedVideoSha256"] for item in envelope["sequences"]}
-    require(sorted(bound) == sorted(document.get("sequenceId") for document, _ in sequences)
-            and len(sequences) == len(bound), f"{CODE}:sequences")
-    # Every MAVI run is the one the envelope names for its sequence: the run processed that sequence's derived
-    # video, and the runs' exports and trajectories are exactly the envelope's (no swapped, foreign or repeated run).
-    for document, run in sequences:
-        require(run.source_sha256 == videos[document["sequenceId"]], f"{CODE}:run_video:{document['sequenceId']}")
-    exports = [run.export_sha256 for _, run in sequences]
-    require(len(exports) == len(set(exports)) and sorted(exports) == envelope["mavi"]["exportSha256s"],
-            f"{CODE}:run_exports")
-    trajectories = sorted(set().union(*(run.trajectory_sha256s for _, run in sequences)))
-    require(trajectories == envelope["mavi"]["trajectorySha256s"], f"{CODE}:run_trajectories")
+    ids = [document.get("sequenceId") if isinstance(document, dict) else None for document, _ in sequences]
+    require(len(ids) == len(set(ids)) and sorted(ids, key=str) == sorted(bound), f"{CODE}:sequences")
+    _reconcile_runs(envelope, sequences)
     rates = {run.frame_rate for _, run in sequences}
     require(len(rates) == 1, f"{CODE}:mixed_source_rate")
     source_rate = rates.pop()
-    labelled_rate = Fraction(labelled_rate)
-    require(labelled_rate > 0 and source_rate >= labelled_rate, f"{CODE}:rates")
+    require(source_rate >= labelled_rate, f"{CODE}:rates")
     entries, evaluable_total, point_total = [], 0, 0
     for document, run in sorted(sequences, key=lambda item: item[0]["sequenceId"]):
         gt = gt_module.project(document)
         require(document_sha256(document) == bound[gt.sequence_id], f"{CODE}:ground_truth_hash:{gt.sequence_id}")
+        require(document["split"] == envelope["dataset"]["split"], f"{CODE}:split_mismatch:{gt.sequence_id}")
+        _require_instants_follow_descriptor(document, descriptor)
         entry, evaluable, points = associate_sequence(gt, run, policy, labelled_rate, source_rate == labelled_rate)
         entries.append(entry)
         evaluable_total += evaluable
@@ -398,13 +448,16 @@ def associate(*, envelope: dict[str, Any], policy: Policy, sequences: Sequence[t
 
 
 def check(artefact: dict[str, Any]) -> dict[str, Any]:
-    """Schema, canonical rationals, envelope, body hash and set-exclusive outcomes."""
+    """Schema, canonical rationals, envelope, policy binding, sequence set, body hash, set-exclusive outcomes."""
     validate(artefact, SCHEMA, CODE)
     require_canonical_rationals(artefact, CODE)
     envelopes.check(artefact["envelope"])
     # The embedded policy is the one the run identity binds (the same rule associate() enforces).
     require(policies.load(artefact["policy"]).sha256 == artefact["envelope"]["tooling"]["associationPolicySha256"],
             "association_policy_invalid:not_bound")
+    ids = [entry["sequenceId"] for entry in artefact["sequences"]]
+    require(ids == sorted(set(ids)) and ids == [item["sequenceId"] for item in artefact["envelope"]["sequences"]],
+            f"{CODE}:sequences")
     body = {key: artefact[key] for key in ("policy", "sequences", "alignment")}
     require(artefact["associationBodySha256"] == document_sha256(body), f"{CODE}:body_sha256")
     for entry in artefact["sequences"]:
