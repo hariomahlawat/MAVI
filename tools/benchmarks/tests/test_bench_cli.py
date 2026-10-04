@@ -79,6 +79,17 @@ def test_freeze_refuses_an_output_inside_the_source_root(tmp_path, capsys):
     d.reconcile(d.freeze(s.descriptor(), source), source)  # the source tree is untouched and still reconciles
 
 
+def test_freeze_refuses_an_archive_manifest_and_writes_nothing(tmp_path, capsys):
+    source = s.write_source(tmp_path / "source")
+    document = copy.deepcopy(s.descriptor())
+    document["manifest"]["kind"] = "archive-hashes"
+    out = tmp_path / "frozen.json"
+    assert cli.main(["describe", "--descriptor", str(write(tmp_path / "release.json", document)),
+                     "--freeze-manifest", "--source-root", str(source), "--out", str(out)]) == 2
+    assert capsys.readouterr().err.strip() == "refused descriptor_invalid:manifest_kind_unsupported"
+    assert not out.exists() and not list(tmp_path.glob(".frozen.json*"))
+
+
 def test_freeze_arguments_are_paired(tmp_path, capsys):
     descriptor = write(tmp_path / "release.json", s.descriptor())
     assert cli.main(["describe", "--descriptor", str(descriptor), "--out", str(tmp_path / "x.json")]) == 2

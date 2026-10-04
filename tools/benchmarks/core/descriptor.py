@@ -141,10 +141,18 @@ def manifest_entries(source_root: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def require_file_hashes(document: dict[str, Any]) -> None:
+    """Freeze, reconcile and verified reads implement file-tree semantics only. The v1 contract also names
+    ``archive-hashes``, but archive members are not supported yet, so that kind is refused rather than treated as
+    a file tree (which would misstate the provenance the descriptor declares)."""
+    require(document["manifest"]["kind"] == "file-hashes", f"{CODE}:manifest_kind_unsupported")
+
+
 def freeze(document: dict[str, Any], source_root: Path) -> dict[str, Any]:
     """The descriptor with its manifest frozen from ``source_root`` (the input is not modified)."""
     check(document)
     require_usable(document)
+    require_file_hashes(document)
     require(not document["manifest"]["entries"], f"{CODE}:manifest_already_frozen")
     entries = manifest_entries(source_root)
     require(entries, "source_manifest_missing:empty_source")
@@ -157,6 +165,7 @@ def reconcile(document: dict[str, Any], source_root: Path) -> dict[str, dict[str
     """Checks the whole frozen manifest against ``source_root`` before discovery; returns entries by path."""
     check(document)
     require_usable(document)
+    require_file_hashes(document)
     entries = {entry["path"]: entry for entry in document["manifest"]["entries"]}
     require(entries, "source_manifest_missing")
     files = source_files(source_root)

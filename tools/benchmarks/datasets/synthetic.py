@@ -13,12 +13,15 @@ exact rational ``{numerator, denominator}`` (plan §7.1), never a rounded float.
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
 from tools.benchmarks.core import descriptor as descriptors
 from tools.benchmarks.core.identity import canonical_json, document_sha256, rational, require
 
+# gtTrackId in benchmark-association-v1 (identifier, at most 256 characters).
+GT_TRACK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}")
 ADAPTER_ID = "synthetic"
 ADAPTER_VERSION = "1"
 DATASET_ID = "synthetic-vehicles"
@@ -208,7 +211,15 @@ class SyntheticAdapter:
             require(frame_path(split, sequence_id, index) in entries, f"adapter_frame_missing:{sequence_id}:{index}")
             offset = rational(descriptors.index_offset_ms(descriptor, index))
             instants.append({"frameIndex": index, "videoOffsetMs": offset})
+            seen: set[str] = set()
             for item in row.get("objects", []):
+                # The native id becomes the gtTrackId of benchmark-association-v1, so it must satisfy that
+                # contract, and one identity has at most one box per labelled instant: never deduplicated.
+                native_id = item.get("id")
+                require(isinstance(native_id, str) and GT_TRACK_ID.fullmatch(native_id) is not None,
+                        f"adapter_label_invalid:{sequence_id}:object_id")
+                require(native_id not in seen, f"adapter_label_invalid:{sequence_id}:duplicate_track_id")
+                seen.add(native_id)
                 box = item.get("box")
                 require(item.get("category") in classes, f"adapter_label_invalid:{sequence_id}:class")
                 require(isinstance(box, list) and len(box) == 4 and all(type(v) is int for v in box)

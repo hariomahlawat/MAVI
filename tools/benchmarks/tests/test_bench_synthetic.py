@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -101,6 +102,14 @@ def test_adapter_reads_only_verified_bytes(source, frozen):
     (lambda labels: labels["frames"][2].update(index="2"), "adapter_label_invalid:seq-a:frame$"),
     (lambda labels: labels["frames"][2].update(objects="car"), "adapter_label_invalid:seq-a:frame$"),
     (lambda labels: labels["frames"][2]["objects"].append(None), "adapter_label_invalid:seq-a:frame$"),
+    (lambda labels: labels["frames"][2]["objects"][0].update(id=""), "adapter_label_invalid:seq-a:object_id$"),
+    (lambda labels: labels["frames"][2]["objects"][0].update(id="track 1"), "adapter_label_invalid:seq-a:object_id$"),
+    (lambda labels: labels["frames"][2]["objects"][0].update(id="-1"), "adapter_label_invalid:seq-a:object_id$"),
+    (lambda labels: labels["frames"][2]["objects"][0].update(id="x" * 257), "adapter_label_invalid:seq-a:object_id$"),
+    (lambda labels: labels["frames"][2]["objects"][0].update(id=1), "adapter_label_invalid:seq-a:object_id$"),
+    # Two boxes for native id "1" in one labelled frame: refused, never deduplicated or merged.
+    (lambda labels: labels["frames"][2]["objects"].append(
+        {**labels["frames"][2]["objects"][0], "box": [0, 0, 2, 2]}), "adapter_label_invalid:seq-a:duplicate_track_id$"),
 ])
 def test_malformed_labels_are_refused(tmp_path, edit, code):
     source = s.write_source(tmp_path / "source")
@@ -112,6 +121,25 @@ def test_malformed_labels_are_refused(tmp_path, edit, code):
     entries, adapter = prepared(source, frozen)
     with pytest.raises(S32Error, match=f"^{code}"):
         adapter.ground_truth(source, entries, frozen, "val", "seq-a")
+
+
+def test_one_box_per_gt_identity_per_labelled_instant(source, frozen):
+    entries, adapter = prepared(source, frozen)
+    for split, sequences in s.SEQUENCES.items():
+        for sequence in sequences:
+            gt = adapter.ground_truth(source, entries, frozen, split, sequence)
+            for track in gt["tracks"]:
+                indices = [frame["frameIndex"] for frame in track["frames"]]
+                assert len(indices) > 1 and indices == sorted(set(indices))  # one id across frames is valid
+                assert s.GT_TRACK_ID.fullmatch(track["gtTrackId"])
+
+
+def test_track_id_rule_matches_the_association_contract():
+    schema = json.loads((Path(__file__).resolve().parents[3] / "contracts" / "schemas" /
+                         "benchmark-association-v1.schema.json").read_text(encoding="utf-8"))
+    gt_track_id = schema["$defs"]["gtEntry"]["properties"]["gtTrackId"]
+    assert gt_track_id["pattern"] == "^" + s.GT_TRACK_ID.pattern.replace("{0,255}", "*") + "$"
+    assert gt_track_id["maxLength"] == 256 and gt_track_id["minLength"] == 1
 
 
 def test_malformed_nested_labels_are_refused_at_discovery_too(tmp_path):

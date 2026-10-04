@@ -152,6 +152,20 @@ def test_freeze_does_not_modify_its_input(source):
     assert canonical_json(document) == before
 
 
+def test_archive_manifest_kind_is_refused_not_treated_as_a_file_tree(source, frozen):
+    assert frozen["manifest"]["kind"] == "file-hashes"  # file-hashes freezes and reconciles normally
+    d.reconcile(frozen, source)
+    unfrozen = copy.deepcopy(s.descriptor())
+    unfrozen["manifest"]["kind"] = "archive-hashes"
+    d.check(unfrozen)  # the v1 contract still names the kind
+    with refused("descriptor_invalid:manifest_kind_unsupported$"):
+        d.freeze(unfrozen, source)
+    relabelled = copy.deepcopy(frozen)
+    relabelled["manifest"]["kind"] = "archive-hashes"
+    with refused("descriptor_invalid:manifest_kind_unsupported$"):
+        d.reconcile(relabelled, source)
+
+
 def test_reconcile_accepts_the_exact_source(source, frozen):
     entries = d.reconcile(frozen, source)
     assert sorted(entries) == sorted(s.source_files())
