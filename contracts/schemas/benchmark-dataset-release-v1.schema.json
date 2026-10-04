@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/benchmark-dataset-release-v1.schema.json",
+  "title": "benchmark-dataset-release-v1",
+  "description": "One benchmark dataset release (S3.2d-1 plan §5; ADR-017 §7): release-level provenance and research-use admissibility, splits, native taxonomy (object classes only), frame-time declaration, exposure and the source manifest. The manifest may be empty before acquisition; tools/benchmarks/cli.py describe --freeze-manifest fills it once, and prepare refuses an empty one and reconciles the whole manifest against the source root before discovery. Code (tools/benchmarks/core/descriptor.py) also requires unique split names and taxonomy codes and manifest paths sorted and unique. Development artefact; never an API contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "datasetId",
+    "datasetName",
+    "release",
+    "task",
+    "source",
+    "access",
+    "intendedUse",
+    "researchUse",
+    "splits",
+    "nativeTaxonomy",
+    "frameTime",
+    "manifest",
+    "exposure"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "benchmark-dataset-release-v1"
+    },
+    "datasetId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "datasetName": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$"
+    },
+    "release": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$"
+    },
+    "task": {
+      "enum": [
+        "box-tracking",
+        "detection"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "url",
+        "retrievedOn"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "official",
+            "author-repository",
+            "institutional-archive",
+            "research-mirror",
+            "challenge-archive"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://\\S+$"
+        },
+        "retrievedOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "credibilityBasis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "official"
+          }
+        }
+      },
+      "else": {
+        "required": [
+          "credibilityBasis"
+        ]
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mechanism",
+        "preconditions"
+      ],
+      "properties": {
+        "mechanism": {
+          "enum": [
+            "direct",
+            "registration",
+            "agreement",
+            "request"
+          ]
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "intendedUse": {
+      "const": "development-benchmarking"
+    },
+    "researchUse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "basis",
+        "termsReference",
+        "redistribution"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "RESEARCH-ADMISSIBLE",
+            "RESEARCH-UNCERTAIN",
+            "BLOCKED"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "termsReference": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "redistribution": {
+          "const": "not-permitted-by-default"
+        }
+      }
+    },
+    "splits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "labelled",
+          "role"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+          },
+          "labelled": {
+            "type": "boolean"
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$"
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "nativeTaxonomy": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "name",
+          "definition"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$"
+          },
+          "definition": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$"
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "frameTime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "index-at-fps",
+            "per-frame-timestamp"
+          ]
+        },
+        "fpsNumerator": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fpsDenominator": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "dependentRequired": {
+        "fpsNumerator": [
+          "fpsDenominator"
+        ],
+        "fpsDenominator": [
+          "fpsNumerator"
+        ]
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "index-at-fps"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "fpsNumerator",
+          "fpsDenominator"
+        ]
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "entries"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "file-hashes",
+            "archive-hashes"
+          ]
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "sizeBytes",
+              "sha256"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^(?!/)(?!.*(^|/)\\.{1,2}(/|$))(?!.*//)[^\\\\:\\r\\n\\x00]+(?<!/)$"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "exposure": {
+      "$ref": "#/$defs/exposure"
+    }
+  },
+  "$defs": {
+    "exposure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "basis"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "known",
+            "possible",
+            "unknown",
+            "none-known"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        }
+      }
+    }
+  }
+}

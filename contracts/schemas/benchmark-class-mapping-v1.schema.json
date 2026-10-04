@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/benchmark-class-mapping-v1.schema.json",
+  "title": "benchmark-class-mapping-v1",
+  "description": "Per-native-class mapping of one dataset release to the MAVI vehicle subclass vocabulary (S3.2d-1 plan §6; ADR-017 §4): exact (scored), subset (subset-conditional) or unsupported (excluded) with unsupportedKind vehicle-unresolved (unjudgeable truth) or outside-capability (a judgeable negative). Code (tools/benchmarks/core/mapping.py) also requires native classes unique and sorted, at most one exact native class per MAVI class and no subset class beside an exact one, and exactly the descriptor's native classes. Identity is the SHA-256 of the canonical bytes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "datasetId",
+    "release",
+    "capability",
+    "mappings"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "benchmark-class-mapping-v1"
+    },
+    "datasetId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "release": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(.*\\S)?$"
+    },
+    "capability": {
+      "const": "mavi-vehicle-subclass-v1"
+    },
+    "mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "nativeClass",
+          "maviClass",
+          "kind",
+          "reason",
+          "evaluation"
+        ],
+        "properties": {
+          "nativeClass": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+          },
+          "maviClass": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "enum": [
+                  "car",
+                  "truck",
+                  "bus",
+                  "motorcycle"
+                ]
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "exact",
+              "subset",
+              "unsupported"
+            ]
+          },
+          "unsupportedKind": {
+            "enum": [
+              "outside-capability",
+              "vehicle-unresolved"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$"
+          },
+          "evaluation": {
+            "enum": [
+              "scored",
+              "subset-conditional",
+              "excluded"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "exact"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "maviClass": {
+                  "enum": [
+                    "car",
+                    "truck",
+                    "bus",
+                    "motorcycle"
+                  ]
+                },
+                "evaluation": {
+                  "const": "scored"
+                }
+              },
+              "not": {
+                "required": [
+                  "unsupportedKind"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "subset"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "maviClass": {
+                  "enum": [
+                    "car",
+                    "truck",
+                    "bus",
+                    "motorcycle"
+                  ]
+                },
+                "evaluation": {
+                  "const": "subset-conditional"
+                }
+              },
+              "not": {
+                "required": [
+                  "unsupportedKind"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "unsupported"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "maviClass": {
+                  "type": "null"
+                },
+                "evaluation": {
+                  "const": "excluded"
+                }
+              },
+              "required": [
+                "unsupportedKind"
+              ]
+            }
+          }
+        ]
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {}
+}
