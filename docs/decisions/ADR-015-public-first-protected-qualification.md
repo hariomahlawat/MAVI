@@ -6,6 +6,8 @@
 
 **Related:** ADR-013; ADR-014; the Visual Attributes qualification plan, revisions R1–R4; the S2c parent/execution plans; the B0 and owner-decision records.
 
+**Prospective refinement (2026-10-04):** ADR-017 governs Development benchmark and data-reuse strategy from that date. Public research benchmarks are strategic Development evidence; established labelled benchmarks are preferred before new labels; and under ADR-017 §7, ambiguity in research-use terms is recorded rather than treated as a block on Development, so a perfect affirmative rights record is no longer a precondition for Development use of research-accessible data. Explicit prohibitions, payment and access controls still block. This ADR's historical C+ decision, its purpose pools (§1), its frozen-qualification admission contract (§3) and its sequencing (§4) are unchanged; §5's two-stage rights review remains the procedure for frozen-qualification and operational-role sources.
+
 ## Context
 
 The owner adopts **C+ — Public-first development, protected final qualification**. Public sources are valuable for learning and engineering even when independence from upstream checkpoint training cannot be established. The original B0 public operational-feasibility campaign is closed under S1: 63/63 candidates reviewed, 38 `REJECT_OPERATIONAL_QUALIFICATION`, 15 `REFERENCE_ONLY`, 10 `REJECTED`, and 0 operationally admissible seconds. Nothing is `ADMISSIBLE` or `FROZEN_QUALIFICATION`. These are the owner's verified closure inputs; the signed workbook and discovery evidence remain outside Git. This decision neither rewrites those inputs nor admits footage.

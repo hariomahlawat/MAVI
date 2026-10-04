@@ -11,6 +11,7 @@ When reviewing or implementing:
 - ensure production runtime behavior remains Internet-independent;
 - treat every new/changed library, SDK, native binary, runtime or model prerequisite as part of the feature: update `config/dependencies/offline-dependency-policy-v1.json`, offline packaging/setup, verification, licences and runbooks in the same change;
 - do not add model weights, video datasets or credentials to Git;
+- before proposing manual labelling, a bespoke dataset or new Development capture, follow ADR-017 and the `AGENTS.md` "Data, benchmarks and annotation" rules: search for and reuse established labelled benchmarks first, and treat manual annotation as a justified fallback;
 - run repository verification and relevant subsystem tests before declaring completion.
 
 For architecture changes, write or update an ADR first and state the trade-off being accepted.
