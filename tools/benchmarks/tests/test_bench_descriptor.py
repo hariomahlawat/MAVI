@@ -230,6 +230,23 @@ def test_an_unlistable_directory_is_a_refusal_not_a_silent_omission(source, froz
         d.manifest_entries(source)
 
 
+@pytest.mark.parametrize("error", [PermissionError(13, "Permission denied"), FileNotFoundError(2, "Vanished")])
+def test_a_listed_but_unreadable_file_is_a_refusal(source, frozen, monkeypatch, error):
+    blocked = (source / s.frame_path("val", "seq-a", 1)).resolve()
+    real_open = open
+
+    def guarded_open(path, *args, **kwargs):
+        if Path(path).resolve() == blocked:
+            raise error
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(d, "open", guarded_open, raising=False)
+    with refused("source_root_invalid:frames/val/seq-a/000001.ppm$"):
+        d.reconcile(frozen, source)
+    with refused("source_root_invalid:frames/val/seq-a/000001.ppm$"):
+        d.freeze(s.descriptor(), source)
+
+
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0,
                     reason="POSIX permissions only; root can list any directory")
 def test_a_really_unreadable_directory_is_refused(source, frozen):

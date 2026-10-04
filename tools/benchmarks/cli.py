@@ -36,6 +36,10 @@ def describe(args: argparse.Namespace) -> str:
         mappings.check_against(mapping, document)
     if args.freeze_manifest:
         require(args.source_root is not None and args.out is not None, "arguments_invalid:--source-root,--out")
+        # A descriptor written inside the source root would itself become an unlisted source file, and every
+        # later reconciliation would refuse it as unexpected: refuse the path, however it is spelled.
+        require(not args.out.resolve().is_relative_to(args.source_root.resolve()),
+                "arguments_invalid:--out_inside_source_root")
         require(not args.out.exists(), "output_exists")
         data = canonical_json(descriptors.freeze(document, args.source_root))
         write_once(args.out, data)

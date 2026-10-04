@@ -67,6 +67,18 @@ def test_freeze_refuses_atomically(tmp_path, capsys):
     assert not out.exists() and not list(tmp_path.glob(".frozen.json*"))
 
 
+def test_freeze_refuses_an_output_inside_the_source_root(tmp_path, capsys):
+    source = s.write_source(tmp_path / "source")
+    descriptor = write(tmp_path / "release.json", s.descriptor())
+    for out in (source / "frozen.json", source / "frames" / ".." / "frozen.json",
+                tmp_path / "elsewhere" / ".." / "source" / "annotations" / "frozen.json"):
+        assert cli.main(["describe", "--descriptor", str(descriptor), "--freeze-manifest", "--source-root",
+                         str(source), "--out", str(out)]) == 2
+        assert capsys.readouterr().err.strip() == "refused arguments_invalid:--out_inside_source_root"
+    assert not list(source.rglob("frozen.json"))
+    d.reconcile(d.freeze(s.descriptor(), source), source)  # the source tree is untouched and still reconciles
+
+
 def test_freeze_arguments_are_paired(tmp_path, capsys):
     descriptor = write(tmp_path / "release.json", s.descriptor())
     assert cli.main(["describe", "--descriptor", str(descriptor), "--out", str(tmp_path / "x.json")]) == 2

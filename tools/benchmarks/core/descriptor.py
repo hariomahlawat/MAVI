@@ -10,7 +10,8 @@ before any dataset discovery it checks the **entire** frozen manifest against th
 ``source_manifest_unexpected`` (a file the manifest does not list), ``source_manifest_mismatch`` (a member's size
 or bytes differ). Files read afterwards are verified again on read (``read_verified``). Manifest paths are
 repository-style relative POSIX paths sorted by code point, so the manifest and its hash are the same on Windows
-and Linux. Symbolic links and junctions are never followed and are refused (``source_root_invalid``).
+and Linux. Symbolic links and junctions are never followed, and links, unlistable directories and unreadable files
+are all refused (``source_root_invalid``), never skipped.
 """
 
 from __future__ import annotations
@@ -81,12 +82,18 @@ def index_offset_ms(document: dict[str, Any], frame_index: int) -> Fraction:
 # Source manifest
 
 
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as stream:
-        for block in iter(lambda: stream.read(_CHUNK), b""):
-            digest.update(block)
-    return digest.hexdigest()
+def _file_identity(path: Path, relative: str) -> tuple[int, str]:
+    """``(size, sha256)`` of one listed source file, from a single open handle. A file that can be listed but not
+    read (an ACL, a file removed after listing) is a refusal, never a raw ``OSError``."""
+    digest, size = hashlib.sha256(), 0
+    try:
+        with open(path, "rb") as stream:
+            for block in iter(lambda: stream.read(_CHUNK), b""):
+                digest.update(block)
+                size += len(block)
+    except OSError as exc:
+        raise S32Error(f"source_root_invalid:{relative}") from exc
+    return size, digest.hexdigest()
 
 
 def _is_link(path: Path) -> bool:
@@ -120,8 +127,11 @@ def source_files(source_root: Path) -> dict[str, Path]:
 
 def manifest_entries(source_root: Path) -> list[dict[str, Any]]:
     files = source_files(source_root)
-    return [{"path": relative, "sizeBytes": files[relative].stat().st_size, "sha256": _file_sha256(files[relative])}
-            for relative in sorted(files)]
+    entries = []
+    for relative in sorted(files):
+        size, sha = _file_identity(files[relative], relative)
+        entries.append({"path": relative, "sizeBytes": size, "sha256": sha})
+    return entries
 
 
 def freeze(document: dict[str, Any], source_root: Path) -> dict[str, Any]:
@@ -148,9 +158,9 @@ def reconcile(document: dict[str, Any], source_root: Path) -> dict[str, dict[str
     unexpected = sorted(set(files) - set(entries))
     require(not unexpected, f"source_manifest_unexpected:{unexpected[0] if unexpected else ''}")
     for relative in sorted(entries):
-        entry, path = entries[relative], files[relative]
-        require(path.stat().st_size == entry["sizeBytes"] and _file_sha256(path) == entry["sha256"],
-                f"source_manifest_mismatch:{relative}")
+        entry = entries[relative]
+        size, sha = _file_identity(files[relative], relative)
+        require(size == entry["sizeBytes"] and sha == entry["sha256"], f"source_manifest_mismatch:{relative}")
     return entries
 
 
