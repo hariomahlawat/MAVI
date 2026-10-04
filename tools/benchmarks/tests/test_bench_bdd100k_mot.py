@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 from fractions import Fraction
@@ -217,11 +218,29 @@ def test_truncated_jpeg_headers_are_refused(data):
         bdd.jpeg_size(data, "bad")
 
 
-def test_a_descriptor_of_another_dataset_is_refused(tmp_path):
+@pytest.mark.parametrize("change, field", [
+    (lambda d: d.update(datasetId="synthetic-vehicles"), "datasetId"),
+    (lambda d: d.update(release="MOT 2021"), "release"),
+    (lambda d: d.update(task="detection"), "task"),
+    (lambda d: d.update(frameTime={"kind": "index-at-fps", "fpsNumerator": 30, "fpsDenominator": 1}), "frameTime"),
+    (lambda d: d["nativeTaxonomy"].pop(), "nativeTaxonomy"),
+    (lambda d: d["nativeTaxonomy"].append({"code": "scooter", "name": "Scooter", "definition": "Invented."}),
+     "nativeTaxonomy"),
+])
+def test_descriptor_semantics_that_shape_ground_truth_are_bound(tmp_path, change, field):
     root, document, entries = frozen_source(tmp_path)
-    other = dict(document, datasetId="synthetic-vehicles")
-    with pytest.raises(S32Error, match="^adapter_descriptor_mismatch:synthetic-vehicles$"):
-        ADAPTER.ground_truth(root, entries, other, "val", b.SEQ_A)
+    altered = copy.deepcopy(document)
+    change(altered)
+    with pytest.raises(S32Error, match=f"^adapter_descriptor_mismatch:{field}$"):
+        ADAPTER.ground_truth(root, entries, altered, "val", b.SEQ_A)
+
+
+def test_definition_wording_does_not_change_ground_truth(tmp_path):
+    root, document, entries = frozen_source(tmp_path)
+    reworded = copy.deepcopy(document)
+    reworded["nativeTaxonomy"][0]["definition"] = "Reworded definition."
+    assert ADAPTER.ground_truth(root, entries, reworded, "val", b.SEQ_A) == ADAPTER.ground_truth(
+        root, entries, document, "val", b.SEQ_A)
 
 
 # prepare integration (adapter registry only; the shared reconcile/encode path)

@@ -28,11 +28,17 @@ Facts used, with their sources (all read 2026-10-04; the capability matrix recor
   label ``frameIndex`` k is media offset ``k × 200`` ms in the derived labelled-rate video.
 - Frame size comes from each frame's own JPEG header (all frames of a video must agree), never from a constant.
 
+Native classes are always preserved in the ground truth; the mapping file only states how one capability version
+(``mavi-vehicle-subclass-v1``) scores them, so a later taxonomy version re-maps the same prepared ground truth
+(``docs/qualification/stage3/vehicle-taxonomy-review-bdd100k.md``).
+
 Auxiliary attributes (``occluded``, ``truncated``, ``crowd`` and any other) do not change ground truth. In
 particular ``crowd`` is **not** turned into an ignore region: the official evaluation ignores false positives that
 overlap a crowd box by more than half (``evaluate.rst``), which is not MAVI's ignore rule, so crowd boxes stay
 ordinary ground truth of their native class and results are not comparable with official BDD100K MOT scores. The
-distractor classes likewise stay ordinary ground truth with an ``unsupported`` mapping. No ignore regions are emitted.
+official distractor classes are not ignored either: each is classified by its value to MAVI (``trailer`` is a
+taxonomy candidate, ``other vehicle`` is unresolved, ``other person`` is outside the capability). No ignore regions
+are emitted.
 """
 
 from __future__ import annotations
@@ -97,8 +103,7 @@ MAPPINGS = (
      "Same practical meaning: passenger cars. Caveat: BDD100K does not document how vans labelled 'car' are "
      "split; the MAVI guide (s3-2-labeling-guide.md) puts windowless cargo vans in truck."),
     ("caravan", None, "unsupported", "vehicle-unresolved",
-     "A caravan may be towed equipment or a motorhome; the MAVI guide does not resolve it without the towing "
-     "vehicle or the body."),
+     "Mixes towed caravans and motorhomes; no single MAVI class fits (taxonomy review: stays unresolved)."),
     ("motorcycle", "motorcycle", "exact", None,
      "Same practical meaning: motorised two-wheelers ridden seated. Caveat: scooter and moped inclusion is not "
      "stated in the repository documentation; the official config folds raw 'motor' into it."),
@@ -108,14 +113,16 @@ MAPPINGS = (
     ("pedestrian", None, "unsupported", "outside-capability", "A person, not a Vehicle."),
     ("rider", None, "unsupported", "outside-capability", "The person on a two-wheeler, not the vehicle."),
     ("trailer", None, "unsupported", "vehicle-unresolved",
-     "Towed equipment; the MAVI guide resolves a trailer only together with its towing vehicle."),
+     "No trailer class in mavi-vehicle-subclass-v1, which labels a trailer-only Track unknown; the native class "
+     "is preserved because trailer is the recommended additive class of a future v2 (taxonomy review)."),
     ("train", None, "unsupported", "outside-capability",
      "Rail vehicle, outside the four MAVI road-vehicle classes (harness plan section 12)."),
     ("truck", "truck", "exact", None,
      "Same practical meaning: goods and work vehicles. Caveat: pickup and cargo-van handling is not stated in "
      "the repository documentation."),
     ("van", None, "unsupported", "vehicle-unresolved",
-     "The MAVI guide splits vans by body into car (passenger) or truck (cargo); the native label does not."),
+     "v1 splits vans by body into car or truck and the native label does not; the native class is preserved "
+     "because van is a candidate class for a later taxonomy version (taxonomy review)."),
 )
 
 
@@ -285,9 +292,19 @@ class Bdd100kMotAdapter:
             frames.append({"frameIndex": index, "name": name, "objects": objects})
         return sorted(frames, key=lambda frame: frame["frameIndex"])
 
+    def require_descriptor(self, document: dict[str, Any]) -> None:
+        """The descriptor must declare the semantics this adapter's ground truth depends on: the dataset and release,
+        the task, the 5 Hz frame time and exactly this native taxonomy. Otherwise one ``datasetId`` with altered
+        timing or classes could silently produce different ground truth under a valid-looking descriptor."""
+        reference = descriptor()
+        for field in ("datasetId", "release", "task", "frameTime"):
+            require(document.get(field) == reference[field], f"adapter_descriptor_mismatch:{field}")
+        codes = [entry.get("code") for entry in document.get("nativeTaxonomy", [])]
+        require(codes == descriptors.native_classes(reference), "adapter_descriptor_mismatch:nativeTaxonomy")
+
     def ground_truth(self, source_root: Path, entries: dict[str, dict[str, Any]], descriptor: dict[str, Any],
                      split: str, sequence_id: str) -> dict[str, Any]:
-        require(descriptor["datasetId"] == DATASET_ID, f"adapter_descriptor_mismatch:{descriptor['datasetId']}")
+        self.require_descriptor(descriptor)
         bad = f"adapter_label_invalid:{sequence_id}"
         frames = self._frames(source_root, entries, split, sequence_id)
         size = None

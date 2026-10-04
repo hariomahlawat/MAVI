@@ -58,6 +58,7 @@ python -m tools.benchmarks.cli prepare --descriptor <frozen-descriptor.json> --s
 ## Known caveats for interpreting results
 
 - **Car and vans.** BDD100K's documentation does not say how vans labelled `car` are split. The MAVI guide puts windowless cargo vans in `truck`. Any cargo van labelled `car` is a domain caveat on car precision and truck recall.
+- **Taxonomy evolution.** Every native class is kept in the prepared ground truth. The mapping scores only `mavi-vehicle-subclass-v1`. `trailer` is the recommended additive class of a future v2, and `van` is a further candidate (`vehicle-taxonomy-review-bdd100k.md`). A later version re-maps the same prepared data.
 - **Definitions.** The repository documentation gives no written definitions for truck, bus or motorcycle. The mapping uses their practical meaning in a road-scene dataset.
 - **Domain.** The footage is moving dashcam video from the United States, a weak proxy for fixed CCTV.
 - **Exposure.** The descriptor records exposure as `unknown` until the detector's training data is checked for BDD100K.
