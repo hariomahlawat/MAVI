@@ -178,17 +178,26 @@ Executed 2026-10-04 on `main@49a5566d78c91e2a1d99fd7a62b13b76401adead`, with eve
 
 ## G. S3.2c — pilot (T10)
 
-| ID | Requirement | Status |
-|---|---|---|
-| G1 | Requirements committed before any result is inspected | OPEN |
-| G2 | Labelling guide committed | OPEN |
-| G3 | Independent overlap reviewer confirmed | OPEN |
-| G4 | Sample binds exactly the T9 export and derivation sets (`--verify-sample`) | OPEN |
-| G5 | Blind primary and overlap labelling | OPEN |
-| G6 | Adjudication completed where needed | OPEN |
-| G7 | Labels frozen | OPEN |
-| G8 | T6 measurement and requirement comparison produced | OPEN |
-| G9 | Threshold freeze decision recorded on the measurement (ADR-016 §3). Either `minShare`/`minMatchedDetections` are frozen at the measured profile's values; or any change is a new pipeline-profile version, which needs its own Development tuning/evaluation path and a new measurement before G9 can PASS | OPEN |
+**Pre-registration (prepared 2026-10-04; nothing sampled, packed, labelled or measured).** Both documents are fixed before any T10 result exists. The T9 exports were read only for provenance and identity (attestations, run, video and source bindings); no subclass value, distribution or confidence was read.
+- **Requirements:** `docs/qualification/stage3/s3-2-subclass-requirements.json`, SHA-256 `ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75`, canonical JSON, schema-valid.
+  - The support floor is `minimumSupport.evaluablePerClass` 30 and `evaluableTotal` 30, with outcome `insufficient-support` below it. This is the plan's proposed value (§13), adopted by the owner's instruction of 2026-10-04.
+  - Every operational minimum is `null`: coverage, and per-class precision and recall. No owner-approved operational requirement exists, and none may be chosen from T9 or T10 output.
+  - The pilot is therefore a valid descriptive Development measurement, and no pass or fail operational claim can be made. The mechanism and exposure decisions (X1) may stay open after the pilot.
+  - **How T6 applies the floor.** Support is checked first: a criterion whose evaluable support is below its `minimumSupport` (30 per class, 30 for the total) is `insufficient-support`. With adequate support, a `null` minimum is `no-requirement`. This includes the all-`null` case, which this PR's T6 repair to `run_subclass_measurement.status()` and its tests cover.
+- **Labelling guide:** `docs/qualification/stage3/s3-2-labeling-guide.md` (`mavi-vehicle-subclass-labeling-guide-v1`), SHA-256 `c5f8be38be9977ea05692e1e9d45d4ca7ea9b200629316f6375640778a251fc5`. It is canonical UTF-8 with LF line endings; `.gitattributes` keeps this path at `eol=lf`, so the working-tree bytes equal the blob that T4 binds.
+- **Why G1 and G2 stay OPEN in the pre-registration PR:** T3 and T4 bind each file by commit, and the binding commit must be an ancestor of the sampling checkout, which means the merge commit on `main`. G1 and G2 close in a follow-up that records that commit, the byte-identity of both files at it, and `tools/verify_repo.py` passing there. G2 also needs the owner's approval of the guide (plan §5, §19 item 3a).
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| G1 | Requirements committed before any result is inspected | OPEN | Prepared as above (`ca28702f…`). It closes once the file is byte-identical on `main` at a recorded commit. No T10 sample, pack, label or result exists. |
+| G2 | Labelling guide committed | OPEN | Prepared as above (`c5f8be38…`). It closes once the guide is owner-approved and byte-identical on `main` at a recorded commit. |
+| G3 | Independent overlap reviewer confirmed | OPEN | The plan proposes Savita (§10, §19 item 4), and Stage-2 records name Savita as the independent annotator. That is not an S3.2 confirmation, and no explicit owner confirmation for S3.2 exists. Owner decision required. |
+| G4 | Sample binds exactly the T9 export and derivation sets (`--verify-sample`) | OPEN | |
+| G5 | Blind primary and overlap labelling | OPEN | |
+| G6 | Adjudication completed where needed | OPEN | |
+| G7 | Labels frozen | OPEN | |
+| G8 | T6 measurement and requirement comparison produced | OPEN | |
+| G9 | Threshold freeze decision recorded on the measurement (ADR-016 §3). Either `minShare`/`minMatchedDetections` are frozen at the measured profile's values; or any change is a new pipeline-profile version, which needs its own Development tuning/evaluation path and a new measurement before G9 can PASS | OPEN | |
 
 ## H. S3.2d — expansion (T11)
 
