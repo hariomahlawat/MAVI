@@ -1,6 +1,6 @@
 # Vehicle Subclass — Stage-3 Acceptance Register
 
-**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) has executed event `2026-10-03-commons`: E1–E21 PASS (E17 NOT TRIGGERED). S3.2b-3 may be scheduled under its own gates (F rows). Nothing is operator-exposed, and nothing is Production-qualified.\
+**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) has executed event `2026-10-03-commons`: E1–E21 PASS (E17 NOT TRIGGERED). S3.2b-3 (Development-host T9 execution) is complete: F1–F6 PASS (attempt 2). S3.2c (pilot, T10) is next. Nothing is operator-exposed, and nothing is Production-qualified.\
 **Date opened:** 2026-10-03\
 **Baseline:** `main@379b7b22a3d8722d8c4d99df50794805494155aa` (merge of PR #150)
 
@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3, S3.2c and S3.2d are OPEN. **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c and S3.2d are OPEN. **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -151,14 +151,30 @@ All rows started OPEN. Evidence is hash-only; bytes stay in the controlled store
 
 S3.2b-3 may be scheduled only when every E row is PASS (or NOT TRIGGERED, for E17/E18).
 
-| ID | Requirement | Status |
-|---|---|---|
-| F1 | Fresh, dedicated Development catalogue and media store, created after the pool freeze | OPEN |
-| F2 | Real Model Pack and runtime on the Development host | OPEN |
-| F3 | Shipped `1.3.0-candidate` pipeline profile measured (T9 profile identity gate) | OPEN |
-| F4 | T9 complete for every pool member (journalled runs, no reuse) | OPEN |
-| F5 | `vehicle-subclass-t9-execution-v1` record valid | OPEN |
-| F6 | Exact run, export and provenance bindings: one producer identity, the measured profile, exports bound to derivations | OPEN |
+Executed 2026-10-04 on `main@49a5566d78c91e2a1d99fd7a62b13b76401adead`, with every E row PASS. The worker attests `maviCommit` `49a5566d…`, and the API and T1 exporter were built from that commit with no source change. Paths below are relative to the controlled-store root.
+
+**Evidence chain.** The canonical, write-once S3.2b-3 evidence manifest is `S32T9-a2/host-evidence/s3-2b-3-evidence-manifest.json`, SHA-256 `27d96605079e4039a5731bc7cf10917dba98bea37bad67b55519e92aa18d9f27`, with 30 entries. Each entry gives a path, size and full SHA-256. The rows below cite its entry IDs. It names the S3.2b-2 chain (manifest v2 and the E14 supplement) by hash and leaves both unmodified.
+
+**Attempts.**
+- **Attempt 1 failed and was not adopted.**
+  - Catalogue `mavi_s32_t9_20261004`; media and evidence roots under `Stage3/S3.2/2026-10-03-commons-t9-host`.
+  - It created 8 cameras, imported 1 video and queued 1 run. Inference completed, but finalization failed with `vision_finalization_exhausted`: 0 of 225 evidence crops were accepted. It wrote no export and no execution record.
+  - Cause: a path-length-dependent product defect, outside this slice. Accepted-evidence publication (`DurableFilePublication.Publish`) calls `MoveFileExW` with a plain path. Under the `Mavi.Api.exe` app host, which is not long-path aware, it fails once the temporary path exceeds 260 characters; that root produced about 265.
+  - T9 refuses to resume a terminally failed journalled run (`t9_run_failed`).
+  - Entries: `a1-outcome`, `a1-catalogue-creation`, `a1-journal` and the `a1-log-*` entries.
+- **Attempt 2 is the measured attempt.**
+  - New catalogue `mavi_s32_t9_20261004_a2` and new media and evidence roots `S32T9-a2/m` and `S32T9-a2/ev`. A new journal and a new export root sit under `S32T9-a2/t9`.
+  - The API ran as `dotnet Mavi.Api.dll`.
+  - Only runtime layout and orchestration changed: shorter roots and the launch command. Product, worker, T9 and T1 code are unchanged. The profile, packs, binding, T9 contract and evidence content are unchanged.
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| F1 | Fresh, dedicated Development catalogue and media store, created after the pool freeze | PASS | Entry `a2-catalogue-creation`: the database was created 2026-10-04T03:04:57Z, after the pool-freeze commit `d12a352c`. At creation it had 0 application tables, empty media and evidence roots, and the root did not previously exist (the tool refuses to reuse one). T9 started with a new journal, and its freshness gate (`t9_catalogue_not_fresh`) admits only state the journal explains. It passed, so the catalogue was empty before the first mutation. The first cameras were created at 03:06:15Z. After the run the catalogue holds exactly the 8 cameras and 8 videos T9 created (entry `a2-audit-r2`). Attempt 1 state was not adopted: separate database, roots and journal. Entry `a2-ordinary-catalogue-untouched`: the ordinary Development catalogue and media were not used; the default machine configuration is byte-identical to E19; no ordinary media or evidence file changed after 2026-09-24. |
+| F2 | Real Model Pack and runtime on the Development host | PASS | All 8 attestations carry one producer identity (entry `a2-audit-r2`): Model Pack `mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700` and Runtime Pack `mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d`. Its `runtimeVariant` is `windows-x86_64-cuda` and its `runtimePackSource` is `installed-pack`. The CUDA variant was a deliberate Development device decision. The `componentBindingSha256` `7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205` equals committed `phase1-bindings-v2.json`, whose `windows-x86_64-cuda` entry is that Runtime Pack. The device used is `cuda:0` (GTX 1650 Ti, CUDA 12.4, torch `2.6.0+cu124`), and there was no substitution. Worker launch verification is entry `preflight-worker-verify-cuda`; the worker log is `a2-log-t9-worker`. `Test-MaviEnvironment -Profile Development` PASSED (entry `a2-test-environment`); it checks the CPU installation and is a generic Development check. F2 PASS means the real, bound CUDA Runtime Pack and Model Pack produced this Development measurement. It is not CUDA Production qualification: the qualification record and its `windows-x86_64-cuda` entry stay `pending`. |
+| F3 | Shipped `1.3.0-candidate` pipeline profile measured (T9 profile identity gate) | PASS | Profile `src/vision/config/pipelines/phase1-detection-tracking-v1.json`, from the bytes T9 and T1 used: schema `1.2`, id `phase1-detection-tracking-v1`, version `1.3.0-candidate`, vocabulary `mavi-vehicle-subclass-v1`, SHA-256 `afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf`. That hash equals the qualification record's `pipelineProfileSha256`. Every attestation, every export and the execution record's `measuredProfileSha256` bind it (entries `a2-audit-r2` and `a2-export-*`). `VideoImport:MaximumFileSizeBytes` is still 3,221,225,472 with the E19 sources unchanged (entry `a2-post-t9-config`). |
+| F4 | T9 complete for every pool member (journalled runs, no reuse) | PASS | Attempt 2 exited 0 for all 8 frozen members (entries `a2-journal` and `a2-log-t9-run`). For each member, T9 created or bound the camera, imported the T8 `__run1` `video.mp4` through the product API, queued a new run, journalled it before polling, saw `Completed`, and ran the T1 export. Every API run ID and asset equals the journalled one, and the API's latest run is that `Completed` run. The T8 bytes are unchanged. There was no missing, extra or duplicate member, no adopted asset and no outside run (entry `a2-audit-r2`). Runs: `01a104e0-6118-7e77-97dd-287b1a853f47`, `01a104e1-d460-75b3-b0d8-8f460107fcdd`, `01a104e3-9b43-7779-94a6-2f892ce6c9a2`, `01a104f1-7cf8-7df1-9962-818347d58b19`, `01a104f2-e6ff-7444-9d83-f0cb7c0af302`, `01a104f3-a6ab-7f41-bd6e-c3970e90798d`, `01a104f8-82ee-7b51-9fa7-3016d106ad5a`, `01a104f9-77dc-75dc-a55e-10a8bbaa0ca4`. |
+| F5 | `vehicle-subclass-t9-execution-v1` record valid | PASS | Entry `a2-execution-record`: `S32T9-a2/t9/vehicle-subclass-t9-execution.json`, SHA-256 `4750e4f4d2efeb5143a9bc2405f61bcb57cc730097d90ae41653cb665258066c`. The merged T9 tool wrote it after its own exit checks. It re-validates against the schema and is canonical (entry `a2-audit-r2`). It has 8 members, pool `fe72e2e9…` at `d12a352c`, map `46a014e3…` at `fa096ca7`, and release `325f2055…`. |
+| F6 | Exact run, export and provenance bindings: one producer identity, the measured profile, exports bound to derivations | PASS | Entry `a2-audit-r2` (`t9-attempt-2-audit-r2.json`, SHA-256 `929ece88a86903cfc20d5da8c207b7801016915a876776aebea523e9864b469a`) records 91 of 91 checks passing. They cover: one run1 derivation per member, and each derivation bound to its pool member and release; each export's `video.sourceSha256` equal to its T8 `outputSha256`; each export run being the journalled `Completed` run; one export per member, with no duplicate run, asset or source; each attestation hash equal to the record; one producer identity across the 8 attestations, binding the measured profile and `maviCommit` `49a5566d…`. It supersedes the r1 audit (`a2-audit-r1-superseded`), whose run1 check was wrong: the E18 determinism repeat makes one run2 manifest byte-identical to its run1. Exports, as `a2-export-<run>`: `214ac272f9b51dbe1086d755b1d75c7c6b46a8fd724b15ba8c149b886393055d`, `86a83c57c1902987cb3e405e724bfe379ce3c7431dc58cc20332bb4b33709a53`, `8e6a6e8ba4092d39ab2d22e04cba3c2e7812c51d8d8d0d931a707f5169e8f074`, `b716876b351d8a0ad04394f259bb135462de65e1a06dc62032b9d8acbc9fe62f`, `ccc2d91703981c86f303052d906088a65516bb99db7d324f6c4069a17756cef5`, `e476052cc3fb1911b8b6193db23b37d9513477b4cc67c840fd7834d08243fefc`, `6de3ab4ce4b7b81bab038f6527db8b823d3d343597f2672db84ca703d498e426`, `a75eec27cbcaa6980efa35cdf5a6d49abc670c37292860f4a6eac19c0c1b37c5`, in run order as listed in F4. |
 
 ## G. S3.2c — pilot (T10)
 
