@@ -1,6 +1,6 @@
 # Vehicle Subclass — Stage-3 Acceptance Register
 
-**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) has executed event `2026-10-03-commons`: E1–E21 PASS (E17 NOT TRIGGERED). S3.2b-3 (Development-host T9 execution) is complete: F1–F6 PASS (attempt 2). S3.2c (pilot, T10) is next. Nothing is operator-exposed, and nothing is Production-qualified.\
+**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) has executed event `2026-10-03-commons`: E1–E21 PASS (E17 NOT TRIGGERED). S3.2b-3 (Development-host T9 execution) is complete: F1–F6 PASS (attempt 2). S3.2c (pilot, T10) is pre-registered: G1–G3 PASS, and G4–G9 are OPEN. Nothing is operator-exposed, and nothing is Production-qualified.\
 **Date opened:** 2026-10-03\
 **Baseline:** `main@379b7b22a3d8722d8c4d99df50794805494155aa` (merge of PR #150)
 
@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c and S3.2d are OPEN. **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pre-registered (G1–G3 PASS), with its execution (G4–G9) OPEN; S3.2d OPEN. **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -178,20 +178,30 @@ Executed 2026-10-04 on `main@49a5566d78c91e2a1d99fd7a62b13b76401adead`, with eve
 
 ## G. S3.2c — pilot (T10)
 
-**Pre-registration (prepared 2026-10-04; nothing sampled, packed, labelled or measured).** Both documents are fixed before any T10 result exists. The T9 exports were read only for provenance and identity (attestations, run, video and source bindings); no subclass value, distribution or confidence was read.
+**Pre-registration (merged 2026-10-04 in PR #156 as `main@d520db1034b4eb63ddd077f5e4df3b8d0f4e33d9`; nothing sampled, packed, labelled or measured).** Both documents are fixed before any T10 result exists. The T9 exports were read only for provenance and identity (attestations, run, video and source bindings); no subclass value, distribution or confidence was read.
 - **Requirements:** `docs/qualification/stage3/s3-2-subclass-requirements.json`, SHA-256 `ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75`, canonical JSON, schema-valid.
   - The support floor is `minimumSupport.evaluablePerClass` 30 and `evaluableTotal` 30, with outcome `insufficient-support` below it. This is the plan's proposed value (§13), adopted by the owner's instruction of 2026-10-04.
   - Every operational minimum is `null`: coverage, and per-class precision and recall. No owner-approved operational requirement exists, and none may be chosen from T9 or T10 output.
   - The pilot is therefore a valid descriptive Development measurement, and no pass or fail operational claim can be made. The mechanism and exposure decisions (X1) may stay open after the pilot.
-  - **How T6 applies the floor.** Support is checked first: a criterion whose evaluable support is below its `minimumSupport` (30 per class, 30 for the total) is `insufficient-support`. With adequate support, a `null` minimum is `no-requirement`. This includes the all-`null` case, which this PR's T6 repair to `run_subclass_measurement.status()` and its tests cover.
+  - **How T6 applies the floor.** Support is checked first: a criterion whose evaluable support is below its `minimumSupport` (30 per class, 30 for the total) is `insufficient-support`. With adequate support, a `null` minimum is `no-requirement`. This includes the all-`null` case. The T6 repair to `run_subclass_measurement.status()` and its tests are on `main` at the same commit.
 - **Labelling guide:** `docs/qualification/stage3/s3-2-labeling-guide.md` (`mavi-vehicle-subclass-labeling-guide-v1`), SHA-256 `c5f8be38be9977ea05692e1e9d45d4ca7ea9b200629316f6375640778a251fc5`. It is canonical UTF-8 with LF line endings; `.gitattributes` keeps this path at `eol=lf`, so the working-tree bytes equal the blob that T4 binds.
-- **Why G1 and G2 stay OPEN in the pre-registration PR:** T3 and T4 bind each file by commit, and the binding commit must be an ancestor of the sampling checkout, which means the merge commit on `main`. G1 and G2 close in a follow-up that records that commit, the byte-identity of both files at it, and `tools/verify_repo.py` passing there. G2 also needs the owner's approval of the guide (plan §5, §19 item 3a).
+- **Post-merge binding (2026-10-04).**
+  - On a clean checkout of `main@d520db1034b4eb63ddd077f5e4df3b8d0f4e33d9`, `artefacts.git_binding` binds both files at that commit, with the same paths and checks T3 and T4 use. Each is byte-identical to its blob there: requirements `ca28702f…`, guide `c5f8be38…`.
+  - The guide passes `canonical_text`, the requirements validate against `vehicle-subclass-requirements-v1`, and the repaired T6 ordering is present.
+  - `tools/verify_repo.py` PASSED at that commit.
+  - T3 and T4 must name `d520db1034b4eb63ddd077f5e4df3b8d0f4e33d9` (or a later `main` commit carrying the same bytes) as `--requirements-commit` and `--labeling-guide-commit`.
+  - The registered SHA-256s are pinned in `tools/stage3/artefacts.py` (`REGISTERED_REQUIREMENTS_SHA256`, `REGISTERED_LABELING_GUIDE_SHA256`). An invariant test ties them to the committed files, so changing either file needs an explicit, reviewed change to the registration. A later deliberate revision is a new governed pre-registration, with a fresh sample, packs and labels (plan §13).
+- **Owner decisions (2026-10-04, Hari Om Ahlawat):**
+  - The guide is approved, as plan §5 and §19 item 3a require. The approval was reaffirmed for exactly SHA-256 `c5f8be38be9977ea05692e1e9d45d4ca7ea9b200629316f6375640778a251fc5` after the review fixes.
+  - Savita is confirmed as the independent overlap reviewer for S3.2c/T10.
+  - The requirements stay as pre-registered: a support floor of 30 per class and 30 overall, and every operational precision, recall and coverage minimum `null`. No operational threshold may be derived after viewing T9 or T10 results; T10 stays a descriptive Development measurement unless a separately governed threshold or exposure decision is made.
+- **Independence conditions for G5–G7** (owner, 2026-10-04): the overlap reviewer never sees MAVI's predicted subclass, nor the primary reviewer's labels before her own overlap labels are frozen. The two reviewers do not discuss or reconcile individual cases before both label sets are frozen. Adjudication happens only afterwards, under T5.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| G1 | Requirements committed before any result is inspected | OPEN | Prepared as above (`ca28702f…`). It closes once the file is byte-identical on `main` at a recorded commit. No T10 sample, pack, label or result exists. |
-| G2 | Labelling guide committed | OPEN | Prepared as above (`c5f8be38…`). It closes once the guide is owner-approved and byte-identical on `main` at a recorded commit. |
-| G3 | Independent overlap reviewer confirmed | OPEN | The plan proposes Savita (§10, §19 item 4), and Stage-2 records name Savita as the independent annotator. That is not an S3.2 confirmation, and no explicit owner confirmation for S3.2 exists. Owner decision required. |
+| G1 | Requirements committed before any result is inspected | PASS | `docs/qualification/stage3/s3-2-subclass-requirements.json` SHA-256 `ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75`, committed on `main` at `d520db1034b4eb63ddd077f5e4df3b8d0f4e33d9` (PR #156) and bound there (post-merge binding above). The floor is 30 per class and 30 total; every operational minimum is `null`. No T10 sample, pack, label or result existed when it was committed, and none exists now. T3 fails closed on this exact identity: `sample_tracks._requirements()` keeps the git binding (file equals the named commit's blob, and that commit is an ancestor of HEAD) and schema validation. It also requires the bound SHA-256 to equal the registered `artefacts.REGISTERED_REQUIREMENTS_SHA256` (`ca28702f…`), refusing otherwise with `requirements_not_preregistered`. So a later commit carrying changed requirements is refused even when the caller names it, while `d520db10`, or any later ancestor with the same bytes, is accepted. Tests in `tools/stage3/tests/test_s32_preregistration.py` cover this, including that the T3 refusal tests fail when the pin is removed. T6 then refuses requirements differing from the ones each sample bound. |
+| G2 | Labelling guide committed | PASS | `docs/qualification/stage3/s3-2-labeling-guide.md` (`mavi-vehicle-subclass-labeling-guide-v1`) SHA-256 `c5f8be38be9977ea05692e1e9d45d4ca7ea9b200629316f6375640778a251fc5`, committed on `main` at `d520db1034b4eb63ddd077f5e4df3b8d0f4e33d9` (PR #156), canonical, and bound there. The owner approved this exact hash on 2026-10-04 (owner decisions above). It was committed before any pack exists. T4 fails closed on this exact identity: `build_labeling_pack._guide()` keeps the git binding and the canonical-text check, and also requires the bound SHA-256 to equal the registered `artefacts.REGISTERED_LABELING_GUIDE_SHA256` (`c5f8be38…`), refusing otherwise with `labeling_guide_not_preregistered`. A later, canonical, committed but modified guide is refused even when its commit is named. Identical bytes at `d520db10` or a later ancestor are accepted. This is covered by the same tests, and the T4 refusal test fails when the pin is removed. |
+| G3 | Independent overlap reviewer confirmed | PASS | The owner confirmed Savita as the independent overlap reviewer for S3.2c/T10 on 2026-10-04 (Hari Om Ahlawat), under the independence conditions above. The primary reviewer stays R-4 Aarav (plan §10). |
 | G4 | Sample binds exactly the T9 export and derivation sets (`--verify-sample`) | OPEN | |
 | G5 | Blind primary and overlap labelling | OPEN | |
 | G6 | Adjudication completed where needed | OPEN | |

@@ -136,6 +136,7 @@ def _requirements(repository: Path, path: Path, commit: str) -> dict[str, str]:
     binding = a.git_binding(repository, path, commit, a.REQUIREMENTS_GIT_PATH, "requirements_not_committed")
     document = a.parse_json(a.read_bytes(path, "requirements_not_committed"), "requirements_not_committed")
     a.validate(document, "vehicle-subclass-requirements-v1", "requirements_not_committed")
+    a.require_preregistered(binding, "requirements_not_preregistered")
     return {"sha256": binding["sha256"], "gitCommit": binding["gitCommit"], "gitPath": binding["gitPath"]}
 
 

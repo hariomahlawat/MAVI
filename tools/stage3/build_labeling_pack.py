@@ -183,17 +183,23 @@ def _render_frames(source: Path, requests: dict[int, list[tuple[str, dict[str, f
 # Build
 
 
+def _guide(repository: Path, path: Path, commit: str) -> tuple[dict[str, str], bytes]:
+    """The labelling guide: committed unchanged at ``commit`` (an ancestor of HEAD), canonical, and the
+    owner-approved registered guide (plan §5; register G2)."""
+    binding = a.git_binding(repository, path, commit, a.LABELING_GUIDE_GIT_PATH, "labeling_guide_not_committed")
+    guide_bytes = a.read_bytes(path, "labeling_guide_not_committed")
+    a.require(a.canonical_text(guide_bytes, "labeling_guide_not_canonical") == guide_bytes, "labeling_guide_not_canonical")
+    a.require_preregistered(binding, "labeling_guide_not_preregistered")
+    guide = {"sha256": binding["sha256"], "gitCommit": binding["gitCommit"], "gitPath": binding["gitPath"], "path": GUIDE}
+    return guide, guide_bytes
+
+
 def build(args: argparse.Namespace, staging: Path) -> tuple[dict[str, Any], str]:
     sample, _, sample_sha = a.read_artefact(args.sample, "vehicle-subclass-sample-v1", "pack_sample_invalid")
     exports = a.load_exports(args.export)
     a.require(sorted(exports) == sorted(sample["exportSha256s"]), "pack_exports_mismatch")
     profile_sha, selector, scorer = _profile(args.pipeline_profile, exports)
-    guide_binding = a.git_binding(args.repository, args.labeling_guide, args.labeling_guide_commit,
-                                  a.LABELING_GUIDE_GIT_PATH, "labeling_guide_not_committed")
-    guide_bytes = a.read_bytes(args.labeling_guide, "labeling_guide_not_committed")
-    a.require(a.canonical_text(guide_bytes, "labeling_guide_not_canonical") == guide_bytes, "labeling_guide_not_canonical")
-    guide = {"sha256": guide_binding["sha256"], "gitCommit": guide_binding["gitCommit"],
-             "gitPath": guide_binding["gitPath"], "path": GUIDE}
+    guide, guide_bytes = _guide(args.repository, args.labeling_guide, args.labeling_guide_commit)
     a.require(isinstance(args.seed, str) and args.seed.strip() == args.seed and args.seed, "seed_invalid")
 
     view_kind = args.reviewer_view

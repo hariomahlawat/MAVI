@@ -48,6 +48,14 @@ OUTCOMES = (*CLASSES, UNDETERMINED)
 
 REQUIREMENTS_GIT_PATH = "docs/qualification/stage3/s3-2-subclass-requirements.json"
 LABELING_GUIDE_GIT_PATH = "docs/qualification/stage3/s3-2-labeling-guide.md"
+# The S3.2 pre-registration (PR #156, first on main at d520db1034b4eb63ddd077f5e4df3b8d0f4e33d9; register G1/G2):
+# the only requirements and labelling-guide bytes T3 and T4 accept, at that commit or any later ancestor of HEAD
+# carrying the same bytes. A later revision is a new governed pre-registration (fresh sample, packs and labels,
+# plan §13) and changes these identities explicitly in a reviewed commit.
+REGISTERED_REQUIREMENTS_SHA256 = "ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75"
+REGISTERED_LABELING_GUIDE_SHA256 = "c5f8be38be9977ea05692e1e9d45d4ca7ea9b200629316f6375640778a251fc5"
+REGISTERED_SHA256 = {REQUIREMENTS_GIT_PATH: REGISTERED_REQUIREMENTS_SHA256,
+                     LABELING_GUIDE_GIT_PATH: REGISTERED_LABELING_GUIDE_SHA256}
 EXPORT_FILE_NAME = "subclass-measurement-export.json"
 SCOPE = (
     "This measurement is Track-conditional. It evaluates subclass classification given that "
@@ -239,6 +247,12 @@ def git_binding(repository: Path, file: Path, commit: str, git_path: str, code: 
     ancestor = _git(repository, "merge-base", "--is-ancestor", commit, "HEAD")
     require(ancestor.returncode == 0, f"{code}:not_ancestor_of_head")
     return {"gitCommit": commit, "gitPath": git_path, "sha256": sha256_hex(data)}
+
+
+def require_preregistered(binding: dict[str, str], code: str) -> None:
+    """A git binding is also the registered S3.2 identity for its path: a caller-selected later commit carrying
+    different bytes is refused even though ``git_binding`` accepts it."""
+    require(binding["sha256"] == REGISTERED_SHA256.get(binding["gitPath"]), code)
 
 
 # Measurement exports (T1)
