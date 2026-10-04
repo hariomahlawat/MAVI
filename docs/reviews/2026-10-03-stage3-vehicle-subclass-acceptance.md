@@ -226,5 +226,5 @@ H2–H5 are evidence outcomes, not mandated PR boundaries, approval meetings, in
 | ID | Requirement | Status |
 |---|---|---|
 | X1 | Exposure decision (expose or decline) recorded on S3.2 measurement evidence: G8, G9, and every S3.2d row (H1, H2, H3, H5 PASS; H4 PASS or NOT TRIGGERED); exposure is decided per class subset and evidence domain (H5), only for a profile whose thresholds G9 froze | OPEN |
-| X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment (NOT TRIGGERED if X1 declines) | OPEN |
+| X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment, exposing only the class subset X1 approved on H5: an explicit allowlist in the API, search and UI, so a class H5 left Development-only, insufficiently supported or deferred is neither returned, filterable nor displayed even though Track persists every vocabulary value; acceptance evidence shows the deferred classes remain unavailable (NOT TRIGGERED if X1 declines) | OPEN |
 | X3 | Every pre-existing Vehicle search returns the same Tracks (implementation roadmap Stage-3 acceptance; NOT TRIGGERED if X1 declines) | OPEN |
