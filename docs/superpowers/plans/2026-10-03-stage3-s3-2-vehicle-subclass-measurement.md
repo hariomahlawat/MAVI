@@ -5,7 +5,7 @@
 - S3.2b-1, T7–T9 tooling: implemented and merged (PRs #149–#150).
 - S3.2b-2, real corpus intake and derivation: complete (E rows; PRs #151–#154).
 - S3.2b-3, Development-host T9 execution: complete, F1–F6 PASS (PR #155).
-- **S3.2c, T10: the current slice.** It is pre-registered (PRs #156–#157): G1–G3 PASS, and G4–G9 OPEN.
+- **S3.2c, T10: the current slice.** It is pre-registered (PRs #156–#157; G1–G3 PASS). The pilot sample is drawn and verified (G4 PASS, 2026-10-04), and the primary and overlap packs are built for human labelling. G5–G9 are OPEN.
 - S3.2d (T11), conditional, has not started.
 
 The rest of this plan is the design as accepted. Where it names a candidate corpus (CityFlow), the executed S3.2b event is the register's record.
