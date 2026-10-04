@@ -47,7 +47,7 @@ S3.1 needs no redesign. Inspection found no correctness blocker.
 
 A defensible, attributable, Track-conditional measurement of detector-native subclass on real public traffic footage, from human Track-level labels:
 - **pilot:** 100–150 usable Vehicle Tracks;
-- **expansion:** toward 300–500 only if justified (§14).
+- **expansion:** toward 300–500 only if justified (§14), as planned; from 2026-10-04 expansion is benchmark-driven (§14 amendment, ADR-017).
 
 It is compared against requirements recorded **before** the results are seen (§13).
 
