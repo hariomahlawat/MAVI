@@ -66,7 +66,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Known / possible model exposure | **TODO.** RTMDet-m COCO is trained on COCO, not BDD100K, as far as the model card states; verify, and record any BDD100K use in MAVI's component history (none known). |
 | Research-use status | RESEARCH-ADMISSIBLE on the quoted licence text (research use expressly permitted without fee); to be confirmed against the full licence accepted at download. Commercial use is reserved to "BDD and BAIR Commons members and their affiliates". |
 | Redistribution limits | The licence requires the copyright notice and licence paragraphs to "appear in all copies, modifications, and distributions"; MAVI does not redistribute (ADR-017 §7). |
-| Unresolved questions | `truck`/`motorcycle` definitions; video and track counts; frame JPEGs versus videos; image resolution (believed 1280×720); `crowd` attribute semantics; account requirement. |
+| Unresolved questions | `truck`/`motorcycle` definitions; video and track counts; frame JPEGs versus videos; image resolution (believed 1280×720); `crowd` attribute semantics (adapter precondition: the harness treats `crowd` objects as ordinary GT and refuses a descriptor that maps `crowd` to an ignore region until this is verified against the label specification, see the harness plan §7); account requirement. |
 
 ### UA-DETRAC
 
