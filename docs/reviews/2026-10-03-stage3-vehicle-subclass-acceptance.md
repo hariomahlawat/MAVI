@@ -1,6 +1,6 @@
 # Vehicle Subclass — Stage-3 Acceptance Register
 
-**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) has executed event `2026-10-03-commons`: E1–E13 and E15–E21 PASS (E17 NOT TRIGGERED); E14 OPEN until the map digest is on `main` and §16(b) and `verify_repo` pass at that commit. Nothing is operator-exposed, and nothing is Production-qualified.\
+**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) has executed event `2026-10-03-commons`: E1–E21 PASS (E17 NOT TRIGGERED). S3.2b-3 may be scheduled under its own gates (F rows). Nothing is operator-exposed, and nothing is Production-qualified.\
 **Date opened:** 2026-10-03\
 **Baseline:** `main@379b7b22a3d8722d8c4d99df50794805494155aa` (merge of PR #150)
 
@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 executed (E14 OPEN until its post-merge checks pass); S3.2b-3, S3.2c and S3.2d are OPEN. **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3, S3.2c and S3.2d are OPEN. **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -134,7 +134,7 @@ Event `2026-10-03-commons` evidence entered 2026-10-04; controlled store event r
 | E11 | 6–10 member `pilot` pool frozen [PF11] | PASS | manifest entry `source-pool` (`fe72e2e9d055259d66042b07e104de14504e93ec3e9098c42fbc581ff79eca06`): `kind: pilot`, 8 members |
 | E12 | Pool record or digest committed on `main`, ancestry-valid on the S3.2b-3 checkout, and `tools/verify_repo.py` passes on that commit [PF12, PF20] | PASS | Mode B digest `docs/qualification/stage3/s3-2-source-pool.sha256` (65 bytes) on `main` at `d12a352c10b5f12c967f62768490c824028e94a4` (PR #152); `verify_repo` PASSED at that commit |
 | E13 | Ingestion convention committed on `main` before the map, where used, and `tools/verify_repo.py` passes on that commit [PF13, PF20] | PASS | `docs/qualification/stage3/s3-2-ingestion-convention.md` (blob SHA-256 `b52554e36ff4a026a7f355cfea79ae7a620b3f9fcd55a2e235f03f4e78b41982`) on `main` at `d12a352c10b5f12c967f62768490c824028e94a4` before the map; names no member; `verify_repo` PASSED at that commit |
-| E14 | Ingestion map committed or digest-bound, ancestry-valid, and validated, and `tools/verify_repo.py` passes on that commit [PF14, PF20] | OPEN | Map `ingestion/ingestion-map.json` `46a014e342fbdb9dc3bf98cf6f5f3bd505da524fda191d6a0987260f3eba7c95` validated (`ingestion_map.check`) against the convention at `d12a352c`; its Mode B digest is committed by the PR that adds this evidence. PASS once that digest is on `main` and §16(b) passes at that commit |
+| E14 | Ingestion map committed or digest-bound, ancestry-valid, and validated, and `tools/verify_repo.py` passes on that commit [PF14, PF20] | PASS | Mode B digest `docs/qualification/stage3/s3-2-ingestion-map.sha256` (65 bytes) on `main` at `fa096ca72597aac497db3765a2f497e6424c9ea6` (PR #153) binds map `ingestion/ingestion-map.json` `46a014e342fbdb9dc3bf98cf6f5f3bd505da524fda191d6a0987260f3eba7c95` (convention at `d12a352c10b5f12c967f62768490c824028e94a4`). §16(b) on a checkout of that `main` (pool commit `d12a352c`, map commit `fa096ca7`; pilot kind, pool invariants, release match, `ingestion_map.check`) passed: `evidence/e14-binding-check-fa096ca7.txt` `6e1520a9ac5ce532463c0bde2ab7800da7b77fec5b1ab87e2daede241435123f`; `tools/verify_repo.py` PASSED at that commit: `evidence/e14-verify-repo-fa096ca7.txt` `f3b21c5a0dc5e90b79c1087ce7888107029d02f1639d1794f1d09dd90a06ea99` |
 | E15 | Exactly one valid T8 `__run1` derivation per pool member (`load_derivations`) [PF15] | PASS | manifest entry `load-derivations` (§16(a) output: exactly one valid `__run1` per member) and the 9 `derivation-<sourceSha256>-run1/run2` entries |
 | E16 | Remux/transcode authorised (`create-derivatives`) wherever used [PF16] | PASS | manifest entry `post-t8-checks`: every manifest `operations: ["create-derivatives"]`, `blockers: []` (all 8 transcode) |
 | E17 | First real remux determinism repeat byte-identical (NOT TRIGGERED if remux unused) [PF17] | NOT TRIGGERED | Remux was not used (no H.264 source) |
