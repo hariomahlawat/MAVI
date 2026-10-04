@@ -1,5 +1,8 @@
 # Repository verification dependencies; not part of the MAVI Vision runtime.
 jsonschema[format-nongpl]>=4.23,<5
+# S3.2d-1 benchmark harness (tools/benchmarks): reads sealed MAVI trajectory artefacts (msgpack v1). Same range
+# as the vision runtime's project dependency, so the two environments never resolve incompatible versions.
+msgpack>=1.1,<2
 # Qualification tooling: scipy.io.loadmat reads the PA-100K MATLAB 5.0 annotation file. Same pin as
 # the vision-runtime extra, so the two environments never resolve different SciPy versions.
 scipy==1.18.1
