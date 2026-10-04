@@ -65,6 +65,21 @@ Do not make normal operator setup depend on manual PATH edits, package-manager c
 - AI matches and associations are candidate findings until verified by authorized logic/human workflow.
 - Use UTC in cross-system contracts unless a contract explicitly says otherwise.
 
+## Data, benchmarks and annotation
+
+ADR-017 governs Development data strategy. Small diagnostic labelling (a handful of examples to debug, check semantics or confirm an adapter bug) needs only a one-line technical rationale and never enters a measurement as truth. Before proposing a significant annotation campaign, a bespoke dataset, new Development capture or a large human-review effort:
+
+1. search for established labelled datasets and benchmarks that answer the engineering question, and record what was found;
+2. prefer benchmark reuse with deterministic adapters, mappings and ground-truth association over new labels;
+3. respect each dataset's native taxonomy; map a native class to a MAVI capability only where the mapping is defensible, declared as `exact`, `subset` or `unsupported`, with its reason;
+4. let capability scope follow what existing evidence proves: a supported subset may advance while unsupported classes are deferred, and no mapping is fabricated to keep an ontology intact;
+5. record public-benchmark exposure and domain caveats with every result; a benchmark score is Development or reference evidence, never final qualification;
+6. treat a significant annotation campaign as a documented fallback for a demonstrated benchmark gap that the owner has accepted;
+7. apply the ADR-017 admissibility statuses (RESEARCH-ADMISSIBLE, RESEARCH-UNCERTAIN, BLOCKED) once per dataset release, not per file, unless the terms vary by file: research-use permission suffices for Development, ambiguity is recorded rather than treated as a prohibition, and an explicit prohibition of the intended use blocks;
+8. never bypass payment, authentication or access controls, and never use data that cannot actually be obtained;
+9. keep dataset bytes, frames, crops and labels out of ordinary Git; commit hashes, metadata and mappings;
+10. preserve the separation between Development or benchmark evidence and protected final qualification (ADR-015 §3–§4), and use the lightest evidence process appropriate to the claim (operating principle 6a): Development benchmarks need reproducibility, provenance, deterministic evaluation and honest limitations, not Production qualification ceremony.
+
 ## Engineering practice
 
 Work implementation-first: see `docs/architecture/engineering-operating-principles.md`.

@@ -5,14 +5,16 @@
 - S3.2b-1, T7–T9 tooling: implemented and merged (PRs #149–#150).
 - S3.2b-2, real corpus intake and derivation: complete (E rows; PRs #151–#154).
 - S3.2b-3, Development-host T9 execution: complete, F1–F6 PASS (PR #155).
-- **S3.2c, T10: the current slice.** It is pre-registered (PRs #156–#157; G1–G3 PASS). The pilot sample is drawn and verified (G4 PASS, 2026-10-04), and the primary and overlap packs are built for human labelling. G5–G9 are OPEN.
-- S3.2d (T11), conditional, has not started.
+- S3.2c, T10: complete (PRs #156–#158 and the T10 evidence; register G1–G9 PASS, G6 by an owner-accepted pilot-specific deviation, G9 freezing `minShare` 0.6 and `minMatchedDetections` 3 as the benchmark baseline with no optimality claim). A bounded real-domain Development cross-check; its evidence is immutable.
+- **S3.2d (T11): the current slice, benchmark-driven under ADR-017** (see the dated amendment in §14). H1 is justified by the pilot's support (truck 5, bus 7, motorcycle 0 evaluable, floor 30) and has not been undertaken.
 
 The rest of this plan is the design as accepted. Where it names a candidate corpus (CityFlow), the executed S3.2b event is the register's record.
 **Baseline:** originally `main@d7508201b217261bed9979390ebfaa0bf61b8e18` (PR #145, S3.1); S3.2b amendment against `main@8fd15857`.
 **Governing:**
-- ADR-016: detector-native subclass, evaluation first.
-- ADR-015: C+ — public material is for development and evaluation, never frozen qualification.
+- ADR-016: detector-native subclass, evaluation first (the subclass source).
+- ADR-017: benchmark-first Development and research dataset reuse (Development benchmark and data strategy; governs S3.2d intake, admissibility and evaluation).
+- ADR-015: C+ — public material is for development and evaluation, never frozen qualification (the public-first / protected-final-qualification boundary).
+- The Stage-3 acceptance register is the only exit authority.
 - ADR-005: hash-bound pipeline profile.
 - ADR-013: Evidence Set.
 
@@ -20,7 +22,7 @@ The rest of this plan is the design as accepted. Where it names a candidate corp
 
 S3.2 produces the **evidence** for that decision. It does not make the decision, expose subclass, tune the vote, or add a classifier.
 
-**This measurement is Track-conditional.** It evaluates subclass classification *given that MAVI produced the Track*. It is not an end-to-end detection or tracking accuracy measurement. Every result artefact and report states this.
+**The subclass measurement is Track-conditional.** It evaluates subclass classification *given that MAVI produced the Track*. It is not an end-to-end detection or tracking accuracy measurement, and every subclass result artefact and report (T2/T6 results, the T10 pilot, and the Track-conditional section of any benchmark result) states this. S3.2d benchmark results (§14 amendment) carry two scopes as separate result sections or artefacts, each with its own scope statement: the Track-conditional subclass classification on validly associated Tracks, which carries this statement, and end-to-end association coverage (GT tracks MAVI produced or missed, MAVI Tracks without GT), which is reported as detection-and-tracking coverage and never folded into the subclass figures.
 
 ---
 
@@ -47,11 +49,13 @@ S3.1 needs no redesign. Inspection found no correctness blocker.
 
 A defensible, attributable, Track-conditional measurement of detector-native subclass on real public traffic footage, from human Track-level labels:
 - **pilot:** 100–150 usable Vehicle Tracks;
-- **expansion:** toward 300–500 only if justified (§14).
+- **expansion:** toward 300–500 only if justified (§14), as planned; from 2026-10-04 expansion is benchmark-driven (§14 amendment, ADR-017).
 
 It is compared against requirements recorded **before** the results are seen (§13).
 
 ## 3. Architecture and flow
+
+**Historical T1–T10 execution flow** (the completed manual path; it still defines those artefacts):
 
 ```
 public release ──T7 verify/record──▶ release record (+R-5) ──T8 derive──▶ MP4 + derivation manifest
@@ -68,6 +72,27 @@ public release ──T7 verify/record──▶ release record (+R-5) ──T8 de
 - data artefacts live outside Git under `E:\MAVI-Controlled\…\S3\`;
 - only schemas, tools, tests, the hash-only evidence record (§20) and small pre-registration documents (requirements, labelling guide, and in S3.2b the frozen source pool, the ingestion map and, where used, the Development ingestion convention; metadata only) are committed.
 
+**Current S3.2d benchmark flow** (ADR-017 §11; the §14 amendment; a reusable envelope with capability-specific truth and evaluator):
+
+```
+dataset release
+    ↓
+dataset adapter
+    ↓
+shared benchmark envelope (identity, release, split, provenance/admissibility, mappings, exposure, MAVI execution identity, reproducibility)
+    + capability-specific canonical ground truth (for vehicle tracking/subclass: frame, box, track id, class)
+    ↓
+MAVI execution
+    ↓
+capability-specific association / alignment
+    ↓
+capability evaluator
+    ↓
+benchmark result + evidence
+```
+
+The same hash-binding rules apply: every artefact records its inputs' identities, consumers re-verify, dataset bytes stay outside Git.
+
 ## 4. Slice boundaries
 
 | Slice | Tasks | Fixtures only? | Real CityFlow | R-5 | Development host | Human labelling |
@@ -77,7 +102,8 @@ public release ──T7 verify/record──▶ release record (+R-5) ──T8 de
 | **S3.2b-2 — corpus intake and derivation** | T7, T8 real | – | Yes | **Yes** | – | – |
 | **S3.2b-3 — Development-host execution** | T9 | – | Yes (T8 outputs) | (done in b-2) | **Yes** | – |
 | **S3.2c — pilot** | T10 | – | Yes | (done in b) | – | **Yes** |
-| **S3.2d — expansion** | T11 (conditional) | – | Yes | – | maybe | **Yes** |
+| **S3.2d — expansion** (as planned 2026-10-03) | T11 (conditional) | – | Yes | – | maybe | **Yes** |
+| **S3.2d — benchmark-driven evaluation** (amendment 2026-10-04, §14; ADR-017) | S3.2d-1 framework, S3.2d-2 primary benchmark measurement, S3.2d-3 domain diversity, S3.2d-4 capability decision | S3.2d-1 **Yes** | public labelled benchmarks | research-use status per ADR-017 §7 | yes, for benchmark runs | **No** (benchmark labels; manual only for a documented gap) |
 
 **Gates (fail-closed; each slice waits only on its own row).**
 
@@ -829,12 +855,12 @@ Run in order (register rows in brackets):
 5. Freeze both label sets. Then, where the overlap has disagreements T5 does not carry, the designated adjudicator (§10) adjudicates. The designation is recorded first, and the adjudicator sees no prediction or confidence until the adjudication is frozen [G6, G7].
 6. Measure and compare (T6) [G8].
 7. **Threshold freeze decision (ADR-016 §3)** [G9], taken on the frozen measurement and not before. Either the measured profile's values are frozen as they are (`minShare` 0.6, `minMatchedDetections` 3, profile `1.3.0-candidate`). Or any proposed change becomes a new, separately versioned profile with its own Development tuning and evaluation path (§13, "No tuning in S3.2"), and needs a new measurement; it never alters this pilot or its record.
-8. **Expansion decision** [H1], taken on the frozen measurement and not before. T11 is triggered when §14 justifies it, declared `continuation` or `supplemental` before sampling. Otherwise expansion is recorded NOT TRIGGERED.
+8. **Expansion decision** [H1], taken on the frozen measurement and not before. T11 is triggered when §14 justifies it. From 2026-10-04 the mechanism is benchmark-driven (§14 amendment, ADR-017); a manual batch is a documented-gap fallback, declared `continuation` or `supplemental` before sampling. Otherwise expansion is recorded NOT TRIGGERED.
 9. Record the evidence in the register (§20).
 
-### T11 — Expansion (S3.2d; conditional; ⚠ human)
+### T11 — Expansion (S3.2d; conditional)
 
-See §14. The expansion is declared `continuation` or `supplemental` before its sample is drawn, and the pilot's measurement record is never edited.
+See §14, including its 2026-10-04 amendment. From that date, S3.2d is benchmark-driven (S3.2d-1 to S3.2d-4). A manual batch, if a documented benchmark gap ever justifies one, is still declared `continuation` or `supplemental` before its sample is drawn. The pilot's measurement record is never edited.
 
 ## 7. Testing strategy
 
@@ -851,6 +877,8 @@ See §14. The expansion is declared `continuation` or `supplemental` before its 
 - **CI:** existing workflows run the new tests. No new workflow is needed. `Mavi.MeasurementExport` is built by the solution build.
 
 ## 8. Corpus intake (CityFlow as the primary candidate)
+
+> **Historical S3.2b/S3.2c execution semantics.** The following section describes the completed T7–T10 source, derivation, pilot and manual-labelling path. It remains as execution history and continues to define those historical artefacts. It does not govern S3.2d benchmark intake. Current S3.2d dataset admissibility, provenance, benchmark selection and evaluation follow ADR-017 and the §14 amendment.
 
 **Nothing is assumed from CityFlow's reputation.** T7 verifies, and records as evidence files hashed into the release record:
 
@@ -957,6 +985,19 @@ Either way it produces new artefacts and a new measurement record. **The pilot m
 
 The expansion decision, or the decision not to expand, is recorded in §20. S3.2 may finish after the pilot.
 
+**Amendment 2026-10-04 (prospective; ADR-017; the pilot design above is historical and unchanged).** The pilot's frozen measurement (register G8) shows evaluable support car 103, bus 7, truck 5, motorcycle 0 against the floor of 30, so the triggers above hold and expansion is justified (H1). **Manual expansion toward 300–500 labelled Tracks is no longer the default mechanism.** Future expansion is benchmark-driven:
+
+- **S3.2d-1 — benchmark framework and tooling** (plan, then implement). The framework is capability-neutral (ADR-017 §11): dataset release → dataset adapter → shared benchmark envelope plus capability-specific canonical ground truth → MAVI execution → capability-specific association → capability evaluator → benchmark result and evidence. The envelope owns the reusable concerns (dataset identity, release, split, provenance and admissibility, mappings, exposure, MAVI execution identity, result envelope, reproducibility); each capability owns only the smallest ground-truth and association contract it needs (for vehicle tracking and subclass: frame, box, track id, class). Vehicle subclass is the first evaluator and no dataset is hard-coded. It provides: a benchmark dataset descriptor and adapter contract; a native-label mapping contract that declares, per native class, the MAVI class or capability, the mapping kind (`exact`, `subset`, `unsupported`) and the reason; a ground-truth Track representation built from the dataset's own per-frame boxes and track identities; a deterministic, prediction-independent GT↔MAVI Track association (frame and time overlap, IoU across overlapping frames, temporal continuity, one-to-one matching, association support and purity); ambiguity and unmatched reporting in both directions; dataset and result provenance; benchmark split identity; known-exposure metadata; deterministic tests. Contracts get schemas and examples under `contracts/`, validated by `verify_repo`.
+- **S3.2d-2 — primary benchmark measurement.** Prefer a benchmark whose native labels exactly cover the relevant MAVI capability where such a suitable benchmark is reasonably available. If no single suitable benchmark covers every desired class, use the strongest available benchmark, or combination of benchmarks, with explicit `exact`, `subset` and `unsupported` mappings. Lack of one perfect taxonomy must not block evidence-supported capability subsets. The choice follows the survey in `docs/superpowers/plans/stage3-benchmark-capability-matrix.md`, once the material fields are verified and research-use status is classified under ADR-017 §7. BDD100K box tracking is the leading candidate because it appears to carry the four MAVI classes; it is a candidate, not a structural prerequisite.
+- **S3.2d-3 — domain-diversity benchmarks.** Additional datasets with partial or alternate taxonomies (fixed-camera traffic, aerial or drone, adverse conditions). A benchmark need not support every class; it contributes to the classes and domains it does support.
+- **S3.2d-4 — evidence-backed capability decision.** Per class and evidence domain, each class is benchmark-supported, Development-only, insufficiently supported or deferred. The capability does not wait for its weakest class, and no unsupported class is exposed to keep the taxonomy intact.
+
+The register carries one row per deliverable (H2–H5), and X1 requires all of them with G8 and G9, so a single benchmark run cannot unlock exposure. H2–H5 are evidence outcomes, not mandated PR boundaries, approval meetings or owner decision points: one implementation or one benchmark execution may satisfy several rows when the required evidence exists. H4 may be NOT TRIGGERED on a recorded technical rationale that further domain-diversity evidence is not materially useful for the current capability decision. Development benchmarking here follows operating principle 6a: reproducibility, provenance, deterministic evaluation and honest limitations, without Production qualification ceremony.
+
+**Benchmark evaluation semantics.** A public-benchmark evaluation reports at least: GT tracks associated to MAVI Tracks; GT tracks unmatched by MAVI; MAVI Tracks unmatched to GT; ambiguous associations rejected; class confusion on valid associated tracks; track-association coverage; MAVI subclass resolved and undetermined coverage; per-class support; dataset and domain identity. Detector and tracker failures are never hidden by assuming every GT object has a MAVI Track. End-to-end detection and tracking coverage and Track-conditional subclass classification are two measurement scopes, reported as separate result sections or artefacts with their own scope statements (§2); the subclass figures carry the Track-conditional statement, the coverage figures are labelled as end-to-end, and neither is folded into the other.
+
+**What the amendment does not change.** The pilot record, its artefacts and hashes; the T3–T6 tooling and its semantics for any manual batch that a documented benchmark gap may still justify (the `continuation` and `supplemental` designs above remain the rule for such a batch); the requirements (`ca28702f…`), the guide (`c5f8be38…`), the profile, the vocabulary, `minShare`, `minMatchedDetections` and ADR-016. Public benchmark results are Development or reference evidence, with exposure and domain caveats recorded (ADR-017 §8), never Production qualification.
+
 **Decision directions** the evidence informs; none is encoded in tooling:
 - detector-native looks adequate for continued Stage-3 work;
 - the evidence is insufficient and more data is needed;
@@ -964,6 +1005,10 @@ The expansion decision, or the decision not to expand, is recorded in §20. S3.2
 - a learned classifier should be evaluated in a later slice.
 
 ## 15. Provenance and rights
+
+> **Historical S3.2b/S3.2c execution semantics.** The following section describes the completed T7–T10 source, derivation, pilot and manual-labelling path. It remains as execution history and continues to define those historical artefacts. It does not govern S3.2d benchmark intake. Current S3.2d dataset admissibility, provenance, benchmark selection and evaluation follow ADR-017 and the §14 amendment.
+>
+> S3.2d benchmark intake uses the ADR-017 release-level benchmark provenance and admissibility path by default. It does not inherit the per-member R-5 admission workflow below merely because that tooling exists. Per-file or per-member review is used only when a source's terms or provenance materially vary by member. The legacy tooling mismatch is recorded in ADR-017 (Consequences) and is not changed here.
 
 **One governance path.** The release record, licence evidence, file hashes, purpose authorisation and exposure all use the existing release machinery (`mavi-attribute-dataset-release-v1`, `authorise_release_use`). No parallel mechanism.
 
@@ -1019,6 +1064,8 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
 
 ## 19. Risks and open questions
 
+> **Historical S3.2b/S3.2c blockers and risks.** Items 1–9 below were the human decisions and blockers of the completed T7–T10 path; their resolutions are recorded inline and in the register. They do not govern S3.2d, whose intake and evaluation follow ADR-017 and the §14 amendment. The domain-bias, class-imbalance, exposure and Track-conditional risks remain relevant to any benchmark and are carried into each benchmark record's caveats.
+
 **Human decisions and blockers (not solvable by code)**
 1. CityFlow access request and acceptance of terms (owner). Blocks S3.2b-2.
 2. Licence/terms review and the **R-5 determination** (R-5; this plan makes no legal judgement). Blocks S3.2b-2.
@@ -1064,12 +1111,12 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
    - the FFmpeg/ffprobe pack identity bound by T7/T8 (the T9 host's native-media pack is a host precondition, not recorded provenance);
    - the T1 export hashes, all attesting one producer identity and the measured profile across the pilot pool.
 3. **A committed requirements file,** bound by hash and commit into every sample, and matched by the runner.
-4. **A recorded pilot.** Every input hash recorded (release, derivations, exports, sample, packs, label sets, adjudication, requirements, labelling guide, result) and the T9 sample-verifier result, plus:
+4. **A recorded pilot** (done: register G1–G9). Every input hash recorded (release, derivations, exports, sample, packs, label sets, adjudication, requirements, labelling guide, result) and the T9 sample-verifier result, plus:
    - the requirement-comparison table;
    - support per class, with insufficient-support classes named;
    - reviewer agreement;
    - a single attested producer identity and profile hash.
-5. **A recorded expansion decision,** with an expansion measurement if one is undertaken.
+5. **A recorded expansion decision,** with an expansion measurement if one is undertaken. Under the §14 amendment, expansion evidence comes from benchmark execution (S3.2d), recorded in the register's H rows (H1 decision; H2 framework; H3 primary benchmark measurement; H4 domain-diversity measurements or NOT TRIGGERED on a technical rationale; H5 per-class, per-domain capability decision) with dataset identity, research-use status, mapping declarations, association coverage and exposure caveats. Public benchmark results are Development or reference evidence (ADR-017 §8–§9).
 6. **Nothing exposed or added:** no API, search, UI, Production, classifier or tuning change.
 
 *Evidence record (filled during S3.2c/d): artefact hashes, the summary tables and the decisions go here. Data stays outside Git.*
