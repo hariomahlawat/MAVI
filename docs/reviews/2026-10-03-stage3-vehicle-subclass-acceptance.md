@@ -117,7 +117,11 @@ All succeeded.
 
 ## E. S3.2b-2 — real corpus intake and derivation (runbook PF items in brackets)
 
-Event `2026-10-03-commons` evidence entered 2026-10-04; controlled store event root `Stage3/S3.2/2026-10-03-commons` (store-relative event root; all evidence paths below are relative to it). Every off-repository evidence file is bound by store-relative path and full SHA-256 in the canonical, write-once evidence manifest `evidence/s3-2b-2-evidence-manifest-v2.json`, whose entries the rows below cite by ID; manifest SHA-256 `e28ddbadcf3fa62cb544ffbe445dec920f6d55b05e01e4870650f2bfce31cc7e` (43 entries). It supersedes `evidence/s3-2b-2-evidence-manifest.json`. All rows started OPEN. Evidence is hash-only; bytes stay in the controlled store. The ingestion map's commitment (E13, E14) is deliberately placed in S3.2b-2. The plan's slice table lists it under S3.2b-3; this register moves it earlier so that it is fixed before the host exists, and starts nothing.
+Event `2026-10-03-commons` evidence entered 2026-10-04; controlled store event root `Stage3/S3.2/2026-10-03-commons` (store-relative event root; all evidence paths below are relative to it). The canonical evidence chain is two write-once manifests, and it binds every off-repository evidence file by store-relative path and full SHA-256. The rows below cite entries of either manifest by ID; entry IDs are unique across the chain.
+- Manifest v2, `evidence/s3-2b-2-evidence-manifest-v2.json`, SHA-256 `e28ddbadcf3fa62cb544ffbe445dec920f6d55b05e01e4870650f2bfce31cc7e`, 43 entries. It holds the pre-merge evidence and supersedes `evidence/s3-2b-2-evidence-manifest.json`. It is not modified.
+- The supplement, `evidence/s3-2b-2-evidence-manifest-supplement-e14.json`, SHA-256 `13fdbf3acbc7a81f19a2447070b70b2e39d4adc8c7c2dc49af915c688bac9872`, 2 entries. It extends v2 by v2's full SHA-256 and holds the post-merge E14 evidence: `binding-check-16b` and `verify-repo-post-merge`.
+
+All rows started OPEN. Evidence is hash-only; bytes stay in the controlled store. The ingestion map's commitment (E13, E14) is deliberately placed in S3.2b-2. The plan's slice table lists it under S3.2b-3; this register moves it earlier so that it is fixed before the host exists, and starts nothing.
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
