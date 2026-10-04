@@ -34,14 +34,14 @@
   ],
   "nativeTaxonomy": [
     {
-      "code": "bus",
-      "name": "Bus",
-      "definition": "Synthetic: a large passenger vehicle."
-    },
-    {
       "code": "car",
       "name": "Car",
       "definition": "Synthetic: a passenger car."
+    },
+    {
+      "code": "minibus",
+      "name": "Minibus",
+      "definition": "Synthetic: a small bus (a subset of the MAVI bus class)."
     },
     {
       "code": "motorcycle",
@@ -84,8 +84,8 @@
       },
       {
         "path": "annotations/val/seq-b.json",
-        "sizeBytes": 1159,
-        "sha256": "a9ca897877b27c13446fa210cd7cf82c0b40886f61c062335748a52d6c96956d"
+        "sizeBytes": 1183,
+        "sha256": "eb1540bf0493d4c60042d564c6118960a5680e9315ba29eeba4e31de4563e7da"
       },
       {
         "path": "frames/train/seq-c/000000.ppm",

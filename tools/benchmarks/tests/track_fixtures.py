@@ -105,6 +105,7 @@ def static(box: tuple[float, float, float, float], frames: range | list[int]) ->
 
 def envelope_for(documents: list[dict[str, Any]], runs: list[MaviRun], policy: policies.Policy,
                  mapping_sha256: str = "d" * 64, descriptor_document: dict[str, Any] | None = None,
+                 requirements_sha256: str = "f" * 64,
                  **changes: Any) -> dict[str, Any]:
     """The envelope Slice 3 builds: GT hashes from the documents; video, export and trajectory hashes from the runs
     (paired by position, as ``associate`` receives them)."""
@@ -120,7 +121,7 @@ def envelope_for(documents: list[dict[str, Any]], runs: list[MaviRun], policy: p
                  "producer": attested, "exportSha256s": sorted(mavi_run.export_sha256 for mavi_run in runs),
                  "trajectorySha256s": sorted(set().union(*(mavi_run.trajectory_sha256s for mavi_run in runs)))},
         "tooling": {"adapterId": "synthetic", "adapterVersion": "1", "mappingSha256": mapping_sha256,
-                    "associationPolicySha256": policy.sha256, "requirementsSha256": "f" * 64, "runnerVersion": "1",
+                    "associationPolicySha256": policy.sha256, "requirementsSha256": requirements_sha256, "runnerVersion": "1",
                     "toolingCommit": "1" * 40, "toolingSha256": document_sha256(FILES),
                     "toolingFiles": copy.deepcopy(FILES)},
         "exposure": {"status": "none-known", "basis": "Synthetic."},
@@ -144,7 +145,7 @@ def one(document: dict[str, Any], mavi_run: MaviRun, **kwargs: Any) -> dict[str,
 
 
 def write_export(directory: Path, evidence_root: Path, tracks: list[dict[str, Any]], *, rate: tuple[int, int] = (5, 1),
-                 video: int = 1) -> Path:
+                 video: int = 1, profile_sha256: str | None = None, source_sha256: str | None = None) -> Path:
     """A schema-valid T1 export of one run plus its sealed trajectories under ``evidence_root``.
 
     Each track spec: ``{"n", "points", "observations" [(offset, box)], "objectClass", "subclass", "confidence"}``.
@@ -160,7 +161,11 @@ def write_export(directory: Path, evidence_root: Path, tracks: list[dict[str, An
     person = next(t for t in template["tracks"] if t["objectClass"] == "Person")
     asset, run_id = f"aaaaaaaa-0000-4000-8000-{video:012x}", f"bbbbbbbb-0000-4000-8000-{video:012x}"
     template["video"].update(videoAssetId=asset, frameRateNumerator=rate[0], frameRateDenominator=rate[1],
-                             sourceSha256=sha256_hex(f"video-{video}".encode()))
+                             sourceSha256=source_sha256 or sha256_hex(f"video-{video}".encode()))
+    if profile_sha256 is not None:  # another attested profile, and the subclass source that names it
+        template["processingRun"]["attestation"]["pipelineProfileSha256"] = profile_sha256
+        template["profile"]["pipelineProfileSha256"] = profile_sha256
+        vehicle["objectSubclassSource"] = f"detector-native:{profile_sha256}"
     template["processingRun"].update(videoAssetId=asset, processingRunId=run_id)
     template["processingRun"]["attestation"].update(videoAssetId=asset, processingRunId=run_id)
     period = Fraction(1000 * rate[1], rate[0])
@@ -186,8 +191,8 @@ def write_export(directory: Path, evidence_root: Path, tracks: list[dict[str, An
                    maxConfidence=confidence, trajectorySha256=sha, observations=observations,
                    representative=({"videoOffsetMs": observations[0]["videoOffsetMs"],
                                     "boundingBox": observations[0]["boundingBox"]} if observations else None))
-        if not is_person:
-            row["objectSubclass"] = spec.get("subclass", "car")
+        if not is_person:  # "subclass": None is an abstained vote (undetermined)
+            row["objectSubclass"] = spec["subclass"] if "subclass" in spec else "car"
         rows.append(row)
     template["tracks"] = rows
     directory.mkdir(parents=True, exist_ok=True)

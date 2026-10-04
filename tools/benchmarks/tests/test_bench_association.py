@@ -712,8 +712,8 @@ def _synthetic_benchmark(tmp_path, mutate: bool):
                     item["subclass"] = {"car": "bus", "truck": "motorcycle"}.get(item["subclass"], "truck")
                     item["confidence"] = 0.31
             for gt_track in document["tracks"]:
-                gt_track["nativeClass"] = {"car": "pedestrian", "truck": "bus", "pedestrian": "van",
-                                           "bus": "car", "van": "truck", "motorcycle": "car"}[gt_track["nativeClass"]]
+                gt_track["nativeClass"] = {"car": "pedestrian", "truck": "minibus", "pedestrian": "van",
+                                           "minibus": "car", "van": "truck", "motorcycle": "car"}[gt_track["nativeClass"]]
         path = f.write_export(tmp_path / f"run-{video}", tmp_path / "evidence", specs, video=video)
         export = next(iter(mavi.load_exports([path]).values()))
         runs.append(mt.project(export, tmp_path / "evidence"))

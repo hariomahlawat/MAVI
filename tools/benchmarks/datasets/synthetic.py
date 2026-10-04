@@ -29,16 +29,16 @@ RELEASE = "synthetic-v1"
 WIDTH, HEIGHT = 32, 18
 FPS = (5, 1)
 TAXONOMY = (
-    ("bus", "Bus", "Synthetic: a large passenger vehicle."),
     ("car", "Car", "Synthetic: a passenger car."),
+    ("minibus", "Minibus", "Synthetic: a small bus (a subset of the MAVI bus class)."),
     ("motorcycle", "Motorcycle", "Synthetic: a two-wheeled motor vehicle."),
     ("pedestrian", "Pedestrian", "Synthetic: a person on foot (not a Vehicle)."),
     ("truck", "Truck", "Synthetic: a goods vehicle."),
     ("van", "Van", "Synthetic: a van whose body type is not resolved."),
 )
 MAPPINGS = (
-    ("bus", "bus", "exact", None, "Synthetic definition coincides with the MAVI class."),
     ("car", "car", "exact", None, "Synthetic definition coincides with the MAVI class."),
+    ("minibus", "bus", "subset", None, "Every minibus is a bus; not every bus is a minibus."),
     ("motorcycle", "motorcycle", "exact", None, "Synthetic definition coincides with the MAVI class."),
     ("pedestrian", None, "unsupported", "outside-capability", "Not a Vehicle in MAVI's broad class."),
     ("truck", "truck", "exact", None, "Synthetic definition coincides with the MAVI class."),
@@ -50,7 +50,7 @@ SEQUENCES: dict[str, dict[str, tuple[int, tuple[tuple[Any, ...], ...]]]] = {
         "seq-a": (8, (("1", "car", 0, 7, 1, 2, 6, 4, 2, 0, ()),
                       ("2", "truck", 2, 7, 20, 10, 8, 5, -1, 0, ()),
                       ("3", "pedestrian", 0, 4, 28, 1, 2, 5, 0, 1, (3,)))),
-        "seq-b": (6, (("7", "bus", 0, 5, 2, 8, 10, 6, 3, 0, ()),
+        "seq-b": (6, (("7", "minibus", 0, 5, 2, 8, 10, 6, 3, 0, ()),
                       ("9", "van", 1, 5, 15, 3, 7, 5, 0, 1, ()),
                       ("11", "motorcycle", 0, 3, 25, 12, 3, 3, -2, 0, ()))),
     },
@@ -180,6 +180,12 @@ class SyntheticAdapter:
             if all(frame_path(split, sequence, row["index"]) in entries for row in labels["frames"]):
                 complete.append(sequence)
         return complete
+
+    def frame_paths(self, source_root: Path, entries: dict[str, dict[str, Any]], split: str,
+                    sequence: str) -> list[tuple[int, str]]:
+        """``(frameIndex, manifest path)`` of every labelled frame image, in index order (the derived video)."""
+        labels = self._labels(source_root, entries, split, sequence)
+        return [(row["index"], frame_path(split, sequence, row["index"])) for row in labels["frames"]]
 
     def _labels(self, source_root: Path, entries: dict[str, dict[str, Any]], split: str,
                 sequence: str) -> dict[str, Any]:

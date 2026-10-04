@@ -71,6 +71,9 @@ jobs:
           MAVI_REQUIRE_MEDIA_TESTS: '1'
         run: python -m pytest -q tools/stage3/tests
       - name: Test benchmark harness
+        # The synthetic end-to-end benchmark encodes MP4s with a pack built around this FFmpeg: run, never skip.
+        env:
+          MAVI_REQUIRE_MEDIA_TESTS: '1'
         run: python -m pytest -q tools/benchmarks/tests
 
   dotnet-tests:

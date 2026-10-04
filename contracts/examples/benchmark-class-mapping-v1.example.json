@@ -5,18 +5,18 @@
   "capability": "mavi-vehicle-subclass-v1",
   "mappings": [
     {
-      "nativeClass": "bus",
-      "maviClass": "bus",
-      "kind": "exact",
-      "reason": "Synthetic definition coincides with the MAVI class.",
-      "evaluation": "scored"
-    },
-    {
       "nativeClass": "car",
       "maviClass": "car",
       "kind": "exact",
       "reason": "Synthetic definition coincides with the MAVI class.",
       "evaluation": "scored"
+    },
+    {
+      "nativeClass": "minibus",
+      "maviClass": "bus",
+      "kind": "subset",
+      "reason": "Every minibus is a bus; not every bus is a minibus.",
+      "evaluation": "subset-conditional"
     },
     {
       "nativeClass": "motorcycle",

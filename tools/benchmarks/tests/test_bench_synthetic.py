@@ -94,7 +94,7 @@ def test_adapter_reads_only_verified_bytes(source, frozen):
     (lambda labels: labels["frames"][0]["objects"][0].update(box=[5, 5, 5, 9]), "adapter_label_invalid:seq-a:object"),
     (lambda labels: labels["frames"][0]["objects"][0].update(box=[0, 0, 40, 4]), "adapter_label_invalid:seq-a:object"),
     (lambda labels: labels["frames"][1].update(index=0), "adapter_label_invalid:seq-a:frame_order"),
-    (lambda labels: labels["frames"][5]["objects"][0].update(category="bus"),
+    (lambda labels: labels["frames"][5]["objects"][0].update(category="truck"),
      "adapter_label_invalid:seq-a:class_change"),
     (lambda labels: labels.update(width=64), "adapter_label_invalid:seq-a$"),
     (lambda labels: labels["frames"].__setitem__(2, None), "adapter_label_invalid:seq-a:frame$"),
