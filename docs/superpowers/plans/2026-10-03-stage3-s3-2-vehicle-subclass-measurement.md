@@ -5,7 +5,7 @@
 - S3.2b-1, T7–T9 tooling: implemented and merged (PRs #149–#150).
 - S3.2b-2, real corpus intake and derivation: complete (E rows; PRs #151–#154).
 - S3.2b-3, Development-host T9 execution: complete, F1–F6 PASS (PR #155).
-- S3.2c, T10: executed and measured (PRs #156–#158 and the T10 evidence; register G1–G8 PASS, G9 OPEN as an owner decision). A bounded real-domain Development cross-check; its evidence is immutable.
+- S3.2c, T10: executed and measured (PRs #156–#158 and the T10 evidence; register G1–G5, G7, G8 PASS; G6 OPEN with a recorded procedural deviation awaiting owner acceptance; G9 OPEN as an owner decision). A bounded real-domain Development cross-check; its evidence is immutable.
 - **S3.2d (T11): the current slice, benchmark-driven under ADR-017** (see the dated amendment in §14). H1 is justified by the pilot's support (truck 5, bus 7, motorcycle 0 evaluable, floor 30) and has not been undertaken.
 
 The rest of this plan is the design as accepted. Where it names a candidate corpus (CityFlow), the executed S3.2b event is the register's record.
@@ -964,6 +964,8 @@ The expansion decision, or the decision not to expand, is recorded in §20. S3.2
 - **S3.2d-2 — first exact-taxonomy benchmark.** Chosen after the survey in `docs/superpowers/plans/stage3-benchmark-capability-matrix.md` has verified availability, annotation semantics, task shape and the accessible release, and classified research-use status under ADR-017 §7. BDD100K box tracking is the leading candidate because it appears to carry the four MAVI classes; it is not a decision until verified.
 - **S3.2d-3 — domain-diversity benchmarks.** Additional datasets with partial or alternate taxonomies (fixed-camera traffic, aerial or drone, adverse conditions). A benchmark need not support every class; it contributes to the classes and domains it does support.
 - **S3.2d-4 — evidence-backed capability decision.** Per class and evidence domain, each class is benchmark-supported, Development-only, insufficiently supported or deferred. The capability does not wait for its weakest class, and no unsupported class is exposed to keep the taxonomy intact.
+
+The register carries one row per deliverable (H2–H5), and X1 requires all of them with G8 and G9, so a single benchmark run cannot unlock exposure.
 
 **Benchmark evaluation semantics.** A public-benchmark evaluation reports at least: GT tracks associated to MAVI Tracks; GT tracks unmatched by MAVI; MAVI Tracks unmatched to GT; ambiguous associations rejected; class confusion on valid associated tracks; track-association coverage; MAVI subclass resolved and undetermined coverage; per-class support; dataset and domain identity. Detector and tracker failures are never hidden by assuming every GT object has a MAVI Track. End-to-end detection and tracking performance and Track-conditional subclass classification are reported separately.
 

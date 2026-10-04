@@ -10,7 +10,7 @@
 
 ## Context
 
-Stage 3 measured the detector-native vehicle subclass through a manual path: a frozen public-video pool, blind human labelling of 120 Tracks, adjudication and a T6 measurement (register G1–G8). That pilot works and its evidence is valid. It also shows the cost of the path: one 120-Track pilot yielded 103 evaluable cars, 7 buses, 5 trucks and 0 motorcycles, so three of four classes sit below the pre-registered support floor of 30. Reaching that floor for every class by hand would take hundreds more labelled Tracks per expansion round, with the same reviewers, packs and freezes.
+Stage 3 measured the detector-native vehicle subclass through a manual path: a frozen public-video pool, blind human labelling of 120 Tracks, adjudication and a T6 measurement (register G rows). That pilot works and its evidence is valid. It also shows the cost of the path: one 120-Track pilot yielded 103 evaluable cars, 7 buses, 5 trucks and 0 motorcycles, so three of four classes sit below the pre-registered support floor of 30. Reaching that floor for every class by hand would take hundreds more labelled Tracks per expansion round, with the same reviewers, packs and freezes.
 
 Meanwhile the research community already publishes video datasets with per-frame boxes, track identities and vehicle class labels, under research-use terms. MAVI's own operating principles (4–6) already say to reuse proven datasets and benchmarks and to apply qualification-grade controls only where the claim needs them. What the repository lacked was a clear rule that makes benchmark reuse the default and manual annotation the justified exception, and a Development admissibility posture that does not block research use on imperfect licence wording.
 
@@ -66,7 +66,7 @@ This policy exists partly to accelerate Development. Weeks are not spent constru
 
 ## Consequences
 
-- **Historical evidence stands.** The Stage-3 T10 pilot (G1–G8) is a bounded real-domain Development cross-check that exercised the full MAVI, blind-label, adjudication and measurement path. It is kept unchanged and is not the mechanism for scaling Stage-3 evaluation.
+- **Historical evidence stands.** The Stage-3 T10 pilot (register G rows) is a bounded real-domain Development cross-check that exercised the full MAVI, blind-label, adjudication and measurement path. It is kept unchanged and is not the mechanism for scaling Stage-3 evaluation.
 - **Stage 3 next.** The roadmaps and the S3.2 plan direct S3.2d toward benchmark architecture and adapters, then real labelled benchmark execution, instead of a manual 300–500-Track expansion.
 - **Tooling gap, recorded not hidden.** The S2c source-acquisition helper (`tools/qualification/source_acquisition/admission.py`) rejects a file whose licence code carries NC or ND and holds an unknown licence pending; the S3.2 release machinery requires an R-5 `determination` before derivation. Both are stricter than §7 for research-benchmark Development use. They are not changed by this ADR. Benchmark intake under §7 needs its own executable adapter and provenance path (S3.2d-1), with tests, before any dataset is used; until then no tool is claimed to behave as §7 describes.
 - **No runtime change.** ADR-016 remains the detector-native source decision. The pipeline profile, vocabulary `mavi-vehicle-subclass-v1`, `minShare`, `minMatchedDetections`, stored subclass values and the absence of operator exposure are unchanged. Benchmark evidence may later justify a replacement source through its own ADR (ADR-016 §6).
