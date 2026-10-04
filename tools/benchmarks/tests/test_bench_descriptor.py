@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import os
 import shutil
 from fractions import Fraction
+from pathlib import Path
 
 import pytest
 
@@ -208,6 +210,36 @@ def test_symbolic_links_are_never_followed(source, frozen, tmp_path):
         pytest.skip("symbolic links are not available to this account")
     with refused("source_root_invalid:link.bin$"):
         d.reconcile(frozen, source)
+
+
+def test_an_unlistable_directory_is_a_refusal_not_a_silent_omission(source, frozen, monkeypatch):
+    import os
+
+    blocked = (source / "frames" / "val" / "seq-b").resolve()
+    real_scandir = os.scandir
+
+    def scandir(path="."):
+        if Path(os.fsdecode(path)).resolve() == blocked:
+            raise PermissionError(13, "Permission denied", os.fsdecode(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    with refused("source_root_invalid:frames/val/seq-b$"):
+        d.reconcile(frozen, source)
+    with refused("source_root_invalid:frames/val/seq-b$"):
+        d.manifest_entries(source)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0,
+                    reason="POSIX permissions only; root can list any directory")
+def test_a_really_unreadable_directory_is_refused(source, frozen):
+    directory = source / "frames" / "val" / "seq-a"
+    directory.chmod(0)
+    try:
+        with refused("source_root_invalid:frames/val/seq-a$"):
+            d.reconcile(frozen, source)
+    finally:
+        directory.chmod(0o755)
 
 
 def test_read_verified_rechecks_bytes_after_reconcile(source, frozen):

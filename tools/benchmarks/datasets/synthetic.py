@@ -187,6 +187,12 @@ class SyntheticAdapter:
         require(isinstance(labels, dict) and labels.get("sequence") == sequence
                 and labels.get("width") == WIDTH and labels.get("height") == HEIGHT
                 and isinstance(labels.get("frames"), list), f"adapter_label_invalid:{sequence}")
+        # Every nested record is checked here, so malformed labels are a refusal, never a KeyError or TypeError.
+        for row in labels["frames"]:
+            require(isinstance(row, dict) and type(row.get("index")) is int and row["index"] >= 0
+                    and isinstance(row.get("objects"), list)
+                    and all(isinstance(item, dict) for item in row["objects"]),
+                    f"adapter_label_invalid:{sequence}:frame")
         return labels
 
     def ground_truth(self, source_root: Path, entries: dict[str, dict[str, Any]], descriptor: dict[str, Any],

@@ -98,7 +98,15 @@ def source_files(source_root: Path) -> dict[str, Path]:
     root = Path(source_root)
     require(root.is_dir() and not _is_link(root), "source_root_invalid")
     files: dict[str, Path] = {}
-    for directory, subdirectories, names in os.walk(root, followlinks=False):
+
+    def unreadable(error: OSError) -> None:
+        # os.walk skips a directory it cannot list; a silently skipped subtree would let a manifest or a
+        # reconciliation pass while missing members, so any traversal error is a refusal.
+        where = Path(error.filename) if error.filename else root
+        relative = where.relative_to(root).as_posix() if where != root and where.is_relative_to(root) else "."
+        raise S32Error(f"source_root_invalid:{relative}") from error
+
+    for directory, subdirectories, names in os.walk(root, onerror=unreadable, followlinks=False):
         here = Path(directory)
         for name in subdirectories:
             require(not _is_link(here / name), f"source_root_invalid:{(here / name).relative_to(root).as_posix()}")

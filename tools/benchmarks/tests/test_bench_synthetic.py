@@ -96,6 +96,11 @@ def test_adapter_reads_only_verified_bytes(source, frozen):
     (lambda labels: labels["frames"][5]["objects"][0].update(category="bus"),
      "adapter_label_invalid:seq-a:class_change"),
     (lambda labels: labels.update(width=64), "adapter_label_invalid:seq-a$"),
+    (lambda labels: labels["frames"].__setitem__(2, None), "adapter_label_invalid:seq-a:frame$"),
+    (lambda labels: labels["frames"][2].pop("index"), "adapter_label_invalid:seq-a:frame$"),
+    (lambda labels: labels["frames"][2].update(index="2"), "adapter_label_invalid:seq-a:frame$"),
+    (lambda labels: labels["frames"][2].update(objects="car"), "adapter_label_invalid:seq-a:frame$"),
+    (lambda labels: labels["frames"][2]["objects"].append(None), "adapter_label_invalid:seq-a:frame$"),
 ])
 def test_malformed_labels_are_refused(tmp_path, edit, code):
     source = s.write_source(tmp_path / "source")
@@ -107,6 +112,18 @@ def test_malformed_labels_are_refused(tmp_path, edit, code):
     entries, adapter = prepared(source, frozen)
     with pytest.raises(S32Error, match=f"^{code}"):
         adapter.ground_truth(source, entries, frozen, "val", "seq-a")
+
+
+def test_malformed_nested_labels_are_refused_at_discovery_too(tmp_path):
+    source = s.write_source(tmp_path / "source")
+    path = source / s.annotation_path("val", "seq-a")
+    labels = json.loads(path.read_bytes())
+    labels["frames"][0] = None
+    path.write_bytes(canonical_json(labels))
+    frozen = d.freeze(s.descriptor(), source)
+    entries, adapter = prepared(source, frozen)
+    with pytest.raises(S32Error, match="^adapter_label_invalid:seq-a:frame$"):
+        datasets.discover(adapter, source, entries, "val")
 
 
 def test_labelled_frame_without_an_image_is_refused(tmp_path):
