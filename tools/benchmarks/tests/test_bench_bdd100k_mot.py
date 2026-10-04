@@ -226,6 +226,7 @@ def test_truncated_jpeg_headers_are_refused(data):
     (lambda d: d["nativeTaxonomy"].pop(), "nativeTaxonomy"),
     (lambda d: d["nativeTaxonomy"].append({"code": "scooter", "name": "Scooter", "definition": "Invented."}),
      "nativeTaxonomy"),
+    (lambda d: d["nativeTaxonomy"].__setitem__(0, dict(d["nativeTaxonomy"][1])), "nativeTaxonomy"),
 ])
 def test_descriptor_semantics_that_shape_ground_truth_are_bound(tmp_path, change, field):
     root, document, entries = frozen_source(tmp_path)
@@ -233,6 +234,14 @@ def test_descriptor_semantics_that_shape_ground_truth_are_bound(tmp_path, change
     change(altered)
     with pytest.raises(S32Error, match=f"^adapter_descriptor_mismatch:{field}$"):
         ADAPTER.ground_truth(root, entries, altered, "val", b.SEQ_A)
+
+
+def test_taxonomy_order_does_not_matter(tmp_path):
+    root, document, entries = frozen_source(tmp_path)
+    reordered = copy.deepcopy(document)
+    reordered["nativeTaxonomy"].reverse()
+    assert ADAPTER.ground_truth(root, entries, reordered, "val", b.SEQ_A) == ADAPTER.ground_truth(
+        root, entries, document, "val", b.SEQ_A)
 
 
 def test_definition_wording_does_not_change_ground_truth(tmp_path):

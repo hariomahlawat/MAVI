@@ -14,7 +14,7 @@ Sources, all read 2026-10-04: `format.rst` lists the eight box-tracking classes.
 | truck | `truck` exact | Core class. Pickup handling undocumented in BDD100K. | Retain. A tractor unit with its trailer stays one `truck`, as in the v1 guide. | Already done. |
 | bus | `bus` exact | Core class; visually distinct. | Retain. | Already done. |
 | motorcycle (raw `motor`) | `motorcycle` exact | Core class. Scooter handling undocumented. | Retain. | Already done. |
-| trailer | `vehicle-unresolved` (native class kept) | Operationally useful: towing, logistics and detached-trailer searches. Visually distinct, with no cab and no driver. BDD100K labels it as a named class. Additive: v1 labels a trailer-only Track `unknown`, so no other class changes meaning. | **New class `trailer`** in a v2, defined as towed equipment with no cab, tracked on its own. A tractor unit with a trailer stays `truck`. | No. It needs a detector that outputs trailers, so it belongs in a follow-up. |
+| trailer | `vehicle-unresolved` (native class kept) | Operationally useful: towing, logistics and detached-trailer searches. Visually distinct, with no cab and no driver. BDD100K labels it as a named class. Additive: v1 labels a trailer-only Track `unknown`, so no other class changes meaning. | **Leading candidate** for the next taxonomy version, defined as towed equipment with no cab, tracked on its own. A tractor unit with a trailer stays `truck`. | No. Measure support first; a detector that outputs trailers is also needed. |
 | van | `vehicle-unresolved` (native class kept; not folded into car) | Very common and frequently searched ("white van"). v1 splits vans by body into car or truck, the guide's largest source of `ambiguous-type`. A `van` class would cut ambiguity in both. BDD100K MOT gives little evidence: `van` is only a legacy raw alias that the official evaluation folds into `car`. UA-DETRAC, VisDrone and KITTI label van. | **Candidate class**, decided with evidence from datasets that label van. This would re-partition car and truck, so their v1 results would not stay comparable. | No. Decide after a van-labelled benchmark (H4 work). |
 | caravan | `vehicle-unresolved` | Mixes towed caravans and motorhomes; rare. | Stays unresolved. Under a v2, a towed caravan seen alone fits `trailer`; the native label cannot tell which. | No change. |
 | other vehicle | `vehicle-unresolved` | A heterogeneous catch-all. | Stays unresolved. No MAVI class mirrors it. | No change. |
@@ -24,15 +24,15 @@ Sources, all read 2026-10-04: `format.rst` lists the eight box-tracking classes.
 
 ## Recommendation
 
-**Smallest useful next taxonomy:** `mavi-vehicle-subclass-v2` = `car | truck | bus | motorcycle | trailer`. It is additive. The four v1 classes keep their meaning, so v1 pilot and benchmark results stay comparable for those classes. Only Tracks v1 recorded as trailer-only `unknown` change treatment.
+**Leading candidate for the next taxonomy version:** `trailer`, which would give `car | truck | bus | motorcycle | trailer`. It is not a selected production class. The decision depends on the labelled support in the acquired release, visual separability, detector feasibility and operational value. The change would be additive: the four v1 classes keep their meaning, so v1 pilot and benchmark results stay comparable for those classes, and only Tracks v1 recorded as trailer-only `unknown` change treatment. The approach is to preserve trailer evidence now, measure it, and then make the product decision from real support.
 
-**Van** is the strongest further candidate, but it re-partitions car and truck. Decide it on van-labelled evidence, not on BDD100K.
+**Van** is a further candidate on the same terms. It would re-partition car and truck, so it needs van-labelled evidence; BDD100K's tracking labels do not label van.
 
 **A version change is not warranted inside PR #164.** The current detector (RTMDet-m COCO) cannot output `trailer` or `van` (ADR-016 §2). A v2 vocabulary is therefore only meaningful together with a detector capability that emits it. The BDD100K adapter already preserves every native class in the prepared ground truth, so a v2 mapping can be scored on the same prepared data later.
 
-**H3 is not blocked.** Under v1, the trailer, van, caravan and other-vehicle classes are unjudgeable for class precision, because MAVI cannot emit them. That keeps the v1 measurement honest and uncorrupted.
+**H3 execution is not structurally blocked.** However, unresolved vehicle categories (trailer, van, caravan, other vehicle) may make individual class precision unavailable under the current evaluator: a MAVI class predicted on a `vehicle-unresolved` Track makes that class's precision `not-available`. Slice 5 must quantify their actual support and impact before H3 is relied upon for the later H5 capability decision.
 
-## Follow-up change if v2 is adopted
+## Follow-up change if a v2 is adopted
 
 One dedicated change, ADR first (an amendment to ADR-016, or a new ADR). It would touch:
 

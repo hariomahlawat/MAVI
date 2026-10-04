@@ -114,7 +114,7 @@ MAPPINGS = (
     ("rider", None, "unsupported", "outside-capability", "The person on a two-wheeler, not the vehicle."),
     ("trailer", None, "unsupported", "vehicle-unresolved",
      "No trailer class in mavi-vehicle-subclass-v1, which labels a trailer-only Track unknown; the native class "
-     "is preserved because trailer is the recommended additive class of a future v2 (taxonomy review)."),
+     "is preserved because trailer is the leading candidate for the next taxonomy version (taxonomy review)."),
     ("train", None, "unsupported", "outside-capability",
      "Rail vehicle, outside the four MAVI road-vehicle classes (harness plan section 12)."),
     ("truck", "truck", "exact", None,
@@ -299,8 +299,12 @@ class Bdd100kMotAdapter:
         reference = descriptor()
         for field in ("datasetId", "release", "task", "frameTime"):
             require(document.get(field) == reference[field], f"adapter_descriptor_mismatch:{field}")
+        # The native class set matters, not its presentation order: exactly these codes, none missing, extra or
+        # repeated.
         codes = [entry.get("code") for entry in document.get("nativeTaxonomy", [])]
-        require(codes == descriptors.native_classes(reference), "adapter_descriptor_mismatch:nativeTaxonomy")
+        expected = descriptors.native_classes(reference)
+        require(len(codes) == len(set(codes)) and sorted(codes) == sorted(expected),
+                "adapter_descriptor_mismatch:nativeTaxonomy")
 
     def ground_truth(self, source_root: Path, entries: dict[str, dict[str, Any]], descriptor: dict[str, Any],
                      split: str, sequence_id: str) -> dict[str, Any]:
