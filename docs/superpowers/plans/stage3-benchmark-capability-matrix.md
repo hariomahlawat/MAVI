@@ -1,16 +1,16 @@
 # Stage 3 — benchmark capability matrix (candidate labelled datasets)
 
-**Status:** current research and planning document for S3.2d (ADR-017; the two current roadmaps; the S3.2 plan §14 amendment). It records verified facts only. A field marked **TODO** has not been verified against the official source and must be verified before the dataset is used. Nothing here admits, acquires or downloads a dataset.
+**Status:** current research and planning document for S3.2d (ADR-017; the two current roadmaps; the S3.2 plan §14 amendment). It records verified facts only; a field marked **TODO** has not been verified. **Every field material to the intended benchmark use must be verified before execution; non-material unresolved fields may remain TODO** if they do not affect the validity, reproducibility, admissibility or interpretation of the measurement. Material fields normally include: exact dataset and release identity; actual accessibility; the usable labelled split; the annotation and task semantics MAVI uses; the native class definitions used for mapping; the mapping declarations; the intended research-use and admissibility status; source and provenance sufficient to identify the release; and known or plausible benchmark exposure where it is material to interpretation. Fields irrelevant to the chosen evaluation may stay TODO. This matrix is a working comparison, not a clearance checklist. Nothing here admits, acquires or downloads a dataset.
 
-**Purpose.** Compare candidate labelled video datasets as Development and benchmarking evidence for the detector-native vehicle subclass (`mavi-vehicle-subclass-v1` = `car | truck | bus | motorcycle`), and for later Stage-3 evidence domains. The comparison fields come first; dataset rows are filled only with facts read from official documentation, with the date and source of the check.
+**Purpose.** Compare candidate labelled video datasets as Development and benchmarking evidence for the detector-native vehicle subclass (`mavi-vehicle-subclass-v1` = `car | truck | bus | motorcycle`), and for later Stage-3 evidence domains. The comparison fields come first; dataset rows are filled only with facts read from an authoritative source (the official page where available, otherwise the dataset paper, the author's or institution's repository, a maintained project repository, a conference or challenge archive or a reputable archival source; ADR-017 §7 "Authoritative facts"), with the date and source of the check.
 
 ## Fields
 
 | Field | Meaning |
 |---|---|
 | Dataset / release | The exact edition and version that would be used. |
-| Official source | The publisher's page or documentation that the facts were read from. |
-| Accessible | Whether the data can actually be obtained today, and how it was checked. |
+| Source | The authoritative source the facts were read from: the official page or documentation where available, otherwise the paper, author or institution repository, maintained project repository, challenge archive or reputable archival source, with its uncertainty noted. |
+| Accessible | Whether the data can actually be obtained today, from where, and how it was checked. A reputable archival or research-hosted copy counts when the release identity can be established and no restriction prohibits the use (ADR-017 §7 "Sources and copies"); an anonymous or unverifiable mirror does not. |
 | Paid / free | Whether obtaining it requires payment or a licence purchase. |
 | Access mechanism | Direct download, registration, request form, institutional email, agreement. |
 | Native task | Detection, tracking (MOT), classification, attributes. |
@@ -26,6 +26,12 @@
 | Research-use status | ADR-017 §7: RESEARCH-ADMISSIBLE, RESEARCH-UNCERTAIN or BLOCKED, with the basis. |
 | Redistribution limits | What the terms say about redistributing the data or derived crops. |
 | Unresolved questions | What must be checked before use. |
+
+## Source rules that apply to every row
+
+- Prefer the original publisher or official project source for provenance and terms. When it is unavailable, a reputable author-maintained repository, institutional archive, research-hosted mirror, challenge archive or other lawfully obtainable source is acceptable if the dataset and release identity can be established and no explicit restriction prohibits the intended research use. Record where the copy came from, why it is credible, its release identity, hashes or manifest, and any uncertainty.
+- An original server that has gone offline does not make a dataset BLOCKED by itself. BLOCKED applies when no lawful copy with an establishable identity can be obtained, access is denied or paid and not purchased, access controls would have to be bypassed, or the terms prohibit the use.
+- This is Development benchmarking (ADR-017 §9); it makes no legal conclusion about any dataset.
 
 ## Mapping rules that apply to every row
 
@@ -44,7 +50,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Field | Value |
 |---|---|
 | Dataset / release | BDD100K, multi-object (box) tracking task. **TODO:** exact release version. |
-| Official source | Project repository `github.com/bdd100k/bdd100k` (read 2026-10-04): tasks include "multi-object detection tracking, multi-object segmentation tracking". The documentation site `doc.bdd100k.com` and `bdd-data.berkeley.edu` could not be reached from the Development machine on 2026-10-04 (DNS and certificate errors). |
+| Source | Project repository `github.com/bdd100k/bdd100k` (read 2026-10-04): tasks include "multi-object detection tracking, multi-object segmentation tracking". The documentation site `doc.bdd100k.com` and `bdd-data.berkeley.edu` could not be reached from the Development machine on 2026-10-04 (DNS and certificate errors). |
 | Accessible | **TODO** (download portal not reached). |
 | Paid / free | **TODO**. |
 | Access mechanism | **TODO** (believed to need an account on the download portal; unverified). |
@@ -56,7 +62,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Camera / domain | Moving dashcam, United States, varied weather and time of day (weak proxy for fixed CCTV; S3.2 plan §8 already notes this). |
 | Annotation structure | **TODO**. |
 | Usable split | **TODO** (training and validation labels are believed public; test labels believed withheld). |
-| Likely benchmark role | Leading candidate for the first exact-taxonomy benchmark (S3.2d-2), subject to verification. |
+| Likely benchmark role | Leading candidate for the primary benchmark measurement (S3.2d-2), subject to verification; not a structural prerequisite. |
 | Known / possible model exposure | **TODO.** RTMDet-m COCO is trained on COCO, not BDD100K, as far as the model card states; verify, and record any BDD100K use in MAVI's component history (none known). |
 | Research-use status | **TODO** (terms not reached). To be classified under ADR-017 §7 from the official licence text. |
 | Redistribution limits | **TODO**. |
@@ -67,8 +73,8 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Field | Value |
 |---|---|
 | Dataset / release | UA-DETRAC. |
-| Official source | The original site `detrac-db.rit.albany.edu` now redirects (301) to the University at Albany CVML lab page (read 2026-10-04), which describes the dataset: "10 hours of videos captured with a Cannon EOS 550D camera at 24 different locations at Beijing and Tianjin in China", over 140,000 frames at 25 fps, 960×540, 8,250 annotated vehicles and about 1.21 million boxes. |
-| Accessible | **Uncertain.** The lab page gives no download link. The dataset is widely mirrored, but a mirror is not the official source; **TODO:** find the official distribution or treat as not obtainable. |
+| Source | The original site `detrac-db.rit.albany.edu` now redirects (301) to the University at Albany CVML lab page (read 2026-10-04), which describes the dataset: "10 hours of videos captured with a Cannon EOS 550D camera at 24 different locations at Beijing and Tianjin in China", over 140,000 frames at 25 fps, 960×540, 8,250 annotated vehicles and about 1.21 million boxes. |
+| Accessible | **Uncertain.** The lab page gives no download link, so the original distribution appears unavailable. Under the source rules above, a reputable author-maintained, institutional, research-hosted or challenge-archive copy may be used if the release identity (version, file manifest or hashes) can be established and no restriction prohibits research use; an anonymous mirror may not. **TODO:** identify such a copy, record its origin, credibility basis, release identity and hashes. |
 | Paid / free | **TODO**. |
 | Access mechanism | **TODO**. |
 | Native task | Vehicle detection and multi-object tracking (lab page). |
@@ -81,7 +87,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Usable split | **TODO**. |
 | Likely benchmark role | Domain-diversity benchmark for fixed-camera traffic (S3.2d-3), car and bus only. |
 | Known / possible model exposure | **TODO**. |
-| Research-use status | **TODO**. If the official distribution is not obtainable, BLOCKED under ADR-017 §7 ("cannot actually be obtained"). |
+| Research-use status | **TODO.** Classified from the dataset's published terms (the paper and original release notes count as sources). BLOCKED only if no lawful copy with an establishable release identity can be obtained or the terms prohibit the use; the original server being offline is not by itself BLOCKED. |
 | Redistribution limits | **TODO**. |
 | Unresolved questions | Whether an official distribution still exists; class list; terms. |
 
@@ -90,7 +96,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Field | Value |
 |---|---|
 | Dataset / release | VisDrone-VID / VisDrone-MOT. |
-| Official source | `github.com/VisDrone/VisDrone-Dataset` (read 2026-10-04): "288 video clips formed by 261,908 frames and 10,209 static images, captured by various drone-mounted cameras", 14 Chinese cities, "more than 2.6 million bounding boxes", attributes including "scene visibility, object class and occlusion". Tasks: image detection, video detection, single-object tracking, multi-object tracking, crowd counting. |
+| Source | `github.com/VisDrone/VisDrone-Dataset` (read 2026-10-04): "288 video clips formed by 261,908 frames and 10,209 static images, captured by various drone-mounted cameras", 14 Chinese cities, "more than 2.6 million bounding boxes", attributes including "scene visibility, object class and occlusion". Tasks: image detection, video detection, single-object tracking, multi-object tracking, crowd counting. |
 | Accessible | Direct links (Google Drive and Baidu) on the repository page; **no login or agreement shown on that page**. |
 | Paid / free | Free (no fee stated). |
 | Access mechanism | Direct download links. |
@@ -113,7 +119,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Field | Value |
 |---|---|
 | Dataset / release | KITTI object tracking benchmark. |
-| Official source | `cvlibs.net/datasets/kitti/eval_tracking.php` (read 2026-10-04): "21 training sequences and 29 test sequences"; "8 different classes" labelled, with only "Car" and "Pedestrian" formally evaluated; downloads require login, and registration asks users to "detail their status, describe their work and specify the targeted venue". |
+| Source | `cvlibs.net/datasets/kitti/eval_tracking.php` (read 2026-10-04): "21 training sequences and 29 test sequences"; "8 different classes" labelled, with only "Car" and "Pedestrian" formally evaluated; downloads require login, and registration asks users to "detail their status, describe their work and specify the targeted venue". |
 | Accessible | Yes, after registration (official page). |
 | Paid / free | Free (no fee stated). |
 | Access mechanism | Account registration with stated purpose. |
@@ -136,7 +142,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Field | Value |
 |---|---|
 | Dataset / release | AI City Challenge datasets, including CityFlow (multi-camera vehicle tracking). |
-| Official source | `aicitychallenge.org/ai-city-challenge-dataset-access/` (read 2026-10-04): datasets are "available without requiring a data access request form. Password protection has been removed for all datasets listed below"; registration for the evaluation systems needs an "institutional or non-commercial email address". |
+| Source | `aicitychallenge.org/ai-city-challenge-dataset-access/` (read 2026-10-04): datasets are "available without requiring a data access request form. Password protection has been removed for all datasets listed below"; registration for the evaluation systems needs an "institutional or non-commercial email address". |
 | Accessible | Yes for the listed datasets, per the official page (2026-10-04). Earlier Stage-3 planning assumed a request form; that is no longer stated. |
 | Paid / free | Free (no fee stated). |
 | Access mechanism | Direct access for listed datasets; registration only for evaluation. |
@@ -156,7 +162,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 
 ## Next steps (S3.2d-1 inputs)
 
-1. Verify every **TODO** above against official sources and record the check date and page; classify each dataset's research-use status under ADR-017 §7 with its basis.
-2. Choose the first exact-taxonomy benchmark (S3.2d-2) only after the class list and definitions are confirmed against the labelling guide; BDD100K box tracking is the leading candidate, not a decision.
+1. Verify the **material** TODO fields for the datasets actually chosen (release identity, accessibility and source, usable split, annotation semantics, native class definitions, mappings, research-use status, exposure where material) against authoritative sources, recording the check date and source; non-material fields may stay TODO. Classify each chosen dataset's research-use status under ADR-017 §7 with its basis.
+2. Choose the primary benchmark (S3.2d-2) once the class definitions are confirmed against the labelling guide. Prefer an exact-coverage benchmark where reasonably available; otherwise the strongest benchmark or combination with explicit mappings. BDD100K box tracking is the leading candidate, not a decision and not a prerequisite.
 3. Record known or possible exposure of the qualified detector per dataset before any result is reported.
 4. Do not download, mirror or commit dataset bytes while completing this matrix.

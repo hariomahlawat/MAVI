@@ -59,6 +59,10 @@ Rules: research-use permission is sufficient for Development; non-commercial or 
 
 **Release-level by default.** For a public research benchmark whose terms and access conditions apply uniformly to the release, one dataset- or release-level provenance and admissibility record covers the selected release. Per-file rights or admissibility reviews are not required unless the source or terms materially vary by file (for example a collection assembled from individually licensed uploads). A normal benchmark record holds: dataset name; exact release or version; source; access mechanism; intended Development or research use; the ADR-017 status and its basis; the terms reference; the split identity; the release manifest or file hashes; and known-exposure notes. That record is normally sufficient; a 100,000-file release does not need 100,000 decisions. The per-file review path of ADR-015 §5 remains the procedure for frozen-qualification and operational-role sources, and for collections whose terms vary by file.
 
+**Sources and copies.** Prefer the original publisher or official project source for provenance and terms. If the original distribution is unavailable, a reputable author-maintained repository, institutional archive, research-hosted mirror, challenge archive or other lawfully obtainable source may be used when the dataset and release identity can be established and no explicit restriction prohibits the intended research use. Arbitrary anonymous or unverifiable mirrors are not used. For a non-original source, record where it was obtained, why it is considered a credible copy, the release identity or version, hashes or a manifest, and any uncertainty. This is Development benchmarking, not final qualification.
+
+**Authoritative facts.** Prefer authoritative primary sources for dataset facts. If the original project page is unavailable, acceptable evidence may come from the dataset paper, the author's or institution's repository, a maintained project repository, a conference or challenge archive, or a reputable archival source; record the source and the uncertainty. General web assertions are not treated as primary facts. Useful Development work is not blocked merely because a university page moved.
+
 ### 8. No silent benchmark contamination claims
 
 Public benchmark exposure is recorded honestly. A public benchmark score is Development or reference evidence. If a candidate model may have trained on the same benchmark or its source imagery, known or possible exposure is recorded with the result. A respected benchmark does not make a score independent final qualification.
@@ -73,9 +77,28 @@ This policy exists partly to accelerate Development. Weeks are not spent constru
 
 Development benchmarking uses the lightest evidence process appropriate to the claim (operating principle 6a): reproducibility, provenance, deterministic evaluation and honest limitations are required; Production qualification ceremony, frozen-holdout controls, human-independence controls and approval sequencing are not inherited unless the result is used for a Production qualification claim. Acceptance rows that record benchmark evidence (for Stage 3, register H2–H5) are evidence outcomes, not mandated PR boundaries or approval meetings; one implementation or one benchmark run may satisfy several of them.
 
-### 11. A reusable benchmark harness
+### 11. A reusable benchmark harness: shared envelope, capability-specific truth
 
-The benchmark framework is capability-neutral, with Stage-3 vehicle subclass as its first consumer. Its shape is: dataset release → dataset adapter → canonical ground truth → MAVI execution → association or alignment → capability evaluator → benchmark result and evidence. Adapters, the canonical ground-truth representation, association and provenance are shared; each capability (detection, tracking, vehicle subclass, person attributes, vehicle colour, ReID, ANPR/OCR, or others later) supplies its own evaluator. Nothing in the first implementation may preclude that reuse, and no single dataset is hard-coded as the only path. This ADR promises the direction, not the implementation of every evaluator.
+The benchmark framework is capability-neutral, with Stage-3 vehicle subclass as its first consumer. Its shape is:
+
+```
+dataset release
+    ↓
+dataset adapter
+    ↓
+shared benchmark envelope (identity, release, split, provenance/admissibility, mappings, exposure, MAVI execution identity, reproducibility)
+    + capability-specific canonical ground truth (for vehicle tracking/subclass: frame, box, track id, class)
+    ↓
+MAVI execution
+    ↓
+capability-specific association / alignment
+    ↓
+capability evaluator
+    ↓
+benchmark result + evidence
+```
+
+The shared harness owns the reusable concerns: dataset identity; exact release or version; split identity; provenance and admissibility (§7); access and source identity; class and capability mappings (§4); model and dataset exposure metadata (§8); MAVI execution identity; the result envelope; reproducibility metadata. There is **no universal ground-truth schema**: each capability owns only the smallest ground-truth and association contract it needs. For vehicle tracking and subclass that is frame, box, track id and class; attributes need object, Track or crop attribute truth; ReID needs a cross-camera identity relation; ANPR/OCR needs plate region, transcription and text semantics. Those schemas are designed when their capability needs them, not now. Nothing in the first implementation may preclude that reuse, and no single dataset is hard-coded as the only path. This ADR promises the direction, not the implementation of every evaluator.
 
 ## Consequences
 

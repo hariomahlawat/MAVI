@@ -95,6 +95,8 @@ These are architecture inputs, not implementation inconveniences to work around.
 
 ## 5. Governing architecture decisions
 
+> **Prospective note (2026-10-04).** ADR-015 and ADR-017 govern Stage-2 Development data strategy from this date. Established labelled public and research datasets and benchmarks are preferred for Development and component evaluation before creating new labels; a significant annotation campaign is a fallback only for a demonstrated gap accepted by the owner, while small diagnostic labelling needs only a technical rationale. Dataset admissibility is recorded per release by default (ADR-017 §7). The frozen final-qualification requirements of `docs/qualification/2026-09-23-visual-attributes-qualification-plan.md` and ADR-015 §3–§4 are unchanged. The rest of this plan is unchanged.
+
 Stage 2 is governed by:
 
 1. **ADR-013** — raw Track Evidence Set, derived-attribute lifecycle, process/failure isolation, evidence-read boundary, persistence semantics, search identity, qualification-as-architecture.

@@ -3,6 +3,7 @@
 **Status:** Accepted pre-implementation qualification protocol — numeric gates/support remain deliberately deferred to validation evidence as specified below  
 **Date:** 2026-09-23  
 **Purpose:** Predeclare the evidence, data-splitting, quality, performance, offline and requalification rules before model selection or threshold tuning can bias acceptance.
+**Scope note (2026-10-04):** ADR-017 governs Development and component benchmark strategy (benchmark reuse before new labels, release-level admissibility, the lightest process appropriate to a Development claim). It does not replace the frozen final-qualification requirements of this plan or ADR-015 §3–§4, which remain in force.
 
 ## 1. Principle
 
