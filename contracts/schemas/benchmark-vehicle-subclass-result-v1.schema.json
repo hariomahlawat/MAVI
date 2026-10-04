@@ -198,7 +198,10 @@
               "expectedVehicleGt",
               "outsideCapabilityGt",
               "ignoredGt",
-              "maviTracks"
+              "maviTracks",
+              "associationRate",
+              "coverageLimitedGtRate",
+              "maviUnverifiedRate"
             ],
             "properties": {
               "sequenceId": {
@@ -219,6 +222,15 @@
               },
               "maviTracks": {
                 "$ref": "#/$defs/maviCounts"
+              },
+              "associationRate": {
+                "$ref": "#/$defs/fraction"
+              },
+              "coverageLimitedGtRate": {
+                "$ref": "#/$defs/fraction"
+              },
+              "maviUnverifiedRate": {
+                "$ref": "#/$defs/fraction"
               }
             }
           },
@@ -235,7 +247,9 @@
         "confusion",
         "subsetBlocks",
         "excluded",
-        "macro"
+        "macro",
+        "overall",
+        "taxonomyCoverage"
       ],
       "properties": {
         "scope": {
@@ -515,6 +529,55 @@
               ]
             }
           }
+        },
+        "overall": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Assigned exact-GT pairs only: evaluable = all of them; resolved = those not undetermined.",
+          "required": [
+            "assignedExact",
+            "correct",
+            "resolved",
+            "undetermined",
+            "accuracyOverEvaluable",
+            "accuracyOverResolved",
+            "undeterminedShare"
+          ],
+          "properties": {
+            "assignedExact": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "correct": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "resolved": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "undetermined": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "accuracyOverEvaluable": {
+              "$ref": "#/$defs/fraction"
+            },
+            "accuracyOverResolved": {
+              "$ref": "#/$defs/fraction"
+            },
+            "undeterminedShare": {
+              "$ref": "#/$defs/fraction"
+            }
+          }
+        },
+        "taxonomyCoverage": {
+          "enum": [
+            "full",
+            "partial",
+            "none"
+          ],
+          "description": "Derived from the mapping: how many of the four MAVI classes have an exact native class."
         }
       }
     }
@@ -1080,7 +1143,8 @@
         "precision",
         "undeterminedShare",
         "accuracyOverResolved",
-        "accuracyOverEvaluable"
+        "accuracyOverEvaluable",
+        "requirementStatus"
       ],
       "properties": {
         "maviClass": {
@@ -1189,6 +1253,35 @@
         },
         "accuracyOverEvaluable": {
           "$ref": "#/$defs/fraction"
+        },
+        "requirementStatus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "precision",
+            "recall"
+          ],
+          "description": "Per criterion, in this order: not-in-dataset (no exact native class); insufficient-support (assigned exact-class support below the registered floor); no-requirement (the registered operational minimum is null); else meets / does-not-meet by exact comparison (run_subclass_measurement.status).",
+          "properties": {
+            "precision": {
+              "enum": [
+                "not-in-dataset",
+                "insufficient-support",
+                "no-requirement",
+                "meets",
+                "does-not-meet"
+              ]
+            },
+            "recall": {
+              "enum": [
+                "not-in-dataset",
+                "insufficient-support",
+                "no-requirement",
+                "meets",
+                "does-not-meet"
+              ]
+            }
+          }
         }
       }
     }

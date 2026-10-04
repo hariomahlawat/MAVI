@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The benchmark harness command line (S3.2d-1 plan §11). Windows-first; refusals print ``refused <code>``.
 
-Slice 1 provides ``describe`` only:
+Commands (``execute``, which drives a real MAVI host, arrives with the first real benchmark run):
 
     python -m tools.benchmarks.cli describe --descriptor <release.json> [--mapping <mapping.json>]
         validates the descriptor (and the mapping against its taxonomy), prints its status and access
@@ -11,7 +11,15 @@ Slice 1 provides ``describe`` only:
         computes the source manifest (every file: path, size, SHA-256) into a descriptor whose manifest is
         empty, writes the frozen descriptor once and prints its SHA-256. Mandatory after acquisition.
 
-``prepare``, ``execute`` and ``evaluate`` arrive with the slices that implement them.
+    python -m tools.benchmarks.cli prepare --descriptor <frozen.json> --source-root <dir> --split <name>
+            --adapter <id> --media-tools <ffmpeg pack> --out <new derived dir>
+        reconciles the whole manifest, writes canonical ground truth and the derived MP4s, prints the derivation
+        manifest's SHA-256.
+    python -m tools.benchmarks.cli evaluate --descriptor <frozen.json> --derived <dir> --exports <dir>
+            --evidence-root <dir> --mapping <mapping.json> --policy <policy.json> --requirements <file>
+            --pipeline-profile <file> --out <results root>
+        association, then evaluation and the report, written once to <results root>/<benchmarkRunId>; prints the
+        run id.
 """
 
 from __future__ import annotations
@@ -57,6 +65,24 @@ def describe(args: argparse.Namespace) -> str:
     return "\n".join(lines)
 
 
+def prepare(args: argparse.Namespace) -> str:
+    from tools.benchmarks import prepare as preparation
+
+    return preparation.prepare(descriptor_path=args.descriptor, source_root=args.source_root, split=args.split,
+                               adapter_id=args.adapter, media_tools_dir=args.media_tools, out=args.out)
+
+
+def evaluate(args: argparse.Namespace) -> str:
+    from tools.benchmarks import run
+
+    return run.evaluate(descriptor_path=args.descriptor, derived=args.derived, exports_dir=args.exports,
+                        evidence_root=args.evidence_root, mapping_path=args.mapping, policy_path=args.policy,
+                        requirements_path=args.requirements, profile_path=args.pipeline_profile, out=args.out)
+
+
+COMMANDS = {"describe": describe, "prepare": prepare, "evaluate": evaluate}
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="tools.benchmarks.cli", description=__doc__.splitlines()[0])
     commands = p.add_subparsers(dest="command", required=True)
@@ -66,13 +92,22 @@ def parser() -> argparse.ArgumentParser:
     d.add_argument("--freeze-manifest", action="store_true")
     d.add_argument("--source-root", type=Path)
     d.add_argument("--out", type=Path)
+    pr = commands.add_parser("prepare", help="reconcile, write canonical ground truth and derived MP4s")
+    for name in ("--descriptor", "--source-root", "--media-tools", "--out"):
+        pr.add_argument(name, type=Path, required=True)
+    pr.add_argument("--split", required=True)
+    pr.add_argument("--adapter", required=True)
+    ev = commands.add_parser("evaluate", help="associate, evaluate and report one prepared benchmark run")
+    for name in ("--descriptor", "--derived", "--exports", "--evidence-root", "--mapping", "--policy",
+                 "--requirements", "--pipeline-profile", "--out"):
+        ev.add_argument(name, type=Path, required=True)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        output = describe(args)
+        output = COMMANDS[args.command](args)
     except S32Error as exc:
         print(f"refused {exc}", file=sys.stderr)
         return 2

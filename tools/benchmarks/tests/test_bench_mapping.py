@@ -22,7 +22,8 @@ def row(mapping: dict, native: str) -> dict:
 def test_synthetic_mapping_covers_every_kind():
     mapping = m.check(s.mapping())
     kinds = {(r["kind"], r.get("unsupportedKind")) for r in mapping["mappings"]}
-    assert kinds == {("exact", None), ("unsupported", "outside-capability"), ("unsupported", "vehicle-unresolved")}
+    assert kinds == {("exact", None), ("subset", None), ("unsupported", "outside-capability"),
+                     ("unsupported", "vehicle-unresolved")}
 
 
 def test_subset_mapping_is_valid():

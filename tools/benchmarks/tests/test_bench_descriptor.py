@@ -22,7 +22,7 @@ def refused(code: str):
 def test_synthetic_descriptor_is_valid_and_unfrozen():
     document = s.descriptor()
     assert document["manifest"]["entries"] == []
-    assert d.native_classes(document) == ["bus", "car", "motorcycle", "pedestrian", "truck", "van"]
+    assert d.native_classes(document) == ["car", "minibus", "motorcycle", "pedestrian", "truck", "van"]
     assert d.split(document, "val")["labelled"] is True
 
 

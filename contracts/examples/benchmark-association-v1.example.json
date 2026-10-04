@@ -1,12 +1,12 @@
 {
   "schemaVersion": "benchmark-association-v1",
   "envelope": {
-    "benchmarkRunId": "ae8a236dd2dfbcdf5ad683eafb7b84a81af4c71e5df7d75ab7ea8c34e546aef3",
+    "benchmarkRunId": "5385aaf8a89f6da8d0a401afb1e25fb064925d4e691739c568cc24492c6dddcf",
     "dataset": {
       "datasetId": "synthetic-vehicles",
       "release": "synthetic-v1",
       "split": "val",
-      "descriptorSha256": "2d6413a34f4bd10e8e75f1d4293bd29362ad38c489089059c901e5f0044989a1"
+      "descriptorSha256": "054d21e9d63b6da6021e8155ce3e8c21d8de6a6ddd662a515667d4f240e4b72a"
     },
     "sequences": [
       {
@@ -17,7 +17,7 @@
       {
         "sequenceId": "seq-b",
         "derivedVideoSha256": "5555555555555555555555555555555555555555555555555555555555555555",
-        "groundTruthSha256": "a000de5becbc23bba28e4a137c20acf148de7f654465053954c22f02a9207816"
+        "groundTruthSha256": "0e6530ffe5a685b82a54242c0484110bc4109cb6d49343b5a4d3fb9ace895502"
       }
     ],
     "derivationManifestSha256": "6666666666666666666666666666666666666666666666666666666666666666",
@@ -71,7 +71,7 @@
     "tooling": {
       "adapterId": "synthetic",
       "adapterVersion": "1",
-      "mappingSha256": "51495930d886a798f389e849d87d350178203250436e1c7a1e5be6e9353b8db6",
+      "mappingSha256": "2015bea1b1308832159c11b8e40e49d8ab6a801195fe6c6e3dfe5c34b0445a37",
       "associationPolicySha256": "a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05",
       "requirementsSha256": "ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75",
       "runnerVersion": "1",
