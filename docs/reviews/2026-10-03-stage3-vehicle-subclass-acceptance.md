@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot executed and measured (G1–G8 PASS; G9 OPEN, owner decision); S3.2d OPEN (H1 justified, not undertaken). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot executed and measured (G1–G8 PASS; G9 OPEN, owner decision); S3.2d is the current slice, benchmark-driven under ADR-017 (H1 justified, not undertaken). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -213,7 +213,7 @@ Executed 2026-10-04 on `main@49a5566d78c91e2a1d99fd7a62b13b76401adead`, with eve
 
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
-| H1 | Expansion undertaken only if the pilot evidence justifies it (continuation or supplemental), otherwise recorded NOT TRIGGERED | OPEN (conditional) — justified | On the G8 evidence, two of the plan §14 triggers hold: an important class is below the minimum support (truck 5, bus 7, motorcycle 0, each < 30), and support is too small for per-class conclusions. Expansion is therefore justified; it has not been undertaken, and its mechanism is decided separately (see the S3.2d note below). |
+| H1 | Expansion undertaken only if the pilot evidence justifies it (continuation or supplemental), otherwise recorded NOT TRIGGERED | OPEN (conditional) — justified | On the G8 evidence, two of the plan §14 triggers hold: an important class is below the minimum support (truck 5, bus 7, motorcycle 0, each < 30), and support is too small for per-class conclusions. Expansion is therefore justified; it has not been undertaken. **Mechanism (owner decision 2026-10-04, ADR-017):** expansion is benchmark-driven, through S3.2d-1 to S3.2d-4 in the amended plan §14, against established labelled tracking benchmarks with explicit per-class mappings. The manual `continuation`/`supplemental` path of the pilot design remains available only as a documented-gap fallback. H1 closes when a benchmark expansion measurement is recorded here (dataset identity, research-use status, mappings, association coverage, exposure caveats), or when expansion is recorded NOT TRIGGERED. |
 
 ## X. Operator exposure
 

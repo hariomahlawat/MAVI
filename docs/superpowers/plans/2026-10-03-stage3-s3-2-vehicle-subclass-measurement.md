@@ -5,8 +5,8 @@
 - S3.2b-1, T7–T9 tooling: implemented and merged (PRs #149–#150).
 - S3.2b-2, real corpus intake and derivation: complete (E rows; PRs #151–#154).
 - S3.2b-3, Development-host T9 execution: complete, F1–F6 PASS (PR #155).
-- **S3.2c, T10: the current slice.** It is pre-registered (PRs #156–#157; G1–G3 PASS). The pilot sample is drawn and verified (G4 PASS, 2026-10-04), and the primary and overlap packs are built for human labelling. G5–G9 are OPEN.
-- S3.2d (T11), conditional, has not started.
+- S3.2c, T10: executed and measured (PRs #156–#158 and the T10 evidence; register G1–G8 PASS, G9 OPEN as an owner decision). A bounded real-domain Development cross-check; its evidence is immutable.
+- **S3.2d (T11): the current slice, benchmark-driven under ADR-017** (see the dated amendment in §14). H1 is justified by the pilot's support (truck 5, bus 7, motorcycle 0 evaluable, floor 30) and has not been undertaken.
 
 The rest of this plan is the design as accepted. Where it names a candidate corpus (CityFlow), the executed S3.2b event is the register's record.
 **Baseline:** originally `main@d7508201b217261bed9979390ebfaa0bf61b8e18` (PR #145, S3.1); S3.2b amendment against `main@8fd15857`.
@@ -77,7 +77,8 @@ public release ──T7 verify/record──▶ release record (+R-5) ──T8 de
 | **S3.2b-2 — corpus intake and derivation** | T7, T8 real | – | Yes | **Yes** | – | – |
 | **S3.2b-3 — Development-host execution** | T9 | – | Yes (T8 outputs) | (done in b-2) | **Yes** | – |
 | **S3.2c — pilot** | T10 | – | Yes | (done in b) | – | **Yes** |
-| **S3.2d — expansion** | T11 (conditional) | – | Yes | – | maybe | **Yes** |
+| **S3.2d — expansion** (as planned 2026-10-03) | T11 (conditional) | – | Yes | – | maybe | **Yes** |
+| **S3.2d — benchmark-driven evaluation** (amendment 2026-10-04, §14; ADR-017) | S3.2d-1 framework, S3.2d-2 exact-taxonomy benchmark, S3.2d-3 domain diversity, S3.2d-4 capability decision | S3.2d-1 **Yes** | public labelled benchmarks | research-use status per ADR-017 §7 | yes, for benchmark runs | **No** (benchmark labels; manual only for a documented gap) |
 
 **Gates (fail-closed; each slice waits only on its own row).**
 
@@ -829,12 +830,12 @@ Run in order (register rows in brackets):
 5. Freeze both label sets. Then, where the overlap has disagreements T5 does not carry, the designated adjudicator (§10) adjudicates. The designation is recorded first, and the adjudicator sees no prediction or confidence until the adjudication is frozen [G6, G7].
 6. Measure and compare (T6) [G8].
 7. **Threshold freeze decision (ADR-016 §3)** [G9], taken on the frozen measurement and not before. Either the measured profile's values are frozen as they are (`minShare` 0.6, `minMatchedDetections` 3, profile `1.3.0-candidate`). Or any proposed change becomes a new, separately versioned profile with its own Development tuning and evaluation path (§13, "No tuning in S3.2"), and needs a new measurement; it never alters this pilot or its record.
-8. **Expansion decision** [H1], taken on the frozen measurement and not before. T11 is triggered when §14 justifies it, declared `continuation` or `supplemental` before sampling. Otherwise expansion is recorded NOT TRIGGERED.
+8. **Expansion decision** [H1], taken on the frozen measurement and not before. T11 is triggered when §14 justifies it. From 2026-10-04 the mechanism is benchmark-driven (§14 amendment, ADR-017); a manual batch is a documented-gap fallback, declared `continuation` or `supplemental` before sampling. Otherwise expansion is recorded NOT TRIGGERED.
 9. Record the evidence in the register (§20).
 
-### T11 — Expansion (S3.2d; conditional; ⚠ human)
+### T11 — Expansion (S3.2d; conditional)
 
-See §14. The expansion is declared `continuation` or `supplemental` before its sample is drawn, and the pilot's measurement record is never edited.
+See §14, including its 2026-10-04 amendment. From that date, S3.2d is benchmark-driven (S3.2d-1 to S3.2d-4). A manual batch, if a documented benchmark gap ever justifies one, is still declared `continuation` or `supplemental` before its sample is drawn. The pilot's measurement record is never edited.
 
 ## 7. Testing strategy
 
@@ -957,6 +958,17 @@ Either way it produces new artefacts and a new measurement record. **The pilot m
 
 The expansion decision, or the decision not to expand, is recorded in §20. S3.2 may finish after the pilot.
 
+**Amendment 2026-10-04 (prospective; ADR-017; the pilot design above is historical and unchanged).** The pilot's frozen measurement (register G8) shows evaluable support car 103, bus 7, truck 5, motorcycle 0 against the floor of 30, so the triggers above hold and expansion is justified (H1). **Manual expansion toward 300–500 labelled Tracks is no longer the default mechanism.** Future expansion is benchmark-driven:
+
+- **S3.2d-1 — benchmark framework and tooling** (plan, then implement): a benchmark dataset descriptor and adapter contract; a native-label mapping contract that declares, per native class, the MAVI class or capability, the mapping kind (`exact`, `subset`, `unsupported`) and the reason; a ground-truth Track representation built from the dataset's own per-frame boxes and track identities; a deterministic, prediction-independent GT↔MAVI Track association (frame and time overlap, IoU across overlapping frames, temporal continuity, one-to-one matching, association support and purity); ambiguity and unmatched reporting in both directions; dataset and result provenance; benchmark split identity; known-exposure metadata; deterministic tests. Contracts get schemas and examples under `contracts/`, validated by `verify_repo`.
+- **S3.2d-2 — first exact-taxonomy benchmark.** Chosen after the survey in `docs/superpowers/plans/stage3-benchmark-capability-matrix.md` has verified availability, annotation semantics, task shape and the accessible release, and classified research-use status under ADR-017 §7. BDD100K box tracking is the leading candidate because it appears to carry the four MAVI classes; it is not a decision until verified.
+- **S3.2d-3 — domain-diversity benchmarks.** Additional datasets with partial or alternate taxonomies (fixed-camera traffic, aerial or drone, adverse conditions). A benchmark need not support every class; it contributes to the classes and domains it does support.
+- **S3.2d-4 — evidence-backed capability decision.** Per class and evidence domain, each class is benchmark-supported, Development-only, insufficiently supported or deferred. The capability does not wait for its weakest class, and no unsupported class is exposed to keep the taxonomy intact.
+
+**Benchmark evaluation semantics.** A public-benchmark evaluation reports at least: GT tracks associated to MAVI Tracks; GT tracks unmatched by MAVI; MAVI Tracks unmatched to GT; ambiguous associations rejected; class confusion on valid associated tracks; track-association coverage; MAVI subclass resolved and undetermined coverage; per-class support; dataset and domain identity. Detector and tracker failures are never hidden by assuming every GT object has a MAVI Track. End-to-end detection and tracking performance and Track-conditional subclass classification are reported separately.
+
+**What the amendment does not change.** The pilot record, its artefacts and hashes; the T3–T6 tooling and its semantics for any manual batch that a documented benchmark gap may still justify (the `continuation` and `supplemental` designs above remain the rule for such a batch); the requirements (`ca28702f…`), the guide (`c5f8be38…`), the profile, the vocabulary, `minShare`, `minMatchedDetections` and ADR-016. Public benchmark results are Development or reference evidence, with exposure and domain caveats recorded (ADR-017 §8), never Production qualification.
+
 **Decision directions** the evidence informs; none is encoded in tooling:
 - detector-native looks adequate for continued Stage-3 work;
 - the evidence is insufficient and more data is needed;
@@ -1064,12 +1076,12 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
    - the FFmpeg/ffprobe pack identity bound by T7/T8 (the T9 host's native-media pack is a host precondition, not recorded provenance);
    - the T1 export hashes, all attesting one producer identity and the measured profile across the pilot pool.
 3. **A committed requirements file,** bound by hash and commit into every sample, and matched by the runner.
-4. **A recorded pilot.** Every input hash recorded (release, derivations, exports, sample, packs, label sets, adjudication, requirements, labelling guide, result) and the T9 sample-verifier result, plus:
+4. **A recorded pilot** (done: register G1–G8). Every input hash recorded (release, derivations, exports, sample, packs, label sets, adjudication, requirements, labelling guide, result) and the T9 sample-verifier result, plus:
    - the requirement-comparison table;
    - support per class, with insufficient-support classes named;
    - reviewer agreement;
    - a single attested producer identity and profile hash.
-5. **A recorded expansion decision,** with an expansion measurement if one is undertaken.
+5. **A recorded expansion decision,** with an expansion measurement if one is undertaken. Under the §14 amendment, expansion evidence comes from benchmark execution (S3.2d), recorded in the register's H row with dataset identity, mapping declarations, association coverage and exposure caveats.
 6. **Nothing exposed or added:** no API, search, UI, Production, classifier or tuning change.
 
 *Evidence record (filled during S3.2c/d): artefact hashes, the summary tables and the decisions go here. Data stays outside Git.*
