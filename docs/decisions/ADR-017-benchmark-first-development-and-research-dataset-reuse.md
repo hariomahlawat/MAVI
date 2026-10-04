@@ -16,7 +16,7 @@ Meanwhile the research community already publishes video datasets with per-frame
 
 ## Decision
 
-> **Capability follows validated evidence where practical.** For MAVI Development, component evaluation and research benchmarking, established labelled public and research datasets and benchmarks are the default evidence source. Manual annotation is a documented last-mile option for a demonstrated benchmark gap, not a prerequisite. Dataset-native taxonomies are respected and mapped explicitly; capability scope may follow what strong external evidence validates. Research-accessible data is admissible for Development on a research-forward, not licence-disregarding, posture. Final protected qualification stays separate.
+> **Capability follows validated evidence where practical.** For MAVI Development, component evaluation and research benchmarking, established labelled public and research datasets and benchmarks are the default evidence source. A significant annotation campaign is a documented last-mile option for a demonstrated benchmark gap, not a prerequisite; small diagnostic labelling needs only a technical rationale. Dataset-native taxonomies are respected and mapped explicitly; capability scope may follow what strong external evidence validates. Research-accessible data is admissible for Development on a research-forward, not licence-disregarding, posture. Final protected qualification stays separate.
 
 ### 1. Benchmark-first principle
 
