@@ -18,8 +18,9 @@ Facts used, with their sources (all read 2026-10-04; the capability matrix recor
 - Box tracking evaluates eight classes (``format.rst``). The official evaluation also names three distractor classes,
   ``other person``, ``other vehicle`` and ``trailer`` (``evaluate.rst``), and the official config
   ``bdd100k/configs/box_track.toml`` folds the raw names ``bike, caravan, motor, person, van`` into the eight. The
-  adapter applies that official alias table and keeps the distractors as native classes; any other category is
-  refused, because its class meaning is unknown.
+  adapter applies the three pure synonyms (``bike``, ``motor``, ``person``) and keeps ``van`` and ``caravan`` as their
+  own native classes: MAVI splits vans by body into car or truck, so folding them into ``car`` would lose meaning.
+  The distractors are native classes too; any other category is refused, because its class meaning is unknown.
 - ``box2d`` includes the pixel at ``x2, y2``: width ``x2 - x1 + 1`` (Scalabel; ``format.rst``). Official labels reach
   ``x2 = image width`` at the right edge (the official Scalabel sample), so the inclusive extent is clipped to the
   image before normalisation: a sub-pixel effect on edge boxes. A box with no area left inside the image is refused.
@@ -62,8 +63,9 @@ NO_DEFINITION = ("BDD100K publishes no written definition in its repository docu
 TAXONOMY = (
     ("bicycle", "bicycle", "Bicycle", f"BDD100K box-tracking category 'bicycle'. {NO_DEFINITION}"),
     ("bus", "bus", "Bus", f"BDD100K box-tracking category 'bus'. {NO_DEFINITION}"),
-    ("car", "car", "Car", f"BDD100K box-tracking category 'car'; the official box_track config folds the raw "
-                          f"names 'van' and 'caravan' into it. {NO_DEFINITION}"),
+    ("car", "car", "Car", f"BDD100K box-tracking category 'car'. {NO_DEFINITION}"),
+    ("caravan", "caravan", "Caravan", "BDD100K raw category 'caravan' (the official box_track config folds it into "
+                                      "'car'; kept separate here)."),
     ("motorcycle", "motorcycle", "Motorcycle", f"BDD100K box-tracking category 'motorcycle'; the official config "
                                                f"folds the raw name 'motor' into it. {NO_DEFINITION}"),
     ("other-person", "other person", "Other person", "BDD100K distractor category 'other person' (evaluate.rst: "
@@ -77,9 +79,12 @@ TAXONOMY = (
                                       "official scoring)."),
     ("train", "train", "Train", f"BDD100K box-tracking category 'train'. {NO_DEFINITION}"),
     ("truck", "truck", "Truck", f"BDD100K box-tracking category 'truck'. {NO_DEFINITION}"),
+    ("van", "van", "Van", "BDD100K raw category 'van' (the official box_track config folds it into 'car'; kept "
+                          "separate here)."),
 )
-# Official raw-name aliases (bdd100k/configs/box_track.toml [name_mapping]).
-ALIASES = {"bike": "bicycle", "caravan": "car", "motor": "motorcycle", "person": "pedestrian", "van": "car"}
+# The synonym part of the official raw-name aliases (bdd100k/configs/box_track.toml [name_mapping]); its
+# 'van' and 'caravan' -> 'car' entries are not applied, because they would merge classes MAVI distinguishes.
+ALIASES = {"bike": "bicycle", "motor": "motorcycle", "person": "pedestrian"}
 CATEGORIES = {raw: code for code, raw, _, _ in TAXONOMY} | ALIASES
 # Practical (operational-compatibility) mapping; differences are caveats, recorded in the reasons.
 MAPPINGS = (
@@ -89,9 +94,11 @@ MAPPINGS = (
      "Same practical meaning: passenger buses and coaches. Caveat: the minibus boundary is not documented by "
      "BDD100K."),
     ("car", "car", "exact", None,
-     "Same practical meaning: passenger cars. Caveat: the official config folds raw 'van' and 'caravan' into "
-     "'car', while the MAVI guide (s3-2-labeling-guide.md) puts windowless cargo vans in truck, so some BDD100K "
-     "cars may be MAVI trucks; recorded as a domain caveat and a taxonomy-review item."),
+     "Same practical meaning: passenger cars. Caveat: BDD100K does not document how vans labelled 'car' are "
+     "split; the MAVI guide (s3-2-labeling-guide.md) puts windowless cargo vans in truck."),
+    ("caravan", None, "unsupported", "vehicle-unresolved",
+     "A caravan may be towed equipment or a motorhome; the MAVI guide does not resolve it without the towing "
+     "vehicle or the body."),
     ("motorcycle", "motorcycle", "exact", None,
      "Same practical meaning: motorised two-wheelers ridden seated. Caveat: scooter and moped inclusion is not "
      "stated in the repository documentation; the official config folds raw 'motor' into it."),
@@ -107,6 +114,8 @@ MAPPINGS = (
     ("truck", "truck", "exact", None,
      "Same practical meaning: goods and work vehicles. Caveat: pickup and cargo-van handling is not stated in "
      "the repository documentation."),
+    ("van", None, "unsupported", "vehicle-unresolved",
+     "The MAVI guide splits vans by body into car (passenger) or truck (cargo); the native label does not."),
 )
 
 

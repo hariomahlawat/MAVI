@@ -46,7 +46,7 @@ def labels() -> dict[str, list[dict[str, Any]]]:
         [_label("1", "bicycle", (5, 5, 9, 12)), _label("7", "train", (10, 0, 60, 20))],
         [],
         [_label("7", "train", (12, 0, 62, 20)), _label("8", "other vehicle", (40, 25, 50, 32)),
-         _label("9", "van", (20, 22, 30, 30))],
+         _label("9", "van", (20, 22, 30, 30)), _label("10", "motor", (2, 26, 6, 34))],
     ]
     return {SEQ_A: _sequence(SEQ_A, a), SEQ_B: _sequence(SEQ_B, b)}
 

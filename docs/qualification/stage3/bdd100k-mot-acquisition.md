@@ -52,12 +52,12 @@ python -m tools.benchmarks.cli prepare --descriptor <frozen-descriptor.json> --s
 - **Tracks.** The label `id` is the ground-truth track id within its video ("objects across videos are always distinct even if they have the same id", download.rst).
 - **Timing.** Frames are "resampled to 5Hz from 30Hz" (download.rst). Label `frameIndex` k is offset k × 200 ms in the derived video. A gap in frame indices is refused by `prepare`.
 - **Boxes.** Scalabel boxes include the pixel at `x2, y2`. The inclusive extent is clipped to the image, because official labels reach `x2` equal to the image width. Frame size is read from each JPEG header.
-- **Classes.** These are the eight box-tracking classes plus the three distractor classes named by the official evaluation (`other person`, `other vehicle`, `trailer`). The official config's raw-name aliases are applied (`van`, `caravan` → `car`; `motor` → `motorcycle`; `person` → `pedestrian`; `bike` → `bicycle`). Any other category is refused.
+- **Classes.** These are the eight box-tracking classes plus the three distractor classes named by the official evaluation (`other person`, `other vehicle`, `trailer`). The official config's synonym aliases are applied (`motor` → `motorcycle`; `person` → `pedestrian`; `bike` → `bicycle`). Its `van` and `caravan` → `car` folding is not applied. `van` and `caravan` stay native classes mapped `vehicle-unresolved`, because MAVI splits vans by body. Any other category is refused.
 - **Crowd and other attributes.** They do not change ground truth. A `crowd` box stays ordinary ground truth of its class, and no ignore regions are emitted. The official evaluation instead ignores false positives that overlap a crowd box or a distractor box by more than half (evaluate.rst). MAVI results are therefore not comparable with official BDD100K MOT scores.
 
 ## Known caveats for interpreting results
 
-- **Car and vans.** BDD100K folds raw `van` into `car`. The MAVI guide puts windowless cargo vans in `truck`, so some BDD100K cars are MAVI trucks. This is a domain caveat on car precision and truck recall.
+- **Car and vans.** BDD100K's documentation does not say how vans labelled `car` are split. The MAVI guide puts windowless cargo vans in `truck`. Any cargo van labelled `car` is a domain caveat on car precision and truck recall.
 - **Definitions.** The repository documentation gives no written definitions for truck, bus or motorcycle. The mapping uses their practical meaning in a road-scene dataset.
 - **Domain.** The footage is moving dashcam video from the United States, a weak proxy for fixed CCTV.
 - **Exposure.** The descriptor records exposure as `unknown` until the detector's training data is checked for BDD100K.

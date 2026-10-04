@@ -59,7 +59,7 @@ def test_mapping_is_complete_for_the_taxonomy_and_the_adapter():
     assert {native: row["maviClass"] for native, row in rows.items() if row["kind"] == "exact"} == {
         "bus": "bus", "car": "car", "motorcycle": "motorcycle", "truck": "truck"}
     assert {native for native, row in rows.items() if row.get("unsupportedKind") == "vehicle-unresolved"} == {
-        "other-vehicle", "trailer"}
+        "caravan", "other-vehicle", "trailer", "van"}
     assert all(row["reason"] for row in rows.values())
 
 
@@ -68,7 +68,8 @@ def test_every_accepted_raw_category_maps_to_a_declared_native_class():
     assert set(bdd.CATEGORIES.values()) == declared == ADAPTER.native_classes()
     eight = {"pedestrian", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle"}
     assert eight <= set(bdd.CATEGORIES) and bdd.ALIASES == {
-        "bike": "bicycle", "caravan": "car", "motor": "motorcycle", "person": "pedestrian", "van": "car"}
+        "bike": "bicycle", "motor": "motorcycle", "person": "pedestrian"}
+    assert bdd.CATEGORIES["van"] == "van" and bdd.CATEGORIES["caravan"] == "caravan"  # never folded into car
 
 
 def test_a_descriptor_declaring_crowd_as_ignore_is_refused():
@@ -104,8 +105,8 @@ def test_second_sequence_keeps_empty_frames_aliases_and_distractors(tmp_path):
     document = gt_module.validate(gt(tmp_path, b.SEQ_B))
     assert [i["frameIndex"] for i in document["instants"]] == [0, 1, 2]  # the frame without labels is an instant
     assert {t["gtTrackId"]: t["nativeClass"] for t in document["tracks"]} == {
-        "1": "bicycle", "7": "train", "8": "other-vehicle", "9": "car"}  # official alias van -> car
-    assert [f["frameIndex"] for f in document["tracks"][1]["frames"]] == [0, 2]
+        "1": "bicycle", "10": "motorcycle", "7": "train", "8": "other-vehicle", "9": "van"}  # alias motor; van kept
+    assert [f["frameIndex"] for f in document["tracks"][2]["frames"]] == [0, 2]  # ids sort as text: 1, 10, 7
 
 
 def test_discovery_frame_paths_and_track_ids_are_stable(tmp_path):
