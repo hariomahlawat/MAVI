@@ -113,6 +113,12 @@ def test_association_contract_has_no_class_subclass_or_confidence_field():
     ("benchmark-vehicle-subclass-result-v1",
      lambda doc: doc["scopeB"]["classes"][0]["precision"].update(status="estimated")),
     ("benchmark-vehicle-subclass-result-v1", lambda doc: doc["scopeA"].pop("scope")),
+    # One row per MAVI class: a repeated class with another omitted, a reordered set, a fifth row.
+    ("benchmark-vehicle-subclass-result-v1",
+     lambda doc: doc["scopeB"]["classes"].__setitem__(1, copy.deepcopy(doc["scopeB"]["classes"][0]))),
+    ("benchmark-vehicle-subclass-result-v1", lambda doc: doc["scopeB"]["classes"].reverse()),
+    ("benchmark-vehicle-subclass-result-v1",
+     lambda doc: doc["scopeB"]["classes"].append(copy.deepcopy(doc["scopeB"]["classes"][0]))),
 ])
 def test_invalid_documents_are_rejected_by_the_schema(stem, edit):
     document = copy.deepcopy(example(stem))

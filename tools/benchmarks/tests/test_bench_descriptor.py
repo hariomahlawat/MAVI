@@ -62,6 +62,15 @@ def test_per_frame_timestamps_need_no_rate():
         d.index_offset_ms(document, 1)
 
 
+def test_frame_rate_must_be_in_lowest_terms():
+    document = copy.deepcopy(s.descriptor())
+    document["frameTime"].update(fpsNumerator=10, fpsDenominator=2)  # same instants as 5/1, another hash
+    with refused("descriptor_invalid:frame_rate_not_lowest_terms$"):
+        d.check(document)
+    document["frameTime"].update(fpsNumerator=30000, fpsDenominator=1001)
+    d.check(document)
+
+
 def test_index_frame_times_are_exact_rationals():
     document = copy.deepcopy(s.descriptor())
     assert d.index_offset_ms(document, 3) == 600

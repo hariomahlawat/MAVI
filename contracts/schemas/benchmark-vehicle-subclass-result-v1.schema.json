@@ -222,131 +222,67 @@
         },
         "classes": {
           "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "maviClass",
-              "support",
-              "supportStatus",
-              "recall",
-              "precision",
-              "undeterminedShare",
-              "accuracyOverResolved",
-              "accuracyOverEvaluable"
-            ],
-            "properties": {
-              "maviClass": {
-                "enum": [
-                  "car",
-                  "truck",
-                  "bus",
-                  "motorcycle"
-                ]
-              },
-              "support": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "supportStatus": {
-                "enum": [
-                  "adequate",
-                  "insufficient-support"
-                ]
-              },
-              "recall": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "status",
-                  "value"
-                ],
-                "properties": {
-                  "status": {
-                    "enum": [
-                      "computed",
-                      "not-in-dataset"
-                    ]
-                  },
-                  "value": {
-                    "anyOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/$defs/fraction"
-                      }
-                    ]
+          "description": "Exactly one row per MAVI class, in vocabulary order (car, truck, bus, motorcycle).",
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/classResult"
+                },
+                {
+                  "properties": {
+                    "maviClass": {
+                      "const": "car"
+                    }
                   }
                 }
-              },
-              "precision": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "status",
-                  "value",
-                  "precisionAmongJudgedTracks",
-                  "unjudgeablePredictions",
-                  "judgeableNativeClasses"
-                ],
-                "properties": {
-                  "status": {
-                    "enum": [
-                      "computed",
-                      "not-available",
-                      "no-judgeable-predictions"
-                    ]
-                  },
-                  "value": {
-                    "anyOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/$defs/fraction"
-                      }
-                    ]
-                  },
-                  "precisionAmongJudgedTracks": {
-                    "anyOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/$defs/fraction"
-                      }
-                    ]
-                  },
-                  "unjudgeablePredictions": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "judgeableNativeClasses": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 256,
-                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
-                    },
-                    "uniqueItems": true
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/classResult"
+                },
+                {
+                  "properties": {
+                    "maviClass": {
+                      "const": "truck"
+                    }
                   }
                 }
-              },
-              "undeterminedShare": {
-                "$ref": "#/$defs/fraction"
-              },
-              "accuracyOverResolved": {
-                "$ref": "#/$defs/fraction"
-              },
-              "accuracyOverEvaluable": {
-                "$ref": "#/$defs/fraction"
-              }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/classResult"
+                },
+                {
+                  "properties": {
+                    "maviClass": {
+                      "const": "bus"
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/classResult"
+                },
+                {
+                  "properties": {
+                    "maviClass": {
+                      "const": "motorcycle"
+                    }
+                  }
+                }
+              ]
             }
-          },
-          "minItems": 4,
-          "maxItems": 4
+          ],
+          "items": false,
+          "minItems": 4
         },
         "confusion": {
           "type": "array",
@@ -1107,6 +1043,129 @@
         "vehicleTracksOnOutsideCapabilityGt": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "classResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maviClass",
+        "support",
+        "supportStatus",
+        "recall",
+        "precision",
+        "undeterminedShare",
+        "accuracyOverResolved",
+        "accuracyOverEvaluable"
+      ],
+      "properties": {
+        "maviClass": {
+          "enum": [
+            "car",
+            "truck",
+            "bus",
+            "motorcycle"
+          ]
+        },
+        "support": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supportStatus": {
+          "enum": [
+            "adequate",
+            "insufficient-support"
+          ]
+        },
+        "recall": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "value"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "computed",
+                "not-in-dataset"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/fraction"
+                }
+              ]
+            }
+          }
+        },
+        "precision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "value",
+            "precisionAmongJudgedTracks",
+            "unjudgeablePredictions",
+            "judgeableNativeClasses"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "computed",
+                "not-available",
+                "no-judgeable-predictions"
+              ]
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/fraction"
+                }
+              ]
+            },
+            "precisionAmongJudgedTracks": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/fraction"
+                }
+              ]
+            },
+            "unjudgeablePredictions": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "judgeableNativeClasses": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "undeterminedShare": {
+          "$ref": "#/$defs/fraction"
+        },
+        "accuracyOverResolved": {
+          "$ref": "#/$defs/fraction"
+        },
+        "accuracyOverEvaluable": {
+          "$ref": "#/$defs/fraction"
         }
       }
     }

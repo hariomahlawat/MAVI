@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import math
 import os
 from fractions import Fraction
 from pathlib import Path
@@ -40,6 +41,12 @@ def check(document: dict[str, Any]) -> dict[str, Any]:
     require(len(names) == len(set(names)), f"{CODE}:duplicate_split")
     codes = [entry["code"] for entry in document["nativeTaxonomy"]]
     require(len(codes) == len(set(codes)), f"{CODE}:duplicate_native_class")
+    frame_time = document["frameTime"]
+    if "fpsNumerator" in frame_time:
+        # One timing, one spelling: 10/2 and 5/1 give identical instants, so only lowest terms is accepted
+        # (otherwise one release timing could carry two descriptor hashes and two run identities).
+        require(math.gcd(frame_time["fpsNumerator"], frame_time["fpsDenominator"]) == 1,
+                f"{CODE}:frame_rate_not_lowest_terms")
     paths = [entry["path"] for entry in document["manifest"]["entries"]]
     for path in paths:
         safe_relative(path, f"{CODE}:manifest_path")
