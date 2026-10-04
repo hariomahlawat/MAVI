@@ -49,24 +49,24 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 
 | Field | Value |
 |---|---|
-| Dataset / release | BDD100K, multi-object (box) tracking task. **TODO:** exact release version. |
-| Source | Project repository `github.com/bdd100k/bdd100k` (read 2026-10-04): tasks include "multi-object detection tracking, multi-object segmentation tracking". The documentation site `doc.bdd100k.com` and `bdd-data.berkeley.edu` could not be reached from the Development machine on 2026-10-04 (DNS and certificate errors). |
-| Accessible | **TODO** (download portal not reached). |
-| Paid / free | **TODO**. |
-| Access mechanism | **TODO** (believed to need an account on the download portal; unverified). |
+| Dataset / release | BDD100K box tracking, the "MOT 2020" (`mot_20`) package: labels 115 MB (Scalabel format, train and val); tracking videos are "a subset of the 100K videos, but the videos are resampled to 5Hz from 30Hz" (official docs `doc/source/download.rst`, read 2026-10-04). **TODO:** video and track counts per split; whether `images/track` ships frame JPEGs or 5 Hz videos. |
+| Source | Official documentation in the project repository `github.com/bdd100k/bdd100k`, `doc/source/{format,download,license}.rst` (read 2026-10-04). The rendered site `doc.bdd100k.com` and `bdd-data.berkeley.edu` were unreachable from the Development machine that day; the repository copy is the authoritative source text. |
+| Accessible | Yes: data is obtained at `dl.cv.ethz.ch/bdd100k/data/` after agreeing to "the BDD100K license" (download.rst). Agreement acceptance is an acquisition precondition. |
+| Paid / free | Free for research: the licence permits use "for educational, research, and not-for-profit purposes, without fee" (license.rst). |
+| Access mechanism | Download portal with licence agreement; **TODO:** whether an account is required. |
 | Native task | Detection and box tracking, among ten tasks (repository README). |
-| Native classes | **TODO:** not on the pages reached. Believed to include car, truck, bus, motorcycle, bicycle, rider, pedestrian, train and traffic sign/light classes; **verify against the official label specification before use**. |
+| Native classes | Detection: "1: pedestrian, 2: rider, 3: car, 4: truck, 5: bus, 6: train, 7: motorcycle, 8: bicycle, 9: traffic light, 10: traffic sign"; box tracking uses the first 8 (format.rst). **TODO:** the written definitions of `truck` (pickups? cargo vans?) and `motorcycle` (scooters?) from the label specification. |
 | MAVI mapping | If the believed class list is confirmed: car→`car` `exact` (passenger car); truck→`truck` `exact`, **reason to verify:** whether BDD100K `truck` includes pickups and cargo vans as the guide does; bus→`bus` `exact`; motorcycle→`motorcycle` `exact`, **verify** whether scooters and mopeds are included; rider, bicycle, train, pedestrian→none `unsupported` (outside the capability). All **TODO** until the official class definitions are read. |
 | Capability coverage | Potentially `full`; **unverified**. |
-| Video / still | Video sequences with per-frame boxes and track identities (believed; **TODO** frame rate and sequence counts). |
+| Video / still | Video sequences annotated at 5 Hz (resampled from 30 Hz) with per-frame boxes and track identities (Scalabel). |
 | Camera / domain | Moving dashcam, United States, varied weather and time of day (weak proxy for fixed CCTV; S3.2 plan §8 already notes this). |
 | Annotation structure | **TODO**. |
 | Usable split | **TODO** (training and validation labels are believed public; test labels believed withheld). |
 | Likely benchmark role | Leading candidate for the primary benchmark measurement (S3.2d-2), subject to verification; not a structural prerequisite. |
 | Known / possible model exposure | **TODO.** RTMDet-m COCO is trained on COCO, not BDD100K, as far as the model card states; verify, and record any BDD100K use in MAVI's component history (none known). |
-| Research-use status | **TODO** (terms not reached). To be classified under ADR-017 §7 from the official licence text. |
-| Redistribution limits | **TODO**. |
-| Unresolved questions | Exact class list and definitions for the tracking task; licence text; portal access; frame rate; whether track identities are consistent per sequence; occlusion and truncation attributes. |
+| Research-use status | RESEARCH-ADMISSIBLE on the quoted licence text (research use expressly permitted without fee); to be confirmed against the full licence accepted at download. Commercial use is reserved to "BDD and BAIR Commons members and their affiliates". |
+| Redistribution limits | The licence requires the copyright notice and licence paragraphs to "appear in all copies, modifications, and distributions"; MAVI does not redistribute (ADR-017 §7). |
+| Unresolved questions | `truck`/`motorcycle` definitions; video and track counts; frame JPEGs versus videos; image resolution (believed 1280×720); `crowd` attribute semantics; account requirement. |
 
 ### UA-DETRAC
 
@@ -77,7 +77,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Accessible | **Uncertain.** The lab page gives no download link, so the original distribution appears unavailable. Under the source rules above, a reputable author-maintained, institutional, research-hosted or challenge-archive copy may be used if the release identity (version, file manifest or hashes) can be established and no restriction prohibits research use; an anonymous mirror may not. **TODO:** identify such a copy, record its origin, credibility basis, release identity and hashes. |
 | Paid / free | **TODO**. |
 | Access mechanism | **TODO**. |
-| Native task | Vehicle detection and multi-object tracking (lab page). |
+| Native task | Vehicle detection and multi-object tracking: "100 challenging video sequences captured from real-world traffic scenes", annotated with "occlusion, weather, vehicle category, truncation, and vehicle bounding boxes" (arXiv 1511.04136 abstract, read 2026-10-04). |
 | Native classes | **TODO:** not on the lab page. Believed to be car, bus, van, others; **verify**. |
 | MAVI mapping | If confirmed: car→`car` `exact` (**verify** whether DETRAC `car` includes SUVs and pickups; pickups would make it `unsupported`); bus→`bus` `exact`; van→none `unsupported` (the guide splits vans by body into `car` or `truck`, which the native label does not resolve); others→none `unsupported` (undefined mix). No truck or motorcycle class. |
 | Capability coverage | `partial` at best (car and bus). |
@@ -101,18 +101,64 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Paid / free | Free (no fee stated). |
 | Access mechanism | Direct download links. |
 | Native task | Detection in images and video; MOT. |
-| Native classes | **TODO:** the page names "pedestrians, cars, bicycles, and tricycles" as examples only; the full list (believed to include car, van, truck, bus, motor, bicycle, tricycle, awning-tricycle, pedestrian, people) must be read from the task's annotation specification. |
+| Native classes | MOT toolkit README (`github.com/VisDrone/VisDrone2018-MOT-toolkit`, read 2026-10-04): "ignored regions(0), pedestrian(1), people(2), bicycle(3), car(4), van(5), truck(6), tricycle(7), awning-tricycle(8), bus(9), motor(10), others(11)"; the MOT challenge evaluates "car, bus, truck, pedestrian, and van". |
 | MAVI mapping | If confirmed: car→`car` `exact`; truck→`truck` `exact` (**verify** pickup handling); bus→`bus` `exact`; motor→`motorcycle` `exact` (**verify** that `motor` means motorised two-wheelers including scooters); van→none `unsupported` (see UA-DETRAC); tricycle, awning-tricycle, bicycle, pedestrian, people→none `unsupported` (outside the capability). All **TODO** until the task's annotation specification is read. |
 | Capability coverage | Potentially `full` with van excluded; **unverified**. |
 | Video / still | Video clips with per-frame boxes and track identities for MOT (believed; **TODO** format). |
 | Camera / domain | Aerial drone views at varied altitudes; small objects; China. Far from CCTV geometry; useful as an adverse-scale diversity benchmark. |
-| Annotation structure | **TODO**. |
+| Annotation structure | Per-sequence text, one line per object per frame: `frame_index, target_id, bbox_left, bbox_top, bbox_width, bbox_height, score, object_category, truncation, occlusion`; in ground truth `score` 1 means evaluated and 0 ignored; truncation 0/1, occlusion 0/1/2 (toolkit README). |
 | Usable split | **TODO** (train and val labels believed public). |
-| Likely benchmark role | Domain-diversity benchmark (aerial, small scale), S3.2d-3. |
+| Likely benchmark role | Domain-diversity benchmark (aerial, small scale), S3.2d-3; fallback primary with UAVDT if BDD100K cannot be acquired (S3.2d-1 plan §12). |
 | Known / possible model exposure | **TODO**. |
 | Research-use status | **TODO.** No licence statement was found on the repository page; if none exists in the release either, RESEARCH-UNCERTAIN under ADR-017 §7 (openly obtainable, terms incomplete), recorded as such. |
 | Redistribution limits | **TODO**. |
 | Unresolved questions | Full class list and definitions; MOT annotation format; any terms in the download bundle. |
+
+### UAVDT (MOT)
+
+| Field | Value |
+|---|---|
+| Dataset / release | UAVDT benchmark (UAVDT-Benchmark-M for DET/MOT, UAVDT-Benchmark-S for SOT). |
+| Source | Project page `sites.google.com/view/grli-uavdt/` (read 2026-10-04): "10 hours of raw videos", "100 video sequences of about 80,000 representative frames", about "0.84 million bounding boxes over 2,700 vehicles", 1080×540 at 30 fps; scenes include "squares, arterial streets, toll stations, highways, crossings and T-junctions". |
+| Accessible | Google Drive links on the project page (research-hosted distribution by the authors). |
+| Paid / free | Free. |
+| Access mechanism | Direct download. |
+| Native task | Detection, single-object tracking, multi-object tracking. |
+| Native classes | "car, truck and bus" (project page). **TODO:** written definitions. |
+| MAVI mapping | If definitions confirm: car→`car` `exact` (**verify** SUV/pickup handling), truck→`truck` `exact`, bus→`bus` `exact`; no van, motorcycle or two-wheeler class. |
+| Capability coverage | `partial` (no motorcycle). |
+| Video / still | Video, per-frame boxes with identities for MOT (believed; **TODO** MOT file format). |
+| Camera / domain | Drone (aerial) at low, medium and high altitude; front, side and bird views; daylight, night, fog, rain; China. |
+| Annotation structure | Attributes: illumination, altitude, camera view, duration; detection attributes for occlusion and out-of-view (project page). **TODO:** MOT text format. |
+| Usable split | **TODO**. |
+| Likely benchmark role | Domain-diversity benchmark (aerial, adverse weather), S3.2d-3; fallback primary with VisDrone if BDD100K cannot be acquired. |
+| Known / possible model exposure | **TODO**. |
+| Research-use status | RESEARCH-ADMISSIBLE candidate: the page states "This dataset is for research purpose only" and requests citation; research use is the intended use. **TODO:** confirm no further terms in the download bundle. |
+| Redistribution limits | Not stated; not redistributed by MAVI. |
+| Unresolved questions | MOT annotation format; class definitions; split. |
+
+### nuScenes (3D; reference for definitions)
+
+| Field | Value |
+|---|---|
+| Dataset / release | nuScenes (full dataset v1.0). |
+| Source | Devkit documentation `github.com/nutonomy/nuscenes-devkit`, `docs/instructions_nuscenes.md` (read 2026-10-04). The terms-of-use page did not render for text extraction. |
+| Accessible | **TODO** (believed to require registration; terms not read). |
+| Paid / free | **TODO** (believed free for non-commercial use). |
+| Access mechanism | **TODO**. |
+| Native task | 3D detection and tracking; "3D bounding boxes" (devkit docs). 2D boxes need projection or the separate nuImages set. |
+| Native classes | `vehicle.car` "Vehicle designed primarily for personal use, e.g. sedans, hatch-backs, wagons, vans, mini-vans, SUVs and jeeps"; `vehicle.truck` "Vehicles primarily designed to haul cargo including pick-ups, lorrys, trucks and semi-tractors"; `vehicle.bus.rigid`/`vehicle.bus.bendy` (more than 10 people); `vehicle.motorcycle` includes "all motorcycles, vespas and scooters"; also `vehicle.bicycle`, `vehicle.trailer`, `vehicle.construction`, emergency vehicles. |
+| MAVI mapping | Definitions are close to the MAVI guide (pickups are trucks; scooters are motorcycles) except that nuScenes `car` includes vans, which the guide splits by body → `car` would be `subset`-like for MAVI `car` plus cargo vans misassigned; not evaluated further unless a 2D tracking projection is adopted. |
+| Capability coverage | Not applicable as a 2D tracking benchmark without projection. |
+| Video / still | Multi-camera vehicle sensor data with 3D cuboids at keyframes. |
+| Camera / domain | Vehicle-mounted cameras, Boston and Singapore. |
+| Annotation structure | 3D cuboids; instance identity across keyframes (devkit schema). |
+| Usable split | **TODO**. |
+| Likely benchmark role | Reference for class definitions; not a first-choice 2D tracking benchmark. |
+| Known / possible model exposure | **TODO**. |
+| Research-use status | **TODO** (terms page unreadable on 2026-10-04; believed non-commercial research licence). |
+| Redistribution limits | **TODO**. |
+| Unresolved questions | Whether a 2D projection path is worth building; terms. |
 
 ### KITTI (tracking)
 
@@ -124,12 +170,12 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Paid / free | Free (no fee stated). |
 | Access mechanism | Account registration with stated purpose. |
 | Native task | 2D and 3D multi-object tracking from a moving car. |
-| Native classes | Eight labelled classes; **TODO:** confirm the list (believed Car, Van, Truck, Pedestrian, Person (sitting), Cyclist, Tram, Misc). |
+| Native classes | "Car", "Van", "Truck", "Pedestrian", "Person_sitting", "Cyclist", "Tram", "Misc", plus "DontCare" regions (devkit readme; read 2026-10-04 from a public copy of the devkit text, `github.com/pratikac/kitti`, since the devkit itself is behind registration — recorded as a non-original source). |
 | MAVI mapping | If confirmed: Car→`car` `exact` (**verify** KITTI's Car definition against SUVs); Truck→`truck` `exact`; Van→none `unsupported` (body not resolved); Cyclist, Tram, Pedestrian, Person (sitting), Misc→none `unsupported` (outside the capability). No bus or motorcycle class. |
 | Capability coverage | `partial` (car and truck). |
 | Video / still | Image sequences at about 10 fps with per-frame 2D boxes and track identities (believed; the page confirms per-image 2D boxes for evaluation). |
 | Camera / domain | Moving car, Karlsruhe, daytime. |
-| Annotation structure | Per-frame 2D boxes, occlusion state, truncation (official page). |
+| Annotation structure | Per-frame label lines: frame, track id, type, truncated (0–1), occluded (0–3), alpha, 2D bbox left/top/right/bottom (0-based pixels), 3D dimensions, location, rotation_y (devkit readme copy). `DontCare` marks unlabelled regions the evaluation ignores. |
 | Usable split | Training sequences (test labels withheld). |
 | Likely benchmark role | Secondary domain-diversity benchmark; low vehicle-class coverage. |
 | Known / possible model exposure | **TODO**. |
@@ -161,6 +207,8 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Unresolved questions | Whether any CityFlow edition carries vehicle type labels; terms. |
 
 ## Next steps (S3.2d-1 inputs)
+
+The implementation-ready harness plan is `docs/superpowers/plans/2026-10-04-stage3-s3-2d-benchmark-harness.md`; its §12 states the current primary-benchmark recommendation (BDD100K MOT 2020 val) and the fallback combination (VisDrone MOT + UAVDT).
 
 1. Verify the **material** TODO fields for the datasets actually chosen (release identity, accessibility and source, usable split, annotation semantics, native class definitions, mappings, research-use status, exposure where material) against authoritative sources, recording the check date and source; non-material fields may stay TODO. Classify each chosen dataset's research-use status under ADR-017 §7 with its basis.
 2. Choose the primary benchmark (S3.2d-2) once the class definitions are confirmed against the labelling guide. Prefer an exact-coverage benchmark where reasonably available; otherwise the strongest benchmark or combination with explicit mappings. BDD100K box tracking is the leading candidate, not a decision and not a prerequisite.

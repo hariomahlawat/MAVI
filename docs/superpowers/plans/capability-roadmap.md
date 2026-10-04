@@ -127,6 +127,7 @@ Consequences: a new Development capability does not become Production-qualified 
 | ADR-016, `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md` | Stage-3 decision (detector-native subclass) and the Stage-3 acceptance register, the only Stage-3 exit gate |
 | `docs/superpowers/plans/2026-10-03-stage3-s3-2-vehicle-subclass-measurement.md`, `docs/qualification/stage3/s3-2b-real-corpus-intake-and-derivation.md` | S3.2 measurement plan (T1–T11, with the 2026-10-04 benchmark-driven S3.2d amendment) and the S3.2b-2 operational runbook |
 | ADR-017, `docs/superpowers/plans/stage3-benchmark-capability-matrix.md` | Benchmark-first Development and research-dataset reuse (cross-cutting), and the Stage-3 candidate-dataset matrix (verified facts only) |
+| `docs/superpowers/plans/2026-10-04-stage3-s3-2d-benchmark-harness.md` | S3.2d-1 implementation-ready plan: the reusable benchmark harness (shared envelope, capability-specific truth and association, evaluator, contracts, tests, slices) and the first benchmark execution path |
 | `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` | Deferred design for stage 10; not active |
 | `docs/superpowers/plans/2026-09-19-visual-intelligence-workspace.md` | Record of the delivered operator workspace (PR #50); its original "next feature" is superseded here |
 | `docs/superpowers/plans/2026-09-13-phase1-roadmap-rebaseline.md` | Phase-1 task status (Tasks 13–17 complete, Task 18 active) |
