@@ -40,9 +40,9 @@ Apply these rules exactly. They decide the hard cases so that two reviewers reac
 | Light commercial vehicle | Classify by its body under the car-or-truck rule. Branding, livery or roof equipment alone never makes a vehicle `truck`. |
 | Bus or large van | A bus or coach body is `bus`: a high, box-shaped passenger body built as a bus, usually with several rows of side windows, a passenger door and a route or destination sign. A large passenger van with an ordinary van body is `car`. If the deciding part of the body is hidden, choose `unknown`, `occluded`. If the body is visible but you still cannot tell a van from a minibus, choose `unknown`, `ambiguous-type`. |
 | Emergency and service vehicles | Classify by body, not by role. A police car is `car`. A police van follows the van rule. An ambulance with a box or van body is `truck`. A fire engine is `truck`. A school or transit bus is `bus`. |
-| Tractor unit and trailer | A tractor unit, with or without a trailer, is `truck`. If the Track follows only a trailer, a caravan or other towed equipment with no towing vehicle visible, choose `unknown`, `other` with the note `trailer only`. A car towing a trailer is `car` when the box is on the car. |
-| Motorcycle or other two-wheeler | Any motorised two-wheeler a rider sits on is `motorcycle`: scooters, mopeds, e-motorcycles, and a motorcycle with a sidecar. A bicycle, including one with pedal assist, is not one of the four classes: choose `unknown`, `other` with the note `bicycle`. A stand-up kick scooter takes `unknown`, `other` with the note `kick scooter`. If a two-wheeler is visible but you cannot tell whether it is motorised, choose `unknown`, `ambiguous-type`. If it is hidden or too small to judge, use `occluded` or `too-small`. |
-| Three-wheelers and other vehicles | Auto-rickshaws, tuk-tuks, quad bikes, agricultural tractors, construction plant, trams, trains and other vehicles outside the four classes take `unknown`, `other`, with a short type note such as `auto-rickshaw` or `tram`. |
+| Tractor unit and trailer | A tractor unit, with or without a trailer, is `truck`. If the Track follows only a trailer, a caravan or other towed equipment with no towing vehicle visible, choose `unknown`, `other` (suggested note `trailer only`). A car towing a trailer is `car` when the box is on the car. |
+| Motorcycle or other two-wheeler | Any motorised two-wheeler a rider sits on is `motorcycle`: scooters, mopeds, e-motorcycles, and a motorcycle with a sidecar. A bicycle, including one with pedal assist, is not one of the four classes: choose `unknown`, `other` (suggested note `bicycle`). A stand-up kick scooter takes `unknown`, `other` (suggested note `kick scooter`). If a two-wheeler is visible but you cannot tell whether it is motorised, choose `unknown`, `ambiguous-type`. If it is hidden or too small to judge, use `occluded` or `too-small`. |
+| Three-wheelers and other vehicles | Auto-rickshaws, tuk-tuks, quad bikes, agricultural tractors, construction plant, trams, trains and other vehicles outside the four classes take `unknown`, `other`, with a suggested short type note such as `auto-rickshaw` or `tram`. |
 | Partly visible vehicle | If the visible part shows the defining feature of one class, use that class: for example, a bus body, an open cargo bed or a motorcycle. If what would decide the class is hidden, choose `unknown`, `occluded`. That applies whether another object or the frame edge hides it. |
 | Severe occlusion | If the vehicle is mostly hidden in every view, and no view shows a defining feature, choose `unknown`, `occluded`. |
 | Too small to classify | If the vehicle is too small, blurred, dark or low-resolution in every view for its type to be seen, choose `unknown`, `too-small`. Do this even if you could guess from the size or shape of a blob. |
@@ -59,7 +59,7 @@ Choose exactly one reason. If more than one applies, use the first in this order
 3. `occluded`: the deciding part is hidden, by another object or by the frame edge.
 4. `too-small`: the vehicle is visible but too small, blurred or dark for its type to be seen.
 5. `ambiguous-type`: the vehicle is clearly visible but the class cannot be decided.
-6. `other`: anything else, including vehicles outside the four classes. A note is required (§6).
+6. `other`: anything else, including vehicles outside the four classes. A short note is strongly recommended (§6).
 
 **Hidden or undecidable.** These two reasons are kept apart everywhere in this guide, including in §3.
 - When the part of the vehicle that would decide the class cannot be seen in any view, the reason is `occluded` (hidden by an object or the frame edge) or `too-small` (too small, blurred or dark).
@@ -76,8 +76,8 @@ All views of an item belong to one Track. Base the label on the object inside th
 
 ## 6. Notes
 
-A note is at most 200 characters, on one line. It is optional, except with `other`.
-- **Required** with `other`: name the type or the situation (for example `bicycle`, `trailer only`, `tram`). The labelling page does not enforce this, so check it yourself before exporting (§8).
+A note is optional on any decision. It is at most 200 characters, on one line.
+- **Strongly recommended** with `other`: name the type or the situation (for example `bicycle`, `trailer only`, `tram`), so that the catch-all reason stays informative.
 - **Optionally** add one when a short remark would help an adjudicator. For example: `cargo bed visible in view 3`, or `box shifts to second car in view 4`.
 - Never put MAVI ids, guesses about MAVI's prediction, licence plates, people's names, or other identifying details in a note.
 
@@ -90,7 +90,7 @@ A note is at most 200 characters, on one line. It is optional, except with `othe
 5. A van with three rows of side windows, the same size as an ordinary van. → `car`.
 6. A box-shaped minibus with a destination sign and a passenger door in the side. → `bus`.
 7. A scooter with a seated rider. → `motorcycle`.
-8. A cyclist on a bicycle. → `unknown`, `other`, note `bicycle`.
+8. A cyclist on a bicycle. → `unknown`, `other` (suggested note `bicycle`).
 9. Distant vehicles of a few pixels, whose shape could be a car or a van. → `unknown`, `too-small`.
 10. The first two crops show a red car and the last two a grey van. → `unknown`, `mixed-track`.
 11. The box sits on a road sign in every view. → `unknown`, `not-a-vehicle`.
@@ -98,7 +98,6 @@ A note is at most 200 characters, on one line. It is optional, except with `othe
 
 ## 8. Before exporting your decisions
 
-- Check that every item has a decision, that every `unknown` has a reason, and that every `other` has a note.
-- The measurement owner checks the export before freezing it. If an `other` decision has no note, the export goes back to the same reviewer, who adds the note on the page and exports again. The exported file is never edited by hand, and nothing else about any decision is discussed.
+- Check that every item has a decision and that every `unknown` has a reason.
 - Use **Export decisions** and send the exported file only to the measurement owner, who freezes it.
 - Do not edit the exported file. A correction becomes a new, frozen label set; nothing is edited in place.

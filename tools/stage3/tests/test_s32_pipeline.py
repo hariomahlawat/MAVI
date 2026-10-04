@@ -149,7 +149,7 @@ def test_requirement_comparison_reports_status_only(runs):
     comparison = json.loads((first["result"] / "requirement-comparison.json").read_text(encoding="utf-8"))
     statuses = {(c["criterion"], c["class"]): c["status"] for c in comparison["criteria"]}
     assert statuses[("coverageOverEvaluable", None)] == "meets"  # 7/8 >= 0.5 with 8 >= 3
-    assert statuses[("precision", "bus")] == "no-requirement"
+    assert statuses[("precision", "bus")] == "insufficient-support"  # null minimum, support 0 < 2: the floor applies first
     assert statuses[("recall", "truck")] == "no-requirement"
     assert statuses[("precision", "motorcycle")] == "insufficient-support"  # support 1 < 2
     assert set(statuses.values()) <= {"meets", "does-not-meet", "insufficient-support", "no-requirement"}

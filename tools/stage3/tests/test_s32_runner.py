@@ -24,6 +24,9 @@ def fraction(numerator, denominator):
 
 @pytest.mark.parametrize("minimum, observed, support, expected", [
     (None, fraction(1, 2), 50, "no-requirement"),
+    (None, fraction(15, 29), 29, "insufficient-support"),  # null minimum, one below the support floor
+    (None, fraction(15, 30), 30, "no-requirement"),        # null minimum, support exactly at the floor
+    (None, fraction(0, 0), 0, "insufficient-support"),     # null minimum, no support at all
     (0.5, fraction(1, 2), 30, "meets"),          # at the bound
     (0.5, fraction(49, 100), 30, "does-not-meet"),  # below
     (0.5, fraction(51, 100), 30, "meets"),       # above
@@ -39,6 +42,32 @@ def test_status_rules(minimum, observed, support, expected):
 def test_support_status_flips_exactly_at_the_minimum():
     assert rm.status(0.5, fraction(15, 29), 29, 30) == "insufficient-support"
     assert rm.status(0.5, fraction(15, 30), 30, 30) == "meets"
+
+
+def test_support_floor_applies_with_a_null_minimum():
+    """Support takes precedence over a null operational minimum (plan §13), so a below-floor class is never
+    reported as merely having no requirement."""
+    assert rm.status(None, fraction(15, 29), 29, 30) == "insufficient-support"
+    assert rm.status(None, fraction(15, 30), 30, 30) == "no-requirement"
+
+
+def test_all_null_requirements_compare_by_support_only():
+    """The committed shape (every minimum null): each criterion is decided by support alone."""
+    null = {"minimum": None}
+    requirements = {"schemaVersion": "vehicle-subclass-requirements-v1", "labelVocabulary": "mavi-vehicle-subclass-labels-v1",
+                    "operational": {"coverageOverEvaluable": dict(null),
+                                    "perClass": {c: {"precision": dict(null), "recall": dict(null)} for c in a.CLASSES}},
+                    "minimumSupport": {"evaluablePerClass": 30, "evaluableTotal": 30},
+                    "insufficientSupportOutcome": "insufficient-support"}
+    supports = {"car": 30, "truck": 29, "bus": 0, "motorcycle": 31}
+    metrics = {"coverageOverEvaluable": fraction(40, 90), "evaluableTracks": 90,
+               "perClass": {c: {"support": s, "precision": fraction(0, 0), "recall": fraction(0, 0)} for c, s in supports.items()}}
+    comparison = rm.compare(requirements, "0" * 64, {"primary": {"metrics": metrics}}, "1" * 64)
+    status = {(c["criterion"], c["class"]): c["status"] for c in comparison["criteria"]}
+    assert status[("coverageOverEvaluable", None)] == "no-requirement"
+    for name, support in supports.items():
+        expected = "insufficient-support" if support < 30 else "no-requirement"
+        assert status[("precision", name)] == status[("recall", name)] == expected
 
 
 @pytest.fixture(scope="module")

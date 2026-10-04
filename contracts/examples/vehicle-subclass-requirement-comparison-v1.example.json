@@ -75,7 +75,7 @@
         "numerator": 0,
         "value": null
       },
-      "status": "no-requirement",
+      "status": "insufficient-support",
       "support": 0
     },
     {
@@ -88,7 +88,7 @@
         "numerator": 0,
         "value": null
       },
-      "status": "no-requirement",
+      "status": "insufficient-support",
       "support": 0
     },
     {
