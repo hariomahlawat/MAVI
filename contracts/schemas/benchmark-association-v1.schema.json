@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mavi.local/contracts/benchmark-association-v1.schema.json",
   "title": "benchmark-association-v1",
-  "description": "Class-free GT-to-MAVI Track association of one benchmark run (S3.2d-1 plan §7). No class, subclass or confidence field anywhere. associationBodySha256 is the SHA-256 of the canonical bytes of policy, sequences and alignment alone (the class-free body the class-independence tests compare); the envelope is provenance. Ratios are exact fractions; policy thresholds and rates are exact rationals. Producer: the association slice (S3.2d-1 slice 2); the contract is fixed here so later slices populate it, not redefine it.",
+  "description": "Class-free GT-to-MAVI Track association of one benchmark run (S3.2d-1 plan §7). No class, subclass or confidence field anywhere. associationBodySha256 is the SHA-256 of the canonical bytes of policy, sequences and alignment alone (the class-free body the class-independence tests compare); the envelope is provenance. Ratios are exact fractions; policy thresholds and rates are exact rationals. Producer: tools/benchmarks/capabilities/vehicle_tracks/association.py (S3.2d-1 slice 2).",
   "type": "object",
   "additionalProperties": false,
   "required": [
