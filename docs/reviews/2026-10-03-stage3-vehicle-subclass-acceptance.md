@@ -1,6 +1,6 @@
 # Vehicle Subclass — Stage-3 Acceptance Register
 
-**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) is the current execution slice and has not started. Nothing is operator-exposed, and nothing is Production-qualified.\
+**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) has executed event `2026-10-03-commons`: E1–E13 and E15–E21 PASS (E17 NOT TRIGGERED); E14 OPEN until the map digest is on `main` and §16(b) and `verify_repo` pass at that commit. Nothing is operator-exposed, and nothing is Production-qualified.\
 **Date opened:** 2026-10-03\
 **Baseline:** `main@379b7b22a3d8722d8c4d99df50794805494155aa` (merge of PR #150)
 
@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT NOT STARTED:** S3.2b-2, S3.2b-3, S3.2c and S3.2d are OPEN. **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 executed (E14 OPEN until its post-merge checks pass); S3.2b-3, S3.2c and S3.2d are OPEN. **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -117,31 +117,31 @@ All succeeded.
 
 ## E. S3.2b-2 — real corpus intake and derivation (runbook PF items in brackets)
 
-All rows start OPEN. Evidence is hash-only; bytes stay in the controlled store. The ingestion map's commitment (E13, E14) is deliberately placed in S3.2b-2. The plan's slice table lists it under S3.2b-3; this register moves it earlier so that it is fixed before the host exists, and starts nothing.
+Event `2026-10-03-commons` evidence entered 2026-10-04; controlled store event root `Stage3/S3.2/2026-10-03-commons` (store-relative event root; all evidence paths below are relative to it). All rows started OPEN. Evidence is hash-only; bytes stay in the controlled store. The ingestion map's commitment (E13, E14) is deliberately placed in S3.2b-2. The plan's slice table lists it under S3.2b-3; this register moves it earlier so that it is fixed before the host exists, and starts nothing.
 
-| ID | Requirement | Status |
-|---|---|---|
-| E1 | Official release and source retained: name, version, official URL, retrieval date [PF1] | OPEN |
-| E2 | Exact terms/licence retained, with SHA-256 equal to `licence.textSha256` [PF2] | OPEN |
-| E3 | R-5 determination completed and recorded in the release record [PF3] | OPEN |
-| E4 | Release record parses (`parse_release`) [PF4] | OPEN |
-| E5 | `verify_release_files` clean against a root outside Git [PF5] | OPEN |
-| E6 | No selected member excluded [PF6] | OPEN |
-| E7 | Every selected member authorised for `benchmarking` + `development` [PF7] | OPEN |
-| E8 | Every selected member has a valid probe matching its release SHA-256 [PF8] | OPEN |
-| E9 | Each selected member confirmed derivable before the pool freeze [PF9] | OPEN |
-| E10 | Intended derivation mode recorded before the pool freeze [PF10] | OPEN |
-| E11 | 6–10 member `pilot` pool frozen [PF11] | OPEN |
-| E12 | Pool record or digest committed on `main`, ancestry-valid on the S3.2b-3 checkout, and `tools/verify_repo.py` passes on that commit [PF12, PF20] | OPEN |
-| E13 | Ingestion convention committed on `main` before the map, where used, and `tools/verify_repo.py` passes on that commit [PF13, PF20] | OPEN |
-| E14 | Ingestion map committed or digest-bound, ancestry-valid, and validated, and `tools/verify_repo.py` passes on that commit [PF14, PF20] | OPEN |
-| E15 | Exactly one valid T8 `__run1` derivation per pool member (`load_derivations`) [PF15] | OPEN |
-| E16 | Remux/transcode authorised (`create-derivatives`) wherever used [PF16] | OPEN |
-| E17 | First real remux determinism repeat byte-identical (NOT TRIGGERED if remux unused) [PF17] | OPEN |
-| E18 | First real transcode determinism repeat byte-identical (NOT TRIGGERED if transcode unused) [PF17] | OPEN |
-| E19 | Every derivation's `importLimitBytes` equals the intended S3.2b-3 host's `VideoImport:MaximumFileSizeBytes` [PF18] | OPEN |
-| E20 | No corpus media, archive, frame, crop or log committed to Git [PF19] | OPEN |
-| E21 | One verified FFmpeg/ffprobe pack identity retained for the event: each tool's `{version, sha256}` and the manifest SHA-256. Every probe's `ffprobe`, every derivation's `sourceMedia.ffprobe`/`outputMedia.ffprobe`, and every remux/transcode `ffmpegVersion`/`ffmpegSha256` equal it (plan §20) [PF21] | OPEN |
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| E1 | Official release and source retained: name, version, official URL, retrieval date [PF1] | PASS | Release `s3-2-commons-traffic-2026-10` (`releaseRecordSha256` `325f20554354fb6b9bcc607c8c845b6ab27455dea320d1db16eaef8e4994ecb3`): official URL, `pinnedSource` (14 exact Commons revisions, retrieved 2026-10-03), per-file receipts and Commons metadata under `release-root/evidence/` |
+| E2 | Exact terms/licence retained, with SHA-256 equal to `licence.textSha256` [PF2] | PASS | `release-root/evidence/licence-statement.md` (per-file licence, author, source, revision) equals `licence.textSha256`; Commons licence metadata retained per file |
+| E3 | R-5 determination completed and recorded in the release record [PF3] | PASS | Determination `s3-2-commons-2026` in the release record: R-5 Hari Om Ahlawat, 2026-10-03; rights `PERMITTED_FOR_ENGINEERING_USE`, privacy `PERMITTED`; `evaluate`/`create-derivatives` granted, `train`/`run-operationally`/`redistribute-derived-weights` not-granted; share-alike ruling `PERMITTED` (internal, undistributed transcodes); purposes `benchmarking`, `development`. Purpose approvals `9899388d96ce9a085ac554ef54284c8b30b22f4853e0d81717962a4fe2cdeb41` |
+| E4 | Release record parses (`parse_release`) [PF4] | PASS | `release/authorisation-report.txt`: record parses |
+| E5 | `verify_release_files` clean against a root outside Git [PF5] | PASS | `release/authorisation-report.txt`: `problems 0`, root outside Git |
+| E6 | No selected member excluded [PF6] | PASS | `excludedMembers` is empty; no selected member excluded |
+| E7 | Every selected member authorised for `benchmarking` + `development` [PF7] | PASS | `release/authorisation-report.txt`: every member `evaluate: OK` and `create-derivatives: OK` |
+| E8 | Every selected member has a valid probe matching its release SHA-256 [PF8] | PASS | 14 probes `probes/<sourceSha256>.probe.json` with the frozen pack; each pool member's `probeSha256` bound in the pool record |
+| E9 | Each selected member confirmed derivable before the pool freeze [PF9] | PASS | `selection/candidate-review.csv`: every member one video stream, transcode-eligible, `create-derivatives` granted, before the freeze |
+| E10 | Intended derivation mode recorded before the pool freeze [PF10] | PASS | `evidence/s3-2b-2-ledger.md`: intended mode `transcode` with reason for every member, recorded before the freeze |
+| E11 | 6–10 member `pilot` pool frozen [PF11] | PASS | `pool/source-pool.json` `fe72e2e9d055259d66042b07e104de14504e93ec3e9098c42fbc581ff79eca06`: `kind: pilot`, 8 members |
+| E12 | Pool record or digest committed on `main`, ancestry-valid on the S3.2b-3 checkout, and `tools/verify_repo.py` passes on that commit [PF12, PF20] | PASS | Mode B digest `docs/qualification/stage3/s3-2-source-pool.sha256` (65 bytes) on `main` at `d12a352c10b5f12c967f62768490c824028e94a4` (PR #152); `verify_repo` PASSED at that commit |
+| E13 | Ingestion convention committed on `main` before the map, where used, and `tools/verify_repo.py` passes on that commit [PF13, PF20] | PASS | `docs/qualification/stage3/s3-2-ingestion-convention.md` (blob SHA-256 `b52554e36ff4a026a7f355cfea79ae7a620b3f9fcd55a2e235f03f4e78b41982`) on `main` at `d12a352c10b5f12c967f62768490c824028e94a4` before the map; names no member; `verify_repo` PASSED at that commit |
+| E14 | Ingestion map committed or digest-bound, ancestry-valid, and validated, and `tools/verify_repo.py` passes on that commit [PF14, PF20] | OPEN | Map `ingestion/ingestion-map.json` `46a014e342fbdb9dc3bf98cf6f5f3bd505da524fda191d6a0987260f3eba7c95` validated (`ingestion_map.check`) against the convention at `d12a352c`; its Mode B digest is committed by the PR that adds this evidence. PASS once that digest is on `main` and §16(b) passes at that commit |
+| E15 | Exactly one valid T8 `__run1` derivation per pool member (`load_derivations`) [PF15] | PASS | `evidence/post-t8-checks.json`: `load_derivations` accepts exactly one `__run1` for each of the 8 members |
+| E16 | Remux/transcode authorised (`create-derivatives`) wherever used [PF16] | PASS | `evidence/post-t8-checks.json`: every manifest `operations: ["create-derivatives"]`, `blockers: []` (all 8 transcode) |
+| E17 | First real remux determinism repeat byte-identical (NOT TRIGGERED if remux unused) [PF17] | NOT TRIGGERED | Remux was not used (no H.264 source) |
+| E18 | First real transcode determinism repeat byte-identical (NOT TRIGGERED if transcode unused) [PF17] | PASS | Evidence manifest `evidence/e18-determinism-evidence.json` (SHA-256 `bd19602338d1c782e21ded7cdbde1930a6ff563479d004c22de8b9127d90f4e6`) names, off-repository, the retained report and both run directories for the first real transcode (pool member with source SHA-256 `2c75b1ae879ebfadb7473d24e29b34c072430cabe8f0b5e5e68f68e58ab372d2`). Report SHA-256 `ae310818e8fb6194e06dd56d33ff3e00c85c08f91f8c03afbc0eff7cbe7464ab`; `__run1/video.mp4` `ffb262545d9ca08a3d1a5d44166ae5e0d6f319e243732a7d75bc0a081e55d98d` = `__run2/video.mp4` `ffb262545d9ca08a3d1a5d44166ae5e0d6f319e243732a7d75bc0a081e55d98d`; `__run1/derivation-manifest.json` `b45d2d156e0e5a0c29558bfe711f00bd74094e720253240d672398f9adc51998` = `__run2/derivation-manifest.json` `b45d2d156e0e5a0c29558bfe711f00bd74094e720253240d672398f9adc51998`; both pairs byte-identical |
+| E19 | Every derivation's `importLimitBytes` equals the intended S3.2b-3 host's `VideoImport:MaximumFileSizeBytes` [PF18] | PASS | Every manifest `importLimitBytes` 3221225472 = host `VideoImport:MaximumFileSizeBytes` (`appsettings.json`; no machine override) |
+| E20 | No corpus media, archive, frame, crop or log committed to Git [PF19] | PASS | PF19 audit `evidence/e20-git-audit-4993afc8.txt` (SHA-256 `7ac7c5e945844b1081e344a4ede5a423111f7907953e39e3213d25279fad6137`), retaining every command and its output, of commit `4993afc886466f4791c0e196ec2309182a0b3350` against the pre-event baseline `3885d020007bb649f7f6262f0a50afc4ff115a66`: (1) `git ls-tree -r --name-only` inventory, 1575 tracked paths; (2) changes since the baseline are exactly the pool and map digests, the convention and this register; (3) all 89 tracked media/image/archive/log paths are byte-unchanged since the baseline; (4) no tracked path carries an event or controlled-store marker; (5) no tracked blob matches any of the 213 files in the event store, the acquisition and discovery stores or the scratch area (frames, contact sheet, logs) by SHA-256; (6) the event-changed files contain no local path or member name. Result CLEAN. The only later change (this row's text) is in this register |
+| E21 | One verified FFmpeg/ffprobe pack identity retained for the event: each tool's `{version, sha256}` and the manifest SHA-256. Every probe's `ffprobe`, every derivation's `sourceMedia.ffprobe`/`outputMedia.ffprobe`, and every remux/transcode `ffmpegVersion`/`ffmpegSha256` equal it (plan §20) [PF21] | PASS | `media-tools/pack-identity.json` (ffprobe/ffmpeg 9.0.1 `19202b23…`/`72a489ec…`, manifest `604b387d…`); §16(c) `pack-consistent` for the live pack, 14 probes and 9 manifests |
 
 ## F. S3.2b-3 — Development-host execution (T9)
 
