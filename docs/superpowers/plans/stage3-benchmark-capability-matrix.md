@@ -21,7 +21,7 @@
 | Camera / domain | Fixed CCTV, dashcam, aerial, hand-held; country or region; conditions. |
 | Annotation structure | Per-frame boxes with track identities; attributes; format. |
 | Usable split | Which split carries labels MAVI may evaluate against (published test labels are often withheld). |
-| Likely benchmark role | Exact-taxonomy benchmark, domain-diversity benchmark, challenge or regression set. |
+| Likely benchmark role | Primary benchmark (exact coverage preferred, not required), domain-diversity benchmark, challenge or regression set. |
 | Known / possible model exposure | Whether the qualified detector (RTMDet-m COCO) or any MAVI component may have trained on this data or its source imagery. |
 | Research-use status | ADR-017 §7: RESEARCH-ADMISSIBLE, RESEARCH-UNCERTAIN or BLOCKED, with the basis. |
 | Redistribution limits | What the terms say about redistributing the data or derived crops. |
@@ -89,7 +89,7 @@ Facts below were checked on 2026-10-04 with the fetch results noted. Where an of
 | Known / possible model exposure | **TODO**. |
 | Research-use status | **TODO.** Classified from the dataset's published terms (the paper and original release notes count as sources). BLOCKED only if no lawful copy with an establishable release identity can be obtained or the terms prohibit the use; the original server being offline is not by itself BLOCKED. |
 | Redistribution limits | **TODO**. |
-| Unresolved questions | Whether an official distribution still exists; class list; terms. |
+| Unresolved questions | Whether a credible copy with an establishable release identity exists (original or reputable archival); class list; terms. |
 
 ### VisDrone (VID / MOT)
 

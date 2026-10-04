@@ -6,7 +6,7 @@
 
 **Related:** ADR-015 (public-first Development, protected final qualification), which this ADR refines prospectively for Development data strategy and leaves otherwise intact; ADR-016 (detector-native vehicle subclass), unchanged; `docs/architecture/engineering-operating-principles.md` principles 4–6; the Stage-3 register `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md`.
 
-**Amends:** ADR-015 §5 (public acquisition and rights) prospectively, for Development, research evaluation and public benchmarking only. ADR-015's historical B0/S1 closure, its purpose pools, and its frozen-qualification admission contract (§3) and sequencing (§4) stand unchanged.
+**Amends:** ADR-015 §5 (public acquisition and rights) prospectively, for Development, research evaluation and public benchmarking only. It also extends, prospectively, the evidence base named in ADR-016 §7 ("MAVI-held development clips") to include externally labelled research benchmarks; the detector-native source decision of ADR-016 is unchanged. ADR-015's historical B0/S1 closure, its purpose pools, and its frozen-qualification admission contract (§3) and sequencing (§4) stand unchanged.
 
 ## Context
 
