@@ -119,11 +119,35 @@ def test_association_contract_has_no_class_subclass_or_confidence_field():
     ("benchmark-vehicle-subclass-result-v1", lambda doc: doc["scopeB"]["classes"].reverse()),
     ("benchmark-vehicle-subclass-result-v1",
      lambda doc: doc["scopeB"]["classes"].append(copy.deepcopy(doc["scopeB"]["classes"][0]))),
+    # unsupportedKind iff kind is unsupported (as in the mapping contract).
+    ("benchmark-vehicle-subclass-result-v1", lambda doc: doc["scopeA"]["perNativeClass"][2].pop("unsupportedKind")),
+    ("benchmark-vehicle-subclass-result-v1",
+     lambda doc: doc["scopeA"]["perNativeClass"][0].update(unsupportedKind="outside-capability")),
 ])
+
 def test_invalid_documents_are_rejected_by_the_schema(stem, edit):
     document = copy.deepcopy(example(stem))
     edit(document)
     assert list(validator(stem).iter_errors(document))
+
+
+
+def test_rationals_have_one_spelling_and_count_fractions_are_untouched():
+    from tools.benchmarks.core.identity import S32Error, require_canonical_rationals
+
+    for stem in SCHEMA_STEMS:
+        require_canonical_rationals(example(stem), "invalid")
+    association = copy.deepcopy(example("benchmark-association-v1"))
+    association["policy"]["minContainment"] = {"numerator": 2, "denominator": 4}  # same value as 1/2
+    with pytest.raises(S32Error, match="^association_invalid:not_lowest_terms$"):
+        require_canonical_rationals(association, "association_invalid")
+    result = copy.deepcopy(example("benchmark-vehicle-subclass-result-v1"))
+    result["scopeA"]["alignment"]["sourceRate"] = {"numerator": 10, "denominator": 2}
+    with pytest.raises(S32Error, match="^result_invalid:not_lowest_terms$"):
+        require_canonical_rationals(result, "result_invalid")
+    counts = copy.deepcopy(example("benchmark-vehicle-subclass-result-v1"))
+    counts["scopeA"]["associationRate"] = {"numerator": 5, "denominator": 10, "value": 0.5}  # counts, not reduced
+    require_canonical_rationals(counts, "result_invalid")
 
 
 def test_examples_are_lf_utf8_without_bom():

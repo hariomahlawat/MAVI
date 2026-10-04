@@ -64,6 +64,22 @@ def from_rational(document: Mapping[str, Any], code: str) -> Fraction:
     return value
 
 
+def require_canonical_rationals(document: Any, code: str) -> None:
+    """Every exact rational ``{numerator, denominator}`` anywhere in ``document`` is in lowest terms, so one value
+    has one spelling and one hash (thresholds and rates are hashed into ``associationBodySha256`` and the run
+    identity). Count fractions ``{numerator, denominator, value}`` are deliberately not reduced and are not
+    touched. Association and result validation call this on every document they accept."""
+    if isinstance(document, Mapping):
+        if set(document) == {"numerator", "denominator"}:
+            from_rational(document, code)
+            return
+        for value in document.values():
+            require_canonical_rationals(value, code)
+    elif isinstance(document, list):
+        for value in document:
+            require_canonical_rationals(value, code)
+
+
 # Tooling identity
 
 

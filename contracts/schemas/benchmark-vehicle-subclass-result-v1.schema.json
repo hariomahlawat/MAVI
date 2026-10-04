@@ -162,7 +162,30 @@
               "gt": {
                 "$ref": "#/$defs/gtCounts"
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "unsupported"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "unsupportedKind"
+                  ]
+                },
+                "else": {
+                  "not": {
+                    "required": [
+                      "unsupportedKind"
+                    ]
+                  }
+                }
+              }
+            ]
           }
         },
         "sequences": {
