@@ -239,6 +239,21 @@
           "ignored": 0,
           "unverified": 1,
           "unmatched": 0
+        },
+        "associationRate": {
+          "numerator": 1,
+          "denominator": 2,
+          "value": 0.5
+        },
+        "coverageLimitedGtRate": {
+          "numerator": 1,
+          "denominator": 2,
+          "value": 0.5
+        },
+        "maviUnverifiedRate": {
+          "numerator": 1,
+          "denominator": 2,
+          "value": 0.5
         }
       },
       {
@@ -264,6 +279,21 @@
           "ignored": 0,
           "unverified": 0,
           "unmatched": 1
+        },
+        "associationRate": {
+          "numerator": 0,
+          "denominator": 1,
+          "value": 0.0
+        },
+        "coverageLimitedGtRate": {
+          "numerator": 0,
+          "denominator": 1,
+          "value": 0.0
+        },
+        "maviUnverifiedRate": {
+          "numerator": 0,
+          "denominator": 1,
+          "value": 0.0
         }
       }
     ]

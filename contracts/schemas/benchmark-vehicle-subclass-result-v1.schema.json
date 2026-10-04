@@ -198,7 +198,10 @@
               "expectedVehicleGt",
               "outsideCapabilityGt",
               "ignoredGt",
-              "maviTracks"
+              "maviTracks",
+              "associationRate",
+              "coverageLimitedGtRate",
+              "maviUnverifiedRate"
             ],
             "properties": {
               "sequenceId": {
@@ -219,6 +222,15 @@
               },
               "maviTracks": {
                 "$ref": "#/$defs/maviCounts"
+              },
+              "associationRate": {
+                "$ref": "#/$defs/fraction"
+              },
+              "coverageLimitedGtRate": {
+                "$ref": "#/$defs/fraction"
+              },
+              "maviUnverifiedRate": {
+                "$ref": "#/$defs/fraction"
               }
             }
           },

@@ -117,9 +117,15 @@ def render(result: dict[str, Any]) -> bytes:
         truth = next(item["truth"] for item in b["confusion"] if item["nativeClass"] == native)
         rows.append([f"{native} → {truth}", *(cells[value] for value in evaluation.OUTCOMES)])
     lines += _table(["truth", *evaluation.OUTCOMES], rows) if rows else ["(no exact native class)"]
-    for title, blocks in (("Subset classes (precision only; never recall or confusion)", b["subsetBlocks"]),
-                          ("Unsupported classes (excluded from scoring)", b["excluded"])):
+    unsupported_note = ("vehicle-unresolved predictions are unjudgeable (they make that class's precision "
+                        "not-available); outside-capability assignments remain judgeable precision negatives (a "
+                        "Vehicle Track predicting a class there is a false positive). Neither kind enters "
+                        "exact-class recall or exact confusion.")
+    for title, blocks, note in (("Subset classes (precision only; never recall or confusion)", b["subsetBlocks"], None),
+                                ("Unsupported native classes", b["excluded"], unsupported_note)):
         lines += ["", f"### {title}", ""]
+        if note:
+            lines += [note, ""]
         if not blocks:
             lines.append("(none)")
             continue

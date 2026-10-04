@@ -35,7 +35,7 @@ def test_report_depends_only_on_the_canonical_result(result):
 def test_report_has_every_section_and_names_its_identities(result):
     text = report.render(result).decode("utf-8")
     for heading in ("## Scope A", "## Scope B", "### Exact-class confusion", "### Subset classes",
-                    "### Unsupported classes", "## Limitations"):
+                    "### Unsupported native classes", "## Limitations"):
         assert heading in text
     assert result["envelope"]["benchmarkRunId"] in text and result["associationSha256"] in text
     assert "Development/reference evidence" in text and "none-known" in text
@@ -65,6 +65,14 @@ def test_coverage_limited_warning_follows_the_result(tmp_path, unverified, warne
 def test_subset_block_is_reported(tmp_path):
     text = report.render(Scenario(tmp_path, [{"native": "sedan", "subclass": "truck"}], [SEDAN]).evaluate()).decode()
     assert "sedan → car: assigned 1" in text and "(no exact native class)" in text
+
+
+def test_unsupported_wording_distinguishes_the_two_kinds(result):
+    text = report.render(result).decode("utf-8")
+    assert "excluded from scoring" not in text
+    assert "vehicle-unresolved predictions are unjudgeable" in text
+    assert "outside-capability assignments remain judgeable precision negatives" in text
+    assert "Neither kind enters exact-class recall or exact confusion" in text
 
 
 def test_an_invalid_result_is_refused(result):

@@ -113,13 +113,21 @@ def _evaluate(descriptor_path, derived, exports_dir, evidence_root, mapping_path
     return run_id
 
 
+def _canonical(path: Path, code: str) -> dict[str, Any]:
+    """A stored artefact whose bytes are exactly its canonical form (identity is the SHA-256 of those bytes):
+    reformatted, re-spaced or newline-terminated copies are refused, never normalised."""
+    data = artefacts.read_bytes(path, code)
+    document = artefacts.parse_json(data, code)
+    require(canonical_json(document) == data, f"{code}:not_canonical")
+    return document
+
+
 def verify(directory: Path) -> dict[str, Any]:
     """A written results directory, re-checked: the association, the result bound to it, the report regenerated."""
     directory = Path(directory)
-    association = artefacts.parse_json(artefacts.read_bytes(directory / ASSOCIATION, "association_invalid"),
-                                       "association_invalid")
+    association = _canonical(directory / ASSOCIATION, "association_invalid")
     associations.check(association)
-    result = artefacts.parse_json(artefacts.read_bytes(directory / RESULT, "result_invalid"), "result_invalid")
+    result = _canonical(directory / RESULT, "result_invalid")
     evaluation.check(result, association)
     require(artefacts.read_bytes(directory / REPORT, "report_invalid") == reports.render(result), "report_invalid")
     require(directory.name == result["envelope"]["benchmarkRunId"], "result_invalid:directory")

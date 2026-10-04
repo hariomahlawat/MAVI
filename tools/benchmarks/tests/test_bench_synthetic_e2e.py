@@ -31,7 +31,7 @@ TOOLING = {"toolingCommit": "1" * 40, "toolingSha256": document_sha256(f.FILES),
 PREDICTIONS = {("seq-a", "1"): "car", ("seq-a", "2"): "car", ("seq-a", "3"): "truck",
                ("seq-b", "7"): "bus", ("seq-b", "9"): None}
 GOLDEN_ASSOCIATION_BODY = "57266783a8bc97fce8b8a11a80e0fd7dc7dd85195d1f65425f233899f740db9b"
-GOLDEN_SCOPES = "2d575eb4ea40731df3c4a5e7e356b3c15d6f179bc306b20f9357195e7f6bb83e"
+GOLDEN_SCOPES = "dfa53811a90ef76f90bf76ac8bf7ee87e6b3f7f67f23738079080d35a6bf0a73"
 
 
 def box_of(frame):
@@ -142,6 +142,19 @@ def test_prediction_mutation_changes_scope_b_only(benchmark, tmp_path, monkeypat
     assert base_association["associationBodySha256"] == mutated_association["associationBodySha256"]
     assert base["envelope"]["benchmarkRunId"] != mutated["envelope"]["benchmarkRunId"]  # other exports
     assert base["scopeA"] == mutated["scopeA"] and base["scopeB"] != mutated["scopeB"]
+
+
+@pytest.mark.parametrize("name, code", [(run.ASSOCIATION, "association_invalid"), (run.RESULT, "result_invalid")])
+@pytest.mark.parametrize("damage", ["trailing_lf", "appended_space", "pretty"])
+def test_verify_requires_canonical_artifact_bytes(benchmark, tmp_path, monkeypatch, capsys, name, code, damage):
+    directory = evaluate_into(benchmark, tmp_path / "out", monkeypatch, capsys)
+    run.verify(directory)  # the canonical bytes as written pass
+    path = directory / name
+    data = path.read_bytes()
+    path.write_bytes({"trailing_lf": data + b"\n", "appended_space": data + b" ",
+                      "pretty": json.dumps(json.loads(data), indent=2, sort_keys=True).encode("utf-8")}[damage])
+    with pytest.raises(S32Error, match=f"^{code}:not_canonical$"):
+        run.verify(directory)
 
 
 def test_results_are_written_once(benchmark, tmp_path, monkeypatch, capsys):

@@ -236,8 +236,6 @@ def test_inputs_must_be_the_ones_the_envelope_binds(tmp_path):
     relabelled["mappings"][1]["reason"] = "Changed wording."
     with refused("result_invalid:mapping_mismatch$"):
         scenario.evaluate(mapping=relabelled)
-    with refused("result_invalid:requirements_mismatch$"):
-        scenario.evaluate(requirements_sha256="0" * 64)
     changed = copy.deepcopy(scenario.document)
     changed["tracks"][0]["nativeClass"] = "van"
     with refused("result_invalid:ground_truth_mismatch:seq-1$"):
@@ -276,6 +274,99 @@ def test_a_result_is_bound_to_its_own_association(tmp_path):
     forged["requirements"]["sha256"] = "0" * 64
     with refused("result_invalid:requirements_mismatch$"):
         evaluation.check(forged)
+
+
+def test_the_requirements_document_itself_is_bound_before_scoring(tmp_path):
+    scenario = Scenario(tmp_path, [obj("car")], [CAR])
+    scenario.evaluate()  # the registered requirements pass
+    lower_floor = copy.deepcopy(scenario.requirements)
+    lower_floor["minimumSupport"]["evaluablePerClass"] = 1  # would make every class "adequate"
+    with refused("result_invalid:requirements_document_mismatch$"):
+        scenario.evaluate(requirements=lower_floor)
+    with_minimum = copy.deepcopy(scenario.requirements)
+    with_minimum["operational"]["perClass"]["car"]["recall"]["minimum"] = 0.5
+    with refused("result_invalid:requirements_document_mismatch$"):
+        scenario.evaluate(requirements=with_minimum)
+    # Document and hash changed together: still not the registered identity nor the envelope's.
+    with refused("requirements_not_registered$"):
+        scenario.evaluate(requirements=lower_floor, requirements_sha256=document_sha256(lower_floor))
+    malformed = copy.deepcopy(scenario.requirements)
+    del malformed["minimumSupport"]
+    with refused("requirements_invalid:schema"):
+        scenario.evaluate(requirements=malformed)
+    with refused("requirements_invalid:schema"):
+        scenario.evaluate(requirements=None)
+
+
+def test_a_registered_document_under_an_envelope_naming_other_requirements_is_refused(tmp_path, monkeypatch):
+    scenario = Scenario(tmp_path, [obj("car")], [CAR])
+    stale = copy.deepcopy(scenario.requirements)
+    stale["minimumSupport"]["evaluablePerClass"] = 1
+    stale_sha = document_sha256(stale)
+    from tools.benchmarks.core._stage3 import artefacts
+
+    monkeypatch.setattr(artefacts, "REGISTERED_REQUIREMENTS_SHA256", stale_sha)  # pretend it were registered
+    with refused("result_invalid:requirements_mismatch$"):  # the envelope still binds the original requirements
+        scenario.evaluate(requirements=stale, requirements_sha256=stale_sha)
+
+
+def test_per_sequence_scope_a_rates(tmp_path):
+    import track_fixtures as tf
+    from tools.benchmarks.capabilities.vehicle_tracks import mavi_tracks as mt
+    from tools.benchmarks.core import mavi
+
+    rows = [CAR, VAN]
+    mapping = e.mapping_doc(rows)
+    descriptor = e.descriptor_for(mapping)
+    documents, runs, exports = [], [], {}
+    plans = {"good": [obj("car") for _ in range(4)],
+             "poor": [obj("car", observation=TINY), obj("car", observation=TINY), obj("car"),
+                      obj("van", matched=False)]}
+    for video, (sequence, objects) in enumerate(plans.items(), start=1):
+        tracks, specs, classes = {}, [], {}
+        for index, item in enumerate(objects):
+            box = e.cell(index)
+            tracks[f"g{index}"] = tf.static(box, range(e.FRAMES))
+            classes[f"g{index}"] = item["native"]
+            if item.get("matched", True):
+                specs.append({"n": 10 * video + index, "points": tf.follow(box, range(e.FRAMES)),
+                              "observations": [(400, item.get("observation", box))], "subclass": item["subclass"]})
+        documents.append(tf.gt_document(tracks, sequence=sequence, classes=classes))
+        path = tf.write_export(tmp_path / f"run-{video}", tmp_path / "evidence", specs, video=video)
+        loaded = mavi.load_exports([path])
+        exports.update(loaded)
+        runs.append(mt.project(next(iter(loaded.values())), tmp_path / "evidence"))
+    requirements, requirements_sha = evaluation.load_requirements(e.REQUIREMENTS)
+    association = tf.associate(documents, runs, descriptor_document=descriptor, mapping_sha256=document_sha256(mapping),
+                               requirements_sha256=requirements_sha)
+    result = evaluation.evaluate(association=association, descriptor=descriptor, mapping=mapping,
+                                 ground_truth={d["sequenceId"]: d for d in documents}, exports=exports,
+                                 requirements=requirements, requirements_sha256=requirements_sha)
+    a = result["scopeA"]
+    by_sequence = {item["sequenceId"]: item for item in a["sequences"]}
+    good, poor = by_sequence["good"], by_sequence["poor"]
+    assert good["associationRate"] == {"numerator": 4, "denominator": 4, "value": 1.0}
+    assert good["coverageLimitedGtRate"]["numerator"] == 0 and good["maviUnverifiedRate"]["numerator"] == 0
+    assert (poor["associationRate"]["numerator"], poor["associationRate"]["denominator"]) == (1, 4)
+    assert (poor["coverageLimitedGtRate"]["numerator"], poor["coverageLimitedGtRate"]["denominator"]) == (2, 4)
+    assert (poor["maviUnverifiedRate"]["numerator"], poor["maviUnverifiedRate"]["denominator"]) == (2, 3)
+    # The aggregate is the population-level ratio, not a mean of sequence rates.
+    assert (a["associationRate"]["numerator"], a["associationRate"]["denominator"]) == (5, 8)
+    assert (a["coverageLimitedGtRate"]["numerator"], a["coverageLimitedGtRate"]["denominator"]) == (2, 8)
+    assert a["coverageLimited"] is True  # 2/8 > 1/10, decided on the aggregate only
+    for key in ("total", "assigned", "unverified", "unmatched"):
+        assert good["expectedVehicleGt"][key] + poor["expectedVehicleGt"][key] == a["expectedVehicleGt"][key]
+    assert good["maviTracks"]["total"] + poor["maviTracks"]["total"] == a["maviTracks"]["total"]
+
+
+def test_per_sequence_rates_with_zero_denominators(tmp_path):
+    # Only an outside-capability object: no expected-vehicle GT; its single MAVI Track is assigned to it.
+    result = Scenario(tmp_path, [obj("pedestrian", "car")], [CAR, PED]).evaluate()
+    sequence = result["scopeA"]["sequences"][0]
+    assert sequence["associationRate"] == {"numerator": 0, "denominator": 0, "value": None}
+    assert sequence["coverageLimitedGtRate"] == {"numerator": 0, "denominator": 0, "value": None}
+    assert sequence["maviUnverifiedRate"] == {"numerator": 0, "denominator": 1, "value": 0.0}
+    assert result["scopeA"]["coverageLimited"] is False
 
 
 def test_requirements_must_be_the_registered_file(tmp_path):

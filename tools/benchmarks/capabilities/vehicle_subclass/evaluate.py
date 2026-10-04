@@ -86,9 +86,19 @@ def load_requirements(path: Path) -> tuple[dict[str, Any], str]:
 # Binding
 
 
+def require_requirements(requirements: Any, requirements_sha256: str) -> None:
+    """The requirements document itself is the registered one: valid against its contract, and its canonical
+    SHA-256 is the supplied hash and the registered S3.2 identity (``evaluate`` is a direct API, so the document a
+    caller passes is bound here, not only the hash string)."""
+    validate(requirements, REQUIREMENTS_SCHEMA, "requirements_invalid")
+    require(document_sha256(requirements) == requirements_sha256, f"{CODE}:requirements_document_mismatch")
+    require(requirements_sha256 == artefacts.REGISTERED_REQUIREMENTS_SHA256, "requirements_not_registered")
+
+
 def _bind(association: dict[str, Any], descriptor: dict[str, Any], mapping: dict[str, Any],
-          ground_truth: dict[str, dict[str, Any]], exports: dict[str, artefacts.Export], requirements_sha256: str,
-          ) -> tuple[dict[str, dict[str, Any]], dict[str, artefacts.Export], str]:
+          ground_truth: dict[str, dict[str, Any]], exports: dict[str, artefacts.Export], requirements: Any,
+          requirements_sha256: str) -> tuple[dict[str, dict[str, Any]], dict[str, artefacts.Export], str]:
+    require_requirements(requirements, requirements_sha256)
     associations.check(association)
     envelope = association["envelope"]
     dataset, tooling = envelope["dataset"], envelope["tooling"]
@@ -148,6 +158,11 @@ def _mavi_counts(states: list[str]) -> dict[str, int]:
     return result
 
 
+def _limited(counts: dict[str, int]) -> int:
+    """Coverage-limited GT: ambiguous + fragmented + merged + unverified (plan §7.7)."""
+    return counts["ambiguous"] + counts["fragmented"] + counts["merged"] + counts["unverified"]
+
+
 def _population(row: dict[str, Any]) -> str:
     if row["kind"] == "unsupported" and row["unsupportedKind"] == "outside-capability":
         return "outside"
@@ -160,7 +175,8 @@ def _population(row: dict[str, Any]) -> str:
 def evaluate(*, association: dict[str, Any], descriptor: dict[str, Any], mapping: dict[str, Any],
              ground_truth: dict[str, dict[str, Any]], exports: dict[str, artefacts.Export],
              requirements: dict[str, Any], requirements_sha256: str) -> dict[str, Any]:
-    rows, by_run, source = _bind(association, descriptor, mapping, ground_truth, exports, requirements_sha256)
+    rows, by_run, source = _bind(association, descriptor, mapping, ground_truth, exports, requirements,
+                                 requirements_sha256)
     floor = requirements["minimumSupport"]["evaluablePerClass"]
     native_of: dict[tuple[str, str], str] = {}
     gt_rows: list[tuple[str, str, str]] = []            # (sequence, native class, state) over non-ignored GT
@@ -212,7 +228,7 @@ def _scope_a(association, rows, sequences, gt_rows, mavi_rows, ignored_by_sequen
     expected = _gt_counts(gt_states(None, "expected"))
     outside = gt_states(None, "outside")
     mavi = _mavi_counts([state for _, state in mavi_rows])
-    limited = expected["ambiguous"] + expected["fragmented"] + expected["merged"] + expected["unverified"]
+    limited = _limited(expected)
     rate = fraction(limited, expected["total"])
     per_native = []
     for native in sorted(rows):
@@ -222,14 +238,21 @@ def _scope_a(association, rows, sequences, gt_rows, mavi_rows, ignored_by_sequen
         if row["kind"] == "unsupported":
             item["unsupportedKind"] = row["unsupportedKind"]
         per_native.append(item)
-    per_sequence = [{
-        "sequenceId": sequence,
-        "expectedVehicleGt": _gt_counts(gt_states(sequence, "expected")),
-        "outsideCapabilityGt": {"total": len(gt_states(sequence, "outside")),
-                                "vehicleTracksOnOutsideCapabilityGt": outside_vehicle[sequence]},
-        "ignoredGt": ignored_by_sequence[sequence],
-        "maviTracks": _mavi_counts([state for seq, state in mavi_rows if seq == sequence]),
-    } for sequence in sequences]
+    per_sequence = []
+    for sequence in sequences:
+        counts = _gt_counts(gt_states(sequence, "expected"))
+        tracks = _mavi_counts([state for seq, state in mavi_rows if seq == sequence])
+        per_sequence.append({
+            "sequenceId": sequence,
+            "expectedVehicleGt": counts,
+            "associationRate": fraction(counts["assigned"], counts["total"]),
+            "coverageLimitedGtRate": fraction(_limited(counts), counts["total"]),
+            "outsideCapabilityGt": {"total": len(gt_states(sequence, "outside")),
+                                    "vehicleTracksOnOutsideCapabilityGt": outside_vehicle[sequence]},
+            "ignoredGt": ignored_by_sequence[sequence],
+            "maviTracks": tracks,
+            "maviUnverifiedRate": fraction(tracks["unverified"], tracks["total"]),
+        })
     return {
         "scope": SCOPE_A,
         "expectedVehicleGt": expected,
