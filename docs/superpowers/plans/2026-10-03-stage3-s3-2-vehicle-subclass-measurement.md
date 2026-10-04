@@ -1,6 +1,14 @@
 # Stage 3 S3.2 — Vehicle subclass measurement: export, corpus, labelling, evaluation
 
-**Status:** S3.2a (T1–T6) is implemented and merged (PRs #147, #148; `main@8fd15857cdb2a33baa1dd36361e714d9c312bd95`) and is fixed baseline. This revision makes S3.2b (T7–T9) implementation-ready; nothing in S3.2b is implemented yet.
+**Status (reconciled 2026-10-04 against `main@b64f27dd6166d093cdfd0da2391bf114202285fa`; the acceptance register is authoritative):**
+- S3.2a, T1–T6: implemented and merged (PRs #146–#148).
+- S3.2b-1, T7–T9 tooling: implemented and merged (PRs #149–#150).
+- S3.2b-2, real corpus intake and derivation: complete (E rows; PRs #151–#154).
+- S3.2b-3, Development-host T9 execution: complete, F1–F6 PASS (PR #155).
+- **S3.2c, T10: the current slice.** It is pre-registered (PRs #156–#157; G1–G3 PASS). The pilot sample is drawn and verified (G4 PASS, 2026-10-04), and the primary and overlap packs are built for human labelling. G5–G9 are OPEN.
+- S3.2d (T11), conditional, has not started.
+
+The rest of this plan is the design as accepted. Where it names a candidate corpus (CityFlow), the executed S3.2b event is the register's record.
 **Baseline:** originally `main@d7508201b217261bed9979390ebfaa0bf61b8e18` (PR #145, S3.1); S3.2b amendment against `main@8fd15857`.
 **Governing:**
 - ADR-016: detector-native subclass, evaluation first.
@@ -78,7 +86,7 @@ public release ──T7 verify/record──▶ release record (+R-5) ──T8 de
 | none | – | **S3.2b-1 can begin immediately** |
 | dataset access; the owner's acceptance of its terms; the R-5 determination | S3.2b-2 real execution | S3.2b-1 |
 | a Development MAVI host with a fresh, dedicated catalogue and media store (created after the pool freeze); the real Model Pack and runtime | S3.2b-3 | S3.2b-1, S3.2b-2 |
-| committed approved labelling guide; committed pre-registered requirements; a confirmed independent second reviewer | T10 (S3.2c) | S3.2b-1, S3.2b-2, S3.2b-3 |
+| committed approved labelling guide; committed pre-registered requirements; a confirmed independent second reviewer (all satisfied 2026-10-04: register G1–G3) | T10 (S3.2c) | S3.2b-1, S3.2b-2, S3.2b-3 |
 
 ## 5. Contracts and schemas (all new, under `contracts/schemas/`, each with an example validated by `verify_repo`)
 
@@ -113,7 +121,7 @@ The S3.1 Phase-1 ground-truth schema is not changed: Track-level labels are a di
 These are review reasons, not `ObjectSubclass` values.
 
 **Labelling guide (`mavi-vehicle-subclass-labeling-guide-v1`).** Labels are measurement truth only under a concrete, frozen annotation guide, because 80 % of pilot Tracks get only the primary reviewer's decision.
-- **File:** `docs/qualification/stage3/s3-2-labeling-guide.md`, committed before any pack is built; its content is approved by the owner (§19) and is not decided by this plan.
+- **File:** `docs/qualification/stage3/s3-2-labeling-guide.md`, committed before any pack is built; its content is approved by the owner (§19) and is not decided by this plan. **Done:** committed in PR #156 (`main@d520db10`) and owner-approved at SHA-256 `c5f8be38be9977ea05692e1e9d45d4ca7ea9b200629316f6375640778a251fc5` (register G2). T4 accepts only that registered hash (`labeling_guide_not_preregistered`).
 - **Required content:** for each label, an operational definition, with an explicit rule for each boundary case: pickup, SUV, van, minivan, minibus or shuttle, box truck, tractor or trailer unit, emergency and service vehicles, scooter and moped, motorcycle with sidecar, bicycle, and partial or truncated vehicles; when to choose a class and when `unknown`/`ambiguous-type` (for example: a class only when the visible evidence fits its definition without relying on assumption); how to treat a Track that changes identity (`mixed-track`); and a few illustrative described examples (no CityFlow images committed).
 - **Binding:** the pack builder (T4) takes `--labeling-guide <file> --labeling-guide-commit <sha>`, refuses unless the file is byte-identical at that commit (`labeling_guide_not_committed`), records `labelingGuide{sha256, gitCommit, gitPath}` in the manifest, and copies the guide into the pack (canonical UTF-8/LF, listed in `files[]`) where the page links to it. Labels bind the pack, so every decision is attributable to one guide version. All packs of one batch, and of batches pooled together, must bind the same guide (`labeling_guide_mismatch` in T2).
 
@@ -813,14 +821,16 @@ T10 runs this check before building packs (T10 step 2), and its result is part o
 
 ### T10 — Pilot (S3.2c; ⚠ human)
 
-Run in order:
-1. Commit the requirements (§13) and the approved labelling guide (§5).
-2. Sample 120 Tracks with a 20 % overlap (T3), binding the committed requirements, from exactly the exports and derivations named by the T9 execution record; run the T9 sample verifier (`--verify-sample`) before building packs.
-3. Build the primary and overlap packs (T4).
-4. The primary reviewer labels; the overlap reviewer labels independently.
-5. Freeze both, then adjudicate.
-6. Measure and compare (T6).
-7. Commit the evidence record (§20).
+Run in order (register rows in brackets):
+1. Commit the requirements (§13) and the approved labelling guide (§5), and confirm the overlap reviewer. **Done** [G1–G3].
+2. Sample 120 Tracks with a 20 % overlap (T3), binding the committed requirements, from exactly the exports and derivations named by the T9 execution record; run the T9 sample verifier (`--verify-sample`) before building packs [G4].
+3. Build the primary and overlap packs (T4); the overlap pack derives from the verified primary pack.
+4. The primary reviewer (R-4 Aarav) labels the primary pack. The overlap reviewer (Savita) labels the overlap pack independently. Both stay prediction-blind and do not see or discuss each other's decisions before both are frozen [G5].
+5. Freeze both label sets. Then, where the overlap has disagreements T5 does not carry, the designated adjudicator (§10) adjudicates. The designation is recorded first, and the adjudicator sees no prediction or confidence until the adjudication is frozen [G6, G7].
+6. Measure and compare (T6) [G8].
+7. **Threshold freeze decision (ADR-016 §3)** [G9], taken on the frozen measurement and not before. Either the measured profile's values are frozen as they are (`minShare` 0.6, `minMatchedDetections` 3, profile `1.3.0-candidate`). Or any proposed change becomes a new, separately versioned profile with its own Development tuning and evaluation path (§13, "No tuning in S3.2"), and needs a new measurement; it never alters this pilot or its record.
+8. **Expansion decision** [H1], taken on the frozen measurement and not before. T11 is triggered when §14 justifies it, declared `continuation` or `supplemental` before sampling. Otherwise expansion is recorded NOT TRIGGERED.
+9. Record the evidence in the register (§20).
 
 ### T11 — Expansion (S3.2d; conditional; ⚠ human)
 
@@ -872,11 +882,13 @@ After the pilot, the **human** class support is inspected. Rare-class supplement
 
 **Roles**
 - **Primary reviewer:** R-4 (Aarav).
-- **Overlap reviewer:** an independent annotator (Savita), to be confirmed.
+- **Overlap reviewer:** Savita, an independent annotator, confirmed by the owner on 2026-10-04 (register G3).
+- **Adjudicator:** needed only when the overlap has disagreements that T5 does not carry automatically. The owner designates the adjudicator, and the designation is recorded before any adjudication is performed. T5 then records the name in the adjudication artefact (`--adjudicator`). No adjudicator has been designated yet. That blocks only adjudication itself, not sampling, packs or independent labelling.
 
 **Independence**
 - Each works from their own pack.
 - The overlap pack hides the primary's decisions and all predictions.
+- Both reviewers stay prediction-blind, and neither sees the other's decisions until both label sets are frozen. They do not discuss or reconcile individual cases before then.
 - Adjudication happens only after both have frozen. The adjudicator sees the reviewer evidence and the two human decisions, never MAVI's predicted subclass or confidence; those stay hidden until the adjudication is frozen (T5).
 
 **What the unknown reasons diagnose:**
@@ -903,7 +915,7 @@ As T2 and T6. Reported metrics are exact fractions with explicit denominators; u
 **Artefact.** `vehicle-subclass-requirements-v1` is committed to the repository (`docs/qualification/stage3/s3-2-subclass-requirements.json`) **before** the pilot result exists, and its hash is recorded in §20. It contains three distinct parts:
 
 1. **Operational requirement:** per-class minimum precision and recall, and minimum coverage, if the owner can justify them. Each value may be `null` ("no defensible requirement yet").
-2. **Minimum evidence support:** the evaluable support per class below which no per-class conclusion is drawn. Suggested at 30, as a proposal for the owner to decide.
+2. **Minimum evidence support:** the evaluable support per class below which no per-class conclusion is drawn. Suggested at 30, as a proposal for the owner to decide. **Decided:** 30 per class and 30 in total, with every operational minimum `null`. Registered requirements SHA-256 `ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75` (register G1); T3 accepts only that hash (`requirements_not_preregistered`).
 3. **Insufficient-support outcome:** a class below the minimum gets `insufficient-support`, and no pass or fail is permitted for it.
 
 Criteria are on descriptive point estimates only. An interval-based criterion is out of scope for S3.2 and would need an explicit later plan amendment, with its estimator, minimum clusters and tests, before sampling (T2, "Why no intervals").
@@ -1010,9 +1022,10 @@ Every refusal exits with code 2, writes nothing, and gives a stable code.
 **Human decisions and blockers (not solvable by code)**
 1. CityFlow access request and acceptance of terms (owner). Blocks S3.2b-2.
 2. Licence/terms review and the **R-5 determination** (R-5; this plan makes no legal judgement). Blocks S3.2b-2.
-3. The pre-registered requirements (§13), including whether any operational threshold is defensible yet. Blocks T10 only.
-3a. The labelling guide's boundary rules (§5), approved by the owner before any pack is built. Blocks T10 only.
-4. Overlap reviewer identity: Savita proposed, to be confirmed. Blocks T10 only.
+3. The pre-registered requirements (§13), including whether any operational threshold is defensible yet. Blocks T10 only. **Resolved** (register G1): floor 30/30, every operational minimum `null`.
+3a. The labelling guide's boundary rules (§5), approved by the owner before any pack is built. Blocks T10 only. **Resolved** (register G2).
+4. Overlap reviewer identity: Savita proposed, to be confirmed. Blocks T10 only. **Resolved:** Savita confirmed (register G3).
+4a. The adjudicator's identity, designated by the owner and recorded before any adjudication. Blocks only T5 adjudication, when there are disagreements.
 5. The labelling work itself.
 6. The expansion decision.
 7. A Development host with the real Model Pack for T9. Blocks S3.2b-3.
