@@ -27,7 +27,7 @@ from tools.benchmarks.core import descriptor as descriptors
 from tools.benchmarks.core._stage3 import artefacts
 from tools.benchmarks.core.identity import (
     OutputDirectory, canonical_json, document_sha256, rational, read_artefact, require, sha256_hex)
-from tools.benchmarks.datasets import bdd100k_mot, synthetic
+from tools.benchmarks.datasets import bdd100k_mot, bdd100k_mot_coco, synthetic
 
 import media_tools  # noqa: E402  (tools/stage3, on the path via _stage3)
 import probe_media  # noqa: E402
@@ -37,7 +37,8 @@ MANIFEST = "derivation-manifest.json"
 GROUND_TRUTH = "ground-truth.json"
 VIDEO = "video.mp4"
 ADAPTERS = {synthetic.ADAPTER_ID: synthetic.SyntheticAdapter,
-            bdd100k_mot.ADAPTER_ID: bdd100k_mot.Bdd100kMotAdapter}
+            bdd100k_mot.ADAPTER_ID: bdd100k_mot.Bdd100kMotAdapter,
+            bdd100k_mot_coco.ADAPTER_ID: bdd100k_mot_coco.Bdd100kMotCocoAdapter}
 FFMPEG_TIMEOUT_SECONDS = 6 * 3600
 # Labelled frames → MP4 (the S3.2 transcode settings applied to an image sequence; deterministic for one binary).
 ARGS = ["-nostdin", "-hide_banner", "-loglevel", "error", "-f", "image2", "-framerate", "{rate}",

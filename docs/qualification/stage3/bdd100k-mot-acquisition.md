@@ -59,6 +59,16 @@ python -m tools.benchmarks.cli execute --derived <derived-dir> --pipeline-profil
 python -m tools.benchmarks.cli evaluate --descriptor <frozen-descriptor.json> --derived <derived-dir> --exports <exports-dir> --evidence-root <mavi-evidence-root> --mapping docs/qualification/stage3/benchmarks/bdd100k-mot-2020.mapping.json --policy <association-policy.json> --requirements <requirements.json> --pipeline-profile <profile.json> --out <results-root>
 ```
 
+## Derived annotation path for H3-v1 (`bdd100k-mot-coco`)
+
+The raw `box_track_20` labels are currently unavailable from BDD100K's distribution infrastructure. For H3-v1 only, the benchmark may instead use one pinned derivative of the val labels, read by the adapter `bdd100k-mot-coco` (`tools/benchmarks/datasets/bdd100k_mot_coco.py`, descriptor and mapping under `docs/qualification/stage3/benchmarks/bdd100k-mot-2020-cocofmt.*`).
+
+- **Artefact.** `bdd_box_track_val_cocofmt.json` from the MASA authors' Hugging Face repository `dereksiyuanli/masa`, commit `25ed372c47f2c46cf36fd446d1b657b656bc7ea9`, 117,094,032 bytes, SHA-256 `074ff79555483296cf7ccadddeeceeec7a83452c900506dc46588ed3a3e65d5d` (the Hub's LFS object id). The adapter refuses any other file before parsing it. It is a derivative and is never described as the raw release.
+- **Why it is admissible for Development H3-v1.** It is the output of the official conversion `bdd100k.label.to_coco -m box_track`. That conversion keeps every field H3 scores: video name, frame index, frame file name, the raw label id (`scalabel_id`, used as the track id), the class after the official name mapping, and the box with Scalabel's inclusive `x2, y2`. The adapter inverts the box and clips it exactly as the raw adapter does, so a non-crowd label yields the same ground truth. The `lineage` check in the same module compares the derivative with raw official labels for one val video before the file is accepted.
+- **Source layout.** `labels/box_track_20_cocofmt/bdd_box_track_val_cocofmt.json` beside the unmodified `images/track/val/<videoName>/<frame>.jpg` tree from the official MOT 2020 val image package.
+- **Crowd and distractors.** The conversion marks raw crowd boxes and the distractor classes `trailer`, `other vehicle` and `other person` alike with `iscrowd = 1`, recoded as `truck`, `car` and `pedestrian`. Every `iscrowd = 1` annotation becomes an ignored frame. It is never scored ground truth, so distractors cannot enter class precision or recall.
+- **What it cannot support.** Raw distractor classes and raw aliases are not recoverable. `van`, `caravan`, `motor`, `person` and `bike` are folded into the eight classes, and crowd cannot be told apart from distractor. Occluded and truncated attributes are dropped. No support, absence or MAVI behaviour for `trailer`, `other vehicle`, `van` or `caravan` may be claimed from this source, and it gives no evidence for a taxonomy change. That needs a dataset whose native categories remain available.
+
 ## How the adapter interprets the labels
 
 - **Tracks.** The label `id` is the ground-truth track id within its video ("objects across videos are always distinct even if they have the same id", download.rst).
