@@ -77,7 +77,9 @@ The raw `box_track_20` labels are currently unavailable from BDD100K's distribut
 - **Licence.** The annotation is a converted representation of BDD100K labels hosted by the MASA authors. Development use of the underlying labels is governed by the BDD100K data and label licence (educational, research and not-for-profit use without fee). MASA is the retrieval and conversion source; its repository licence is not treated as relicensing the BDD100K annotation data.
 - **Provenance in the working descriptor.** The committed template is reproducible, not a record. The working descriptor frozen for an H3 run sets `source.retrievedOn` to the date the annotation was actually retrieved, 2026-10-05. It keeps the image provenance as it happened: the owner obtained the MOT 2020 val image archive from the Berkeley BDD100K MOT mirror (`images20-track-val-1.zip`, 4,983,938,716 bytes, SHA-256 `4d678810a14095ab4064013d81e3bc2bda45f730bfc09c3e66d3a5ef1c076778`, MD5 `743ab4c7b5ff8eeebd60bbfd15b20bd6`). No independently published checksum for this archive was found.
 
-## How the adapter interprets the labels
+## Raw-label adapter semantics (`bdd100k-mot`)
+
+This section and the next apply only when the original raw `box_track_20` Scalabel labels are available and used with the `bdd100k-mot` adapter. The H3-v1 derived path is described above.
 
 - **Tracks.** The label `id` is the ground-truth track id within its video ("objects across videos are always distinct even if they have the same id", download.rst).
 - **Timing.** Frames are "resampled to 5Hz from 30Hz" (download.rst). Label `frameIndex` k is offset k × 200 ms in the derived video. A gap in frame indices is refused by `prepare`.
@@ -85,7 +87,7 @@ The raw `box_track_20` labels are currently unavailable from BDD100K's distribut
 - **Classes.** These are the eight box-tracking classes plus the three distractor classes named by the official evaluation (`other person`, `other vehicle`, `trailer`). The official config's synonym aliases are applied (`motor` → `motorcycle`; `person` → `pedestrian`; `bike` → `bicycle`). Its `van` and `caravan` → `car` folding is not applied. `van` and `caravan` stay native classes mapped `vehicle-unresolved`, because MAVI splits vans by body. Any other category is refused.
 - **Crowd and other attributes.** They do not change ground truth. A `crowd` box stays ordinary ground truth of its class, and no ignore regions are emitted. The official evaluation instead ignores false positives that overlap a crowd box or a distractor box by more than half (evaluate.rst). MAVI results are therefore not comparable with official BDD100K MOT scores.
 
-## Known caveats for interpreting results
+## Raw-label path caveats
 
 - **Car and vans.** BDD100K's documentation does not say how vans labelled `car` are split. The MAVI guide puts windowless cargo vans in `truck`. Any cargo van labelled `car` is a domain caveat on car precision and truck recall.
 - **Taxonomy evolution.** Every native class is kept in the prepared ground truth. The mapping scores only `mavi-vehicle-subclass-v1`. `trailer` is the leading candidate for the next taxonomy version, and `van` is a further candidate, both subject to measured support (`vehicle-taxonomy-review-bdd100k.md`). A later version re-maps the same prepared data.
