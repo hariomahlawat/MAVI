@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import uuid
 from functools import cache
 from pathlib import Path
@@ -193,7 +194,18 @@ def write_once(path: Path, data: bytes, code: str = "output_exists") -> None:
 
 
 class OutputDirectory:
-    """A new output directory built in a hidden sibling and moved into place only on success."""
+    """A new output directory built in a hidden sibling and moved into place only on success.
+
+    The final move is one directory rename. On Windows that rename is refused with ``ERROR_ACCESS_DENIED`` (5) or
+    ``ERROR_SHARING_VIOLATION`` (32) while another process (an antivirus scanner or the search indexer, typically)
+    still holds a handle inside the freshly written tree. Such a denial is transient, so the move is retried for a
+    bounded time; if it still fails, the staging directory is left intact as evidence and the failure is a refusal
+    (``output_move_failed``), never a raw ``OSError``.
+    """
+
+    MOVE_ATTEMPTS = 20
+    MOVE_RETRY_SECONDS = 0.5
+    _TRANSIENT_WINERRORS = (5, 32)
 
     def __init__(self, target: Path, code: str = "output_exists") -> None:
         self.target = Path(target)
@@ -206,12 +218,23 @@ class OutputDirectory:
         self.staging.mkdir()
         return self.staging
 
+    def _move(self) -> None:
+        for attempt in range(self.MOVE_ATTEMPTS):
+            try:
+                os.rename(self.staging, self.target)
+                return
+            except OSError as exc:
+                transient = getattr(exc, "winerror", None) in self._TRANSIENT_WINERRORS
+                if not transient or attempt == self.MOVE_ATTEMPTS - 1:
+                    raise S32Error("output_move_failed") from exc
+                time.sleep(self.MOVE_RETRY_SECONDS)
+
     def __exit__(self, exc_type, exc, tb) -> bool:
         if exc_type is None:
             if self.target.exists():
                 shutil.rmtree(self.staging, ignore_errors=True)
                 raise S32Error(self.code)
-            os.rename(self.staging, self.target)
+            self._move()
         else:
             shutil.rmtree(self.staging, ignore_errors=True)
         return False
