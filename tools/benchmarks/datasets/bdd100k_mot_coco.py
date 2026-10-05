@@ -30,11 +30,14 @@ folded into ``car``, ``motorcycle``, ``pedestrian`` or ``bicycle`` without trace
 are dropped. This adapter emits distractors only as ignored frames under their recoded class, never as native
 classes, so H3-v1 makes no claim about trailer, van, caravan or other vehicle from this source.
 
+Ground-truth ignore follows ``ignore = 1`` only, never ``iscrowd`` alone: a former distractor
+(``iscrowd = 1, ignore = 1``) is an ignored frame, never scored GT, which keeps distractors out of class precision and
+recall; a genuine crowd box (``iscrowd = 1, ignore = 0``) stays ordinary GT of its class, exactly as the raw adapter
+keeps crowd boxes (BDD100K's overlap-based crowd rule is not MAVI's ignore rule).
+
 A label id whose class changes between frames (46 of the 18,842 val tracks) has no single class meaning: every
-frame of it is emitted as ignored, with its first class recorded but never scored. Every ``iscrowd = 1`` annotation
-(crowd or distractor) is emitted as an ignored frame (the harness's frame-level ``ignore``): it is never
-scored GT, and a track left without enough non-ignored frames is ``ignoredGt``, which enters no population. This keeps
-distractors out of class precision and recall.
+frame of it is emitted as ignored, with its first class recorded but never scored. A track left without enough
+non-ignored frames is ``ignoredGt``, which enters no population.
 """
 
 from __future__ import annotations
@@ -65,13 +68,13 @@ TAXONOMY = (
     ("bicycle", "Bicycle", f"BDD100K 'bicycle' {FOLDED} (raw 'bike' folded in)."),
     ("bus", "Bus", f"BDD100K 'bus' {FOLDED}."),
     ("car", "Car", f"BDD100K 'car' {FOLDED} (which maps 'van' and 'caravan' to 'car' if such aliases are present; "
-                   f"'other vehicle' only as crowd)."),
+                   f"'other vehicle' only as an ignored distractor)."),
     ("motorcycle", "Motorcycle", f"BDD100K 'motorcycle' {FOLDED} (raw 'motor' folded in)."),
     ("pedestrian", "Pedestrian", f"BDD100K 'pedestrian' {FOLDED} (raw 'person' folded in; 'other person' only as "
-                                 f"crowd)."),
+                                 f"an ignored distractor)."),
     ("rider", "Rider", f"BDD100K 'rider' {FOLDED}."),
     ("train", "Train", f"BDD100K 'train' {FOLDED}."),
-    ("truck", "Truck", f"BDD100K 'truck' {FOLDED} ('trailer' only as crowd)."),
+    ("truck", "Truck", f"BDD100K 'truck' {FOLDED} ('trailer' only as an ignored distractor)."),
 )
 MAPPINGS = (
     ("bicycle", None, "unsupported", "outside-capability", "Not one of the four MAVI motor-vehicle classes."),
@@ -86,8 +89,8 @@ MAPPINGS = (
     ("rider", None, "unsupported", "outside-capability", "The person on a two-wheeler, not the vehicle."),
     ("train", None, "unsupported", "outside-capability", "Rail vehicle, outside the four MAVI road-vehicle classes."),
     ("truck", "truck", "exact", None,
-     "Same practical meaning: goods and work vehicles. Former 'trailer' distractors appear only as crowd "
-     "(ignored), never as scored truck GT."),
+     "Same practical meaning: goods and work vehicles. Former 'trailer' distractors (ignore = 1) are ignored "
+     "frames, never scored truck GT."),
 )
 # configs/box_track.toml [ignored_mapping]: other person -> pedestrian, other vehicle -> car, trailer -> truck.
 IGNORED_MAPPING = {"other person": "pedestrian", "other vehicle": "car", "trailer": "truck"}
@@ -159,7 +162,7 @@ def _int(value: Any) -> bool:
 
 def parse(data: bytes) -> dict[str, dict[str, Any]]:
     """The derived annotation, checked field by field, as ``{videoName: {"size": (w, h), "frames": [...]}}`` with
-    frames sorted by ``frame_id``, each ``{frameIndex, name, objects[{id, class, box (x1, y1, x2, y2), crowd}]}``."""
+    frames sorted by ``frame_id``, each ``{frameIndex, name, objects[{id, class, box (x1, y1, x2, y2), ignore}]}``."""
     from tools.benchmarks.core._stage3 import artefacts
 
     bad = "adapter_label_invalid:annotation"
@@ -227,7 +230,10 @@ def parse(data: bytes) -> dict[str, dict[str, Any]]:
         x, y, width, height = (raw._coordinate(value, f"{where}:box") for value in box)
         require(width >= 1 and height >= 1, f"{where}:box")  # x2 >= x1 under width = x2 - x1 + 1
         frame["objects"].append({"id": track_id, "class": CATEGORIES[item["category_id"] - 1],
-                                 "box": (x, y, x + width - 1, y + height - 1), "crowd": item["iscrowd"] == 1})
+                                 "box": (x, y, x + width - 1, y + height - 1),
+                                 # Ground-truth ignore is the former-distractor flag only; genuine crowd
+                                 # (iscrowd = 1, ignore = 0) stays ordinary GT, as in the raw adapter.
+                                 "ignore": item["ignore"] == 1})
     numbers: dict[tuple[str, str], int] = {}
     for (name, number), track_id in identities.items():
         require(numbers.setdefault((name, track_id), number) == number, f"adapter_label_invalid:{name}:instance_id")
@@ -323,7 +329,7 @@ class Bdd100kMotCocoAdapter:
                                                        "frames": []})
                 track.setdefault("classes", set()).add(item["class"])
                 track["frames"].append({
-                    "frameIndex": index, "videoOffsetMs": offset, "ignore": item["crowd"],
+                    "frameIndex": index, "videoOffsetMs": offset, "ignore": item["ignore"],
                     "box": {"x": float(left / width), "y": float(top / height),
                             "width": float((right - left) / width), "height": float((bottom - top) / height)}})
         for track in tracks.values():

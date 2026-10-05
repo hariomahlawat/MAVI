@@ -106,7 +106,7 @@ def test_registry_and_descriptor_binding(tmp_path, monkeypatch):
 # Semantics
 
 
-def test_derived_ground_truth_equals_the_raw_adapters_for_non_crowd_labels(tmp_path, monkeypatch):
+def test_derived_ground_truth_equals_the_raw_adapters_except_distractors(tmp_path, monkeypatch):
     for sequence in (b.SEQ_A, b.SEQ_B):
         derived = gt_module.validate(gt(tmp_path / sequence, monkeypatch, sequence))
         reference = raw_gt(tmp_path / sequence, sequence)
@@ -118,13 +118,15 @@ def test_derived_ground_truth_equals_the_raw_adapters_for_non_crowd_labels(tmp_p
             assert track["nativeClass"] == official.get(other["nativeClass"], other["nativeClass"])
             assert [f["box"] for f in track["frames"]] == [f["box"] for f in other["frames"]]  # inclusive boxes
             assert [f["frameIndex"] for f in track["frames"]] == [f["frameIndex"] for f in other["frames"]]
+            if other["nativeClass"] != "other-vehicle":  # the only distractor: ignored on the derived path
+                assert track["frames"] == other["frames"]  # including ignore, for genuine crowd too
         assert not reference_tracks
 
 
-def test_crowd_and_distractor_annotations_are_ignored_not_scored(tmp_path, monkeypatch):
+def test_genuine_crowd_is_ordinary_gt_and_a_distractor_is_ignored(tmp_path, monkeypatch):
     a = {t["gtTrackId"]: t for t in gt(tmp_path / "a", monkeypatch, b.SEQ_A)["tracks"]}
-    assert all(f["ignore"] for f in a["3"]["frames"])  # raw crowd=true
-    assert not any(f["ignore"] for key in ("1", "2", "4", "5", "6") for f in a[key]["frames"])
+    assert a["3"]["nativeClass"] == "pedestrian" and len(a["3"]["frames"]) == 2
+    assert not any(f["ignore"] for t in a.values() for f in t["frames"])  # crowd (1, 0) is ordinary GT
     document = c.convert(b.labels())
     assert {(a["scalabel_id"], a["iscrowd"], a["ignore"]) for a in document["annotations"]
             if a["iscrowd"]} == {("3", 1, 0), ("8", 1, 1)}  # crowd vs former distractor
@@ -133,16 +135,35 @@ def test_crowd_and_distractor_annotations_are_ignored_not_scored(tmp_path, monke
     assert bb["9"]["nativeClass"] == "car" and not any(f["ignore"] for f in bb["9"]["frames"])  # 'van' folded
 
 
-def test_flipping_one_iscrowd_flag_changes_only_that_frames_ignore(tmp_path, monkeypatch):
+def test_iscrowd_alone_never_marks_a_frame_ignored(tmp_path, monkeypatch):
     document = c.convert(b.labels())
     reference = gt(tmp_path / "a", monkeypatch, b.SEQ_A, copy.deepcopy(document))
-    target = next(a for a in document["annotations"] if a["scalabel_id"] == "1" and a["image_id"] == 1)
-    target["iscrowd"] = 1
+    next(a for a in document["annotations"] if a["scalabel_id"] == "1" and a["image_id"] == 1)["iscrowd"] = 1
+    assert gt(tmp_path / "b", monkeypatch, b.SEQ_A, document) == reference
+
+
+def test_flipping_ignore_from_0_to_1_changes_only_that_frames_ignore(tmp_path, monkeypatch):
+    document = c.convert(b.labels())
+    reference = gt(tmp_path / "a", monkeypatch, b.SEQ_A, copy.deepcopy(document))
+    target = next(a for a in document["annotations"] if a["scalabel_id"] == "3" and a["image_id"] == 1)
+    assert (target["iscrowd"], target["ignore"]) == (1, 0)  # a genuine crowd pedestrian
+    target["ignore"] = 1
     mutated = gt(tmp_path / "b", monkeypatch, b.SEQ_A, document)
     changed = [(t["gtTrackId"], f["frameIndex"]) for t, u in zip(reference["tracks"], mutated["tracks"])
                for f, g in zip(t["frames"], u["frames"]) if f != g]
-    assert changed == [("1", 0)]
-    assert mutated["tracks"][0]["frames"][0]["ignore"] is True
+    assert changed == [("3", 0)]
+    track = next(t for t in mutated["tracks"] if t["gtTrackId"] == "3")
+    assert [f["ignore"] for f in track["frames"]] == [True, False]
+
+
+def test_genuine_crowd_reaches_association_exactly_as_on_the_raw_path(tmp_path, monkeypatch):
+    # Association reads only the class-free projection, so equal projections mean the frozen policy treats the
+    # genuine-crowd track identically on both paths.
+    derived = gt_module.project(gt(tmp_path / "d", monkeypatch, b.SEQ_A))
+    reference = gt_module.project(raw_gt(tmp_path / "r", b.SEQ_A))
+    assert derived.instants == reference.instants and derived.ignore_regions == reference.ignore_regions
+    crowd = [next(t for t in s.tracks if t.gt_track_id == "3") for s in (derived, reference)]
+    assert crowd[0] == crowd[1] and not any(frame.ignore for frame in crowd[0].frames)
 
 
 def test_a_track_whose_class_changes_is_ignored_evidence_not_scored(tmp_path, monkeypatch):
