@@ -125,6 +125,9 @@ def test_crowd_and_distractor_annotations_are_ignored_not_scored(tmp_path, monke
     a = {t["gtTrackId"]: t for t in gt(tmp_path / "a", monkeypatch, b.SEQ_A)["tracks"]}
     assert all(f["ignore"] for f in a["3"]["frames"])  # raw crowd=true
     assert not any(f["ignore"] for key in ("1", "2", "4", "5", "6") for f in a[key]["frames"])
+    document = c.convert(b.labels())
+    assert {(a["scalabel_id"], a["iscrowd"], a["ignore"]) for a in document["annotations"]
+            if a["iscrowd"]} == {("3", 1, 0), ("8", 1, 1)}  # crowd vs former distractor
     bb = {t["gtTrackId"]: t for t in gt(tmp_path / "b", monkeypatch, b.SEQ_B)["tracks"]}
     assert bb["8"]["nativeClass"] == "car" and all(f["ignore"] for f in bb["8"]["frames"])  # 'other vehicle'
     assert bb["9"]["nativeClass"] == "car" and not any(f["ignore"] for f in bb["9"]["frames"])  # 'van' folded
@@ -140,6 +143,15 @@ def test_flipping_one_iscrowd_flag_changes_only_that_frames_ignore(tmp_path, mon
                for f, g in zip(t["frames"], u["frames"]) if f != g]
     assert changed == [("1", 0)]
     assert mutated["tracks"][0]["frames"][0]["ignore"] is True
+
+
+def test_a_track_whose_class_changes_is_ignored_evidence_not_scored(tmp_path, monkeypatch):
+    document = c.convert(b.labels())
+    frame3 = {i["id"] for i in document["images"] if i["frame_id"] == 3 and i["video_id"] == 1}
+    next(a for a in document["annotations"] if a["scalabel_id"] == "1" and a["image_id"] in frame3)["category_id"] = 4
+    tracks = {t["gtTrackId"]: t for t in gt(tmp_path, monkeypatch, b.SEQ_A, document)["tracks"]}
+    assert tracks["1"]["nativeClass"] == "car" and all(f["ignore"] for f in tracks["1"]["frames"])
+    assert not any(f["ignore"] for f in tracks["2"]["frames"])  # other tracks untouched
 
 
 def test_frame_paths_come_from_file_name(tmp_path, monkeypatch):
@@ -160,7 +172,8 @@ def _first(document, key):
 @pytest.mark.parametrize("change, code", [
     (lambda d: d.update(info={}), "annotation:fields"),
     (lambda d: d["categories"].reverse(), "annotation:categories"),
-    (lambda d: _first(d, "annotations").update(ignore=1), f"{b.SEQ_A}:crowd"),
+    (lambda d: _first(d, "annotations").update(ignore=1), f"{b.SEQ_A}:crowd"),  # ignore without iscrowd
+    (lambda d: _first(d, "annotations").update(iscrowd=1, ignore=1, category_id=5), f"{b.SEQ_A}:ignore_category"),
     (lambda d: _first(d, "annotations").update(iscrowd=2), f"{b.SEQ_A}:crowd"),
     (lambda d: _first(d, "annotations").update(iscrowd=True), f"{b.SEQ_A}:crowd"),
     (lambda d: _first(d, "annotations").update(category_id=9), f"{b.SEQ_A}:category"),
@@ -224,15 +237,32 @@ def test_lineage_is_consistent_for_an_official_conversion():
         assert report["comparedBoxes"] == sum(len(f["labels"]) for f in frames)
 
 
+def test_a_uniform_raw_id_prefix_is_reported_unless_declared():
+    # The pinned Scalabel reference writes 'a-00122062' where the derivative records '00122062'.
+    raw_frames = [dict(frame, labels=[dict(label, id=f"a-{label['id']}") for label in frame["labels"]])
+                  for frame in b.labels()[b.SEQ_A]]
+    document = c.convert(b.labels())
+    assert {m[0] for m in cc.lineage(document, raw_frames)["mismatches"]} == {"track_ids"}
+    assert cc.lineage(document, raw_frames, raw_id=lambda v: v.removeprefix("a-"))["mismatches"] == []
+
+
 @pytest.mark.parametrize("change, kind", [
+    (lambda d: d["images"].append(dict(d["images"][0], id=9_999, frame_id=99)), "frame_missing_in_raw"),
+    (lambda d: d["images"].pop(1), "frame_missing_in_derived"),
     (lambda a: a.update(bbox=[a["bbox"][0] + 1, *a["bbox"][1:]]), "bbox"),
     (lambda a: a.update(iscrowd=1 - a["iscrowd"]), "crowd"),
+    (lambda a: a.update(ignore=1), "ignore"),
     (lambda a: a.update(category_id=a["category_id"] % 8 + 1), "category"),
     (lambda a: a.update(scalabel_id="999"), "track_ids"),
 ])
 def test_lineage_reports_each_material_difference(change, kind):
     document = c.convert(b.labels())
-    change(document["annotations"][0])
+    if kind.startswith("frame_missing"):
+        change(document)  # an image record with no annotations, or a dropped one: frame sets must still match
+        document["annotations"] = [a for a in document["annotations"]
+                                   if a["image_id"] in {i["id"] for i in document["images"]}]
+    else:
+        change(document["annotations"][0])
     report = cc.lineage(document, b.labels()[b.SEQ_A])
     assert [m[0] for m in report["mismatches"]] == [kind]
 

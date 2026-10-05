@@ -1,6 +1,7 @@
 """Synthetic derived (COCO-format) BDD100K MOT sources, made from the raw Scalabel fixtures by an independent
-re-statement of the official conversion (``bdd100k_to_scalabel`` with ``box_track.toml``, then
-``scalabel2coco_box_track``). No dataset bytes; every value comes from ``bdd_fixtures``."""
+re-statement of the official conversion as the real derivative records it (``box_track.toml``; Scalabel
+``to_coco`` of April-May 2021, which writes ``ignore = 1`` for a former distractor). No dataset bytes; every
+value comes from ``bdd_fixtures``."""
 
 from __future__ import annotations
 
@@ -39,7 +40,7 @@ def convert(documents: dict[str, list[dict]]) -> dict[str, Any]:
                 out["annotations"].append({
                     "id": annotation_id, "image_id": image_id, "category_id": LEAVES.index(category) + 1,
                     "instance_id": numbers[label["id"]], "scalabel_id": label["id"],
-                    "iscrowd": int(bool(label["attributes"].get("crowd")) or ignored), "ignore": 0,
+                    "iscrowd": int(bool(label["attributes"].get("crowd")) or ignored), "ignore": int(ignored),
                     "bbox": [box["x1"], box["y1"], width, height], "area": float(width * height)})
     return out
 

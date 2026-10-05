@@ -3,9 +3,10 @@
 The raw ``box_track_20`` labels are unavailable from BDD100K's distribution infrastructure, so H3-v1 uses one pinned
 derivative: ``bdd_box_track_val_cocofmt.json`` from the MASA authors' Hugging Face repository
 (``dereksiyuanli/masa``), SHA-256 ``074ff795…5d5d``. It is the output of the official conversion
-``python -m bdd100k.label.to_coco -m box_track`` (``bdd100k.label.to_scalabel.bdd100k_to_scalabel`` with
-``configs/box_track.toml``, then ``scalabel.label.to_coco.scalabel2coco_box_track``). It is never the raw release,
-and this adapter accepts no other file: a different SHA-256 is refused before anything is parsed.
+``python -m bdd100k.label.to_coco -m box_track`` with ``configs/box_track.toml``; its fields are exactly those of
+Scalabel's ``to_coco`` box-track converter of April to early May 2021 (scalabel commits ``55cd90e``..``d0a018f``),
+which, unlike the current converter, also writes ``ignore = 1`` for a former distractor. It is never the raw
+release, and this adapter accepts no other file: a different SHA-256 is refused before anything is parsed.
 
 Source layout (the images exactly as the BDD100K MOT 2020 val image package ships them):
 
@@ -22,14 +23,16 @@ What the official conversion keeps, and how it is read (each field is checked; a
   the same rule, so a non-crowd box yields the same ground truth as the raw path.
 - ``category_id`` is one of the eight leaf classes after the official name mapping.
 
-What it loses (so this source supports none of these claims): the raw distractor classes ``trailer``,
-``other vehicle`` and ``other person`` become ``truck``, ``car`` and ``pedestrian`` with ``iscrowd = 1``; raw
-``van``/``caravan``, ``motor``, ``person`` and ``bike`` aliases are folded into ``car``, ``motorcycle``,
-``pedestrian`` and ``bicycle``; ``iscrowd = 1`` also marks genuine crowd boxes, so crowd and distractor are no longer
-distinguishable; occluded and truncated attributes are dropped. Native-class support for trailer, van, caravan or
-other vehicle can therefore not be measured from this source.
+What it changes: the raw distractor classes ``trailer``, ``other vehicle`` and ``other person`` are recoded as
+``truck``, ``car`` and ``pedestrian`` with ``iscrowd = 1`` and ``ignore = 1`` (genuine crowd boxes carry
+``iscrowd = 1`` and ``ignore = 0``); any raw ``van``/``caravan``, ``motor``, ``person`` or ``bike`` alias would be
+folded into ``car``, ``motorcycle``, ``pedestrian`` or ``bicycle`` without trace; occluded and truncated attributes
+are dropped. This adapter emits distractors only as ignored frames under their recoded class, never as native
+classes, so H3-v1 makes no claim about trailer, van, caravan or other vehicle from this source.
 
-Every ``iscrowd = 1`` annotation is emitted as an ignored frame (the harness's frame-level ``ignore``): it is never
+A label id whose class changes between frames (46 of the 18,842 val tracks) has no single class meaning: every
+frame of it is emitted as ignored, with its first class recorded but never scored. Every ``iscrowd = 1`` annotation
+(crowd or distractor) is emitted as an ignored frame (the harness's frame-level ``ignore``): it is never
 scored GT, and a track left without enough non-ignored frames is ``ignoredGt``, which enters no population. This keeps
 distractors out of class precision and recall.
 """
@@ -61,7 +64,8 @@ FOLDED = "after the official box_track name mapping"
 TAXONOMY = (
     ("bicycle", "Bicycle", f"BDD100K 'bicycle' {FOLDED} (raw 'bike' folded in)."),
     ("bus", "Bus", f"BDD100K 'bus' {FOLDED}."),
-    ("car", "Car", f"BDD100K 'car' {FOLDED} (raw 'van' and 'caravan' folded in; 'other vehicle' only as crowd)."),
+    ("car", "Car", f"BDD100K 'car' {FOLDED} (which maps 'van' and 'caravan' to 'car' if such aliases are present; "
+                   f"'other vehicle' only as crowd)."),
     ("motorcycle", "Motorcycle", f"BDD100K 'motorcycle' {FOLDED} (raw 'motor' folded in)."),
     ("pedestrian", "Pedestrian", f"BDD100K 'pedestrian' {FOLDED} (raw 'person' folded in; 'other person' only as "
                                  f"crowd)."),
@@ -73,8 +77,10 @@ MAPPINGS = (
     ("bicycle", None, "unsupported", "outside-capability", "Not one of the four MAVI motor-vehicle classes."),
     ("bus", "bus", "exact", None, "Same practical meaning: passenger buses and coaches."),
     ("car", "car", "exact", None,
-     "Same practical meaning: passenger cars. Caveat: the official name mapping folds any raw 'van' and 'caravan' "
-     "into 'car', and the MAVI guide puts windowless cargo vans in truck."),
+     "Same practical meaning: passenger cars. The generic BDD box_track conversion maps 'van' and 'caravan' to "
+     "'car' if such aliases are present; the published MOT 2020 taxonomy does not list them as native MOT classes. "
+     "Caveat: BDD100K does not define every body-style boundary (the MAVI guide puts windowless cargo vans in "
+     "truck)."),
     ("motorcycle", "motorcycle", "exact", None, "Same practical meaning: motorised two-wheelers ridden seated."),
     ("pedestrian", None, "unsupported", "outside-capability", "A person, not a Vehicle."),
     ("rider", None, "unsupported", "outside-capability", "The person on a two-wheeler, not the vehicle."),
@@ -83,6 +89,9 @@ MAPPINGS = (
      "Same practical meaning: goods and work vehicles. Former 'trailer' distractors appear only as crowd "
      "(ignored), never as scored truck GT."),
 )
+# configs/box_track.toml [ignored_mapping]: other person -> pedestrian, other vehicle -> car, trailer -> truck.
+IGNORED_MAPPING = {"other person": "pedestrian", "other vehicle": "car", "trailer": "truck"}
+DISTRACTOR_TARGETS = frozenset(IGNORED_MAPPING.values())
 _TOP = {"categories", "videos", "images", "annotations"}
 _VIDEO = {"id", "name"}
 _IMAGE = {"id", "video_id", "frame_id", "file_name", "width", "height"}
@@ -103,17 +112,20 @@ def descriptor(entries: Iterable[dict[str, Any]] = ()) -> dict[str, Any]:
                                 f"pinned by SHA-256 {ANNOTATION_SHA256} (the Hub's LFS object id); produced by the "
                                 "official bdd100k.label.to_coco box_track conversion. Its lineage against raw official "
                                 "labels is a required check (lineage()) whose result is recorded with the H3 run, "
-                                "not asserted here. Images: the official BDD100K MOT 2020 val image package."},
+                                "not asserted here. Images: the BDD100K MOT 2020 val image archive the owner obtained from "
+                                "the Berkeley BDD100K MOT mirror (archive SHA-256 recorded with the run)."},
         "access": {"mechanism": "registration", "preconditions": [
-            "The images come from the official BDD100K user portal after the operator's own sign-in and acceptance "
-            "of the BDD100K license; never automated.",
+            "The images are the BDD100K MOT 2020 val archive obtained by the owner from the Berkeley BDD100K MOT "
+            "mirror under the BDD100K license; acquisition is never automated.",
             "The derived annotation is public; it is accepted only with the pinned SHA-256."]},
         "intendedUse": "development-benchmarking",
         "researchUse": {
             "status": "RESEARCH-ADMISSIBLE",
-            "basis": "The BDD100K license permits use 'for educational, research, and not-for-profit purposes, "
-                     "without fee'; the derived annotation is distributed under the MASA repository's Apache-2.0 "
-                     "licence and carries BDD100K labels.",
+            "basis": "The annotation is a converted representation of BDD100K labels hosted by the MASA authors. "
+                     "Development use of the underlying labels is governed by the BDD100K data and label license, "
+                     "which permits use 'for educational, research, and not-for-profit purposes, without fee'. "
+                     "MASA is the retrieval and conversion source; its repository licence is not treated as "
+                     "relicensing the BDD100K annotation data.",
             "termsReference": f"{raw.SOURCE_DOCS}/license.rst",
             "redistribution": "not-permitted-by-default"},
         "splits": [{"name": SPLIT, "labelled": True, "role": "evaluation"}],
@@ -202,9 +214,14 @@ def parse(data: bytes) -> dict[str, dict[str, Any]]:
         require(track_id not in frame["ids"], f"{where}:duplicate_track_id")
         frame["ids"].add(track_id)
         require(1 <= item["category_id"] <= len(CATEGORIES), f"{where}:category")
-        # The official converter writes ignore = 0 always and folds every ignore/crowd meaning into iscrowd.
-        require(item["iscrowd"] in (0, 1) and _int(item["iscrowd"]) and item["ignore"] == 0
-                and _int(item["ignore"]), f"{where}:crowd")
+        # The converter that produced this file (Scalabel to_coco, April-May 2021) writes iscrowd = crowd or
+        # ignored and ignore = 1 for a former distractor, which the ignored mapping recodes only as pedestrian,
+        # car or truck. Any other combination is not that converter's output.
+        crowd = (item["iscrowd"], item["ignore"])
+        require(_int(item["iscrowd"]) and _int(item["ignore"]) and crowd in ((0, 0), (1, 0), (1, 1)),
+                f"{where}:crowd")
+        require(item["ignore"] == 0 or CATEGORIES[item["category_id"] - 1] in DISTRACTOR_TARGETS,
+                f"{where}:ignore_category")
         box = item["bbox"]
         require(isinstance(box, list) and len(box) == 4, f"{where}:box")
         x, y, width, height = (raw._coordinate(value, f"{where}:box") for value in box)
@@ -304,18 +321,27 @@ class Bdd100kMotCocoAdapter:
                 require(right > left and bottom > top, f"{bad}:box_outside_image")
                 track = tracks.setdefault(item["id"], {"gtTrackId": item["id"], "nativeClass": item["class"],
                                                        "frames": []})
-                require(track["nativeClass"] == item["class"], f"{bad}:class_change")
+                track.setdefault("classes", set()).add(item["class"])
                 track["frames"].append({
                     "frameIndex": index, "videoOffsetMs": offset, "ignore": item["crowd"],
                     "box": {"x": float(left / width), "y": float(top / height),
                             "width": float((right - left) / width), "height": float((bottom - top) / height)}})
+        for track in tracks.values():
+            # A label id whose class changes between frames has no single class meaning (in the real val labels:
+            # 46 of 18,842 tracks, mostly id reuse such as car -> pedestrian). It is kept as ignore evidence on
+            # every frame, so it is ignoredGt and enters no population; its first class is recorded, not scored.
+            if len(track.pop("classes")) > 1:
+                for frame in track["frames"]:
+                    frame["ignore"] = True
         return {"sequenceId": sequence_id, "split": split, "frameSize": {"width": width, "height": height},
                 "instants": instants, "tracks": [copy.deepcopy(tracks[key]) for key in sorted(tracks)]}
 
 
-def lineage(document: dict[str, Any], raw_frames: list[dict[str, Any]]) -> dict[str, Any]:
+def lineage(document: dict[str, Any], raw_frames: list[dict[str, Any]], raw_id=lambda value: value) -> dict[str, Any]:
     """Compares the derived records of one video with that video's raw Scalabel frames under the official
-    conversion semantics; returns counts and every mismatch (empty when the lineage is consistent)."""
+    conversion semantics; returns counts and every mismatch (empty when the lineage is consistent). ``raw_id`` maps
+    a raw label id to the expected ``scalabel_id``: the identity unless a declared, uniform id transformation
+    between the two sources is being tested (and reported)."""
     name = raw_frames[0]["videoName"]
     video = next((v for v in document["videos"] if v["name"] == name), None)
     require(video is not None, f"lineage_video_missing:{name}")
@@ -326,11 +352,20 @@ def lineage(document: dict[str, Any], raw_frames: list[dict[str, Any]]) -> dict[
             by_frame.setdefault(images[item["image_id"]]["frame_id"], {})[item["scalabel_id"]] = item
     file_names = {i["frame_id"]: i["file_name"] for i in images.values()}
     mismatches, compared = [], 0
-    ignored_mapping = {"other person": "pedestrian", "other vehicle": "car", "trailer": "truck"}
+    # Exact frame-index sets on both sides: a derived image record with no annotations still counts.
+    raw_indices = {frame["frameIndex"] for frame in raw_frames}
+    derived_indices = {image["frame_id"] for image in images.values()}
+    for index in sorted(raw_indices - derived_indices):
+        mismatches.append(("frame_missing_in_derived", index, None))
+    for index in sorted(derived_indices - raw_indices):
+        mismatches.append(("frame_missing_in_raw", index, None))
+    ignored_mapping = IGNORED_MAPPING
     aliases = {"bike": "bicycle", "caravan": "car", "motor": "motorcycle", "person": "pedestrian", "van": "car"}
     for frame in raw_frames:
         index = frame["frameIndex"]
-        if file_names.get(index) != f"{name}/{frame['name']}":
+        if index not in derived_indices:
+            continue  # already a frame_missing_in_derived mismatch
+        if file_names[index] != f"{name}/{frame['name']}":
             mismatches.append(("file_name", index, None))
         expected = {}
         for label in frame.get("labels") or []:
@@ -343,22 +378,25 @@ def lineage(document: dict[str, Any], raw_frames: list[dict[str, Any]]) -> dict[
             if category not in CATEGORIES:
                 continue
             box = label["box2d"]
-            expected[label["id"]] = (CATEGORIES.index(category) + 1,
-                                     [box["x1"], box["y1"], box["x2"] - box["x1"] + 1, box["y2"] - box["y1"] + 1],
-                                     int(bool(attributes.get("crowd")) or bool(attributes.get("ignored"))))
+            expected[raw_id(label["id"])] = (
+                CATEGORIES.index(category) + 1,
+                [box["x1"], box["y1"], box["x2"] - box["x1"] + 1, box["y2"] - box["y1"] + 1],
+                int(bool(attributes.get("crowd")) or bool(attributes.get("ignored"))),
+                int(bool(attributes.get("ignored"))))
         found = by_frame.get(index, {})
         if set(expected) != set(found):
             mismatches.append(("track_ids", index, sorted(set(expected) ^ set(found))[:5]))
         for track_id in sorted(set(expected) & set(found)):
             compared += 1
             item = found[track_id]
-            category, box, crowd = expected[track_id]
+            category, box, crowd, ignored = expected[track_id]
             if item["category_id"] != category:
                 mismatches.append(("category", index, track_id))
             if any(abs(a - b) > 1e-6 for a, b in zip(item["bbox"], box)):
                 mismatches.append(("bbox", index, track_id))
             if item["iscrowd"] != crowd:
                 mismatches.append(("crowd", index, track_id))
-    extra = sorted(set(by_frame) - {frame["frameIndex"] for frame in raw_frames})
-    return {"video": name, "rawFrames": len(raw_frames), "derivedFrames": len(images), "comparedBoxes": compared,
-            "derivedFramesWithoutRaw": extra, "mismatches": mismatches}
+            if item["ignore"] != ignored:
+                mismatches.append(("ignore", index, track_id))
+    return {"video": name, "rawFrames": len(raw_indices), "derivedFrames": len(derived_indices),
+            "comparedBoxes": compared, "mismatches": mismatches}
