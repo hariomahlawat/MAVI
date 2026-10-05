@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d is the current slice, benchmark-driven under ADR-017 (H1 justified; H2 PASS — framework and tooling, synthetic evidence only; H3–H5 OPEN). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d is the current slice, benchmark-driven under ADR-017 (H1 justified; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4–H5 OPEN). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -217,9 +217,81 @@ H2–H5 are evidence outcomes, not mandated PR boundaries, approval meetings, in
 |---|---|---|---|
 | H1 | Expansion undertaken only if the pilot evidence justifies it (continuation or supplemental), otherwise recorded NOT TRIGGERED | OPEN (conditional) — justified | On the G8 evidence, two of the plan §14 triggers hold: an important class is below the minimum support (truck 5, bus 7, motorcycle 0, each < 30), and support is too small for per-class conclusions. Expansion is therefore justified; it has not been undertaken. **Mechanism (owner decision 2026-10-04, ADR-017):** expansion is benchmark-driven, through S3.2d-1 to S3.2d-4 in the amended plan §14, against established labelled tracking benchmarks with explicit per-class mappings. The manual `continuation`/`supplemental` path of the pilot design remains available only as a documented-gap fallback. The decision and its mechanism are recorded here (ADR-017, owner decision 2026-10-04); H1 closes with the ADR-017 PR merge. H1 alone never unlocks exposure: X1 also requires H2–H5. |
 | H2 | S3.2d-1: benchmark framework and tooling merged with deterministic tests: dataset descriptor and adapter contract; per-native-class mapping contract (`exact`/`subset`/`unsupported` with reason); ground-truth Track representation; prediction-independent GT↔MAVI association with ambiguity and unmatched reporting in both directions; dataset and result provenance; split identity; known-exposure metadata (plan §14 amendment; ADR-017 §4–§6) | PASS | **S3.2d-1 slices 1–3 (PR #161, PR #162, PR #163), effective when PR #163 merges with green exact-head CI.** Contracts (schema SHA-256 / example SHA-256): `benchmark-dataset-release-v1` `aa47eefe…`/`5aa46d7b…`, `benchmark-class-mapping-v1` `210fa4c9…`/`144ccf22…`, `benchmark-association-v1` `6686ba74…`/`086d5535…`, `benchmark-vehicle-subclass-result-v1` `db814601…`/`acec370d…`. Association policy `vehicle-tracks-association-v1` SHA-256 `a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05`. Synthetic end-to-end through the CLI (`tools/benchmarks/tests/test_bench_synthetic_e2e.py`: describe → prepare with the FFmpeg pack → exports → evaluate, byte-identical on repeat): golden `associationBodySha256` `57266783a8bc97fce8b8a11a80e0fd7dc7dd85195d1f65425f233899f740db9b`, golden scope A+B `dfa53811a90ef76f90bf76ac8bf7ee87e6b3f7f67f23738079080d35a6bf0a73`. Mutation tests present: class/subclass/confidence mutation leaves the association body identical (`test_bench_association.py`); prediction, native-class and mapping mutations change only evaluation (`test_bench_vehicle_subclass_evaluate.py`, E2E). Modules: `tools/benchmarks/{core,datasets,capabilities/vehicle_tracks,capabilities/vehicle_subclass}`, `prepare.py`, `run.py`, `cli.py`; `msgpack>=1.1,<2` on the tools surface (`tools/requirements.txt`, dependency policy). Synthetic and tooling evidence only: no real dataset, no capability claim. |
-| H3 | S3.2d-2: primary benchmark measurement recorded. A benchmark whose native labels exactly cover the capability is preferred where reasonably available; otherwise the strongest available benchmark or combination, with explicit `exact`/`subset`/`unsupported` mappings. Lack of one perfect taxonomy does not block evidence-supported class subsets. Recorded: dataset and release identity (and source, including any archival copy and its credibility basis), research-use status with its basis (ADR-017 §7), mapping declarations, association coverage, class confusion on valid associations, per-class support, known or possible exposure; dataset bytes outside Git | OPEN | |
+| H3 | S3.2d-2: primary benchmark measurement recorded. A benchmark whose native labels exactly cover the capability is preferred where reasonably available; otherwise the strongest available benchmark or combination, with explicit `exact`/`subset`/`unsupported` mappings. Lack of one perfect taxonomy does not block evidence-supported class subsets. Recorded: dataset and release identity (and source, including any archival copy and its credibility basis), research-use status with its basis (ADR-017 §7), mapping declarations, association coverage, class confusion on valid associations, per-class support, known or possible exposure; dataset bytes outside Git | PASS — evidence-completeness gate; performance findings feed H5 | **Run `bea73d13cd76bcd432319cab88a763d2af6139a34c013e2e93b71363a17f9f9b` (attempt 2), executed 2026-10-05 on `main@359073429154bb0839e53cc30b2f55f58f9f35d4`** under the runbook `docs/superpowers/plans/2026-10-05-stage3-s3-2d-2-bdd100k-h3-execution.md`. Complete (200 of 200 sequences), reproducible (frozen descriptor; derivation manifest reproduced byte-for-byte across two attempts; write-once results verified by `run.verify`), provenance-bound and reported under the frozen association policy. Association coverage is weak (12.6%) but not coverage-limited (1.87% against the 1/10 threshold). Full evidence in **H3 evidence** below. |
 | H4 | S3.2d-3: domain-diversity benchmark measurement(s) recorded with the same fields, each contributing only to the classes and domains it supports; or recorded NOT TRIGGERED with a technical rationale showing that additional domain-diversity evidence is not materially useful for the current capability decision (no owner approval needed for that call; the owner may still intervene where the decision is consequential) | OPEN | |
 | H5 | S3.2d-4: evidence-backed capability decision recorded per class and evidence domain (benchmark-supported, Development-only, insufficiently supported, deferred), on H3, H4 and the pilot (G8); no unsupported class advanced | OPEN | |
+
+### H3 evidence — S3.2d-2 primary benchmark measurement (BDD100K MOT 2020 val)
+
+Paths are relative to the controlled-store root `Stage3/H3-attempt2`. No dataset bytes, derived videos, exports or trajectories are in Git.
+
+**Attempts.**
+- **Attempt 1 stopped (root `Stage3/H3`, `main@e55b47ad`).** `prepare` encoded all 200 sequences, then the final move of its staging directory raised a raw `PermissionError: [WinError 5] Access is denied`. The staging output is preserved unmodified as evidence (`.derived.partial-ade2c41c…`, derivation manifest `a295809d…`). The defect was fixed in PR #168: bounded retry on transient Windows denials, `output_move_failed` otherwise.
+- **Attempt 2 is the measured attempt.** Fresh root, descriptor freeze and catalogue on `main@35907342`. Operational events, none of which changed an input or identity: the host slept for about 85 minutes during `prepare`, which resumed by itself; the API was rebuilt with `-p:MaviNativeMediaToolsDirectory` set to the same verified FFmpeg pack `prepare` used, because the worktree's `vendor/ffmpeg` holds only its README (no source change); and the first worker launch failed its pack preflight under Windows PowerShell 5.1 and was relaunched under PowerShell 7 before any run.
+
+**Dataset and provenance.**
+
+| Item | Value |
+|---|---|
+| Dataset / release / split | `bdd100k-mot-2020-cocofmt` / `MOT 2020 val (box_track_20) via MASA COCO-format derivative sha256:074ff795` / `val` |
+| Adapter | `bdd100k-mot-coco` v1 |
+| Frozen descriptor | `desc/frozen.json`, SHA-256 `7169263ab3787e7af4eb7ca73ac4e24af39239e5b898aca878a297c75c51e9c9`; 39,974 manifest entries (39,973 JPEGs and the annotation) |
+| Annotation | `bdd_box_track_val_cocofmt.json`, 117,094,032 bytes, SHA-256 `074ff79555483296cf7ccadddeeceeec7a83452c900506dc46588ed3a3e65d5d` (MASA `dereksiyuanli/masa@25ed372c`) |
+| Image archive | `images20-track-val-1.zip`, 4,983,938,716 bytes, SHA-256 `4d678810a14095ab4064013d81e3bc2bda45f730bfc09c3e66d3a5ef1c076778`, MD5 `743ab4c7b5ff8eeebd60bbfd15b20bd6`; owner download from the Berkeley BDD100K MOT mirror; 200 sequences, 39,973 frames |
+| Derivation manifest | SHA-256 `a295809d4e5865017b63fc4edd0b7a049e9e7391527ff008ca43b4f50da86cda`, identical in attempts 1 and 2; 200 sequences, 39,973 frames, 5/1 fps, FFmpeg 9.0.1 (`72a489ec…`), ffprobe `19202b23…` |
+| Raw GT tracks (not support) | 18,842: car 13,866; truck 744; bus 193; motorcycle 46; pedestrian 3,603; rider 133; bicycle 251; train 6 |
+| Mapping | SHA-256 `28e5ec5ef78ca9e4b36cc98b9d09bb33a5788bd21a4e5a797c14a100d3a318d3`: car, truck, bus, motorcycle `exact`; pedestrian, rider, bicycle, train `outside-capability` |
+| Research use | RESEARCH-ADMISSIBLE: BDD100K data and label licence; MASA is the retrieval and conversion source, not a relicensor |
+| Exposure | `none-known`: the detector trains on COCO 2017 only (resolved config `377d9f57…`); no MAVI record names BDD100K |
+| Lineage | `scalabel/scalabel@071d0735`, blob `3e19c83d`, video `b1c66a42-6f7d68ca`: 202 frames, 3,241 boxes, zero material mismatches |
+| GT semantics | `iscrowd=0,ignore=0` and genuine crowd `iscrowd=1,ignore=0` are ordinary GT; converted distractors `iscrowd=1,ignore=1` are ignored; 46 class-inconsistent ids are ignored in full |
+
+**Domain and interpretation caveats.** BDD100K MOT is moving U.S. dashcam footage, a weak proxy for fixed CCTV. The historical conversion may fold `van`/`caravan` aliases into `car`, which affects the interpretation of car precision and truck recall. These results are not an official BDD100K MOT score. No MAVI-class claim is made for trailer, other vehicle, van or caravan.
+
+**MAVI execution.**
+
+| Item | Value |
+|---|---|
+| MAVI commit / tooling | `359073429154bb0839e53cc30b2f55f58f9f35d4`; `toolingSha256` `9add54ebdadfb32197b245e4e6deccf56df47770f08287887ee1d56dfd3299d3`, `toolingCommit` the same commit |
+| Runtime Pack | `mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d` (`windows-x86_64-cuda`, installed pack) |
+| Model Pack / checkpoint | `mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700`; checkpoint `229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b` |
+| Component binding / profile | `7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205` / `afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf` (`1.3.0-candidate`, `minShare` 0.6, `minMatchedDetections` 3) |
+| Requirements / association policy | `ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75` / `a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05` (`vehicle-tracks-association-v1`) |
+| Device | `cuda:0`, NVIDIA GeForce GTX 1650 Ti (CUDA 12.4, driver 576.83), attested on every run; `nvidia-smi` showed the worker as a CUDA compute process during inference (`evidence/cuda-confirmation.txt`) |
+| Catalogue | `mavi_s32d2_h3_20261005_a2`, created 2026-10-05T08:15:01Z after the freeze, 0 tables and empty media at creation (`evidence/h3-catalogue-creation.json`, SHA-256 `baeee3c14d779724b0a77d8e384a9d1f650f261a0bc08f4dfeed21b39982b718`); afterwards exactly the 200 cameras and 200 videos the journal created |
+| Completion | 200 of 200 sequences; 200 distinct processing runs, all `Completed`; one producer identity; 6,057 sealed trajectories; run-id list SHA-256 `9a96f1eface74bd23f403d2f5644baefee61ecddba0693504a3979037ce1cf2c` |
+
+**Result identities.** `benchmarkRunId` `bea73d13cd76bcd432319cab88a763d2af6139a34c013e2e93b71363a17f9f9b`. `results/<runId>/association.json` SHA-256 `897ba2551f3c9c501354cb300c8ff6cbd87c300436471438c0727683ed83b589` (equal to `result.associationSha256`); `result.json` `65aeef165ac396d4efac7ab6ce5c52d0ed86aaa89784d6f3fffa4d0fd755c735`; `report.md` `f1ee975dac018f50c8591531bba06812610592ae400e1b427fa4272f79679380`. `run.verify` passed.
+
+**Scope A — association coverage (detection and tracking, not subclass accuracy).**
+
+| Measure | Value |
+|---|---|
+| Expected vehicle GT | 13,412: assigned 1,685; ambiguous 1; fragmented 203; merged 5; unverified 42; unmatched 11,476 |
+| Ignored GT | 1,968 |
+| MAVI Vehicle Tracks | 6,057: assigned 1,685; fragment 237; unverified 42; ignored 38; unmatched 4,055 |
+| Association rate | 1,685/13,412 = 0.1256 |
+| Coverage-limited GT rate | 251/13,412 = 0.0187 (threshold 1/10); `coverageLimited` false |
+| MAVI unverified rate | 42/6,057 = 0.0069 |
+| Outside-capability GT | 3,462; Vehicle Tracks assigned to them: 0 |
+| Per native class (total / assigned / fragmented / merged / unverified / unmatched) | car 12,496 / 1,595 / 193 / 5 / 39 / 10,663 (ambiguous 1); truck 690 / 56 / 7 / 0 / 3 / 624; bus 185 / 34 / 3 / 0 / 0 / 148; motorcycle 41 / 0 / 0 / 0 / 0 / 41; pedestrian 3,095, rider 123, bicycle 238, train 6, all unmatched |
+| Sequences above 1/10 coverage-limited | 4: `b1dce572-c6a8cb5e` 7/60; `b1e1a7b8-65ec7612` 4/31; `b1fc95c9-644e3c3f` 7/40; `b21c86ac-71205084` 5/36 |
+| Per-sequence association rate | quartiles 0.056 / 0.129 / 0.206; minimum 0 (9 sequences); maximum 0.774 |
+
+The association artefact rules out a systematic time or coordinate offset: assigned pairs have containment 1.0 at every quartile and mean normalised centre distance 0.014–0.040. The misses are coverage. MAVI produced 6,057 Vehicle Tracks against 13,412 expected vehicle GT tracks. Among unmatched GT (outside-capability included), 820 had no MAVI Track overlapping in time, 10,249 had overlapping Tracks that never contained the object, 2,916 were contained for less than half their length (fragmentation), 878 were partially contained and 75 were contained but failed another gate (14,938 in all).
+
+**Scope B — Track-conditional subclass quality (assigned exact-GT pairs only).**
+
+| Class | Support (floor 30) | Recall | Precision (status) | Among judged | Unjudgeable | Accuracy over resolved | Accuracy over evaluable | Undetermined | Requirement |
+|---|---|---|---|---|---|---|---|---|---|
+| car | 1,595 adequate | 1,561/1,595 = 0.9787 | 1,561/1,567 = 0.9962 (computed) | 1,561/1,567 | 0 | 1,561/1,591 = 0.9811 | 1,561/1,595 = 0.9787 | 4/1,595 = 0.0025 | no-requirement |
+| truck | 56 adequate | 47/56 = 0.8393 | 47/74 = 0.6351 (computed) | 47/74 | 0 | 47/53 = 0.8868 | 47/56 = 0.8393 | 3/56 = 0.0536 | no-requirement |
+| bus | 34 adequate | 34/34 = 1.0000 | 34/37 = 0.9189 (computed) | 34/37 | 0 | 34/34 = 1.0000 | 34/34 = 1.0000 | 0/34 = 0 | no-requirement |
+| motorcycle | 0 insufficient-support | 0/0 (n/a) | no-judgeable-predictions | — | 0 | n/a | n/a | n/a | insufficient-support |
+
+Confusion (truth → MAVI outcome): car → car 1,561, truck 27, bus 3, undetermined 4; truck → truck 47, car 6, undetermined 3; bus → bus 34. No motorcycle pair was assigned. Overall exact-GT: 1,685 assigned, 1,678 resolved, 1,642 correct, 7 undetermined; accuracy over resolved 1,642/1,678 = 0.9785; over evaluable 1,642/1,685 = 0.9745; undetermined share 7/1,685 = 0.0042. Macro over car, truck and bus (motorcycle excluded for no support): recall 0.9393, accuracy over resolved 0.9560 (exact rationals in `result.json`). Taxonomy coverage `full`. Excluded native classes (bicycle, pedestrian, rider, train): 0 assigned Vehicle Tracks.
+
+**Findings for H5.** The main failure is coverage, not classification: only 12.6% of expected vehicle GT is associated. On the associated Tracks, car and bus are classified reliably. Truck precision is the weak point: 27 BDD100K `car` Tracks were classified `truck`, which is consistent with the van-to-car caveat. Motorcycle has no benchmark support: 41 GT tracks, none associated. Per the runbook's decision tree, weak association calls for a separate detection, tracking and association diagnosis experiment; it does not reopen H3.
 
 ## X. Operator exposure
 
