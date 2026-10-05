@@ -63,7 +63,7 @@ Reference `scalabel/scalabel` commit `071d073598e7c988134dc70a5c0c52761226bf42`,
 
 ## 4. Preflight (all must hold before §7 step 1)
 
-```bash
+```powershell
 git -C <repo> rev-parse HEAD            # must print ce3da38fe7b1c769930d4a362feea31f1a9b9414
 git -C <repo> status --porcelain        # must print nothing
 ```
@@ -95,41 +95,52 @@ E:\MAVI-Controlled\Stage3\H3\
   evidence\                 hashes.txt, validation and lineage records, catalogue-creation record
 ```
 
+Write-once outputs must **not** exist before their step: `desc\frozen.json` (`describe --freeze-manifest` refuses `output_exists`), `derived\` (`prepare` creates it; an existing path is `output_exists`) and the run directory under `results\` (`evaluate` creates it; `results\` itself may exist). `exec\exports\` and `host\ev\` must exist before `execute`.
+
 The already-extracted tree `E:\MAVI-Controlled\Stage3\S3.2d-2\extracted\bdd100k` holds exactly the 39,973 JPEGs plus the annotation at the adapter path (its freeze reconciled 39,974 entries on 2026-10-05). Use it as `src` by moving or junction-free copying; never add a file to it.
 
 ## 6. Exact commands
 
-`$Py` is `<repo>\.venv\Scripts\python.exe`; run every harness command from `<repo>` at the exact commit. `$H3` is `E:\MAVI-Controlled\Stage3\H3`.
+All commands are PowerShell, run from the repository root at the exact commit, with these variables set first (the call operator `&` is required to run the interpreter held in `$Py`):
 
-```bash
+```powershell
+$Repo = "<repository root at ce3da38f>"; $Py = "$Repo\.venv\Scripts\python.exe"; $H3 = "E:\MAVI-Controlled\Stage3\H3"
+Set-Location $Repo
+```
+
+```powershell
 # validate the working descriptor and the mapping against its taxonomy
-$Py -m tools.benchmarks.cli describe --descriptor $H3\desc\working.json --mapping docs\qualification\stage3\benchmarks\bdd100k-mot-2020-cocofmt.mapping.json
+& $Py -m tools.benchmarks.cli describe --descriptor $H3\desc\working.json --mapping docs\qualification\stage3\benchmarks\bdd100k-mot-2020-cocofmt.mapping.json
 ```
 
-```bash
+```powershell
 # freeze the source manifest once (path, size, SHA-256 of every file under src); prints the frozen descriptor SHA-256
-$Py -m tools.benchmarks.cli describe --descriptor $H3\desc\working.json --freeze-manifest --source-root $H3\src --out $H3\desc\frozen.json
+& $Py -m tools.benchmarks.cli describe --descriptor $H3\desc\working.json --freeze-manifest --source-root $H3\src --out $H3\desc\frozen.json
 ```
 
-```bash
+```powershell
 # reconcile the whole manifest, write canonical ground truth and one 5 fps MP4 per sequence; prints the derivation manifest SHA-256
-$Py -m tools.benchmarks.cli prepare --descriptor $H3\desc\frozen.json --source-root $H3\src --split val --adapter bdd100k-mot-coco --media-tools <repo>\vendor\ffmpeg --out $H3\derived
+& $Py -m tools.benchmarks.cli prepare --descriptor $H3\desc\frozen.json --source-root $H3\src --split val --adapter bdd100k-mot-coco --media-tools $Repo\vendor\ffmpeg --out $H3\derived
 ```
 
-```bash
+```powershell
 # one MAVI run per sequence on the fresh catalogue; prints "<sequenceId> <processingRunId> <exportSha256>" per sequence
-$Py -m tools.benchmarks.cli execute --derived $H3\derived --pipeline-profile src\vision\config\pipelines\phase1-detection-tracking-v1.json --api http://localhost:<port> --journal $H3\exec\journal.json --exports $H3\exec\exports --evidence-root $H3\host\ev --export-exe <repo>\tools\dotnet\Mavi.MeasurementExport\bin\Debug\net10.0\Mavi.MeasurementExport.exe --poll-seconds 15
+& $Py -m tools.benchmarks.cli execute --derived $H3\derived --pipeline-profile src\vision\config\pipelines\phase1-detection-tracking-v1.json --api http://localhost:<port> --journal $H3\exec\journal.json --exports $H3\exec\exports --evidence-root $H3\host\ev --export-exe $Repo\tools\dotnet\Mavi.MeasurementExport\bin\Debug\net10.0\Mavi.MeasurementExport.exe --poll-seconds 15
 ```
 
-```bash
+```powershell
 # association, evaluation and report, written once to results\<benchmarkRunId>; prints the run id
-$Py -m tools.benchmarks.cli evaluate --descriptor $H3\desc\frozen.json --derived $H3\derived --exports $H3\exec\exports --evidence-root $H3\host\ev --mapping docs\qualification\stage3\benchmarks\bdd100k-mot-2020-cocofmt.mapping.json --policy $H3\desc\policy.json --requirements docs\qualification\stage3\s3-2-subclass-requirements.json --pipeline-profile src\vision\config\pipelines\phase1-detection-tracking-v1.json --out $H3\results
+& $Py -m tools.benchmarks.cli evaluate --descriptor $H3\desc\frozen.json --derived $H3\derived --exports $H3\exec\exports --evidence-root $H3\host\ev --mapping docs\qualification\stage3\benchmarks\bdd100k-mot-2020-cocofmt.mapping.json --policy $H3\desc\policy.json --requirements docs\qualification\stage3\s3-2-subclass-requirements.json --pipeline-profile src\vision\config\pipelines\phase1-detection-tracking-v1.json --out $H3\results
 ```
 
-`$H3\desc\policy.json` is `POLICY_V1` as canonical JSON, written before `evaluate` and hashed (§3.4). After `evaluate`, re-verify the written run with the harness's own reader, which re-checks the association, the result bound to it and the regenerated report:
+`$H3\desc\policy.json` is `POLICY_V1` as canonical JSON, written before `evaluate` and hashed (§3.4):
 
-```bash
-$Py -c "from pathlib import Path; from tools.benchmarks import run; run.verify(Path(r'$H3\results\<benchmarkRunId>'))"
+```powershell
+& $Py -c "from pathlib import Path; from tools.benchmarks.capabilities.vehicle_tracks import policy; from tools.benchmarks.core.identity import canonical_json; Path(r'$H3\desc\policy.json').write_bytes(canonical_json(policy.POLICY_V1))"
+``` After `evaluate`, re-verify the written run with the harness's own reader, which re-checks the association, the result bound to it and the regenerated report:
+
+```powershell
+& $Py -c "from pathlib import Path; from tools.benchmarks import run; run.verify(Path(r'$H3\results\<benchmarkRunId>'))"
 ```
 
 The export tool and the API read the default Development machine configuration plus process-scope overrides for the dedicated catalogue (`ConnectionStrings__Mavi` with the H3 database name), media store (`MediaStorage__RootPath` = `$H3\host\m`) and evidence root (`MediaStorage__EvidenceRootPath` = `$H3\host\ev`), exactly as S3.2b-3 attempt 2 did. The worker is started with `tools/setup/Start-MaviVisionWorker.ps1 -ApiBaseUrl http://localhost:<port> -WorkerId s32d2-h3-worker-01 -MediaRoot $H3\host\m -DevicePolicy cuda`.
@@ -138,7 +149,7 @@ The export tool and the API read the default Development machine configuration p
 
 | Step | Action | Estimate | Safe restart point |
 |---|---|---|---|
-| 1 | Create `$H3` and its subdirectories (§5); record `hashes.txt` for the archive, annotation, template, mapping, profile, binding, requirements and policy | minutes | any time before step 6 |
+| 1 | Create `$H3` with `src`, `desc`, `host\m`, `host\ev`, `host\logs`, `exec\exports` and `evidence` only; leave `derived`, `results` and `desc\frozen.json` absent (§5); record `hashes.txt` for the archive, annotation, template, mapping, profile, binding, requirements and policy | minutes | any time before step 6 |
 | 2 | Assemble `src` in the adapter layout (§5): the extracted image tree plus the annotation at `labels/box_track_20_cocofmt/`; no other file | minutes (move) or ~10 min (copy 5 GB) | redo freely before step 6 |
 | 3 | Verify the annotation size and SHA-256 and the image count (39,973) against §3.1 | 1 min | — |
 | 4 | Create `desc\working.json` from the template | 1 min | — |
