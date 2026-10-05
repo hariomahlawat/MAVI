@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The benchmark harness command line (S3.2d-1 plan §11). Windows-first; refusals print ``refused <code>``.
 
-Commands (``execute``, which drives a real MAVI host, arrives with the first real benchmark run):
+Commands:
 
     python -m tools.benchmarks.cli describe --descriptor <release.json> [--mapping <mapping.json>]
         validates the descriptor (and the mapping against its taxonomy), prints its status and access
@@ -15,6 +15,10 @@ Commands (``execute``, which drives a real MAVI host, arrives with the first rea
             --adapter <id> --media-tools <ffmpeg pack> --out <new derived dir>
         reconciles the whole manifest, writes canonical ground truth and the derived MP4s, prints the derivation
         manifest's SHA-256.
+    python -m tools.benchmarks.cli execute --derived <dir> --pipeline-profile <file> --api <loopback url>
+            --journal <file> --exports <dir> --evidence-root <dir> --export-exe <exe> [--export-arg <arg>...]
+        one MAVI processing run per prepared sequence on a fresh, dedicated catalogue (the T9 pattern), each
+        exported to <exports>/<processingRunId>/; prints one line per sequence.
     python -m tools.benchmarks.cli evaluate --descriptor <frozen.json> --derived <dir> --exports <dir>
             --evidence-root <dir> --mapping <mapping.json> --policy <policy.json> --requirements <file>
             --pipeline-profile <file> --out <results root>
@@ -72,6 +76,16 @@ def prepare(args: argparse.Namespace) -> str:
                                adapter_id=args.adapter, media_tools_dir=args.media_tools, out=args.out)
 
 
+def execute(args: argparse.Namespace) -> str:
+    from tools.benchmarks import execute as execution
+
+    rows = execution.execute(derived=args.derived, profile_path=args.pipeline_profile, api_url=args.api,
+                             journal_path=args.journal, export_root=args.exports,
+                             export_command=[str(args.export_exe), *args.export_arg],
+                             evidence_root=args.evidence_root, poll_seconds=args.poll_seconds)
+    return "\n".join(f"{row['sequenceId']} {row['processingRunId']} {row['exportSha256']}" for row in rows)
+
+
 def evaluate(args: argparse.Namespace) -> str:
     from tools.benchmarks import run
 
@@ -80,7 +94,7 @@ def evaluate(args: argparse.Namespace) -> str:
                         requirements_path=args.requirements, profile_path=args.pipeline_profile, out=args.out)
 
 
-COMMANDS = {"describe": describe, "prepare": prepare, "evaluate": evaluate}
+COMMANDS = {"describe": describe, "prepare": prepare, "execute": execute, "evaluate": evaluate}
 
 
 def parser() -> argparse.ArgumentParser:
@@ -97,6 +111,12 @@ def parser() -> argparse.ArgumentParser:
         pr.add_argument(name, type=Path, required=True)
     pr.add_argument("--split", required=True)
     pr.add_argument("--adapter", required=True)
+    ex = commands.add_parser("execute", help="run MAVI once per prepared sequence and export each run")
+    for name in ("--derived", "--pipeline-profile", "--journal", "--exports", "--evidence-root", "--export-exe"):
+        ex.add_argument(name, type=Path, required=True)
+    ex.add_argument("--api", required=True)
+    ex.add_argument("--export-arg", action="append", default=[])
+    ex.add_argument("--poll-seconds", type=float, default=5.0)
     ev = commands.add_parser("evaluate", help="associate, evaluate and report one prepared benchmark run")
     for name in ("--descriptor", "--derived", "--exports", "--evidence-root", "--mapping", "--policy",
                  "--requirements", "--pipeline-profile", "--out"):

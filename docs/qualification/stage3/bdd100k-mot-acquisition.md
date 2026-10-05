@@ -12,8 +12,8 @@
 
 ## Acquisition (operator action)
 
-1. Open `https://dl.cv.ethz.ch/bdd100k/data/` and read the BDD100K licence (`doc/source/license.rst`). Downloading means agreeing to it. That agreement is the operator's decision and is never automated or bypassed.
-2. Download the MOT 2020 labels and images packages. Check the labels archive against the published md5 above.
+1. Sign in to the official BDD100K user portal (`bdd-data.berkeley.edu`, download page `download.html`) **over verified HTTPS only**, and accept the BDD100K licence there ("I Agree"). The documented host `dl.cv.ethz.ch` no longer resolves in DNS, and on 2026-10-04 the portal's HTTPS certificate named another host (`unlisted.berkeleyvision.org`). A certificate that does not match the portal is a hard stop: never sign in, accept the licence or download over plain HTTP or past a certificate warning. Wait for, or obtain from the dataset maintainers, a verified official HTTPS endpoint. Registration, sign-in and licence acceptance are the operator's own actions: never automated, never bypassed, and download links are never fetched without them.
+2. From the portal, download the *MOT 2020 Labels* and the val part of *MOT 2020 Images*. Check the labels archive against the published md5 above, and record each archive's name, size and SHA-256 for the descriptor's provenance.
 3. Keep archives, images and labels outside Git and outside the repository working tree, on local storage the operator controls. Never commit dataset bytes, crops, screenshots, derived MP4s or trajectories.
 
 ## Canonical source layout
@@ -30,7 +30,7 @@ Create one source root that contains **only** the val members, laid out exactly 
 - Each frame image sits at `<videoName>/<name>`, where `name` is the label record's own field. The adapter reads the path from `name`, never from a frame number. Frame index 0 is `…-0000001.jpg` in the official data.
 - Do not keep `train`, `test`, archives or notes under the source root. The frozen manifest covers every file under the root, and other splits only slow reconciliation.
 
-## Freeze, prepare
+## Freeze, prepare, execute, evaluate
 
 1. Copy the template to a working descriptor outside Git. Set `source.retrievedOn` to the actual download date. Leave everything else unchanged unless the licence accepted at download differs from the quoted text.
 2. Freeze the manifest once:
@@ -46,6 +46,18 @@ python -m tools.benchmarks.cli prepare --descriptor <frozen-descriptor.json> --s
 ```
 
 `prepare` reconciles the whole manifest first, so a missing, changed or extra file is refused before any parsing. It then writes canonical ground truth and one labelled-rate MP4 per video at 5 fps.
+
+4. Run MAVI once per prepared video on a fresh, dedicated Development catalogue with the measured S3.2 pipeline profile (the T9 pattern), exporting each run with the T1 export tool:
+
+```bash
+python -m tools.benchmarks.cli execute --derived <derived-dir> --pipeline-profile <profile.json> --api http://localhost:<port> --journal <journal.json> --exports <exports-dir> --evidence-root <mavi-evidence-root> --export-exe <export-tool>
+```
+
+5. Evaluate, writing the association, result and report once:
+
+```bash
+python -m tools.benchmarks.cli evaluate --descriptor <frozen-descriptor.json> --derived <derived-dir> --exports <exports-dir> --evidence-root <mavi-evidence-root> --mapping docs/qualification/stage3/benchmarks/bdd100k-mot-2020.mapping.json --policy <association-policy.json> --requirements <requirements.json> --pipeline-profile <profile.json> --out <results-root>
+```
 
 ## How the adapter interprets the labels
 
