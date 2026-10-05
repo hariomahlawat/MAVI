@@ -133,11 +133,19 @@ Set-Location $Repo
 & $Py -m tools.benchmarks.cli evaluate --descriptor $H3\desc\frozen.json --derived $H3\derived --exports $H3\exec\exports --evidence-root $H3\host\ev --mapping docs\qualification\stage3\benchmarks\bdd100k-mot-2020-cocofmt.mapping.json --policy $H3\desc\policy.json --requirements docs\qualification\stage3\s3-2-subclass-requirements.json --pipeline-profile src\vision\config\pipelines\phase1-detection-tracking-v1.json --out $H3\results
 ```
 
-`$H3\desc\policy.json` is `POLICY_V1` as canonical JSON, written before `evaluate` and hashed (§3.4):
+`$H3\desc\policy.json` is `POLICY_V1` as canonical JSON. It is written and hashed in step 1, before anything runs, and the same file is passed to `evaluate` in step 14 (§3.4):
 
 ```powershell
 & $Py -c "from pathlib import Path; from tools.benchmarks.capabilities.vehicle_tracks import policy; from tools.benchmarks.core.identity import canonical_json; Path(r'$H3\desc\policy.json').write_bytes(canonical_json(policy.POLICY_V1))"
-``` After `evaluate`, re-verify the written run with the harness's own reader, which re-checks the association, the result bound to it and the regenerated report:
+```
+
+Step 9's per-class check needs an aggregation over the 200 canonical ground-truth files, because the derivation manifest records only sequence identity, frame counts, source paths and hashes:
+
+```powershell
+& $Py -c "import collections, json, pathlib; c = collections.Counter(t['nativeClass'] for p in pathlib.Path(r'$H3\derived\sequences').glob('*/ground-truth.json') for t in json.loads(p.read_bytes())['tracks']); print(sum(c.values()), dict(sorted(c.items())))"
+```
+
+After `evaluate`, re-verify the written run with the harness's own reader, which re-checks the association, the result bound to it and the regenerated report:
 
 ```powershell
 & $Py -c "from pathlib import Path; from tools.benchmarks import run; run.verify(Path(r'$H3\results\<benchmarkRunId>'))"
@@ -149,7 +157,7 @@ The export tool and the API read the default Development machine configuration p
 
 | Step | Action | Estimate | Safe restart point |
 |---|---|---|---|
-| 1 | Create `$H3` with `src`, `desc`, `host\m`, `host\ev`, `host\logs`, `exec\exports` and `evidence` only; leave `derived`, `results` and `desc\frozen.json` absent (§5); record `hashes.txt` for the archive, annotation, template, mapping, profile, binding, requirements and policy | minutes | any time before step 6 |
+| 1 | Create `$H3` with `src`, `desc`, `host\m`, `host\ev`, `host\logs`, `exec\exports` and `evidence` only; leave `derived`, `results` and `desc\frozen.json` absent (§5); write `desc\policy.json` (§6) so the association policy is frozen before anything runs; record `hashes.txt` for the archive, annotation, template, mapping, profile, binding, requirements and that policy file | minutes | any time before step 6 |
 | 2 | Assemble `src` in the adapter layout (§5): the extracted image tree plus the annotation at `labels/box_track_20_cocofmt/`; no other file | minutes (move) or ~10 min (copy 5 GB) | redo freely before step 6 |
 | 3 | Verify the annotation size and SHA-256 and the image count (39,973) against §3.1 | 1 min | — |
 | 4 | Create `desc\working.json` from the template | 1 min | — |
@@ -157,12 +165,12 @@ The export tool and the API read the default Development machine configuration p
 | 6 | `describe --freeze-manifest` (§6): hashes 39,974 files once; record the printed frozen descriptor SHA-256 | 3–7 min (measured 146–399 s) | if interrupted, delete the partial `frozen.json` and rerun; the result is deterministic |
 | 7 | Reconciliation is the first thing `prepare` does; no separate command. A refusal here (`source_manifest_*`, `source_root_invalid`) is a source-tree problem: fix the tree, never the manifest | — | — |
 | 8 | `prepare` (§6): writes `derived\` only on success; 200 libx264 encodes at 5 fps | hours; measure the first sequences and extrapolate (a 1280 × 720, ~200-frame encode at `preset slow`, `crf 16` is typically 1–3 min on this host) | `prepare` writes a new directory atomically: if interrupted, delete the partial output and rerun from the frozen descriptor (ground truth and encodes are deterministic) |
-| 9 | Inspect `derived\derivation-manifest.json`: 200 sequences, frame counts summing to 39,973, `frameRate` 5/1, adapter `bdd100k-mot-coco` v1, FFmpeg identity, one `groundTruthSha256` per sequence; compare the per-class track counts with §3.2 (car 13,866; truck 744; bus 193; motorcycle 46; pedestrian 3,603; rider 133; bicycle 251; train 6; these are raw GT track counts, not benchmark support, which is assigned exact-GT pairs after association) | 10 min | — |
+| 9 | Inspect `derived\derivation-manifest.json`: 200 sequences, frame counts summing to 39,973, `frameRate` 5/1, adapter `bdd100k-mot-coco` v1, FFmpeg identity, one `groundTruthSha256` per sequence; then run the §6 aggregation command over `derived\sequences\*\ground-truth.json` (the manifest itself carries no classes) and compare its total (18,842) and per-class track counts with §3.2 (car 13,866; truck 744; bus 193; motorcycle 46; pedestrian 3,603; rider 133; bicycle 251; train 6; these are raw GT track counts, not benchmark support, which is assigned exact-GT pairs after association) | 10 min | — |
 | 10 | Create the dedicated catalogue (new PostgreSQL database with the `vector` extension, as `prepare_t9_catalogue` did for S3.2b-3) and empty `host\m`, `host\ev`; record creation time and emptiness in `evidence\`; start the API with the §6 overrides as `dotnet Mavi.Api.dll`; start the worker; confirm `GET /api/cameras` and `GET /api/videos` are empty | 15 min | — |
 | 11 | `execute` (§6): per sequence, camera `BDD-<SEQUENCE-ID>`, import, run queued and journalled before polling, `Completed`, T1 export; then the exit checks (one producer, the measured profile, exports bound to the derived videos, every sealed trajectory present) | hours; measure the first sequences (each is a 40 s clip at 5 fps) | journal-based resume, step 12 |
 | 12 | If interrupted operationally, rerun the identical `execute` command: the journal (bound to this derivation manifest and descriptor) resumes without re-importing or re-queueing, and refuses anything it did not create (`t9_catalogue_not_fresh`, `t9_asset_preexisting`, `t9_run_substituted`). A `t9_run_failed` sequence is not resumable: that is a §8.2 stop | — | the journal |
 | 13 | Verify completeness: 200 export directories, each export `Completed` and bound to its derived video, 200 distinct runs, one producer identity; `execute` exits 0 only when this holds | 10 min | — |
-| 14 | Write `desc\policy.json`; `evaluate` (§6) | minutes | write-once; a rerun with identical inputs refuses `output_exists` |
+| 14 | Confirm `desc\policy.json` still hashes to its step-1 value; `evaluate` (§6) | minutes | write-once; a rerun with identical inputs refuses `output_exists` |
 | 15 | `evaluate` writes `association.json` (class-free) before the result; keep the directory intact; hash all three files | 1 min | — |
 | 16 | Read `report.md`; transcribe Scope A and Scope B into the evidence block (§9) without rounding away denominators | 1 h | — |
 | 17 | Record H3 in the register (§9) only when steps 1–16 are complete and internally consistent (the run id, hashes and counts agree across the derivation manifest, exports, association and result) | 1 h | — |
