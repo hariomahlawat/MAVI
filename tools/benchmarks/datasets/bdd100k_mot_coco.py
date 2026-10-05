@@ -51,8 +51,9 @@ DATASET_ID = "bdd100k-mot-2020-cocofmt"
 RELEASE = "MOT 2020 val (box_track_20) via MASA COCO-format derivative sha256:074ff795"
 ANNOTATION = "labels/box_track_20_cocofmt/bdd_box_track_val_cocofmt.json"
 ANNOTATION_SHA256 = "074ff79555483296cf7ccadddeeceeec7a83452c900506dc46588ed3a3e65d5d"
-ANNOTATION_URL = "https://huggingface.co/dereksiyuanli/masa/resolve/main/bdd_box_track_val_cocofmt.json"
 ANNOTATION_COMMIT = "25ed372c47f2c46cf36fd446d1b657b656bc7ea9"
+# Pinned to the recorded repository commit, so the URL keeps naming these bytes if the branch moves.
+ANNOTATION_URL = f"https://huggingface.co/dereksiyuanli/masa/resolve/{ANNOTATION_COMMIT}/bdd_box_track_val_cocofmt.json"
 SPLIT = "val"
 # scalabel2coco_box_track: the leaf categories of configs/box_track.toml, numbered from 1 in config order.
 CATEGORIES = ("pedestrian", "rider", "car", "truck", "bus", "train", "motorcycle", "bicycle")
@@ -100,9 +101,9 @@ def descriptor(entries: Iterable[dict[str, Any]] = ()) -> dict[str, Any]:
             "kind": "research-mirror", "url": ANNOTATION_URL, "retrievedOn": "2026-10-05",
             "credibilityBasis": f"Annotation: the MASA authors' Hugging Face repository at commit {ANNOTATION_COMMIT}, "
                                 f"pinned by SHA-256 {ANNOTATION_SHA256} (the Hub's LFS object id); produced by the "
-                                "official bdd100k.label.to_coco box_track conversion and cross-checked against raw "
-                                "official labels for one val video. Images: the official BDD100K MOT 2020 val "
-                                "image package."},
+                                "official bdd100k.label.to_coco box_track conversion. Its lineage against raw official "
+                                "labels is a required check (lineage()) whose result is recorded with the H3 run, "
+                                "not asserted here. Images: the official BDD100K MOT 2020 val image package."},
         "access": {"mechanism": "registration", "preconditions": [
             "The images come from the official BDD100K user portal after the operator's own sign-in and acceptance "
             "of the BDD100K license; never automated.",
