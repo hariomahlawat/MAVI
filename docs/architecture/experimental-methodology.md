@@ -38,7 +38,7 @@ If the requester, informed of the flaw, still asks for the original run, it may 
 
 ## 4. Workflow
 
-**Challenge → freeze → execute → independent cold review.** The stages describe the work, not approval meetings. They add no approval ceremony beyond what the claim already requires (principle 6a). Owner approval is needed only where an existing rule requires it for that claim, or where the challenge changes the requested method materially.
+**Challenge → freeze → execute → cold review.** The stages describe the work, not approval meetings. They add no approval ceremony beyond what the claim already requires (principle 6a). Owner approval is needed only where an existing rule requires it for that claim, or where the challenge changes the requested method materially.
 
 ### 4.1 Challenge
 
@@ -73,9 +73,9 @@ Hash diagnostic tooling before inspecting outcomes where practical. Do not adjus
 
 Run exactly the frozen experiment. Do not silently broaden it, add parameter points or add sweeps after seeing intermediate results; a new question goes back to §4.1. Keep authoritative and diagnostic evidence separate, and never modify authoritative artefacts from diagnostic work.
 
-### 4.4 Independent cold review
+### 4.4 Cold review
 
-Before a consequential conclusion is promoted into architecture, Production configuration, qualification status or a capability claim, it is reviewed by someone who did not design or run the experiment: a human reviewer or a separate agent session working from the recorded evidence. The review checks:
+Before a consequential conclusion is promoted, it is cold-reviewed. The review checks:
 
 - the method;
 - implementation fidelity (the experiment ran what was frozen);
@@ -84,7 +84,10 @@ Before a consequential conclusion is promoted into architecture, Production conf
 - alternative explanations;
 - the scope of the claim.
 
-The reviewer may reject the result or narrow the claim. Where no independent reviewer is available yet, record the conclusion as reviewed only by its author and pending independent review. It is not promoted in the meantime.
+The reviewer may reject the result or narrow the claim. How independent the review must be follows the claim (principle 6a; ADR-017 §10):
+
+- **Claims that require independence** (Production configuration or profile changes, Production qualification claims, and claims whose governing rule already requires independent review, such as ADR-015 frozen qualification): the review is done by someone who did not design or run the work, either a human reviewer or a separate agent session working from the recorded evidence. Until then the conclusion is recorded as pending independent review and is not promoted.
+- **Development-only claims** (Development benchmark interpretation, Development capability or model-selection evidence, Development acceptance-register outcomes): the review may be a deliberate fresh pass by the author over the recorded evidence. It is recorded with the result but needs no second reviewer and does not block. Development benchmarking does not inherit human-independence controls or approval sequencing (ADR-017 §10).
 
 ## 5. Evidence language
 
