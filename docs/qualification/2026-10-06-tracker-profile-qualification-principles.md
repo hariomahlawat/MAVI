@@ -21,7 +21,7 @@
    - the relevant Person and Vehicle subtypes.
 5. **More than one profile** is introduced only if measured evidence shows that one profile cannot robustly cover the operating envelope.
 6. **No operator tuning.** Operators are not given arbitrary tracker-threshold controls.
-7. **Frame-count parameters are frame-rate dependent.** `minimumConsecutiveFrames` (and any other parameter counted in frames) means a different real time at different source frame rates: 2 frames is 400 ms at 5 Hz and about 67 ms at 30 Hz. Production qualification must take this into account. This is recorded as an open qualification and design question; the parameter is not redesigned here.
+7. **Frame-count parameters are frame-rate dependent.** `minimumConsecutiveFrames` (and any other parameter counted in frames) means a different real time at different source frame rates: two consecutive observations are one frame interval apart, about 200 ms at 5 Hz and about 33 ms at 30 Hz, so frame-count-based confirmation has a different real-time meaning at each source rate. Production qualification must take this into account. This is recorded as an open qualification and design question; the parameter is not redesigned here.
 
 ## What H3 does and does not show
 
