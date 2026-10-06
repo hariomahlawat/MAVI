@@ -10,7 +10,9 @@ param(
     # replacement binding and its Development-only pipeline profile, selected by id
     # from src\vision\config\development-producers-v1.json, instead of the release
     # binding. Omitted, the launcher runs the release binding exactly as before.
-    [ValidateSet("a2-scale640","a2-scale1280")][string]$DevelopmentProducer,
+    # The registry is the authority: an id it does not declare fails closed with
+    # launch_development_producer_unknown (no static parameter set to drift from it).
+    [string]$DevelopmentProducer,
     # Run every launch check (Runtime Pack, overlay, Model Pack store, component
     # compatibility) and stop before the worker environment is prepared or the
     # worker starts. Setup-MAVI uses this as its readiness boundary.
