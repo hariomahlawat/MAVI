@@ -153,11 +153,16 @@ def test_prepare_encodes_odd_sized_frames_with_padding(tmp_path, media_pack):
     import json
     import subprocess
 
+    import s32b_fixtures  # tools/stage3/tests, on the path through the media_pack fixture
+
+    from tools.benchmarks.datasets.bdd100k_mot import jpeg_size
+
     root = write_source(tmp_path / "src", rows=ROWS[:3], frames=3)
-    ffmpeg = next(Path(media_pack).rglob("ffmpeg*.exe"), None) or next(Path(media_pack).rglob("ffmpeg"))
+    ffmpeg = s32b_fixtures.tool_path(Path(media_pack), "ffmpeg")
     for path in sorted((root / "VisDrone2019-MOT-val" / "sequences" / SEQ).glob("*.jpg")):
         subprocess.run([str(ffmpeg), "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=101x51",
-                        "-frames:v", "1", "-q:v", "3", str(path)], check=True, capture_output=True)
+                        "-frames:v", "1", "-pix_fmt", "yuvj444p", "-q:v", "3", str(path)], check=True, capture_output=True)
+        assert jpeg_size(path.read_bytes(), "x") == (101, 51), "the fixture frame is not odd-sized"
     document = descriptors.freeze(vd.descriptor(), root)
     (tmp_path / "frozen.json").write_bytes(canonical_json(document))
     prepare.prepare(descriptor_path=tmp_path / "frozen.json", source_root=root, split="val",
