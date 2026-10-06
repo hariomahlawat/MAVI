@@ -40,13 +40,13 @@
       "datasetId": "visdrone2019-mot",
       "adapter": {
         "id": "visdrone2019-mot",
-        "version": "1",
+        "version": "2",
         "module": "tools/benchmarks/datasets/visdrone_mot.py"
       },
-      "descriptorTemplateSha256": "f96b66df1cae347bdc8d48d4c92a9edfa9d33cd7e55d8e962cf0dcfceaa014b8",
-      "frozenDescriptorSha256": "d2fd0d78e4a1cc87221103091416501f375d3adb88490fe1c2856a061ee07030",
+      "descriptorTemplateSha256": "ddd6268fbed399dc4ec5645c6b11914284d9ba8c4c0b5f790b2fd2d2867a4161",
+      "frozenDescriptorSha256": "62fe0c4ce543a60845b13145819ad2acbb60e8ccfab4960ecd4bc559576c79c3",
       "frozenDescriptorEntries": 9505,
-      "mappingSha256": "aa4b302988c498d91d9c5ae071d9f261188da64873cea8efe93673a0e39acb76",
+      "mappingSha256": "d45e28d93e23b0141939ec3b0ee308502e7a23850cffa73d664f699c181deaf1",
       "frameTime": {
         "kind": "index-at-fps",
         "fpsNumerator": 30,
@@ -293,7 +293,8 @@
         "frames": 9481
       },
       "researchUse": "RESEARCH-UNCERTAIN (no licence statement; toolkit 'for research purpose only')",
-      "conditions": "none annotated per sequence; source resolution recorded per sequence"
+      "conditions": "none annotated per sequence; source resolution recorded per sequence",
+      "nativeClassRules": "category 0 -> ignore regions; score 0 -> ignored frame; class change -> ignored throughout; 'others' (11) -> ignored throughout (not evaluated by the VisDrone toolkits)"
     },
     {
       "domain": "uavdt-m",

@@ -33,6 +33,7 @@ ROWS = [
     (1, 4, 80, 40, 40, 20, 1, 9, 1, 0),    # bus, clipped at the right and bottom edges
     (1, 5, 30, 30, 5, 5, 1, 4, 0, 0),      # id 5 changes class: car then van -> ignored throughout
     (2, 5, 30, 30, 5, 5, 1, 5, 0, 0),
+    (1, 6, 60, 5, 4, 4, 1, 11, 0, 0),      # others: ignored on every frame
 ]
 
 
@@ -83,7 +84,8 @@ def test_ground_truth_tracks_ignores_regions_and_timing(tmp_path):
     assert [from_rational(i["videoOffsetMs"], "x") for i in document["instants"]] == [0, Fraction(100, 3), Fraction(200, 3)]
     tracks = {t["gtTrackId"]: t for t in document["tracks"]}
     assert {k: t["nativeClass"] for k, t in tracks.items()} == {
-        "1": "car", "2": "truck", "3": "pedestrian", "4": "bus", "5": "car"}
+        "1": "car", "2": "truck", "3": "pedestrian", "4": "bus", "5": "car", "6": "others"}
+    assert all(f["ignore"] for f in tracks["6"]["frames"])                 # others -> ignored throughout
     assert [f["frameIndex"] for f in tracks["1"]["frames"]] == [0, 1, 2]
     assert [f["ignore"] for f in tracks["2"]["frames"]] == [False, True]   # score 0 -> ignored frame
     assert all(f["ignore"] for f in tracks["5"]["frames"])                 # class change -> ignored throughout

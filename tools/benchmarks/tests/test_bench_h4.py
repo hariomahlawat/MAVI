@@ -58,7 +58,9 @@ def campaign(tmp_path_factory, media_pack):
     for arm, predictions in (("reference", REFERENCE), ("candidate", CANDIDATE)):
         exports, evidence = write_mavi(root / arm, root / "derived", predictions, profile_sha)
         attest(exports, tuples[arm])
-        (root / arm / "journal.json").write_bytes(b'{"journal":"' + arm.encode() + b'"}')
+        manifest_sha = sha256_hex((root / "derived" / "derivation-manifest.json").read_bytes())
+        (root / arm / "journal.json").write_bytes(canonical_json(
+            {"schemaVersion": "t9", "sourcePoolSha256": manifest_sha, "developmentProducer": tuples[arm]}))
         arms[arm] = {"exports": exports, "evidence": evidence, "journal": root / arm / "journal.json"}
     return {"root": root, "tuples": tuples, "arms": arms}
 
@@ -89,7 +91,7 @@ def results(campaign, tmp_path, monkeypatch, capsys):
 
 
 def test_paired_comparison_counts_deltas_costs_and_transitions(campaign, results):
-    document = compare.compare(spec(campaign, results))
+    document = compare.compare(spec(campaign, results), frozen=False)
     reference, candidate = document["arms"]["reference"], document["arms"]["candidate"]
     verified = {arm: run.verify(path)["scopeA"] for arm, path in results.items()}
     for arm in ("reference", "candidate"):  # the arm figures are the results' own Scope A, never recomputed
@@ -112,19 +114,26 @@ def test_paired_comparison_counts_deltas_costs_and_transitions(campaign, results
     assert set(document["strata"]["nativeClass"]) <= set(s.descriptor()["nativeTaxonomy"][i]["code"] for i in range(len(s.descriptor()["nativeTaxonomy"])))
     assert sum(item["gt"] for item in document["strata"]["heightBand"].values()) == 5
     # Deterministic: the same retained results give byte-identical comparisons.
-    assert canonical_json(compare.compare(spec(campaign, results))) == canonical_json(document)
+    assert canonical_json(compare.compare(spec(campaign, results), frozen=False)) == canonical_json(document)
 
 
 def test_a_result_under_another_producer_is_refused(campaign, results):
     swapped = {"reference": campaign["tuples"]["candidate"], "candidate": campaign["tuples"]["reference"]}
     with pytest.raises(S32Error, match="^h4_result_wrong_producer:reference:componentBindingSha256$"):
-        compare.compare(spec(campaign, results, swapped))
+        compare.compare(spec(campaign, results, swapped), frozen=False)
 
 
 def test_arms_on_another_partition_are_refused(campaign, results):
     document = spec(campaign, {"reference": results["reference"], "candidate": results["reference"]})
     with pytest.raises(S32Error, match="^h4_result_wrong_producer:candidate"):
-        compare.compare(document)
+        compare.compare(document, frozen=False)
+
+
+@pytest.fixture(autouse=True)
+def registry_producers(monkeypatch, campaign):
+    """The fake tuples stand in for the committed registry producers (producer_identity reads Git)."""
+    by_id = {value["producerId"]: value for value in campaign["tuples"].values()}
+    monkeypatch.setattr(receipt.producers, "producer_identity", lambda producer_id, root=None: dict(by_id[producer_id]))
 
 
 def receipt_args(campaign, arm: str) -> dict:
@@ -142,7 +151,11 @@ def test_a_receipt_builds_once_and_verifies_from_the_files(campaign, tmp_path):
     assert document["receiptSha256"] == sha and document["receipt"]["sequencesCompleted"] == 2
     assert document["receipt"]["producer"] == campaign["tuples"]["candidate"]
     assert receipt.verify(receipt_path=out, derived=args["derived"], exports_dir=args["exports_dir"],
-                          evidence_root=args["evidence_root"], journal=args["journal"]) == sha
+                          evidence_root=args["evidence_root"], journal=args["journal"], producer=args["producer"]) == sha
+    with pytest.raises(S32Error, match="^h4_receipt_wrong_producer$"):
+        receipt.verify(receipt_path=out, derived=args["derived"], exports_dir=args["exports_dir"],
+                       evidence_root=args["evidence_root"], journal=args["journal"],
+                       producer=campaign["tuples"]["reference"])
     with pytest.raises(S32Error, match="^output_exists$"):
         receipt.build(out=out, **args)
 
@@ -150,6 +163,7 @@ def test_a_receipt_builds_once_and_verifies_from_the_files(campaign, tmp_path):
 def test_a_receipt_refuses_the_wrong_producer(campaign, tmp_path):
     args = receipt_args(campaign, "candidate")
     args["producer"] = campaign["tuples"]["reference"]
+    args["journal"] = campaign["arms"]["reference"]["journal"]  # a journal bound to that producer: exports still differ
     with pytest.raises(S32Error, match="^benchmark_producer_mismatch:componentBindingSha256$"):
         receipt.build(out=tmp_path / "receipt.json", **args)
 
@@ -159,10 +173,57 @@ def test_a_receipt_no_longer_verifies_after_its_journal_changes(campaign, tmp_pa
     out = tmp_path / "receipt.json"
     receipt.build(out=out, **args)
     changed = tmp_path / "journal.json"
-    changed.write_bytes(args["journal"].read_bytes() + b" ")
+    document = json.loads(args["journal"].read_bytes())
+    document["members"] = {"seq-a": {}}
+    changed.write_bytes(canonical_json(document))
     with pytest.raises(S32Error, match="^h4_receipt_mismatch$"):
         receipt.verify(receipt_path=out, derived=args["derived"], exports_dir=args["exports_dir"],
-                       evidence_root=args["evidence_root"], journal=changed)
+                       evidence_root=args["evidence_root"], journal=changed, producer=args["producer"])
+
+
+def test_a_receipt_refuses_a_journal_of_another_unit(campaign, tmp_path):
+    args = receipt_args(campaign, "candidate")
+    args["journal"] = campaign["arms"]["reference"]["journal"]  # the other arm's journal
+    with pytest.raises(S32Error, match="^h4_receipt_journal_not_this_unit$"):
+        receipt.build(out=tmp_path / "receipt.json", **args)
+
+
+def test_a_receipt_refuses_a_tuple_that_is_not_the_registry_producer(campaign, tmp_path, monkeypatch):
+    args = receipt_args(campaign, "candidate")
+    monkeypatch.setattr(receipt.producers, "producer_identity",
+                        lambda producer_id, root=None: dict(campaign["tuples"]["reference"], producerId=producer_id))
+    with pytest.raises(S32Error, match="^h4_receipt_tuple_not_the_registry_producer$"):
+        receipt.build(out=tmp_path / "receipt.json", **args)
+
+
+def write_methodology(campaign, path: Path, **changes) -> Path:
+    document = {"schemaVersion": "h4-methodology-v1",
+                "domains": [{"domain": "synthetic", "partitions": ["val"]}],
+                "evaluation": {"bootstrap": {"seed": 20261006, "draws": 200}},
+                "producers": {arm: dict(value) for arm, value in campaign["tuples"].items()}}
+    document.update(changes)
+    path.write_bytes(canonical_json(document))
+    return path
+
+
+def test_the_comparison_is_bound_to_the_frozen_methodology(campaign, results, tmp_path):
+    document = spec(campaign, results)
+    document["methodology"] = str(write_methodology(campaign, tmp_path / "m.json"))
+    out = compare.compare(document)
+    assert out["methodologySha256"] == sha256_hex((tmp_path / "m.json").read_bytes())
+    document["bootstrap"] = {"seed": 1, "draws": 200}
+    with pytest.raises(S32Error, match="^h4_spec_invalid:bootstrap$"):
+        compare.compare(document)
+    document["bootstrap"] = {"seed": 20261006, "draws": 200}
+    document["methodology"] = str(write_methodology(campaign, tmp_path / "m2.json",
+                                                    domains=[{"domain": "synthetic", "partitions": ["val", "test"]}]))
+    with pytest.raises(S32Error, match="^h4_spec_invalid:partitions$"):
+        compare.compare(document)
+
+
+def test_the_source_size_is_the_pre_padding_resolution(campaign, results):
+    document = compare.compare(spec(campaign, results), frozen=False)
+    assert all(row["sourceSize"] == row["encodedSize"] for row in document["sequences"])  # synthetic: even sizes
 
 
 # --------------------------------------------------------------------------- shared runtime and one evaluation identity
@@ -196,7 +257,7 @@ def test_arms_with_a_different_shared_runtime_are_refused(campaign, tmp_path, mo
     other = copy_exports(campaign["arms"]["candidate"]["exports"], tmp_path / "exports", maviCommit="f" * 40)
     candidate = evaluate_with(campaign, "candidate", tmp_path / "c", monkeypatch, capsys, exports=other)
     with pytest.raises(S32Error, match="^h4_arms_differ:runtime:maviCommit$"):
-        compare.compare(spec(campaign, {"reference": reference, "candidate": candidate}))
+        compare.compare(spec(campaign, {"reference": reference, "candidate": candidate}), frozen=False)
 
 
 def test_partitions_must_share_one_evaluation_identity(campaign, tmp_path, monkeypatch, capsys):
@@ -206,10 +267,10 @@ def test_partitions_must_share_one_evaluation_identity(campaign, tmp_path, monke
     second = {arm: evaluate_with(campaign, arm, tmp_path / f"2-{arm}", monkeypatch, capsys, policy=tmp_path / "policy-2.json")
               for arm in ("reference", "candidate")}
     document = spec(campaign, first)
-    document["partitions"].append({**document["partitions"][0], "name": "val-again",
+    document["partitions"].append({**document["partitions"][0], "name": "val",
                                    "results": {arm: str(path) for arm, path in second.items()}})
-    with pytest.raises(S32Error, match="^h4_partitions_differ:evaluation_identity$"):
-        compare.compare(document)
+    with pytest.raises(S32Error, match="^h4_spec_invalid:duplicate_partition$"):
+        compare.compare(document, frozen=False)
 
 
 def test_a_receipt_refuses_a_unit_with_mixed_runtime_attestations(campaign, tmp_path):

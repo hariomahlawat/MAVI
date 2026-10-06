@@ -42,7 +42,8 @@ H4 is domain-diversity evidence. It is not another H3 optimisation, and it is no
   - Both accessible sources are aerial (drone) video. They differ materially from BDD100K's dashcam footage, and from each other: UAVDT adds night, fog, altitude and view variation.
   - Fixed-camera traffic (UA-DETRAC) has no authoritative copy. KITTI requires registration. Both are recorded as unavailable, and no fixed-camera conclusion is drawn.
 - **Taxonomy.**
-  - VisDrone scores car, truck, bus and motor (as motorcycle). Its van, tricycle, awning-tricycle and others are vehicle-unresolved, and so remain in Scope A's expected-vehicle population.
+  - VisDrone scores car, truck, bus and motor (as motorcycle). Its van, tricycle and awning-tricycle are vehicle-unresolved, and so remain in Scope A's expected-vehicle population.
+  - VisDrone `others` (11) is "an object of no listed category", not evaluated by the VisDrone toolkits, so it is ignored on every frame. This was corrected after an independent cold review, before any inference.
   - UAVDT scores car, truck and bus only. No motorcycle evidence comes from UAVDT.
 - **Subset selection.** Every sequence of each selected split is used. No sequence is chosen by any MAVI result.
 - **Corpus size.**
@@ -55,11 +56,11 @@ H4 is domain-diversity evidence. It is not another H3 optimisation, and it is no
 
 | Domain | Partitions | Sequences / frames | Frame time | Research use |
 |---|---|---|---|---|
-| VisDrone2019-MOT (adapter `visdrone2019-mot` v1) | `val`, `test-dev` | 24 / 9,481 | 30/1, assumed | RESEARCH-UNCERTAIN |
+| VisDrone2019-MOT (adapter `visdrone2019-mot` v2) | `val`, `test-dev` | 24 / 9,481 | 30/1, assumed | RESEARCH-UNCERTAIN |
 | UAVDT-Benchmark-M (adapter `uavdt-m` v1, conditional) | `test`, `train` | 50 / all frames | 30/1, stated | RESEARCH-ADMISSIBLE |
 
 - **Pinned bytes:**
-  - Archive bytes, source URLs, the VisDrone frozen descriptor (`d2fd0d78…7030`, 9,505 files) and the mapping (`aa4b3029…cb76`) are pinned in the JSON.
+  - Archive bytes, source URLs, the VisDrone frozen descriptor (`62fe0c4c…79c3`, 9,505 files) and the mapping (`d45e28d9…eaf1`) are pinned in the JSON.
   - UAVDT's archive hashes are recorded once acquired.
   - Any later change of the bytes ends UAVDT's use in this event.
 - **UAVDT adapter.** It is written to the frozen rules in the JSON (classes, ignore areas, conditions), with tests, before any UAVDT inference.

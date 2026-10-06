@@ -51,7 +51,15 @@ def load_tuple(path: Path) -> dict[str, str]:
 def body(*, event: str, domain: str, partition: str, producer: dict[str, str], derived: Path, exports_dir: Path,
          evidence_root: Path, journal: Path) -> dict[str, Any]:
     """The receipt body, derived from the files; refuses anything incomplete or under another producer."""
+    # The tuple must be exactly the committed producer of its id (the registry's binding, profile and Model Pack).
+    require(producers.journal_identity(producers.producer_identity(producer["producerId"])) ==
+            {key: producer[key] for key in TUPLE_KEYS}, "h4_receipt_tuple_not_the_registry_producer")
     manifest, manifest_sha, _ = preparation.load(derived)
+    journal_bytes = artefacts.read_bytes(journal, "h4_receipt_journal_unreadable")
+    journal_document = artefacts.parse_json(journal_bytes, "h4_receipt_journal_invalid")
+    require(isinstance(journal_document, dict) and journal_document.get("sourcePoolSha256") == manifest_sha
+            and journal_document.get("developmentProducer") == {key: producer[key] for key in TUPLE_KEYS},
+            "h4_receipt_journal_not_this_unit")
     paths = sorted(Path(exports_dir).glob(f"*/{artefacts.EXPORT_FILE_NAME}"))
     exports = artefacts.load_exports(paths)
     by_video = {export.video["sourceSha256"]: export for export in exports.values()}
@@ -76,7 +84,7 @@ def body(*, event: str, domain: str, partition: str, producer: dict[str, str], d
             "producer": {key: producer[key] for key in TUPLE_KEYS}, "attestedRuntime": attested,
             "derivationManifestSha256": manifest_sha, "datasetId": manifest["datasetId"], "split": manifest["split"],
             "sequencesExpected": len(manifest["sequences"]), "sequencesCompleted": len(sequences),
-            "failures": [], "journalSha256": sha256_hex(artefacts.read_bytes(journal, "h4_receipt_journal_unreadable")),
+            "journalSha256": sha256_hex(journal_bytes),
             "sequences": sequences}
 
 
@@ -90,14 +98,16 @@ def build(*, out: Path, **kwargs: Any) -> str:
     return receipt["receiptSha256"]
 
 
-def verify(*, receipt_path: Path, derived: Path, exports_dir: Path, evidence_root: Path, journal: Path) -> str:
-    """Re-derives the receipt from the files; refuses on any difference (``h4_receipt_mismatch``)."""
+def verify(*, receipt_path: Path, derived: Path, exports_dir: Path, evidence_root: Path, journal: Path,
+           producer: dict[str, str]) -> str:
+    """Re-derives the receipt from the files under the frozen ``producer`` tuple; refuses on any difference."""
     data = artefacts.read_bytes(receipt_path, "h4_receipt_unreadable")
     receipt = artefacts.parse_json(data, "h4_receipt_invalid")
     require(isinstance(receipt, dict) and canonical_json(receipt) == data and set(receipt) == {"receipt", "receiptSha256"},
             "h4_receipt_invalid")
     document = receipt["receipt"]
     require(sha256_hex(canonical_json(document)) == receipt["receiptSha256"], "h4_receipt_invalid:sha256")
+    require(document["producer"] == {key: producer[key] for key in TUPLE_KEYS}, "h4_receipt_wrong_producer")
     derivedNow = body(event=document["event"], domain=document["domain"], partition=document["partition"],
                       producer=document["producer"], derived=derived, exports_dir=exports_dir,
                       evidence_root=evidence_root, journal=journal)
@@ -115,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("--producer-tuple", "--derived", "--exports", "--evidence-root", "--journal", "--out"):
         b.add_argument(name, type=Path, required=True)
     v = commands.add_parser("verify")
-    for name in ("--receipt", "--derived", "--exports", "--evidence-root", "--journal"):
+    for name in ("--receipt", "--producer-tuple", "--derived", "--exports", "--evidence-root", "--journal"):
         v.add_argument(name, type=Path, required=True)
     args = p.parse_args(argv)
     try:
@@ -125,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
                         evidence_root=args.evidence_root, journal=args.journal))
         else:
             print(verify(receipt_path=args.receipt, derived=args.derived, exports_dir=args.exports,
-                         evidence_root=args.evidence_root, journal=args.journal))
+                         evidence_root=args.evidence_root, journal=args.journal,
+                         producer=load_tuple(args.producer_tuple)))
     except S32Error as exc:
         print(f"refused {exc}", file=sys.stderr)
         return 2

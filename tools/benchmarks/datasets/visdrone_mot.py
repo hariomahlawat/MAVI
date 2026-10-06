@@ -15,6 +15,9 @@ Facts used, with their sources (read 2026-10-06):
 - Ignored-region rows (category 0) carry target ids that collide with object ids in the same sequence (observed on
   the val release), so they are never tracks: each becomes an ``ignoreRegions`` box at its frame.
 - An object row with ``score`` 0 is an ignored frame of its track (the toolkit's evaluation ignores it).
+- Category ``others`` (11) is "an object of no listed category", not necessarily a vehicle, and the VisDrone
+  toolkits do not evaluate it: its tracks are ignored on every frame (native class preserved, never in a
+  population; their boxes are ignore evidence), never counted as expected vehicles.
 - A ``target_id`` whose category changes between frames has no single native class: it is ignored on every frame
   (its first category, in frame order, is recorded and never scored), as the H3 derived adapter treats class changes.
 - Frame numbers run 1..N with one JPEG per frame; derived frame ``k`` is file ``k + 1``. Every frame of a sequence
@@ -40,7 +43,7 @@ from tools.benchmarks.core.identity import rational, require
 from tools.benchmarks.datasets.bdd100k_mot import jpeg_size
 
 ADAPTER_ID = "visdrone2019-mot"
-ADAPTER_VERSION = "1"
+ADAPTER_VERSION = "2"
 DATASET_ID = "visdrone2019-mot"
 RELEASE = "VisDrone2019-MOT (val, test-dev; toolkit v1.0.2 category scheme)"
 SPLITS = ("val", "test-dev")
@@ -49,6 +52,7 @@ SEQUENCE = re.compile(r"uav[0-9]{7}_[0-9]{5}_v")
 FRAME_FILE = re.compile(r"([0-9]{7})\.jpg")
 TOOLKIT = "https://github.com/VisDrone/VisDrone2018-MOT-toolkit"
 IGNORED_REGION = 0
+OTHERS = 11  # ignored on every frame (see the module docstring)
 # category number, native code, name, definition
 TAXONOMY = (
     (1, "pedestrian", "Pedestrian", "VisDrone category 'pedestrian' (1): a person standing or walking."),
@@ -64,7 +68,8 @@ TAXONOMY = (
     (9, "bus", "Bus", "VisDrone category 'bus' (9). No written definition in the toolkit README."),
     (10, "motor", "Motor", "VisDrone category 'motor' (10): a motorised two-wheeler (the rider is annotated as "
                            "people)."),
-    (11, "others", "Others", "VisDrone category 'others' (11): an object of no listed category."),
+    (11, "others", "Others", "VisDrone category 'others' (11): an object of no listed category; not evaluated by "
+                             "the VisDrone toolkits and ignored on every frame by this adapter."),
 )
 CATEGORIES = {number: code for number, code, _, _ in TAXONOMY}
 MAPPINGS = (
@@ -81,7 +86,8 @@ MAPPINGS = (
      "Same practical meaning: motorised two-wheelers. Caveat: scooter and moped placement is not stated in the "
      "toolkit README."),
     ("others", None, "unsupported", "vehicle-unresolved",
-     "An object of no listed category; its type cannot be judged."),
+     "An object of no listed category, not evaluated by the VisDrone toolkits: the adapter ignores it on every "
+     "frame, so it never enters a population (the mapping row only completes the taxonomy)."),
     ("pedestrian", None, "unsupported", "outside-capability", "A person, not a Vehicle."),
     ("people", None, "unsupported", "outside-capability", "A person, not a Vehicle."),
     ("tricycle", None, "unsupported", "vehicle-unresolved",
@@ -265,8 +271,8 @@ class VisDroneMotAdapter:
             classes.setdefault(key, set()).add(CATEGORIES[category])
             track = tracks.setdefault(key, {"gtTrackId": key, "nativeClass": CATEGORIES[category], "frames": []})
             require(all(f["frameIndex"] != index for f in track["frames"][-1:]), f"{bad}:duplicate_track_frame")
-            track["frames"].append({"frameIndex": index, "videoOffsetMs": offsets[index], "ignore": score == 0,
-                                    "box": clipped})
+            track["frames"].append({"frameIndex": index, "videoOffsetMs": offsets[index],
+                                    "ignore": score == 0 or category == OTHERS, "box": clipped})
         for key, track in tracks.items():
             if len(classes[key]) > 1:  # a class change: no single native class, never scored
                 for frame in track["frames"]:

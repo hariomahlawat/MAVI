@@ -111,9 +111,31 @@ def _rate(numerator: int, denominator: int) -> dict[str, Any]:
             "value": (numerator / denominator) if denominator else None}
 
 
-def compare(spec: dict[str, Any]) -> dict[str, Any]:
+def _methodology(spec: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """The frozen methodology the spec must follow: its domain's partitions, the bootstrap and both producer tuples."""
+    data = artefacts.read_bytes(Path(spec["methodology"]), "h4_methodology_unreadable")
+    document = artefacts.parse_json(data, "h4_methodology_invalid")
+    require(isinstance(document, dict) and document.get("schemaVersion") == "h4-methodology-v1", "h4_methodology_invalid")
+    domains = [d for d in document["domains"] if d["domain"] == spec["domain"]]
+    require(len(domains) == 1, f"h4_spec_invalid:domain:{spec['domain']}")
+    require(sorted(p["name"] for p in spec["partitions"]) == sorted(domains[0]["partitions"]), "h4_spec_invalid:partitions")
+    frozen_bootstrap = document["evaluation"]["bootstrap"]
+    require(spec["bootstrap"] == {"seed": frozen_bootstrap["seed"], "draws": frozen_bootstrap["draws"]},
+            "h4_spec_invalid:bootstrap")
+    for arm in ARMS:
+        frozen = {key: document["producers"][arm][key] for key in ("producerId", "pipelineProfileSha256",
+                                                                   "componentBindingSha256", "modelPackId")}
+        require(spec["producers"][arm] == frozen, f"h4_spec_invalid:producers:{arm}")
+    return document, sha256_hex(data)
+
+
+def compare(spec: dict[str, Any], *, frozen: bool = True) -> dict[str, Any]:
+    """``frozen=False`` (tests only) skips the methodology binding; every other check still applies."""
     tuples = spec["producers"]
     require(set(tuples) == set(ARMS), "h4_spec_invalid:producers")
+    methodology_sha = _methodology(spec)[1] if frozen else None
+    names = [p["name"] for p in spec["partitions"]]
+    require(len(names) == len(set(names)), "h4_spec_invalid:duplicate_partition")
     exact: set[str] | None = None
     sequences: list[dict[str, Any]] = []
     outcomes = {arm: {} for arm in ARMS}
@@ -121,6 +143,8 @@ def compare(spec: dict[str, Any]) -> dict[str, Any]:
     first_identity: dict[str, Any] | None = None
     for partition in spec["partitions"]:
         manifest, manifest_sha, documents = preparation.load(Path(partition["derived"]))
+        require(partition["name"] == manifest["split"], f"h4_spec_invalid:partition_split:{partition['name']}")
+        require(all(manifest_sha != p["derivationManifestSha256"] for p in partitions), "h4_spec_invalid:duplicate_derivation")
         loaded = {arm: _arm_result(Path(partition["results"][arm])) for arm in ARMS}
         envelopes = {arm: loaded[arm][0]["envelope"] for arm in ARMS}
         for arm in ARMS:
@@ -166,7 +190,9 @@ def compare(spec: dict[str, Any]) -> dict[str, Any]:
             sid = row["sequenceId"]
             gt = documents[sid]
             sequences.append({"partition": partition["name"], "sequenceId": sid, "frames": row["frameCount"],
-                              "sourceSize": [gt["frameSize"]["width"], gt["frameSize"]["height"]],
+                              "sourceSize": ([row["padding"]["sourceSize"]["width"], row["padding"]["sourceSize"]["height"]]
+                                             if "padding" in row else [gt["frameSize"]["width"], gt["frameSize"]["height"]]),
+                              "encodedSize": [gt["frameSize"]["width"], gt["frameSize"]["height"]],
                               "conditions": conditions.get(sid, {}),
                               **{arm: {"gt": rows[arm][sid]["expectedVehicleGt"],
                                        "mavi": rows[arm][sid]["maviTracks"]} for arm in ARMS}})
@@ -214,6 +240,7 @@ def compare(spec: dict[str, Any]) -> dict[str, Any]:
             continue
         draws.append((sum(sequences[i]["candidate"]["gt"]["assigned"] for i in chosen)
                       - sum(sequences[i]["reference"]["gt"]["assigned"] for i in chosen)) / totals)
+    require(len(draws) == spec["bootstrap"]["draws"], "h4_bootstrap_draws_dropped")
     draws.sort()
     interval = [draws[int(0.025 * (len(draws) - 1))], draws[int(0.975 * (len(draws) - 1))]] if draws else None
 
@@ -241,7 +268,7 @@ def compare(spec: dict[str, Any]) -> dict[str, Any]:
             entry["reference"] += s["reference"]["gt"]["assigned"]
             entry["candidate"] += s["candidate"]["gt"]["assigned"]
 
-    return {"schemaVersion": SCHEMA, "event": spec["event"], "domain": spec["domain"],
+    return {"schemaVersion": SCHEMA, "event": spec["event"], "domain": spec["domain"], "methodologySha256": methodology_sha,
             "bootstrap": spec["bootstrap"], "partitions": partitions, "arms": arms,
             "paired": {"deltaAssigned": delta_assigned,
                        "deltaAssociation": (delta_assigned / total) if total else None,
