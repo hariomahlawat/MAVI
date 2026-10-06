@@ -39,6 +39,7 @@ What MAVI builds next is decided by `docs/superpowers/plans/capability-roadmap.m
 
 - `AGENTS.md` — binding engineering rules.
 - `docs/architecture/engineering-operating-principles.md` — implementation-first operating principles: executable controls over prose, reuse of proven research and implementations, proportionate evidence.
+- `docs/architecture/experimental-methodology.md` — standing rule for consequential experiments, benchmarks, qualification and parameter studies: challenge the proposed method before running it, freeze before reading outcomes, label evidence status, supersede rather than overwrite defective analyses, and cold-review before a conclusion is promoted (independently where the claim requires it).
 - `docs/architecture/dependency-and-offline-packaging-policy.md` — dependency/change methodology.
 - `docs/architecture/ui-ux-design-specification.md` — adopted UI/UX design specification (v1.0): workspace archetypes, token/colour architecture, operational-state taxonomy, accessibility and visual QA standards, and the sequential UI-1 → UI-5 foundation programme. Normative for frontend work from UI-1 onward.
 - `docs/architecture/phase1-production-topology.md` — Development device policy and Production deployment profiles (ADR-008).

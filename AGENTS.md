@@ -80,6 +80,20 @@ ADR-017 governs Development data strategy. Small diagnostic labelling (a handful
 9. keep dataset bytes, frames, crops and labels out of ordinary Git; commit hashes, metadata and mappings;
 10. preserve the separation between Development or benchmark evidence and protected final qualification (ADR-015 §3–§4), and use the lightest evidence process appropriate to the claim (operating principle 6a): Development benchmarks need reproducibility, provenance, deterministic evaluation and honest limitations, not Production qualification ceremony.
 
+## Experimental methodology
+
+A request states a question to investigate; it is not evidence that the proposed method answers it. This applies to consequential evidence-producing work: an experiment, benchmark, qualification activity, parameter study, dataset or taxonomy mapping, diagnostic analysis or architectural intervention whose result could influence architecture, Production profiles or parameters, benchmark interpretation, qualification or acceptance-register status, capability claims, detector/tracker/model selection or tuning, or dataset and taxonomy decisions. For such work, the executing agent challenges the method before running it (`docs/architecture/experimental-methodology.md`):
+
+1. state the question and the assumptions the proposed method needs in order to answer it;
+2. verify those assumptions against the actual implementation, the pinned dependency behaviour and existing evidence, not remembered semantics;
+3. identify confounders and alternative explanations; check that the metric measures the claimed mechanism and that the intervention changes only the intended variable; prefer the smallest controlled experiment, or an analysis of existing evidence, that can discriminate between them.
+
+Being asked to run an experiment is not methodological approval. If a material flaw is found, keep the objective but do not run the flawed method to complete the task. Stop and report the assumption, the evidence against it, the conclusion it would invalidate and the smallest corrected experiment. If the requester, once informed, still wants the original run, run it as a labelled limited run whose limitation goes with every conclusion drawn from it. Disagreeing with a proposed method is expected. A failed methodology review, a null result or a falsified hypothesis is a valid outcome.
+
+Freeze the question, intervention, metrics and attribution rules before reading outcomes, and do not broaden the experiment after seeing results. Label conclusions as observed, derived, inferred or hypothesis, and claim causation only from a controlled intervention or a direct mechanism trace. Disclose a defective analysis and keep it as superseded evidence; never silently overwrite it. Cold-review a consequential conclusion before promoting it. The review is independent (done by someone who did not design or run the work) where the claim itself requires independence, such as Production configuration or Production qualification. It is not imposed on Development-only claims (ADR-017 §10).
+
+Routine bug fixes, formatting, mechanical refactors, test repairs, implementation of an approved design and trivial documentation corrections are out of scope until they start to change a benchmark definition, a causal interpretation, a qualification criterion, Production behaviour or a capability claim. When unsure whether work is in scope, treat it as in scope. The gate adds no approval ceremony (operating principle 6a).
+
 ## Engineering practice
 
 Work implementation-first: see `docs/architecture/engineering-operating-principles.md`.
