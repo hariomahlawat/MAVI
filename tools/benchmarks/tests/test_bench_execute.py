@@ -197,3 +197,47 @@ def test_an_a2_profile_with_another_subclass_vocabulary_is_refused():
     document["vehicleSubclass"]["vocabularyId"] = "other-vocabulary"
     with pytest.raises(S32Error, match="^benchmark_profile_not_development_a2:vehicleSubclass$"):
         execution.require_benchmark_profile(json.dumps(document).encode())
+
+
+def test_an_altered_a2_profile_with_the_same_identity_is_refused():
+    document = json.loads(A2_PROFILE.read_bytes())
+    document["tracker"]["trackActivationThreshold"] = 0.62
+    with pytest.raises(S32Error, match="^benchmark_profile_not_tracked_a2$"):
+        execution.require_benchmark_profile(json.dumps(document).encode())
+
+
+REGISTRY = json.loads((ROOT / "src/vision/config/development-producers-v1.json").read_bytes())
+
+
+def _declared_attestation(producer_id: str) -> dict:
+    (item,) = [entry for entry in REGISTRY["producers"] if entry["producerId"] == producer_id]
+    binding_bytes = (ROOT / item["bindingPath"]).read_bytes()
+    binding = json.loads(binding_bytes)
+    return {"pipelineProfileSha256": sha256_hex(A2_PROFILE.read_bytes()),
+            "componentBindingSha256": sha256_hex(binding_bytes),
+            "modelPackId": binding["capabilityBindings"][0]["modelPackId"]}
+
+
+@pytest.mark.parametrize("producer_id", ["a2-scale640", "a2-scale1280"])
+def test_each_declared_producer_is_accepted_for_an_a2_run(producer_id):
+    assert execution.require_declared_producer(_declared_attestation(producer_id), A2_PROFILE.read_bytes()) == producer_id
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda p: p.update(componentBindingSha256=sha256_hex((ROOT / "src/vision/config/components/phase1-bindings-v2.json").read_bytes())),
+        lambda p: p.update(modelPackId=_declared_attestation("a2-scale640")["modelPackId"]),
+        lambda p: p.update(pipelineProfileSha256="1" * 64),
+    ],
+    ids=["release-binding", "other-arm-pack", "other-profile"],
+)
+def test_an_a2_run_by_an_undeclared_producer_is_refused(mutate):
+    producer = _declared_attestation("a2-scale1280")
+    mutate(producer)
+    with pytest.raises(S32Error, match="^benchmark_producer_not_declared$"):
+        execution.require_declared_producer(producer, A2_PROFILE.read_bytes())
+
+
+def test_an_s32_run_is_not_constrained_by_the_development_registry():
+    assert execution.require_declared_producer({"componentBindingSha256": "1" * 64}, json.dumps(s32.PROFILE).encode()) is None

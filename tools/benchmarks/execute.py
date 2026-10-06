@@ -21,7 +21,7 @@ from typing import Any
 
 from tools.benchmarks import prepare as preparation
 from tools.benchmarks.capabilities.vehicle_tracks import mavi_tracks
-from tools.benchmarks.core._stage3 import artefacts
+from tools.benchmarks.core._stage3 import ROOT, artefacts
 from tools.benchmarks.core.identity import S32Error, require, sha256_hex
 
 import ingest_source_pool as t9  # noqa: E402  (tools/stage3, on the path via _stage3)
@@ -32,15 +32,38 @@ CAMERA_ZONE = "UTC"
 RECORDING_START_LOCAL = "2020-01-01T00:00:00"
 
 
-# The A2 Development profile that both Development producers (a2-scale640, a2-scale1280) run with. Like the S3.2
-# gate, an identity gate only: the vision runtime owns profile validation, and the exact bytes are the attested
-# pipelineProfileSha256 that ``t9.producer`` checks after the runs.
+# The A2 Development profile that both Development producers (a2-scale640, a2-scale1280) run with (ADR-014
+# 2026-10-06 note). Unlike the S3.2 identity gate, it is pinned to the exact tracked bytes, and after the runs the
+# attested producer must be one the registry declares: binding and Model Pack, not only the profile identity.
 DEVELOPMENT_PROFILE = {"schemaVersion": "1.3", "profileId": "phase1-detection-tracking-a2",
                        "profileVersion": "1.0.0-development", "developmentOnly": True}
+DEVELOPMENT_PRODUCERS = Path("src/vision/config/development-producers-v1.json")
 
 
-def require_benchmark_profile(data: bytes) -> None:
-    """The S3.2 measurement profile, or the A2 Development profile (same subclass vocabulary); nothing else."""
+def _registry(root: Path) -> dict[str, Any]:
+    registry = artefacts.parse_json(artefacts.read_bytes(root / DEVELOPMENT_PRODUCERS, "benchmark_producers_unreadable"),
+                                    "benchmark_producers_invalid")
+    require(isinstance(registry, dict) and registry.get("schemaVersion") == "mavi-vision-development-producers-v1"
+            and isinstance(registry.get("producers"), list) and registry["producers"], "benchmark_producers_invalid")
+    return registry
+
+
+def declared_producers(root: Path = ROOT) -> dict[tuple[str, str, str], str]:
+    """(pipelineProfileSha256, componentBindingSha256, detector modelPackId) -> producerId, from the tracked files."""
+    declared: dict[tuple[str, str, str], str] = {}
+    for item in _registry(root)["producers"]:
+        binding_bytes = artefacts.read_bytes(root / item["bindingPath"], "benchmark_producers_unreadable")
+        binding = artefacts.parse_json(binding_bytes, "benchmark_producers_invalid")
+        packs = [entry["modelPackId"] for entry in binding["capabilityBindings"]
+                 if entry["roleId"] == "vision" and entry["capabilityId"] == "detector"]
+        require(len(packs) == 1, "benchmark_producers_invalid")
+        profile_sha = sha256_hex(artefacts.read_bytes(root / item["pipelineProfilePath"], "benchmark_producers_unreadable"))
+        declared[(profile_sha, sha256_hex(binding_bytes), packs[0])] = item["producerId"]
+    return declared
+
+
+def require_benchmark_profile(data: bytes, root: Path = ROOT) -> None:
+    """The S3.2 measurement profile, or exactly the tracked A2 Development profile bytes; nothing else."""
     profile = artefacts.parse_json(data, "t9_profile_invalid")
     require(isinstance(profile, dict), "t9_profile_invalid")
     if profile.get("profileId") != DEVELOPMENT_PROFILE["profileId"]:
@@ -51,6 +74,21 @@ def require_benchmark_profile(data: bytes) -> None:
     subclass = profile.get("vehicleSubclass")
     require(isinstance(subclass, dict) and subclass.get("vocabularyId") == t9.MEASUREMENT_VOCABULARY,
             "benchmark_profile_not_development_a2:vehicleSubclass")
+    require(sha256_hex(data) in {key[0] for key in declared_producers(root)}, "benchmark_profile_not_tracked_a2")
+
+
+def require_declared_producer(producer: dict[str, Any], profile_bytes: bytes, root: Path = ROOT) -> str | None:
+    """For an A2 run, the attested profile, binding and Model Pack must be one declared Development producer.
+
+    Returns its producer id (``None`` for an S3.2 measurement-profile run, which this does not constrain).
+    """
+    profile = artefacts.parse_json(profile_bytes, "t9_profile_invalid")
+    if not isinstance(profile, dict) or profile.get("profileId") != DEVELOPMENT_PROFILE["profileId"]:
+        return None
+    key = (producer.get("pipelineProfileSha256"), producer.get("componentBindingSha256"), producer.get("modelPackId"))
+    producer_id = declared_producers(root).get(key)  # type: ignore[arg-type]
+    require(producer_id is not None, "benchmark_producer_not_declared")
+    return producer_id
 
 
 def camera_code(sequence_id: str) -> str:
@@ -107,7 +145,8 @@ def _execute(derived, profile_path, api_url, journal_path, export_root, export_c
 
     exports = artefacts.load_exports([path for _, _, path in runs.values()])
     by_run = {export.run_id: (sha, export) for sha, export in exports.items()}
-    t9.producer(exports, profile_sha)  # one attested producer, which measured exactly this profile
+    producer = t9.producer(exports, profile_sha)  # one attested producer, which measured exactly this profile
+    require_declared_producer(producer, profile_bytes)  # and, for A2, exactly one declared Development producer
     rows = []
     for row in sequences:
         sequence = row["sequenceId"]
