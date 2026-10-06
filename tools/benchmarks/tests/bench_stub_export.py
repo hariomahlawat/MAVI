@@ -22,6 +22,8 @@ def main() -> int:
     p.add_argument("--state", type=Path, required=True)
     p.add_argument("--evidence", type=Path, required=True)
     p.add_argument("--tamper", default="")
+    p.add_argument("--attest-binding", default=None)  # the worker's componentBindingSha256 (Development producers)
+    p.add_argument("--attest-pack", default=None)  # and its detector modelPackId
     p.add_argument("--run", required=True)
     p.add_argument("--pipeline-profile", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
@@ -42,6 +44,10 @@ def main() -> int:
     run, video = document["processingRun"], document["video"]
     run.update(processingRunId=args.run, videoAssetId=state["videoAssetId"])
     run["attestation"].update(processingRunId=args.run, videoAssetId=state["videoAssetId"])
+    if args.attest_binding is not None:
+        run["attestation"]["componentBindingSha256"] = args.attest_binding
+    if args.attest_pack is not None:
+        run["attestation"]["modelPackId"] = args.attest_pack
     video.update(videoAssetId=state["videoAssetId"], cameraCode=state["cameraCode"])
     path.write_bytes(canonical_json(document))
     return 0

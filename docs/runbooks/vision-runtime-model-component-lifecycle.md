@@ -152,7 +152,11 @@ They never start in Production: the worker refuses the profile there (`detector_
    - The launcher refuses an unknown producer (`launch_development_producer_unknown`) and a registry whose release-binding pin is stale (`launch_development_producers_stale`).
    - Without `-DevelopmentProducer` the launcher runs the release binding exactly as before.
    - Each run attests its producer's `componentBindingSha256` and `modelPackId`, and the shared A2 `pipelineProfileSha256`.
-   - The S3.2d harness (`tools/benchmarks` `execute`) accepts an A2 run only with the exact tracked A2 profile bytes (`benchmark_profile_not_tracked_a2`). After the runs, the attested profile, binding and Model Pack must be one declared producer (`benchmark_producer_not_declared`).
+   - The S3.2d harness (`tools/benchmarks` `execute`) runs the A2 profile only with an explicit `--development-producer a2-scale640|a2-scale1280`; it refuses the flag for the S3.2 profile.
+     - The producer's identity (profile SHA, binding SHA, detector `modelPackId`) is read from the committed registry, binding and profile. Any uncommitted byte in them is refused (`benchmark_producer_dirty:<path>`).
+     - That identity is bound into the resume journal before any API call; a journal for one producer cannot resume as the other (`benchmark_journal_producer_mismatch`).
+     - Every export must attest exactly that producer (`benchmark_producer_mismatch:<key>`), checked after each run, so a wrong worker fails at its first export.
+     - Start a worker with the same producer id, and use a fresh journal and catalogue for each producer.
 4. **Changing the release binding** makes the registry pin stale (and `verify_repo` fails) until the registry is re-pinned and both replacement bindings are re-derived from the new release binding.
 
 ## Completion contract v3 deployment order

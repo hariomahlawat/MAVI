@@ -7,9 +7,10 @@ journalled before polling, and one T1 export into ``<exports>/<processingRunId>/
 never adopted, and a resume is allowed only from this instance's journal, which is bound to the derivation manifest.
 
 Before any API call, every prepared file is re-hashed (``prepare.load``) and the pipeline profile must pass the S3.2
-measurement identity gate, or be the Stage-3 A2 Development profile shared by the two H4 Development producers
-(ADR-014 2026-10-06 note). Afterwards the exports must name exactly the derived videos, carry one attested producer
-that measured exactly this profile, and every sealed trajectory must be present in the evidence root with its
+measurement identity gate, or be the committed A2 profile of the explicitly requested Development producer
+(``--development-producer``, ADR-014 2026-10-06 note), whose frozen identity the resume journal then binds.
+Afterwards the exports must name exactly the derived videos, carry one attested producer that measured exactly this
+profile (for A2: exactly the requested producer), and every sealed trajectory must be present in the evidence root with its
 attested hash. ``evaluate`` then binds all of it into the run envelope. The journal, API URL and paths are runtime
 only and never part of any result.
 """
@@ -21,6 +22,7 @@ from typing import Any
 
 from tools.benchmarks import prepare as preparation
 from tools.benchmarks.capabilities.vehicle_tracks import mavi_tracks
+from tools.benchmarks.core import producer as producers
 from tools.benchmarks.core._stage3 import ROOT, artefacts
 from tools.benchmarks.core.identity import S32Error, require, sha256_hex
 
@@ -33,62 +35,60 @@ RECORDING_START_LOCAL = "2020-01-01T00:00:00"
 
 
 # The A2 Development profile that both Development producers (a2-scale640, a2-scale1280) run with (ADR-014
-# 2026-10-06 note). Unlike the S3.2 identity gate, it is pinned to the exact tracked bytes, and after the runs the
-# attested producer must be one the registry declares: binding and Model Pack, not only the profile identity.
+# 2026-10-06 note). The two producers deliberately share it, and the benchmark inputs, so an A2 run must name the
+# producer it measures: its frozen identity (``core.producer``, read from the committed blobs) is bound into the
+# resume journal before any API call, and every run's attestation must be exactly that producer, not merely some
+# declared one. S3.2 measurement-profile runs are unchanged and take no producer.
 DEVELOPMENT_PROFILE = {"schemaVersion": "1.3", "profileId": "phase1-detection-tracking-a2",
                        "profileVersion": "1.0.0-development", "developmentOnly": True}
-DEVELOPMENT_PRODUCERS = Path("src/vision/config/development-producers-v1.json")
 
 
-def _registry(root: Path) -> dict[str, Any]:
-    registry = artefacts.parse_json(artefacts.read_bytes(root / DEVELOPMENT_PRODUCERS, "benchmark_producers_unreadable"),
-                                    "benchmark_producers_invalid")
-    require(isinstance(registry, dict) and registry.get("schemaVersion") == "mavi-vision-development-producers-v1"
-            and isinstance(registry.get("producers"), list) and registry["producers"], "benchmark_producers_invalid")
-    return registry
-
-
-def declared_producers(root: Path = ROOT) -> dict[tuple[str, str, str], str]:
-    """(pipelineProfileSha256, componentBindingSha256, detector modelPackId) -> producerId, from the tracked files."""
-    declared: dict[tuple[str, str, str], str] = {}
-    for item in _registry(root)["producers"]:
-        binding_bytes = artefacts.read_bytes(root / item["bindingPath"], "benchmark_producers_unreadable")
-        binding = artefacts.parse_json(binding_bytes, "benchmark_producers_invalid")
-        packs = [entry["modelPackId"] for entry in binding["capabilityBindings"]
-                 if entry["roleId"] == "vision" and entry["capabilityId"] == "detector"]
-        require(len(packs) == 1, "benchmark_producers_invalid")
-        profile_sha = sha256_hex(artefacts.read_bytes(root / item["pipelineProfilePath"], "benchmark_producers_unreadable"))
-        declared[(profile_sha, sha256_hex(binding_bytes), packs[0])] = item["producerId"]
-    return declared
-
-
-def require_benchmark_profile(data: bytes, root: Path = ROOT) -> None:
-    """The S3.2 measurement profile, or exactly the tracked A2 Development profile bytes; nothing else."""
+def _is_development_profile(data: bytes) -> bool:
     profile = artefacts.parse_json(data, "t9_profile_invalid")
     require(isinstance(profile, dict), "t9_profile_invalid")
-    if profile.get("profileId") != DEVELOPMENT_PROFILE["profileId"]:
+    return profile.get("profileId") == DEVELOPMENT_PROFILE["profileId"]
+
+
+def require_benchmark_profile(data: bytes, development_producer: str | None = None,
+                              root: Path = ROOT) -> dict[str, Any] | None:
+    """The S3.2 measurement profile (no producer), or the A2 profile of the requested Development producer.
+
+    Returns the producer's frozen identity for an A2 run, ``None`` for an S3.2 run.
+    """
+    if not _is_development_profile(data):
+        require(development_producer is None, "benchmark_development_producer_forbidden")
         t9.require_measurement_profile(data)
-        return
+        return None
+    profile = artefacts.parse_json(data, "t9_profile_invalid")
     for key, value in DEVELOPMENT_PROFILE.items():
         require(profile.get(key) == value and type(profile.get(key)) is type(value), f"benchmark_profile_not_development_a2:{key}")
     subclass = profile.get("vehicleSubclass")
     require(isinstance(subclass, dict) and subclass.get("vocabularyId") == t9.MEASUREMENT_VOCABULARY,
             "benchmark_profile_not_development_a2:vehicleSubclass")
-    require(sha256_hex(data) in {key[0] for key in declared_producers(root)}, "benchmark_profile_not_tracked_a2")
+    require(development_producer is not None, "benchmark_development_producer_required")
+    identity = producers.producer_identity(development_producer, root)
+    require(sha256_hex(data) == identity["pipelineProfileSha256"], "benchmark_profile_not_tracked_a2")
+    return identity
 
 
-def require_declared_producer(producer: dict[str, Any], profile_bytes: bytes, root: Path = ROOT) -> str | None:
-    """For an A2 run, the attested profile, binding and Model Pack must be one declared Development producer.
+class _Journal(t9.Journal):
+    """The T9 resume journal, additionally bound to the requested Development producer (A2 runs only).
 
-    Returns its producer id (``None`` for an S3.2 measurement-profile run, which this does not constrain).
+    A journal created for one producer refuses to resume as another (``benchmark_journal_producer_mismatch``), so a
+    reused journal and catalogue can never turn an intended 1280 run into 640 runs, or the reverse. An S3.2 journal
+    carries no producer and is read and written exactly as before.
     """
-    profile = artefacts.parse_json(profile_bytes, "t9_profile_invalid")
-    if not isinstance(profile, dict) or profile.get("profileId") != DEVELOPMENT_PROFILE["profileId"]:
-        return None
-    key = (producer.get("pipelineProfileSha256"), producer.get("componentBindingSha256"), producer.get("modelPackId"))
-    producer_id = declared_producers(root).get(key)  # type: ignore[arg-type]
-    require(producer_id is not None, "benchmark_producer_not_declared")
-    return producer_id
+
+    KEY = "developmentProducer"
+
+    def __init__(self, path: Path, manifest_sha: str, descriptor_sha: str, producer: dict[str, Any] | None) -> None:
+        existed = Path(path).exists()
+        super().__init__(path, manifest_sha, descriptor_sha)
+        if existed:
+            require(self.data.get(self.KEY) == producer, "benchmark_journal_producer_mismatch")
+        elif producer is not None:
+            self.data[self.KEY] = producer
+            self.save()  # bound on disk before any API call
 
 
 def camera_code(sequence_id: str) -> str:
@@ -102,12 +102,15 @@ def camera_code(sequence_id: str) -> str:
 
 def execute(*, derived: Path, profile_path: Path, api_url: str, journal_path: Path, export_root: Path,
             export_command: list[str], evidence_root: Path, poll_seconds: float = 5.0,
-            timeout_seconds: float = 6 * 3600) -> list[dict[str, Any]]:
-    """Runs MAVI once per prepared sequence; returns ``[{sequenceId, videoAssetId, processingRunId, exportSha256}]``.
-    Malformed inputs are refusals (``benchmark_input_invalid``), never raw exceptions, as in ``evaluate``."""
+            timeout_seconds: float = 6 * 3600, development_producer: str | None = None) -> list[dict[str, Any]]:
+    """Runs MAVI once per prepared sequence; returns ``[{sequenceId, videoAssetId, processingRunId, exportSha256}]``,
+    each row with ``developmentProducerId`` too for an A2 run (the producer every run attested).
+    ``development_producer`` (``a2-scale640`` | ``a2-scale1280``) is required for the A2 Development profile and
+    refused for the S3.2 profile. Malformed inputs are refusals (``benchmark_input_invalid``), never raw exceptions,
+    as in ``evaluate``."""
     try:
         return _execute(derived, profile_path, api_url, journal_path, export_root, export_command, evidence_root,
-                        poll_seconds, timeout_seconds)
+                        poll_seconds, timeout_seconds, development_producer)
     except S32Error:
         raise
     except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
@@ -115,10 +118,10 @@ def execute(*, derived: Path, profile_path: Path, api_url: str, journal_path: Pa
 
 
 def _execute(derived, profile_path, api_url, journal_path, export_root, export_command, evidence_root, poll_seconds,
-             timeout_seconds) -> list[dict[str, Any]]:
+             timeout_seconds, development_producer) -> list[dict[str, Any]]:
     manifest, manifest_sha, _ = preparation.load(derived)
     profile_bytes = artefacts.read_bytes(profile_path, "pipeline_profile_unreadable")
-    require_benchmark_profile(profile_bytes)
+    identity = require_benchmark_profile(profile_bytes, development_producer)
     profile_sha = sha256_hex(profile_bytes)
     require(Path(export_root).is_dir(), "benchmark_export_root_missing")
     require(Path(evidence_root).is_dir(), "benchmark_evidence_root_missing")
@@ -129,7 +132,8 @@ def _execute(derived, profile_path, api_url, journal_path, export_root, export_c
 
     # Every input is verified; only now is the API touched.
     api = t9.Api(api_url)
-    journal = t9.Journal(journal_path, manifest_sha, manifest["descriptorSha256"])
+    journal = _Journal(journal_path, manifest_sha, manifest["descriptorSha256"],
+                       None if identity is None else producers.journal_identity(identity))
     videos = t9.check_fresh(api, journal)
     camera_ids = t9.ensure_cameras(api, journal, cameras)
     command = list(export_command)
@@ -142,11 +146,15 @@ def _execute(derived, profile_path, api_url, journal_path, export_root, export_c
         asset = t9.ensure_asset(api, journal, sequence, entry, (camera_ids[code], CAMERA_ZONE), derivation, videos)
         run = t9.ensure_run(api, journal, sequence, asset, poll_seconds, timeout_seconds)
         runs[sequence] = (asset, run, t9.ensure_export(run, profile_path, export_root, command))
+        if identity is not None:  # a wrong worker fails at its first export, not after the whole domain
+            (early,) = artefacts.load_exports([runs[sequence][2]]).values()
+            producers.require_attested(early.attestation, identity)
 
     exports = artefacts.load_exports([path for _, _, path in runs.values()])
     by_run = {export.run_id: (sha, export) for sha, export in exports.items()}
     producer = t9.producer(exports, profile_sha)  # one attested producer, which measured exactly this profile
-    require_declared_producer(producer, profile_bytes)  # and, for A2, exactly one declared Development producer
+    if identity is not None:
+        producers.require_attested(producer, identity)  # and, for A2, exactly the requested Development producer
     rows = []
     for row in sequences:
         sequence = row["sequenceId"]
@@ -159,4 +167,6 @@ def _execute(derived, profile_path, api_url, journal_path, export_root, export_c
         mavi_tracks.project(export, evidence_root)  # every sealed trajectory present with its attested hash
         rows.append({"sequenceId": sequence, "videoAssetId": asset, "processingRunId": run,
                      "exportSha256": export_sha})
+        if identity is not None:
+            rows[-1]["developmentProducerId"] = identity["producerId"]
     return rows
