@@ -474,7 +474,7 @@ This closes the H3 detector/tracker diagnosis. Everything below is non-authorita
 
 **What does not change:**
 - the H3 run, its artefacts and its PASS. H3 remains a valid Development evidence-completeness PASS;
-- the bound reference detector/tracker profile that produced H3 (`phase1-detection-tracking-v1`, SHA-256 `afb03b6c…18bf`: test scale 640, `trackActivationThreshold` 0.70). It is bound by `phase1-v2` and measured in H3, but it is not qualified: its qualification record `rtmdet-m-coco-phase1-v2` is `pending`. Its Model Pack and the release binding `phase1-v2` are also unchanged.
+- the bound Development reference profile that produced H3 (`phase1-detection-tracking-v1`, SHA-256 `afb03b6c…18bf`: test scale 640, `trackActivationThreshold` 0.70). It is bound by `phase1-v2` and was measured in H3. Being bound does not make it qualified: its qualification record `rtmdet-m-coco-phase1-v2` is `pending`, with no qualified profile recorded. Its Model Pack and the release binding `phase1-v2` are also unchanged.
 
 Labels: **Observed** = read from a retained output; **Derived** = arithmetic on observed figures; **Inferred** = an interpretation the evidence supports; **Hypothesis** = not tested.
 
@@ -482,7 +482,7 @@ Labels: **Observed** = read from a retained output; **Derived** = arithmetic on 
 
 | Step | Design | Outcome |
 |---|---|---|
-| Initial H3 | Bound reference profile, full 200 sequences | Observed: 1,685 of 13,412 expected-vehicle GT assigned (12.56%). PASS as evidence completeness; the association deficit was unexplained (*Findings for H5*). |
+| Initial H3 | Bound Development reference profile, full 200 sequences | Observed: 1,685 of 13,412 expected-vehicle GT assigned (12.56%). PASS as evidence completeness; the association deficit was unexplained (*Findings for H5*). |
 | Lifecycle diagnosis | Native ByteTrack traces of A2, C1 and B1 under frozen v3 rules (*Completed causal diagnosis*) | Derived: 92.1% of not-assigned GT at A2 is primarily detector absence, or detector scores that never reach the activation regime. |
 | E1 | Frozen 50-sequence lighting-stratified subset; detector only; test Resize/Pad 640 → 1280 in-process, everything else frozen. Endpoint: one-to-one IoU ≥ 0.50 frame coverage at score ≥ 0.61 for GT under 80 px | Observed: **SUPPORTED** (frozen rule 5). Δsmall +10.17 pp, CI [+8.29, +12.12], is at least the frozen comparator G_B1 (+9.78 pp). Δscale (small minus large) +11.19 pp, CI [+9.04, +13.43]. Guardrail passes (matched +7,296, unmatched −278). |
 | T1 | The same 50 sequences replayed through unchanged A2 ByteTrack: raw, and with an identical 0.11 pre-tracker floor as a cap-sensitivity arm. Fidelity gate against the retained A2 replay | Observed: fidelity PASS. **TRANSLATED — CAP-SENSITIVE COST** (frozen rule 5). Raw Δassociation +4.15 pp, CI [+2.83, +5.53]; floor-matched +4.82 pp. The B1 cost comparators disagree between the raw and matched arms. |
@@ -543,27 +543,37 @@ Gains concentrate at 20–80 px. Coverage at ≥ 160 px decreases. Under 20 px i
 - Observed compute: 8,721 GPU-seconds for 39,973 frames; peak CUDA allocation 399 MB.
 - The evidence is one domain (BDD100K, 1280×720, 5 Hz) and one checkpoint. No Production conclusion follows.
 
-**Development candidate.** The candidate is recorded as a tracked, versioned specification, `docs/qualification/stage3/dev-candidates/phase1-rtmdet-m-scale1280-a2-v1.json`: `candidateId` `phase1-rtmdet-m-scale1280-a2`, `candidateVersion` `1.0.0-development`. It has the same checkpoint, Model Pack, Runtime Pack, detector floor, NMS, `max_per_img`, class mapping and the A2 ByteTrack values. Its provenance points to the evidence hashes below.
+**Development candidate.** The candidate is recorded as a tracked, versioned specification, `docs/qualification/stage3/dev-candidates/phase1-rtmdet-m-scale1280-a2-v1.json`: `candidateId` `phase1-rtmdet-m-scale1280-a2`, `candidateVersion` `1.0.0-development`. It uses the same checkpoint, Runtime Pack, detector floor, NMS, `max_per_img`, class mapping and A2 ByteTrack values as its base. It does **not** have the base Model Pack identity. Resize/Pad changes the resolved detector config, so a runnable candidate needs a new content-derived Model Pack identity. The existing Model Pack ID and resolved-config hash in the specification record base/reference provenance only; the existing pack does not contain the 1280 config. Its evidence provenance points to the hashes below.
 
 Exact differences:
 - **From the H3 Development reference A2:** detector test Resize/Pad 640 → 1280 only.
-- **From the bound reference profile:** that change, and `trackActivationThreshold` 0.70 → 0.61 (A2).
+- **From the bound Development reference profile:** that change, and `trackActivationThreshold` 0.70 → 0.61 (A2).
 
 Effective scale is min(1280/W, 1280/H). It is native (1.0) only for 1280×720 sources; 1920×1080 gives 0.667.
 
 *Trade-off accepted:* the candidate is a specification, not a Model Pack.
-- A runnable Development pack would need a new resolved-config artefact, manifest, `developmentOnly` profile and qualification record.
+- A runnable Development pack would need a new resolved-config artefact and content-derived Model Pack, a manifest, a `developmentOnly` profile and a qualification record appropriate to its Development status.
 - It would also need the ADR-014 Development overlay, whose `verify_repo` path list is not implemented yet.
-- That is an implementation slice, not a record of evidence. Until then the candidate runs only through the frozen diagnostic route (in-process override plus exact replay). No binding, manifest, qualification record or pipeline profile is changed.
+- That is an implementation slice, not a record of evidence. Until then the candidate runs only through the frozen diagnostic route (in-process override plus exact replay). That route is valid Development diagnostic evidence, but it is not formal benchmark-producer evidence. No binding, manifest, qualification record or pipeline profile is changed.
 
 **H4 readiness** (assessment only; H4 is not executed):
 - **What H4 establishes.** Whether the Stage-3 vehicle tracking and detector-native subclass evidence holds in other domains (fixed-camera traffic, aerial or drone, adverse conditions), for the S3.2d-4 per-class, per-domain capability decision. Each benchmark contributes only to the classes and domains it supports, or H4 is recorded NOT TRIGGERED with a technical rationale. It is Development or reference evidence, never Production qualification.
-- **Input and configuration.** H4's measured producer stays the bound reference profile `afb03b6c…18bf` under binding `phase1-v2`, the producer of H2 and H3. Replacing it with the candidate would change H4's question from "does this capability hold across domains" to "does an off-profile configuration hold". The candidate can enter H4 without changing the question only as a separately labelled, paired supplemental Development arm, with two parts:
-  - the candidate exactly as specified;
-  - an A2 replay at reference scale on the same detections as the comparator, so the scale effect stays attributable.
+- **Input and configuration.** H4's measured producer stays the bound Development reference profile `afb03b6c…18bf` under binding `phase1-v2`, the producer of H2 and H3. H4 with that producer can proceed under the existing S3.2d harness. Replacing it with the candidate would change H4's question from "does this capability hold across domains" to "does an off-profile configuration hold". The candidate can enter H4 without changing the question only as a separately labelled, paired supplemental Development arm. The paired comparison:
+  - uses the same benchmark source videos;
+  - runs detector processing at 640 for the reference arm and at 1280 for the candidate arm. The detector streams necessarily differ, because detector scale is the intervention;
+  - applies identical, unchanged A2 ByteTrack to both arms thereafter.
+- **Evidence route.** The frozen E1/T1 in-process override is valid Development diagnostic evidence. It is not equivalent to formal H4 benchmark-producer evidence under the current S3.2d harness, so a scale-1280 arm run that way cannot count as formal H4 or H5 producer evidence. Under the existing architecture, formal candidate H4 evidence requires a separately versioned, runnable Development identity:
+  - a new resolved config and content-derived Model Pack;
+  - a Development pipeline profile;
+  - a Development-only overlay/binding (ADR-014);
+  - a provenance/qualification record appropriate to its Development status;
+  - Production fencing;
+  - a harness-attested producer identity.
+
+  A future, explicitly approved methodology amendment could choose another route; nothing here implies that the diagnostic route already satisfies formal H4 provenance.
 - **Prospective amendment needed** before any H4 execution that includes the candidate. It must:
   1. declare the supplemental arm and state that it never changes the H4 row's primary figures;
-  2. fix the execution route. The S3.2d harness executes only through the API with the bound Model Pack and attests one producer per profile. The candidate needs either the frozen diagnostic route (not harness-attested) or the Development pack and overlay described above;
+  2. fix the execution route. The S3.2d harness executes only through the API with the bound Model Pack and attests one producer per profile, so formal candidate evidence needs the runnable Development identity above. Any other route needs that amendment's explicit approval;
   3. state the candidate as fixed test scale 1280, not "native", per source resolution;
   4. record frame rate as a domain factor, because A2 is timestamp-aware with a 1.0 s lost buffer and H3 was 5 Hz;
   5. report the `max_per_img` cap per domain, since denser aerial scenes may bind it at higher scores;
@@ -572,7 +582,7 @@ Effective scale is min(1280/W, 1280/H). It is native (1.0) only for 1280×720 so
   Without the candidate arm, H4 needs no amendment.
 - **Carry forward:**
   - the candidate identity and specification;
-  - the bound reference profile and binding identities;
+  - the bound Development reference profile and binding identities;
   - the H3 association policy;
   - the reporting format (height bands, lighting or condition, class, cost per extra assigned GT, transitions, cap statistics);
   - the methodology (freeze before outcomes, paired stratified bootstrap);
@@ -589,7 +599,7 @@ Effective scale is min(1280/W, 1280/H). It is native (1.0) only for 1280×720 so
 - H3 detector/tracker diagnosis complete;
 - H4 OPEN — on HOLD;
 - H5 OPEN, with no decision;
-- bound reference profile, Model Pack and release binding unchanged;
+- bound Development reference profile, Model Pack and release binding unchanged;
 - no threshold or Production recommendation;
 - no operator exposure.
 
