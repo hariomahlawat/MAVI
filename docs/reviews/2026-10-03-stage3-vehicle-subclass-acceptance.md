@@ -218,7 +218,7 @@ H2–H5 are evidence outcomes, not mandated PR boundaries, approval meetings, in
 | H1 | Expansion undertaken only if the pilot evidence justifies it (continuation or supplemental), otherwise recorded NOT TRIGGERED | PASS | On the G8 evidence, two of the plan §14 triggers hold: an important class is below the minimum support (truck 5, bus 7, motorcycle 0, each < 30), and support is too small for per-class conclusions. The pilot evidence therefore justified expansion. **Mechanism (owner decision 2026-10-04, ADR-017):** expansion is benchmark-driven, through S3.2d-1 to S3.2d-4 in the amended plan §14, against established labelled tracking benchmarks with explicit per-class mappings. The manual `continuation`/`supplemental` path of the pilot design remains available only as a documented-gap fallback. ADR-017 adopted this benchmark-driven expansion mechanism in PR #159 (`main@906fc8a7fcdfebac646ecedf503a77cb34fecc6a`), and the expansion has since been undertaken through S3.2d (H2 PASS; H3 measured). H1 is therefore closed PASS. H1 alone never unlocks exposure: X1 still depends on H2–H5 and the other register requirements. |
 | H2 | S3.2d-1: benchmark framework and tooling merged with deterministic tests: dataset descriptor and adapter contract; per-native-class mapping contract (`exact`/`subset`/`unsupported` with reason); ground-truth Track representation; prediction-independent GT↔MAVI association with ambiguity and unmatched reporting in both directions; dataset and result provenance; split identity; known-exposure metadata (plan §14 amendment; ADR-017 §4–§6) | PASS | **S3.2d-1 slices 1–3 (PR #161, PR #162, PR #163), effective when PR #163 merges with green exact-head CI.** Contracts (schema SHA-256 / example SHA-256): `benchmark-dataset-release-v1` `aa47eefe…`/`5aa46d7b…`, `benchmark-class-mapping-v1` `210fa4c9…`/`144ccf22…`, `benchmark-association-v1` `6686ba74…`/`086d5535…`, `benchmark-vehicle-subclass-result-v1` `db814601…`/`acec370d…`. Association policy `vehicle-tracks-association-v1` SHA-256 `a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05`. Synthetic end-to-end through the CLI (`tools/benchmarks/tests/test_bench_synthetic_e2e.py`: describe → prepare with the FFmpeg pack → exports → evaluate, byte-identical on repeat): golden `associationBodySha256` `57266783a8bc97fce8b8a11a80e0fd7dc7dd85195d1f65425f233899f740db9b`, golden scope A+B `dfa53811a90ef76f90bf76ac8bf7ee87e6b3f7f67f23738079080d35a6bf0a73`. Mutation tests present: class/subclass/confidence mutation leaves the association body identical (`test_bench_association.py`); prediction, native-class and mapping mutations change only evaluation (`test_bench_vehicle_subclass_evaluate.py`, E2E). Modules: `tools/benchmarks/{core,datasets,capabilities/vehicle_tracks,capabilities/vehicle_subclass}`, `prepare.py`, `run.py`, `cli.py`; `msgpack>=1.1,<2` on the tools surface (`tools/requirements.txt`, dependency policy). Synthetic and tooling evidence only: no real dataset, no capability claim. |
 | H3 | S3.2d-2: primary benchmark measurement recorded. A benchmark whose native labels exactly cover the capability is preferred where reasonably available; otherwise the strongest available benchmark or combination, with explicit `exact`/`subset`/`unsupported` mappings. Lack of one perfect taxonomy does not block evidence-supported class subsets. Recorded: dataset and release identity (and source, including any archival copy and its credibility basis), research-use status with its basis (ADR-017 §7), mapping declarations, association coverage, class confusion on valid associations, per-class support, known or possible exposure; dataset bytes outside Git | PASS — evidence-completeness gate; performance findings feed H5 | **Run `bea73d13cd76bcd432319cab88a763d2af6139a34c013e2e93b71363a17f9f9b` (attempt 2), executed 2026-10-05 on `main@359073429154bb0839e53cc30b2f55f58f9f35d4`** under the runbook `docs/superpowers/plans/2026-10-05-stage3-s3-2d-2-bdd100k-h3-execution.md`. Complete (200 of 200 sequences), reproducible (frozen descriptor; derivation manifest reproduced byte-for-byte across two attempts; write-once results verified by `run.verify`), provenance-bound and reported under the frozen association policy. Association coverage is weak (12.6%) but not coverage-limited (1.87% against the 1/10 threshold). Full evidence in **H3 evidence** below. |
-| H4 | S3.2d-3: domain-diversity benchmark measurement(s) recorded with the same fields, each contributing only to the classes and domains it supports; or recorded NOT TRIGGERED with a technical rationale showing that additional domain-diversity evidence is not materially useful for the current capability decision (no owner approval needed for that call; the owner may still intervene where the decision is consequential) | OPEN — on HOLD | Held. The H3 diagnosis points next to a detector-side methodology review; see *H3 diagnostic interpretation*. |
+| H4 | S3.2d-3: domain-diversity benchmark measurement(s) recorded with the same fields, each contributing only to the classes and domains it supports; or recorded NOT TRIGGERED with a technical rationale showing that additional domain-diversity evidence is not materially useful for the current capability decision (no owner approval needed for that call; the owner may still intervene where the decision is consequential) | OPEN — on HOLD | Held. The H3 detector/tracker diagnosis is complete; H4 readiness, and the prospective amendment needed before a Development candidate arm could enter H4, are recorded in *H3 detector-side diagnosis and Development candidate*. |
 | H5 | S3.2d-4: evidence-backed capability decision recorded per class and evidence domain (benchmark-supported, Development-only, insufficiently supported, deferred), on H3, H4 and the pilot (G8); no unsupported class advanced | OPEN | |
 
 ### H3 evidence — S3.2d-2 primary benchmark measurement (BDD100K MOT 2020 val)
@@ -467,6 +467,172 @@ Retained evidence, outside Git under the controlled store `Stage3/` (SHA-256):
 | `H3-lifecycle/association-B1-oracle.json.gz` | `f4acfba9f9288bba77c936e673de273a29088b2b8092dbdb095a5903b9cbe206` |
 
 The diagnostic scripts are hashed before use in the `frozen-scripts*.sha256` files beside these outputs.
+
+### H3 detector-side diagnosis and Development candidate (recorded 2026-10-06, after PR #172)
+
+This closes the H3 detector/tracker diagnosis. Everything below is non-authoritative Development diagnosis on H3's frozen inputs (BDD100K MOT 2020 val, 200 sequences, 1280×720 at 5 Hz).
+
+**What does not change:**
+- the H3 run, its artefacts and its PASS. H3 remains a valid Development evidence-completeness PASS;
+- the bound Development reference profile that produced H3 (`phase1-detection-tracking-v1`, SHA-256 `afb03b6c…18bf`: test scale 640, `trackActivationThreshold` 0.70). It is bound by `phase1-v2` and was measured in H3. Being bound does not make it qualified: its qualification record `rtmdet-m-coco-phase1-v2` is `pending`, with no qualified profile recorded. Its Model Pack and the release binding `phase1-v2` are also unchanged.
+
+Labels: **Observed** = read from a retained output; **Derived** = arithmetic on observed figures; **Inferred** = an interpretation the evidence supports; **Hypothesis** = not tested.
+
+**Sequence.**
+
+| Step | Design | Outcome |
+|---|---|---|
+| Initial H3 | Bound Development reference profile, full 200 sequences | Observed: 1,685 of 13,412 expected-vehicle GT assigned (12.56%). PASS as evidence completeness; the association deficit was unexplained (*Findings for H5*). |
+| Lifecycle diagnosis | Native ByteTrack traces of A2, C1 and B1 under frozen v3 rules (*Completed causal diagnosis*) | Derived: 92.1% of not-assigned GT at A2 is primarily detector absence, or detector scores that never reach the activation regime. |
+| E1 | Frozen 50-sequence lighting-stratified subset; detector only; test Resize/Pad 640 → 1280 in-process, everything else frozen. Endpoint: one-to-one IoU ≥ 0.50 frame coverage at score ≥ 0.61 for GT under 80 px | Observed: **SUPPORTED** (frozen rule 5). Δsmall +10.17 pp, CI [+8.29, +12.12], is at least the frozen comparator G_B1 (+9.78 pp). Δscale (small minus large) +11.19 pp, CI [+9.04, +13.43]. Guardrail passes (matched +7,296, unmatched −278). |
+| T1 | The same 50 sequences replayed through unchanged A2 ByteTrack: raw, and with an identical 0.11 pre-tracker floor as a cap-sensitivity arm. Fidelity gate against the retained A2 replay | Observed: fidelity PASS. **TRANSLATED — CAP-SENSITIVE COST** (frozen rule 5). Raw Δassociation +4.15 pp, CI [+2.83, +5.53]; floor-matched +4.82 pp. The B1 cost comparators disagree between the raw and matched arms. |
+| Full-200 confirmation | The complementary 150 sequences recorded under the same override (E1X), then all 200 replayed through unchanged A2 (T2). Descriptive, with no new pass/fail criterion. Integrity cross-check: the T2 arms must equal T1 exactly on the 50 subset sequences | Observed: the cross-check passes for all four arms. Results below. |
+
+**Full-corpus detector result** (observed; 392,771 population GT frames; one-to-one IoU ≥ 0.50, score ≥ 0.61; reference scale → candidate scale):
+
+| Stratum | Reference 640 | Scale 1280 |
+|---|---|---|
+| All | 29.0% | 36.4% |
+| < 20 px | 0.06% | 3.6% |
+| 20–40 px | 6.8% | 20.6% |
+| 40–80 px | 35.5% | 45.6% |
+| 80–160 px | 65.7% | 67.7% |
+| ≥ 160 px | 81.9% | 74.9% |
+| Dark / dim / bright | 18.0 / 38.6 / 32.2% | 19.5 / 45.6 / 42.5% |
+
+Gains concentrate at 20–80 px. Coverage at ≥ 160 px decreases. Under 20 px improves but stays weak. Dark scenes improve least. Mean matched IoU at ≥ 0.61 moves 0.903 → 0.892.
+
+**Full-corpus tracking result** (observed; unchanged A2; 13,412 expected-vehicle GT):
+
+| Metric | A2, reference scale | A2, scale 1280 |
+|---|---|---|
+| Assigned GT | 2,390 | 2,989 |
+| Association | 17.82% | 22.29% |
+| Vehicle Tracks | 8,690 | 11,800 |
+| Fragmented GT | 364 | 683 |
+| Fragment MAVI Tracks | 531 | 877 |
+| Unmatched MAVI Tracks | 5,623 | 7,733 |
+| Sequences with no assigned GT | 5 | 2 |
+
+**Association changes:**
+- Derived: Δassociation +4.47 pp, descriptive paired lighting-stratified CI [+3.73, +5.21]. That is +4.15 pp on the E1 subset (50 sequences) and +4.56 pp on the complement (150), so the subset result generalises.
+- Observed: 894 GT become assigned and 295 stop being assigned.
+- Observed, floor-matched 0.11 arms: 18.55% → 23.33% (Δ +4.78 pp, CI [+4.02, +5.56]).
+- Observed, by class: car 18.0 → 22.5%; truck 14.3 → 17.8%; bus 22.7 → 27.0%; motorcycle 2 → 3 of 41.
+- Observed, by lighting: bright 19.3 → 25.4%; dim 27.4 → 30.8%; dark 10.6 → 12.0%.
+- Observed, by median height: under 20 px 0.11 → 0.83%; 20–40 px 4.4 → 11.4%; 40–80 px 24.9 → 31.0%; 80–160 px 49.0 → 51.1%; ≥ 160 px 77.6 → 72.7%.
+
+**Cost per extra assigned GT** (derived). These are comparative Development diagnostics, not limits. The reference is the full-H3 A2 → B1 activation-lowering step, recomputed from the retained dumps.
+
+| Metric | A2 → B1 reference | Scale 1280, raw | Scale 1280, 0.11 floor-matched |
+|---|---|---|---|
+| Vehicle Tracks | 5.284 | 5.192 | 4.509 |
+| Fragmented GT | 0.388 | 0.533 | 0.460 |
+| Fragment MAVI Tracks | 0.762 | 0.578 | 0.509 |
+
+**Interpretation:**
+- Inferred: test input scale is a material detector-side contributor to the H3 deficit for 20–80 px vehicles on this domain. The detector gain translates into tracking under unchanged A2.
+- Inferred: fragmentation is the principal tracking cost, at a higher fragmented-GT ratio than the activation lever. The low-score cap does not explain it away: the floor-matched arm still costs 0.460 against 0.388.
+- **Conclusion: DEVELOPMENT CANDIDATE SUPPORTED WITH TRACKING COST.** The H3 detector/tracker diagnosis is closed. No further H3 optimisation branch is opened.
+
+**Limitations:**
+- Under 20 px remains unsolved at tracking level (0.83%); 20–80 px is the main beneficiary.
+- ≥ 160 px association falls 77.6% → 72.7%. Hypothesis, not tested: the 1280 inference canvas is off-profile for a checkpoint trained on 640 crops.
+- Dark scenes gain least.
+- Observed: `max_per_img = 300` binds on 21,596 of 39,973 candidate-scale frames at low scores, but never at ≥ 0.51 (highest 300th score 0.134). Only 15 frames have a 300th score above 0.11, so the floor-matched arm is cap-equivalent on all other frames.
+- Observed compute: 8,721 GPU-seconds for 39,973 frames; peak CUDA allocation 399 MB.
+- The evidence is one domain (BDD100K, 1280×720, 5 Hz) and one checkpoint. No Production conclusion follows.
+
+**Development candidate.** The candidate is recorded as a tracked, versioned specification, `docs/qualification/stage3/dev-candidates/phase1-rtmdet-m-scale1280-a2-v1.json`: `candidateId` `phase1-rtmdet-m-scale1280-a2`, `candidateVersion` `1.0.0-development`. It uses the same checkpoint, Runtime Pack, detector floor, NMS, `max_per_img`, class mapping and A2 ByteTrack values as its base. It does **not** have the base Model Pack identity. Resize/Pad changes the resolved detector config, so a runnable candidate needs a new content-derived Model Pack identity. The existing Model Pack ID and resolved-config hash in the specification record base/reference provenance only; the existing pack does not contain the 1280 config. Its evidence provenance points to the hashes below.
+
+Exact differences:
+- **From the H3 Development reference A2:** detector test Resize/Pad 640 → 1280 only.
+- **From the bound Development reference profile:** that change, and `trackActivationThreshold` 0.70 → 0.61 (A2).
+
+Effective scale is min(1280/W, 1280/H). It is native (1.0) only for 1280×720 sources; 1920×1080 gives 0.667.
+
+*Trade-off accepted:* the candidate is a specification, not a Model Pack.
+- A runnable Development pack would need a new resolved-config artefact and content-derived Model Pack, a manifest, a `developmentOnly` profile and a qualification record appropriate to its Development status.
+- It would also need the ADR-014 Development overlay, whose `verify_repo` path list is not implemented yet.
+- That is an implementation slice, not a record of evidence. Until then the candidate runs only through the frozen diagnostic route (in-process override plus exact replay). That route is valid Development diagnostic evidence, but it is not formal benchmark-producer evidence. No binding, manifest, qualification record or pipeline profile is changed.
+
+**H4 readiness** (assessment only; H4 is not executed):
+- **What H4 establishes.** Whether the Stage-3 vehicle tracking and detector-native subclass evidence holds in other domains (fixed-camera traffic, aerial or drone, adverse conditions), for the S3.2d-4 per-class, per-domain capability decision. Each benchmark contributes only to the classes and domains it supports, or H4 is recorded NOT TRIGGERED with a technical rationale. It is Development or reference evidence, never Production qualification.
+- **Input and configuration.** H4's measured producer stays the bound Development reference profile `afb03b6c…18bf` under binding `phase1-v2`, the producer of H2 and H3. H4 with that producer can proceed under the existing S3.2d harness. Replacing it with the candidate would change H4's question from "does this capability hold across domains" to "does an off-profile configuration hold". The candidate can enter H4 without changing the question only as a separately labelled, paired supplemental Development arm. The paired comparison:
+  - uses the same benchmark source videos;
+  - runs detector processing at 640 for the reference arm and at 1280 for the candidate arm. The detector streams necessarily differ, because detector scale is the intervention;
+  - applies identical, unchanged A2 ByteTrack to both arms thereafter.
+- **Evidence route.** The frozen E1/T1 in-process override is valid Development diagnostic evidence. It is not equivalent to formal H4 benchmark-producer evidence under the current S3.2d harness, so a scale-1280 arm run that way cannot count as formal H4 or H5 producer evidence. Under the existing architecture, formal candidate H4 evidence requires a separately versioned, runnable Development identity:
+  - a new resolved config and content-derived Model Pack;
+  - a Development pipeline profile;
+  - a Development-only overlay/binding (ADR-014);
+  - a provenance/qualification record appropriate to its Development status;
+  - Production fencing;
+  - a harness-attested producer identity.
+
+  A future, explicitly approved methodology amendment could choose another route; nothing here implies that the diagnostic route already satisfies formal H4 provenance.
+- **Prospective amendment needed** before any H4 execution that includes the candidate. It must:
+  1. declare the supplemental arm and state that it never changes the H4 row's primary figures;
+  2. fix the execution route. The S3.2d harness executes only through the API with the bound Model Pack and attests one producer per profile, so formal candidate evidence needs the runnable Development identity above. Any other route needs that amendment's explicit approval;
+  3. state the candidate as fixed test scale 1280, not "native", per source resolution;
+  4. record frame rate as a domain factor, because A2 is timestamp-aware with a 1.0 s lost buffer and H3 was 5 Hz;
+  5. report the `max_per_img` cap per domain, since denser aerial scenes may bind it at higher scores;
+  6. keep the cost ratios descriptive.
+
+  Without the candidate arm, H4 needs no amendment.
+- **Carry forward:**
+  - the candidate identity and specification;
+  - the bound Development reference profile and binding identities;
+  - the H3 association policy;
+  - the reporting format (height bands, lighting or condition, class, cost per extra assigned GT, transitions, cap statistics);
+  - the methodology (freeze before outcomes, paired stratified bootstrap);
+  - the limitations above, as questions to look at, not as criteria.
+- **Keep isolated:**
+  - the H3 PASS and its artefacts;
+  - every H3 figure (12.56%, 17.82%, 22.29%, the cost ratios), which is specific to BDD100K at 5 Hz and is neither an H4 baseline nor a threshold;
+  - the diagnostic arms (A1, C1, B1, the oracle, the 0.11 floor) and the E1/T1 decision rules and comparators, which are specific to the H3 subset;
+  - the lifecycle classifications;
+  - pooling: no H4 result is pooled with H3 aggregates.
+
+**Status:**
+- H3 PASS (unchanged);
+- H3 detector/tracker diagnosis complete;
+- H4 OPEN — on HOLD;
+- H5 OPEN, with no decision;
+- bound Development reference profile, Model Pack and release binding unchanged;
+- no threshold or Production recommendation;
+- no operator exposure.
+
+**Development fresh-pass review** (methodology §4.4; recorded 2026-10-06 by the author; Development-only, so a second reviewer is not required):
+- **Checked:** every figure against `t2-analysis-report.json`, `e1x-detector-report.json`, `e1-analysis-report.json` and `t1-analysis-report.json`, and the cost ratios and Δ arithmetic.
+- **Narrowed:**
+  - the reference-profile difference is stated as two parameters, not one;
+  - "native" is limited to 1280×720 sources;
+  - the ≥ 160 px explanation is marked as a hypothesis;
+  - the CIs are labelled descriptive.
+- **Confirmed:** no diagnostic result is presented as authoritative H3 or H4, no Production claim is made, and nothing tracked under `models/`, `src/vision/config/` or the release binding changes.
+
+Retained evidence, outside Git under the controlled store `Stage3/` (SHA-256):
+
+| File | SHA-256 |
+|---|---|
+| `H3-E1/e1-subset-manifest.json` | `9203404e3ac5f0db08eab739e834eb02fcd2e60bad1171019562ec42590b6a11` |
+| `H3-E1/e1-frozen-comparators.json` | `a5e8d8305e56cbc181cd20b8256c8a2f9b5871d590a1b59dff11a1574451cdce` |
+| `H3-E1/e1-frozen-hashes.sha256` (E1 freeze) | `1d130132fe1aeb63e3a5e91aa41dee734141d4540d70faf995911c7473a45108` |
+| `H3-E1/e1-run-index.json` | `51b7dbf4f72891d263b794c8407a324686571653750283836ae23bc8eb68612d` |
+| `H3-E1/e1-detections.sha256` | `fc15d0e6c2d8d76c12c47d02a95997cb21e3f34633c72a56198c7950a63f2b3f` |
+| `H3-E1/e1-analysis-report.json` | `d01df5229a2aaa8ad631713280af7a8a4bb555a1d00f2e7f0b7cc1757f0e5f6c` |
+| `H3-T1/t1-frozen-hashes.sha256` (T1 freeze) | `af1e11d47250eeadca2fdfe05927f037115469fa9195e32b6a59be3a0ce8f40b` |
+| `H3-T1/t1-fidelity.json` | `c80a45ae0ad807eaaa649b9b5f6cd574e60656ab2a35ba3f35e19c3bcba0d2fb` |
+| `H3-T1/t1-analysis-report.json` | `337f3074b0a4cd00ba109a85b1c5dd3e1c7046840711db0c11a262e8c71b08fa` |
+| `H3-E1X/e1x-complement-manifest.json` | `3098909a65c9d4ded6fd89ab422505f352d51326011fa0a83bb9b628e398e68d` |
+| `H3-E1X/e1x-frozen-hashes.sha256` (E1X freeze) | `0badced2d2d80af29d902ab3bd8b12755fd7571edb56c99884656add0767bbf7` |
+| `H3-E1X/e1-run-index.json` (E1X run) | `c51b1f966c1720675ad35f9d0279a5fc7c9eac12cb7f2dc351b66958e4e41cf0` |
+| `H3-E1X/native-200-detections.sha256` | `3eac227cf9f3b4088f3559caa3340f55a779cb58748118ec80d94a170db881da` |
+| `H3-E1X/control-200-detections.sha256` | `a64abe7a5b1ccdc63cdd860686544fa6754e25931718d2ef6c83bad31f75405d` |
+| `H3-E1X/t2-frozen-hashes.sha256` (T2 freeze) | `de26970f16792a12bd901420bcb151b7d4f664b060ea1bb1e52034fd63909048` |
+| `H3-E1X/e1x-detector-report.json` | `0baa04c3094206d5be4584b8d15cfe383b18ab8b541d458c78b6183ac4c5762a` |
+| `H3-E1X/t2-analysis-report.json` | `c523d5ce3a310713471ba6d92bc7b747e12f356a3ed8f2a040816f89749651a0` |
 
 ## X. Operator exposure
 

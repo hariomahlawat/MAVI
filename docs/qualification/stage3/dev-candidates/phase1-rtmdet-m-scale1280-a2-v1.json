@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "mavi-development-candidate-spec-v1",
+  "candidateId": "phase1-rtmdet-m-scale1280-a2",
+  "candidateVersion": "1.0.0-development",
+  "status": "Development candidate only. Not Production-qualified, not bound by any component binding, not selectable by any deployment profile. Recorded from the completed H3 detector/tracker diagnosis; see docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md, 'H3 detector-side diagnosis and Development candidate'.",
+  "base": {
+    "description": "Base/reference provenance. These identities describe the bound Development reference configuration the candidate is derived from; the candidate does not possess them. Everything not listed under 'differences' is inherited unchanged in content. The existing Model Pack ID and resolved-config hash identify the 640 reference pack; that pack does not contain the 1280 config, and because Resize/Pad changes the resolved detector config, a runnable candidate requires a new content-derived Model Pack identity.",
+    "componentBinding": {"path": "src/vision/config/components/phase1-bindings-v2.json", "bindingId": "phase1-v2", "sha256": "7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205"},
+    "pipelineProfile": {"role": "bound Development reference profile; measured in H3; being bound does not make it qualified (qualification record rtmdet-m-coco-phase1-v2 overallResult pending, no qualified profile recorded)", "path": "src/vision/config/pipelines/phase1-detection-tracking-v1.json", "profileId": "phase1-detection-tracking-v1", "profileVersion": "1.3.0-candidate", "sha256": "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf"},
+    "modelManifest": {"path": "models/manifests/rtmdet-m-coco-phase1-v2.json", "modelId": "rtmdet-m-coco-phase1", "sha256": "bc8127c1c00513a90f1b00325dcae3d4f31243ef1ce04ebe38350f945cb79c90"},
+    "qualificationRecord": {"path": "models/qualifications/rtmdet-m-coco-phase1-v2.json", "qualificationId": "rtmdet-m-coco-phase1-v2", "sha256": "2c2ba3d674cebf18955af1b224ef41c8c1a1fbc189cc28a6d605436c46c2a224"},
+    "modelPackId": "mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700",
+    "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
+    "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+    "runtimePackId": {"windows-x86_64-cuda": "mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d"}
+  },
+  "differences": {
+    "fromBoundDevelopmentReferenceProfile": [
+      {
+        "component": "detector test preprocessing (in-process copy of the resolved config; the Model Pack file is not modified)",
+        "targets": ["test_dataloader.dataset.pipeline", "test_pipeline"],
+        "Resize": {"from": {"scale": [640, 640], "keep_ratio": true}, "to": {"scale": [1280, 1280], "keep_ratio": true}},
+        "Pad": {"from": {"size": [640, 640], "pad_val": {"img": [114, 114, 114]}}, "to": {"size": [1280, 1280], "pad_val": {"img": [114, 114, 114]}}}
+      },
+      {
+        "component": "tracker (pipeline profile 'tracker')",
+        "trackActivationThreshold": {"from": 0.7, "to": 0.61},
+        "note": "This is the H3 Development tracker setting A2, the reference of every H3 replay comparison. It is not part of the E1/T1/full-200 intervention."
+      }
+    ],
+    "fromH3DevelopmentReferenceA2": "Only the detector test Resize/Pad change above.",
+    "effectiveScale": "Resize keeps the aspect ratio inside 1280x1280, so the scale factor is min(1280/W, 1280/H). For the 1280x720 H3 sources it is 1.0 (native pixels; bound Development reference path 0.5). For other source sizes it is not native: 1920x1080 gives 0.667."
+  },
+  "unchanged": [
+    "checkpoint, model and head",
+    "data_preprocessor (BGR mean/std, bgr_to_rgb false)",
+    "test_cfg: class-aware NMS IoU 0.65, nms_pre 30000, max_per_img 300",
+    "MAVI detector inference floor 0.05 (score_thr)",
+    "allowed source classes and class mapping",
+    "tracker: referenceFrameRate 30.0, highConfidenceThreshold 0.6, minimumIouThreshold 0.1, minimumConsecutiveFrames 2, lostTrackBufferSeconds 1.0",
+    "evidence selector, scorer and encoder; vehicle subclass vocabulary, minShare and minMatchedDetections",
+    "Runtime Pack and device (cuda:0)"
+  ],
+  "provenance": {
+    "executionIdentities": ["E1-diagnostic-test-scale-1280", "E1-full-extension-native1280"],
+    "overrideSpecSha256": "69386445dee72259fff63d454398b6e0bcc147156bd6215e5f97474e200db6e8",
+    "controlledStoreRoot": "Stage3/ (outside Git)",
+    "evidence": {
+      "H3-E1/e1-frozen-hashes.sha256": "1d130132fe1aeb63e3a5e91aa41dee734141d4540d70faf995911c7473a45108",
+      "H3-E1/e1-detections.sha256": "fc15d0e6c2d8d76c12c47d02a95997cb21e3f34633c72a56198c7950a63f2b3f",
+      "H3-E1/e1-analysis-report.json": "d01df5229a2aaa8ad631713280af7a8a4bb555a1d00f2e7f0b7cc1757f0e5f6c",
+      "H3-T1/t1-frozen-hashes.sha256": "af1e11d47250eeadca2fdfe05927f037115469fa9195e32b6a59be3a0ce8f40b",
+      "H3-T1/t1-analysis-report.json": "337f3074b0a4cd00ba109a85b1c5dd3e1c7046840711db0c11a262e8c71b08fa",
+      "H3-E1X/e1x-frozen-hashes.sha256": "0badced2d2d80af29d902ab3bd8b12755fd7571edb56c99884656add0767bbf7",
+      "H3-E1X/t2-frozen-hashes.sha256": "de26970f16792a12bd901420bcb151b7d4f664b060ea1bb1e52034fd63909048",
+      "H3-E1X/native-200-detections.sha256": "3eac227cf9f3b4088f3559caa3340f55a779cb58748118ec80d94a170db881da",
+      "H3-E1X/control-200-detections.sha256": "a64abe7a5b1ccdc63cdd860686544fa6754e25931718d2ef6c83bad31f75405d",
+      "H3-E1X/e1x-detector-report.json": "0baa04c3094206d5be4584b8d15cfe383b18ab8b541d458c78b6183ac4c5762a",
+      "H3-E1X/t2-analysis-report.json": "c523d5ce3a310713471ba6d92bc7b747e12f356a3ed8f2a040816f89749651a0"
+    },
+    "evidenceDomain": "BDD100K MOT 2020 val, the 200 H3 sequences, 1280x720 at 5 Hz (H3 frozen inputs)"
+  },
+  "restrictions": [
+    "Not a Model Pack and not runtime-composable: no component binding, Model Pack manifest or qualification record refers to this candidate, and it has no Model Pack identity of its own (base.modelPackId is reference provenance only).",
+    "Runnable only through the frozen diagnostic route (in-process override plus exact replay). That route is valid Development diagnostic evidence, not formal H4/H5 benchmark-producer evidence.",
+    "Formal candidate H4 evidence requires a separately versioned runnable Development identity: new resolved config and content-derived Model Pack, Development pipeline profile, Development-only ADR-014 overlay/binding, a provenance/qualification record appropriate to its Development status, Production fencing and a harness-attested producer identity.",
+    "No Production conclusion; no threshold recommendation; no operator exposure."
+  ]
+}
