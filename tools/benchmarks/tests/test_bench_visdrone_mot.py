@@ -122,3 +122,46 @@ def test_a_descriptor_with_other_timing_is_refused(tmp_path):
     entries = descriptors.reconcile(document, root)
     with pytest.raises(S32Error, match="adapter_descriptor_mismatch:frameTime"):
         ADAPTER.ground_truth(root, entries, document, "val", SEQ)
+
+
+# --------------------------------------------------------------------------- odd frame dimensions (prepare padding)
+
+
+def test_odd_dimensions_are_padded_and_gt_is_reexpressed_in_the_padded_frame():
+    gt = {"sequenceId": SEQ, "split": "val", "frameSize": {"width": 101, "height": 51},
+          "instants": [{"frameIndex": 0, "videoOffsetMs": {"numerator": 0, "denominator": 1}}],
+          "tracks": [{"gtTrackId": "1", "nativeClass": "car", "frames": [
+              {"frameIndex": 0, "videoOffsetMs": {"numerator": 0, "denominator": 1}, "ignore": False,
+               "box": {"x": 0.5, "y": 0.5, "width": 0.25, "height": 0.25}}]}],
+          "ignoreRegions": [{"frameIndex": 0, "box": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}}]}
+    padded, record = prepare.pad_to_even(gt)
+    assert padded["frameSize"] == {"width": 102, "height": 52}
+    assert record == {"sourceSize": {"width": 101, "height": 51}, "encodedSize": {"width": 102, "height": 52},
+                      "filter": "pad=102:52:0:0:black"}
+    box = padded["tracks"][0]["frames"][0]["box"]
+    # The same pixels: x = 50.5 px, width = 25.25 px, in a frame one pixel wider.
+    assert box["x"] * 102 == pytest.approx(50.5) and box["width"] * 102 == pytest.approx(25.25)
+    assert box["y"] * 52 == pytest.approx(25.5) and box["height"] * 52 == pytest.approx(12.75)
+    assert padded["ignoreRegions"][0]["box"]["height"] * 52 == pytest.approx(51)
+    even = dict(gt, frameSize={"width": 100, "height": 50})
+    assert prepare.pad_to_even(even) == (even, None)
+
+
+def test_prepare_encodes_odd_sized_frames_with_padding(tmp_path, media_pack):
+    import json
+    import subprocess
+
+    root = write_source(tmp_path / "src", rows=ROWS[:3], frames=3)
+    ffmpeg = next(Path(media_pack).rglob("ffmpeg*.exe"), None) or next(Path(media_pack).rglob("ffmpeg"))
+    for path in sorted((root / "VisDrone2019-MOT-val" / "sequences" / SEQ).glob("*.jpg")):
+        subprocess.run([str(ffmpeg), "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=101x51",
+                        "-frames:v", "1", "-q:v", "3", str(path)], check=True, capture_output=True)
+    document = descriptors.freeze(vd.descriptor(), root)
+    (tmp_path / "frozen.json").write_bytes(canonical_json(document))
+    prepare.prepare(descriptor_path=tmp_path / "frozen.json", source_root=root, split="val",
+                    adapter_id="visdrone2019-mot", media_tools_dir=Path(media_pack), out=tmp_path / "derived")
+    manifest, _, documents = prepare.load(tmp_path / "derived")
+    (row,) = manifest["sequences"]
+    assert row["padding"]["sourceSize"] == {"width": 101, "height": 51}
+    assert documents[SEQ]["frameSize"] == {"width": 102, "height": 52}
+    assert json.loads((tmp_path / "derived" / "sequences" / SEQ / "ground-truth.json").read_bytes())["frameSize"]["height"] == 52

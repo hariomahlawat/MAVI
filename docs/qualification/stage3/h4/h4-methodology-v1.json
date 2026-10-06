@@ -356,7 +356,8 @@
   "derivation": {
     "tool": "tools.benchmarks.cli prepare (unchanged harness)",
     "ffmpegPackManifestSha256": "604b387d4d2bbb4535797a0517f19c467409c7d6756531527d16cd46f5463ed7",
-    "rule": "each partition prepared exactly once into a write-once directory; reused while its frozen descriptor, adapter, derived-video and GT hashes verify"
+    "rule": "each partition prepared exactly once into a write-once directory; reused while its frozen descriptor, adapter, derived-video and GT hashes verify",
+    "oddDimensions": "frames with an odd width or height (libx264 4:2:0 needs even) are padded by one black row/column at the bottom/right, never scaled or cropped; GT is re-expressed in the padded frame (same pixels) and the manifest row records the padding; identical for both arms"
   },
   "execution": {
     "tool": "tools.benchmarks.cli execute --development-producer <id> (PR #174 producer binding, journal binding, per-export attestation check)",

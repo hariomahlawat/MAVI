@@ -28,6 +28,12 @@ H4 is domain-diversity evidence. It is not another H3 optimisation, and it is no
   - The A2 tracker is timestamp-aware, with a 1.0 s lost buffer, so the assumption affects absolute tracking figures in both arms alike. It does not bias the paired difference.
   - UAVDT's 30 fps is stated by its authors.
   - H3 ran at 5 Hz, so absolute rates are not comparable with H3 (§8).
+- **Odd frame dimensions.**
+  - Several VisDrone sequences are 1904×1071 or 1360×765, which libx264's 4:2:0 encoder refuses.
+  - `prepare` pads them by one black row or column at the bottom or right; it never scales or crops.
+  - It re-expresses the ground truth in the padded frame (the same pixels), and the manifest row records the padding.
+  - Both arms see the same video.
+  - This was found when the first preparation attempt refused these sequences, before any inference.
 - **Effective scale.**
   - The candidate's canvas is 1280 for every source.
   - Its effective scale is min(1280/W, 1280/H), so it differs by source resolution. VisDrone ranges from 680×382 to 3840×2160; UAVDT is 1080×540.

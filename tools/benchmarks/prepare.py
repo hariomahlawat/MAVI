@@ -9,6 +9,11 @@
    importable by MAVI and carry exactly that frame count and rate (``probe_media``, the platform reader's rules).
 4. The derivation manifest names the descriptor, adapter, tools, arguments and every sequence's source frames, video
    and ground-truth hashes; its SHA-256 is the envelope's ``derivationManifestSha256``.
+5. Odd frame dimensions (libx264 4:2:0 needs even ones; e.g. VisDrone 1904x1071) are padded by one black row and/or
+   column at the bottom and right, never scaled or cropped: pixel coordinates are unchanged, and the adapter's
+   normalised ground truth is re-expressed in the padded frame so the video and the GT share one frame size. The
+   sequence's manifest row then records ``padding`` {sourceSize, encodedSize, filter}; even-sized sources are encoded
+   exactly as before and their rows are unchanged.
 
 Everything is written into a new directory that appears only on success (``OutputDirectory``).
 """
@@ -53,10 +58,38 @@ def adapter(adapter_id: str):
     return ADAPTERS[adapter_id]()
 
 
-def _encode(ffmpeg: media_tools.Tool, frames: Path, extension: str, rate: Fraction, output: Path) -> None:
+def pad_to_even(gt: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """``gt`` re-expressed in the frame padded to even dimensions (bottom/right), and the padding record; unchanged
+    (and ``None``) when both dimensions are already even."""
+    width, height = gt["frameSize"]["width"], gt["frameSize"]["height"]
+    padded_width, padded_height = width + width % 2, height + height % 2
+    if (padded_width, padded_height) == (width, height):
+        return gt, None
+    sx, sy = Fraction(width, padded_width), Fraction(height, padded_height)
+
+    def scale(box: dict[str, float]) -> dict[str, float]:
+        return {"x": float(Fraction(box["x"]) * sx), "y": float(Fraction(box["y"]) * sy),
+                "width": float(Fraction(box["width"]) * sx), "height": float(Fraction(box["height"]) * sy)}
+
+    out = dict(gt, frameSize={"width": padded_width, "height": padded_height})
+    out["tracks"] = [dict(track, frames=[dict(frame, box=scale(frame["box"])) for frame in track["frames"]])
+                     for track in gt["tracks"]]
+    if "ignoreRegions" in gt:
+        out["ignoreRegions"] = [dict(region, box=scale(region["box"])) for region in gt["ignoreRegions"]]
+    return out, {"sourceSize": {"width": width, "height": height},
+                 "encodedSize": {"width": padded_width, "height": padded_height},
+                 "filter": f"pad={padded_width}:{padded_height}:0:0:black"}
+
+
+def _encode(ffmpeg: media_tools.Tool, frames: Path, extension: str, rate: Fraction, output: Path,
+            video_filter: str | None = None) -> None:
     rendered = {"{rate}": f"{rate.numerator}/{rate.denominator}", "{input}": str(frames / f"%06d{extension}"),
                 "{output}": str(output)}
-    command = [str(ffmpeg.path), *(rendered.get(part, part) for part in ARGS)]
+    arguments = [rendered.get(part, part) for part in ARGS]
+    if video_filter is not None:
+        position = arguments.index("-c:v")
+        arguments[position:position] = ["-vf", video_filter]
+    command = [str(ffmpeg.path), *arguments]
     media_tools.require_unchanged(ffmpeg)
     try:
         result = subprocess.run(command, capture_output=True, timeout=FFMPEG_TIMEOUT_SECONDS, check=False)
@@ -83,7 +116,7 @@ def prepare(*, descriptor_path: Path, source_root: Path, split: str, adapter_id:
         for sequence in sequences:
             directory = staging / "sequences" / sequence
             directory.mkdir(parents=True)
-            gt = source.ground_truth(source_root, entries, document, split, sequence)
+            gt, padding = pad_to_even(source.ground_truth(source_root, entries, document, split, sequence))
             gt_module.validate(gt)
             (directory / GROUND_TRUTH).write_bytes(canonical_json(gt))
             frames = source.frame_paths(source_root, entries, split, sequence)
@@ -98,19 +131,22 @@ def prepare(*, descriptor_path: Path, source_root: Path, split: str, adapter_id:
             for index, path in frames:
                 (work / f"{index:06d}{extension}").write_bytes(descriptors.read_verified(entries, source_root, path))
             video = directory / VIDEO
-            _encode(ffmpeg, work, extension, rate, video)
+            _encode(ffmpeg, work, extension, rate, video, None if padding is None else padding["filter"])
             shutil.rmtree(work)
             probe = probe_media.probe(ffprobe, video)
             described = probe["video"] or {}
             require(probe["maviImport"]["containerSupported"] and probe["maviImport"]["metadataValid"]
                     and described.get("frameCount") == len(frames)
                     and Fraction(described.get("frameRateNumerator") or 0, described.get("frameRateDenominator") or 1)
-                    == rate, f"derivation_output_inconsistent:{sequence}")
+                    == rate and described.get("width") == gt["frameSize"]["width"]
+                    and described.get("height") == gt["frameSize"]["height"], f"derivation_output_inconsistent:{sequence}")
             data = video.read_bytes()
             rows.append({"sequenceId": sequence, "frameCount": len(frames),
                          "sourceFrames": [path for _, path in frames],
                          "derivedVideoSha256": sha256_hex(data), "derivedVideoSizeBytes": len(data),
                          "groundTruthSha256": document_sha256(gt)})
+            if padding is not None:
+                rows[-1]["padding"] = padding
         manifest = {"kind": KIND, "descriptorSha256": descriptor_sha, "datasetId": document["datasetId"],
                     "release": document["release"], "split": split,
                     "adapter": {"id": source.adapter_id, "version": source.adapter_version},
