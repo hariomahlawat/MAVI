@@ -12,6 +12,7 @@ When reviewing or implementing:
 - treat every new/changed library, SDK, native binary, runtime or model prerequisite as part of the feature: update `config/dependencies/offline-dependency-policy-v1.json`, offline packaging/setup, verification, licences and runbooks in the same change;
 - do not add model weights, video datasets or credentials to Git;
 - before proposing a significant annotation campaign, a bespoke dataset or new Development capture, follow ADR-017 and the `AGENTS.md` "Data, benchmarks and annotation" rules: search for and reuse established labelled benchmarks first, and treat such a campaign as a justified fallback (small diagnostic labelling needs only a technical rationale);
+- for consequential experiments, benchmarks, qualification, parameter studies or mappings, follow the `AGENTS.md` "Experimental methodology" gate: being asked to run an experiment is not evidence that its method is sound; challenge the method against the implementation and the evidence before running it, and stop and report if it cannot answer the question;
 - run repository verification and relevant subsystem tests before declaring completion.
 
 For architecture changes, write or update an ADR first and state the trade-off being accepted.

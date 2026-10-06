@@ -38,5 +38,5 @@ These principles apply alongside the binding rules in `AGENTS.md` and the accept
    - maintainability and test strength;
    - data integrity and operational usefulness.
 
-   Do not add process for its own sake.
+   Do not add process for its own sake. For consequential evidence-producing work, scientific validity is reviewed before execution as well as after it: see `docs/architecture/experimental-methodology.md`.
 9. **Anti-drift rule.** Before proposing a documentation-only task, ask whether code, tests, automation, an existing authoritative document, or established research or implementations would meet the objective better. If they would, take that route.
