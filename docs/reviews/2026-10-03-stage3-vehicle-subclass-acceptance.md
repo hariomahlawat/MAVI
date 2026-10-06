@@ -218,7 +218,7 @@ H2–H5 are evidence outcomes, not mandated PR boundaries, approval meetings, in
 | H1 | Expansion undertaken only if the pilot evidence justifies it (continuation or supplemental), otherwise recorded NOT TRIGGERED | PASS | On the G8 evidence, two of the plan §14 triggers hold: an important class is below the minimum support (truck 5, bus 7, motorcycle 0, each < 30), and support is too small for per-class conclusions. The pilot evidence therefore justified expansion. **Mechanism (owner decision 2026-10-04, ADR-017):** expansion is benchmark-driven, through S3.2d-1 to S3.2d-4 in the amended plan §14, against established labelled tracking benchmarks with explicit per-class mappings. The manual `continuation`/`supplemental` path of the pilot design remains available only as a documented-gap fallback. ADR-017 adopted this benchmark-driven expansion mechanism in PR #159 (`main@906fc8a7fcdfebac646ecedf503a77cb34fecc6a`), and the expansion has since been undertaken through S3.2d (H2 PASS; H3 measured). H1 is therefore closed PASS. H1 alone never unlocks exposure: X1 still depends on H2–H5 and the other register requirements. |
 | H2 | S3.2d-1: benchmark framework and tooling merged with deterministic tests: dataset descriptor and adapter contract; per-native-class mapping contract (`exact`/`subset`/`unsupported` with reason); ground-truth Track representation; prediction-independent GT↔MAVI association with ambiguity and unmatched reporting in both directions; dataset and result provenance; split identity; known-exposure metadata (plan §14 amendment; ADR-017 §4–§6) | PASS | **S3.2d-1 slices 1–3 (PR #161, PR #162, PR #163), effective when PR #163 merges with green exact-head CI.** Contracts (schema SHA-256 / example SHA-256): `benchmark-dataset-release-v1` `aa47eefe…`/`5aa46d7b…`, `benchmark-class-mapping-v1` `210fa4c9…`/`144ccf22…`, `benchmark-association-v1` `6686ba74…`/`086d5535…`, `benchmark-vehicle-subclass-result-v1` `db814601…`/`acec370d…`. Association policy `vehicle-tracks-association-v1` SHA-256 `a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05`. Synthetic end-to-end through the CLI (`tools/benchmarks/tests/test_bench_synthetic_e2e.py`: describe → prepare with the FFmpeg pack → exports → evaluate, byte-identical on repeat): golden `associationBodySha256` `57266783a8bc97fce8b8a11a80e0fd7dc7dd85195d1f65425f233899f740db9b`, golden scope A+B `dfa53811a90ef76f90bf76ac8bf7ee87e6b3f7f67f23738079080d35a6bf0a73`. Mutation tests present: class/subclass/confidence mutation leaves the association body identical (`test_bench_association.py`); prediction, native-class and mapping mutations change only evaluation (`test_bench_vehicle_subclass_evaluate.py`, E2E). Modules: `tools/benchmarks/{core,datasets,capabilities/vehicle_tracks,capabilities/vehicle_subclass}`, `prepare.py`, `run.py`, `cli.py`; `msgpack>=1.1,<2` on the tools surface (`tools/requirements.txt`, dependency policy). Synthetic and tooling evidence only: no real dataset, no capability claim. |
 | H3 | S3.2d-2: primary benchmark measurement recorded. A benchmark whose native labels exactly cover the capability is preferred where reasonably available; otherwise the strongest available benchmark or combination, with explicit `exact`/`subset`/`unsupported` mappings. Lack of one perfect taxonomy does not block evidence-supported class subsets. Recorded: dataset and release identity (and source, including any archival copy and its credibility basis), research-use status with its basis (ADR-017 §7), mapping declarations, association coverage, class confusion on valid associations, per-class support, known or possible exposure; dataset bytes outside Git | PASS — evidence-completeness gate; performance findings feed H5 | **Run `bea73d13cd76bcd432319cab88a763d2af6139a34c013e2e93b71363a17f9f9b` (attempt 2), executed 2026-10-05 on `main@359073429154bb0839e53cc30b2f55f58f9f35d4`** under the runbook `docs/superpowers/plans/2026-10-05-stage3-s3-2d-2-bdd100k-h3-execution.md`. Complete (200 of 200 sequences), reproducible (frozen descriptor; derivation manifest reproduced byte-for-byte across two attempts; write-once results verified by `run.verify`), provenance-bound and reported under the frozen association policy. Association coverage is weak (12.6%) but not coverage-limited (1.87% against the 1/10 threshold). Full evidence in **H3 evidence** below. |
-| H4 | S3.2d-3: domain-diversity benchmark measurement(s) recorded with the same fields, each contributing only to the classes and domains it supports; or recorded NOT TRIGGERED with a technical rationale showing that additional domain-diversity evidence is not materially useful for the current capability decision (no owner approval needed for that call; the owner may still intervene where the decision is consequential) | OPEN — on HOLD | Held pending the H3 tracker-gate diagnosis; see *H3 diagnostic interpretation*. |
+| H4 | S3.2d-3: domain-diversity benchmark measurement(s) recorded with the same fields, each contributing only to the classes and domains it supports; or recorded NOT TRIGGERED with a technical rationale showing that additional domain-diversity evidence is not materially useful for the current capability decision (no owner approval needed for that call; the owner may still intervene where the decision is consequential) | OPEN — on HOLD | Held. The H3 diagnosis points next to a detector-side methodology review; see *H3 diagnostic interpretation*. |
 | H5 | S3.2d-4: evidence-backed capability decision recorded per class and evidence domain (benchmark-supported, Development-only, insufficiently supported, deferred), on H3, H4 and the pilot (G8); no unsupported class advanced | OPEN | |
 
 ### H3 evidence — S3.2d-2 primary benchmark measurement (BDD100K MOT 2020 val)
@@ -313,6 +313,122 @@ Non-authoritative diagnostics run after H3 on its frozen inputs. They do not cha
 - **What this does not establish.** H3 does not establish a Production tracker profile; 0.61 is not a recommended value, and no single benchmark selects Production thresholds (`docs/qualification/2026-10-06-tracker-profile-qualification-principles.md`).
 - **Status.** H4 stays on HOLD (row status OPEN, not started). H5 stays OPEN; no decision is justified yet.
 
+#### Completed causal diagnosis (recorded 2026-10-06, after PR #170)
+
+Post-H3, non-authoritative Development diagnostics on the retained full-stream detections, using the exact-replay path whose baseline fidelity is recorded above. They change neither the authoritative H3 run, its artefacts and hashes, its association results, nor its PASS. Statements are labelled per `docs/architecture/experimental-methodology.md` §5:
+- **observed:** present in replay, trace or association output;
+- **derived:** computed from frozen outputs under declared rules;
+- **inferred:** an interpretation the evidence supports;
+- **hypothesis:** still open.
+
+**High-confidence and activation controls.** Everything else is frozen; A2 is the reference.
+
+| Metric | A2 (high 0.60, act 0.61) | C1 (high 0.50, act 0.61) | B1 (high 0.50, act 0.51) |
+|---|---|---|---|
+| Vehicle Tracks | 8,690 | 8,627 | 12,843 |
+| Assigned GT | 2,390 | 2,485 | 3,176 |
+| Association rate | 17.82% | 18.53% | 23.68% |
+| Fragmented GT | 364 | 363 | 669 |
+| Unmatched MAVI Tracks | 5,623 | 5,500 | 8,293 |
+| Fragment MAVI Tracks | 531 | 485 | 1,130 |
+| Unassigned GT touched by ≥ 2 / ≥ 3 MAVI Tracks | 2,356 / 1,058 | 2,200 / 958 | 3,343 / 1,945 |
+
+- **A2 → C1** (observed): lowering `highConfidenceThreshold` alone adds 95 assigned GT. It slightly reduces emitted Vehicle Tracks, unmatched and fragment MAVI Tracks, and unassigned GT touched by several Tracks. This is a modest aggregate improvement without Track proliferation.
+  - It is not a per-object win: 241 GT enter assigned and 146 leave it (derived from the complete transition matrix). It is not a Production recommendation.
+  - Mechanism (observed in the native trace): detections at 0.50–0.60 move from the second association stage to the first (stage-1 matches 109,907 → 130,318).
+- **C1 → B1** (observed): lowering activation to 0.51 adds 691 assigned GT. It also adds 4,216 Vehicle Tracks, 306 fragmented GT and 645 fragment MAVI Tracks.
+  - The marginal cost is 6.1 extra Tracks per extra assigned GT (derived). Earlier activation-only steps cost 3.5 (0.70 → 0.65) and 4.0 (0.65 → 0.61).
+  - 0.50/0.51 is a diagnostic point only.
+  - Further joint lowering (for example 0.40/0.41) is not justified by this evidence (inferred).
+
+**Lifecycle analysis v3 is the diagnostic analysis of record.**
+- **Method:** native Trackers 2.6 ByteTrack lifecycle traces of A2, C1 and B1, observed and fidelity-checked equal to the exact replays in all 600 sequence traces. They are classified per GT track under frozen rules (`h3_lifecycle_analyse_v3.py`, SHA-256 `1055a0cb27ed52ece7f98979d03116f90e588e5b1c985427ad902bb8aa518553`).
+- **Regression assertions:** v3 asserts that:
+  - the height band comes from each track's own frames;
+  - coverage is one-to-one at IoU ≥ 0.50;
+  - emitted outputs map exactly to detections;
+  - every GT frame and primary cause reconciles to the population;
+  - outcome totals equal 13,412;
+  - all three 6×6 transition matrices reconcile exactly.
+- **Superseded analyses:** earlier analyses v1 and v2 are retained and labelled superseded in the controlled store (`H3-lifecycle/SUPERSEDED.md`):
+  - v1 had a height-band leak and attributed coverage through only one detection per GT;
+  - v2 had a tentative-failure field error and an ambiguous output-to-detection mapping.
+
+  No v1 or v2 figure is used here.
+
+| Primary cause of not-assigned GT (derived, v3 rules) | A2 | C1 | B1 |
+|---|---|---|---|
+| Detections exist but never reach activation | 7,140 | 7,045 | 5,430 |
+| No usable detection | 2,780 | 2,785 | 2,990 |
+| Lost, then cannot respawn because of confidence | 235 | 198 | 195 |
+| Fragmented identity | 459 | 492 | 909 |
+| Tracked by one identity; H3 association fails | 160 | 181 | 268 |
+| Competition | 134 | 95 | 230 |
+| Motion / IoU < 0.10 | 87 | 100 | 143 |
+| New or duplicate spawn | 27 | 31 | 71 |
+| **Not assigned** | **11,022** | **10,927** | **10,236** |
+
+- **Detector side dominates.**
+  - Derived: 92.1% of not-assigned GT at A2 (10,155) and 84.2% at B1 (8,615) are primarily detector absence or detector scores that never reach the activation regime. Excluding the mixed "lost, then cannot respawn" row, the shares are 90.0% and 82.3%.
+  - Inferred: detector availability and confidence, relative to the tracker's confidence regime, dominate the H3 association deficit. Lowering activation converts part of this population only at the Track cost shown above.
+  - This does not show that RTMDet is unsuitable, that the Production detector must change, or that any particular detector-side remedy works.
+- **5 Hz motion is a secondary factor.**
+  - Observed: motion/IoU failures become more frequent as GT displacement between labelled frames grows. 96% of them at A2 (5,602 of 5,833) have prediction-to-detection IoU of exactly 0.
+  - Observed: of 1,216 identity expiries at A2, 925 follow motion/IoU misses and 166 follow a pure detection gap.
+  - Inferred: 5 Hz sparsity is real but secondary, and the earlier hypothesis that 5 Hz continuity is the binding limit is narrowed. Lowering `minimumIoUThreshold` is unlikely to recover zero-overlap misses, and confirmation and lost-track buffer tuning are not supported as major levers (GT-linked tentative failures: 72 / 70 / 142).
+- **Under 20 px** (derived): of 2,632 not-assigned GT at A2, 1,549 have no usable detection, 1,065 have detections that never reach activation, and 18 fall into other categories.
+  - Inferred: tracker threshold tuning and duplicate suppression are not credible remedies for this regime in this Development domain.
+  - No Production detector-quality claim is made.
+
+**Cross-source-class duplicate detections.**
+- **Risk confirmed (observed):** the class-collapse duplicate risk anticipated in the Task-10 design (`docs/superpowers/specs/2026-09-11-task-10-rtmdet-bytetrack-design.md` §11.4) occurs on H3.
+- **Clean high-IoU region (derived):** among overlapping Vehicle-source pairs whose higher score is ≥ 0.51, cross-source-class pairs are almost always one physical vehicle. Same-vehicle share is 99.27% at IoU 0.8–0.9 and 99.95% at IoU ≥ 0.9. This uses a diagnostic per-detection GT attribution, which is never a deployable rule.
+  - The pairs are mostly car + truck (346,968 pairs), then bus + car, bus + truck and car + motorcycle.
+- **Share of parallel identities (observed):** at B1, 81% of frames with two emitted MAVI Tracks on the same object are cross-source-class (14,071 of 17,317).
+- **How parallel identities form:** the simple spawn path (two boxes, two new identities) is too narrow.
+  - Post-hoc descriptive check of B1 (observed counts, post-hoc classification): 1,863 of 2,465 cross-source-class parallel pairs (76%) begin when two already-existing Tracks converge on one vehicle. In 1,862 of all 2,465 pairs, one Track holds a stage-1 box and the other a stage-2 (below high-confidence) box.
+  - Inferred: the duplicates act mainly as stage-2 association targets for a second existing Track, rather than as spawn sources.
+
+**GT oracle: perfect same-object duplicate removal** (deliberately non-deployable; it uses GT).
+- **Rule:** Vehicle-source boxes attributed to the same GT vehicle on a frame are reduced to the highest-score box. This removed 865,094 of 4,593,988 Vehicle detections; Persons and boxes of different vehicles are untouched.
+- **Fidelity:** the no-removal controls reproduced A2 and B1 exactly.
+
+| Metric (observed) | A2 | A2 oracle | B1 | B1 oracle |
+|---|---|---|---|---|
+| Vehicle Tracks | 8,690 | 8,796 | 12,843 | 12,606 |
+| Assigned GT | 2,390 | 2,427 | 3,176 | 3,231 |
+| Fragmented GT | 364 | 370 | 669 | 661 |
+| Fragment MAVI Tracks | 531 | 463 | 1,130 | 855 |
+| Unmatched MAVI Tracks | 5,623 | 5,771 | 8,293 | 8,304 |
+
+- **Effect:** perfect removal adds only 37 assigned GT at A2 and 55 at B1. It reduces fragment MAVI Tracks and ambiguity (ambiguous GT 6 → 0 and 31 → 0), but fragmented GT is essentially unchanged, and B1's Track count falls by only 237 against the 4,216 Tracks that C1 → B1 added.
+- **Conclusion (inferred, from a controlled intervention):** duplicate suppression is falsified as a major recall lever. Cross-source-class suppression may still have value as continuity and ambiguity cleanup, but the evidence does not justify prioritising it. No post-map suppression is proposed here.
+- **Subclass** (observed): quality on assigned pairs is not materially harmed. Undetermined falls 35 → 22 at A2 and 47 → 35 at B1, and 27 and 25 GT assigned in both runs change predicted subclass. Because the oracle uses GT, this says nothing about the safety of any operational rule.
+
+**Next-question boundary.** The next causal question is which detector-side mechanism explains the dominant absence and low-confidence population. Candidate hypotheses, none yet tested:
+- inference scale or effective object scale;
+- tiled inference;
+- detector architecture or checkpoint capability;
+- training-domain mismatch;
+- preprocessing.
+
+That work starts with a methodology review under the Independent Methodology Gate (`AGENTS.md`, "Experimental methodology") before any new detector inference.
+
+**Status unchanged:**
+- H3 PASS;
+- H4 OPEN — on HOLD;
+- H5 OPEN (identifying the dominant subsystem is not the H5 capability disposition);
+- no threshold or Production profile recommendation;
+- no operator exposure.
+
+**Development fresh-pass review** (methodology §4.4; recorded 2026-10-06 by the author; a second reviewer is not required for this Development-only claim):
+- **Checked:** the figures against their retained reports; the arithmetic; that the causal statements rest on a controlled intervention (C1/B1 replays, the oracle) or the native lifecycle trace.
+- **Narrowed during the review:**
+  - "detector confidence" is stated relative to the activation regime;
+  - the mixed "lost, then cannot respawn" row is shown separately;
+  - the duplicate-onset statement is marked post-hoc and does not claim that the second Track had been lost.
+- **Confirmed:** no diagnostic result is presented as authoritative H3, no Production claim is made, H4 and H5 are unchanged, and the superseded analyses are labelled.
+
 Retained evidence, outside Git under the controlled store `Stage3/` (SHA-256):
 
 | File | SHA-256 |
@@ -328,6 +444,25 @@ Retained evidence, outside Git under the controlled store `Stage3/` (SHA-256):
 | `H3-replay/sensitivity-report-baseline-full_A2-act0.61.json` | `27b2ce94f36fb04f27ab95ebea4047e76648da56fd494b6baf36fd2ece94fc58` |
 | `H3-replay/availability-061-tracks-v2.json` | `fb59be2110a6deb77b2689b7b83a7f07aab26c43b41448ac3a9fb8fd61334f1b` |
 | `H3-detector-diagnosis/spawn-eligibility.json` | `ca2a4fda4e0e02fcbe4df1721f380f81a0214770ad04d8b88d7df2859d482401` |
+| `H3-replay/frozen-scripts-v3.sha256` (C1/B1 replay and summariser manifest) | `1fa51c5b4d51ccba5eb88d9742feca5a9f418cb4b028cafb20e14e4d457db94d` |
+| `H3-replay/sensitivity-report-A2-act0.61_C1-high0.50-act0.61.json` | `4ed1f69ba41d1f2d2a23de07bd0ac61988e4fd0d3ea50eeccc77f10004fe00da` |
+| `H3-replay/sensitivity-report-C1-high0.50-act0.61_B1-high0.50-act0.51.json` | `ca437519231601b8d81db74bf1728e43ad01577bed1144aca25bedef59f2015e` |
+| `H3-replay/sensitivity-report-A2-act0.61_B1-high0.50-act0.51.json` | `cd3464ec94003083eb8dc94599c7758131895479736e0dde2b4bb35cccb5ac80` |
+| `H3-lifecycle/frozen-scripts.sha256` (trace, association dump; v1/v2 analyses, superseded) | `2bf1eb5eb47cdf98daff375a304f2dec03766d983f4b6e68cf8c1911fbeb17fa` |
+| `H3-lifecycle/frozen-scripts-v3.sha256` (v3 analysis, duplicate characterisation, post-hoc onset check) | `9e851071a030ae60f3261976e72f083ae7efa01227d2c1e30e021854c67f66b7` |
+| `H3-lifecycle/lifecycle-report-v3.json` | `7461d58d09951c65a659de2164729752f3f3565ba9764384b517f472e8c1ec1f` |
+| `H3-lifecycle/lifecycle-gt-rows-v3.json` | `eef3c354a9c98b19f89b9e3d70385cdc7bde82fdd7a98144ffe41cd832d0686d` |
+| `H3-lifecycle/association-A2.json.gz` | `f7f6d52fff008b6516e3bd0ad70877095dac64faf02a2c3d9a251c865e1b94be` |
+| `H3-lifecycle/association-C1.json.gz` | `daef3e9840e0349dd3da473d2a8700815d33512bdd82371d58ac4306d1187d91` |
+| `H3-lifecycle/association-B1.json.gz` | `3cc1bedc0cb2bfcbe2f588532e35d0ef825f160ea778e42b8261a3918d62924a` |
+| `H3-lifecycle/duplicate-characterisation.json` | `ddff4b0d187cab924d6d8b12dc60f6514e623b47cec8fa2bf42eeb7bd6ed4724` |
+| `H3-lifecycle/posthoc-parallel-onset.json` (post-hoc) | `39deb61fa163d40bf8e4673eb092e71bf964ba387ac0b2325fef9296a6b57da6` |
+| `H3-lifecycle/SUPERSEDED.md` | `c5644d9ceebfcb632d8be495021718f2d2b35cc8c29edb7d8a667e81ded59430` |
+| `H3-oracle/frozen-scripts.sha256` (oracle builder, replay, evaluation) | `6d93d472e470bef3ffc6e77506d16906fdbcc3ae631b87aceb6c5511d863c1b2` |
+| `H3-oracle/oracle-drop.json` | `af97bdbb5b74d426c610ec7a052f8fbabd10074313a79bcb392a9efccc285a97` |
+| `H3-oracle/oracle-report.json` | `1f604b6d687973caef7c06ac1615e380b9d1ce4555e9d83c32d189050eae34e5` |
+| `H3-lifecycle/association-A2-oracle.json.gz` | `be12fc9758118113d1166c901d57ec47502103a6ed64b1726f713d2c50acfb92` |
+| `H3-lifecycle/association-B1-oracle.json.gz` | `f4acfba9f9288bba77c936e673de273a29088b2b8092dbdb095a5903b9cbe206` |
 
 The diagnostic scripts are hashed before use in the `frozen-scripts*.sha256` files beside these outputs.
 
