@@ -922,6 +922,11 @@ def resolve_role(
             raise _fail("attribute_development_profile_forbidden")
     else:
         pipeline_profile = load_pipeline_profile(pipeline_profile_path)
+        # A Development-only detector profile (the Stage-3 A2 producers, ADR-014
+        # 2026-10-06 note) never starts in Production. Their qualification records pin
+        # that profile, so a Development replacement binding cannot start there either.
+        if production_mode and pipeline_profile.development_only:
+            raise _fail("detector_development_profile_forbidden")
     pipeline_profile_sha256 = sha256_release_file(pipeline_profile_path)
     manifests = index_model_manifests(overlay_root / MANIFESTS_RELATIVE)
     records = index_qualification_records(

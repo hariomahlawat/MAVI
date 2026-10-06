@@ -1642,6 +1642,12 @@ def check_vision_release_metadata(
     try:
         from mavi_vision.runtime.binding import load_component_binding
         from mavi_vision.runtime.component_relationships import check_record_variants
+        from mavi_vision.runtime.development_binding import (
+            DEVELOPMENT_PRODUCERS_PATH,
+            check_release_binding_pin,
+            check_replacement_binding,
+            load_development_producers,
+        )
         from mavi_vision.runtime.manifest import (
             ReleaseMetadataError,
             sha256_release_file,
@@ -1675,6 +1681,7 @@ def check_vision_release_metadata(
     runtime_root = root / "src/vision/runtime"
     binding_root = root / "src/vision/config/components"
     release_roots = [manifest_root, qualification_root, pipeline_root, runtime_root, binding_root]
+    producers_path = root / DEVELOPMENT_PRODUCERS_PATH
 
     def rel(path: Path) -> str:
         return path.relative_to(root).as_posix()
@@ -1685,7 +1692,10 @@ def check_vision_release_metadata(
         file_path
         for file_path in tracked
         if file_path.suffix.lower() in {".json", ".lock"}
-        and any(file_path.is_relative_to(release_root) for release_root in release_roots)
+        and (
+            any(file_path.is_relative_to(release_root) for release_root in release_roots)
+            or file_path == producers_path
+        )
     )
     for file_path in release_files:
         try:
@@ -1707,9 +1717,12 @@ def check_vision_release_metadata(
         if path.name != "runtime.json":
             fail(f"Unrecognized runtime release JSON must not bypass validation: {rel(path)}", errors)
 
-    # ---- 1. Model Pack manifests, by derived id (P-3) and by modelId.
+    # ---- 1. Model Pack manifests, by derived id (P-3) and by modelId. One model may
+    # have several packs (ADR-014 2026-10-06 note: the Stage-3 test-scale pack keeps the
+    # checkpoint's modelId), each with its own modelVersion; a binding binds at most one.
     manifests: dict[str, tuple[Path, object, str]] = {}
-    manifests_by_model: dict[str, tuple[Path, object, str]] = {}
+    manifests_by_model: dict[str, list[tuple[Path, object, str]]] = {}
+    model_versions: set[tuple[str, str]] = set()
     pack_directories: dict[str, str] = {}
     for path in json_under(manifest_root):
         try:
@@ -1721,8 +1734,8 @@ def check_vision_release_metadata(
         if manifest.model_pack_id in manifests:
             fail(f"Two manifests derive one modelPackId {manifest.model_pack_id}: {rel(path)}", errors)
             continue
-        if manifest.model_id in manifests_by_model:
-            fail(f"Duplicate modelId in release manifests: {manifest.model_id}", errors)
+        if (manifest.model_id, manifest.model_version) in model_versions:
+            fail(f"Duplicate modelId/modelVersion in release manifests: {manifest.model_id} {manifest.model_version}", errors)
             continue
         if manifest.pack_directory in pack_directories:
             fail(
@@ -1733,7 +1746,8 @@ def check_vision_release_metadata(
             continue
         pack_directories[manifest.pack_directory] = rel(path)
         manifests[manifest.model_pack_id] = (path, manifest, manifest_hash)
-        manifests_by_model[manifest.model_id] = (path, manifest, manifest_hash)
+        model_versions.add((manifest.model_id, manifest.model_version))
+        manifests_by_model.setdefault(manifest.model_id, []).append((path, manifest, manifest_hash))
 
     # ---- 2. Pipeline profiles (kept v1 schema; P-9 keeps the path setting).
     profiles: dict[str, tuple[Path, object, str]] = {}
@@ -1749,16 +1763,16 @@ def check_vision_release_metadata(
             continue
         profiles[profile.profile_id] = (path, profile, profile_hash)
     for profile_path, profile, _hash in profiles.values():
-        entry = manifests_by_model.get(profile.model_id)
-        if entry is None:
+        entries = manifests_by_model.get(profile.model_id)
+        if not entries:
             fail(f"Pipeline profile {profile.profile_id} references unknown modelId {profile.model_id}.", errors)
             continue
-        manifest = entry[1]
-        try:
-            section = manifest.detector_section()
-            validate_profile_against_manifest(profile, model_id=manifest.model_id, class_vocabulary=section.class_vocabulary)
-        except ReleaseMetadataError as exc:
-            fail(f"Pipeline profile relationship invalid: {rel(profile_path)} ({exc.code})", errors)
+        for _manifest_path, manifest, _manifest_hash in entries:
+            try:
+                section = manifest.detector_section()
+                validate_profile_against_manifest(profile, model_id=manifest.model_id, class_vocabulary=section.class_vocabulary)
+            except ReleaseMetadataError as exc:
+                fail(f"Pipeline profile relationship invalid: {rel(profile_path)} ({exc.code})", errors)
 
     # ---- 3. Runtime family profiles (v2 only), locks verified and tracked.
     runtimes: dict[str, tuple[Path, object]] = {}
@@ -1797,121 +1811,203 @@ def check_vision_release_metadata(
                 continue
             records[record.qualification_id] = (path, record, record_hash)
 
-    # ---- 5. The component binding: exactly one, v2 only.
+    # ---- 5. Component bindings: exactly one release binding, plus the Development
+    # replacement bindings the producer registry declares (ADR-014 2026-10-06 note).
+    # Any other additional binding still fails binding_multiple_not_supported.
     binding_paths = json_under(binding_root)
     if not binding_paths:
         fail("No component binding is tracked under src/vision/config/components.", errors)
         return
-    if len(binding_paths) > 1:
+    producers = None
+    if producers_path in tracked_set:
+        try:
+            producers = load_development_producers(producers_path)
+        except ReleaseMetadataError as exc:
+            fail(f"Development producer registry invalid: {rel(producers_path)} ({exc.code})", errors)
+            return
+    declared = {} if producers is None else {root / item.binding_path: item for item in producers.producers}
+    release_paths = [path for path in binding_paths if path not in declared]
+    if len(release_paths) != 1:
         fail(
-            "binding_multiple_not_supported: more than one component binding is tracked "
-            f"({', '.join(rel(path) for path in binding_paths)}) and no release-profile overlay exists.",
+            "binding_multiple_not_supported: exactly one release component binding must be tracked besides the "
+            f"declared Development replacement bindings; found {', '.join(rel(path) for path in release_paths) or 'none'}.",
             errors,
         )
         return
-    (binding_path,) = binding_paths
+    (binding_path,) = release_paths
     try:
         binding = load_component_binding(binding_path)
     except ReleaseMetadataError as exc:
         fail(f"Component binding invalid (v2 only; a v1 binding is refused): {rel(binding_path)} ({exc.code})", errors)
         return
 
-    bound_records: set[str] = set()
-    for role in binding.roles.values():
-        # Family known, P-2, locks verified, P-17 classes from the tracked lock
-        # files, binding variants == class-B set, every pinned id lock-derived.
+    # (path, binding, None) for the release binding; (path, binding, (producer, profile entry))
+    # for each Development replacement binding.
+    bindings: list[tuple[Path, object, object]] = [(binding_path, binding, None)]
+    if producers is not None:
         try:
-            family = load_role_family(binding=binding, role_id=role.role_id, overlay_root=root)
+            check_release_binding_pin(
+                producers,
+                release_binding_path=rel(binding_path),
+                release_binding_sha256=binding.component_binding_sha256,
+            )
         except ReleaseMetadataError as exc:
-            fail(f"Component binding role {role.role_id} is inconsistent with its runtime family: {exc.code}", errors)
-            continue
-        runtime_profile = family.runtime_profile
-        binding_variants = binding.family_variants(role.runtime_pack_family_id)
-        for capability_binding in binding.bindings_for_role(role.role_id):
-            capability_id = capability_binding.capability_id
-            manifest_entry = manifests.get(capability_binding.model_pack_id)
-            if manifest_entry is None:
-                fail(
-                    f"Capability binding {role.role_id}:{capability_id} names modelPackId "
-                    f"{capability_binding.model_pack_id}, which no manifest derives.",
-                    errors,
-                )
-                continue
-            manifest_path, manifest, manifest_hash = manifest_entry
-            if capability_id not in manifest.capability_ids:
-                fail(f"Model Pack {manifest.model_id} does not provide bound capability {capability_id}.", errors)
-                continue
-            if role.runtime_pack_family_id not in manifest.runtime_pack_family_ids:
-                fail(f"Model Pack {manifest.model_id} is not compatible with family {role.runtime_pack_family_id}.", errors)
+            fail(f"Development producer registry does not pin the release binding: {rel(producers_path)} ({exc.code})", errors)
+            return
+        for path, producer in declared.items():
+            if path not in tracked_set:
+                fail(f"Development producer {producer.producer_id} names an untracked binding {rel(path)} (development_binding_missing).", errors)
                 continue
             try:
-                check_capability_input_contract(manifest=manifest, capability_id=capability_id)
+                candidate = load_component_binding(path)
+                check_replacement_binding(release=binding, candidate=candidate, replaces=producer.replaces)
             except ReleaseMetadataError as exc:
-                fail(f"Model Pack {manifest.model_id} input contract is not the one {capability_id} consumes ({exc.code}).", errors)
+                fail(f"Development replacement binding invalid: {rel(path)} ({exc.code})", errors)
                 continue
-            record_entry = records.get(capability_binding.qualification_id)
-            if record_entry is None:
+            profile_entry = next(
+                (entry for entry in profiles.values() if entry[0] == root / producer.pipeline_profile_path), None
+            )
+            if profile_entry is None:
                 fail(
-                    f"Capability binding {role.role_id}:{capability_id} names qualification "
-                    f"{capability_binding.qualification_id}, which no record declares.",
+                    f"Development producer {producer.producer_id} names an untracked or invalid pipeline profile "
+                    f"{producer.pipeline_profile_path} (development_binding_profile_missing).",
                     errors,
                 )
                 continue
-            record_path, record, _record_hash = record_entry
-            bound_records.add(record.qualification_id)
+            if not profile_entry[1].development_only:
+                fail(
+                    f"Development producer {producer.producer_id} runs with {producer.pipeline_profile_path}, "
+                    "which is not developmentOnly (development_binding_profile_not_development).",
+                    errors,
+                )
+                continue
+            bindings.append((path, candidate, (producer, profile_entry)))
+
+    bound_records: set[str] = set()
+    bound_packs: set[str] = set()
+    for current_path, current, development in bindings:
+        bound_packs.update(item.model_pack_id for item in current.capability_bindings)
+        bound_models = [
+            manifests[item.model_pack_id][1].model_id
+            for item in current.capability_bindings
+            if item.model_pack_id in manifests
+        ]
+        if len(set(bound_models)) != len(bound_models):
+            fail(f"Component binding {rel(current_path)} binds two Model Packs of one modelId.", errors)
+        for role in current.roles.values():
+            # Family known, P-2, locks verified, P-17 classes from the tracked lock
+            # files, binding variants == class-B set, every pinned id lock-derived.
             try:
-                check_record_identity(
-                    record=record,
-                    manifest=manifest,
-                    manifest_sha256=manifest_hash,
-                    capability_id=capability_id,
-                    model_pack_id=capability_binding.model_pack_id,
-                    runtime_pack_family_id=role.runtime_pack_family_id,
-                    runtime_profile_sha256=family.runtime_profile_sha256,
-                )
-                check_record_variants(
-                    record=record,
-                    binding_variants=binding_variants,
-                    variant_classes=family.variant_classes,
-                )
+                family = load_role_family(binding=current, role_id=role.role_id, overlay_root=root)
             except ReleaseMetadataError as exc:
-                fail(f"Qualification relationship invalid: {rel(record_path)} ({exc.code})", errors)
+                fail(f"Component binding role {role.role_id} is inconsistent with its runtime family: {exc.code}", errors)
                 continue
-            # Pipeline policy reconciled live against the tracked profile (plan §17).
-            profile_entry = profiles.get(record.pipeline_profile_id or "")
-            if capability_id == DETECTOR_CAPABILITY and profile_entry is None:
-                fail(
-                    f"Qualification {record.qualification_id} names unknown pipeline profile "
-                    f"{record.pipeline_profile_id}.",
-                    errors,
-                )
-                continue
-            if profile_entry is not None:
+            runtime_profile = family.runtime_profile
+            binding_variants = current.family_variants(role.runtime_pack_family_id)
+            for capability_binding in current.bindings_for_role(role.role_id):
+                capability_id = capability_binding.capability_id
+                manifest_entry = manifests.get(capability_binding.model_pack_id)
+                if manifest_entry is None:
+                    fail(
+                        f"Capability binding {role.role_id}:{capability_id} names modelPackId "
+                        f"{capability_binding.model_pack_id}, which no manifest derives.",
+                        errors,
+                    )
+                    continue
+                manifest_path, manifest, manifest_hash = manifest_entry
+                if capability_id not in manifest.capability_ids:
+                    fail(f"Model Pack {manifest.model_id} does not provide bound capability {capability_id}.", errors)
+                    continue
+                if role.runtime_pack_family_id not in manifest.runtime_pack_family_ids:
+                    fail(f"Model Pack {manifest.model_id} is not compatible with family {role.runtime_pack_family_id}.", errors)
+                    continue
                 try:
-                    check_record_policies(
+                    check_capability_input_contract(manifest=manifest, capability_id=capability_id)
+                except ReleaseMetadataError as exc:
+                    fail(f"Model Pack {manifest.model_id} input contract is not the one {capability_id} consumes ({exc.code}).", errors)
+                    continue
+                record_entry = records.get(capability_binding.qualification_id)
+                if record_entry is None:
+                    fail(
+                        f"Capability binding {role.role_id}:{capability_id} names qualification "
+                        f"{capability_binding.qualification_id}, which no record declares.",
+                        errors,
+                    )
+                    continue
+                record_path, record, _record_hash = record_entry
+                bound_records.add(record.qualification_id)
+                try:
+                    check_record_identity(
                         record=record,
+                        manifest=manifest,
+                        manifest_sha256=manifest_hash,
                         capability_id=capability_id,
-                        pipeline_profile_id=profile_entry[1].profile_id,
-                        pipeline_profile_sha256=profile_entry[2],
+                        model_pack_id=capability_binding.model_pack_id,
+                        runtime_pack_family_id=role.runtime_pack_family_id,
+                        runtime_profile_sha256=family.runtime_profile_sha256,
+                    )
+                    check_record_variants(
+                        record=record,
+                        binding_variants=binding_variants,
+                        variant_classes=family.variant_classes,
                     )
                 except ReleaseMetadataError as exc:
-                    fail(f"Qualification policy invalid: {rel(record_path)} ({exc.code})", errors)
-            # Retained anti-promotion rules (plan §6.6).
-            if manifest.verification_status == "verified" and runtime_profile.qualification_status != "qualified":
-                fail(
-                    f"Verified manifest {manifest.model_id} requires a qualified runtime profile; "
-                    f"found {runtime_profile.qualification_status}.",
-                    errors,
-                )
-            if manifest.verification_status == "unverified" and (
-                record.overall_result != "pending"
-                or any(variant.status != "pending" for variant in record.variants.values())
-            ):
-                fail(
-                    f"Qualification {record.qualification_id} must remain pending while manifest "
-                    f"{manifest.model_id} is unverified.",
-                    errors,
-                )
+                    fail(f"Qualification relationship invalid: {rel(record_path)} ({exc.code})", errors)
+                    continue
+                # Pipeline policy reconciled live against the tracked profile (plan §17).
+                profile_entry = profiles.get(record.pipeline_profile_id or "")
+                if capability_id == DETECTOR_CAPABILITY and profile_entry is None:
+                    fail(
+                        f"Qualification {record.qualification_id} names unknown pipeline profile "
+                        f"{record.pipeline_profile_id}.",
+                        errors,
+                    )
+                    continue
+                if profile_entry is not None:
+                    try:
+                        check_record_policies(
+                            record=record,
+                            capability_id=capability_id,
+                            pipeline_profile_id=profile_entry[1].profile_id,
+                            pipeline_profile_sha256=profile_entry[2],
+                        )
+                    except ReleaseMetadataError as exc:
+                        fail(f"Qualification policy invalid: {rel(record_path)} ({exc.code})", errors)
+                    # The release binding never runs a Development-only profile; a replaced
+                    # capability runs exactly the profile its producer declares.
+                    if development is None and profile_entry[1].development_only:
+                        fail(
+                            f"Release binding qualification {record.qualification_id} pins the Development-only "
+                            f"profile {profile_entry[1].profile_id} (release_binding_development_profile).",
+                            errors,
+                        )
+                    if (
+                        development is not None
+                        and (role.role_id, capability_id) in development[0].replaces
+                        and profile_entry[0] != development[1][0]
+                    ):
+                        fail(
+                            f"Qualification {record.qualification_id} of Development producer "
+                            f"{development[0].producer_id} pins {rel(profile_entry[0])}, not its declared profile "
+                            f"{development[0].pipeline_profile_path} (development_binding_profile_mismatch).",
+                            errors,
+                        )
+                # Retained anti-promotion rules (plan §6.6).
+                if manifest.verification_status == "verified" and runtime_profile.qualification_status != "qualified":
+                    fail(
+                        f"Verified manifest {manifest.model_id} requires a qualified runtime profile; "
+                        f"found {runtime_profile.qualification_status}.",
+                        errors,
+                    )
+                if manifest.verification_status == "unverified" and (
+                    record.overall_result != "pending"
+                    or any(variant.status != "pending" for variant in record.variants.values())
+                ):
+                    fail(
+                        f"Qualification {record.qualification_id} must remain pending while manifest "
+                        f"{manifest.model_id} is unverified.",
+                        errors,
+                    )
 
     for manifest_path, manifest, _hash in manifests.values():
         if manifest.verification_status == "unverified" and manifest.qualification_id is not None:
@@ -1919,7 +2015,6 @@ def check_vision_release_metadata(
     for qualification_id, (record_path, _record, _hash) in records.items():
         if qualification_id not in bound_records:
             fail(f"Qualification record {rel(record_path)} is bound by no capability binding.", errors)
-    bound_packs = {item.model_pack_id for item in binding.capability_bindings}
     for model_pack_id, (manifest_path, _manifest, _hash) in manifests.items():
         if model_pack_id not in bound_packs:
             fail(f"Model manifest {rel(manifest_path)} is bound by no capability binding.", errors)

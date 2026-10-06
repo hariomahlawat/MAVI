@@ -7,7 +7,8 @@ journalled before polling, and one T1 export into ``<exports>/<processingRunId>/
 never adopted, and a resume is allowed only from this instance's journal, which is bound to the derivation manifest.
 
 Before any API call, every prepared file is re-hashed (``prepare.load``) and the pipeline profile must pass the S3.2
-measurement identity gate. Afterwards the exports must name exactly the derived videos, carry one attested producer
+measurement identity gate, or be the Stage-3 A2 Development profile shared by the two H4 Development producers
+(ADR-014 2026-10-06 note). Afterwards the exports must name exactly the derived videos, carry one attested producer
 that measured exactly this profile, and every sealed trajectory must be present in the evidence root with its
 attested hash. ``evaluate`` then binds all of it into the run envelope. The journal, API URL and paths are runtime
 only and never part of any result.
@@ -29,6 +30,27 @@ CAMERA_PREFIX = "BDD-"
 CAMERA_ZONE = "UTC"
 # Benchmark footage has no wall-clock meaning for MAVI; one fixed, valid local start is declared for every import.
 RECORDING_START_LOCAL = "2020-01-01T00:00:00"
+
+
+# The A2 Development profile that both Development producers (a2-scale640, a2-scale1280) run with. Like the S3.2
+# gate, an identity gate only: the vision runtime owns profile validation, and the exact bytes are the attested
+# pipelineProfileSha256 that ``t9.producer`` checks after the runs.
+DEVELOPMENT_PROFILE = {"schemaVersion": "1.3", "profileId": "phase1-detection-tracking-a2",
+                       "profileVersion": "1.0.0-development", "developmentOnly": True}
+
+
+def require_benchmark_profile(data: bytes) -> None:
+    """The S3.2 measurement profile, or the A2 Development profile (same subclass vocabulary); nothing else."""
+    profile = artefacts.parse_json(data, "t9_profile_invalid")
+    require(isinstance(profile, dict), "t9_profile_invalid")
+    if profile.get("profileId") != DEVELOPMENT_PROFILE["profileId"]:
+        t9.require_measurement_profile(data)
+        return
+    for key, value in DEVELOPMENT_PROFILE.items():
+        require(profile.get(key) == value and type(profile.get(key)) is type(value), f"benchmark_profile_not_development_a2:{key}")
+    subclass = profile.get("vehicleSubclass")
+    require(isinstance(subclass, dict) and subclass.get("vocabularyId") == t9.MEASUREMENT_VOCABULARY,
+            "benchmark_profile_not_development_a2:vehicleSubclass")
 
 
 def camera_code(sequence_id: str) -> str:
@@ -58,7 +80,7 @@ def _execute(derived, profile_path, api_url, journal_path, export_root, export_c
              timeout_seconds) -> list[dict[str, Any]]:
     manifest, manifest_sha, _ = preparation.load(derived)
     profile_bytes = artefacts.read_bytes(profile_path, "pipeline_profile_unreadable")
-    t9.require_measurement_profile(profile_bytes)
+    require_benchmark_profile(profile_bytes)
     profile_sha = sha256_hex(profile_bytes)
     require(Path(export_root).is_dir(), "benchmark_export_root_missing")
     require(Path(evidence_root).is_dir(), "benchmark_evidence_root_missing")

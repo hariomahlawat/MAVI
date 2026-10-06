@@ -80,6 +80,11 @@ LAUNCH_FAILURE_CODES = frozenset(
         "launch_runtime_native_abi_binding_stale",
         "launch_model_pack_binding_stale",
         "launch_component_compatibility_failed",
+        # Development producer selection (ADR-014 2026-10-06 note): an unknown
+        # producer id, or a registry whose release-binding pin no longer matches
+        # the tracked release binding.
+        "launch_development_producer_unknown",
+        "launch_development_producers_stale",
         # The resolved policy and the installed pack must be the same thing.
         # These two are where explicit CUDA fails closed rather than running on
         # a pack that is not the CUDA one.

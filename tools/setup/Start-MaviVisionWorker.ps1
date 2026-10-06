@@ -6,6 +6,11 @@ param(
     [string]$MediaRoot = "C:\ProgramData\MAVI\Development\Data",
     [ValidateSet("cpu","cuda","auto")][string]$DevicePolicy = "auto",
     [int]$DeviceIndex = 0,
+    # Development producer (ADR-014 2026-10-06 note): run a declared Development
+    # replacement binding and its Development-only pipeline profile, selected by id
+    # from src\vision\config\development-producers-v1.json, instead of the release
+    # binding. Omitted, the launcher runs the release binding exactly as before.
+    [ValidateSet("a2-scale640","a2-scale1280")][string]$DevelopmentProducer,
     # Run every launch check (Runtime Pack, overlay, Model Pack store, component
     # compatibility) and stop before the worker environment is prepared or the
     # worker starts. Setup-MAVI uses this as its readiness boundary.
@@ -65,6 +70,23 @@ if ($LASTEXITCODE -ne 0 -or $head -notmatch '^[0-9a-f]{40}$') { Stop-MaviLaunch 
 # the worker resolves the same binding again, authoritatively, in Python.
 $componentBindingPath = Join-Path $RepositoryRoot "src\vision\config\components\phase1-bindings-v2.json"
 $pipelinePath = Join-Path $RepositoryRoot "src\vision\config\pipelines\phase1-detection-tracking-v1.json"
+if (-not [string]::IsNullOrWhiteSpace($DevelopmentProducer)) {
+    # The registry pins the release binding by path and SHA-256; a stale pin means the
+    # declared replacement no longer derives from the binding it was checked against.
+    # The worker still re-resolves everything, and refuses a Development-only profile
+    # in Production; this launcher only ever starts Development mode.
+    $producersPath = Join-Path $RepositoryRoot "src\vision\config\development-producers-v1.json"
+    if (-not (Test-Path -LiteralPath $producersPath -PathType Leaf)) { Stop-MaviLaunch launch_overlay_file_missing "Development producer registry is missing: $producersPath" }
+    $producers = Invoke-MaviLaunchStep launch_overlay_metadata_unreadable { Get-Content -LiteralPath $producersPath -Raw | ConvertFrom-Json }
+    if ((Get-MaviVisionPropertyText -Value $producers -Name "schemaVersion") -ne "mavi-vision-development-producers-v1") { Stop-MaviLaunch launch_component_schema_unsupported "Unsupported Development producer registry schema in '$producersPath'." }
+    $releasePin = Get-MaviVisionPropertyValue -Value $producers -Name "releaseBinding"
+    if ((Get-MaviVisionPropertyText -Value $releasePin -Name "path") -cne "src/vision/config/components/phase1-bindings-v2.json" -or (Get-MaviVisionPropertyText -Value $releasePin -Name "sha256") -ne (Get-Sha256 $componentBindingPath)) { Stop-MaviLaunch launch_development_producers_stale "Development producer registry '$producersPath' does not pin the current release binding '$componentBindingPath'." }
+    $producer = @(@(Get-MaviVisionPropertyValue -Value $producers -Name "producers") | Where-Object { (Get-MaviVisionPropertyText -Value $_ -Name "producerId") -ceq $DevelopmentProducer })
+    if ($producer.Count -ne 1) { Stop-MaviLaunch launch_development_producer_unknown "Development producer '$DevelopmentProducer' is not declared exactly once in '$producersPath'." }
+    $componentBindingPath = Join-Path $RepositoryRoot ((Get-MaviVisionPropertyText -Value $producer[0] -Name "bindingPath") -replace '/', '\')
+    $pipelinePath = Join-Path $RepositoryRoot ((Get-MaviVisionPropertyText -Value $producer[0] -Name "pipelineProfilePath") -replace '/', '\')
+    Write-Host "Development producer '$DevelopmentProducer': binding $componentBindingPath, pipeline $pipelinePath (Development only; never Production)." -ForegroundColor Yellow
+}
 $qualificationRoot = Join-Path $RepositoryRoot "models\qualifications"
 $modelManifestRoot = Join-Path $RepositoryRoot "models\manifests"
 

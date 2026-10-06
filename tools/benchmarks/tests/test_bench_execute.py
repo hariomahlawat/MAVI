@@ -163,3 +163,37 @@ def test_the_cli_prints_one_line_per_sequence(bench, capsys):
                      *[f"--export-arg={arg}" for arg in bench.command()[1:]], "--poll-seconds", "0"])
     out = capsys.readouterr().out.split()
     assert code == 0 and out[0] == "seq-a" and out[3] == "seq-b"
+
+
+# --------------------------------------------------------------------------- Development producer profile (H4)
+
+A2_PROFILE = ROOT / "src" / "vision" / "config" / "pipelines" / "phase1-detection-tracking-a2-v1.json"
+
+
+def test_the_tracked_a2_development_profile_passes_the_identity_gate():
+    execution.require_benchmark_profile(A2_PROFILE.read_bytes())
+
+
+def test_the_s32_measurement_profile_still_passes_and_its_refusals_are_unchanged():
+    execution.require_benchmark_profile(json.dumps(s32.PROFILE).encode())
+    with pytest.raises(S32Error, match="^t9_profile_not_s32:profileVersion$"):
+        execution.require_benchmark_profile(json.dumps({**s32.PROFILE, "profileVersion": "9.9.9"}).encode())
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("schemaVersion", "1.2"), ("profileVersion", "1.0.1-development"), ("developmentOnly", False),
+     ("developmentOnly", "true")],
+)
+def test_an_a2_profile_with_another_identity_is_refused(key, value):
+    document = json.loads(A2_PROFILE.read_bytes())
+    document[key] = value
+    with pytest.raises(S32Error, match=f"^benchmark_profile_not_development_a2:{key}$"):
+        execution.require_benchmark_profile(json.dumps(document).encode())
+
+
+def test_an_a2_profile_with_another_subclass_vocabulary_is_refused():
+    document = json.loads(A2_PROFILE.read_bytes())
+    document["vehicleSubclass"]["vocabularyId"] = "other-vocabulary"
+    with pytest.raises(S32Error, match="^benchmark_profile_not_development_a2:vehicleSubclass$"):
+        execution.require_benchmark_profile(json.dumps(document).encode())
