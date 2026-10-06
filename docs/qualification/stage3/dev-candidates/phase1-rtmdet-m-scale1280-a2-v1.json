@@ -2,11 +2,11 @@
   "schemaVersion": "mavi-development-candidate-spec-v1",
   "candidateId": "phase1-rtmdet-m-scale1280-a2",
   "candidateVersion": "1.0.0-development",
-  "status": "Development candidate only. Not Production-qualified, not bound by any component binding, not selectable by any deployment profile. Recorded from the completed H3 detector/tracker diagnosis; see docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md, 'Development candidate from the H3 diagnosis'.",
+  "status": "Development candidate only. Not Production-qualified, not bound by any component binding, not selectable by any deployment profile. Recorded from the completed H3 detector/tracker diagnosis; see docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md, 'H3 detector-side diagnosis and Development candidate'.",
   "base": {
     "description": "Everything not listed under 'differences' is inherited unchanged from these tracked or installed identities.",
     "componentBinding": {"path": "src/vision/config/components/phase1-bindings-v2.json", "bindingId": "phase1-v2", "sha256": "7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205"},
-    "pipelineProfile": {"path": "src/vision/config/pipelines/phase1-detection-tracking-v1.json", "profileId": "phase1-detection-tracking-v1", "profileVersion": "1.3.0-candidate", "sha256": "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf"},
+    "pipelineProfile": {"role": "bound reference profile; measured in H3, not qualified (qualification record rtmdet-m-coco-phase1-v2 overallResult pending)", "path": "src/vision/config/pipelines/phase1-detection-tracking-v1.json", "profileId": "phase1-detection-tracking-v1", "profileVersion": "1.3.0-candidate", "sha256": "afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf"},
     "modelManifest": {"path": "models/manifests/rtmdet-m-coco-phase1-v2.json", "modelId": "rtmdet-m-coco-phase1", "sha256": "bc8127c1c00513a90f1b00325dcae3d4f31243ef1ce04ebe38350f945cb79c90"},
     "qualificationRecord": {"path": "models/qualifications/rtmdet-m-coco-phase1-v2.json", "qualificationId": "rtmdet-m-coco-phase1-v2", "sha256": "2c2ba3d674cebf18955af1b224ef41c8c1a1fbc189cc28a6d605436c46c2a224"},
     "modelPackId": "mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700",
@@ -15,7 +15,7 @@
     "runtimePackId": {"windows-x86_64-cuda": "mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d"}
   },
   "differences": {
-    "fromQualifiedProfile": [
+    "fromBoundReferenceProfile": [
       {
         "component": "detector test preprocessing (in-process copy of the resolved config; the Model Pack file is not modified)",
         "targets": ["test_dataloader.dataset.pipeline", "test_pipeline"],
@@ -29,7 +29,7 @@
       }
     ],
     "fromH3DevelopmentReferenceA2": "Only the detector test Resize/Pad change above.",
-    "effectiveScale": "Resize keeps the aspect ratio inside 1280x1280, so the scale factor is min(1280/W, 1280/H). For the 1280x720 H3 sources it is 1.0 (native pixels; qualified path 0.5). For other source sizes it is not native: 1920x1080 gives 0.667."
+    "effectiveScale": "Resize keeps the aspect ratio inside 1280x1280, so the scale factor is min(1280/W, 1280/H). For the 1280x720 H3 sources it is 1.0 (native pixels; bound reference path 0.5). For other source sizes it is not native: 1920x1080 gives 0.667."
   },
   "unchanged": [
     "checkpoint, model and head",
