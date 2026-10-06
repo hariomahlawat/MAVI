@@ -159,9 +159,14 @@ def test_prepare_encodes_odd_sized_frames_with_padding(tmp_path, media_pack):
 
     root = write_source(tmp_path / "src", rows=ROWS[:3], frames=3)
     ffmpeg = s32b_fixtures.tool_path(Path(media_pack), "ffmpeg")
-    for path in sorted((root / "VisDrone2019-MOT-val" / "sequences" / SEQ).glob("*.jpg")):
-        subprocess.run([str(ffmpeg), "-nostdin", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:s=101x51",
-                        "-frames:v", "1", "-pix_fmt", "yuvj444p", "-q:v", "3", str(path)], check=True, capture_output=True)
+    # A raw PPM in, one JPEG out: the pattern bdd_fixtures.encode_real_jpegs uses on every CI platform.
+    for number, path in enumerate(sorted((root / "VisDrone2019-MOT-val" / "sequences" / SEQ).glob("*.jpg"))):
+        ppm = path.with_suffix(".ppm")
+        ppm.write_bytes(b"P6\n101 51\n255\n" + bytes([60 + 40 * number, 120, 90]) * (101 * 51))
+        path.unlink()
+        subprocess.run([str(ffmpeg), "-nostdin", "-loglevel", "error", "-y", "-i", str(ppm), "-pix_fmt", "yuvj444p",
+                        "-q:v", "3", str(path)], check=True, capture_output=True)
+        ppm.unlink()
         assert jpeg_size(path.read_bytes(), "x") == (101, 51), "the fixture frame is not odd-sized"
     document = descriptors.freeze(vd.descriptor(), root)
     (tmp_path / "frozen.json").write_bytes(canonical_json(document))
