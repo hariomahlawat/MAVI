@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "mavi-vision-development-producers-v1",
+  "releaseBinding": {
+    "path": "src/vision/config/components/phase1-bindings-v2.json",
+    "sha256": "7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205"
+  },
+  "producers": [
+    {
+      "producerId": "a2-scale640",
+      "bindingPath": "src/vision/config/components/development-phase1-a2-scale640-v1.json",
+      "pipelineProfilePath": "src/vision/config/pipelines/phase1-detection-tracking-a2-v1.json",
+      "replaces": [
+        {
+          "roleId": "vision",
+          "capabilityId": "detector"
+        }
+      ]
+    },
+    {
+      "producerId": "a2-scale1280",
+      "bindingPath": "src/vision/config/components/development-phase1-a2-scale1280-v1.json",
+      "pipelineProfilePath": "src/vision/config/pipelines/phase1-detection-tracking-a2-v1.json",
+      "replaces": [
+        {
+          "roleId": "vision",
+          "capabilityId": "detector"
+        }
+      ]
+    }
+  ]
+}

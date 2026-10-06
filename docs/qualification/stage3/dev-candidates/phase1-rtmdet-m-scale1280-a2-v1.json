@@ -2,7 +2,7 @@
   "schemaVersion": "mavi-development-candidate-spec-v1",
   "candidateId": "phase1-rtmdet-m-scale1280-a2",
   "candidateVersion": "1.0.0-development",
-  "status": "Development candidate only. Not Production-qualified, not bound by any component binding, not selectable by any deployment profile. Recorded from the completed H3 detector/tracker diagnosis; see docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md, 'H3 detector-side diagnosis and Development candidate'.",
+  "status": "Runnable Development candidate. Not Production-qualified and never selectable in Production: it is the Development producer a2-scale1280 (with its paired comparator a2-scale640) declared in src/vision/config/development-producers-v1.json under the ADR-014 2026-10-06 note. Its qualification records are pending with no qualified profile. Recorded from the completed H3 detector/tracker diagnosis; see docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md, 'H3 detector-side diagnosis and Development candidate'. H4 has not run.",
   "base": {
     "description": "Base/reference provenance. These identities describe the bound Development reference configuration the candidate is derived from; the candidate does not possess them. Everything not listed under 'differences' is inherited unchanged in content. The existing Model Pack ID and resolved-config hash identify the 640 reference pack; that pack does not contain the 1280 config, and because Resize/Pad changes the resolved detector config, a runnable candidate requires a new content-derived Model Pack identity.",
     "componentBinding": {"path": "src/vision/config/components/phase1-bindings-v2.json", "bindingId": "phase1-v2", "sha256": "7ef226193232b90b0a20f8648a95f21e0bbc9416b353605c9be6d81262abe205"},
@@ -17,7 +17,7 @@
   "differences": {
     "fromBoundDevelopmentReferenceProfile": [
       {
-        "component": "detector test preprocessing (in-process copy of the resolved config; the Model Pack file is not modified)",
+        "component": "detector test preprocessing. Measured in H3 as an in-process override of the base resolved config; packaged as the derived resolved config of the 1280 Model Pack (see runnableIdentities.packaging)",
         "targets": ["test_dataloader.dataset.pipeline", "test_pipeline"],
         "Resize": {"from": {"scale": [640, 640], "keep_ratio": true}, "to": {"scale": [1280, 1280], "keep_ratio": true}},
         "Pad": {"from": {"size": [640, 640], "pad_val": {"img": [114, 114, 114]}}, "to": {"size": [1280, 1280], "pad_val": {"img": [114, 114, 114]}}}
@@ -60,10 +60,45 @@
     },
     "evidenceDomain": "BDD100K MOT 2020 val, the 200 H3 sequences, 1280x720 at 5 Hz (H3 frozen inputs)"
   },
+  "runnableIdentities": {
+    "description": "The runnable Development producers that make formal H4 evidence possible. Both run the one A2 Development pipeline profile; they differ causally only in the detector Model Pack (test Resize/Pad 640 vs 1280). None is Production-qualified; every gate is pending.",
+    "producerRegistry": {"path": "src/vision/config/development-producers-v1.json", "sha256": "dcce9d106b099d9f49b06edb0aeb98294c8603ca9c2a5da487da665c4a1f511b"},
+    "pipelineProfile": {"path": "src/vision/config/pipelines/phase1-detection-tracking-a2-v1.json", "profileId": "phase1-detection-tracking-a2", "profileVersion": "1.0.0-development", "schemaVersion": "1.3", "developmentOnly": true, "sha256": "b4c6a6cf8c68382f3af266b884801dbb77fb908cbaca7ed41336d4834463e62e"},
+    "candidate": {
+      "producerId": "a2-scale1280",
+      "componentBinding": {"path": "src/vision/config/components/development-phase1-a2-scale1280-v1.json", "bindingId": "development-phase1-a2-scale1280-v1", "sha256": "03d3a00b33d0565bf2909df94e4f7999bc700ecbcc36229cd670f00299612fa3"},
+      "modelManifest": {"path": "models/manifests/rtmdet-m-coco-phase1-scale1280-v2.json", "modelId": "rtmdet-m-coco-phase1", "modelVersion": "1.0.0-dev.scale1280", "sha256": "1c3b1f02c7af55691c7d1685e21def7b3c27eaf1b5a2a1d8d069b5e826fb33a4"},
+      "modelPackId": "mavi-model-v2-9f1f9f70f69388e1bb1068a6a1bcd97d3439c8c9f14bd3cdaa2abf78d513d871",
+      "checkpointSha256": "229f527ca88498e8894a778a62a878a322b4a3ea2cae09ea537d34b7e907792b",
+      "resolvedConfigSha256": "6ef856f49ef450242c9ef855fcbf21a5d8ef5db3ba92d10f201cd3778e382047",
+      "qualificationRecord": {"path": "models/qualifications/rtmdet-m-coco-phase1-a2-scale1280-dev-v1.json", "qualificationId": "rtmdet-m-coco-phase1-a2-scale1280-dev-v1", "sha256": "0764ce5ccd9b43ec5e6ac0e99260389ca757b112fe5e83ddb3e2bf7e89b02418", "overallResult": "pending"}
+    },
+    "comparator": {
+      "producerId": "a2-scale640",
+      "description": "The H3 A2 Development reference as a runnable producer: the existing 640 Model Pack bytes, reused because its detector is unchanged, under its own Development qualification record that pins the A2 profile (the release record pins the bound Development reference profile, activation 0.70).",
+      "componentBinding": {"path": "src/vision/config/components/development-phase1-a2-scale640-v1.json", "bindingId": "development-phase1-a2-scale640-v1", "sha256": "f7ace806b79576ec58707a14a5ac9c3fb6a274e52124894f7f667478e27989b7"},
+      "modelPackId": "mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700",
+      "resolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+      "qualificationRecord": {"path": "models/qualifications/rtmdet-m-coco-phase1-a2-scale640-dev-v1.json", "qualificationId": "rtmdet-m-coco-phase1-a2-scale640-dev-v1", "sha256": "8a796c2ad117184d55f81aae77a60700317f6bec346b9078b2979992e00a91f9", "overallResult": "pending"}
+    },
+    "packaging": {
+      "tool": "tools/vision/derive_detector_test_scale.py",
+      "baseResolvedConfigSha256": "377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3",
+      "derivedResolvedConfigSha256": "6ef856f49ef450242c9ef855fcbf21a5d8ef5db3ba92d10f201cd3778e382047",
+      "structuralDifferences": [
+        {"path": "test_dataloader.dataset.pipeline.1.scale", "from": [640, 640], "to": [1280, 1280]},
+        {"path": "test_dataloader.dataset.pipeline.2.size", "from": [640, 640], "to": [1280, 1280]},
+        {"path": "test_pipeline.1.scale", "from": [640, 640], "to": [1280, 1280]},
+        {"path": "test_pipeline.2.size", "from": [640, 640], "to": [1280, 1280]}
+      ],
+      "note": "Byte-minimal: exactly eight integer literals change; keep_ratio, pad_val, the validation and training pipelines, test_cfg (NMS 0.65, nms_pre 30000, max_per_img 300) and every other node are unchanged. src/vision/tests/test_detector_test_scale_derivation.py pins the rule and, where the base pack is installed, re-derives this hash."
+    },
+    "selection": "Start-MaviVisionWorker.ps1 -DevelopmentProducer a2-scale640 | a2-scale1280 (Development mode only; the resolver refuses the Development-only A2 profile in Production)."
+  },
   "restrictions": [
-    "Not a Model Pack and not runtime-composable: no component binding, Model Pack manifest or qualification record refers to this candidate, and it has no Model Pack identity of its own (base.modelPackId is reference provenance only).",
-    "Runnable only through the frozen diagnostic route (in-process override plus exact replay). That route is valid Development diagnostic evidence, not formal H4/H5 benchmark-producer evidence.",
-    "Formal candidate H4 evidence requires a separately versioned runnable Development identity: new resolved config and content-derived Model Pack, Development pipeline profile, Development-only ADR-014 overlay/binding, a provenance/qualification record appropriate to its Development status, Production fencing and a harness-attested producer identity.",
+    "Development only: the A2 profile is developmentOnly, and the resolver refuses it in Production (detector_development_profile_forbidden). The replacement bindings' records pin that profile, so they cannot resolve in Production with any other profile either.",
+    "None of these identities is Production-qualified: both Development qualification records are pending, with no qualified profile and no evidence; no gate was executed in this slice.",
+    "The H3 E1/T1/full-200 diagnostic route remains Development diagnostic evidence. Formal H4 evidence comes only from runs of the producers above, under a frozen H4 methodology. H4 has not run.",
     "No Production conclusion; no threshold recommendation; no operator exposure."
   ]
 }

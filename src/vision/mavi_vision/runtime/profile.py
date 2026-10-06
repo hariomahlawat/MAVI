@@ -114,6 +114,9 @@ class PipelineProfile:
     # Detector-native vehicle subclass vote (ADR-016). Every loaded profile carries
     # it; only hand-built test profiles may omit it, and then no Track gets a subclass.
     vehicle_subclass: VehicleSubclassPolicy | None = None
+    # Schema 1.3 declares it explicitly; a 1.2 profile is never Development-only. The
+    # resolver refuses a Development-only profile in Production (ADR-014 2026-10-06 note).
+    development_only: bool = False
 
 
 class _StrictModel(BaseModel):
@@ -256,8 +259,10 @@ class _VehicleSubclassSchema(_StrictModel):
 
 
 class _PipelineProfileSchema(_StrictModel):
-    # 1.2 adds the required vehicleSubclass block (ADR-016).
-    schema_version: Literal["1.2"] = Field(alias="schemaVersion")
+    # 1.2 adds the required vehicleSubclass block (ADR-016). 1.3 adds the required
+    # developmentOnly flag (ADR-014 2026-10-06 note); 1.2 must not carry it.
+    schema_version: Literal["1.2", "1.3"] = Field(alias="schemaVersion")
+    development_only: bool | None = Field(default=None, alias="developmentOnly", strict=True)
     profile_id: str = Field(alias="profileId")
     profile_version: str = Field(alias="profileVersion")
     model_id: str = Field(alias="modelId")
@@ -287,6 +292,12 @@ class _PipelineProfileSchema(_StrictModel):
         if value != _PHASE1_SOURCE_CLASSES:
             raise ValueError("phase1_allowed_source_classes_invalid")
         return value
+
+    @model_validator(mode="after")
+    def validate_development_flag(self) -> "_PipelineProfileSchema":
+        if (self.schema_version == "1.3") != (self.development_only is not None):
+            raise ValueError("pipeline_profile_development_flag_invalid")
+        return self
 
     @model_validator(mode="after")
     def validate_phase1_mapping(self) -> "_PipelineProfileSchema":
@@ -343,6 +354,7 @@ def load_pipeline_profile(path: Path) -> PipelineProfile:
         frame_policy=parsed.frame_policy,
         evidence=evidence,
         vehicle_subclass=vehicle_subclass,
+        development_only=parsed.development_only is True,
     )
 
 

@@ -82,8 +82,12 @@ def execute(args: argparse.Namespace) -> str:
     rows = execution.execute(derived=args.derived, profile_path=args.pipeline_profile, api_url=args.api,
                              journal_path=args.journal, export_root=args.exports,
                              export_command=[str(args.export_exe), *args.export_arg],
-                             evidence_root=args.evidence_root, poll_seconds=args.poll_seconds)
-    return "\n".join(f"{row['sequenceId']} {row['processingRunId']} {row['exportSha256']}" for row in rows)
+                             evidence_root=args.evidence_root, poll_seconds=args.poll_seconds,
+                             development_producer=args.development_producer)
+    lines = [f"{row['sequenceId']} {row['processingRunId']} {row['exportSha256']}" for row in rows]
+    if args.development_producer is not None:
+        lines.insert(0, f"developmentProducer {args.development_producer}")
+    return "\n".join(lines)
 
 
 def evaluate(args: argparse.Namespace) -> str:
@@ -117,6 +121,8 @@ def parser() -> argparse.ArgumentParser:
     ex.add_argument("--api", required=True)
     ex.add_argument("--export-arg", action="append", default=[])
     ex.add_argument("--poll-seconds", type=float, default=5.0)
+    ex.add_argument("--development-producer", default=None,
+                    help="required for the A2 Development profile (a2-scale640 | a2-scale1280); refused otherwise")
     ev = commands.add_parser("evaluate", help="associate, evaluate and report one prepared benchmark run")
     for name in ("--descriptor", "--derived", "--exports", "--evidence-root", "--mapping", "--policy",
                  "--requirements", "--pipeline-profile", "--out"):

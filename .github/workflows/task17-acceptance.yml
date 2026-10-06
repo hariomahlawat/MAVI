@@ -99,23 +99,30 @@ jobs:
       - name: Confirm pending release truth remains valid
         shell: python
         run: |
+          import hashlib
           import json
           from pathlib import Path
           # The truth the component binding v2 (S2a.3) resolves to: follow the
           # binding to the bound manifest and record rather than naming files.
+          # One model may have several packs (ADR-014 2026-10-06 note), so the
+          # manifest is the one whose bytes the bound record pins.
           binding = json.loads(Path("src/vision/config/components/phase1-bindings-v2.json").read_text())
           assert binding["schemaVersion"] == "mavi-vision-component-binding-v2"
           (detector,) = [item for item in binding["capabilityBindings"] if item["capabilityId"] == "detector"]
-          manifests = [json.loads(path.read_text()) for path in sorted(Path("models/manifests").glob("*.json"))]
+          manifests = {
+              hashlib.sha256(path.read_bytes()).hexdigest(): json.loads(path.read_text())
+              for path in sorted(Path("models/manifests").glob("*.json"))
+          }
           records = {
               document["qualificationId"]: document
               for document in (json.loads(path.read_text()) for path in sorted(Path("models/qualifications").glob("*.json")))
           }
-          assert all(document["schemaVersion"] == "2.0" for document in manifests)
+          assert all(document["schemaVersion"] == "2.0" for document in manifests.values())
           assert all(document["schemaVersion"] == "2.0" for document in records.values())
           qualification = records[detector["qualificationId"]]
           assert qualification["modelPackId"] == detector["modelPackId"]
-          (manifest,) = [document for document in manifests if document["modelId"] == qualification["modelId"]]
+          manifest = manifests[qualification["modelManifestSha256"]]
+          assert manifest["modelId"] == qualification["modelId"]
           runtime = json.loads(Path("src/vision/runtime/mmdetection-phase1-v1/runtime.json").read_text())
           assert runtime["schemaVersion"] == "2.0"
           if manifest["verificationStatus"] == "unverified":

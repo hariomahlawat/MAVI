@@ -125,6 +125,40 @@ Since S2a.3 the worker composes the vision role from one file, `src/vision/confi
 
 Kit assembly for N packs and the guided Setup installation followed in Stage 2 S2a.4 (see "Offline Binary Kit / component store" and "Guided Setup" above).
 
+## Stage-3 Development producers (Development and Testing hosts only)
+
+ADR-014's 2026-10-06 note adds **Development replacement bindings**, declared in `src/vision/config/development-producers-v1.json`. Two producers exist for H4. Both run the Development-only A2 profile `src/vision/config/pipelines/phase1-detection-tracking-a2-v1.json`, and they differ only in the detector Model Pack:
+- `a2-scale640`: the existing 640 Model Pack;
+- `a2-scale1280`: the scale-1280 Model Pack `mavi-model-v2-9f1f9f70…d871`.
+
+They never start in Production: the worker refuses the profile there (`detector_development_profile_forbidden`). They are not part of any Setup kit; the kits, the release binding and Production start-up are unchanged.
+
+1. **Build the scale-1280 Model Pack** (outside Git). It needs the installed base pack `rtmdet-m-coco-phase1-v1`, the commit that tracks the manifest, and a new output directory.
+   - Derive the resolved config:
+     ```
+     python tools/vision/derive_detector_test_scale.py --base <store>\rtmdet-m-coco-phase1-v1\rtmdet_m_resolved.py --base-sha256 377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3 --scale 1280 --output <work>\rtmdet_m_resolved_scale1280.py
+     ```
+     The derived SHA-256 must be `6ef856f49ef450242c9ef855fcbf21a5d8ef5db3ba92d10f201cd3778e382047`.
+   - Build the pack, supplying the base pack's checkpoint and `LICENSE` for those two roles:
+     ```
+     python tools/vision/build_model_pack.py --source-manifest models/manifests/rtmdet-m-coco-phase1-scale1280-v2.json --artifact checkpoint=<base checkpoint> --artifact licence-notice=<base LICENSE> --artifact resolved-config=<work>\rtmdet_m_resolved_scale1280.py --assembled-from-commit <commit> --output <work>\pack
+     ```
+2. **Install it beside the base pack** with `Install-MaviVisionModelPack.ps1 -PackRoot <work>\pack -StoreRoot <store>`. It goes into its own `rtmdet-m-coco-phase1-scale1280-v1\` directory and does not disturb the base pack.
+3. **Start one producer:**
+   ```
+   Start-MaviVisionWorker.ps1 -DevelopmentProducer a2-scale640
+   ```
+   or `a2-scale1280`. Add `-VerifyOnly` to check composition only.
+   - The launcher refuses an unknown producer (`launch_development_producer_unknown`) and a registry whose release-binding pin is stale (`launch_development_producers_stale`).
+   - Without `-DevelopmentProducer` the launcher runs the release binding exactly as before.
+   - Each run attests its producer's `componentBindingSha256` and `modelPackId`, and the shared A2 `pipelineProfileSha256`.
+   - The S3.2d harness (`tools/benchmarks` `execute`) runs the A2 profile only with an explicit `--development-producer a2-scale640|a2-scale1280`; it refuses the flag for the S3.2 profile.
+     - The producer's identity (profile SHA, binding SHA, detector `modelPackId`) is read from the committed registry, binding and profile. Any uncommitted byte in them is refused (`benchmark_producer_dirty:<path>`).
+     - That identity is bound into the resume journal before any API call; a journal for one producer cannot resume as the other (`benchmark_journal_producer_mismatch`).
+     - Every export must attest exactly that producer (`benchmark_producer_mismatch:<key>`), checked after each run, so a wrong worker fails at its first export.
+     - Start a worker with the same producer id, and use a fresh journal and catalogue for each producer.
+4. **Changing the release binding** makes the registry pin stale (and `verify_repo` fails) until the registry is re-pinned and both replacement bindings are re-derived from the new release binding.
+
 ## Completion contract v3 deployment order
 
 Completion 3.0 carries the Track Evidence Set (up to four role-tagged observations per Track and a per-role evidence accounting block). The platform accepted completion **2.0 and 3.0** from S1.2a; **S1.4 F2 adds completion 3.1 behind an activation gate** (`VisionFinalization:Enabled`; worker `MAVI_COMPLETION_SCHEMA_VERSION`). **Since S1.4 F4-C both ship on**: `Enabled` defaults to `true` and the worker to `3.1`. The platform held off by an override and a worker pinned to `3.0` are the rollback pair: the probe then lists `["2.0","3.0"]` and 3.0 completes synchronously. Activated, the probe lists `["2.0","3.1"]`, 3.1 is the same body answered by a durable `finalizing` hand-off, live 3.0 is refused (`worker_contract_version_unsupported`), and the 3.1 worker keeps the current attempt's staging for the platform finalizer — see `docs/superpowers/plans/2026-09-25-s1-4-b3-asynchronous-finalization.md` §5, §6, §15. The S1.2 history below is unchanged; lease, heartbeat and fail stay on control-plane 2.0. Contract artefacts: `contracts/schemas/vision-job-complete-v3.schema.json`, the golden example and its pinned digest (`contracts/test-vectors/vision-job-complete-v3-digest.json`).

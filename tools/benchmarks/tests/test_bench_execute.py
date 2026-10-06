@@ -65,11 +65,15 @@ class Bench:
         self.journal = root / "journal.json"
         self.api = StubApi(root / "stub")
         self.tamper = ""
+        self.attest: dict[str, str] | None = None  # the worker's attested binding and Model Pack (A2 runs)
 
     def command(self) -> list[str]:
-        return [sys.executable, str(HERE / "bench_stub_export.py"), "--state",
-                str(self.api.state.root / "export-state.json"), "--evidence", str(self.evidence),
-                f"--tamper={self.tamper}"]
+        command = [sys.executable, str(HERE / "bench_stub_export.py"), "--state",
+                   str(self.api.state.root / "export-state.json"), "--evidence", str(self.evidence),
+                   f"--tamper={self.tamper}"]
+        if self.attest is not None:
+            command += ["--attest-binding", self.attest["binding"], "--attest-pack", self.attest["pack"]]
+        return command
 
     def run(self, **over):
         values = dict(derived=self.derived, profile_path=self.profile, api_url=self.api.url,
@@ -163,3 +167,196 @@ def test_the_cli_prints_one_line_per_sequence(bench, capsys):
                      *[f"--export-arg={arg}" for arg in bench.command()[1:]], "--poll-seconds", "0"])
     out = capsys.readouterr().out.split()
     assert code == 0 and out[0] == "seq-a" and out[3] == "seq-b"
+
+
+# --------------------------------------------------------------------------- Development producers (H4)
+
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+
+from tools.benchmarks.core import producer as producers  # noqa: E402
+
+A2_PROFILE = ROOT / "src" / "vision" / "config" / "pipelines" / "phase1-detection-tracking-a2-v1.json"
+IDENTITY = {name: producers.producer_identity(name) for name in ("a2-scale640", "a2-scale1280")}
+
+
+def a2(bench, requested, attested):
+    """An A2 run that asks for ``requested`` while the (stub) worker attests ``attested``."""
+    bench.profile.write_bytes(A2_PROFILE.read_bytes())
+    identity = IDENTITY[attested]
+    bench.attest = {"binding": identity["componentBindingSha256"], "pack": identity["modelPackId"]}
+    return bench.run(development_producer=requested)
+
+
+def exported(bench):
+    return sorted(path.name for path in bench.exports.iterdir())
+
+
+@pytest.mark.parametrize("name", ["a2-scale640", "a2-scale1280"])
+def test_the_requested_producer_attested_passes_and_is_bound_and_reported(bench, name):
+    rows = a2(bench, name, name)
+    assert rows and all(row["developmentProducerId"] == name for row in rows)
+    journal = json.loads(bench.journal.read_bytes())
+    assert journal["developmentProducer"] == producers.journal_identity(IDENTITY[name])
+
+
+@pytest.mark.parametrize(("requested", "attested"), [("a2-scale1280", "a2-scale640"), ("a2-scale640", "a2-scale1280")])
+def test_another_producer_attested_fails_at_the_first_export(bench, requested, attested):
+    with pytest.raises(S32Error, match="^benchmark_producer_mismatch:componentBindingSha256$"):
+        a2(bench, requested, attested)
+    assert len(exported(bench)) == 1  # refused after the first run, not after the whole domain
+
+
+@pytest.mark.parametrize(("first", "second"), [("a2-scale640", "a2-scale1280"), ("a2-scale1280", "a2-scale640")])
+def test_a_journal_for_one_producer_cannot_resume_as_the_other(bench, first, second):
+    a2(bench, first, first)
+    calls = len(bench.api.state.calls)
+    # Same journal, same catalogue, same benchmark inputs and profile; the other producer requested and attested.
+    with pytest.raises(S32Error, match="^benchmark_journal_producer_mismatch$"):
+        a2(bench, second, second)
+    assert len(bench.api.state.calls) == calls  # refused before any API call
+    assert json.loads(bench.journal.read_bytes())["developmentProducer"]["producerId"] == first
+
+
+def test_the_same_producer_resumes_from_its_own_journal(bench):
+    first = a2(bench, "a2-scale1280", "a2-scale1280")
+    posts = len([call for call in bench.api.state.calls if call[0] == "POST"])
+    assert a2(bench, "a2-scale1280", "a2-scale1280") == first
+    assert len([call for call in bench.api.state.calls if call[0] == "POST"]) == posts
+
+
+def test_s32_execution_is_unchanged(bench):
+    rows = bench.run()
+    assert all(set(row) == {"sequenceId", "videoAssetId", "processingRunId", "exportSha256"} for row in rows)
+    assert "developmentProducer" not in json.loads(bench.journal.read_bytes())
+    with pytest.raises(S32Error, match="^benchmark_development_producer_forbidden$"):
+        bench.run(development_producer="a2-scale640")
+
+
+def test_an_s32_journal_cannot_resume_as_a_development_producer(bench):
+    bench.run()
+    with pytest.raises(S32Error, match="^benchmark_journal_producer_mismatch$"):
+        a2(bench, "a2-scale640", "a2-scale640")
+
+
+def test_an_a2_run_requires_a_producer_and_a_known_one(bench):
+    bench.profile.write_bytes(A2_PROFILE.read_bytes())
+    with pytest.raises(S32Error, match="^benchmark_development_producer_required$"):
+        bench.run()
+    with pytest.raises(S32Error, match="^benchmark_development_producer_unknown:a2-scale999$"):
+        bench.run(development_producer="a2-scale999")
+    assert bench.api.state.calls == [] and not bench.journal.exists()
+
+
+def test_the_cli_names_the_development_producer(bench, capsys):
+    bench.profile.write_bytes(A2_PROFILE.read_bytes())
+    identity = IDENTITY["a2-scale640"]
+    bench.attest = {"binding": identity["componentBindingSha256"], "pack": identity["modelPackId"]}
+    code = cli.main(["execute", "--derived", str(bench.derived), "--pipeline-profile", str(bench.profile),
+                     "--api", bench.api.url, "--journal", str(bench.journal), "--exports", str(bench.exports),
+                     "--evidence-root", str(bench.evidence), "--export-exe", sys.executable,
+                     *[f"--export-arg={arg}" for arg in bench.command()[1:]], "--poll-seconds", "0",
+                     "--development-producer", "a2-scale640"])
+    out = capsys.readouterr().out.split()
+    assert code == 0 and out[:2] == ["developmentProducer", "a2-scale640"]
+
+
+def test_the_s32_measurement_profile_still_passes_and_its_refusals_are_unchanged():
+    assert execution.require_benchmark_profile(json.dumps(s32.PROFILE).encode()) is None
+    with pytest.raises(S32Error, match="^t9_profile_not_s32:profileVersion$"):
+        execution.require_benchmark_profile(json.dumps({**s32.PROFILE, "profileVersion": "9.9.9"}).encode())
+
+
+def test_the_tracked_a2_profile_resolves_to_the_requested_frozen_producer():
+    for name, identity in IDENTITY.items():
+        assert execution.require_benchmark_profile(A2_PROFILE.read_bytes(), name) == identity
+    assert IDENTITY["a2-scale640"]["pipelineProfileSha256"] == IDENTITY["a2-scale1280"]["pipelineProfileSha256"]
+    assert IDENTITY["a2-scale640"]["componentBindingSha256"] != IDENTITY["a2-scale1280"]["componentBindingSha256"]
+    assert IDENTITY["a2-scale640"]["modelPackId"] != IDENTITY["a2-scale1280"]["modelPackId"]
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("schemaVersion", "1.2"), ("profileVersion", "1.0.1-development"), ("developmentOnly", False),
+     ("developmentOnly", "true")],
+)
+def test_an_a2_profile_with_another_identity_is_refused(key, value):
+    document = json.loads(A2_PROFILE.read_bytes())
+    document[key] = value
+    with pytest.raises(S32Error, match=f"^benchmark_profile_not_development_a2:{key}$"):
+        execution.require_benchmark_profile(json.dumps(document).encode(), "a2-scale640")
+
+
+def test_an_a2_profile_with_another_subclass_vocabulary_is_refused():
+    document = json.loads(A2_PROFILE.read_bytes())
+    document["vehicleSubclass"]["vocabularyId"] = "other-vocabulary"
+    with pytest.raises(S32Error, match="^benchmark_profile_not_development_a2:vehicleSubclass$"):
+        execution.require_benchmark_profile(json.dumps(document).encode(), "a2-scale640")
+
+
+def test_an_altered_a2_profile_with_the_same_identity_is_refused():
+    document = json.loads(A2_PROFILE.read_bytes())
+    document["tracker"]["trackActivationThreshold"] = 0.62
+    with pytest.raises(S32Error, match="^benchmark_profile_not_tracked_a2$"):
+        execution.require_benchmark_profile(json.dumps(document).encode(), "a2-scale1280")
+
+
+# --------------------------------------------------------------------------- frozen producer definition
+
+FROZEN = (
+    "src/vision/config/development-producers-v1.json",
+    "src/vision/config/components/development-phase1-a2-scale640-v1.json",
+    "src/vision/config/components/development-phase1-a2-scale1280-v1.json",
+    "src/vision/config/pipelines/phase1-detection-tracking-a2-v1.json",
+)
+
+
+def _git(repo, *args):
+    result = subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                             "-c", "core.autocrlf=false", *args], capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+    return result
+
+
+@pytest.fixture
+def frozen_repo(tmp_path):
+    """A repository holding exactly the committed producer definition."""
+    repo = tmp_path / "repo"
+    for path in FROZEN:
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / path, repo / path)
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "producer definition")
+    return repo
+
+
+def test_the_identity_is_read_from_the_committed_definition(frozen_repo):
+    for name, expected in IDENTITY.items():
+        identity = producers.producer_identity(name, frozen_repo)
+        assert producers.journal_identity(identity) == producers.journal_identity(expected)
+        assert identity["producerIdentitySha256"] == expected["producerIdentitySha256"]
+
+
+@pytest.mark.parametrize("path", [FROZEN[0], FROZEN[2], FROZEN[3]], ids=["registry", "binding", "a2-profile"])
+def test_a_dirty_producer_definition_is_refused(frozen_repo, path):
+    target = frozen_repo / path
+    data = target.read_bytes()
+    assert data.endswith(b"}\n")
+    target.write_bytes(data[:-2] + b" }\n")
+    with pytest.raises(S32Error, match=f"^benchmark_producer_dirty:{path}$"):
+        producers.producer_identity("a2-scale1280", frozen_repo)
+
+
+def test_an_uncommitted_producer_definition_is_refused(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "README").write_bytes(b"x\n")
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "no producer definition")
+    for path in FROZEN:
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / path, repo / path)
+    with pytest.raises(S32Error, match=f"^benchmark_producer_dirty:{FROZEN[0]}$"):
+        producers.producer_identity("a2-scale640", repo)

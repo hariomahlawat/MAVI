@@ -381,3 +381,29 @@ Non-claims unchanged by this amendment: RTMDet remains `pending` on every varian
 No qualification-record schema field changes; the gate-set configuration gains capability gate sets. The MSR is decision history: the acceptance register remains the acceptance authority, and the qualification record the qualification authority.
 
 *Trade-off:* each selection costs a written record and one hash check. In exchange, model choices stay auditable and reversible on evidence rather than memory.
+
+## Note 2026-10-06 (Stage 3): Development replacement bindings
+
+**Status: proposed in the Stage-3 Development-producer PR; accepted on merge.**
+
+**Context.** Formal H4 evidence for the Stage-3 scale-1280 detector candidate (`docs/qualification/stage3/dev-candidates/phase1-rtmdet-m-scale1280-a2-v1.json`) needs two runnable, attestable Development producers. Both run the H3 A2 tracker setting, and they differ causally only in detector test scale (640 against 1280). The 2026-09-28 Development overlay note does not fit, for three reasons:
+- it allows adding roles only, and keeps every release capability binding unchanged, while these producers must replace the `vision`/`detector` Model Pack and qualification record;
+- `verify_repo` never implemented it; the attribute "overlay" exists only as a test fixture that writes a whole alternative binding;
+- `verify_repo` refused a second manifest with the same `modelId`, but one shared A2 pipeline profile (which names `modelId`) requires both packs to carry the checkpoint's `modelId`.
+
+**Decision.** A tracked binding is the release binding or a declared **Development replacement binding**. A replacement binding is a complete alternative binding, not an overlay.
+
+- **Declaration.** The tracked producer registry `src/vision/config/development-producers-v1.json` (schema `mavi-vision-development-producers-v1`) declares each replacement binding:
+  - it pins the release binding by path and SHA-256, so any change to the release binding makes every declaration stale until re-pinned;
+  - it names, per producer, the binding (`src/vision/config/components/development-*.json`), the pipeline profile it runs with, and the capabilities it replaces;
+  - only `vision`/`detector` may be replaced.
+- **Containment.** A replacement binding equals the release binding except `bindingId` and, for each declared capability, its `modelPackId` and `qualificationId`. Runtime Pack families, roles, enabled state and every other capability binding are identical. It must name its own qualification record and may keep the release Model Pack.
+- **Pipeline policy.** The replaced capability's record pins exactly the producer's declared profile, and that profile is Development-only. Detector pipeline-profile schema 1.3 adds a required `developmentOnly` flag; schema 1.2 (the release profile) cannot carry it. The release binding may not pin a Development-only profile.
+- **Fence.**
+  - The resolver refuses a Development-only detector profile in Production (`detector_development_profile_forbidden`), even when every other Production claim holds.
+  - Because the replacement's record pins that profile, a replacement binding cannot resolve in Production with any other profile either (`qualification_policy_mismatch`).
+  - The Development launcher selects a producer only by registry id (`-DevelopmentProducer`), refuses a stale registry pin, and always starts Development mode.
+- **Model identity.** Manifests are unique by `modelPackId`, pack directory and (`modelId`, `modelVersion`), no longer by `modelId` alone. A binding still binds at most one pack per `modelId`, and every manifest and record must be bound by the release binding or a declared replacement.
+- **Unchanged:** any undeclared additional binding still fails `binding_multiple_not_supported`; the binding schema, the release binding bytes and the kit compatibility boundary are unchanged; the 2026-09-28 overlay note (adding roles) remains the separate, still-unimplemented mechanism for that case.
+
+*Trade-off:* one more tracked registry and two more bindings to verify, and the release binding's SHA is now repeated in the registry. In exchange, H4 can compare two harness-attested producers whose only causal difference is the detector Model Pack, without weakening the release-binding invariant or letting a Development pack reach Production.

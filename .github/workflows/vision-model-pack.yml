@@ -14,6 +14,11 @@ on:
       - 'src/vision/config/components/**'
       - 'models/manifests/**'
       - '.github/workflows/vision-model-pack.yml'
+      # The Stage-3 scale-1280 Development pack (ADR-014 2026-10-06 note) and its inputs.
+      - 'tools/vision/derive_detector_test_scale.py'
+      - 'src/vision/config/development-producers-v1.json'
+      - 'src/vision/config/pipelines/phase1-detection-tracking-a2-v1.json'
+      - 'models/qualifications/**'
   pull_request:
     branches:
       - main
@@ -27,6 +32,11 @@ on:
       - 'src/vision/config/components/**'
       - 'models/manifests/**'
       - '.github/workflows/vision-model-pack.yml'
+      # The Stage-3 scale-1280 Development pack (ADR-014 2026-10-06 note) and its inputs.
+      - 'tools/vision/derive_detector_test_scale.py'
+      - 'src/vision/config/development-producers-v1.json'
+      - 'src/vision/config/pipelines/phase1-detection-tracking-a2-v1.json'
+      - 'models/qualifications/**'
   workflow_dispatch:
 
 permissions:
@@ -179,4 +189,99 @@ jobs:
           path: modelpack-output
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
+
+      # ---- Stage-3 scale-1280 Development Model Pack (ADR-014 2026-10-06 note). The release pack above is unchanged;
+      # this reproduces the Development pack from the same verified upstream inputs. Never a Production pack.
+      - name: Derive the scale-1280 resolved config
+        shell: bash
+        env:
+          BASE_RESOLVED_CONFIG_SHA256: 377d9f57abf6a73a6c308f765b70fc571715448c62998819d609d2eebc7c5ee3
+          DERIVED_RESOLVED_CONFIG_SHA256: 6ef856f49ef450242c9ef855fcbf21a5d8ef5db3ba92d10f201cd3778e382047
+        run: |
+          set -euo pipefail
+          test "$(sha256sum .modelpack-input/rtmdet_m_resolved.py | cut -d' ' -f1)" = "$BASE_RESOLVED_CONFIG_SHA256"
+          python tools/vision/derive_detector_test_scale.py \
+            --base .modelpack-input/rtmdet_m_resolved.py \
+            --base-sha256 "$BASE_RESOLVED_CONFIG_SHA256" \
+            --scale 1280 \
+            --output .modelpack-input/rtmdet_m_resolved_scale1280.py
+          derived="$(sha256sum .modelpack-input/rtmdet_m_resolved_scale1280.py | cut -d' ' -f1)"
+          echo "derived-resolved-config-sha256=$derived"
+          test "$derived" = "$DERIVED_RESOLVED_CONFIG_SHA256"
+
+      - name: Build the scale-1280 Development Model Pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/vision/build_model_pack.py \
+            --source-manifest models/manifests/rtmdet-m-coco-phase1-scale1280-v2.json \
+            --artifact checkpoint=.modelpack-input/rtmdet.pth \
+            --artifact resolved-config=.modelpack-input/rtmdet_m_resolved_scale1280.py \
+            --artifact licence-notice=.modelpack-input/LICENSE \
+            --assembled-from-commit "$EXPECTED_HEAD" \
+            --output modelpack-development-output
+
+      - name: Verify the Development pack is the one the a2-scale1280 producer names
+        shell: python
+        env:
+          EXPECTED_MODEL_PACK_ID: mavi-model-v2-9f1f9f70f69388e1bb1068a6a1bcd97d3439c8c9f14bd3cdaa2abf78d513d871
+        run: |
+          import hashlib
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, 'src/vision')
+          from mavi_vision.runtime.model_manifest_v2 import load_model_manifest_v2
+
+          expected = os.environ['EXPECTED_MODEL_PACK_ID']
+          built = json.loads(Path('modelpack-development-output/model-pack-manifest.json').read_text())
+          source = load_model_manifest_v2(Path('models/manifests/rtmdet-m-coco-phase1-scale1280-v2.json'))
+          registry = json.loads(Path('src/vision/config/development-producers-v1.json').read_text())
+          (producer,) = [item for item in registry['producers'] if item['producerId'] == 'a2-scale1280']
+          binding = json.loads(Path(producer['bindingPath']).read_text())
+          if binding['bindingId'] != 'development-phase1-a2-scale1280-v1':
+              raise SystemExit('development_binding_unexpected:' + binding['bindingId'])
+          (detector,) = [item for item in binding['capabilityBindings'] if item['capabilityId'] == 'detector']
+          # Four statements of one id: expected, derived from the source manifest, emitted by the builder, and pinned
+          # by the Development binding.
+          ids = {'expected': expected, 'built': built['modelPackId'], 'derived': source.model_pack_id,
+                 'bound': detector['modelPackId']}
+          if len(set(ids.values())) != 1:
+              raise SystemExit('development_model_pack_mismatch:' + json.dumps(ids))
+          roles = {item['artifactRole']: item for item in built['artifacts']}
+          for role, item in roles.items():
+              shipped = Path('modelpack-development-output') / item['relativePath']
+              if hashlib.sha256(shipped.read_bytes()).hexdigest() != item['sha256'] or shipped.stat().st_size != item['sizeBytes']:
+                  raise SystemExit('development_model_pack_artifact_mismatch:' + role)
+          release = json.loads(Path('modelpack-output/model-pack-manifest.json').read_text())
+          release_roles = {item['artifactRole']: item['sha256'] for item in release['artifacts']}
+          for role in ('checkpoint', 'licence-notice'):
+              if roles[role]['sha256'] != release_roles[role]:
+                  raise SystemExit('development_model_pack_not_same_checkpoint_or_licence:' + role)
+          # Its qualification record pins the shared A2 profile the producer runs with, and stays pending.
+          qualification = None
+          for path in sorted(Path('models/qualifications').glob('*.json')):
+              document = json.loads(path.read_text())
+              if document['qualificationId'] == detector['qualificationId']:
+                  qualification = document
+          if qualification is None:
+              raise SystemExit('development_qualification_missing')
+          profile_sha = hashlib.sha256(Path(producer['pipelineProfilePath']).read_bytes()).hexdigest()
+          if (qualification['modelPackId'] != expected
+                  or qualification['policies'] != {'pipelineProfileId': 'phase1-detection-tracking-a2', 'pipelineProfileSha256': profile_sha}
+                  or qualification['overallResult'] != 'pending'):
+              raise SystemExit('development_qualification_mismatch')
+          print('development-model-pack-id=' + built['modelPackId'])
+          print('a2-pipeline-profile-sha256=' + profile_sha)
+
+      - name: Upload the Development Model Pack (short-lived)
+        uses: actions/upload-artifact@v4
+        with:
+          name: vision-development-model-pack-mavi-model-v2-9f1f9f70f69388e1bb1068a6a1bcd97d3439c8c9f14bd3cdaa2abf78d513d871
+          path: modelpack-development-output
+          if-no-files-found: error
+          retention-days: 7
           compression-level: 0
