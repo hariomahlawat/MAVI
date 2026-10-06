@@ -1,0 +1,440 @@
+{
+  "schemaVersion": "h4-methodology-v1",
+  "eventId": "H4-2026-10-06",
+  "question": "Does the scale-1280 Development candidate retain useful detector, tracking and vehicle-subclass performance outside the BDD100K H3 domain when compared on identical footage against the scale-640 A2 Development reference, and what domain-specific tracking cost accompanies that gain?",
+  "baseline": {
+    "commit": "0d5fb18a5e13f9c372049cd33bd4e2c23b24a7b6",
+    "note": "PR #174 merge; producers frozen there"
+  },
+  "producers": {
+    "registry": {
+      "path": "src/vision/config/development-producers-v1.json",
+      "sha256": "dcce9d106b099d9f49b06edb0aeb98294c8603ca9c2a5da487da665c4a1f511b"
+    },
+    "reference": {
+      "producerId": "a2-scale640",
+      "pipelineProfileSha256": "b4c6a6cf8c68382f3af266b884801dbb77fb908cbaca7ed41336d4834463e62e",
+      "componentBindingSha256": "f7ace806b79576ec58707a14a5ac9c3fb6a274e52124894f7f667478e27989b7",
+      "modelPackId": "mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700",
+      "producerIdentitySha256": "adbfecc11d0a63eb325b35ef1678ff0d6ff398ff1d53e7fbc97014664113f8e7"
+    },
+    "candidate": {
+      "producerId": "a2-scale1280",
+      "pipelineProfileSha256": "b4c6a6cf8c68382f3af266b884801dbb77fb908cbaca7ed41336d4834463e62e",
+      "componentBindingSha256": "03d3a00b33d0565bf2909df94e4f7999bc700ecbcc36229cd670f00299612fa3",
+      "modelPackId": "mavi-model-v2-9f1f9f70f69388e1bb1068a6a1bcd97d3439c8c9f14bd3cdaa2abf78d513d871",
+      "producerIdentitySha256": "148c0e4343608f25bee603768030246b3976eb14f2fd7f2b4f384be81739f891"
+    },
+    "runtimePack": {
+      "variant": "windows-x86_64-cuda",
+      "runtimePackId": "mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d",
+      "device": "cuda:0"
+    },
+    "causalDifference": "detector Model Pack only (test Resize/Pad 640 vs 1280); one A2 profile, one checkpoint, one Runtime Pack",
+    "order": "within each partition the reference arm (a2-scale640) runs first, then the candidate (a2-scale1280)"
+  },
+  "domains": [
+    {
+      "domain": "visdrone2019-mot",
+      "description": "Aerial drone video, low to medium altitude, 14 Chinese cities, many resolutions (680x382 to 3840x2160).",
+      "datasetId": "visdrone2019-mot",
+      "adapter": {
+        "id": "visdrone2019-mot",
+        "version": "1",
+        "module": "tools/benchmarks/datasets/visdrone_mot.py"
+      },
+      "descriptorTemplateSha256": "f96b66df1cae347bdc8d48d4c92a9edfa9d33cd7e55d8e962cf0dcfceaa014b8",
+      "frozenDescriptorSha256": "d2fd0d78e4a1cc87221103091416501f375d3adb88490fe1c2856a061ee07030",
+      "frozenDescriptorEntries": 9505,
+      "mappingSha256": "aa4b302988c498d91d9c5ae071d9f261188da64873cea8efe93673a0e39acb76",
+      "frameTime": {
+        "kind": "index-at-fps",
+        "fpsNumerator": 30,
+        "fpsDenominator": 1,
+        "status": "assumption: the release states no frame rate; both arms share it"
+      },
+      "archives": [
+        {
+          "name": "VisDrone2019-MOT-val.zip",
+          "sha256": "e53571990dfc79229e0a8ae10264bc4fa604a027c44b06e3a097417e4fa55705",
+          "sizeBytes": 1602397759
+        },
+        {
+          "name": "VisDrone2019-MOT-test-dev.zip",
+          "sha256": "758abe40bf20246e7e778ac61eaa557cf004b034b6e68e85006e5add68e17eb5",
+          "sizeBytes": 2293482321
+        }
+      ],
+      "partitions": [
+        "val",
+        "test-dev"
+      ],
+      "selection": {
+        "rule": "all sequences of both GT-available splits (complete sequences; no subset)",
+        "sequences": [
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000009_03358_v",
+            "frames": 219,
+            "sourceSize": [
+              1360,
+              765
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000073_00600_v",
+            "frames": 328,
+            "sourceSize": [
+              1920,
+              1080
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000073_04464_v",
+            "frames": 312,
+            "sourceSize": [
+              1920,
+              1080
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000077_00720_v",
+            "frames": 780,
+            "sourceSize": [
+              1360,
+              765
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000088_00290_v",
+            "frames": 296,
+            "sourceSize": [
+              960,
+              540
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000119_02301_v",
+            "frames": 179,
+            "sourceSize": [
+              1360,
+              765
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000120_04775_v",
+            "frames": 1000,
+            "sourceSize": [
+              1360,
+              765
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000161_00000_v",
+            "frames": 308,
+            "sourceSize": [
+              960,
+              540
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000188_00000_v",
+            "frames": 260,
+            "sourceSize": [
+              960,
+              540
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000201_00000_v",
+            "frames": 677,
+            "sourceSize": [
+              1344,
+              756
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000249_00001_v",
+            "frames": 360,
+            "sourceSize": [
+              1920,
+              1080
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000249_02688_v",
+            "frames": 244,
+            "sourceSize": [
+              1344,
+              756
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000297_00000_v",
+            "frames": 146,
+            "sourceSize": [
+              1904,
+              1071
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000297_02761_v",
+            "frames": 373,
+            "sourceSize": [
+              1904,
+              1071
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000306_00230_v",
+            "frames": 420,
+            "sourceSize": [
+              680,
+              382
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000355_00001_v",
+            "frames": 468,
+            "sourceSize": [
+              1360,
+              765
+            ]
+          },
+          {
+            "partition": "test-dev",
+            "sequenceId": "uav0000370_00001_v",
+            "frames": 265,
+            "sourceSize": [
+              2720,
+              1530
+            ]
+          },
+          {
+            "partition": "val",
+            "sequenceId": "uav0000086_00000_v",
+            "frames": 464,
+            "sourceSize": [
+              1344,
+              756
+            ]
+          },
+          {
+            "partition": "val",
+            "sequenceId": "uav0000117_02622_v",
+            "frames": 349,
+            "sourceSize": [
+              2720,
+              1530
+            ]
+          },
+          {
+            "partition": "val",
+            "sequenceId": "uav0000137_00458_v",
+            "frames": 233,
+            "sourceSize": [
+              2688,
+              1512
+            ]
+          },
+          {
+            "partition": "val",
+            "sequenceId": "uav0000182_00000_v",
+            "frames": 363,
+            "sourceSize": [
+              1344,
+              756
+            ]
+          },
+          {
+            "partition": "val",
+            "sequenceId": "uav0000268_05773_v",
+            "frames": 978,
+            "sourceSize": [
+              3840,
+              2160
+            ]
+          },
+          {
+            "partition": "val",
+            "sequenceId": "uav0000305_00000_v",
+            "frames": 184,
+            "sourceSize": [
+              1904,
+              1071
+            ]
+          },
+          {
+            "partition": "val",
+            "sequenceId": "uav0000339_00001_v",
+            "frames": 275,
+            "sourceSize": [
+              1904,
+              1071
+            ]
+          }
+        ],
+        "sequenceCount": 24,
+        "frames": 9481
+      },
+      "researchUse": "RESEARCH-UNCERTAIN (no licence statement; toolkit 'for research purpose only')",
+      "conditions": "none annotated per sequence; source resolution recorded per sequence"
+    },
+    {
+      "domain": "uavdt-m",
+      "description": "Aerial drone video, low/medium/high altitude, front/side/bird views, daylight, night and fog, China.",
+      "status": "conditional on acquisition: the authors' Google Drive returned 'Quota exceeded' on 2026-10-06; the downloader retries automatically. If the archives cannot be acquired before the VisDrone arms complete and the retry window (60 rounds x 10 min) ends, UAVDT is recorded as unavailable for this event.",
+      "datasetId": "uavdt-benchmark-m",
+      "sources": [
+        {
+          "name": "UAV-benchmark-M.zip",
+          "sizeBytes": 6790452113,
+          "url": "https://drive.google.com/file/d/1m8KA6oPIRK_Iwt9TYFquC87vBc_8wRVc"
+        },
+        {
+          "name": "UAV-benchmark-MOTD_v1.0.zip",
+          "sizeBytes": 245719325,
+          "url": "https://drive.google.com/open?id=19498uJd7T9w4quwnQEy62nibt3uyT9pq"
+        },
+        {
+          "name": "M_attr.zip",
+          "sizeBytes": 9503,
+          "sha256": "ac6f85e355db3f4808cd64148b1f3c33933906ebd47c63939bb7eba6974824d1",
+          "url": "https://drive.google.com/open?id=1qjipvuk3XE3qU3udluQRRcYuiKzhMXB1"
+        }
+      ],
+      "frameTime": {
+        "kind": "index-at-fps",
+        "fpsNumerator": 30,
+        "fpsDenominator": 1,
+        "status": "stated by the authors (project page: 1080x540 at 30 fps)"
+      },
+      "partitions": [
+        "test",
+        "train"
+      ],
+      "selection": {
+        "rule": "all 50 UAVDT-Benchmark-M sequences listed in M_attr.zip (official test split, 20, and train split, 30), complete sequences, prepared as two partitions; no subset"
+      },
+      "mapping": {
+        "car": "car exact",
+        "truck": "truck exact",
+        "bus": "bus exact",
+        "note": "the only native classes; no motorcycle or van class; written definitions unavailable"
+      },
+      "ignoreSemantics": "the release's ignore areas become ignoreRegions; out-of-view and occlusion flags do not change ground truth",
+      "adapter": "uavdt-m version 1, implemented to these frozen rules once the annotation bytes are available, with tests; its exact code identity is recorded with the UAVDT partitions' derivation manifests",
+      "researchUse": "RESEARCH-ADMISSIBLE (project page: 'for research purpose only')",
+      "conditions": "per sequence from M_attr.zip: illumination (daylight/night/fog), altitude (low/medium/high), view (front/side/bird, multi-label), long-term"
+    }
+  ],
+  "unavailable": [
+    {
+      "dataset": "UA-DETRAC (fixed-camera traffic)",
+      "reason": "the original site redirects to a lab page with no download link (2026-10-06); no authoritative copy; mirrors not used"
+    },
+    {
+      "dataset": "KITTI tracking",
+      "reason": "download requires account registration; not automatable"
+    }
+  ],
+  "derivation": {
+    "tool": "tools.benchmarks.cli prepare (unchanged harness)",
+    "ffmpegPackManifestSha256": "604b387d4d2bbb4535797a0517f19c467409c7d6756531527d16cd46f5463ed7",
+    "rule": "each partition prepared exactly once into a write-once directory; reused while its frozen descriptor, adapter, derived-video and GT hashes verify"
+  },
+  "execution": {
+    "tool": "tools.benchmarks.cli execute --development-producer <id> (PR #174 producer binding, journal binding, per-export attestation check)",
+    "unit": "one (partition, arm) pair",
+    "isolation": "each unit has its own fresh PostgreSQL catalogue, media store, evidence root, journal, exports directory, logs and receipt",
+    "sentinel": "the worker is started with Start-MaviVisionWorker.ps1 -DevelopmentProducer <id> after -VerifyOnly passes; execute checks every export's attested producer against the frozen tuple immediately after that run, so a wrong producer stops the unit at its first sequence",
+    "resume": "an interrupted unit is resumed only by re-running the identical execute command on the same journal and catalogue",
+    "failureClasses": {
+      "infrastructure": "repair without changing the experimental variable; rerun only the affected work under a recorded attempt",
+      "product": "a deterministic processing failure under a valid producer is H4 evidence; never retried away"
+    },
+    "wrongProducer": "stop the unit; preserve and mark the attempt invalid; diagnose; rerun only that unit under a new attempt id",
+    "receipt": "tools.benchmarks.h4.receipt build/verify; a verified receipt makes the unit's inference immutable"
+  },
+  "evaluation": {
+    "tool": "tools.benchmarks.cli evaluate per unit; tools.benchmarks.h4.compare per domain",
+    "associationPolicySha256": "a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05",
+    "requirementsSha256": "ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75",
+    "sameToolingWithinDomain": true,
+    "perArm": [
+      "expected-vehicle GT outcomes (total, assigned, ambiguous, merged, fragmented, unverified, unmatched)",
+      "ignored GT",
+      "association rate",
+      "Vehicle Tracks (total, assigned, fragment, unverified, ignored, unmatched)",
+      "zero-assigned sequences",
+      "per-native-class coverage",
+      "Scope B subclass block per class (support, recall, precision, accuracy, undetermined, confusion)",
+      "frame rate and source resolution per sequence"
+    ],
+    "paired": [
+      "deltaAssigned",
+      "deltaAssociation",
+      "paired partition-stratified sequence bootstrap 95% interval of deltaAssociation",
+      "extra Vehicle Tracks, extra fragmented GT and extra fragment MAVI Tracks per extra assigned GT (only when deltaAssigned > 0)",
+      "per-GT-track transitions"
+    ],
+    "bootstrap": {
+      "seed": 20261006,
+      "draws": 10000,
+      "unit": "sequence",
+      "strata": "partition",
+      "interval": "95% percentile",
+      "status": "descriptive"
+    },
+    "strata": [
+      "GT median source height band: <20, 20-40, 40-80, 80-160, >=160 px (H3 bands)",
+      "native class",
+      "UAVDT sequence conditions (illumination, altitude, view, long-term)"
+    ],
+    "notReported": "max_per_img saturation: the formal runs record track outputs only, not per-frame detector candidates"
+  },
+  "interpretation": {
+    "labels": [
+      "Observed",
+      "Derived",
+      "Inferred",
+      "Hypothesis"
+    ],
+    "rules": [
+      "no pass/fail threshold is set from H4 results",
+      "arms are compared only within a domain",
+      "H3 BDD100K figures are context and never pooled with H4",
+      "each dataset contributes only to the classes its taxonomy supports",
+      "domain differences are evidence, not defects"
+    ]
+  },
+  "noTuning": [
+    "detector scale",
+    "checkpoint",
+    "detector threshold",
+    "NMS",
+    "max_per_img",
+    "activation threshold",
+    "high-confidence threshold",
+    "minimum IoU",
+    "confirmation frames",
+    "lost buffer",
+    "class mapping",
+    "association policy"
+  ]
+}
