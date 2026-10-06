@@ -163,3 +163,62 @@ def test_a_receipt_no_longer_verifies_after_its_journal_changes(campaign, tmp_pa
     with pytest.raises(S32Error, match="^h4_receipt_mismatch$"):
         receipt.verify(receipt_path=out, derived=args["derived"], exports_dir=args["exports_dir"],
                        evidence_root=args["evidence_root"], journal=changed)
+
+
+# --------------------------------------------------------------------------- shared runtime and one evaluation identity
+
+
+def evaluate_with(campaign, arm: str, out: Path, monkeypatch, capsys, policy: Path | None = None,
+                  exports: Path | None = None) -> Path:
+    root, paths = campaign["root"], campaign["arms"][arm]
+    monkeypatch.setattr(run, "tooling_identity", lambda: TOOLING)
+    args = ["evaluate", "--descriptor", str(root / "frozen.json"), "--derived", str(root / "derived"), "--exports",
+            str(exports or paths["exports"]), "--evidence-root", str(paths["evidence"]), "--mapping",
+            str(root / "mapping.json"), "--policy", str(policy or root / "policy.json"), "--requirements",
+            str(e.REQUIREMENTS), "--pipeline-profile", str(root / "profile.json"), "--out", str(out)]
+    assert cli.main(args) == 0, capsys.readouterr().err
+    return out / capsys.readouterr().out.strip()
+
+
+def copy_exports(source: Path, target: Path, **attestation) -> Path:
+    import shutil
+
+    shutil.copytree(source, target)
+    for path in sorted(target.glob(f"*/{artefacts.EXPORT_FILE_NAME}")):
+        document = json.loads(path.read_bytes())
+        document["processingRun"]["attestation"].update(attestation)
+        path.write_bytes(canonical_json(document))
+    return target
+
+
+def test_arms_with_a_different_shared_runtime_are_refused(campaign, tmp_path, monkeypatch, capsys):
+    reference = evaluate_with(campaign, "reference", tmp_path / "r", monkeypatch, capsys)
+    other = copy_exports(campaign["arms"]["candidate"]["exports"], tmp_path / "exports", maviCommit="f" * 40)
+    candidate = evaluate_with(campaign, "candidate", tmp_path / "c", monkeypatch, capsys, exports=other)
+    with pytest.raises(S32Error, match="^h4_arms_differ:runtime:maviCommit$"):
+        compare.compare(spec(campaign, {"reference": reference, "candidate": candidate}))
+
+
+def test_partitions_must_share_one_evaluation_identity(campaign, tmp_path, monkeypatch, capsys):
+    first = {arm: evaluate_with(campaign, arm, tmp_path / f"1-{arm}", monkeypatch, capsys) for arm in ("reference", "candidate")}
+    looser = dict(policies.POLICY_V1, minOverlapFrames=2)
+    (tmp_path / "policy-2.json").write_bytes(canonical_json(looser))
+    second = {arm: evaluate_with(campaign, arm, tmp_path / f"2-{arm}", monkeypatch, capsys, policy=tmp_path / "policy-2.json")
+              for arm in ("reference", "candidate")}
+    document = spec(campaign, first)
+    document["partitions"].append({**document["partitions"][0], "name": "val-again",
+                                   "results": {arm: str(path) for arm, path in second.items()}})
+    with pytest.raises(S32Error, match="^h4_partitions_differ:evaluation_identity$"):
+        compare.compare(document)
+
+
+def test_a_receipt_refuses_a_unit_with_mixed_runtime_attestations(campaign, tmp_path):
+    args = receipt_args(campaign, "candidate")
+    mixed = copy_exports(args["exports_dir"], tmp_path / "exports")
+    first = sorted(mixed.glob(f"*/{artefacts.EXPORT_FILE_NAME}"))[0]
+    document = json.loads(first.read_bytes())
+    document["processingRun"]["attestation"]["maviCommit"] = "f" * 40
+    first.write_bytes(canonical_json(document))
+    args["exports_dir"] = mixed
+    with pytest.raises(S32Error, match="producer_mixed"):
+        receipt.build(out=tmp_path / "receipt.json", **args)

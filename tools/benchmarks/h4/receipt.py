@@ -69,9 +69,9 @@ def body(*, event: str, domain: str, partition: str, producer: dict[str, str], d
                           "vehicleTracks": len(mavi.vehicle_tracks(export)),
                           "trajectorySha256s": sorted(run.trajectory_sha256s)})
     require(len(sequences) == len(exports), "h4_receipt_export_unexpected")
-    attested = {key: next(iter(exports.values())).attestation.get(key) for key in
-                ("maviCommit", "runtimePackId", "runtimePackSource", "runtimeVariant", "checkpointSha256",
-                 "resolvedConfigSha256", "qualificationSha256")}
+    # Every export of the unit attests one identical producer and runtime (the harness's own single-producer rule,
+    # producer_mixed otherwise): a unit resumed across a MAVI or runtime change is never receipted as complete.
+    attested = mavi.producer(exports, producer["pipelineProfileSha256"])
     return {"schemaVersion": SCHEMA, "event": event, "domain": domain, "partition": partition,
             "producer": {key: producer[key] for key in TUPLE_KEYS}, "attestedRuntime": attested,
             "derivationManifestSha256": manifest_sha, "datasetId": manifest["datasetId"], "split": manifest["split"],

@@ -51,6 +51,15 @@ GT_KEYS = ("total", *STATES)
 MAVI_KEYS = ("total", "assigned", "fragment", "unverified", "ignored", "unmatched")
 SAME_TOOLING = ("adapterId", "adapterVersion", "associationPolicySha256", "mappingSha256", "requirementsSha256",
                 "runnerVersion", "toolingSha256")
+# The only attested producer fields that may differ between the arms: the detector Model Pack and what derives from
+# it. Everything else the runs attest (MAVI commit and build, pipeline profile, checkpoint, runtime profile and
+# variant, Runtime Pack, verification status, platform) is the shared runtime and must be identical.
+ARM_SPECIFIC = frozenset({"modelPackId", "componentBindingSha256", "modelManifestSha256", "modelVersion",
+                          "resolvedConfigSha256", "qualificationSha256"})
+
+
+def _shared(producer: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in producer.items() if key not in ARM_SPECIFIC}
 BANDS = ((20, "<20"), (40, "20-40"), (80, "40-80"), (160, "80-160"), (None, ">=160"))
 
 
@@ -109,6 +118,7 @@ def compare(spec: dict[str, Any]) -> dict[str, Any]:
     sequences: list[dict[str, Any]] = []
     outcomes = {arm: {} for arm in ARMS}
     partitions = []
+    first_identity: dict[str, Any] | None = None
     for partition in spec["partitions"]:
         manifest, manifest_sha, documents = preparation.load(Path(partition["derived"]))
         loaded = {arm: _arm_result(Path(partition["results"][arm])) for arm in ARMS}
@@ -123,6 +133,17 @@ def compare(spec: dict[str, Any]) -> dict[str, Any]:
         for key in SAME_TOOLING:
             require(envelopes["reference"]["tooling"][key] == envelopes["candidate"]["tooling"][key],
                     f"h4_arms_differ:{key}")
+        reference_shared = _shared(envelopes["reference"]["mavi"]["producer"])
+        candidate_shared = _shared(envelopes["candidate"]["mavi"]["producer"])
+        for key in sorted(set(reference_shared) | set(candidate_shared)):
+            require(reference_shared.get(key) == candidate_shared.get(key), f"h4_arms_differ:runtime:{key}")
+        # One evaluation identity and one producer per arm across every partition of the domain.
+        identity = {"tooling": {key: envelopes["reference"]["tooling"][key] for key in SAME_TOOLING},
+                    "datasetId": envelopes["reference"]["dataset"].get("datasetId"),
+                    **{arm: envelopes[arm]["mavi"]["producer"] for arm in ARMS}}
+        if first_identity is None:
+            first_identity = identity
+        require(identity == first_identity, "h4_partitions_differ:evaluation_identity")
         mapping = _read(Path(partition["mapping"]), "h4_mapping_invalid")
         require(sha256_hex(artefacts.read_bytes(Path(partition["mapping"]), "h4_mapping_invalid"))
                 == envelopes["reference"]["tooling"]["mappingSha256"], "h4_mapping_not_the_evaluated_one")
