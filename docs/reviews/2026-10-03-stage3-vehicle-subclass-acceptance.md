@@ -402,7 +402,9 @@ Post-H3, non-authoritative Development diagnostics on the retained full-stream d
 | Unmatched MAVI Tracks | 5,623 | 5,771 | 8,293 | 8,304 |
 
 - **Effect:** perfect removal adds only 37 assigned GT at A2 and 55 at B1. It reduces fragment MAVI Tracks and ambiguity (ambiguous GT 6 → 0 and 31 → 0), but fragmented GT is essentially unchanged, and B1's Track count falls by only 237 against the 4,216 Tracks that C1 → B1 added.
-- **Conclusion (inferred, from a controlled intervention):** duplicate suppression is falsified as a major recall lever. Cross-source-class suppression may still have value as continuity and ambiguity cleanup, but the evidence does not justify prioritising it. No post-map suppression is proposed here.
+- **Upper bound (observed):** the controlled oracle bounds the association recall gain from perfect same-object duplicate removal at +37 assigned GT at A2 (+1.5% relative) and +55 at B1 (+1.7% relative). It also improves continuity and ambiguity.
+- **Not a falsification:** no numerical materiality threshold was frozen before the oracle ran, so this result is recorded as an observed upper bound, not a formal falsification of duplicate suppression.
+- **Interpretation (inferred):** the bound is small next to the detector-side population (10,155 of 11,022 not-assigned GT at A2), so duplicate suppression is not prioritised as a recall lever on this evidence. Its continuity and ambiguity effects remain a possible later cleanup question. No post-map suppression is proposed here.
 - **Subclass** (observed): quality on assigned pairs is not materially harmed. Undetermined falls 35 → 22 at A2 and 47 → 35 at B1, and 27 and 25 GT assigned in both runs change predicted subclass. Because the oracle uses GT, this says nothing about the safety of any operational rule.
 
 **Next-question boundary.** The next causal question is which detector-side mechanism explains the dominant absence and low-confidence population. Candidate hypotheses, none yet tested:
@@ -412,7 +414,7 @@ Post-H3, non-authoritative Development diagnostics on the retained full-stream d
 - training-domain mismatch;
 - preprocessing.
 
-That work starts with a methodology review under the Independent Methodology Gate (`AGENTS.md`, "Experimental methodology") before any new detector inference.
+That work starts with the challenge-and-freeze methodology review of the `AGENTS.md` "Experimental methodology" rule before any new detector inference. As a Development-only study it needs no second reviewer; independent review is reserved for claims that require it (`docs/architecture/experimental-methodology.md` §4.4).
 
 **Status unchanged:**
 - H3 PASS;
