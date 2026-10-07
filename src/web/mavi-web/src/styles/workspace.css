@@ -308,6 +308,17 @@
   .workspace--investigation.has-inspector .workspace__investigation-grid { position: relative; }
 }
 
+/* A region beside an open overlay drawer that the drawer's own scrim does not
+   reach — the Workbench band, notices and revision footer, the Investigation
+   notices — is inert (§20) and is dimmed like the region the scrim covers, so
+   nothing that looks operable sits outside a modal panel holding focus. Keyed
+   on `inert` itself, which the Drawer sets only while it is an overlay. */
+.workspace > [inert] { position: relative; }
+.workspace > [inert]::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: var(--scrim); border-radius: inherit;
+}
+
 /* --- Review: the page scrolls; the player stays put while it does. --- */
 .workspace--review { width: 100%; }
 /* The player is at least 65% of the working width (section 4.5). Fractional

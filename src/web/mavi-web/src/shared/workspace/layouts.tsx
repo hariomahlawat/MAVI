@@ -181,6 +181,7 @@ export function WorkbenchLayout({
   const bandRef = useRef<HTMLDivElement | null>(null);
   const noticesRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!overlay) setDrawerOpen(false);
@@ -215,7 +216,7 @@ export function WorkbenchLayout({
           open={drawerOpen}
           overlay={overlay}
           onClose={() => setDrawerOpen(false)}
-          covers={[bandRef, noticesRef, stageRef]}
+          covers={[bandRef, noticesRef, stageRef, footerRef]}
           id={inspectorId}
           className="workspace__inspector"
         >
@@ -232,7 +233,7 @@ export function WorkbenchLayout({
           {inspector}
         </Drawer>
       </div>
-      {footer ? <div className="workspace__footer">{footer}</div> : null}
+      {footer ? <div className="workspace__footer" ref={footerRef}>{footer}</div> : null}
     </section>
   );
 }

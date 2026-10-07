@@ -255,6 +255,37 @@ describe('archetypes', () => {
     }
   });
 
+  it('makes everything beside the open overlay drawer inert, the revision footer included', async () => {
+    const user = userEvent.setup();
+    const restore = stubMatchMedia((query) => query === OVERLAY_QUERIES.workbench);
+    try {
+      const { container } = render(
+        <WorkbenchLayout
+          stage={<canvas />}
+          inspector={<p>inspector</p>}
+          modes={<div>modes</div>}
+          notices={<p>notice</p>}
+          footer={<button type="button">Revision 3</button>}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Inspector' }));
+      for (const region of ['band', 'notices', 'stage', 'footer']) {
+        expect(container.querySelector(`.workspace__${region}`)).toHaveAttribute('inert');
+      }
+      expect(container.querySelector('.workspace__inspector')).not.toHaveAttribute('inert');
+
+      await user.keyboard('{Escape}');
+      expect(container.querySelector('[inert]')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('dims every inert region beside a drawer, not only the one under its scrim', () => {
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.workspace > \[inert\]::after\s*\{[^}]*background:\s*var\(--scrim\)/);
+  });
+
   it('gives the Workbench a stage and an inspector that are not interchangeable', () => {
     const { container } = render(
       <WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} modes={<div>modes</div>} />,

@@ -286,7 +286,9 @@ const OPEN_WORKBENCH_DRAWER = `(async () => {
   toggle.click();
   await wait(300);
   const drawer = document.querySelector('.workspace__inspector[role="dialog"][aria-modal="true"]');
-  return Boolean(drawer && drawer.contains(document.activeElement) && document.querySelector('.workspace__stage[inert]') && document.querySelector('.workspace__band[inert]'));
+  return Boolean(drawer && drawer.contains(document.activeElement) && document.querySelector('.workspace__stage[inert]') && document.querySelector('.workspace__band[inert]')
+    // Every region beside the drawer, the revision footer included (Codex P2 on #184).
+    && Array.from(document.querySelectorAll('.workspace__footer, .workspace__notices')).every((region) => region.hasAttribute('inert')));
 })()`;
 
 /**
