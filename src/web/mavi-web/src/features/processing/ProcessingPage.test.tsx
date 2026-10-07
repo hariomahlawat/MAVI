@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCamera } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { ApiError } from '../../api/client';
-import { getRunAnalytics, requestSceneReanalysis, retryRunAnalytics, type ProcessingRunAnalytics, type SceneAnalysisUnit } from '../../api/sceneAnalytics';
+import { analyticsPollInterval, getRunAnalytics, requestSceneReanalysis, retryRunAnalytics, type ProcessingRunAnalytics, type SceneAnalysisUnit } from '../../api/sceneAnalytics';
 import { getProcessingStatus, getVideo, queueProcessing, type AnalyticsReadiness, type ProcessingRunStatus } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
@@ -161,6 +161,24 @@ describe('ProcessingPage', () => {
     expect(getRunAnalytics).not.toHaveBeenCalled();
   });
 
+  it('states timestamps in UTC, with a notice and Retry, when the display timezone fails — never as "—" (§14.1)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getSystemConfig).mockRejectedValue(new Error('offline'));
+    render();
+
+    const notice = await screen.findByText(/Display timezone is unavailable/);
+    const queued = await screen.findByText('Queued');
+    await waitFor(() => expect(queued.nextElementSibling).toHaveTextContent('2026-09-09T02:30:00Z UTC'));
+    expect(screen.getByText('Recorded').nextElementSibling).toHaveTextContent('UTC');
+
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    await user.click(within(notice.closest('[role="status"], [role="alert"]') as HTMLElement).getByRole('button', { name: 'Retry display config' }));
+
+    await waitFor(() => expect(screen.queryByText(/Display timezone is unavailable/)).not.toBeInTheDocument());
+    expect(screen.getByText('Queued').nextElementSibling).not.toHaveTextContent('UTC');
+    expect(screen.getByText('Queued').nextElementSibling).not.toHaveTextContent('—');
+  });
+
   describe('scene analytics readiness (Slice 4)', () => {
     const runId = '018f3f5a-2f70-7a2b-8a12-2d02f4c21431';
     const activeRevision = '018f3f5a-2f70-7a2b-8a12-2d02f4c21482';
@@ -266,24 +284,53 @@ describe('ProcessingPage', () => {
       expect(within(panel).getByText(/keeps refreshing until it does/)).toBeInTheDocument();
     });
 
-    it('states a failed poll over details already shown, with a retry, instead of claiming it keeps refreshing', async () => {
-      arrange('Pending', [unit({ status: 'Running', attemptCount: 2, completedAtUtc: null })]);
+    it('states a failed poll over details already shown, with a retry, and recovers polling when the retry succeeds', async () => {
+      const user = userEvent.setup();
+      const units = [unit({ status: 'Running', attemptCount: 2, completedAtUtc: null })];
+      arrange('Pending', units);
       const { queryClient } = render();
+      const analyticsQuery = () => queryClient.getQueryCache().find({ queryKey: queryKeys.runAnalytics(runId) })!;
+      const requests = () => vi.mocked(getRunAnalytics).mock.calls.length;
 
+      // 1. Pending analytics load.
       const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
       expect(await within(panel).findByText('Running · attempt 2')).toBeInTheDocument();
+      expect(within(panel).getByText(/keeps refreshing until it does/)).toBeInTheDocument();
 
-      // A later poll fails: the query keeps the details and stops polling.
+      // 2. A later poll fails (after the query's one retry).
       vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'Down.' }));
       await act(async () => {
-        await queryClient.refetchQueries({ predicate: (query) => query.queryKey[0] === queryKeys.runAnalytics('x')[0] });
+        await queryClient.refetchQueries({ queryKey: queryKeys.runAnalytics(runId) });
       });
 
+      // 3-5. Cached details stay, the warning says polling has stopped, Retry is offered.
       const warning = await within(panel).findByText(/could not be refreshed, so this page has stopped checking/, {}, { timeout: 4000 });
       expect(within(panel).getByText('Running · attempt 2')).toBeInTheDocument();
       expect(within(panel).queryByText(/keeps refreshing until it does/)).not.toBeInTheDocument();
-      expect(within(warning.closest('[role="status"]') as HTMLElement).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
-    });
+      const status = warning.closest('[role="status"]') as HTMLElement;
+      const retry = within(status).getByRole('button', { name: 'Retry' });
+      // Degraded really means stopped: no automatic request across a full poll interval.
+      const whileDegraded = requests();
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 2_500)); });
+      expect(requests()).toBe(whileDegraded);
+
+      // 6-7. The operator retries, and it succeeds with Pending analytics.
+      vi.mocked(getRunAnalytics).mockResolvedValue(analytics('Pending', units, activeRevision));
+      await user.click(retry);
+
+      // 8-9. The warning goes and the normal refreshing state returns, details intact.
+      await waitFor(() => expect(within(panel).queryByText(/stopped checking/)).not.toBeInTheDocument());
+      expect(within(panel).getByText(/keeps refreshing until it does/)).toBeInTheDocument();
+      expect(within(panel).getByText('Running · attempt 2')).toBeInTheDocument();
+
+      // 10. Automatic polling is eligible again: the query is back in exactly the
+      // state for which the page's refetchInterval answers 2000 ms…
+      expect(analyticsQuery().state.error).toBeNull();
+      expect(analyticsPollInterval(analyticsQuery().state.data as ProcessingRunAnalytics | undefined)).toBe(2_000);
+      // …and the next automatic request actually happens, with no operator action.
+      const afterRetry = requests();
+      await waitFor(() => expect(requests()).toBeGreaterThan(afterRetry), { timeout: 4_000 });
+    }, 15_000);
 
     it('falls back to the status readiness when the lifecycle endpoint is unavailable', async () => {
       arrange('Ready', []);

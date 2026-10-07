@@ -2632,6 +2632,38 @@ export const STATES = [
     expectText: ['Scene geometry is unavailable', '77777777…'],
   },
   {
+    // S1b closure: the active scene loaded and named the committed zone, then a
+    // later read failed with the old revision still cached. The active scene is
+    // mutable, so the rail must not keep offering its geometry as current: it
+    // reads as unavailable and the zone falls back to its identifier. Reached
+    // for real: the scene goes stale (30s), the operator leaves and comes back,
+    // and the refetch on return fails (after the query's one retry).
+    name: 'search-analytics-scene-degraded',
+    path: `/search?cameraId=${CAM}&zoneId=${ZONE}`,
+    fullWidth: true, settleMs: 2500, archetype: 'investigation',
+    api: {
+      '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE),
+      [`/api/cameras/${CAM}/scene`]: {
+        sequence: [JSON.parse(readFileSync(new URL(`./fixtures/cameras_${CAM}_scene.json`, import.meta.url), 'utf8')), 'unavailable'],
+      },
+    },
+    prepare: `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      // First read: the zone resolves to its name from the active scene.
+      if (!document.body.innerText.includes('Loading bay')) return false;
+      await wait(31000);
+      const overview = Array.from(document.querySelectorAll('a')).find((a) => a.textContent.trim() === 'Overview');
+      if (!overview) return false;
+      overview.click();
+      await wait(800);
+      history.back();
+      await wait(4000);
+      return document.body.innerText.includes('Scene geometry is unavailable');
+    })()`,
+    prepareSettleMs: 800,
+    expectText: ['Scene geometry is unavailable', '77777777…'],
+  },
+  {
     // The Analytics group with a camera chosen: zone and line choices resolved
     // from the active revision, dependents unlocked, the rail tall enough to
     // scroll at 1366 — which is what the overlap assertion is for.
@@ -2666,6 +2698,39 @@ export const STATES = [
     name: 'processing-detail-analytics-ready', path: `/processing/${VIDEO}`, fullWidth: false,
     archetype: 'record', settleMs: 1400,
     expectText: ['Scene analytics', 'Revision 4 · scene-analytics-v1', 'Tracks unavailable'],
+  },
+  {
+    // S1b closure: a Pending run whose analytics loaded and whose later poll
+    // failed (the query's one retry included). The details stay, the page says
+    // it has stopped checking, and Retry is offered — §37.1 degraded.
+    name: 'processing-detail-analytics-degraded', path: `/processing/${VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 6000,
+    api: {
+      [`/api/videos/${VIDEO}/processing`]: {
+        videoStatus: 'Processed',
+        latestRun: {
+          processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', status: 'Completed', pipeline: 'phase1-detection-tracking', pipelineVersion: 'phase1-v1',
+          workerId: 'worker-a', queuedAtUtc: '2026-09-14T03:05:00Z', startedAtUtc: '2026-09-14T03:05:10Z', completedAtUtc: '2026-09-14T03:09:40Z',
+          progressPercent: 100, attemptCount: 1, failureCode: null, framesProcessed: 15000, tracksCreated: 6, analyticsReadiness: 'Pending',
+        },
+      },
+      '/api/processing/runs/bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb/analytics': {
+        sequence: [
+          {
+            processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', readiness: 'Pending', activeSceneRevisionId: REVISION, algorithmVersion: 'scene-analytics-v1',
+            analyses: [{
+              analysisId: 'aaaaaaa2-aaaa-7aaa-8aaa-aaaaaaaaaaa2', processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb',
+              sceneRevisionId: REVISION, sceneRevisionNumber: 4, algorithmVersion: 'scene-analytics-v1', status: 'Running',
+              attemptCount: 2, queuedAtUtc: '2026-09-14T03:10:00Z', startedAtUtc: '2026-09-14T03:10:02Z', completedAtUtc: null,
+              leaseExpiresAtUtc: '2026-09-14T03:12:02Z', analysedTrackCount: null, unavailableTrackCount: null, failureCode: null,
+            }],
+          },
+          'unavailable',
+        ],
+      },
+    },
+    expectText: ['Running · attempt 2', 'stopped checking', 'Retry'],
+    forbidText: 'keeps refreshing until it does',
   },
   {
     // Stale: the current geometry is not applied; the camera-wide consequence is
