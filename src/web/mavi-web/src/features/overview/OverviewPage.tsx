@@ -52,6 +52,9 @@ export default function OverviewPage() {
     queryFn: ({ signal }) => searchTracks({ limit: RECENT_LIMIT }, signal),
   });
   const displayZone = systemConfig.data?.displayTimeZoneId;
+  // A supporting request with no region of its own (§37.1): timestamps fall
+  // back to explicit UTC, and the page says so once, with its own Retry.
+  const zoneState = fromQuery(systemConfig);
 
   const counts = videos.data ? countByStatus(videos.data) : null;
   const total = videos.data?.length ?? 0;
@@ -114,9 +117,18 @@ export default function OverviewPage() {
       />
 
       <LedgerSummaryLayout
-        notices={unavailableNotice || hasFailure(camerasState) || hasFailure(videosState) ? (
+        notices={unavailableNotice || hasFailure(camerasState) || hasFailure(videosState) || hasFailure(zoneState) ? (
           <>
             {unavailableNotice}
+            {/* The display timezone has no region of its own (§37.1): timestamps
+                fall back to explicit UTC, and the page says so once. */}
+            <SupportingRequestNotice
+              state={zoneState}
+              unavailableMessage="Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC."
+              degradedMessage="Display configuration could not be refreshed. The last known timezone remains in use."
+              onRetry={() => void systemConfig.refetch()}
+              retryLabel="Retry display config"
+            />
             {/* A refresh that failed over figures still on screen: the figures
                 stay, and say they may be out of date (§14.1, degraded). */}
             {camerasState.kind === 'ready' ? (

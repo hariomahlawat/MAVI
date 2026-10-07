@@ -26,7 +26,7 @@ import { queryKeys } from '../../app/queryClient';
 import { analyticsReadinessText } from './analyticsReadiness';
 import { fromQuery } from '../../shared/async/fromQuery';
 import { hasFailure } from '../../shared/async/asyncState';
-import StateRegion from '../../shared/async/StateRegion';
+import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
@@ -52,8 +52,15 @@ function coarseState(status: string): string {
   return status;
 }
 
-function safeFormatTimestamp(value: string | null | undefined, timeZoneId: string | undefined): string {
-  if (!value || !timeZoneId) return '—';
+/**
+ * A timestamp in the display timezone. While that timezone is still loading the
+ * value waits; once it has failed to load, the instant is still stated —
+ * explicitly in UTC, as every other surface does — rather than as "—", which
+ * would read as "not happened yet" (§14.1: a failure is never an empty answer).
+ */
+function safeFormatTimestamp(value: string | null | undefined, timeZoneId: string | undefined, zoneUnavailable: boolean): string {
+  if (!value) return '—';
+  if (!timeZoneId) return zoneUnavailable ? displayTimestamp(value) : '—';
   return displayTimestamp(value, timeZoneId);
 }
 
@@ -162,6 +169,8 @@ export default function ProcessingPage() {
   });
 
   const displayZone = systemConfig.data?.displayTimeZoneId;
+  const zoneState = fromQuery(systemConfig);
+  const zoneUnavailable = zoneState.kind === 'unavailable';
 
   /** The Record's frame, so every terminal state keeps the surface's identity. */
   function frame(name: string, body: ReactNode) {
@@ -211,10 +220,19 @@ export default function ProcessingPage() {
   // The two requests are two regions (§37.1): the processing status is the
   // primary column, the video metadata is the facts rail. Each states its own
   // failure inside the region it replaces, so neither is reported here.
-  const hasNotices = Boolean(navigationNotice) || retryFailed;
+  // The display timezone is a supporting request with no region of its own:
+  // its failure is one notice for the page, with its own Retry (§37.1).
+  const hasNotices = Boolean(navigationNotice) || retryFailed || hasFailure(zoneState);
   const notices = (
     <>
       {navigationNotice ? <Alert tone="info">{navigationNotice}</Alert> : null}
+      <SupportingRequestNotice
+        state={zoneState}
+        unavailableMessage="Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC."
+        degradedMessage="Display configuration could not be refreshed. The last known timezone remains in use."
+        onRetry={() => void systemConfig.refetch()}
+        retryLabel="Retry display config"
+      />
       {retryFailed ? (
         <Alert tone="error">
           {retry.error instanceof ApiError ? `${retry.error.detail} (${retry.error.code})` : 'Processing could not be queued.'}
@@ -279,7 +297,7 @@ export default function ProcessingPage() {
                           </StateRegion>
                         ),
                       },
-                      { label: 'Recorded', value: safeFormatTimestamp(asset.recordingStartUtc, displayZone) },
+                      { label: 'Recorded', value: safeFormatTimestamp(asset.recordingStartUtc, displayZone, zoneUnavailable) },
                       { label: 'Duration', value: formatDuration(asset.durationMs) },
                       { label: 'Resolution', value: `${asset.width}×${asset.height} · ${frameRateText(asset.frameRateNumerator, asset.frameRateDenominator)}` },
                       { label: 'Codec', value: asset.codecName ?? '—' },
@@ -356,9 +374,9 @@ export default function ProcessingPage() {
                   grid
                   items={[
                     { label: 'Attempt', value: formatCount(run.attemptCount) },
-                    { label: 'Queued', value: safeFormatTimestamp(run.queuedAtUtc, displayZone) },
-                    { label: 'Started', value: safeFormatTimestamp(run.startedAtUtc, displayZone) },
-                    { label: 'Completed', value: safeFormatTimestamp(run.completedAtUtc, displayZone) },
+                    { label: 'Queued', value: safeFormatTimestamp(run.queuedAtUtc, displayZone, zoneUnavailable) },
+                    { label: 'Started', value: safeFormatTimestamp(run.startedAtUtc, displayZone, zoneUnavailable) },
+                    { label: 'Completed', value: safeFormatTimestamp(run.completedAtUtc, displayZone, zoneUnavailable) },
                     // Counts are only true once the run has finished; showing
                     // a running total would invite reading it as the answer.
                     { label: 'Frames processed', value: run.status === 'Completed' ? formatCount(run.framesProcessed) : 'Final count after completion' },
@@ -406,6 +424,7 @@ export default function ProcessingPage() {
               cameraId={cameraId}
               cameraLabel={camera.data ? `${camera.data.code} · ${camera.data.name}` : 'this camera'}
               displayZone={displayZone}
+              zoneUnavailable={zoneUnavailable}
               onRetry={() => retryAnalytics.mutate()}
               retrying={retryAnalytics.isPending}
               retryError={retryAnalytics.error}
@@ -444,6 +463,7 @@ function SceneAnalyticsPanel({
   cameraId,
   cameraLabel,
   displayZone,
+  zoneUnavailable,
   onRetry,
   retrying,
   retryError,
@@ -462,6 +482,8 @@ function SceneAnalyticsPanel({
   cameraId: string;
   cameraLabel: string;
   displayZone: string | undefined;
+  /** The display timezone failed to load: timestamps fall back to explicit UTC. */
+  zoneUnavailable: boolean;
   onRetry: () => void;
   retrying: boolean;
   retryError: unknown;
@@ -488,7 +510,7 @@ function SceneAnalyticsPanel({
               { label: 'Analysed with', value: `Revision ${unit.sceneRevisionNumber} · ${unit.algorithmVersion}` },
               { label: 'Tracks analysed', value: formatCount(unit.analysedTrackCount) },
               { label: 'Tracks unavailable', value: formatCount(unit.unavailableTrackCount) },
-              { label: 'Completed', value: safeFormatTimestamp(unit.completedAtUtc, displayZone) },
+              { label: 'Completed', value: safeFormatTimestamp(unit.completedAtUtc, displayZone, zoneUnavailable) },
             ]
             : []),
           ...(effective === 'Pending' && unit
@@ -513,11 +535,14 @@ function SceneAnalyticsPanel({
       ) : null}
       {analyticsRefreshFailed ? (
         <Alert tone="warning" actions={onRetryAnalyticsDetails ? <Button size="sm" onClick={onRetryAnalyticsDetails}>Retry</Button> : undefined}>
-          Analysis details could not be refreshed, so this page has stopped checking for progress. The details above are the last known; Retry resumes.
+          Analysis details could not be refreshed, so this page has stopped checking for progress. The details above are the last known
+          {onRetryAnalyticsDetails ? '; Retry resumes.' : '.'}
         </Alert>
       ) : null}
 
-      {effective === 'Pending' && !analyticsRefreshFailed ? (
+      {/* Polling stops on any analytics failure — a first load or a refresh —
+          so the page says it keeps refreshing only while it actually does. */}
+      {effective === 'Pending' && !analyticsRefreshFailed && !analyticsUnavailable ? (
         <p className="small faint">The analytics host will analyse this run against the active scene revision; this page keeps refreshing until it does.</p>
       ) : null}
 

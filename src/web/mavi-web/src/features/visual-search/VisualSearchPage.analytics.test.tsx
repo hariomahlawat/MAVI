@@ -310,6 +310,25 @@ describe('Slice 4 Investigation analytics', () => {
     expect(vi.mocked(searchTracks).mock.calls[0][0].zoneId).toBe(zoneId);
   });
 
+  it('offers its own Retry for the scene, and recovers the zone names when it succeeds (§37.1)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getCameraScene).mockRejectedValue(new Error('offline'));
+    renderWithApp(<VisualSearchPage />, { route: `/search?cameraId=${cameraId}&zoneId=${zoneId}` });
+
+    const message = await screen.findByText(/Scene geometry is unavailable/);
+    const alert = message.closest('[role="status"], [role="alert"]') as HTMLElement;
+    expect(alert).not.toBeNull();
+    const retry = within(alert).getByRole('button', { name: 'Retry scene' });
+
+    vi.mocked(getCameraScene).mockResolvedValue(scene);
+    await user.click(retry);
+
+    await waitFor(() => expect(screen.queryByText(/Scene geometry is unavailable/)).not.toBeInTheDocument());
+    expect(screen.getByRole('option', { name: 'Forecourt' })).toBeInTheDocument();
+    // The committed search never changed while the scene was away.
+    expect(screen.getByLabelText('Zone')).toHaveValue(zoneId);
+  });
+
   it('builds review links that carry the pinned identity outside the return context', () => {
     const path = reviewPath({ id: trackId.toUpperCase(), videoAssetId: 'v' }, `cameraId=${cameraId}`, {
       sceneRevisionId: revisionId.toUpperCase(), analyticsAlgorithmVersion: 'scene-analytics-v1',

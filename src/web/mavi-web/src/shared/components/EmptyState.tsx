@@ -3,12 +3,13 @@ import Button from './Button';
 import Icon, { type IconName } from './Icon';
 
 /**
- * "Nothing here" — never "we could not find out". A failed request renders an
- * Alert through the async boundary, not this component (section 14).
+ * "Nothing here" — never "we could not find out". A failed request is an Alert
+ * through `StateRegion` (§37.1), and media that cannot be shown is the
+ * `EvidencePlaceholder`; neither is this component.
  *
- * `hatched` marks the not-configured and unavailable placeholders, which carry
- * a diagonal hatch so they are distinguishable from a plain empty result
- * without relying on the words alone.
+ * `hatched` marks a domain state that is not a plain empty result — a scene
+ * not configured, analytics disabled by the scene, runs not analysed yet — so
+ * it is distinguishable from "nothing here" without relying on the words alone.
  */
 export default function EmptyState({
   icon,

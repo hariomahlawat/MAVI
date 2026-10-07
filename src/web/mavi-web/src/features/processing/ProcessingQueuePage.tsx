@@ -67,6 +67,7 @@ export default function ProcessingQueuePage() {
     staleTime: 60_000,
   });
   const displayZone = systemConfig.data?.displayTimeZoneId;
+  const zoneState = fromQuery(systemConfig);
 
   const rows = useMemo(
     () => (videos.data ? orderForQueue(sortVideoRows(joinVideoRows(videos.data, cameras.data))) : []),
@@ -114,13 +115,24 @@ export default function ProcessingQueuePage() {
             )}
           />
         )}
-        notices={hasFailure(fromQuery(cameras)) ? (
-          <SupportingRequestNotice
-            state={fromQuery(cameras)}
-            unavailableMessage="Camera metadata is unavailable; runs are listed without their camera."
-            degradedMessage="Showing the last known camera names; refreshing camera metadata failed."
-            onRetry={() => void cameras.refetch()}
-          />
+        notices={hasFailure(fromQuery(cameras)) || hasFailure(zoneState) ? (
+          <>
+            <SupportingRequestNotice
+              state={fromQuery(cameras)}
+              unavailableMessage="Camera metadata is unavailable; runs are listed without their camera."
+              degradedMessage="Showing the last known camera names; refreshing camera metadata failed."
+              onRetry={() => void cameras.refetch()}
+            />
+            {/* The display timezone has no region of its own (§37.1): timestamps
+                fall back to explicit UTC, and the page says so once. */}
+            <SupportingRequestNotice
+              state={zoneState}
+              unavailableMessage="Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC."
+              degradedMessage="Display configuration could not be refreshed. The last known timezone remains in use."
+              onRetry={() => void systemConfig.refetch()}
+              retryLabel="Retry display config"
+            />
+          </>
         ) : null}
       >
         <StateRegion

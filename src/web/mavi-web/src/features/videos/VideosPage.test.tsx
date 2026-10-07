@@ -83,6 +83,20 @@ describe('VideosPage', () => {
     expect(recorded.getAttribute('title')).toContain('14 Sept 2026, 07:30:00');
   });
 
+  it('says once, with its own Retry, that the display timezone is unavailable (§37.1)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getSystemConfig).mockRejectedValue(new Error('offline'));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+
+    const notice = await screen.findByText(/Display timezone is unavailable/);
+    expect(screen.getAllByText(/Display timezone is unavailable/)).toHaveLength(1);
+    const retry = within(notice.closest('[role="status"], [role="alert"]') as HTMLElement).getByRole('button', { name: 'Retry display config' });
+
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    await user.click(retry);
+    await waitFor(() => expect(screen.queryByText(/Display timezone is unavailable/)).not.toBeInTheDocument());
+  });
+
   it('is a Ledger: a Context Bar, one scroll owner and a table that is not stretched', async () => {
     const { container } = renderWithApp(<VideosPage />, { route: '/videos' });
     await screen.findByRole('table');

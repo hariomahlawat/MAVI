@@ -92,6 +92,12 @@
 /* Why a group's controls are disabled, stated once above them rather than on
    every field: the reason is the group's, not each control's. */
 .filter-rail__hint { margin: 0; color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; }
+/* An alert inside the 252px rail: its trailing action moves below the
+   sentence (still trailing, still right-aligned) rather than squeezing the
+   sentence into a column of single words beside it. */
+.filter-rail .alert { flex-wrap: wrap; }
+.filter-rail .alert__body { flex-basis: calc(100% - var(--icon-md) - var(--s-3)); }
+.filter-rail .alert__actions { flex-basis: 100%; justify-content: flex-end; }
 
 /* The analytics coverage strip (UI/UX §14 "partially available", §17). A band
    in the results column beneath the header, not a floating alert: it describes
@@ -550,7 +556,6 @@
 /* Rank 0 leads in weight as well as in position; the others stay readable. */
 .evidence-set__control[data-role='Representative'] .evidence-set__role { font-weight: 600; }
 .evidence-set__offset { align-self: start; font-size: var(--fs-0); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.evidence-set__offset .evidence-set__missing { color: var(--text-secondary); }
 .evidence-set__empty { margin: 0; color: var(--text-secondary); font-size: var(--fs-1); }
 
 @media (max-width: 1100px) {

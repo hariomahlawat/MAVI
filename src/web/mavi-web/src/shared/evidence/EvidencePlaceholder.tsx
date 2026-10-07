@@ -15,8 +15,18 @@ import Icon from '../components/Icon';
  * image` — never a sentence, never a status hue, never a broken-image glyph,
  * and never a spinner, because nothing is coming.
  *
- * `dense` is for a frame too small to carry text (a 40px strip thumbnail): the
- * icon stays, the label is kept for assistive technology.
+ * `dense` is for the smallest real frames — the 36×36 Evidence Set strip
+ * thumbnail and the recent-Track thumbnail (62×38 inside its border). It
+ * changes only spacing and icon size: the icon and the visible `No image` are
+ * both still drawn (§37.1 has no icon-only form), the label wrapping to two
+ * short lines where one does not fit. Measured at the smallest type token
+ * (11px): `No image` is 48px on one line, `image` 30px. In the strip thumbnail
+ * the label takes two lines, and a 14px icon above them clipped the descender
+ * of `g`, so the dense icon is drawn at the label's size (11px). The recent
+ * thumbnail holds the label on one line.
+ *
+ * `pending` is not this condition: while an image is still expected the frame
+ * is reserved as matte only — no icon, no label, nothing claimed missing.
  */
 export default function EvidencePlaceholder({
   label = 'No image',
@@ -29,7 +39,7 @@ export default function EvidencePlaceholder({
   label?: string;
   /** Why, for assistive technology only; never painted inside the frame. */
   reason?: string;
-  /** Icon only; the label stays in the accessible name. */
+  /** The smallest frames: tighter spacing and the small icon; the label is still drawn. */
   dense?: boolean;
   /** The frame is reserved while an image is still expected: matte only, no spinner. */
   pending?: boolean;
@@ -45,7 +55,7 @@ export default function EvidencePlaceholder({
       aria-label={name}
     >
       {pending ? null : <Icon name="box" size={dense ? 'sm' : 'md'} />}
-      {pending || dense ? null : <span className="evidence-placeholder__label">{label}</span>}
+      {pending ? null : <span className="evidence-placeholder__label">{label}</span>}
     </span>
   );
 }

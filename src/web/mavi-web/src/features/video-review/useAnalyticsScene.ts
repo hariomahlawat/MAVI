@@ -30,7 +30,13 @@ export type AnalyticsSceneState =
    */
   | { status: 'incomplete-identity' }
   | { status: 'loading'; revisionNumber: number }
-  | { status: 'unavailable'; revisionNumber: number; reason: AnalyticsSceneFailure }
+  | {
+    status: 'unavailable';
+    revisionNumber: number;
+    reason: AnalyticsSceneFailure;
+    /** Re-reads the revision when the request failed; absent when retrying cannot help. */
+    retry?: () => void;
+  }
   | { status: 'ready'; revision: SceneRevision; names: GeometryNames };
 
 export type AnalyticsSceneFailure =
@@ -89,7 +95,9 @@ export function useAnalyticsScene(
   const selected = fromQuery(revision);
   if (selected.kind === 'loading') return { status: 'loading', revisionNumber };
   if (selected.kind === 'unavailable') {
-    return { status: 'unavailable', revisionNumber, reason: 'request-failed' };
+    // Its own Retry (§37.1): with an immutable revision and no automatic retry,
+    // nothing else would read it again until the surface remounted.
+    return { status: 'unavailable', revisionNumber, reason: 'request-failed', retry: () => void revision.refetch() };
   }
 
   // Verified, not assumed. The number addressed the request and the server is

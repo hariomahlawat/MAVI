@@ -145,9 +145,19 @@ export default function VideosPage() {
   const queueFailed = queue.isError
     && !(queue.error instanceof ApiError && queue.error.code === 'processing_already_active');
   const camerasState = fromQuery(cameras);
-  const hasNotices = hasFailure(camerasState) || queueFailed;
+  // The display timezone has no region of its own (§37.1): timestamps fall back
+  // to explicit UTC, and the page says so once, with its own Retry.
+  const zoneState = fromQuery(systemConfig);
+  const hasNotices = hasFailure(camerasState) || hasFailure(zoneState) || queueFailed;
   const notices = (
     <>
+      <SupportingRequestNotice
+        state={zoneState}
+        unavailableMessage="Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC."
+        degradedMessage="Display configuration could not be refreshed. The last known timezone remains in use."
+        onRetry={() => void systemConfig.refetch()}
+        retryLabel="Retry display config"
+      />
       <SupportingRequestNotice
         state={camerasState}
         unavailableMessage="Camera metadata is unavailable; videos are listed by camera identifier."

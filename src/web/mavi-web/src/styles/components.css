@@ -274,8 +274,9 @@ table.table--ledger { width: 100%; max-width: max-content; }
 .empty > span { max-width: var(--measure); }
 .empty__actions { display: flex; gap: var(--s-2); margin-top: var(--s-1); }
 .empty--compact { padding: var(--s-4); }
-/* "Not configured" and "unavailable" are hatched, so they never read as the
-   plain empty block that means "nothing here yet" (section 14). */
+/* Domain states that are not a plain empty result — not configured, analytics
+   disabled, not analysed — are hatched, so they never read as "nothing here
+   yet" (section 14). A failed request is an Alert, never this block (§37.1). */
 .empty--hatched {
   border: var(--stroke-hair) dashed var(--border-subtle); border-radius: var(--r-2);
   background-image: var(--status-unavailable-hatch);
@@ -339,6 +340,15 @@ table.table--ledger { width: 100%; max-width: max-content; }
   font-size: var(--fs-0); line-height: 1; text-align: center;
 }
 .evidence-placeholder .icon { color: var(--text-muted); }
+/* The smallest frames (the 36×36 strip thumbnail; the recent thumbnail, 62×38
+   inside its border): the same icon and label, closer together, the label free
+   to wrap at its space. Measured: at 11px `No` over `image` is two 11px lines,
+   and with the 14px icon the stack filled the 36px strip thumbnail exactly, so
+   the descender of `g` was clipped by the frame. The icon is therefore drawn at
+   the label's own size (1em, 11px), which leaves the descender inside the frame;
+   nothing about the frame changes. */
+.evidence-placeholder--dense { gap: 0; padding: 0 var(--s-hair); }
+.evidence-placeholder--dense .icon { width: 1em; height: 1em; }
 
 /* Progress */
 .progress { display: grid; gap: var(--s-1); }
