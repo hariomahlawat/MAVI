@@ -320,7 +320,7 @@ Contrast obligations differ by role: interactive boundaries, state indicators an
 | **stale** | New. Warning hue, desaturated, paired with a dashed border. |
 | **unavailable** | New. Neutral with a diagonal hatch (the Scene Editor placeholder treatment). |
 | offline | Reuses error; no new hue. |
-| disabled | Opacity reduction, not a colour. |
+| disabled | ~~Opacity reduction, not a colour.~~ **Amended in v2.0 (S1a):** the disabled surface, border and text tokens of §12 — never an opacity, and never a status hue. |
 
 **Rule:** status meaning is assigned centrally (`shared/status`). A screen MUST NOT map a status string to a tone locally.
 

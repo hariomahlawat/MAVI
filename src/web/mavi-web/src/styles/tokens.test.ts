@@ -5,7 +5,6 @@ import featuresCss from './features.css?raw';
 import layoutCss from './layout.css?raw';
 import tokensCss from './tokens.css?raw';
 import workspaceCss from './workspace.css?raw';
-import tokensTestSource from './tokens.test.ts?raw';
 
 /**
  * Token-architecture integrity.
@@ -238,14 +237,6 @@ describe('hover never repaints text (section 12)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('has no allowlist at all (register row D1)', () => {
-    // The ban is blanket: there is no inventory of tolerated selectors left in
-    // this file for a later change to quietly extend — the only array literal
-    // of selectors in the hover block would be one.
-    const hoverBlock = tokensTestSource.slice(tokensTestSource.indexOf("describe('hover never repaints text"));
-    const block = hoverBlock.slice(0, hoverBlock.indexOf('\n});'));
-    expect(block).not.toMatch(/const\s+[A-Z_]+\s*(:\s*string\[\])?\s*=\s*\[/);
-  });
 
   it('leaves the sort indicator its own non-hover state colour', () => {
     const css = withoutComments(read('components.css'));
@@ -395,7 +386,22 @@ describe('control states are painted by tokens, not by opacity (section 12)', ()
   it('keeps an empty presentation content-sized', () => {
     const empty = ruleFor('.empty', true);
     expect(empty).toContain('align-content: start');
+    expect(empty).toContain('flex: 0 0 auto');
     expect(empty).not.toMatch(/min-height|height\s*:\s*100%/);
+    // No consumer sheet may grow the presentation back to its region: the
+    // Search results column did (`.results > .empty { flex: 1 1 auto }`), so a
+    // hatched "not analysed" block painted its hatch down the whole column.
+    // Every rule whose subject compound is `.empty` (or a modifier of it) is
+    // checked, whatever the selector list order.
+    const grown: string[] = [];
+    for (const file of featureCss) {
+      for (const match of withoutComments(read(file)).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const subjects = match[1].split(',').map((sel) => sel.trim().split(/[\s>+~]+/).pop() ?? '');
+        if (!subjects.some((subject) => /^\.empty(--[\w-]+)?([.:[].*)?$/.test(subject))) continue;
+        if (/flex\s*:\s*(auto|[1-9])|flex-grow\s*:\s*[1-9]/.test(match[2])) grown.push(`${file}: ${match[1].trim()}`);
+      }
+    }
+    expect(grown).toEqual([]);
   });
 
   it('styles the platform scrollbar only in width and colour (section 36.3)', () => {

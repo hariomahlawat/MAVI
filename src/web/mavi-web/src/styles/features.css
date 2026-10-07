@@ -143,7 +143,9 @@
    whichever row it can reach. Chrome sizes to content and whatever is standing
    in for the results takes the rest, so the scroll owner is always the middle. */
 .results > * { flex: 0 0 auto; min-height: 0; }
-.results > .results__list, .results > .empty, .results > .results__notice { flex: 1 1 auto; }
+/* An empty presentation is content-sized (section 37.1); only the list and
+   the notice grow to the column. */
+.results > .results__list, .results > .results__notice { flex: 1 1 auto; }
 /* A first-page failure or a page-one retry sits where the rows would be, not
    above the header: it is what this column has instead of results. */
 .results__notice { padding: var(--s-4); }

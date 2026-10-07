@@ -262,9 +262,11 @@ table.table--ledger { width: 100%; max-width: max-content; }
 /* An empty presentation is content-sized (section 37.1): it sits at the top of
    whatever region holds it at its own height, and a region that stretches it
    (a flex column with nothing else in it) does not spread its icon, title and
-   sentence across the void — `align-content: start` keeps them together. */
+   sentence across the void — `align-content: start` keeps them together, and
+   `flex: 0 0 auto` stops a flex column from growing it (and its hatch) to the
+   column's full height in the first place. */
 .empty {
-  display: grid; justify-items: center; align-content: start; text-align: center; gap: var(--s-2);
+  display: grid; justify-items: center; align-content: start; flex: 0 0 auto; text-align: center; gap: var(--s-2);
   padding: var(--s-6) var(--s-4); color: var(--text-secondary); font-size: var(--fs-2);
 }
 .empty .icon { width: var(--icon-lg); height: var(--icon-lg); color: var(--text-muted); }
