@@ -123,7 +123,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 
 ### Stage 3 — Expanded operational object / vehicle classes
 
-**State: IN PROGRESS — X1 PASS; X2/X3 implementation is in PR #179, pending merge and post-merge acceptance.** The acceptance register is authoritative: `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md`.
+**State: COMPLETE (closed 2026-10-07 on `main@9ab499bd`) — X1, X2 and X3 PASS; operator-exposed subset `{car}`; Development capability, not Production qualification.** The acceptance register is authoritative: `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md`.
 
 - **Objective.** Search by "truck" or "motorcycle" rather than "vehicle"; keep every existing "Vehicle" query working.
 - **Preconditions (satisfied).** The source decision this stage needed from Stage 2 has been made by **ADR-016 (accepted 2026-10-02)**: subclass is **detector-native**, the qualified detector's own class carried through tracking.
@@ -150,7 +150,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
     - S3.2d-4: evidence-backed capability decision per class and evidence domain: benchmark-supported, Development-only, insufficiently supported, or deferred. The capability does not wait for its weakest class.
     - Register rows: H2 (S3.2d-1), H3 (S3.2d-2), H4 (S3.2d-3, may be NOT TRIGGERED on a technical rationale), H5 (S3.2d-4). X1 requires all of them with G8 and G9. They are evidence outcomes, not PR boundaries or approval stages; one implementation or benchmark run may satisfy several. Development benchmarking follows operating principle 6a (lightest adequate process; no Production qualification ceremony).
   - **Evaluation semantics for benchmarks** (plan §14 amendment): report GT tracks associated to MAVI Tracks, GT tracks MAVI never produced, MAVI Tracks without GT, ambiguous associations rejected, class confusion on valid associations, association coverage, MAVI resolved/undetermined coverage, per-class support, and dataset and domain identity. End-to-end detection and tracking performance and Track-conditional subclass classification are reported separately, never conflated.
-- **API/UI (implemented in PR #179; acceptance pending).** `objectSubclass=car` is the only operator-facing subclass predicate; search and detail show `Vehicle · Car` only for release-profile Tracks allowed by X1. X2/X3 stay OPEN until merge and post-merge verification.
+- **API/UI (PR #179, merged as `9ab499bd`; X2/X3 PASS).** `objectSubclass=car` is the only operator-facing subclass predicate; search and detail show `Vehicle · Car` only for release-profile Tracks allowed by X1. Truck, bus, motorcycle and any A2-profile `car` stay hidden; every pre-existing Vehicle search keeps its population (X3). Next, by owner direction (2026-10-07), a UI/UX professionalisation programme (Stage 3.5) precedes Stage 4; its scope is not frozen here.
 - **Persistence.** Additive columns and constraints, already merged; no migration of historical rows.
 - **Offline/dependency.** No new model or runtime dependency for the detector-native route.
 - **Qualification.**
