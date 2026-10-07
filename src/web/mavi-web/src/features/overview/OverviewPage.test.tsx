@@ -66,6 +66,20 @@ describe('OverviewPage', () => {
     expect(vi.mocked(searchTracks).mock.calls[0][0]).toEqual({ limit: 8 });
   });
 
+  it('says once, with its own Retry, that the display timezone is unavailable (§37.1)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getSystemConfig).mockRejectedValue(new Error('offline'));
+    renderWithApp(<OverviewPage />, { route: '/' });
+
+    const notice = await screen.findByText(/Display timezone is unavailable/);
+    expect(screen.getAllByText(/Display timezone is unavailable/)).toHaveLength(1);
+    const retry = within(notice.closest('[role="status"], [role="alert"]') as HTMLElement).getByRole('button', { name: 'Retry display config' });
+
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    await user.click(retry);
+    await waitFor(() => expect(screen.queryByText(/Display timezone is unavailable/)).not.toBeInTheDocument());
+  });
+
   it('explains an empty deployment instead of showing blank tiles', async () => {
     vi.mocked(listVideos).mockResolvedValue([]);
     vi.mocked(searchTracks).mockResolvedValue({ items: [], nextCursor: null });

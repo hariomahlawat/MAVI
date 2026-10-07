@@ -71,6 +71,20 @@ describe('ProcessingQueuePage', () => {
     });
   });
 
+  it('says once, with its own Retry, that the display timezone is unavailable (§37.1)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getSystemConfig).mockRejectedValue(new Error('offline'));
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+
+    const notice = await screen.findByText(/Display timezone is unavailable/);
+    expect(screen.getAllByText(/Display timezone is unavailable/)).toHaveLength(1);
+    const retry = within(notice.closest('[role="status"], [role="alert"]') as HTMLElement).getByRole('button', { name: 'Retry display config' });
+
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    await user.click(retry);
+    await waitFor(() => expect(screen.queryByText(/Display timezone is unavailable/)).not.toBeInTheDocument());
+  });
+
   it('lists the active, failed and completed runs with their failure code and Track totals', async () => {
     renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
     const table = await screen.findByRole('table');
