@@ -190,7 +190,10 @@ export default function ProcessingPage() {
     || (processing.error instanceof ApiError && processing.error.status === 404);
 
   if (notFound) {
-    return frame('Not found', <Alert tone="error">Video was not found.</Alert>);
+    // The route still names a video (§5: `Processing › {video}`); `Not found`
+    // is its state, said by the alert, not its identity. With no file name to
+    // read, the video is named by its identifier, as Review names it (§14).
+    return frame(`Video ${videoAssetId.toLowerCase().slice(0, 8)}…`, <Alert tone="error">Video was not found.</Alert>);
   }
 
   const state = processing.data;

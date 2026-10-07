@@ -2379,6 +2379,14 @@ export const STATES = [
     archetype: 'record', settleMs: 4000, api: { [`/api/videos/${VIDEO}/processing`]: 'unavailable' },
     expectText: 'Processing status is unavailable.',
   },
+  {
+    // A valid route whose video is gone: still `Processing › {video}`, named by
+    // its identifier; `Not found` is the alert's state, never the crumb (§5).
+    name: 'processing-detail-not-found', path: `/processing/${VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 1200,
+    api: { [`/api/videos/${VIDEO}`]: { status: 404, body: { status: 404, code: 'video_not_found', detail: 'Video was not found.' } } },
+    expectText: ['Video was not found.', 'Video 22222222…'], forbidText: 'Not found',
+  },
 
   // --- Workbench: declares full width, and must actually use it. `archetype`
   //     additionally measures it against the frozen section 4.3 rules. ---
