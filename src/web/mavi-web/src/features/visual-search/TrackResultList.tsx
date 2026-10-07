@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import Icon from '../../shared/components/Icon';
+import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatOffset } from '../../shared/format/format';
@@ -65,6 +67,10 @@ function ResultRow({
   // Keeping the selected result on screen is the selection contract's, shared
   // with the Grid card, not this row's own idea (§22).
   const ref = useKeepSelectedVisible<HTMLLIElement>(selected);
+  // A thumbnail that fails to load is the same condition as one that was never
+  // persisted, and reads the same: never a broken-image glyph (§37.1, media).
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  useEffect(() => { setThumbnailFailed(false); }, [track.thumbnailContentUrl]);
 
   const title = `${objectClassLabel(track)} · ${track.cameraCode} · ${track.cameraName}`;
   const select = selectControlProps(track.id, `Select ${title}`, onSelect);
@@ -73,10 +79,10 @@ function ResultRow({
     <li ref={ref} className="result-row" aria-current={selected ? 'true' : undefined}>
       <button {...select} className={`${select.className} result-row__select`}>
         <span className="thumb-frame thumb-frame--md" aria-hidden="true">
-          {track.thumbnailContentUrl ? (
-            <img className="thumb" src={track.thumbnailContentUrl} alt="" loading="lazy" />
+          {track.thumbnailContentUrl && !thumbnailFailed ? (
+            <img className="thumb" src={track.thumbnailContentUrl} alt="" loading="lazy" onError={() => setThumbnailFailed(true)} />
           ) : (
-            <span className="thumb-placeholder">No evidence</span>
+            <EvidencePlaceholder />
           )}
         </span>
         <span className="video-title" aria-hidden="true">

@@ -11,12 +11,12 @@ import {
   queueProcessing,
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
+import { fromQuery } from '../../shared/async/fromQuery';
+import StateRegion from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
-import EmptyState from '../../shared/components/EmptyState';
 import Field from '../../shared/components/Field';
 import KeyValue from '../../shared/components/KeyValue';
-import LoadingState from '../../shared/components/LoadingState';
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatBytes } from '../../shared/format/format';
@@ -207,31 +207,27 @@ export default function VideoImportPage() {
       />
 
       <RecordLayout facts={blocked ? undefined : facts}>
-        {cameras.isPending ? (
-          <Panel title="New import"><LoadingState label="Loading active cameras…" /></Panel>
-        ) : cameras.isError ? (
-          <Panel title="New import">
-            <Alert
-              tone="error"
-              actions={<Button size="sm" onClick={() => cameras.refetch()}>Retry</Button>}
-            >
-              Camera inventory is unavailable, so an import cannot be attributed to a camera.
-            </Alert>
-          </Panel>
-        ) : blocked ? (
-          <Panel title="New import">
-            <EmptyState
-              icon="camera"
-              title="No active camera to import against"
-              hatched
-              actions={<ButtonLink to="/cameras" variant="primary">Open Cameras</ButtonLink>}
-            >
-              Media is always imported against a camera, because the camera's timezone is what
-              interprets the recording's local time. Register or reactivate one first.
-            </EmptyState>
-          </Panel>
-        ) : (
-          <Panel title="New import">
+        <Panel title="New import">
+          {/* The form is one region on the camera inventory (§37.1, panel):
+              it loads, is unavailable, is empty (no active camera — a
+              not-configured state, hatched) or is the form. */}
+          <StateRegion
+            kind="panel"
+            state={fromQuery(cameras)}
+            label="active cameras"
+            isEmpty={(all) => !all.some((camera) => camera.isActive)}
+            empty={{
+              icon: 'camera',
+              title: 'No active camera to import against',
+              hatched: true,
+              body: "Media is always imported against a camera, because the camera's timezone is what interprets the recording's local time. Register or reactivate one first.",
+              action: <ButtonLink to="/cameras" variant="primary">Open Cameras</ButtonLink>,
+            }}
+            unavailableMessage={() => 'Camera inventory is unavailable, so an import cannot be attributed to a camera.'}
+            degradedMessage="Showing the last known camera inventory; refreshing failed."
+            onRetry={() => cameras.refetch()}
+          >
+            {() => (
             <form className="form-stack" onSubmit={submit} noValidate>
               {workflow.isError ? <Alert tone="error">{importError(workflow.error)}</Alert> : null}
 
@@ -303,8 +299,9 @@ export default function VideoImportPage() {
                 </Button>
               </div>
             </form>
-          </Panel>
-        )}
+            )}
+          </StateRegion>
+        </Panel>
       </RecordLayout>
     </section>
   );

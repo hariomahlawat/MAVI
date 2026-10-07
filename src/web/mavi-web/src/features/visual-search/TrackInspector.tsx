@@ -3,9 +3,9 @@ import { useMemo } from 'react';
 import { ApiError } from '../../api/client';
 import { getTrack, objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
-import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
-import LoadingState from '../../shared/components/LoadingState';
+import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import StateRegion from '../../shared/async/StateRegion';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { Inspector } from '../../shared/workspace';
 import { TrackSummary } from '../video-review/TrackDetailsPanels';
@@ -113,29 +113,30 @@ export default function TrackInspector({
     >
       <div className="stack">
         {cameraLine ? <p className="track-inspector__camera">{cameraLine}</p> : null}
-        {track.isPending ? <LoadingState label="Loading Track evidence…" /> : null}
-        {track.isError ? (
-          // §14.1: a failed request is a state the operator can act on. A 404
-          // is the one failure retrying cannot mend — the Track is not there —
-          // so that one is stated without a control that would only fail again.
-          <Alert
-            tone="error"
-            actions={track.error instanceof ApiError && track.error.status === 404
-              ? undefined
-              : <Button size="sm" icon="refresh" onClick={() => void track.refetch()}>Retry</Button>}
-          >
-            {track.error instanceof ApiError
-              ? track.error.status === 404 ? 'Track was not found.' : `${track.error.detail} (${track.error.code})`
-              : 'Track evidence could not be loaded.'}
-          </Alert>
-        ) : null}
-        {detail ? (
+        {/* §14.1: the inspector body is one panel region on the Track. A 404
+            is the one failure retrying cannot mend — the Track is not there —
+            so it is stated without a control that would only fail again. */}
+        <StateRegion
+          kind="panel"
+          state={fromQuery(track)}
+          label="Track evidence"
+          unavailableMessage={(error) => error instanceof ApiError && error.status === 404
+            ? 'Track was not found.'
+            : describeError(error, 'Track evidence could not be loaded.')}
+          retryable={(error) => !(error instanceof ApiError && error.status === 404)}
+          degradedMessage="Showing the last known Track evidence; refreshing failed."
+          onRetry={() => void track.refetch()}
+        >
+          {(detail) => (
           <>
             <TrackEvidence
               detail={detail}
               analytics={analyticsEvidence}
               trajectory={trajectory.data}
-              trajectoryError={trajectory.isError}
+              // A layer request: a first-load failure is stated in the player
+              // with its retry; a failed refresh keeps the drawn path (§14.1).
+              trajectoryError={fromQuery(trajectory).kind === 'unavailable'}
+              onRetryTrajectory={() => void trajectory.refetch()}
               compact
             />
             <div className="row row--between">
@@ -166,7 +167,8 @@ export default function TrackInspector({
                 Representative crop, so the crop is not rendered a second time. */}
             <TrackEvidenceSet detail={detail} compact />
           </>
-        ) : null}
+          )}
+        </StateRegion>
       </div>
     </Inspector>
   );

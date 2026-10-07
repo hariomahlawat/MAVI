@@ -4,9 +4,9 @@ import { ApiError } from '../../api/client';
 import { getRunAttestation } from '../../api/processing';
 import { objectClassLabel, type TrackDetail } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
-import Alert from '../../shared/components/Alert';
 import KeyValue from '../../shared/components/KeyValue';
-import LoadingState from '../../shared/components/LoadingState';
+import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import StateRegion from '../../shared/async/StateRegion';
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
@@ -88,32 +88,38 @@ export function ProvenancePanel({ detail, displayTimeZoneId }: { detail: TrackDe
         <details className="disclosure" onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
           <summary>Runtime attestation</summary>
           <div className="disclosure__body">
-            {attestation.isPending && open ? <LoadingState label="Loading attestation…" /> : null}
-            {attestation.isError ? (
-              <Alert tone="warning">
-                {attestation.error instanceof ApiError
-                  ? `${attestation.error.detail} (${attestation.error.code})`
-                  : 'Run attestation could not be loaded.'}
-              </Alert>
-            ) : null}
-            {attestation.data ? (
+            {/* Requested only once the disclosure opens, so it is a region
+                only from then on (§37.1, panel). */}
+            {open || attestation.data !== undefined ? (
+              <StateRegion
+                kind="panel"
+                state={fromQuery(attestation)}
+                label="run attestation"
+                loadingLabel="Loading attestation…"
+                unavailableMessage={(error) => describeError(error, 'Run attestation could not be loaded.')}
+                degradedMessage="Showing the last known run attestation; refreshing failed."
+                onRetry={() => void attestation.refetch()}
+              >
+                {(record) => (
               <div className="stack">
                 <KeyValue
                   items={[
-                    { label: 'Verification', value: <StatusBadge status={attestation.data.verificationStatus === 'verified' ? 'Confirmed' : undefined} tone={attestation.data.verificationStatus === 'verified' ? 'ok' : 'neutral'}>{attestation.data.verificationStatus}</StatusBadge> },
-                    { label: 'Device', value: `${attestation.data.actualDevice} · policy ${attestation.data.configuredDevicePolicy}${attestation.data.deviceResolutionReason ? ` (${attestation.data.deviceResolutionReason})` : ''}` },
-                    { label: 'GPU', value: attestation.data.gpu ? `${attestation.data.gpu.name} · driver ${attestation.data.gpu.driverVersion} · CUDA ${attestation.data.gpu.cudaRuntimeVersion}` : 'CPU only' },
-                    { label: 'Runtime variant', value: attestation.data.runtimeVariant, mono: true },
-                    { label: 'Model', value: `${attestation.data.modelId} ${attestation.data.modelVersion}` },
-                    { label: 'Checkpoint', value: attestation.data.checkpointSha256, mono: true },
-                    { label: 'Runtime profile', value: `${attestation.data.runtimeProfileId} · ${attestation.data.runtimeProfileSha256.slice(0, 12)}…`, mono: true },
-                    { label: 'Platform', value: `${attestation.data.platform.system} ${attestation.data.platform.release} · Python ${attestation.data.platform.pythonVersion}` },
-                    { label: 'Frames / tracks', value: `${attestation.data.framesProcessed.toLocaleString()} / ${attestation.data.tracksCreated}` },
-                    { label: 'Processing time', value: formatDuration(attestation.data.processingDurationMs) },
-                    { label: 'Build', value: `${attestation.data.maviBuild} @ ${attestation.data.maviCommit.slice(0, 12)}`, mono: true },
+                    { label: 'Verification', value: <StatusBadge status={record.verificationStatus === 'verified' ? 'Confirmed' : undefined} tone={record.verificationStatus === 'verified' ? 'ok' : 'neutral'}>{record.verificationStatus}</StatusBadge> },
+                    { label: 'Device', value: `${record.actualDevice} · policy ${record.configuredDevicePolicy}${record.deviceResolutionReason ? ` (${record.deviceResolutionReason})` : ''}` },
+                    { label: 'GPU', value: record.gpu ? `${record.gpu.name} · driver ${record.gpu.driverVersion} · CUDA ${record.gpu.cudaRuntimeVersion}` : 'CPU only' },
+                    { label: 'Runtime variant', value: record.runtimeVariant, mono: true },
+                    { label: 'Model', value: `${record.modelId} ${record.modelVersion}` },
+                    { label: 'Checkpoint', value: record.checkpointSha256, mono: true },
+                    { label: 'Runtime profile', value: `${record.runtimeProfileId} · ${record.runtimeProfileSha256.slice(0, 12)}…`, mono: true },
+                    { label: 'Platform', value: `${record.platform.system} ${record.platform.release} · Python ${record.platform.pythonVersion}` },
+                    { label: 'Frames / tracks', value: `${record.framesProcessed.toLocaleString()} / ${record.tracksCreated}` },
+                    { label: 'Processing time', value: formatDuration(record.processingDurationMs) },
+                    { label: 'Build', value: `${record.maviBuild} @ ${record.maviCommit.slice(0, 12)}`, mono: true },
                   ]}
                 />
               </div>
+                )}
+              </StateRegion>
             ) : null}
           </div>
         </details>

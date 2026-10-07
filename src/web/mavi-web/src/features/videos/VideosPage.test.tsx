@@ -1,9 +1,10 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { getProcessingStatus, listVideos, queueProcessing, type ProcessingRunStatus, type ProcessingStatus, type VideoAsset } from '../../api/videos';
+import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import VideosPage from './VideosPage';
 
@@ -338,5 +339,23 @@ describe('VideosPage latest-run lookup (U1)', () => {
     expect(within(cell).queryByText(/Running/)).not.toBeInTheDocument();
     expect(cell.querySelectorAll('.badge')).toHaveLength(1);
     expect(within(cell).getByText('Processing')).toHaveAttribute('data-status', 'Processing');
+  });
+
+  it('keeps the inventory on screen when a background refresh fails: no loading flash, one warning', async () => {
+    const { queryClient } = renderWithApp(<VideosPage />, { route: '/videos' });
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('dock-night.mp4')).toBeInTheDocument();
+
+    vi.mocked(listVideos).mockRejectedValue(new Error('network'));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: queryKeys.videos });
+    });
+
+    // §14.1 degraded: the rows stay, the region says they may be stale, and it
+    // never fell back to loading or to empty on the way.
+    expect(within(screen.getByRole('table')).getByText('dock-night.mp4')).toBeInTheDocument();
+    expect(await screen.findByText(/Showing the last known media inventory/)).toBeInTheDocument();
+    expect(screen.queryByText(/Loading videos/)).not.toBeInTheDocument();
+    expect(screen.queryByText('No videos imported yet')).not.toBeInTheDocument();
   });
 });

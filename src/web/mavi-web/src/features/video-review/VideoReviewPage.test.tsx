@@ -321,8 +321,8 @@ describe('VideoReviewPage', () => {
     // stated unavailable, and the video is unaffected until it fails itself.
     const crop = await screen.findByRole('img', { name: 'Representative · 03:17.4 evidence crop' });
     fireEvent.error(crop);
-    expect(screen.getByText('Evidence image unavailable.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Representative · 03:17.4, evidence image unavailable' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /^No image: the evidence image could not be loaded/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Representative · 03:17.4, no image' })).toBeInTheDocument();
     expect(screen.queryByText(/Source video could not be loaded/i)).not.toBeInTheDocument();
 
     const video = screen.getByLabelText(/source video evidence$/);

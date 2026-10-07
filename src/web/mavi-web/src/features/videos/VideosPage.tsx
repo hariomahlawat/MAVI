@@ -6,13 +6,13 @@ import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { isFinalizationFailure, isFinalizing, listVideos, queueProcessing } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
-import AsyncBoundary from '../../shared/async/AsyncBoundary';
-import { fromQuery } from '../../shared/async/fromQuery';
+import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import { hasFailure } from '../../shared/async/asyncState';
+import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
-import EmptyState from '../../shared/components/EmptyState';
-import LoadingState from '../../shared/components/LoadingState';
+import { FilteredEmptyState } from '../../shared/components/EmptyState';
 import Progress from '../../shared/components/Progress';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
@@ -144,10 +144,16 @@ export default function VideosPage() {
   // notices region either, which is why the condition is computed once.
   const queueFailed = queue.isError
     && !(queue.error instanceof ApiError && queue.error.code === 'processing_already_active');
-  const hasNotices = cameras.isError || queueFailed;
+  const camerasState = fromQuery(cameras);
+  const hasNotices = hasFailure(camerasState) || queueFailed;
   const notices = (
     <>
-      {cameras.isError ? <Alert tone="warning">Camera metadata is unavailable; videos are listed by camera identifier.</Alert> : null}
+      <SupportingRequestNotice
+        state={camerasState}
+        unavailableMessage="Camera metadata is unavailable; videos are listed by camera identifier."
+        degradedMessage="Showing the last known camera names; refreshing camera metadata failed."
+        onRetry={() => void cameras.refetch()}
+      />
       {queueFailed ? (
         <Alert tone="error">
           {queue.error instanceof ApiError ? `${queue.error.detail} (${queue.error.code})` : 'Processing could not be queued.'}
@@ -165,32 +171,27 @@ export default function VideosPage() {
       />
 
       <LedgerLayout toolbar={toolbar} notices={hasNotices ? notices : null}>
-        <AsyncBoundary
+        <StateRegion
+          kind="column"
           state={fromQuery(videos)}
-          loading={<LoadingState label="Loading videos…" rows={4} />}
+          label="videos"
+          skeleton={{ rows: 'default' }}
           isEmpty={(all) => all.length === 0}
-          empty={(
-            <EmptyState icon="video" title="No videos imported yet" actions={<ButtonLink to="/import" variant="primary">Import the first video</ButtonLink>}>
-              Import an MP4 recording against a registered camera to begin.
-            </EmptyState>
-          )}
-          unavailable={(error) => (
-            <div className="panel__body">
-              <Alert tone="error" actions={<Button size="sm" onClick={() => videos.refetch()}>Retry</Button>}>
-                {error instanceof ApiError ? `${error.detail} (${error.code})` : 'Video inventory is unavailable.'}
-              </Alert>
-            </div>
-          )}
-          degradedLabel="Showing the last known media inventory; refreshing failed."
+          empty={{
+            icon: 'video',
+            title: 'No videos imported yet',
+            body: 'Import an MP4 recording against a registered camera to begin.',
+            action: <ButtonLink to="/import" variant="primary">Import the first video</ButtonLink>,
+          }}
+          unavailableMessage={(error) => describeError(error, 'Video inventory is unavailable.')}
+          degradedMessage="Showing the last known media inventory; refreshing failed."
           onRetry={() => videos.refetch()}
         >
           {() => rows.length === 0 ? (
-            <EmptyState
-              icon="filter"
-              title="No videos match these filters"
-              compact
-              actions={<Button size="sm" onClick={() => setParams(new URLSearchParams(), { replace: true })}>Clear filters</Button>}
-            />
+            // Filtered-empty is not empty: the inventory is real (§37.1).
+            <div className="state-region state-region--column state-region--inline">
+              <FilteredEmptyState subject="videos" onClear={() => setParams(new URLSearchParams(), { replace: true })} />
+            </div>
           ) : (
             <table className="table table--ledger">
               <caption className="visually-hidden">Imported videos</caption>
@@ -208,7 +209,7 @@ export default function VideosPage() {
                 {rows.map((row) => {
                   const run = processing.byVideo.get(row.id)?.latestRun;
                   const active = isActiveStatus(row.processingStatus);
-                  const statusError = active ? processing.errors.get(row.id) : undefined;
+                  const liveState = processing.stateOf(row.id);
                   return (
                     <tr key={row.id}>
                       <td><span className="truncate cap-lg" title={row.originalFileName}>{row.originalFileName}</span></td>
@@ -242,10 +243,21 @@ export default function VideosPage() {
                           {row.processingStatus === 'Failed' && isFinalizationFailure(run) ? (
                             <span className="run-cell__line">Run: {FINALIZATION_FAILED_LABEL}</span>
                           ) : null}
-                          {statusError ? (
+                          {/* The row's live status is its own request (§37.1,
+                              row): the row keeps its identity and the cell
+                              says why the live part is missing. */}
+                          {active && hasFailure(liveState) ? (
                             <span className="run-cell__line">
-                              <span className="text-err">Live status unavailable</span>
-                              <Button size="sm" variant="ghost" icon="refresh" onClick={() => processing.retry(row.id)}>Retry</Button>
+                              <StateRegion
+                                kind="row"
+                                state={liveState}
+                                label="live status"
+                                unavailableMessage={() => 'Live status unavailable'}
+                                degradedMessage="Live status may be out of date"
+                                onRetry={() => processing.retry(row.id)}
+                              >
+                                {() => null}
+                              </StateRegion>
                             </span>
                           ) : null}
                         </div>
@@ -288,7 +300,7 @@ export default function VideosPage() {
               </tbody>
             </table>
           )}
-        </AsyncBoundary>
+        </StateRegion>
       </LedgerLayout>
     </section>
   );

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { TrackDetail } from '../../api/tracks';
 import Alert from '../../shared/components/Alert';
+import Button from '../../shared/components/Button';
 import { formatOffset } from '../../shared/format/format';
 import EvidencePlayer from '../../shared/evidence/EvidencePlayer';
 import type { EvidenceDescription, EvidenceLayer } from '../../shared/evidence/layers';
@@ -24,6 +25,8 @@ type Props = {
   trajectory?: TrajectoryPoint[];
   /** The trajectory artefact exists but could not be fetched or parsed. */
   trajectoryError?: boolean;
+  /** Re-requests the trajectory; the warning carries it as its trailing action. */
+  onRetryTrajectory?: () => void;
   /** Denser presentation for the Investigation inspector. */
   compact?: boolean;
 };
@@ -61,7 +64,7 @@ function evidenceIdentity(detail: TrackDetail): string {
   ].join('|');
 }
 
-export default function TrackEvidence({ detail, analytics, trajectory, trajectoryError = false, compact = false }: Props) {
+export default function TrackEvidence({ detail, analytics, trajectory, trajectoryError = false, onRetryTrajectory, compact = false }: Props) {
   // Rank 0 of the Evidence Set, through the one selector: the box, its
   // description, the E target and the marker all name the same Observation the
   // Evidence Set shows as its Representative.
@@ -320,7 +323,7 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
       notices={(
         <>
           {trajectoryError ? (
-            <Alert tone="warning">
+            <Alert tone="warning" actions={onRetryTrajectory ? <Button size="sm" onClick={onRetryTrajectory}>Retry</Button> : undefined}>
               The persisted trajectory could not be loaded. The Track and its representative frame are unaffected.
             </Alert>
           ) : null}

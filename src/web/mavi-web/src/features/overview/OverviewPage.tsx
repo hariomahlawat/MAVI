@@ -5,13 +5,16 @@ import { getSystemConfig } from '../../api/system';
 import { searchTracks } from '../../api/tracks';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
+import { fromQuery } from '../../shared/async/fromQuery';
+import { useEffect, useState } from 'react';
+import { hasFailure } from '../../shared/async/asyncState';
+import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
-import EmptyState from '../../shared/components/EmptyState';
 import Icon from '../../shared/components/Icon';
-import LoadingState from '../../shared/components/LoadingState';
 import Panel from '../../shared/components/Panel';
+import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatCount } from '../../shared/format/format';
@@ -56,23 +59,31 @@ export default function OverviewPage() {
 
   // A figure the request failed to produce says so; it never renders as a
   // zero, which would read as an answer (§14).
-  const cameraMeta = cameras.data ? `${formatCount(activeCameras)} active` : cameras.isError ? 'unavailable' : 'loading';
-  const videoMeta = counts ? `${formatCount(counts.Processed)} processed` : videos.isError ? 'unavailable' : 'loading';
+  // Each figure is a row-level reading of its request (§37.1, row), selected
+  // by the same normalized boundary as every region: loading says so, a failure
+  // says unavailable, and only real data becomes a number.
+  const camerasState = fromQuery(cameras);
+  const videosState = fromQuery(videos);
+  const figureMeta = (kind: 'loading' | 'unavailable' | 'ready', ready: string) =>
+    kind === 'ready' ? ready : kind === 'unavailable' ? 'unavailable' : 'loading';
+  const cameraMeta = figureMeta(camerasState.kind, `${formatCount(activeCameras)} active`);
+  const videoMeta = figureMeta(videosState.kind, counts ? `${formatCount(counts.Processed)} processed` : '');
 
   /**
-   * One notice for the whole partial failure (§14).
+   * One notice for the whole partial failure of the summary band (§14).
    *
    * Overview is four independent requests, and any of them can fail on its own.
    * A dash and the word "unavailable" in a summary figure is not the treatment
    * §14 asks for — that is an alert, in the operator's words, with a retry — but
    * one alert per failed request stacks into noise the moment two fail. So the
-   * failures are named together in a single notice with one retry, which
-   * re-requests exactly the ones that failed.
+   * band's failures are named together in a single notice with one retry, which
+   * re-requests exactly the ones that failed. The two panels below are regions
+   * of their own and carry their own state (§37.1).
    */
   type FailedSource = { readonly subject: string; readonly refetch: () => void };
   const failed: FailedSource[] = [
-    cameras.isError ? { subject: 'camera inventory', refetch: () => { void cameras.refetch(); } } : null,
-    videos.isError ? { subject: 'video inventory', refetch: () => { void videos.refetch(); } } : null,
+    camerasState.kind === 'unavailable' ? { subject: 'camera inventory', refetch: () => { void cameras.refetch(); } } : null,
+    videosState.kind === 'unavailable' ? { subject: 'video inventory', refetch: () => { void videos.refetch(); } } : null,
   ].filter((entry): entry is FailedSource => entry !== null);
 
   const unavailableNotice = failed.length === 0 ? null : (
@@ -103,7 +114,29 @@ export default function OverviewPage() {
       />
 
       <LedgerSummaryLayout
-        notices={unavailableNotice}
+        notices={unavailableNotice || hasFailure(camerasState) || hasFailure(videosState) ? (
+          <>
+            {unavailableNotice}
+            {/* A refresh that failed over figures still on screen: the figures
+                stay, and say they may be out of date (§14.1, degraded). */}
+            {camerasState.kind === 'ready' ? (
+              <SupportingRequestNotice
+                state={camerasState}
+                unavailableMessage={null}
+                degradedMessage="Showing the last known camera inventory; refreshing it failed."
+                onRetry={() => void cameras.refetch()}
+              />
+            ) : null}
+            {videosState.kind === 'ready' ? (
+              <SupportingRequestNotice
+                state={videosState}
+                unavailableMessage={null}
+                degradedMessage="Showing the last known video inventory; refreshing it failed."
+                onRetry={() => void videos.refetch()}
+              />
+            ) : null}
+          </>
+        ) : null}
       >
         <div className="summary-band">
           <Link to="/cameras" className="summary-band__item">
@@ -134,29 +167,27 @@ export default function OverviewPage() {
             title="Recent tracks"
             actions={<ButtonLink size="sm" to="/search">All results</ButtonLink>}
           >
-            {recent.isPending ? <div className="panel__body"><LoadingState label="Loading recent tracks…" /></div> : null}
-            {recent.isError ? (
-              <div className="panel__body">
-                <Alert tone="error" actions={<Button size="sm" onClick={() => recent.refetch()}>Retry</Button>}>
-                  Recent tracks are unavailable.
-                </Alert>
-              </div>
-            ) : null}
-            {recent.data && recent.data.items.length === 0 ? (
-              <EmptyState icon="search" title="No tracks yet" compact>Process a video to populate search results.</EmptyState>
-            ) : null}
-            {recent.data && recent.data.items.length > 0 ? (
+            <StateRegion
+              kind="column"
+              state={fromQuery(recent)}
+              label="recent tracks"
+              skeleton={{ rows: RECENT_LIMIT, pitch: 'compactList' }}
+              isEmpty={(page) => page.items.length === 0}
+              empty={{ icon: 'search', title: 'No tracks yet', body: 'Process a video to populate search results.' }}
+              unavailableMessage={() => 'Recent tracks are unavailable.'}
+              degradedMessage="Showing the last known recent tracks; refreshing failed."
+              onRetry={() => recent.refetch()}
+            >
+              {(page) => (
               <div className="overview-recent">
-                {recent.data.items.map((track) => (
+                {page.items.map((track) => (
                   <Link
                     key={track.id}
                     className="overview-recent__row"
                     to={`/search?videoAssetId=${track.videoAssetId.toLowerCase()}&track=${track.id.toLowerCase()}`}
                   >
                     <span className="thumb-frame thumb-frame--sm">
-                      {track.thumbnailContentUrl ? (
-                        <img className="thumb" src={track.thumbnailContentUrl} alt="" loading="lazy" />
-                      ) : <span className="thumb-placeholder">—</span>}
+                      <RecentThumbnail url={track.thumbnailContentUrl} />
                     </span>
                     <span className="video-title">
                       <span className="overview-recent__title">
@@ -172,30 +203,54 @@ export default function OverviewPage() {
                   </Link>
                 ))}
               </div>
-            ) : null}
+              )}
+            </StateRegion>
           </Panel>
 
           <Panel title="Media by status">
-            {counts ? (
+            {/* The same request as the band's video figures; its one alert is
+                the band's notice above, so this region says only that it
+                cannot be drawn (§14.1: one cause, one alert). */}
+            <StateRegion
+              kind="panel"
+              state={fromQuery(videos)}
+              label="media status"
+              causeAnnouncedElsewhere
+              unavailableMessage={() => 'The video inventory could not be read, so its distribution cannot be shown.'}
+            >
+              {(all) => {
+                const byStatus = countByStatus(all);
+                return (
               <div className="status-breakdown">
                 {VIDEO_STATUSES.map((status) => (
                   <div key={status} className="status-breakdown__row">
                     <Link to={`/videos?status=${status}`}><StatusBadge status={status} /></Link>
-                    <span className="num">{formatCount(counts[status])}</span>
+                    <span className="num">{formatCount(byStatus[status])}</span>
                     <div className="status-breakdown__bar">
-                      <div className="status-breakdown__fill" style={{ width: total ? `${(counts[status] / total) * 100}%` : '0%' }} />
+                      <div className="status-breakdown__fill" style={{ width: all.length ? `${(byStatus[status] / all.length) * 100}%` : '0%' }} />
                     </div>
                   </div>
                 ))}
               </div>
-            ) : videos.isError ? (
-              <EmptyState icon="alert" title="Media status unavailable" compact hatched>
-                The video inventory could not be read, so its distribution cannot be shown.
-              </EmptyState>
-            ) : <LoadingState label="Loading…" />}
+                );
+              }}
+            </StateRegion>
           </Panel>
         </div>
       </LedgerSummaryLayout>
     </section>
   );
+}
+
+/**
+ * A recent Track's thumbnail. One that fails to load is the same condition as
+ * one never persisted and reads the same: the evidence placeholder, never a
+ * broken image (§37.1, media).
+ */
+function RecentThumbnail({ url }: { url: string | null | undefined }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [url]);
+  return url && !failed
+    ? <img className="thumb" src={url} alt="" loading="lazy" onError={() => setFailed(true)} />
+    : <EvidencePlaceholder dense />;
 }

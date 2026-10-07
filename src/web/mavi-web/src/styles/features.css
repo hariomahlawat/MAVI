@@ -143,12 +143,16 @@
    whichever row it can reach. Chrome sizes to content and whatever is standing
    in for the results takes the rest, so the scroll owner is always the middle. */
 .results > * { flex: 0 0 auto; min-height: 0; }
-/* An empty presentation is content-sized (section 37.1); only the list and
-   the notice grow to the column. */
-.results > .results__list, .results > .results__notice { flex: 1 1 auto; }
-/* A first-page failure or a page-one retry sits where the rows would be, not
-   above the header: it is what this column has instead of results. */
-.results__notice { padding: var(--s-4); }
+/* An empty presentation is content-sized (section 37.1); only the list grows
+   to the column. A state that stands in for the rows (section 37.1, column) sits
+   where the first row would be, at its own height, and is clipped by the column
+   rather than pushing past it: eight skeleton rows on a short display shrink to
+   what fits instead of spilling over the column's bottom edge. */
+.results > .results__list { flex: 1 1 auto; }
+.results > .state-region { flex: 0 1 auto; overflow: hidden; }
+/* A degraded warning sits above rows that are still there: it keeps its own
+   height and the list beneath it takes the shrink. */
+.results > .state-region--degraded { flex: 0 0 auto; overflow: visible; }
 /* What the results below are a search for (section 11). Above the header
    because it is the more important of the two statements: the header counts
    what arrived, the chips say what was asked. */
@@ -217,7 +221,6 @@
 .track-card__foot { grid-row: 3; grid-column: 1; padding: 0 var(--s-3) var(--s-3); }
 .track-card__media { aspect-ratio: 16 / 10; background: var(--surface-app); position: relative; }
 .track-card__media img { width: 100%; height: 100%; display: block; object-fit: cover; }
-.track-card__placeholder { min-height: 100%; display: grid; place-items: center; color: var(--text-muted); font-size: var(--fs-1); }
 .track-card__body { display: grid; gap: var(--s-2); padding: var(--s-3); }
 .track-card__title-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
 .track-card__camera { color: var(--text-secondary); font-size: var(--fs-1); }
@@ -523,9 +526,6 @@
   color: var(--text-secondary); font-size: var(--fs-1); font-variant-numeric: tabular-nums;
 }
 .evidence-set__caption strong { color: var(--text-primary); font-weight: 600; }
-.evidence-set__crop .evidence-set__missing {
-  margin: 0; padding: var(--s-2); color: var(--text-muted); font-size: var(--fs-1); text-align: center;
-}
 .evidence-set__strip { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-1); align-content: start; min-width: 0; }
 .evidence-set__item { min-width: 0; }
 .evidence-set__control {

@@ -3,6 +3,7 @@ import type { TrackDetail, TrackEvidenceObservation } from '../../api/tracks';
 import { EVIDENCE_PLAYER_ATTRIBUTE } from '../../shared/evidence/EvidencePlayer';
 import { formatConfidence, formatOffset } from '../../shared/format/format';
 import { EVIDENCE_ROLE_LABELS, observationName } from './evidenceSet';
+import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 
 type Props = {
   detail: TrackDetail;
@@ -79,7 +80,7 @@ export default function TrackEvidenceSet({ detail, compact = false }: Props) {
                     className="evidence-set__control"
                     // The inspected Observation, as the result list marks its selection.
                     aria-current={isSelected ? 'true' : undefined}
-                    aria-label={name + (state === 'available' ? '' : ', evidence image unavailable')}
+                    aria-label={name + (state === 'available' ? '' : ', no image')}
                     data-role={observation.evidenceRole}
                     onClick={() => setSelectedId(observation.observationId)}
                   >
@@ -91,13 +92,13 @@ export default function TrackEvidenceSet({ detail, compact = false }: Props) {
                           decoding="async"
                           onError={() => markFailed(observation.evidenceContentUrl!)}
                         />
-                      ) : null}
+                      ) : <EvidencePlaceholder dense />}
                     </span>
                     <span className="evidence-set__role">{EVIDENCE_ROLE_LABELS[observation.evidenceRole]}</span>
                     <span className="evidence-set__offset">
                       {formatOffset(observation.videoOffsetMs, 'tenths')}
                       {/* Said in words, beside the empty box: never colour or absence alone. */}
-                      {state === 'available' ? null : <span className="evidence-set__missing"> · Image unavailable</span>}
+                      {state === 'available' ? null : <span className="evidence-set__missing"> · No image</span>}
                     </span>
                   </button>
                 </li>
@@ -142,11 +143,11 @@ function Inspection({
             onError={() => onError(observation.evidenceContentUrl!)}
           />
         ) : (
-          <p className="evidence-set__missing">
-            {state === 'absent'
-              ? 'No evidence image was persisted for this observation.'
-              : 'Evidence image unavailable.'}
-          </p>
+          <EvidencePlaceholder
+            reason={state === 'absent'
+              ? 'no evidence image was persisted for this observation'
+              : 'the evidence image could not be loaded'}
+          />
         )}
       </div>
       <figcaption className="evidence-set__caption">

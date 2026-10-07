@@ -1,17 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { listCameras } from '../../api/cameras';
-import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { isFinalizationFailure, isFinalizing, listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
-import AsyncBoundary from '../../shared/async/AsyncBoundary';
-import { fromQuery } from '../../shared/async/fromQuery';
-import Alert from '../../shared/components/Alert';
-import Button, { ButtonLink } from '../../shared/components/Button';
+import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import { hasFailure } from '../../shared/async/asyncState';
+import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
+import { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
-import EmptyState from '../../shared/components/EmptyState';
-import LoadingState from '../../shared/components/LoadingState';
 import Progress from '../../shared/components/Progress';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/format/format';
@@ -117,27 +114,30 @@ export default function ProcessingQueuePage() {
             )}
           />
         )}
-        notices={cameras.isError ? (
-          <Alert tone="warning">Camera metadata is unavailable; runs are listed without their camera.</Alert>
+        notices={hasFailure(fromQuery(cameras)) ? (
+          <SupportingRequestNotice
+            state={fromQuery(cameras)}
+            unavailableMessage="Camera metadata is unavailable; runs are listed without their camera."
+            degradedMessage="Showing the last known camera names; refreshing camera metadata failed."
+            onRetry={() => void cameras.refetch()}
+          />
         ) : null}
       >
-        <AsyncBoundary
+        <StateRegion
+          kind="column"
           state={fromQuery(videos)}
-          loading={<LoadingState label="Loading processing state…" rows={4} />}
+          label="processing state"
+          loadingLabel="Loading processing state…"
+          skeleton={{ rows: 'default' }}
           isEmpty={() => rows.length === 0}
-          empty={(
-            <EmptyState icon="activity" title="Nothing has been queued" actions={<ButtonLink to="/videos">Open Videos</ButtonLink>}>
-              Queue processing from the Videos page or import a new recording.
-            </EmptyState>
-          )}
-          unavailable={(error) => (
-            <div className="panel__body">
-              <Alert tone="error" actions={<Button size="sm" onClick={() => videos.refetch()}>Retry</Button>}>
-                {error instanceof ApiError ? `${error.detail} (${error.code})` : 'Processing state is unavailable.'}
-              </Alert>
-            </div>
-          )}
-          degradedLabel="Showing the last known processing state; refreshing failed."
+          empty={{
+            icon: 'activity',
+            title: 'Nothing has been queued',
+            body: 'Queue processing from the Videos page or import a new recording.',
+            action: <ButtonLink to="/videos">Open Videos</ButtonLink>,
+          }}
+          unavailableMessage={(error) => describeError(error, 'Processing state is unavailable.')}
+          degradedMessage="Showing the last known processing state; refreshing failed."
           onRetry={() => videos.refetch()}
         >
           {() => (
@@ -161,7 +161,7 @@ export default function ProcessingQueuePage() {
               <tbody>
                 {rows.map((row) => {
                   const run = processing.byVideo.get(row.id)?.latestRun ?? null;
-                  const statusError = processing.errors.get(row.id);
+                  const statusState = processing.stateOf(row.id);
                   const active = isActiveStatus(row.processingStatus);
                   // §16: one badge per row. The run's own state is named only
                   // where it genuinely disagrees with the video's, and then as
@@ -195,13 +195,24 @@ export default function ProcessingQueuePage() {
                           {runState ? <span className="run-cell__line">Run: {runState}</span> : null}
                           {/* A failed lookup must never keep reading as a
                               lookup still in progress (§14). */}
-                          {!run && statusError ? (
+                          {/* The row's run status is its own request (§37.1,
+                              row): the row keeps its identity and this cell
+                              carries the request's state. */}
+                          {!run || hasFailure(statusState) ? (
                             <span className="run-cell__line">
-                              <span className="text-err">Run status unavailable</span>
-                              <Button size="sm" variant="ghost" icon="refresh" onClick={() => processing.retry(row.id)}>Retry</Button>
+                              <StateRegion
+                                kind="row"
+                                state={statusState}
+                                label="run status"
+                                loadingLabel="Loading run…"
+                                unavailableMessage={() => 'Run status unavailable'}
+                                degradedMessage="Run status may be out of date"
+                                onRetry={() => processing.retry(row.id)}
+                              >
+                                {() => null}
+                              </StateRegion>
                             </span>
                           ) : null}
-                          {!run && !statusError ? <span className="faint">Loading run…</span> : null}
                         </div>
                       </td>
                       <td className="num" title={run ? displayTimestamp(run.queuedAtUtc, displayZone) : undefined}>
@@ -251,7 +262,7 @@ export default function ProcessingQueuePage() {
               </tbody>
             </table>
           )}
-        </AsyncBoundary>
+        </StateRegion>
       </LedgerLayout>
     </section>
   );

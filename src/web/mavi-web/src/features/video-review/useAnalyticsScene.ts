@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { fromQuery } from '../../shared/async/fromQuery';
 import { isGuid } from '../../api/client';
 import { getCameraSceneRevision, type SceneRevision } from '../../api/scene';
 import type { TrackDetailAnalytics } from '../../api/tracks';
@@ -82,8 +83,12 @@ export function useAnalyticsScene(
 
   if (camera === '' || !binds) return { status: 'none' };
   if (!complete) return { status: 'incomplete-identity' };
-  if (revision.isPending) return { status: 'loading', revisionNumber };
-  if (revision.isError || !revision.data) {
+  // Selected by the shared boundary (§14.1): a failed request is unavailable,
+  // never an absent revision, and a revision already read survives a failed
+  // refresh — revisions are immutable, so it is still the right geometry.
+  const selected = fromQuery(revision);
+  if (selected.kind === 'loading') return { status: 'loading', revisionNumber };
+  if (selected.kind === 'unavailable') {
     return { status: 'unavailable', revisionNumber, reason: 'request-failed' };
   }
 
@@ -91,7 +96,7 @@ export function useAnalyticsScene(
   // trusted to honour it, but a renumbered, replaced or mis-routed revision
   // would otherwise be drawn as though it were the analysed one. Checking the
   // camera too costs nothing and closes the same hole one level up.
-  const served = revision.data;
+  const served = selected.data;
   if (served.revisionId.toLowerCase() !== expectedId
     || served.cameraId.toLowerCase() !== camera) {
     return { status: 'unavailable', revisionNumber, reason: 'identity-mismatch' };

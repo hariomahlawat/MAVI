@@ -331,6 +331,25 @@ describe('ProcessingPage', () => {
     expect(screen.queryByText('Not queued')).not.toBeInTheDocument();
   });
 
+  it('states an unavailable status inside the primary region it replaces, with the retry in the alert', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getProcessingStatus).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Status store unavailable.' }));
+    render();
+
+    // §37.1: the primary column keeps its identity — the Processing run panel
+    // is still there — and the failure is one alert inside it.
+    const alert = await screen.findByRole('alert', {}, { timeout: 4000 });
+    const panel = screen.getByRole('heading', { name: 'Processing run' }).closest('section')!;
+    expect(panel).toContainElement(alert);
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+
+    const calls = vi.mocked(getProcessingStatus).mock.calls.length;
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'NotQueued', latestRun: null });
+    await user.click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(await within(panel).findByText('Not queued')).toBeInTheDocument();
+    expect(vi.mocked(getProcessingStatus).mock.calls.length).toBeGreaterThan(calls);
+  });
+
   it('leaves no notices band behind for a reconciled already-active queue attempt', async () => {
     const user = userEvent.setup();
     vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'NotQueued', latestRun: null });

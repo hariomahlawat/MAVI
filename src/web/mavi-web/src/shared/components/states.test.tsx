@@ -53,7 +53,8 @@ describe('LoadingState', () => {
 
   it('renders skeleton rows when the row height is known, still labelled', () => {
     render(<LoadingState label="Loading videos…" rows={3} />);
-    const region = screen.getByRole('status', { name: 'Loading videos…' });
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('Loading videos…');
     expect(region.querySelectorAll('.skeleton__row')).toHaveLength(3);
   });
 
@@ -61,6 +62,11 @@ describe('LoadingState', () => {
     render(<LoadingState label="Loading videos…" rows="default" />);
     expect(screen.getByRole('status').querySelectorAll('.skeleton__row')).toHaveLength(DEFAULT_SKELETON_ROWS);
     expect(DEFAULT_SKELETON_ROWS).toBe(8);
+  });
+
+  it('announces the load as text inside its live region, not only as a name', () => {
+    render(<LoadingState label="Loading videos…" rows={2} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading videos…');
   });
 
   it('renders a skeleton row as geometry only: no text, no icon, no spinner', () => {

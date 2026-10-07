@@ -13,10 +13,10 @@ import { getCamera } from '../../api/cameras';
 import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
-import Alert from '../../shared/components/Alert';
+import { fromQuery } from '../../shared/async/fromQuery';
+import StateRegion from '../../shared/async/StateRegion';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
-import LoadingState from '../../shared/components/LoadingState';
 import StatusBadge from '../../shared/components/StatusBadge';
 import Segmented from '../../shared/workspace/Segmented';
 import ContextBar from '../../shared/workspace/ContextBar';
@@ -77,7 +77,6 @@ export default function AnalyticsPage() {
   // nothing here that can be rendered truthfully — the results wait for it
   // rather than being formatted against a guess.
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId ?? null;
-  const zoneUnavailable = systemConfig.isError && !displayTimeZoneId;
 
   // Split, because the heatmap takes no interval: a window it would answer must
   // not be refused because Activity's leftover interval would overflow its axis.
@@ -222,12 +221,6 @@ export default function AnalyticsPage() {
               onPreset={applyPreset}
               onRefresh={refresh}
             />
-            {aggregates.isError && response && state.mode === 'activity' ? (
-              <Alert tone="stale" actions={<Button size="sm" disabled={!canRunQuery} onClick={refresh}>Retry</Button>}>
-                These figures are the last answer that arrived. A refresh since then has failed, so they may no
-                longer be current.
-              </Alert>
-            ) : null}
           </>
         )}
         stage={(
@@ -246,38 +239,50 @@ export default function AnalyticsPage() {
                   ? 'The window and interval above have to be changed before there is anything to read.'
                   : 'The window above has to be changed before there is anything to read.'}
               </EmptyState>
-            ) : zoneUnavailable ? (
-              <Alert
-                tone="error"
-                actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry</Button>}
+            ) : (
+              // The stage is one column region on two requests in sequence
+              // (§37.1): every figure is stamped with an instant, so nothing
+              // is read until the configured display timezone is known, and
+              // then the mode's own request is the region's state.
+              <StateRegion
+                kind="column"
+                state={fromQuery(systemConfig)}
+                label="the configured display timezone"
+                loadingLabel="Reading the configured timezone…"
+                unavailableMessage={() => 'The configured display timezone is unavailable. Every figure here is stamped with an instant, so none of them can be shown until it is known.'}
+                degradedMessage="Using the last known display timezone; refreshing the configuration failed."
+                onRetry={() => void systemConfig.refetch()}
               >
-                The configured display timezone is unavailable. Every figure here is stamped with an
-                instant, so none of them can be shown until it is known.
-              </Alert>
-            ) : displayTimeZoneId === null ? (
-              <LoadingState label="Reading the configured timezone…" />
-            ) : state.mode === 'heatmap' ? (
-              <HeatmapPane
-                query={heatmap}
-                opacity={opacity}
-                onOpacityChange={setOpacity}
-                onNarrow={() => applyPreset('lastHour')}
-                onRetry={refresh}
-              />
-            ) : aggregates.isLoading ? (
-              <LoadingState label="Reading analytics…" />
-            ) : aggregates.isError && !response ? (
-              <Alert tone="error" actions={<Button size="sm" onClick={refresh}>Retry</Button>}>
-                {aggregates.error instanceof ApiError ? aggregates.error.detail : 'Analytics could not be read.'}
-              </Alert>
-            ) : response ? (
-              <ActivityStage
-                response={response}
-                reading={reading}
-                displayTimeZoneId={displayTimeZoneId}
-                cameraId={cameraId}
-              />
-            ) : null}
+                {(config) => state.mode === 'heatmap' ? (
+                  <HeatmapPane
+                    query={heatmap}
+                    opacity={opacity}
+                    onOpacityChange={setOpacity}
+                    onNarrow={() => applyPreset('lastHour')}
+                    onRetry={refresh}
+                  />
+                ) : (
+                  <StateRegion
+                    kind="column"
+                    state={fromQuery(aggregates)}
+                    label="analytics"
+                    loadingLabel="Reading analytics…"
+                    unavailableMessage={(error) => error instanceof ApiError ? error.detail : 'Analytics could not be read.'}
+                    degradedMessage="These figures are the last answer that arrived. A refresh since then has failed, so they may no longer be current."
+                    onRetry={refresh}
+                  >
+                    {(answer) => (
+                      <ActivityStage
+                        response={answer}
+                        reading={reading}
+                        displayTimeZoneId={config.displayTimeZoneId}
+                        cameraId={cameraId}
+                      />
+                    )}
+                  </StateRegion>
+                )}
+              </StateRegion>
+            )}
           </div>
         )}
         inspector={(
@@ -343,36 +348,35 @@ function HeatmapPane({
     );
   }
 
-  if (query.isLoading) return <LoadingState label="Reading trajectory evidence…" />;
-
-  if (query.isError) {
-    const evidence = query.error instanceof ApiError && query.error.status === 503;
-    return (
-      <Alert tone="error" actions={<Button size="sm" onClick={onRetry}>Retry</Button>}>
-        {evidence
-          ? 'Trajectory evidence for an analysed Track could not be read, so no map was built. '
-            + 'A partial map would show where the readable files went, not where anything went.'
-          : query.error instanceof ApiError ? query.error.detail : 'The density map could not be built.'}
-      </Alert>
-    );
-  }
-
-  if (!query.data) return null;
-
-  if (scopePresence(query.data.coverage) === 'incomplete') {
-    return (
-      <EmptyState
-        icon="clock"
-        title="Not every run in this window has been analysed"
-        actions={<ButtonLink to="/processing">Go to Processing</ButtonLink>}
-      >
-        No map is drawn rather than a partial one: an empty region would read as somewhere nothing went,
-        when it may simply be somewhere nothing has been analysed yet.
-      </EmptyState>
-    );
-  }
-
-  return <HeatmapStage response={query.data} opacity={opacity} onOpacityChange={onOpacityChange} />;
+  // The refusal above is a domain answer, not a failure (§14); everything else
+  // is the density map's region state (§37.1).
+  return (
+    <StateRegion
+      kind="column"
+      state={fromQuery(query)}
+      label="the density map"
+      loadingLabel="Reading trajectory evidence…"
+      unavailableMessage={(error) => error instanceof ApiError && error.status === 503
+        ? 'Trajectory evidence for an analysed Track could not be read, so no map was built. '
+          + 'A partial map would show where the readable files went, not where anything went.'
+        : error instanceof ApiError ? error.detail : 'The density map could not be built.'}
+      degradedMessage="This map is the last one that was built. A refresh since then has failed, so it may no longer be current."
+      onRetry={onRetry}
+    >
+      {(map) => scopePresence(map.coverage) === 'incomplete' ? (
+        <EmptyState
+          icon="clock"
+          title="Not every run in this window has been analysed"
+          actions={<ButtonLink to="/processing">Go to Processing</ButtonLink>}
+        >
+          No map is drawn rather than a partial one: an empty region would read as somewhere nothing went,
+          when it may simply be somewhere nothing has been analysed yet.
+        </EmptyState>
+      ) : (
+        <HeatmapStage response={map} opacity={opacity} onOpacityChange={onOpacityChange} />
+      )}
+    </StateRegion>
+  );
 }
 
 function CoverageChip({ complete }: { complete: boolean }) {

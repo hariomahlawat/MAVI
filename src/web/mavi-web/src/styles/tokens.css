@@ -378,4 +378,13 @@
      already uses, so the inspector is the same object either side of the
      threshold rather than two different ones. */
   --c-inspector-min-w: 440px;
+  /* The Investigation result row's pitch, measured from its rule: a 60px
+     thumbnail frame, 8px above and below, and the 1px row rule — 77px. The
+     skeleton that precedes the list is drawn at this pitch so the rows land
+     where it was (section 38); it is a geometry constant of one archetype's
+     row, not a spacing step. */
+  --c-result-row-h: 77px;
+  /* The Overview recent-Track row's pitch, measured the same way: a 40px
+     thumbnail frame, 8px above and below, and the 1px rule — 57px. */
+  --c-recent-row-h: 57px;
 }
