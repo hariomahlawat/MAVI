@@ -13,6 +13,7 @@ import {
   type ZoneRelation,
 } from '../../api/tracks';
 import type { VideoAsset } from '../../api/videos';
+import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
 import { WALL_TIME_FORMAT } from '../../shared/time/wallTime';
@@ -330,7 +331,12 @@ export default function SearchFilterRail({
 
       <section className="filter-rail__section" aria-labelledby="filter-analytics">
         <h2 id="filter-analytics">Analytics</h2>
-        {analyticsHint ? <p className="filter-rail__hint">{analyticsHint}</p> : null}
+        {analyticsScoped && geometry.status === 'unavailable' ? (
+          // A failed read, not a hint: one alert for the cause, with its Retry (§37.1).
+          <Alert tone="warning" actions={geometry.retry ? <Button size="sm" onClick={geometry.retry}>Retry scene</Button> : undefined}>
+            {analyticsHint}
+          </Alert>
+        ) : analyticsHint ? <p className="filter-rail__hint">{analyticsHint}</p> : null}
         <Field label="Zone">
           {(control) => (
             <select

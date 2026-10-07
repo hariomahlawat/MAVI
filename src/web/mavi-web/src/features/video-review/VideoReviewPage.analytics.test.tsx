@@ -202,6 +202,29 @@ describe('Review fails closed on a geometry problem', () => {
     expect(items.some((item) => item.dataset.kind === 'crossing')).toBe(true);
   });
 
+  it('offers a Retry for a revision that failed to load, and draws the geometry once it succeeds (§37.1)', async () => {
+    vi.mocked(getCameraSceneRevision).mockRejectedValue(new Error('offline'));
+    open();
+
+    const panel = await screen.findByRole('region', { name: 'Scene analytics' });
+    await waitFor(() => expect(panel).toHaveTextContent('could not be loaded'));
+    const retry = await screen.findByRole('button', { name: 'Retry scene revision' });
+
+    vi.mocked(getCameraSceneRevision).mockResolvedValue(revision);
+    retry.click();
+
+    await waitFor(() => expect(panel).not.toHaveTextContent('could not be loaded'));
+    expect(screen.queryByRole('button', { name: 'Retry scene revision' })).not.toBeInTheDocument();
+  });
+
+  it('offers no Retry when the revision loaded but is the wrong one: retrying cannot change an identity', async () => {
+    vi.mocked(getCameraSceneRevision).mockResolvedValue({ ...revision, revisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c214ff' });
+    open();
+    const panel = await screen.findByRole('region', { name: 'Scene analytics' });
+    await waitFor(() => expect(panel).toHaveTextContent('is not the one these facts were measured against'));
+    expect(screen.queryByRole('button', { name: 'Retry scene revision' })).not.toBeInTheDocument();
+  });
+
   it('asks for no geometry at all when analytics produced no facts', async () => {
     open(analysedAnalytics({ status: 'Unavailable', unavailableReason: 'trajectory_too_short' }));
     const panel = await screen.findByRole('region', { name: 'Scene analytics' });

@@ -1,5 +1,6 @@
 import type { TrackDetailAnalytics, TrackDetailZoneVisit } from '../../api/tracks';
 import Alert from '../../shared/components/Alert';
+import Button from '../../shared/components/Button';
 import KeyValue, { type KeyValueItem } from '../../shared/components/KeyValue';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatOffset } from '../../shared/format/format';
@@ -251,7 +252,10 @@ export default function TrackAnalyticsExplanation({
         </p>
       ) : null}
       {scene?.status === 'unavailable' ? (
-        <Alert tone="warning">
+        <Alert
+          tone="warning"
+          actions={scene.retry ? <Button size="sm" onClick={scene.retry}>Retry scene revision</Button> : undefined}
+        >
           {scene.reason === 'identity-mismatch'
             ? `The scene revision returned for revision ${scene.revisionNumber} is not the one these facts were measured against, so no zone or line geometry is drawn. The facts below are unaffected.`
             : `Scene revision ${scene.revisionNumber} could not be loaded, so no zone or line geometry is drawn. The facts below are unaffected, and geometry is named by its identifier.`}

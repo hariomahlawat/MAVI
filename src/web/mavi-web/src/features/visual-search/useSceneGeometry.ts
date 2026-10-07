@@ -16,7 +16,12 @@ import { geometryNames, type GeometryNames } from '../../shared/evidence/analyti
 export type SceneGeometryState =
   | { status: 'none' }
   | { status: 'loading' }
-  | { status: 'unavailable' }
+  /**
+   * `retry` re-reads what failed — the scene, or the pinned revision (§37.1).
+   * Absent where re-reading cannot help: a committed revision the scene's
+   * history does not contain.
+   */
+  | { status: 'unavailable'; retry?: () => void }
   | { status: 'unconfigured' }
   | { status: 'ready'; names: GeometryNames; analyticsEnabled: boolean };
 
@@ -69,16 +74,20 @@ export function useSceneGeometry(
   // never an unconfigured scene. A scene whose refresh failed is unavailable
   // too: the active revision may have moved on, and geometry offered as current
   // from it could submit identifiers the server no longer accepts. Only an
-  // immutable revision may be served from a degraded read (below).
+  // immutable revision may be served from a degraded read (below) — and only
+  // when the scene read that resolves its id to a number has not itself failed:
+  // in pinned mode a degraded scene read is also refused, deliberately, rather
+  // than resolving a revision through history that may be stale.
   const sceneState = fromQuery(scene);
   if (sceneState.kind === 'loading') return { status: 'loading' };
-  if (sceneState.kind === 'unavailable' || sceneState.degraded) return { status: 'unavailable' };
+  const retryScene = () => void scene.refetch();
+  if (sceneState.kind === 'unavailable' || sceneState.degraded) return { status: 'unavailable', retry: retryScene };
 
   if (wantsHistorical) {
     if (!historical) return { status: 'unavailable' };
     const revisionState = fromQuery(revision);
     if (revisionState.kind === 'loading') return { status: 'loading' };
-    if (revisionState.kind === 'unavailable') return { status: 'unavailable' };
+    if (revisionState.kind === 'unavailable') return { status: 'unavailable', retry: () => void revision.refetch() };
     const pinned = revisionState.data;
     return {
       status: 'ready',
