@@ -183,11 +183,22 @@ export default function SceneEditorPage() {
   // loss as losing a saved-shaped one.
   // The one consequential decision open on this surface, if any (§15).
   const [pendingDiscard, setPendingDiscard] = useState<'reset' | 'reload' | null>(null);
+  // A discard decision exists only while the editor it concerns is on screen.
+  // If a background read turns the page into not-found (or back into its
+  // loading/unavailable frame) while one is open, the decision is dropped:
+  // otherwise it would hold the leave guard busy with no dialog left to
+  // answer, silently refusing every navigation.
+  const editorShown = Boolean(cameraId)
+    && !isCameraMissing(camera.error) && !isCameraMissing(scene.error)
+    && camera.data !== undefined && scene.data !== undefined;
   const leaveGuard = useUnsavedChangesGuard(
     state.dirty || state.drawing.kind !== 'none',
     UNSAVED_MESSAGE,
-    pendingDiscard !== null,
+    pendingDiscard !== null && editorShown,
   );
+  useEffect(() => {
+    if (!editorShown && pendingDiscard !== null) setPendingDiscard(null);
+  }, [editorShown, pendingDiscard]);
 
   const saveMutation = useMutation({
     mutationFn: (draft: SceneDraft) => saveCameraScene(cameraId, saveRequestFromDraft(draft)),

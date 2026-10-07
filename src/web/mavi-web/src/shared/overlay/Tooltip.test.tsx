@@ -27,7 +27,7 @@ describe('Tooltip', () => {
     await user.tab();
     const trigger = screen.getByRole('button', { name: 'Next result' });
     expect(trigger).toHaveFocus();
-    expect(screen.getByRole('tooltip')).toHaveTextContent('Next result · j or ↓');
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Next result · j or ↓');
     expect(trigger).toHaveFocus();
   });
 
@@ -36,7 +36,7 @@ describe('Tooltip', () => {
     render(<Harness />);
     const trigger = screen.getByRole('button', { name: 'Next result' });
     await user.hover(trigger);
-    expect(screen.getByRole('tooltip')).toBeVisible();
+    expect(await screen.findByRole('tooltip')).toBeVisible();
     await user.unhover(trigger);
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
@@ -66,14 +66,14 @@ describe('Tooltip', () => {
     await user.tab();
     await user.tab();
     const trigger = screen.getByRole('button', { name: 'Next result' });
-    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
 
     await user.tab({ shift: true });
     await user.tab();
-    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
     await user.tab({ shift: true });
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
@@ -119,17 +119,34 @@ describe('Tooltip', () => {
     await user.hover(trigger);
     await user.unhover(trigger);
     expect(trigger).toHaveFocus();
-    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
 
     // Hover, then focus leaves: the pointer still holds it.
     await user.hover(trigger);
     await user.tab({ shift: true });
     expect(trigger).not.toHaveFocus();
-    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
 
     // Both gone: closed.
     await user.unhover(trigger);
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('waits one motion-token delay before showing, and never shows for a pointer that only crosses', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Next result' });
+
+    // Crossing: in and out within the delay — no hint at all.
+    await user.hover(trigger);
+    await user.unhover(trigger);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    // Resting: not on the same update, then after the delay.
+    await user.hover(trigger);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
   });
 
   it('does not swallow Escape: the surface still hears it', async () => {

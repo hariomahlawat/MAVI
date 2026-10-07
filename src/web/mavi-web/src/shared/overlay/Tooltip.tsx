@@ -1,4 +1,4 @@
-import { cloneElement, useEffect, useId, useState, type FocusEvent, type ReactElement } from 'react';
+import { cloneElement, useEffect, useId, useRef, useState, type FocusEvent, type ReactElement } from 'react';
 
 /**
  * Non-essential information about a control, shown on hover and on keyboard
@@ -34,13 +34,34 @@ export default function Tooltip({
     || children.props['aria-disabled'] === true || children.props['aria-disabled'] === 'true';
   const shown = (hovered || focused) && !inactive;
 
+  // §36.3: shown after one motion-token delay (`--dur`, 120ms by default) on
+  // hover and on focus, so a pointer merely crossing the controls does not
+  // flash hints. Leaving or blurring before the delay cancels it.
+  const timers = useRef<{ hover?: number; focus?: number }>({});
+  const cancel = (channel: 'hover' | 'focus') => {
+    window.clearTimeout(timers.current[channel]);
+    timers.current[channel] = undefined;
+  };
+  const arm = (channel: 'hover' | 'focus', set: (value: boolean) => void) => {
+    cancel(channel);
+    timers.current[channel] = window.setTimeout(() => set(true), tooltipDelayMs());
+  };
+  const disarm = (channel: 'hover' | 'focus', set: (value: boolean) => void) => {
+    cancel(channel);
+    set(false);
+  };
+  useEffect(() => () => {
+    cancel('hover');
+    cancel('focus');
+  }, []);
+
   useEffect(() => {
     if (!shown) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       // Dismissed until the next pointer entry or focus, whichever comes.
-      setHovered(false);
-      setFocused(false);
+      disarm('hover', setHovered);
+      disarm('focus', setFocused);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
@@ -54,11 +75,11 @@ export default function Tooltip({
   return (
     <span
       className="tooltip-anchor"
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
-      onFocus={() => setFocused(true)}
+      onPointerEnter={() => arm('hover', setHovered)}
+      onPointerLeave={() => disarm('hover', setHovered)}
+      onFocus={() => arm('focus', setFocused)}
       onBlur={(event: FocusEvent<HTMLSpanElement>) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) disarm('focus', setFocused);
       }}
     >
       {trigger}
@@ -69,4 +90,13 @@ export default function Tooltip({
       </span>
     </span>
   );
+}
+
+/** The motion token the delay is defined by, read from the stylesheet; 120ms where it is not loaded. */
+function tooltipDelayMs(): number {
+  const raw = typeof document === 'undefined'
+    ? ''
+    : getComputedStyle(document.documentElement).getPropertyValue('--dur').trim();
+  const ms = raw.endsWith('ms') ? parseFloat(raw) : raw.endsWith('s') ? parseFloat(raw) * 1000 : NaN;
+  return Number.isFinite(ms) && ms >= 0 ? ms : 120;
 }

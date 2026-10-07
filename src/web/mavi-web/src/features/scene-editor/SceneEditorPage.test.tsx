@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCamera } from '../../api/cameras';
@@ -14,7 +14,7 @@ import {
 import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
-import SceneEditorPage from './SceneEditorPage';
+import SceneEditorPage, { sceneQueryKeys } from './SceneEditorPage';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
@@ -909,6 +909,33 @@ describe('scene editor', () => {
 
     expect(await screen.findByRole('button', { name: /^Gate/ })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('never traps navigation when the page turns not-found under an open discard dialog', async () => {
+    const user = userEvent.setup();
+    const { router, queryClient } = render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await selectObject(user, 'Gate');
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Forecourt');
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await screen.findByRole('dialog', { name: 'Discard your unsaved scene changes?' });
+
+    // A background read finds the camera gone: the page becomes not-found and
+    // the discard decision goes with the editor it concerned.
+    vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'Gone.' }));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: sceneQueryKeys.scene(cameraId) });
+    });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Discard your unsaved scene changes?' })).not.toBeInTheDocument());
+
+    // Navigating away still asks — the guard is not held busy by a decision no
+    // longer on screen — and leaving works.
+    act(() => { void router!.navigate('/cameras'); });
+    const leave = await screen.findByRole('dialog', { name: 'Leave with unsaved changes?' });
+    await user.click(within(leave).getByRole('button', { name: 'Leave and discard changes' }));
+    await waitFor(() => expect(router!.state.location.pathname).toBe('/cameras'));
   });
 
   it('keeps every edit when the reset is cancelled', async () => {
