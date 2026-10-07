@@ -152,8 +152,15 @@
     rgb(163 173 189 / 8%) 6px 12px
   );
 
-  /* disabled is an opacity, never a hue (section 8.2). */
-  --disabled-opacity: 0.5;
+  /* --- Disabled. Stage 3.5 (specification v2.0 section 12): a disabled control
+     takes its own surface and text, never an opacity, so a disabled primary
+     reads as *off* rather than as a translucent primary. The text sits at
+     3.9:1 on the disabled surface: a disabled control is exempt from the 4.5:1
+     text minimum, but a label that cannot be read is still a defect, and the
+     contrast test pins the floor. --------------------------------------- */
+  --control-disabled-bg: var(--p-steel-900);
+  --control-disabled-border: var(--p-steel-700);
+  --text-disabled: var(--p-steel-450);
 
   /* --- Evidence and spatial. A separate namespace; never a status hue, and
      never the UI accent for resting geometry (section 8.3). Every distinction
@@ -287,12 +294,42 @@
   --sidebar-w-collapsed: 56px;
   --topbar-h: 44px;
   --content-max: 1600px;
+  /* Readable measures (specification v2.0 sections 14.1 and 36.1). Prose wraps
+     at --measure; a page-level alert stops at --alert-max and stays
+     left-anchored rather than stretching across an ultra-wide display. 68ch of
+     13px Segoe UI is roughly 480px (the "0" advance is about 0.54em), which is
+     wider than any inspector or rail prose block in the product (inspector
+     columns are 300-440px) and narrower than a Record column, so it binds
+     exactly where a paragraph would otherwise run the width of the page. An alert carries a sentence plus a
+     trailing action, so its cap is wider: 880px holds a 110-character
+     operator sentence beside a small button on one line at 13px. */
+  --measure: 68ch;
+  --alert-max: 880px;
+  /* The row pitch the skeleton rows are drawn at, and the pitch a Ledger row
+     is bound to when the row-pitch work lands (register row D4): section 10
+     fixes the target at 36-40px single-line, and 40 is the pitch at which a
+     badge line (20 + 2 x 8) and an in-row control (26 + 2 x 4) both fit
+     without a second line. Today's Ledger rows still measure 37-43px from
+     padding plus content, so a skeleton does not yet land exactly where the
+     rows do; it is far closer than the 26px placeholder it replaces, and D4
+     closes the gap from the table's side. */
+  --table-row-h: 40px;
 
   /* --- Elevation. Section 11 reserves shadow for floating layers; resting
      containers on a dark surface take a border instead. UI-2 introduces the
      first floating layer: the Workbench and Investigation inspector drawers. */
   --elevation-floating: 0 8px 24px rgb(0 0 0 / 35%);
 
+
+  /* --- Scrollbars (section 36.3). The platform scrollbar, styled only in
+     width and in thumb/track colour: a thin bar whose thumb is the panel
+     edge and whose track is the surface it scrolls. Not a custom widget. --- */
+  --scrollbar-thumb: var(--p-steel-450);
+  --scrollbar-track: transparent;
+
+  /* --- Skeletons (section 36.3). A geometric placeholder with the shape of
+     the content it precedes: a block of the raised surface, no shimmer. ---- */
+  --skeleton-bg: var(--p-steel-850);
 
   /* --- Motion. Two durations, no others (section 13). -------------------- */
   --dur: 120ms;

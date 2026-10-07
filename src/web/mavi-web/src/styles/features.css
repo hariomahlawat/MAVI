@@ -763,7 +763,7 @@
   width: 100%; padding: var(--s-px) var(--s-2); background: none; border: 0; border-radius: var(--r-1);
   color: var(--text-muted); font: var(--fs-0)/1.7 var(--font-mono); text-align: left; cursor: pointer;
 }
-.scene-inspector__point:hover { background: var(--surface-raised); color: var(--text-secondary); }
+.scene-inspector__point:hover { background: var(--surface-raised); }
 .scene-inspector__point.is-selected { background: var(--accent-strong); color: var(--text-on-accent); }
 
 .scene-inspector__issues {
@@ -796,11 +796,11 @@
 .scene-revisions__list { display: flex; align-items: stretch; gap: var(--s-2); flex-wrap: wrap; list-style: none; min-width: 0; }
 .scene-revisions__chip {
   display: flex; align-items: center; gap: var(--s-2); min-height: var(--control-h-sm);
-  padding: var(--s-hair) var(--s-2); border: 1px solid var(--border-subtle); border-radius: var(--r-1);
+  padding: var(--s-hair) var(--s-2); border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-1);
   background: var(--surface-raised); color: var(--text-secondary); font: var(--fs-1)/1.3 var(--font-ui); cursor: pointer;
   transition: background var(--dur) ease, border-color var(--dur) ease;
 }
-.scene-revisions__chip:hover { background: var(--surface-raised-2); color: var(--text-primary); }
+.scene-revisions__chip:hover { background: var(--surface-raised-2); }
 .scene-revisions__chip.is-active { border-color: var(--status-ok-border); }
 .scene-revisions__chip.is-viewing { border-color: var(--status-warn); background: var(--status-warn-soft); color: var(--status-warn); }
 .scene-revisions__chip.is-off .scene-revisions__number { opacity: 0.6; }

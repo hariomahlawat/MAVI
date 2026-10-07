@@ -52,7 +52,9 @@
   display: inline-flex; align-items: center; min-height: var(--control-min-target);
 }
 .context-bar__crumbs a { color: var(--text-secondary); }
-.context-bar__crumbs a:hover { color: var(--text-primary); }
+/* Section 12: hover never repaints text. A crumb underlines, as every link
+   in the product does. */
+.context-bar__crumbs a:hover { text-decoration: underline; text-underline-offset: 0.12em; }
 .context-bar__crumbs [aria-current="page"] { color: var(--text-primary); font-weight: 600; }
 .context-bar__status { display: flex; align-items: center; gap: var(--s-2); flex: 0 1 auto; }
 .context-bar__spacer { flex: 1 1 auto; min-width: 0; }
@@ -97,7 +99,7 @@
 }
 .segmented--sm .segmented__item { height: var(--control-h-sm); padding: 0 var(--s-2); font-size: var(--fs-1); }
 .segmented__item:last-child { border-right: 0; }
-.segmented__item:hover { background: var(--surface-raised); color: var(--text-primary); }
+.segmented__item:hover { background: var(--surface-raised); }
 .segmented__item.is-active { background: var(--accent-strong); color: var(--text-on-accent); }
 
 /* ------------------------------------------------------------------ *
