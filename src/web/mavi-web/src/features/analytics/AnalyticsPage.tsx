@@ -10,7 +10,7 @@ import {
   serializeHeatmapQuery,
 } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
-import { ApiError } from '../../api/client';
+import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
 import { fromQuery } from '../../shared/async/fromQuery';
@@ -167,7 +167,12 @@ export default function AnalyticsPage() {
     <>
       <ContextBar
         surface="analytics"
-        object={{ label: camera.data ? `${camera.data.code} · ${camera.data.name}` : cameraId, to: `/cameras/${cameraId}/scene` }}
+        // The camera this route names (§5: `Cameras › {camera} › Analytics`):
+        // its code and name once read, otherwise its identifier shortened —
+        // never the full GUID, and never dropped while it loads or fails.
+        object={isGuid(cameraId) || camera.data
+          ? { label: camera.data ? `${camera.data.code} · ${camera.data.name}` : `Camera ${cameraId.toLowerCase().slice(0, 8)}…`, to: `/cameras/${cameraId}/scene` }
+          : undefined}
         status={(() => {
           const coverage = state.mode === 'heatmap' ? heatmap.data?.coverage : response?.coverage;
           return coverage ? <CoverageChip complete={coverage.complete} /> : null;

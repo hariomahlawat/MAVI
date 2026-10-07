@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getCamera } from '../../api/cameras';
+import { isGuid } from '../../api/client';
 import {
   getCameraScene,
   getCameraSceneRevision,
@@ -374,9 +375,14 @@ export default function SceneEditorPage() {
   // The leave guard is rendered in every branch: the router keeps blocking
   // while the draft is dirty, so a branch without it would hold a navigation
   // with nothing on screen to release it.
-  if (!cameraId) return <>{leaveGuard}<NotFound /></>;
+  // The camera this route names, in every branch below (§5): its code and name
+  // once read, otherwise its identifier shortened. A state — loading, missing,
+  // unavailable — is said by the region, never in place of the camera.
+  const cameraCrumb = cameraIdentity(cameraId, camera.data);
 
-  if (isCameraMissing(camera.error) || isCameraMissing(scene.error)) return <>{leaveGuard}<NotFound /></>;
+  if (!cameraId) return <>{leaveGuard}<NotFound camera={cameraCrumb} /></>;
+
+  if (isCameraMissing(camera.error) || isCameraMissing(scene.error)) return <>{leaveGuard}<NotFound camera={cameraCrumb} /></>;
 
   // The camera and its scene are one page region (§37.1, page): the editor
   // cannot be drawn until both have answered, a failure of either is one alert
@@ -387,10 +393,7 @@ export default function SceneEditorPage() {
     return (
       <section className="page page--full page--workspace">
         {leaveGuard}
-        <ContextBar
-          surface="scene"
-          object={camera.data ? { label: `${camera.data.code} · ${camera.data.name}` } : undefined}
-        />
+        <ContextBar surface="scene" object={cameraCrumb ? { label: cameraCrumb } : undefined} />
         <StateRegion
           kind="page"
           state={combineStates(fromQuery(camera), fromQuery(scene))}
@@ -508,8 +511,8 @@ export default function SceneEditorPage() {
       {leaveGuard}
       {discardDialog}
       <SceneContextBar
-        cameraCode={camera.data?.code ?? 'Camera'}
-        cameraName={camera.data?.name ?? ''}
+        cameraCode={camera.data.code}
+        cameraName={camera.data.name}
         revisionNumber={readOnly ? (viewingRevisionNumber as number) : state.draft.baseRevisionNumber}
         saveState={saveState}
         analyticsEnabled={readOnly ? (historicalRevision.data?.analyticsEnabled ?? false) : analyticsEnabled}
@@ -679,10 +682,25 @@ export default function SceneEditorPage() {
   );
 }
 
-function NotFound() {
+/**
+ * The camera's identity for the crumb: `CODE · Name` once read, otherwise the
+ * route's identifier shortened (§14); none when the route names no valid camera.
+ */
+function cameraIdentity(cameraId: string, camera: { code: string; name: string } | undefined): string | undefined {
+  if (camera) return `${camera.code} · ${camera.name}`;
+  return isGuid(cameraId) ? `Camera ${cameraId.toLowerCase().slice(0, 8)}…` : undefined;
+}
+
+/**
+ * A missing camera. Still the Scene surface under Cameras (§5) — not the global
+ * Not found — so it keeps its Context Bar and the camera the route names; the
+ * bar carries the page's h1, and the state is this region's heading.
+ */
+function NotFound({ camera }: { camera?: string }) {
   return (
     <section className="page page--full">
-      <h1>Camera not found</h1>
+      <ContextBar surface="scene" object={camera ? { label: camera } : undefined} />
+      <h2>Camera not found</h2>
       <EmptyState
         title="The requested camera does not exist."
         actions={<ButtonLink to="/cameras">Go to Cameras</ButtonLink>}

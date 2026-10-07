@@ -29,13 +29,14 @@ function shouldRetryQuery(failureCount: number, error: unknown): boolean {
 
 /**
  * A Review route that cannot be shown. It is still Review (§5): its bar says
- * `Search › … › Review` like every other Review state, and its Search crumb
- * still returns to the Investigation it was opened from.
+ * `Search › {video} › Review` like every other Review state — the video named
+ * whenever the route names a valid one — and its Search crumb still returns to
+ * the Investigation it was opened from.
  */
-function Invalid({ message, rootTo }: { message: string; rootTo: string }) {
+function Invalid({ message, rootTo, video }: { message: string; rootTo: string; video?: string }) {
   return (
     <section className="page">
-      <ContextBar surface="review" rootTo={rootTo} />
+      <ContextBar surface="review" rootTo={rootTo} object={video ? { label: video } : undefined} />
       <Alert tone="error">{message}</Alert>
     </section>
   );
@@ -123,8 +124,9 @@ export default function VideoReviewPage() {
 
   // The video's name for the crumb (§5: `Search › {video} › Review`). The same
   // query Processing detail reads, so it is usually already cached; while it is
-  // loading or unavailable the crumb says `Video` rather than a stale or
-  // invented name, and nothing else on the surface depends on it.
+  // loading or unavailable the crumb names the video by its identifier rather
+  // than by a stale or invented name, and nothing else on the surface depends
+  // on it.
   const video = useQuery({
     queryKey: queryKeys.video(videoAssetId),
     queryFn: ({ signal }) => getVideo(videoAssetId, signal),
@@ -155,11 +157,15 @@ export default function VideoReviewPage() {
     ? returnToSearchPath(searchParams.get('from'), videoAssetId, trackId)
     : '/search';
 
+  // Every state below names the video the route names (§5, §14): its file name
+  // once read, otherwise its identifier. Only an invalid video id names none.
+  const videoLabel = video.data?.originalFileName ?? `Video ${videoAssetId.slice(0, 8)}…`;
+
   if (!validVideoId) return <Invalid message="The video identifier in this route is invalid." rootTo={backToSearch} />;
-  if (!validTrackId) return <Invalid message="Exactly one valid Track identifier is required in the trackId query parameter." rootTo={backToSearch} />;
-  if (invalidIdentity) return <Invalid message="This review link names an invalid analytics identity, so the evidence it refers to cannot be identified. Open the Track again from search." rootTo={backToSearch} />;
-  if (track.error instanceof ApiError && track.error.status === 404) return <Invalid message="Track was not found." rootTo={backToSearch} />;
-  if (identityMismatch) return <Invalid message="The selected Track does not belong to the video identified by this review route." rootTo={backToSearch} />;
+  if (!validTrackId) return <Invalid message="Exactly one valid Track identifier is required in the trackId query parameter." rootTo={backToSearch} video={videoLabel} />;
+  if (invalidIdentity) return <Invalid message="This review link names an invalid analytics identity, so the evidence it refers to cannot be identified. Open the Track again from search." rootTo={backToSearch} video={videoLabel} />;
+  if (track.error instanceof ApiError && track.error.status === 404) return <Invalid message="Track was not found." rootTo={backToSearch} video={videoLabel} />;
+  if (identityMismatch) return <Invalid message="The selected Track does not belong to the video identified by this review route." rootTo={backToSearch} video={videoLabel} />;
 
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId;
 
@@ -199,9 +205,7 @@ export default function VideoReviewPage() {
         // `Visual Search` buttons, two controls for one destination, are gone.
         surface="review"
         rootTo={backToSearch}
-        // The file name once known. A failed read is not dressed up as a
-        // generic word: the video is then named by its identifier (§14).
-        object={{ label: video.data?.originalFileName ?? (video.isError ? `Video ${videoAssetId.slice(0, 8)}…` : 'Video') }}
+        object={{ label: videoLabel }}
         status={detail ? (
           <>
             <span className="context-bar__subject">{`${detail.objectClass} · Track ${detail.localTrackNumber}`}</span>

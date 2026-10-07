@@ -230,6 +230,65 @@ describe('scene editor', () => {
     expect(screen.getByText(/Nothing drawn yet/)).toBeInTheDocument();
   });
 
+  describe('identity in every state (§5, §14)', () => {
+    const fallback = `Camera ${cameraId.slice(0, 8)}…`;
+    const renderInShell = () => renderWithApp(<SceneEditorPage />, {
+      route: `/cameras/${cameraId}/scene`,
+      routePath: '/cameras/:cameraId/scene',
+      shell: 'scene',
+    });
+
+    /** `Cameras › {identity} › Scene` in the bar and the title, the full GUID in neither. */
+    async function expectCameraIdentity(identity: string) {
+      const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+      expect(within(crumbs).getByRole('link', { name: 'Cameras' })).toHaveAttribute('href', '/cameras');
+      expect(await within(crumbs).findByText(identity)).toBeInTheDocument();
+      expect(within(crumbs).getByText('Scene')).toHaveAttribute('aria-current', 'page');
+      expect(within(crumbs).getAllByRole('listitem')).toHaveLength(3);
+      expect(crumbs.textContent).not.toContain(cameraId);
+      await waitFor(() => expect(document.title).toBe(`Scene — ${identity} — Cameras — MAVI`));
+      expect(document.title).not.toContain(cameraId);
+    }
+
+    it('names a camera that is still loading by its shortened identifier', async () => {
+      vi.mocked(getCamera).mockImplementation(() => new Promise(() => {}));
+      renderInShell();
+      expect(await screen.findByText('Loading scene…')).toBeInTheDocument();
+      await expectCameraIdentity(fallback);
+    });
+
+    it('keeps the camera named while it is unavailable, the state said by the region', async () => {
+      vi.mocked(getCamera).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
+      renderInShell();
+      expect(await screen.findByText('Camera store unavailable. (api_error)')).toBeInTheDocument();
+      await expectCameraIdentity(fallback);
+    });
+
+    it('keeps a missing camera on the Scene surface under Cameras, not the global Not found', async () => {
+      vi.mocked(getCamera).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));
+      vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));
+      renderInShell();
+      expect(await screen.findByRole('heading', { name: 'Camera not found' })).toBeInTheDocument();
+      await expectCameraIdentity(fallback);
+      expect(document.title).not.toBe('Not found — MAVI');
+      // One page heading: the bar's; the state is the region's.
+      expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    });
+
+    it('names the camera it resolved when only its scene is missing', async () => {
+      vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));
+      renderInShell();
+      expect(await screen.findByRole('heading', { name: 'Camera not found' })).toBeInTheDocument();
+      await expectCameraIdentity('CAM-01 · North Gate');
+    });
+
+    it('keeps the camera named while only the scene is unavailable', async () => {
+      vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 500, code: 'api_error', detail: 'Scene store is down.' }));
+      renderInShell();
+      await expectCameraIdentity('CAM-01 · North Gate');
+    });
+  });
+
   it('reports a missing camera rather than an empty scene', async () => {
     vi.mocked(getCamera).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));
     vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));

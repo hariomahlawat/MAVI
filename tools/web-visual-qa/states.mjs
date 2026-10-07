@@ -2387,6 +2387,14 @@ export const STATES = [
     api: { [`/api/videos/${VIDEO}`]: { status: 404, body: { status: 404, code: 'video_not_found', detail: 'Video was not found.' } } },
     expectText: ['Video was not found.', 'Video 22222222…'], forbidText: 'Not found',
   },
+  {
+    // The video record unreadable (not a 404): the crumb still names the video
+    // by its identifier, never a bare `Video` (§5, §14). The override is a
+    // prefix, so the run status fails with it.
+    name: 'processing-detail-video-unavailable', path: `/processing/${VIDEO}`, fullWidth: false,
+    archetype: 'record', settleMs: 4000, api: { [`/api/videos/${VIDEO}`]: 'unavailable' },
+    expectText: ['Video 22222222…'], forbidText: ['Not found', VIDEO],
+  },
 
   // --- Workbench: declares full width, and must actually use it. `archetype`
   //     additionally measures it against the frozen section 4.3 rules. ---
@@ -2519,6 +2527,26 @@ export const STATES = [
     settleMs: 4000,
     api: { [`/api/cameras/${CAM}/scene`]: 'unavailable' },
     expectText: 'unavailable',
+  },
+  {
+    // The camera itself unreadable: `Cameras › Camera 11111111… › Scene` (§5),
+    // the state said by the region, the full GUID nowhere.
+    name: 'scene-editor-camera-unavailable',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    settleMs: 4000,
+    api: { [`/api/cameras/${CAM}`]: 'unavailable' },
+    expectText: ['Camera 11111111…', 'unavailable'], forbidText: CAM,
+  },
+  {
+    // A missing camera stays the Scene surface under Cameras, not the global
+    // Not found.
+    name: 'scene-editor-camera-missing',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    settleMs: 1200,
+    api: { [`/api/cameras/${CAM}`]: { status: 404, body: { status: 404, code: 'camera_not_found', detail: 'Camera was not found.' } } },
+    expectText: ['Camera 11111111…', 'Camera not found'], forbidText: CAM,
   },
 
   // --- Investigation: Search, migrated in UI-4. -------------------------
@@ -2911,6 +2939,8 @@ export const STATES = [
   // UI-5: Review is on the Review archetype and uses the full width, so the
   // player takes the surplus on a wide display (section 25).
   { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, expectText: ['North Gate', 'Track summary'] },
+  // A terminal Review state keeps the video the route names: `Search › {video} › Review` (§5).
+  { name: 'review-track-missing', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, api: { [`/api/tracks/${TRACK}`]: { status: 404, body: { status: 404, code: 'track_not_found', detail: 'Track was not found.' } } }, expectText: ['Track was not found.', 'north-gate-0800.mp4'], forbidText: VIDEO },
   { name: 'review-bright', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'bright', prepare: SEEK, requireOverlay: true },
   { name: 'review-dark', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'dark', prepare: SEEK, requireOverlay: true },
   { name: 'review-saturated', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true },
@@ -2984,6 +3014,14 @@ export const STATES = [
     name: 'analytics-activity', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench', settleMs: 1200,
     expectText: ['Coverage complete', 'Active Tracks'],
+  },
+  {
+    // The camera unreadable: named by its shortened identifier, never by the
+    // full GUID the crumb used to show (§5, §14). The override is a prefix, so
+    // the camera's analytics fail with it.
+    name: 'analytics-camera-unavailable', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, settleMs: 4000, api: { [`/api/cameras/${CAM}`]: 'unavailable' },
+    expectText: ['Camera 11111111…'], forbidText: CAM,
   },
   {
     // Occupancy: a reading taken at an instant, with its peak and the moment it

@@ -1,5 +1,4 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { act, render as renderDom, screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCamera } from '../../api/cameras';
@@ -8,15 +7,10 @@ import { ApiError } from '../../api/client';
 import { analyticsPollInterval, getRunAnalytics, requestSceneReanalysis, retryRunAnalytics, type ProcessingRunAnalytics, type SceneAnalysisUnit } from '../../api/sceneAnalytics';
 import { getProcessingStatus, getVideo, queueProcessing, type AnalyticsReadiness, type ProcessingRunStatus } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import AppShell from '../../app/AppShell';
-import { createMaviQueryClient } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import ProcessingPage from './ProcessingPage';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
-// The shell's health probe, for the one test that renders the page inside the shell.
-vi.mock('../../api/platform', () => ({ getPlatformHealth: vi.fn(() => new Promise(() => {})) }));
 vi.mock('../../api/sceneAnalytics', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../api/sceneAnalytics')>();
   return { ...original, getRunAnalytics: vi.fn(), retryRunAnalytics: vi.fn(), requestSceneReanalysis: vi.fn() };
@@ -424,27 +418,70 @@ describe('ProcessingPage', () => {
     expect(await screen.findByText('Video was not found.')).toBeInTheDocument();
   });
 
-  it('keeps a missing video under Processing, named by its identifier rather than by its state (§5, §14)', async () => {
-    vi.mocked(getVideo).mockRejectedValue(new ApiError({ status: 404, code: 'video_not_found', detail: 'No such video.' }));
-    // Inside the shell, which writes the document title from the same crumbs.
-    const queryClient = createMaviQueryClient();
-    queryClient.setDefaultOptions({ queries: { retry: false, staleTime: 0, refetchOnWindowFocus: false } });
-    const router = createMemoryRouter([{
-      path: '/',
-      element: <AppShell />,
-      children: [{ path: 'processing/:videoAssetId', element: <ProcessingPage />, handle: { surface: 'processing-detail' } }],
-    }], { initialEntries: [`/processing/${videoId}`] });
-    renderDom(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>);
+  /** Inside the shell, which writes the document title from the same crumbs. */
+  const renderInShell = (id = videoId) => renderWithApp(<ProcessingPage />, {
+    route: `/processing/${id}`,
+    routePath: '/processing/:videoAssetId',
+    shell: 'processing-detail',
+  });
 
-    expect(await screen.findByText('Video was not found.')).toBeInTheDocument();
-    const identity = `Video ${videoId.slice(0, 8)}…`;
+  /** `Processing › {identity}`, with the identity current and nothing in place of it. */
+  async function expectVideoIdentity(identity: string) {
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(within(crumbs).getByRole('link', { name: 'Processing' })).toHaveAttribute('href', '/processing');
-    expect(within(crumbs).getByText(identity)).toHaveAttribute('aria-current', 'page');
-    expect(within(crumbs).queryByText('Not found')).not.toBeInTheDocument();
+    expect(await within(crumbs).findByText(identity)).toHaveAttribute('aria-current', 'page');
     expect(within(crumbs).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(crumbs).queryByText('Not found')).not.toBeInTheDocument();
+    expect(within(crumbs).queryByText('Video')).not.toBeInTheDocument();
+    expect(within(crumbs).queryByText(videoId)).not.toBeInTheDocument();
     await waitFor(() => expect(document.title).toBe(`${identity} — Processing — MAVI`));
+    expect(document.title).not.toContain(videoId);
+  }
+
+  it('keeps a missing video under Processing, named by its identifier rather than by its state (§5, §14)', async () => {
+    vi.mocked(getVideo).mockRejectedValue(new ApiError({ status: 404, code: 'video_not_found', detail: 'No such video.' }));
+    renderInShell();
+
+    expect(await screen.findByText('Video was not found.')).toBeInTheDocument();
+    await expectVideoIdentity(`Video ${videoId.slice(0, 8)}…`);
     expect(document.title).not.toContain('Not found');
+  });
+
+  it('names the video by its identifier while its record is unreadable, not by a bare `Video` (§5, §14)', async () => {
+    vi.mocked(getVideo).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Video store unavailable.' }));
+    renderInShell();
+
+    // The run is still stated: only the file name is missing.
+    expect(await screen.findByRole('heading', { name: 'Processing run' })).toBeInTheDocument();
+    await waitFor(() => expect(getVideo).toHaveBeenCalled());
+    await expectVideoIdentity(`Video ${videoId.slice(0, 8)}…`);
+    expect(screen.queryByText('Video was not found.')).not.toBeInTheDocument();
+  });
+
+  it('names the video by its identifier while it loads, and by its file name once read', async () => {
+    let resolve: (value: Awaited<ReturnType<typeof getVideo>>) => void = () => {};
+    const original = vi.mocked(getVideo).getMockImplementation();
+    vi.mocked(getVideo).mockImplementation((...args) => new Promise((done) => {
+      resolve = done;
+      void args;
+    }));
+    renderInShell();
+
+    await screen.findByRole('heading', { name: 'Processing run' });
+    await expectVideoIdentity(`Video ${videoId.slice(0, 8)}…`);
+
+    const record = await (original as typeof getVideo)(videoId);
+    await act(async () => { resolve(record); });
+    await expectVideoIdentity(record.originalFileName);
+  });
+
+  it('keeps `Unknown video` for a route whose identifier is not one', async () => {
+    renderInShell('not-a-guid');
+    expect(await screen.findByText(/identifier in this route is invalid/)).toBeInTheDocument();
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(crumbs).getByText('Unknown video')).toHaveAttribute('aria-current', 'page');
+    await waitFor(() => expect(document.title).toBe('Unknown video — Processing — MAVI'));
+    expect(getVideo).not.toHaveBeenCalled();
   });
 
   it('reports an unavailable status as unavailable rather than as no run', async () => {

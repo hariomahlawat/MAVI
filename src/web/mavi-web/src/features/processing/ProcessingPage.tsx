@@ -186,14 +186,17 @@ export default function ProcessingPage() {
     return frame('Unknown video', <Alert tone="error">The video identifier in this route is invalid.</Alert>);
   }
 
+  // The video this route names, before (or without) its file name: loading, a
+  // failed read and a 404 all keep `Processing › {video}` (§5), named by its
+  // identifier rather than by a state word or a bare `Video` (§14).
+  const videoLabel = video.data?.originalFileName ?? `Video ${videoAssetId.toLowerCase().slice(0, 8)}…`;
+
   const notFound = (video.error instanceof ApiError && video.error.status === 404)
     || (processing.error instanceof ApiError && processing.error.status === 404);
 
   if (notFound) {
-    // The route still names a video (§5: `Processing › {video}`); `Not found`
-    // is its state, said by the alert, not its identity. With no file name to
-    // read, the video is named by its identifier, as Review names it (§14).
-    return frame(`Video ${videoAssetId.toLowerCase().slice(0, 8)}…`, <Alert tone="error">Video was not found.</Alert>);
+    // `Not found` is the video's state, said by the alert, not its identity.
+    return frame(videoLabel, <Alert tone="error">Video was not found.</Alert>);
   }
 
   const state = processing.data;
@@ -248,7 +251,7 @@ export default function ProcessingPage() {
     <section className="page">
       <ContextBar
         surface="processing-detail"
-        object={{ label: video.data?.originalFileName ?? 'Video' }}
+        object={{ label: videoLabel }}
         status={(
           <>
             {state ? <StatusBadge status={state.videoStatus} /> : null}
