@@ -1076,4 +1076,4 @@ Task 10's `push` trigger is path-filtered to the vision runtime files, none of w
 - **Not operator-exposed:** truck and bus (benchmark-supported on BDD100K only, caveated; H5) and motorcycle (deferred — insufficient support; H5).
 - **Producers:** the A2 scale-1280 producer remains the preferred Development candidate, `developmentOnly`, refused in Production, and is not the operator release profile. Operator exposure applies to Tracks produced under the release binding `phase1-v2` (profile `afb03b6c…`).
 - **Production boundary unchanged:** nothing became Production-qualified; the qualification record stays `pending`; Task 18 is unaffected.
-- **Next (owner direction, 2026-10-07):** a UI/UX professionalisation programme (Stage 3.5) precedes Stage 4. Its scope and design are not recorded here.
+- **Next (owner direction, 2026-10-07):** a cross-cutting UI/UX Professionalisation Programme (working label Stage 3.5) precedes Stage 4. It does not renumber the capability stages. Its architecture, scope, quality bar and implementation sequence will be frozen separately.
