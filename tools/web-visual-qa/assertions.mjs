@@ -436,8 +436,8 @@ export const WORKSPACE_ASSERTIONS = `(() => {
     }
 
     // The inspector, when there is one: a third column at and above the
-    // threshold the layout declares, an overlay drawer below it — and never a
-    // modal, whichever shape it is in (§20).
+    // threshold the layout declares, an overlay drawer below it — modal only
+    // while it is the drawer (§20).
     const inspector = workspace.querySelector('.workspace__inspector');
     if (inspector && doc.clientWidth > 1100) {
       const style = getComputedStyle(inspector);
@@ -467,10 +467,28 @@ export const WORKSPACE_ASSERTIONS = `(() => {
           + 'nothing to check the rendered geometry against');
       }
 
-      // §20: a drawer, not a dialog. No modality, no trap, nothing inert.
-      if (workspace.querySelector('[role="dialog"], [aria-modal="true"], [inert]')) {
-        problems.push('Investigation inspector claims modality: §20 makes it a non-modal drawer '
-          + 'so the results stay readable underneath');
+      // §20 as amended in v2.0: an overlay drawer is modal over what it
+      // covers — a named dialog, the results inert — and an in-place column
+      // claims none of that. (UI-4's non-modal drawer is superseded.)
+      const modal = inspector.getAttribute('role') === 'dialog' && inspector.getAttribute('aria-modal') === 'true';
+      measured.inspectorModal = modal;
+      if (style.position === 'absolute') {
+        if (!modal) {
+          problems.push('Investigation drawer at ' + doc.clientWidth
+            + 'px is not a modal dialog: §20 requires the overlay to hold focus');
+        } else if (!inspector.getAttribute('aria-labelledby')) {
+          problems.push('Investigation drawer has no programmatic name from its heading (§20)');
+        }
+        // Everything beside the drawer is inert: a modal that left the rail
+        // live would be modal to the keyboard but not to the pointer.
+        for (const [name, region] of [['results', results], ['rail', rail]]) {
+          if (!region.hasAttribute('inert')) {
+            problems.push('Investigation ' + name + ' beside the drawer are not inert: they look operable '
+              + 'but sit outside a modal panel holding focus (§20)');
+          }
+        }
+      } else if (modal || workspace.querySelector('[role="dialog"], [aria-modal="true"], [inert]')) {
+        problems.push('Investigation inspector claims modality in place: a permanent column is not a dialog (§20)');
       }
     }
   }
@@ -500,6 +518,11 @@ export const WORKSPACE_ASSERTIONS = `(() => {
       // §4.3: the inspector is fixed between 300 and 360, at every width.
       if (inspectorWidth < 299 || inspectorWidth > 361) {
         problems.push('Workbench inspector is ' + measured.inspectorWidth + 'px, outside the fixed 300-360 range');
+      }
+      // §20: the permanent inspector is a column, never a dialog, and covers nothing.
+      if (inspector.getAttribute('role') === 'dialog' || inspector.hasAttribute('aria-modal')
+          || workspace.querySelector('[inert]')) {
+        problems.push('Workbench permanent inspector claims modality: only the 1101-1149 overlay is a drawer (§20)');
       }
     }
 

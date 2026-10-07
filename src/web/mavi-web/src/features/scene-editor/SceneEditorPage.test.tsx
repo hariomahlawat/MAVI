@@ -618,7 +618,6 @@ describe('scene editor', () => {
 
   it('really replaces the draft when the reload is taken, even if nothing changed on the server', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     vi.mocked(saveCameraScene).mockRejectedValue(
       new ApiError({ status: 409, code: 'scene_revision_conflict', detail: 'stale' }),
     );
@@ -636,11 +635,38 @@ describe('scene editor', () => {
     // operator their work was discarded and then leaving the draft dirty
     // against a revision it can no longer save on to is the worst of both.
     await user.click(screen.getByRole('button', { name: 'Reload active revision' }));
+    // The discard is decided in the product's Dialog (§15), never window.confirm.
+    const dialog = await screen.findByRole('dialog', { name: 'Discard your changes and load the saved revision?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Discard and load revision' }));
 
     await waitFor(() => expect(queryObjectButton('Forecourt')).toBeNull());
     expect(objectButton('Gate')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
-    confirm.mockRestore();
+  });
+
+  it('keeps the draft when the reload is cancelled', async () => {
+    const user = userEvent.setup();
+    vi.mocked(saveCameraScene).mockRejectedValue(
+      new ApiError({ status: 409, code: 'scene_revision_conflict', detail: 'stale' }),
+    );
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await selectObject(user, 'Gate');
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Forecourt');
+    await user.click(screen.getByRole('button', { name: 'Save revision' }));
+    const reload = await screen.findByRole('button', { name: 'Reload active revision' });
+    const fetches = vi.mocked(getCameraScene).mock.calls.length;
+
+    await user.click(reload);
+    const dialog = await screen.findByRole('dialog');
+    // Escape cancels the confirmation; it never discards.
+    await user.keyboard('{Escape}');
+    expect(dialog).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('Forecourt');
+    expect(vi.mocked(getCameraScene).mock.calls.length).toBe(fetches);
+    expect(reload).toHaveFocus();
   });
 
   it('blocks a save on a duplicate zone name', async () => {
@@ -865,9 +891,8 @@ describe('scene editor', () => {
   });
 
   // Reset
-  it('confirms before discarding meaningful edits', async () => {
+  it('confirms before discarding meaningful edits, in the product dialog', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render();
     await screen.findByRole('button', { name: /^Gate/ });
 
@@ -876,21 +901,60 @@ describe('scene editor', () => {
     await user.type(screen.getByLabelText('Name'), 'Forecourt');
     await user.click(screen.getByRole('button', { name: 'Reset' }));
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Discard unsaved scene changes'));
+    const dialog = await screen.findByRole('dialog', { name: 'Discard your unsaved scene changes?' });
+    expect(dialog).toHaveTextContent('returns to the active revision');
+    // Focus starts on the safe choice.
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await user.click(within(dialog).getByRole('button', { name: 'Discard changes' }));
+
     expect(await screen.findByRole('button', { name: /^Gate/ })).toBeInTheDocument();
-    confirm.mockRestore();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps every edit when the reset is cancelled', async () => {
+    const user = userEvent.setup();
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await selectObject(user, 'Gate');
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Forecourt');
+    const resetButton = screen.getByRole('button', { name: 'Reset' });
+    await user.click(resetButton);
+
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveValue('Forecourt');
+    expect(resetButton).toHaveFocus();
+  });
+
+  it('lets no editor shortcut act on the draft behind an open discard dialog', async () => {
+    const user = userEvent.setup();
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await selectObject(user, 'Gate');
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Forecourt');
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await screen.findByRole('dialog');
+
+    // Delete would remove the selected object; it must not, behind the decision.
+    await user.keyboard('{Delete}');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByLabelText('Name')).toHaveValue('Forecourt');
   });
 
   it('does not confirm a reset that would discard nothing', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     render();
     await screen.findByRole('button', { name: /^Gate/ });
 
     await user.click(screen.getByRole('button', { name: 'Reset' }));
 
-    expect(confirm).not.toHaveBeenCalled();
-    confirm.mockRestore();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
 

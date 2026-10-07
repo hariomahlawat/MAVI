@@ -371,17 +371,23 @@ export default function VisualSearchPage() {
    * was open, or, when that result is no longer rendered, to the results region
    * itself rather than to nothing.
    */
+  const pendingFocusRef = useRef<HTMLElement | null>(null);
   const closeInspector = useCallback(() => {
     const control = findSelectControl(selectedId);
+    pendingFocusRef.current = control ?? resultsRef.current;
     selectTrack(null);
-    const fallback = resultsRef.current;
-    const target = control ?? fallback;
-    if (target) {
-      // After the commit that removes the inspector, so the browser does not
-      // move focus back out when the element it was in disappears.
-      queueMicrotask(() => target.focus());
-    }
   }, [selectedId, selectTrack]);
+
+  // Focus moves once the selection has actually cleared — after the commit
+  // that removes the inspector and, below 1600px, after its drawer has given
+  // the results back. A microtask ran before the router committed the change,
+  // while the results were still inert, and the focus was silently refused.
+  useEffect(() => {
+    if (selectedId !== null) return;
+    const target = pendingFocusRef.current;
+    pendingFocusRef.current = null;
+    if (target?.isConnected && !target.closest('[inert]')) target.focus();
+  }, [selectedId]);
 
   const { fetchNextPage, isFetchingNextPage, isFetchNextPageError } = tracks;
   // Continuation is automatic only while it succeeds. After a failure the
@@ -650,6 +656,7 @@ export default function VisualSearchPage() {
 
       <InvestigationLayout
         notices={hasNotice ? notices : undefined}
+        onCloseInspector={closeInspector}
         rail={(
           <SearchFilterRail
             draft={draft.values}

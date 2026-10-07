@@ -291,9 +291,16 @@
   }
 }
 @media (max-width: 1599px) {
-  /* A drawer, not a modal: no backdrop, no focus trap, no inert results
-     (section 20). The results stay readable and operable underneath, which is
-     the whole reason an Investigation inspector is not a dialog. */
+  /* A drawer over the results (section 20, amended in v2.0): focus moves into
+     it and stays there, and the rail and results are inert and dimmed until
+     it closes — a click on them closes it. UI-4 made this drawer non-modal;
+     the Stage 3.5 freeze replaced that with the drawer contract because
+     results that look operable but sit under a panel holding focus are
+     neither readable nor safely operable. */
+  /* Positioned, not placed: a grid item placed into the results' cell would
+     push the auto-placed results out of it. Over the rail and the results,
+     both inert while the drawer is open. */
+  .workspace--investigation .drawer-scrim { position: absolute; inset: 0; border-radius: var(--r-3); }
   .workspace--investigation.has-inspector .workspace__inspector {
     position: absolute; inset: 0 0 0 auto; width: min(480px, 100%); z-index: var(--z-drawer);
     box-shadow: var(--elevation-floating);
@@ -348,6 +355,7 @@
     position: absolute; inset: 0 0 0 auto; width: min(360px, 100%); z-index: var(--z-drawer);
     box-shadow: var(--elevation-floating);
   }
+  .workspace--workbench .drawer-scrim { position: absolute; inset: 0; border-radius: var(--r-2); }
   /* Shut by default: the stage keeps the working width the drawer exists to
      protect, and nothing covers the canvas until it is asked for. */
   .workspace--workbench:not(.has-open-drawer) .workspace__inspector { display: none; }

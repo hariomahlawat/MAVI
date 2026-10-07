@@ -251,6 +251,45 @@ const DIRTY_SCENE = `(async () => {
 })()`;
 
 /**
+ * S1c: the Scene Editor's two consequential decisions, reached through the real
+ * controls. Each is the product's Dialog (§15) over a dirty draft; the prepare
+ * step fails unless the dialog is actually open.
+ */
+const clickButton = (label) => `Array.from(document.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === ${JSON.stringify(label)})`;
+const DISCARD_DIALOG = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  if (!(await ${DIRTY_SCENE})) return false;
+  const reset = ${clickButton('Reset')};
+  if (!reset) return false;
+  reset.click();
+  await wait(300);
+  return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+})()`;
+const RELOAD_DIALOG = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  if (!(await ${DIRTY_SCENE})) return false;
+  const save = ${clickButton('Save revision')};
+  if (!save) return false;
+  save.click();
+  await wait(800);
+  const reload = ${clickButton('Reload active revision')};
+  if (!reload) return false;
+  reload.click();
+  await wait(300);
+  return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+})()`;
+/** The Workbench inspector opened as the 1101-1149 overlay drawer (§4.3.1, §20). */
+const OPEN_WORKBENCH_DRAWER = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const toggle = document.querySelector('.workspace__drawer-toggle');
+  if (!toggle) return false;
+  toggle.click();
+  await wait(300);
+  const drawer = document.querySelector('.workspace__inspector[role="dialog"][aria-modal="true"]');
+  return Boolean(drawer && drawer.contains(document.activeElement) && document.querySelector('.workspace__stage[inert]') && document.querySelector('.workspace__band[inert]'));
+})()`;
+
+/**
  * Drive the Scene Editor into its densest *real* fixed-chrome state.
  *
  * The other Workbench states are realistic, which is the point of them; this
@@ -2357,6 +2396,46 @@ export const STATES = [
       },
     },
     expectText: 'Unsaved changes',
+  },
+  {
+    // S1c: Reset over a dirty draft asks, in the product's Dialog (§15).
+    name: 'scene-editor-discard-dialog',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1200,
+    prepare: DISCARD_DIALOG,
+    widths: [1366, 1920],
+    expectText: ['Discard your unsaved scene changes?', 'Discard changes', 'Cancel'],
+  },
+  {
+    // S1c: a save refused because the active revision moved on; taking the
+    // saved revision discards the draft, so it asks first.
+    name: 'scene-editor-reload-dialog',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1200,
+    prepare: RELOAD_DIALOG,
+    prepareSettleMs: 900,
+    widths: [1366, 1920],
+    api: {
+      [`PUT /api/cameras/${CAM}/scene`]: {
+        status: 409,
+        body: { title: 'Conflict', code: 'scene_revision_conflict', detail: 'The active revision changed while you were editing.' },
+      },
+    },
+    expectText: ['Discard your changes and load the saved revision?', 'Discard and load revision'],
+  },
+  {
+    // S1c: the only width band where the Workbench inspector is an overlay.
+    name: 'scene-editor-drawer',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    settleMs: 1200,
+    prepare: OPEN_WORKBENCH_DRAWER,
+    widths: [1120],
   },
   {
     // The stress case for the frozen no-page-scroll rule (§4.3.2): every fixed
