@@ -2175,6 +2175,39 @@ const FAILED_FINALIZATION_STATUS = {
 };
 
 export const STATES = [
+  // --- The shell (S1d, §5). The shell is on every state below; these three
+  //     put it into the conditions no surface fixture reaches on its own. ---
+  {
+    // The rail collapsed by the operator: 56px, icon-only items named, the
+    // 32x32 collapse control still labelled and announcing its state.
+    name: 'shell-rail-collapsed', path: '/cameras', fullWidth: true, archetype: 'ledger', settleMs: 900,
+    prepare: `(async () => {
+      const toggle = document.querySelector('.sidebar__toggle');
+      if (!toggle) return false;
+      toggle.click();
+      await new Promise((r) => setTimeout(r, 300));
+      return Boolean(document.querySelector('.shell--collapsed')) && toggle.getAttribute('aria-expanded') === 'false';
+    })()`,
+  },
+  {
+    // The ? shortcut sheet open over a Ledger: the shared Drawer, focus on its
+    // heading, the rail and workspace inert beneath its scrim.
+    name: 'shell-shortcut-sheet', path: '/videos', fullWidth: true, archetype: 'ledger', settleMs: 900,
+    prepare: `(async () => {
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+      await new Promise((r) => setTimeout(r, 400));
+      const sheet = document.querySelector('.shortcut-sheet[role="dialog"][aria-modal="true"]');
+      return Boolean(sheet && sheet.contains(document.activeElement) && document.querySelector('main[inert]'));
+    })()`,
+    expectText: ['Keyboard shortcuts', 'Overview', 'Processing'],
+  },
+  {
+    // §5: rendered inside the shell, with a Context Bar, and no rail item
+    // highlighted.
+    name: 'not-found', path: '/no-such-page', fullWidth: false, settleMs: 700,
+    prepare: `(() => !document.querySelector('.sidebar__nav a.active') && document.title === 'Not found — MAVI')()`,
+    expectText: ['Not found', 'This page does not exist.'],
+  },
   // --- Ledger-summary: Overview, the one Ledger permitted to stay capped. ---
   { name: 'overview', path: '/', fullWidth: false, archetype: 'ledger-summary' },
   {

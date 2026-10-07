@@ -241,7 +241,7 @@ try {
 
       writeFileSync(join(OUT, `${state.name}--${viewport.label}.png`), await browser.screenshot());
       const summary = {
-        state: state.name, viewport: viewport.label, pageWidth: page.pageWidth,
+        state: state.name, viewport: viewport.label, pageWidth: page.pageWidth, shell: page.shell,
         focus: { discovered: focus.discovered, checked: focus.checked, skipped: focus.skipped },
         smallTargets: small,
         workspace: workspace?.measured ?? null,
