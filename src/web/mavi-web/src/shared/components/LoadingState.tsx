@@ -21,6 +21,7 @@ export const DEFAULT_SKELETON_ROWS = 8;
 export default function LoadingState({
   label = 'Loading…',
   rows,
+  pitch = 'table',
 }: {
   label?: string;
   /**
@@ -28,11 +29,16 @@ export default function LoadingState({
    * the confirmed eight.
    */
   rows?: number | 'default';
+  /** The row geometry the skeleton precedes: a Ledger table row, a result-list row with a thumbnail, or a key/value row. */
+  pitch?: 'table' | 'list' | 'compactList' | 'keyValue';
 }) {
   const count = rows === 'default' ? DEFAULT_SKELETON_ROWS : rows;
   if (count && count > 0) {
     return (
-      <div className="skeleton" role="status" aria-label={label}>
+      <div className={pitch === 'list' ? 'skeleton skeleton--list' : pitch === 'keyValue' ? 'skeleton skeleton--kv' : pitch === 'compactList' ? 'skeleton skeleton--compact-list' : 'skeleton'} role="status">
+        {/* A live region announces its content, not a name: the label is text
+            inside it, hidden visually, so the load is actually said — once. */}
+        <span className="visually-hidden">{label}</span>
         {Array.from({ length: count }, (_, index) => (
           <div key={index} className="skeleton__row" />
         ))}

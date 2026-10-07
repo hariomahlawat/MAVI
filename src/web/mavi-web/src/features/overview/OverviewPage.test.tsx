@@ -102,7 +102,10 @@ describe('OverviewPage', () => {
 
     // The media figures say they are unavailable rather than reading as zero…
     expect(await screen.findByText(/video inventory is unavailable/i)).toBeInTheDocument();
-    expect(screen.getByText('Media status unavailable')).toBeInTheDocument();
+    // The media panel draws from the same request; it says it cannot be drawn,
+    // as text, and the band's one notice carries the alert and its retry.
+    expect(screen.getByText(/its distribution cannot be shown/)).toBeInTheDocument();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(screen.getByRole('link', { name: /Videos.*—.*unavailable/ })).toBeInTheDocument();
 
     // …while the two sections that answered are untouched.

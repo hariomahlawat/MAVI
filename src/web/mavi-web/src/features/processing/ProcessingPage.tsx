@@ -24,12 +24,14 @@ import {
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { analyticsReadinessText } from './analyticsReadiness';
+import { fromQuery } from '../../shared/async/fromQuery';
+import { hasFailure } from '../../shared/async/asyncState';
+import StateRegion from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import EmptyState from '../../shared/components/EmptyState';
 import KeyValue from '../../shared/components/KeyValue';
-import LoadingState from '../../shared/components/LoadingState';
 import Panel from '../../shared/components/Panel';
 import Progress from '../../shared/components/Progress';
 import StatusBadge from '../../shared/components/StatusBadge';
@@ -206,7 +208,10 @@ export default function ProcessingPage() {
   // notices band for a failure this page deliberately never renders.
   const retryFailed = retry.isError
     && !(retry.error instanceof ApiError && retry.error.code === 'processing_already_active');
-  const hasNotices = Boolean(navigationNotice) || retryFailed || video.isError || processing.isError;
+  // The two requests are two regions (§37.1): the processing status is the
+  // primary column, the video metadata is the facts rail. Each states its own
+  // failure inside the region it replaces, so neither is reported here.
+  const hasNotices = Boolean(navigationNotice) || retryFailed;
   const notices = (
     <>
       {navigationNotice ? <Alert tone="info">{navigationNotice}</Alert> : null}
@@ -215,8 +220,6 @@ export default function ProcessingPage() {
           {retry.error instanceof ApiError ? `${retry.error.detail} (${retry.error.code})` : 'Processing could not be queued.'}
         </Alert>
       ) : null}
-      {video.isError ? <Alert tone="error">Video metadata is unavailable.</Alert> : null}
-      {processing.isError ? <Alert tone="error">Processing status is unavailable.</Alert> : null}
     </>
   );
 
@@ -246,26 +249,52 @@ export default function ProcessingPage() {
 
       <RecordLayout
         notices={hasNotices ? notices : undefined}
-        facts={video.data ? (
+        facts={(
           <>
             <Panel title="Video">
-              <KeyValue
-                items={[
-                  { label: 'File', value: video.data.originalFileName },
-                  { label: 'Camera', value: camera.data ? `${camera.data.code} · ${camera.data.name}` : camera.isError ? 'Camera unavailable' : 'Loading camera…' },
-                  { label: 'Recorded', value: safeFormatTimestamp(video.data.recordingStartUtc, displayZone) },
-                  { label: 'Duration', value: formatDuration(video.data.durationMs) },
-                  { label: 'Resolution', value: `${video.data.width}×${video.data.height} · ${frameRateText(video.data.frameRateNumerator, video.data.frameRateDenominator)}` },
-                  { label: 'Codec', value: video.data.codecName ?? '—' },
-                  { label: 'Camera timezone', value: camera.data?.timeZoneId ?? video.data.recordingTimeZoneId, mono: true },
-                ]}
-              />
+              <StateRegion
+                kind="panel"
+                state={fromQuery(video)}
+                label="video metadata"
+                skeleton={{ rows: 7, pitch: 'keyValue' }}
+                unavailableMessage={() => 'Video metadata is unavailable.'}
+                degradedMessage="Showing the last known video metadata; refreshing failed."
+                onRetry={() => video.refetch()}
+              >
+                {(asset) => (
+                  <KeyValue
+                    items={[
+                      { label: 'File', value: asset.originalFileName },
+                      {
+                        label: 'Camera',
+                        value: (
+                          <StateRegion
+                            kind="row"
+                            state={fromQuery(camera)}
+                            label="camera"
+                            unavailableMessage={() => 'Camera unavailable'}
+                            onRetry={() => camera.refetch()}
+                          >
+                            {(owner) => `${owner.code} · ${owner.name}`}
+                          </StateRegion>
+                        ),
+                      },
+                      { label: 'Recorded', value: safeFormatTimestamp(asset.recordingStartUtc, displayZone) },
+                      { label: 'Duration', value: formatDuration(asset.durationMs) },
+                      { label: 'Resolution', value: `${asset.width}×${asset.height} · ${frameRateText(asset.frameRateNumerator, asset.frameRateDenominator)}` },
+                      { label: 'Codec', value: asset.codecName ?? '—' },
+                      { label: 'Camera timezone', value: camera.data?.timeZoneId ?? asset.recordingTimeZoneId, mono: true },
+                    ]}
+                  />
+                )}
+              </StateRegion>
             </Panel>
 
             {/* §16, §30: identifiers are not ordinary operator content. They
                 are real and occasionally needed, so they are one disclosure
                 away rather than absent. The display timezone is not repeated
                 here — the Context Bar states it once for the surface (§24). */}
+            {video.data ? (
             <Panel>
               <details className="disclosure">
                 <summary>Diagnostics</summary>
@@ -281,17 +310,16 @@ export default function ProcessingPage() {
                 </div>
               </details>
             </Panel>
+            ) : null}
           </>
-        ) : undefined}
+        )}
       >
-        {(video.isPending || processing.isPending) ? <LoadingState label="Loading processing state…" /> : null}
 
         {/* §16: the run's own state is stated only where it differs from the
             video's, which the Context Bar already carries. Where they agree —
             the ordinary case — a second badge saying "Failed" beside a bar
             already labelled "Failed" is the duplicate §30 names. */}
-        {video.data && state ? (
-          <Panel
+        <Panel
             title="Processing run"
             actions={finalizing
               // The video is still Processing, but the run is past inference:
@@ -301,7 +329,16 @@ export default function ProcessingPage() {
                 ? <StatusBadge status={run.status} />
                 : undefined}
           >
-            {run ? (
+            <StateRegion
+              kind="panel"
+              state={fromQuery(processing)}
+              label="processing status"
+              loadingLabel="Loading processing state…"
+              unavailableMessage={() => 'Processing status is unavailable.'}
+              degradedMessage="Showing the last known processing status; refreshing failed."
+              onRetry={() => processing.refetch()}
+            >
+              {() => run ? (
               <div className="stack">
                 {/* Finalization has no percentage, and a full inference bar
                     would read as done, so a Finalizing run gets a sentence. */}
@@ -344,8 +381,8 @@ export default function ProcessingPage() {
                 Use Queue processing to start the authoritative pipeline for this video.
               </EmptyState>
             )}
+            </StateRegion>
           </Panel>
-        ) : null}
 
         {/* Scene analytics for the completed run: readiness as text — the run's
             one badge already sits in the Context Bar (§16) — with the action the
@@ -357,7 +394,15 @@ export default function ProcessingPage() {
             <SceneAnalyticsPanel
               readiness={run.analyticsReadiness}
               analytics={analytics.data}
-              analyticsUnavailable={analytics.isError}
+              analyticsUnavailable={fromQuery(analytics).kind === 'unavailable'}
+              // A failed poll over details already shown stops polling
+              // (`refetchInterval` returns false on error), so it is stated with
+              // its retry rather than left reading as "keeps refreshing".
+              analyticsRefreshFailed={hasFailure(fromQuery(analytics)) && analytics.data !== undefined}
+              // A 404 is the one answer retrying cannot change.
+              onRetryAnalyticsDetails={analytics.error instanceof ApiError && analytics.error.status === 404
+                ? undefined
+                : () => void analytics.refetch()}
               cameraId={cameraId}
               cameraLabel={camera.data ? `${camera.data.code} · ${camera.data.name}` : 'this camera'}
               displayZone={displayZone}
@@ -394,6 +439,8 @@ function SceneAnalyticsPanel({
   readiness,
   analytics,
   analyticsUnavailable,
+  analyticsRefreshFailed = false,
+  onRetryAnalyticsDetails,
   cameraId,
   cameraLabel,
   displayZone,
@@ -408,6 +455,10 @@ function SceneAnalyticsPanel({
   readiness: AnalyticsReadiness;
   analytics: ProcessingRunAnalytics | undefined;
   analyticsUnavailable: boolean;
+  /** Details are on screen but their latest refresh failed, so polling has stopped. */
+  analyticsRefreshFailed?: boolean;
+  /** Re-requests the analysis details whose failure the warning reports. */
+  onRetryAnalyticsDetails?: () => void;
   cameraId: string;
   cameraLabel: string;
   displayZone: string | undefined;
@@ -456,10 +507,17 @@ function SceneAnalyticsPanel({
       />
 
       {analyticsUnavailable ? (
-        <Alert tone="warning">Analysis details are unavailable; the readiness above is from the processing status.</Alert>
+        <Alert tone="warning" actions={onRetryAnalyticsDetails ? <Button size="sm" onClick={onRetryAnalyticsDetails}>Retry</Button> : undefined}>
+          Analysis details are unavailable; the readiness above is from the processing status.
+        </Alert>
+      ) : null}
+      {analyticsRefreshFailed ? (
+        <Alert tone="warning" actions={onRetryAnalyticsDetails ? <Button size="sm" onClick={onRetryAnalyticsDetails}>Retry</Button> : undefined}>
+          Analysis details could not be refreshed, so this page has stopped checking for progress. The details above are the last known; Retry resumes.
+        </Alert>
       ) : null}
 
-      {effective === 'Pending' ? (
+      {effective === 'Pending' && !analyticsRefreshFailed ? (
         <p className="small faint">The analytics host will analyse this run against the active scene revision; this page keeps refreshing until it does.</p>
       ) : null}
 

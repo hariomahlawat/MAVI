@@ -12,11 +12,13 @@ import {
 import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
+import { combineStates } from '../../shared/async/asyncState';
+import { fromQuery } from '../../shared/async/fromQuery';
+import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
-import LoadingState from '../../shared/components/LoadingState';
-import { WorkbenchLayout } from '../../shared/workspace';
+import { ContextBar, WorkbenchLayout } from '../../shared/workspace';
 import { editorReducer, initialEditorState, NUDGE_STEP, type Selection } from './editorState';
 import ReferenceFrameBar from './ReferenceFrameBar';
 import RevisionHistory from './RevisionHistory';
@@ -318,31 +320,39 @@ export default function SceneEditorPage() {
 
   if (!cameraId) return <NotFound />;
 
-  if (camera.isPending || scene.isPending) {
-    return (
-      <section className="page page--full page--workspace">
-        <LoadingState label="Loading scene…" />
-      </section>
-    );
-  }
-
   if (isCameraMissing(camera.error) || isCameraMissing(scene.error)) return <NotFound />;
 
-  if (camera.isError) {
+  // The camera and its scene are one page region (§37.1, page): the editor
+  // cannot be drawn until both have answered, a failure of either is one alert
+  // whose retry re-requests what failed, and the Context Bar keeps the
+  // surface's identity throughout. An unavailable scene API must never be
+  // presented as an empty scene.
+  if (camera.data === undefined || scene.data === undefined) {
     return (
-      <section className="page page--full">
-        <Alert tone="error">{sceneErrorMessage(camera.error, 'Camera is unavailable.')}</Alert>
-        <div className="row"><Button icon="refresh" onClick={() => camera.refetch()}>Retry</Button></div>
-      </section>
-    );
-  }
-
-  if (scene.isError) {
-    // An unavailable scene API must never be presented as an empty scene.
-    return (
-      <section className="page page--full">
-        <Alert tone="error">{sceneErrorMessage(scene.error, 'Scene configuration is unavailable.')}</Alert>
-        <div className="row"><Button icon="refresh" onClick={() => scene.refetch()}>Retry</Button></div>
+      <section className="page page--full page--workspace">
+        <ContextBar
+          crumbs={[
+            { label: 'Cameras', to: '/cameras' },
+            { label: camera.data?.code ?? 'Camera' },
+            { label: 'Scene' },
+          ]}
+        />
+        <StateRegion
+          kind="page"
+          state={combineStates(fromQuery(camera), fromQuery(scene))}
+          label="the scene"
+          loadingLabel="Loading scene…"
+          unavailableMessage={(error) => sceneErrorMessage(
+            error,
+            camera.isError ? 'Camera is unavailable.' : 'Scene configuration is unavailable.',
+          )}
+          onRetry={() => {
+            if (camera.isError) void camera.refetch();
+            if (scene.isError) void scene.refetch();
+          }}
+        >
+          {() => null}
+        </StateRegion>
       </section>
     );
   }
@@ -391,26 +401,32 @@ export default function SceneEditorPage() {
           The reference video could not be loaded. The scene and its reference metadata are unchanged.
         </Alert>
       ) : null}
-      {historicalRevision.isError ? (
-        <Alert tone="error">
-          <div className="row">
-            <span>{sceneErrorMessage(historicalRevision.error, 'That revision could not be loaded.')}</span>
-            <Button size="sm" onClick={() => historicalRevision.refetch()}>Try again</Button>
-          </div>
-        </Alert>
-      ) : historicalMissing ? (
-        <Alert tone="info">Loading revision {viewingRevisionNumber}…</Alert>
+      {/* A historical revision is the canvas's content while it is viewed: a
+          page-scope region of its own, loading or unavailable in one place
+          with its retry trailing (§37.1). */}
+      {historicalRevision.isError || historicalMissing ? (
+        <StateRegion
+          kind="page"
+          state={fromQuery(historicalRevision)}
+          label={`revision ${viewingRevisionNumber}`}
+          loadingLabel={`Loading revision ${viewingRevisionNumber}…`}
+          unavailableMessage={(error) => sceneErrorMessage(error, 'That revision could not be loaded.')}
+          onRetry={() => historicalRevision.refetch()}
+        >
+          {() => null}
+        </StateRegion>
       ) : null}
-      {videos.isError ? (
-        // Not the same thing as a camera with no imported video: saying so
-        // would be reporting an outage as a fact about the camera.
-        <Alert tone="warning">
-          <div className="row">
-            <span>The video list is unavailable, so no reference frame can be chosen right now.</span>
-            <Button size="sm" onClick={() => videos.refetch()}>Try again</Button>
-          </div>
-        </Alert>
-      ) : null}
+      {/* The camera and scene already on screen keep the editor working when a
+          refresh fails; it says so rather than going quiet (§14.1, degraded). */}
+      <SupportingRequestNotice
+        state={combineStates(fromQuery(camera), fromQuery(scene))}
+        unavailableMessage={null}
+        degradedMessage="The saved scene could not be refreshed. The editor shows what was last loaded; your unsaved changes are untouched."
+        onRetry={() => {
+          void camera.refetch();
+          void scene.refetch();
+        }}
+      />
       {sceneIssues.length > 0 ? (
         <Alert tone="warning">{sceneIssues.map((issue) => issue.message).join(' ')}</Alert>
       ) : null}
@@ -528,25 +544,39 @@ export default function SceneEditorPage() {
               onMoveEndpoint={(key, endpoint, point) => dispatch({ type: 'moveEndpoint', key, endpoint, point })}
             />
 
-            <ReferenceFrameBar
-              videos={cameraVideos}
-              videoRef={videoRef}
-              previewVideoId={readOnly ? canvasVideoId : previewVideoId}
-              videosUnavailable={videos.isError}
-              savedVideoId={readOnly
-                ? historicalRevision.data?.referenceFrameVideoAssetId ?? null
-                : state.draft.referenceFrameVideoAssetId}
-              savedOffsetMs={readOnly
-                ? historicalRevision.data?.referenceFrameOffsetMs ?? null
-                : state.draft.referenceFrameOffsetMs}
-              readOnly={readOnly}
-              onPreviewVideo={setPreviewVideoId}
-              onUseCurrentFrame={(offsetMs) => {
-                if (!previewVideoId) return;
-                dispatch({ type: 'setReferenceFrame', videoAssetId: previewVideoId, offsetMs });
-              }}
-              onClear={() => dispatch({ type: 'clearReferenceFrame' })}
-            />
+            {/* The video list is the reference bar's own region (§37.1): it loads,
+                is unavailable with its retry in the alert, or is the bar. Not the
+                same thing as a camera with no imported video — saying so would be
+                reporting an outage as a fact about the camera. */}
+            <StateRegion
+              kind="panel"
+              state={fromQuery(videos)}
+              label="video list"
+              unavailableMessage={() => 'The video list is unavailable, so no reference frame can be chosen right now. Geometry is still saved in normalised coordinates.'}
+              degradedMessage="Showing the last known video list; refreshing failed."
+              onRetry={() => videos.refetch()}
+            >
+              {() => (
+                <ReferenceFrameBar
+                  videos={cameraVideos}
+                  videoRef={videoRef}
+                  previewVideoId={readOnly ? canvasVideoId : previewVideoId}
+                  savedVideoId={readOnly
+                    ? historicalRevision.data?.referenceFrameVideoAssetId ?? null
+                    : state.draft.referenceFrameVideoAssetId}
+                  savedOffsetMs={readOnly
+                    ? historicalRevision.data?.referenceFrameOffsetMs ?? null
+                    : state.draft.referenceFrameOffsetMs}
+                  readOnly={readOnly}
+                  onPreviewVideo={setPreviewVideoId}
+                  onUseCurrentFrame={(offsetMs) => {
+                    if (!previewVideoId) return;
+                    dispatch({ type: 'setReferenceFrame', videoAssetId: previewVideoId, offsetMs });
+                  }}
+                  onClear={() => dispatch({ type: 'clearReferenceFrame' })}
+                />
+              )}
+            </StateRegion>
           </>
         )}
         inspector={(

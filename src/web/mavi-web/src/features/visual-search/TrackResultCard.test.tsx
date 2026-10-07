@@ -98,7 +98,8 @@ describe('TrackResultCard', () => {
     );
     const oldImage = screen.getByRole('img', { name: /representative evidence/i });
     fireEvent.error(oldImage);
-    expect(screen.getByText('Evidence unavailable')).toBeInTheDocument();
+    // One vocabulary for missing evidence (§37.1): never a broken image.
+    expect(screen.getByText('No image')).toBeInTheDocument();
 
     view.rerender(
       <MemoryRouter>

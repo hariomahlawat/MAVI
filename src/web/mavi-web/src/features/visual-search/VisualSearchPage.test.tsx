@@ -366,7 +366,7 @@ describe('VisualSearchPage', () => {
     });
 
     expect(await screen.findByText(/must occur exactly once/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Searching visual intelligence/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Searching…')).not.toBeInTheDocument();
     expect(searchTracks).not.toHaveBeenCalled();
   });
 

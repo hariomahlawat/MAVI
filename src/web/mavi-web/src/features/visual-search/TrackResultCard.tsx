@@ -6,6 +6,7 @@ import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence } from '../../shared/format/format';
 import { reviewPath } from './TrackResultList';
 import { selectControlProps, useKeepSelectedVisible } from './resultSelection';
+import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
 
 /**
  * One result, as a card.
@@ -67,9 +68,7 @@ export default function TrackResultCard({
             onError={() => setThumbnailFailed(true)}
           />
         ) : (
-          <div className="track-card__placeholder" role="img" aria-label="Representative evidence unavailable">
-            Evidence unavailable
-          </div>
+          <EvidencePlaceholder reason={`representative evidence for this ${classLabel} is not available`} />
         )}
       </div>
 

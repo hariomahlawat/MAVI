@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import Button from './Button';
 import Icon, { type IconName } from './Icon';
 
 /**
@@ -35,5 +36,22 @@ export default function EmptyState({
       {children ? <span>{children}</span> : null}
       {actions ? <div className="empty__actions">{actions}</div> : null}
     </div>
+  );
+}
+
+/**
+ * The §37.1 filtered-empty presentation: the same geometry as empty, the
+ * filter icon, one vocabulary, and *Clear filters* as the one secondary action.
+ * It is never the authoritative "nothing exists": the inventory is real and
+ * the filters simply exclude all of it.
+ */
+export function FilteredEmptyState({ subject, onClear }: { subject: string; onClear: () => void }) {
+  return (
+    <EmptyState
+      icon="filter"
+      title={`No ${subject} match these filters`}
+      compact
+      actions={<Button size="sm" onClick={onClear}>Clear filters</Button>}
+    />
   );
 }

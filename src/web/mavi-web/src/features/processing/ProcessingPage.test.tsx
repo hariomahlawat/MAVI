@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCamera } from '../../api/cameras';
@@ -6,6 +6,7 @@ import { getSystemConfig } from '../../api/system';
 import { ApiError } from '../../api/client';
 import { getRunAnalytics, requestSceneReanalysis, retryRunAnalytics, type ProcessingRunAnalytics, type SceneAnalysisUnit } from '../../api/sceneAnalytics';
 import { getProcessingStatus, getVideo, queueProcessing, type AnalyticsReadiness, type ProcessingRunStatus } from '../../api/videos';
+import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import ProcessingPage from './ProcessingPage';
 
@@ -265,6 +266,25 @@ describe('ProcessingPage', () => {
       expect(within(panel).getByText(/keeps refreshing until it does/)).toBeInTheDocument();
     });
 
+    it('states a failed poll over details already shown, with a retry, instead of claiming it keeps refreshing', async () => {
+      arrange('Pending', [unit({ status: 'Running', attemptCount: 2, completedAtUtc: null })]);
+      const { queryClient } = render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(await within(panel).findByText('Running · attempt 2')).toBeInTheDocument();
+
+      // A later poll fails: the query keeps the details and stops polling.
+      vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'Down.' }));
+      await act(async () => {
+        await queryClient.refetchQueries({ predicate: (query) => query.queryKey[0] === queryKeys.runAnalytics('x')[0] });
+      });
+
+      const warning = await within(panel).findByText(/could not be refreshed, so this page has stopped checking/, {}, { timeout: 4000 });
+      expect(within(panel).getByText('Running · attempt 2')).toBeInTheDocument();
+      expect(within(panel).queryByText(/keeps refreshing until it does/)).not.toBeInTheDocument();
+      expect(within(warning.closest('[role="status"]') as HTMLElement).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    });
+
     it('falls back to the status readiness when the lifecycle endpoint is unavailable', async () => {
       arrange('Ready', []);
       vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'Down.' }));
@@ -329,6 +349,25 @@ describe('ProcessingPage', () => {
     // rather than reading the retry window as the answer.
     expect(await screen.findByText('Processing status is unavailable.', {}, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.queryByText('Not queued')).not.toBeInTheDocument();
+  });
+
+  it('states an unavailable status inside the primary region it replaces, with the retry in the alert', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getProcessingStatus).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Status store unavailable.' }));
+    render();
+
+    // §37.1: the primary column keeps its identity — the Processing run panel
+    // is still there — and the failure is one alert inside it.
+    const alert = await screen.findByRole('alert', {}, { timeout: 4000 });
+    const panel = screen.getByRole('heading', { name: 'Processing run' }).closest('section')!;
+    expect(panel).toContainElement(alert);
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+
+    const calls = vi.mocked(getProcessingStatus).mock.calls.length;
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'NotQueued', latestRun: null });
+    await user.click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(await within(panel).findByText('Not queued')).toBeInTheDocument();
+    expect(vi.mocked(getProcessingStatus).mock.calls.length).toBeGreaterThan(calls);
   });
 
   it('leaves no notices band behind for a reconciled already-active queue attempt', async () => {

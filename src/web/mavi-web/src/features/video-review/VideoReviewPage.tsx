@@ -6,8 +6,10 @@ import { getSystemConfig } from '../../api/system';
 import { ALGORITHM_VERSION_PATTERN, getTrack, type TrackAnalyticsIdentity } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
-import Button, { ButtonLink } from '../../shared/components/Button';
-import LoadingState from '../../shared/components/LoadingState';
+import { ButtonLink } from '../../shared/components/Button';
+import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import { hasFailure } from '../../shared/async/asyncState';
+import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import PageHeader from '../../shared/components/PageHeader';
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
@@ -143,20 +145,30 @@ export default function VideoReviewPage() {
 
   const notices = (
     <>
-      {systemConfig.isError ? (
-        <Alert tone="warning" actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>}>
-          Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC.
-        </Alert>
-      ) : null}
-      {track.isError && !(track.error instanceof ApiError && track.error.status === 404) ? (
-        <Alert tone="error">
-          {track.error instanceof ApiError ? track.error.detail + ' (' + track.error.code + ')' : 'Track evidence could not be loaded.'}
-        </Alert>
+      <SupportingRequestNotice
+        state={fromQuery(systemConfig)}
+        unavailableMessage="Display timezone is unavailable. Absolute timestamps are shown explicitly in UTC."
+        degradedMessage="Display configuration could not be refreshed. The last known timezone remains in use."
+        onRetry={() => void systemConfig.refetch()}
+        retryLabel="Retry display config"
+      />
+      {/* A refresh of evidence already on screen failed: the evidence stays,
+          and says it may not be current (§14.1, degraded). A first-load
+          failure is the page region's own state, below. */}
+      {detail && track.isError ? (
+        <StateRegion
+          kind="page"
+          state={fromQuery(track)}
+          label="Track evidence"
+          degradedMessage="Showing the last known Track evidence; refreshing failed."
+          onRetry={() => void track.refetch()}
+        >
+          {() => null}
+        </StateRegion>
       ) : null}
     </>
   );
-  const trackFailed = track.isError && !(track.error instanceof ApiError && track.error.status === 404);
-  const hasNotice = systemConfig.isError || trackFailed;
+  const hasNotice = hasFailure(fromQuery(systemConfig)) || Boolean(detail && track.isError);
 
   return (
     <section className="page page--full page--workspace">
@@ -181,7 +193,10 @@ export default function VideoReviewPage() {
               detail={detail}
               analytics={analyticsEvidence}
               trajectory={trajectory.data}
-              trajectoryError={trajectory.isError}
+              // A layer request: a first-load failure is stated in the player
+              // with its retry; a failed refresh keeps the drawn path (§14.1).
+              trajectoryError={fromQuery(trajectory).kind === 'unavailable'}
+              onRetryTrajectory={() => void trajectory.refetch()}
             />
           )}
           rail={(
@@ -228,7 +243,19 @@ export default function VideoReviewPage() {
       ) : (
         <div className="workspace__notices">
           {hasNotice ? notices : null}
-          {track.isPending ? <LoadingState label="Loading Track evidence…" /> : null}
+          {/* The Track is the page region (§37.1, page): it loads, or it is
+              unavailable with its retry in the alert. A 404 was answered
+              above as an invalid link. */}
+          <StateRegion
+            kind="page"
+            state={fromQuery(track)}
+            label="Track evidence"
+            unavailableMessage={(error) => describeError(error, 'Track evidence could not be loaded.')}
+            retryable={(error) => !(error instanceof ApiError && error.status >= 400 && error.status < 500)}
+            onRetry={() => void track.refetch()}
+          >
+            {() => null}
+          </StateRegion>
         </div>
       )}
     </section>

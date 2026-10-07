@@ -209,7 +209,10 @@ describe('scene editor', () => {
     // The page title block is gone (UI-2); the Context Bar's breadcrumb is what
     // names the surface now, and it must name the object being edited rather
     // than only its parent section.
-    const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
+    // The Context Bar is present while the scene loads too (§37.1, page), so
+    // the editor itself is what says the scene has arrived.
+    await screen.findByRole('button', { name: /^Gate/ });
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(within(crumbs).getByText('Cameras')).toBeInTheDocument();
     expect(within(crumbs).getByText('CAM-01')).toBeInTheDocument();
     expect(within(crumbs).getByText('Scene')).toHaveAttribute('aria-current', 'page');
@@ -241,8 +244,13 @@ describe('scene editor', () => {
     );
     render();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Scene store is down.');
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Scene store is down.');
+    // One alert, its retry trailing inside it, and the Context Bar still
+    // naming the surface (§37.1, page).
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(within(alert).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Scene')).toBeInTheDocument();
     // No editor, and above all no empty geometry presented as the truth.
     expect(screen.queryByRole('button', { name: 'Save revision' })).not.toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Zones' })).not.toBeInTheDocument();
@@ -798,7 +806,9 @@ describe('scene editor', () => {
     await screen.findByRole('button', { name: /^Gate/ });
 
     expect(await screen.findByText(/The video list is unavailable/)).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Try again' }).length).toBeGreaterThan(0);
+    // One cause, one alert, its retry trailing (§14.1).
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getAllByText(/The video list is unavailable/)).toHaveLength(1);
     expect(screen.queryByText(/No imported video for this camera/)).not.toBeInTheDocument();
   });
 

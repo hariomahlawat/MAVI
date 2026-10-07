@@ -8,12 +8,13 @@ import { getSystemConfig } from '../../api/system';
 import { searchTracks } from '../../api/tracks';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
+import { describeError, fromInfiniteQuery, fromQuery } from '../../shared/async/fromQuery';
+import { hasFailure } from '../../shared/async/asyncState';
+import StateRegion, { SupportingRequestNotice, type EmptySpec } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
-import EmptyState from '../../shared/components/EmptyState';
 import { formatCount } from '../../shared/format/format';
 import Icon from '../../shared/components/Icon';
-import LoadingState from '../../shared/components/LoadingState';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { configuredUtcToWallTimeText } from '../../shared/time/wallTime';
@@ -208,16 +209,12 @@ export default function VisualSearchPage() {
   // §14: pending and failed are different states, and the operator's next move
   // differs — wait, or press Retry. The rail used to be told only the zone, so
   // it described a request still in flight as unavailable.
-  const displayZone: DisplayZoneState = displayTimeZoneId
-    ? { status: 'ready', timeZoneId: displayTimeZoneId }
-    : systemConfig.isError ? { status: 'unavailable' } : { status: 'loading' };
-  // A failed *refetch* keeps the data it already had, so `isError` alone does
-  // not mean there is no configuration. Saying "unavailable, editing disabled,
-  // timestamps in UTC" while the retained zone is still on screen and still
-  // converting the time fields is the surface contradicting itself. The two
-  // failures are told apart by whether a usable zone survived.
-  const configUnavailable = systemConfig.isError && !displayTimeZoneId;
-  const configRefreshFailed = systemConfig.isError && Boolean(displayTimeZoneId);
+  // A failed *refetch* keeps the zone it already had (§14.1, degraded), so the
+  // rail keeps using it; only a first-load failure is unavailable.
+  const configState = fromQuery(systemConfig);
+  const displayZone: DisplayZoneState = configState.kind === 'ready'
+    ? { status: 'ready', timeZoneId: configState.data.displayTimeZoneId }
+    : configState.kind === 'unavailable' ? { status: 'unavailable' } : { status: 'loading' };
 
   const [draft, setDraft] = useState<DraftState>({ values: emptyDraft, baseline: emptyDraft });
   // Set when this surface commits a search itself. Only then is the draft known
@@ -609,30 +606,31 @@ export default function VisualSearchPage() {
   const notices = (
     <>
       {!committed.isValid ? <Alert tone="error">{committed.error}</Alert> : null}
-      {configUnavailable ? (
-        <Alert tone="warning" actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>}>
-          Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC.
-        </Alert>
-      ) : null}
-      {configRefreshFailed ? (
-        <Alert tone="warning" actions={<Button size="sm" onClick={() => void systemConfig.refetch()}>Retry display config</Button>}>
-          Display configuration could not be refreshed. The last known configuration remains in use, so times are still shown and entered in the timezone above.
-        </Alert>
-      ) : null}
-      {cameras.isError ? (
-        <Alert tone="warning" actions={<Button size="sm" onClick={() => void cameras.refetch()}>Retry cameras</Button>}>
-          Camera metadata is unavailable. Any committed camera identifier remains active and Track search continues without broadening its scope.
-        </Alert>
-      ) : null}
-      {videos.isError ? (
-        <Alert tone="warning" actions={<Button size="sm" onClick={() => void videos.refetch()}>Retry videos</Button>}>
-          Video metadata is unavailable. Any committed video scope remains active and is shown by identifier.
-        </Alert>
-      ) : null}
+      <SupportingRequestNotice
+        state={fromQuery(systemConfig)}
+        unavailableMessage="Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC."
+        degradedMessage="Display configuration could not be refreshed. The last known configuration remains in use, so times are still shown and entered in the timezone above."
+        onRetry={() => void systemConfig.refetch()}
+        retryLabel="Retry display config"
+      />
+      <SupportingRequestNotice
+        state={fromQuery(cameras)}
+        unavailableMessage="Camera metadata is unavailable. Any committed camera identifier remains active and Track search continues without broadening its scope."
+        degradedMessage="Camera metadata could not be refreshed. The last known camera names remain in use."
+        onRetry={() => void cameras.refetch()}
+        retryLabel="Retry cameras"
+      />
+      <SupportingRequestNotice
+        state={fromQuery(videos)}
+        unavailableMessage="Video metadata is unavailable. Any committed video scope remains active and is shown by identifier."
+        degradedMessage="Video metadata could not be refreshed. The last known video names remain in use."
+        onRetry={() => void videos.refetch()}
+        retryLabel="Retry videos"
+      />
     </>
   );
   const hasNotice = !committed.isValid
-    || configUnavailable || configRefreshFailed || cameras.isError || videos.isError;
+    || hasFailure(fromQuery(systemConfig)) || hasFailure(fromQuery(cameras)) || hasFailure(fromQuery(videos));
 
   return (
     <section className="page page--full page--workspace">
@@ -661,7 +659,7 @@ export default function VisualSearchPage() {
             onReset={resetSearch}
             cameras={cameras.data}
             videos={videos.data}
-            videosUnavailable={videos.isError}
+            videosUnavailable={fromQuery(videos).kind === 'unavailable'}
             displayZone={displayZone}
             analyticsScoped={analyticsScoped}
             geometry={draftGeometry}
@@ -736,40 +734,27 @@ export default function VisualSearchPage() {
               read as a complete one. */}
           {coverage ? <CoverageStrip coverage={coverage} geometry={resultGeometryNames} /> : null}
 
-          {committed.isValid && tracks.isPending ? <LoadingState label="Searching visual intelligence…" /> : null}
-
-          {tracks.isError && items.length === 0 ? (
-            <div className="results__notice">
-              <Alert
-                tone="error"
-                actions={<Button size="sm" icon="refresh" onClick={() => void tracks.refetch()}>Retry</Button>}
-              >
-                {tracks.error instanceof ApiError
-                  ? tracks.error.detail + ' (' + tracks.error.code + ')'
-                  : 'Visual search could not be completed.'}
-              </Alert>
-            </div>
-          ) : null}
-
-          {!tracks.isPending && !tracks.isError && committed.isValid && items.length === 0 ? (
-            coverage ? (
-              (() => {
-                const state = analyticEmptyState(coverage);
-                return (
-                  <EmptyState icon="search" title={state.title} hatched={state.hatched}>
-                    {state.body}
-                  </EmptyState>
-                );
-              })()
-            ) : (
-              <EmptyState icon="search" title="No Tracks matched this search.">
-                Adjust the committed filters or reset to view the newest available Tracks.
-              </EmptyState>
-            )
-          ) : null}
-
-          {items.length > 0 ? (
-            view === 'list' ? (
+          {/* The results are one column region (§37.1). The first page decides
+              its state; a later page failing is a continuation failure and is
+              stated beside the control that asked for more, below, never as
+              the column's own state (§17). An invalid committed search asks
+              nothing, so there is no region to load. */}
+          {committed.isValid ? (
+          <StateRegion
+            kind="column"
+            state={fromInfiniteQuery(tracks, (pages) => pages.flatMap((page) => page.items))}
+            label="results"
+            loadingLabel="Searching…"
+            skeleton={view === 'list' ? { rows: 'default', pitch: 'list' } : undefined}
+            isEmpty={(found) => found.length === 0}
+            empty={resultsEmpty(coverage)}
+            unavailableMessage={(error) => describeError(error, 'Visual search could not be completed.')}
+            degradedMessage="Showing the results that arrived last; refreshing them failed."
+            onRetry={() => void tracks.refetch()}
+          >
+            {() => (
+          <>
+          {view === 'list' ? (
               <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} analyticsIdentity={analyticsIdentity} onSelect={selectTrack} />
             ) : (
               <div className="results__list">
@@ -787,10 +772,8 @@ export default function VisualSearchPage() {
                   ))}
                 </div>
               </div>
-            )
-          ) : null}
+            )}
 
-          {items.length > 0 ? (
             <div className="results__foot">
               {tracks.isFetchNextPageError ? (
                 <Alert tone={continuationInvalid ? 'warning' : 'error'}>
@@ -813,9 +796,30 @@ export default function VisualSearchPage() {
                 <span className="results-end">End of this result snapshot.</span>
               )}
             </div>
+          </>
+            )}
+          </StateRegion>
           ) : null}
         </section>
       </InvestigationLayout>
     </section>
   );
+}
+
+/**
+ * The empty presentation of the results column. An analytic search's empty
+ * answer depends on what its coverage says (not analysed, scene unavailable,
+ * genuinely nothing) and keeps its own words and hatch; a plain search's empty
+ * answer is the one sentence every empty search gets.
+ */
+function resultsEmpty(coverage: Parameters<typeof analyticEmptyState>[0] | undefined): EmptySpec {
+  if (coverage) {
+    const state = analyticEmptyState(coverage);
+    return { icon: 'search', title: state.title, body: state.body, hatched: state.hatched };
+  }
+  return {
+    icon: 'search',
+    title: 'No Tracks matched this search.',
+    body: 'Adjust the committed filters or reset to view the newest available Tracks.',
+  };
 }

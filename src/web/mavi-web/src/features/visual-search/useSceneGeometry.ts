@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getCameraScene, getCameraSceneRevision } from '../../api/scene';
 import { isGuid } from '../../api/client';
 import { queryKeys } from '../../app/queryClient';
+import { fromQuery } from '../../shared/async/fromQuery';
 import { geometryNames, type GeometryNames } from '../../shared/evidence/analyticsLabels';
 
 /**
@@ -64,17 +65,25 @@ export function useSceneGeometry(
   });
 
   if (camera === '') return { status: 'none' };
-  if (scene.isPending) return { status: 'loading' };
-  if (scene.isError || !scene.data) return { status: 'unavailable' };
+  // Selected by the shared boundary (§14.1): a failed request is unavailable,
+  // never an unconfigured scene. A scene whose refresh failed is unavailable
+  // too: the active revision may have moved on, and geometry offered as current
+  // from it could submit identifiers the server no longer accepts. Only an
+  // immutable revision may be served from a degraded read (below).
+  const sceneState = fromQuery(scene);
+  if (sceneState.kind === 'loading') return { status: 'loading' };
+  if (sceneState.kind === 'unavailable' || sceneState.degraded) return { status: 'unavailable' };
 
   if (wantsHistorical) {
     if (!historical) return { status: 'unavailable' };
-    if (revision.isPending) return { status: 'loading' };
-    if (revision.isError || !revision.data) return { status: 'unavailable' };
+    const revisionState = fromQuery(revision);
+    if (revisionState.kind === 'loading') return { status: 'loading' };
+    if (revisionState.kind === 'unavailable') return { status: 'unavailable' };
+    const pinned = revisionState.data;
     return {
       status: 'ready',
-      names: geometryNames(revision.data.zones, revision.data.tripLines, revision.data.revisionNumber),
-      analyticsEnabled: revision.data.analyticsEnabled,
+      names: geometryNames(pinned.zones, pinned.tripLines, pinned.revisionNumber),
+      analyticsEnabled: pinned.analyticsEnabled,
     };
   }
 
@@ -85,7 +94,7 @@ export function useSceneGeometry(
   // active now.
   if (mode === 'pinned' && !wanted) return { status: 'unconfigured' };
 
-  const active = scene.data.activeRevision;
+  const active = sceneState.data.activeRevision;
   if (!active) return { status: 'unconfigured' };
   return {
     status: 'ready',

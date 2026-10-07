@@ -4,11 +4,10 @@ import { ApiError } from '../../api/client';
 import { createCamera, listCameras, type Camera, type CreateCameraInput } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
-import AsyncBoundary from '../../shared/async/AsyncBoundary';
-import { fromQuery } from '../../shared/async/fromQuery';
+import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import StateRegion from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
-import EmptyState from '../../shared/components/EmptyState';
 import Field from '../../shared/components/Field';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatCount } from '../../shared/format/format';
@@ -280,27 +279,20 @@ export default function CamerasPage() {
         ) : undefined}
         editor={creating ? createRegion : null}
       >
-        <AsyncBoundary
+        <StateRegion
+          kind="column"
           state={fromQuery(cameras)}
-          loadingLabel="Loading cameras…"
+          label="cameras"
+          skeleton={{ rows: 'default' }}
           isEmpty={(all) => all.length === 0}
-          empty={(
-            <EmptyState
-              icon="camera"
-              title="No cameras registered"
-              actions={creating ? undefined : <Button variant="primary" onClick={open}>Add the first camera</Button>}
-            >
-              A camera has to exist before media can be imported against it.
-            </EmptyState>
-          )}
-          unavailable={(error) => (
-            <div className="panel__body">
-              <Alert tone="error" actions={<Button size="sm" onClick={() => cameras.refetch()}>Retry</Button>}>
-                {error instanceof ApiError ? `${error.detail} (${error.code})` : 'Camera inventory is unavailable.'}
-              </Alert>
-            </div>
-          )}
-          degradedLabel="Showing the last known camera inventory; refreshing failed."
+          empty={{
+            icon: 'camera',
+            title: 'No cameras registered',
+            body: 'A camera has to exist before media can be imported against it.',
+            action: creating ? undefined : <Button variant="primary" onClick={open}>Add the first camera</Button>,
+          }}
+          unavailableMessage={(error) => describeError(error, 'Camera inventory is unavailable.')}
+          degradedMessage="Showing the last known camera inventory; refreshing failed."
           onRetry={() => cameras.refetch()}
         >
           {() => (
@@ -341,7 +333,7 @@ export default function CamerasPage() {
               </tbody>
             </table>
           )}
-        </AsyncBoundary>
+        </StateRegion>
       </LedgerLayout>
     </section>
   );

@@ -221,8 +221,8 @@ describe('unavailable crops', () => {
     const box = thumb.parentElement!;
     fireEvent.error(thumb);
 
-    const failed = control('Near view · 00:14.6, evidence image unavailable');
-    expect(failed).toHaveTextContent('Image unavailable');
+    const failed = control('Near view · 00:14.6, no image');
+    expect(failed).toHaveTextContent('No image');
     expect(failed).toHaveTextContent('Near view');
     expect(failed).toHaveTextContent('00:14.6');
     // The same box stays in place: the placeholder replaces the image inside it.
@@ -231,8 +231,10 @@ describe('unavailable crops', () => {
     expect(within(strip()).getAllByRole('button')).toHaveLength(4);
 
     await user.click(failed);
-    expect(within(inspection()).getByText('Evidence image unavailable.')).toBeInTheDocument();
-    expect(within(inspection()).queryByRole('img')).not.toBeInTheDocument();
+    // The evidence placeholder, not a broken image: one word painted, the
+    // reason in its accessible name (§37.1, media).
+    expect(within(inspection()).getByRole('img', { name: /^No image: the evidence image could not be loaded/ })).toBeInTheDocument();
+    expect(inspection().querySelector('img')).toBeNull();
     // Other crops are unaffected by one failure.
     expect(within(control('Early diverse · 00:10.4')).getByRole('img')).toBeInTheDocument();
   });
@@ -243,10 +245,10 @@ describe('unavailable crops', () => {
     observations[1] = { ...observations[1], evidenceArtifactId: null, evidenceContentUrl: null };
     render(<Host detail={trackDetailWithEvidence(observations)} />);
 
-    const absent = control('Near view · 00:14.6, evidence image unavailable');
-    expect(within(absent).queryByRole('img')).not.toBeInTheDocument();
+    const absent = control('Near view · 00:14.6, no image');
+    expect(absent.querySelector('img')).toBeNull();
     await user.click(absent);
-    expect(within(inspection()).getByText('No evidence image was persisted for this observation.')).toBeInTheDocument();
+    expect(within(inspection()).getByRole('img', { name: /^No image: no evidence image was persisted for this observation/ })).toBeInTheDocument();
   });
 
   it('keeps the crops readable when the source video fails', () => {

@@ -2145,7 +2145,7 @@ export const STATES = [
     // One section's request failed; the other three must still answer.
     name: 'overview-partial-failure', path: '/', fullWidth: false, archetype: 'ledger-summary',
     settleMs: 4000, api: { '/api/videos': 'unavailable' },
-    expectText: ['video inventory is unavailable', 'Media status unavailable'],
+    expectText: ['video inventory is unavailable', 'its distribution cannot be shown'],
     forbidText: 'No tracks yet',
   },
 
@@ -2412,7 +2412,7 @@ export const STATES = [
   {
     name: 'search-loading', path: '/search', fullWidth: true, settleMs: 400,
     archetype: 'investigation', api: { '/api/tracks': 'hang' },
-    expectText: 'Searching visual intelligence',
+    expectText: 'Searching…',
   },
   {
     name: 'search-empty', path: '/search', fullWidth: true, archetype: 'investigation',
@@ -2431,7 +2431,7 @@ export const STATES = [
     fullWidth: true, archetype: 'investigation',
     // A malformed committed URL is refused at page level, and no Track request
     // is issued for it — the results column stays empty rather than loading.
-    expectText: 'must occur exactly once', forbidText: 'Searching visual intelligence',
+    expectText: 'must occur exactly once', forbidText: 'Searching…',
   },
   {
     name: 'search-grid', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
@@ -2584,7 +2584,7 @@ export const STATES = [
     name: 'search-inspecting-evidence-unavailable', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2500,
     archetype: 'investigation', widths: [1366, 1600],
     api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP },
-    expectText: [...INSPECTOR_LOADED, 'Image unavailable'],
+    expectText: [...INSPECTOR_LOADED, 'No image'],
   },
   {
     // Open decision 4. At 1920 and 2560 the results stay capped and the
@@ -2751,9 +2751,9 @@ export const STATES = [
   // the player and the primary summary must both still be in the first viewport.
   { name: 'review-evidence-set', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, expectText: ['Evidence Set', 'Representative', 'Near view', 'Early diverse', 'Late diverse', 'Track summary'] },
   { name: 'review-evidence-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: INSPECT_LATE_DIVERSE, widths: EVIDENCE_WIDTHS, expectText: ['Late diverse', 'Frame 78'] },
-  { name: 'review-evidence-representative-only', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, api: { [`/api/tracks/${TRACK}`]: EVIDENCE_REPRESENTATIVE_ONLY }, expectText: ['Evidence Set', 'Representative'], forbidText: ['Near view', 'Image unavailable'] },
-  { name: 'review-evidence-crop-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP }, expectText: ['Near view', 'Image unavailable'] },
-  { name: 'review-evidence-legacy', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', widths: [1366, 1920], api: { [`/api/tracks/${TRACK}`]: EVIDENCE_LEGACY }, expectText: ['No Evidence Set was persisted for this Track.'], forbidText: ['Image unavailable'] },
+  { name: 'review-evidence-representative-only', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, api: { [`/api/tracks/${TRACK}`]: EVIDENCE_REPRESENTATIVE_ONLY }, expectText: ['Evidence Set', 'Representative'], forbidText: ['Near view', 'No image'] },
+  { name: 'review-evidence-crop-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP }, expectText: ['Near view', 'No image'] },
+  { name: 'review-evidence-legacy', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', widths: [1366, 1920], api: { [`/api/tracks/${TRACK}`]: EVIDENCE_LEGACY }, expectText: ['No Evidence Set was persisted for this Track.'], forbidText: ['No image'] },
   // Geometry that cannot be loaded must not fall back to the active revision.
   { name: 'review-geometry-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, api: { '/api/cameras/11111111-1111-7111-8111-111111111111/scene/revisions': 'unavailable' }, expectText: ['could not be loaded'] },
   { name: 'review-analytics-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': SINGLE_SAMPLE_TRACK }, expectText: ['trajectory_too_short'] },

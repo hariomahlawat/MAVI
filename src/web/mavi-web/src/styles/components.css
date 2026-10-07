@@ -300,8 +300,45 @@ table.table--ledger { width: 100%; max-width: max-content; }
   content: ""; display: block; height: 100%; width: 60%;
   border-radius: var(--r-1); background: var(--skeleton-bg);
 }
-.skeleton__row:nth-child(even)::before { width: 45%; }
+.skeleton__row:nth-of-type(even)::before { width: 45%; }
 .skeleton__row:last-child { border-bottom: 0; }
+/* A result list's rows carry a thumbnail, so their pitch is the result-row
+   pitch and the placeholder is the thumbnail's own frame. */
+.skeleton--list .skeleton__row { height: var(--c-result-row-h); padding: var(--s-2) var(--s-4); }
+.skeleton--list .skeleton__row::before { width: 96px; height: 60px; }
+.skeleton--compact-list .skeleton__row { height: var(--c-recent-row-h); padding: var(--s-2) var(--s-4); }
+.skeleton--compact-list .skeleton__row::before { width: 64px; height: 40px; }
+/* Key/value rows: a label and value line on the 24px step a key/value grid
+   already uses, no rule between them. */
+.skeleton--kv { gap: var(--s-1); }
+.skeleton--kv .skeleton__row { height: var(--s-5); padding: 0; border-bottom: 0; }
+
+/* The async-state region (section 14.1, section 37.1). A state presentation
+   sits inside the region it replaces, at the region's top, at its own height,
+   uncontained: the wrapper gives a loading line, an alert or an empty block the
+   region's own inset and nothing else — no frame, no fill, no height. */
+.state-region { min-width: 0; }
+.state-region--inline { padding: var(--s-4); }
+.state-region--panel.state-region--inline { padding: 0; }
+.state-region--page.state-region--inline { padding: 0; }
+.state-region--degraded { padding: 0 0 var(--s-3); }
+.state-region--column.state-region--degraded { padding: var(--s-4) var(--s-4) var(--s-3); }
+/* A row's state keeps the row: the other cells stay, this one says why. */
+.state-row { display: inline-flex; align-items: center; gap: var(--s-2); }
+.state-row--loading { color: var(--text-muted); }
+.state-row--degraded { margin-left: var(--s-2); }
+/* A region whose failure is announced by another region says so as text. */
+.state-region__note { color: var(--text-secondary); font-size: var(--fs-2); max-width: var(--measure); }
+
+/* Evidence that cannot be shown (section 37.1, media). It fills the frame the
+   image would have filled, on the evidence matte, with one icon and one word. */
+.evidence-placeholder {
+  display: grid; place-items: center; align-content: center; gap: var(--s-1);
+  width: 100%; height: 100%; min-height: inherit;
+  background: var(--evidence-matte); color: var(--text-muted);
+  font-size: var(--fs-0); line-height: 1; text-align: center;
+}
+.evidence-placeholder .icon { color: var(--text-muted); }
 
 /* Progress */
 .progress { display: grid; gap: var(--s-1); }
@@ -366,7 +403,6 @@ a.summary-band__item:hover .summary-band__value { text-decoration: underline; te
 .thumb-frame { position: relative; overflow: hidden; border-radius: var(--r-1); background: var(--evidence-matte); border: var(--stroke-hair) solid var(--border-subtle); }
 .thumb-frame--sm { width: 64px; height: 40px; flex: 0 0 auto; }
 .thumb-frame--md { width: 96px; height: 60px; flex: 0 0 auto; }
-.thumb-placeholder { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-muted); font-size: var(--fs-0); text-align: center; padding: var(--s-1); }
 
 /* Keyboard hint row */
 .hints { display: flex; flex-wrap: wrap; gap: var(--s-3); color: var(--text-muted); font-size: var(--fs-0); }
