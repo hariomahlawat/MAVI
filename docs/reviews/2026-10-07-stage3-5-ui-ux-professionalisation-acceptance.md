@@ -1,0 +1,110 @@
+# Stage 3.5 — UI/UX Professionalisation Programme: Acceptance Register
+
+**Status:** OPEN — architecture frozen (rows A1–A6), implementation not started.
+**Date opened:** 2026-10-07
+**Baseline:** `main@98e5cd3f3ae8ca636ffbe2115c6b74b4ebcb2b16` (merge of PR #180; Stage 3 closed)
+**Governing documents:** `docs/architecture/ui-ux-design-specification.md` v2.0; `docs/decisions/ADR-012-operator-interface-design-architecture.md` (Amendment 2026-10-07); plan `docs/superpowers/plans/2026-10-07-stage3-5-ui-ux-professionalisation.md`.
+
+This register is the only authoritative exit gate for Stage 3.5 (`docs/architecture/README.md`, "Documentation precedence" item 4). The plan references these row IDs rather than keeping a second list. **Nothing unexecuted is marked PASS.** A row becomes PASS only when its evidence is entered here: PR and merge commit, harness run and anchors, measured values, or the capture set read. "Looks better" is not evidence and is not an exit criterion anywhere in this register.
+
+"Stage 3.5" is a working label for an owner-directed cross-cutting product-quality programme; capability stages 1–11 are not renumbered. Capability Stage 4 (ANPR/OCR) begins only after row C5 is PASS.
+
+## Current verdict
+
+**ARCHITECTURE FROZEN.** A1–A6 are PASS on this PR. Every other row is OPEN.
+
+## Section A — Architecture and audit acceptance (this PR)
+
+| Row | Requirement | Status | Evidence |
+|---|---|---|---|
+| A1 | Baseline verified: `main` exactly `98e5cd3f…`, PR #180 merged, Stage 3 register COMPLETE, X1/X2/X3 PASS, Stage 3.5 recorded as next in both roadmaps. | **PASS** | Verified 2026-10-07 on branch `stage3.5/ui-ux-architecture`; plan §2. |
+| A2 | The real application inspected with the existing visual-QA harness, production build, all 125 fixture states at the four v1.0 anchors; captures read by eye for every route; exactly what was and was not inspected is recorded. | **PASS** | Plan §4: 500 captures, zero automated findings; captures listed per surface; widths below 1366 explicitly not inspected. Captures are working artefacts, not committed. |
+| A3 | Audit recorded per route and per journey with P0–P3 severity and systemic/archetype/component/surface layer; systemic findings assigned to the design-system/component/archetype layer, never to page patches. | **PASS** | Plan §5 (F1–F25), §5.2, §5.3. |
+| A4 | v1.0 frozen decisions challenged against evidence; each either changed by dated amendment or reaffirmed with the reason; history preserved (no v1.0 text deleted; historical markers). | **PASS** | Plan §6; specification v2.0 header, §25, §33, §34.1, §35; ADR-012 Amendment 2026-10-07 Decisions 7–12 and "reaffirmed". |
+| A5 | Specification v2.0 and ADR-012 amendment consistent with each other, with both roadmaps and with the README; §34.1 closed; support tiers, craftsmanship, edge-state, performance and acceptance requirements present; no dependency, font, light mode, mobile feature, Stage-4 content, React component, production CSS or API change in the PR. | **PASS** | PR diff is documentation only (`git diff --stat`: 8 documentation files; no source, CSS, config, workflow or test file); `python tools/verify_repo.py` PASSED (run output in the PR); `git diff --check` reports only the ADR-012 header's pre-existing two-space Markdown hard breaks, which the edited status line keeps. Independent cold review against the plan §19 checklist performed before the PR opened (five material and fourteen minor points, all applied; recorded in the PR description). |
+| A6 | Reference surfaces, slice sequence, responsive matrix, visual-QA strategy, accessibility strategy, performance requirements and rollback stated; no performance number invented. | **PASS** | Plan §9–§18; specification §38 states budgets are set only from measurement. |
+
+## Section D — Design-system implementation (slice S1)
+
+| Row | Requirement | Status | Evidence |
+|---|---|---|---|
+| D1 | Tokens added per plan §8; no component references a primitive; no colour/radius/duration/spacing literal in feature CSS; `styles/tokens.test.ts` allowlist emptied. | OPEN | |
+| D2 | Primitives added: Dialog, Drawer, Tooltip, EvidencePlaceholder, FileInput, ToggleChip, StateRegion — each with its §27 contract, tests, and keyboard/focus behaviour. | OPEN | |
+| D3 | Button disabled by tokens; Field invalid one hue with scroll-to-first-invalid; Alert max width and trailing action; LoadingState/EmptyState geometry per §36.3/§37.1; ContextBar identity truncation; rail collapse control 32px labelled. | OPEN | |
+| D4 | Ledger containment bounds the table; state presentations uncontained at the table's top; row pitch 36–40 measured. | OPEN | |
+| D5 | One accent-filled primary per surface; row actions secondary on every Ledger. | OPEN | |
+| D6 | Async-state boundary on every data region of every surface; §37.1 presentation and placement; one vocabulary per state. | OPEN | |
+| D7 | IA map implemented: rail/crumb/title derived from one source; skip link; landmarks; `g` keys and `?` sheet. | OPEN | |
+| D8 | No `window.confirm` in production code; both drawers on the Drawer primitive with focus contract. | OPEN | |
+| D9 | PageHeader, Tabs, dead CSS, `.table--compact` reference removed; `IconName` closed union; AnalyticsPage on the `.page` wrapper; full test suite, typecheck, build, `verify_repo` green. | OPEN | |
+
+## Section V/P — Harness v2 and baseline measurement (slice S2)
+
+| Row | Requirement | Status | Evidence |
+|---|---|---|---|
+| V1 | Assertions added per specification §26 (row pitch, primary count, containment depth, state placement, skip link/landmarks, drawer/dialog focus, rendered stickiness, text overflow, `aria-pressed` style, tier rules). | OPEN | |
+| V2 | Default sweep at every tier anchor: 1366×768, 1440×900, 1920×1080, 2560×1080, 2560×1440, 1024×768, 768×1024, 430×932, 390×844; states declare applicable tiers. | OPEN | |
+| V3 | Deterministic waits (no mid-load captures: `processing-queue-dense` at 1920 reproduces settled). | OPEN | |
+| V4 | CI job runs the harness (assertions only) on every frontend PR against the production build; captures uploaded as an expiring artefact; no npm dependency added; no screenshot committed. | OPEN | |
+| V5 | Pixel-diff baselines **not** adopted; typography determinism recorded per state (resolved font family). | OPEN | |
+| P1 | Baseline measured and recorded here: cumulative layout shift during loading→content per state and anchor; long tasks on first interaction; resolved font. **Budgets are entered in this row only after measurement and never before.** | OPEN | |
+
+## Section R — Reference surfaces (slices S3a–S3e)
+
+Each row requires: every §34 item 1–17 asserted; every §37.1 state the surface reaches inspected at every Tier A anchor; the harness green; the capture set listed; and the surface's plan-§5 findings closed or explicitly carried to a named row.
+
+| Row | Surface (archetype) | Status | Evidence |
+|---|---|---|---|
+| R1 | Overview (Ledger-summary) — attention-first per §4.1.1; F11 closed. | OPEN | |
+| R2 | Videos (Ledger) — F1, F2, F14 closed; dense/long-name/empty/filtered-empty/unavailable states inspected. | OPEN | |
+| R3 | Processing detail (Record) — F3 (unavailable with retry), F16, F19 closed; completed/running/failed/finalizing/failed-finalization/stale/unavailable inspected. | OPEN | |
+| R4 | Scene Editor (Workbench) — F5 (Dialog), F7, F18, F3 (alert consolidation), one drawing entry; unconfigured/dirty/long-identity/dense/unavailable inspected. | OPEN | |
+| R5 | Search (Investigation) — F3, F12, F13, F18, F19 closed; every `search-*` fixture inspected including drawer and in-place inspector, continuation and failure states. | OPEN | |
+| R6 | Video Review (Review) — F8 (rendered sticky player at 1366 asserted), F18, F19, F4 closed; bright/dark/saturated/low-contrast/letterbox/pillarbox footage inspected. | OPEN | |
+
+## Section M — Migration of remaining surfaces (slice S4)
+
+| Row | Surface | Status | Evidence |
+|---|---|---|---|
+| M1 | Cameras (Ledger) onto R2. | OPEN | |
+| M2 | Processing queue (Ledger) onto R2. | OPEN | |
+| M3 | Import (Record) onto R3; F17; containment depth. | OPEN | |
+| M4 | Camera Analytics (Workbench) onto R4; F21–F25. | OPEN | |
+
+## Section T — Support tiers B and C (slice S5)
+
+| Row | Requirement | Status | Evidence |
+|---|---|---|---|
+| T1 | Tier B compositions per §25 table on every surface; inspected at 1024×768 and 768×1024; no overflow; every action reachable; the 1101–1149 and ≤1100 bands covered by range rules. | OPEN | |
+| T2 | Tier C degradation per §25 table on every surface; Workbench unsupported state; inspected at 430×932 and 390×844; no overflow, no clipped control; no workflow acceptance claimed; mobile remains deferred. | OPEN | |
+| T3 | 200% zoom at 1366×768 reflows under Tier C rules. | OPEN | |
+
+## Section X — Accessibility and performance hardening (slice S6)
+
+| Row | Requirement | Status | Evidence |
+|---|---|---|---|
+| X1 | Every §23 obligation asserted on every surface by the harness or by `styles/contrast.test.ts`; WCAG 1.4.10 at 320px recorded as not targeted and the Workbench canvas at 200% zoom on 1366 recorded as a 1.4.4 exception. | OPEN | |
+| X2 | The six operator journeys (plan §5.3) completed keyboard-only, recorded step by step. | OPEN | |
+| X3 | §38 budgets set from the P1 baseline, recorded here with tolerance, and met on every reference surface; no regression beyond tolerance. | OPEN | |
+| X4 | Reduced motion verified: no transition or animation duration above 0 under `prefers-reduced-motion: reduce`. | OPEN | |
+
+## Section C — Final closure (slice S7)
+
+| Row | Requirement | Status | Evidence |
+|---|---|---|---|
+| C1 | No P0 or P1 finding open; no systemic P2 finding open (plan §5.1 F1–F13 and F21–F22 closed). | OPEN | |
+| C2 | No surface relying on the closed §34.1 clause; every §34 item 1–17 asserted on every surface. | OPEN | |
+| C3 | Full 125-state (or current) sweep green at every tier anchor; captures read; the pass enumerated in the closing PR. | OPEN | |
+| C4 | Tests, typecheck, build and `verify_repo` green on the closing merge commit; independent cold review recorded. | OPEN | |
+| C5 | Remaining P2 single-surface and P3 findings listed below with an owner slice or an explicit owner-accepted deferral; roadmaps and README carry closure wording; **Stage 4 unblocked.** | OPEN | |
+
+### Findings carried at closure (P2 single-surface / P3)
+
+*(Empty until C5. Each entry: finding ID, surface, owner slice or deferral with the owner's acceptance.)*
+
+## Non-claims
+
+- No width below 1366 has been inspected at this baseline; Tier B and C behaviour is frozen design, not observed behaviour.
+- No performance figure is claimed; §38 budgets do not exist until P1 is PASS.
+- Nothing here is Production qualification; Task 18 is unchanged.
+- No dependency, font or framework is added by any slice; a slice that cannot meet a rule without one amends the rule by ADR instead.
