@@ -25,6 +25,7 @@ import {
 import { queryKeys } from '../../app/queryClient';
 import { analyticsReadinessText } from './analyticsReadiness';
 import { fromQuery } from '../../shared/async/fromQuery';
+import { hasFailure } from '../../shared/async/asyncState';
 import StateRegion from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
@@ -394,6 +395,10 @@ export default function ProcessingPage() {
               readiness={run.analyticsReadiness}
               analytics={analytics.data}
               analyticsUnavailable={fromQuery(analytics).kind === 'unavailable'}
+              // A failed poll over details already shown stops polling
+              // (`refetchInterval` returns false on error), so it is stated with
+              // its retry rather than left reading as "keeps refreshing".
+              analyticsRefreshFailed={hasFailure(fromQuery(analytics)) && analytics.data !== undefined}
               // A 404 is the one answer retrying cannot change.
               onRetryAnalyticsDetails={analytics.error instanceof ApiError && analytics.error.status === 404
                 ? undefined
@@ -434,6 +439,7 @@ function SceneAnalyticsPanel({
   readiness,
   analytics,
   analyticsUnavailable,
+  analyticsRefreshFailed = false,
   onRetryAnalyticsDetails,
   cameraId,
   cameraLabel,
@@ -449,6 +455,8 @@ function SceneAnalyticsPanel({
   readiness: AnalyticsReadiness;
   analytics: ProcessingRunAnalytics | undefined;
   analyticsUnavailable: boolean;
+  /** Details are on screen but their latest refresh failed, so polling has stopped. */
+  analyticsRefreshFailed?: boolean;
   /** Re-requests the analysis details whose failure the warning reports. */
   onRetryAnalyticsDetails?: () => void;
   cameraId: string;
@@ -503,8 +511,13 @@ function SceneAnalyticsPanel({
           Analysis details are unavailable; the readiness above is from the processing status.
         </Alert>
       ) : null}
+      {analyticsRefreshFailed ? (
+        <Alert tone="warning" actions={onRetryAnalyticsDetails ? <Button size="sm" onClick={onRetryAnalyticsDetails}>Retry</Button> : undefined}>
+          Analysis details could not be refreshed, so this page has stopped checking for progress. The details above are the last known; Retry resumes.
+        </Alert>
+      ) : null}
 
-      {effective === 'Pending' ? (
+      {effective === 'Pending' && !analyticsRefreshFailed ? (
         <p className="small faint">The analytics host will analyse this run against the active scene revision; this page keeps refreshing until it does.</p>
       ) : null}
 

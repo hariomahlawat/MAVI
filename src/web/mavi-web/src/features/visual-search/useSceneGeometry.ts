@@ -66,10 +66,13 @@ export function useSceneGeometry(
 
   if (camera === '') return { status: 'none' };
   // Selected by the shared boundary (§14.1): a failed request is unavailable,
-  // never an unconfigured scene.
+  // never an unconfigured scene. A scene whose refresh failed is unavailable
+  // too: the active revision may have moved on, and geometry offered as current
+  // from it could submit identifiers the server no longer accepts. Only an
+  // immutable revision may be served from a degraded read (below).
   const sceneState = fromQuery(scene);
   if (sceneState.kind === 'loading') return { status: 'loading' };
-  if (sceneState.kind === 'unavailable') return { status: 'unavailable' };
+  if (sceneState.kind === 'unavailable' || sceneState.degraded) return { status: 'unavailable' };
 
   if (wantsHistorical) {
     if (!historical) return { status: 'unavailable' };
