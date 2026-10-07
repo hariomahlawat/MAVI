@@ -360,3 +360,27 @@ def test_an_uncommitted_producer_definition_is_refused(tmp_path):
         shutil.copyfile(ROOT / path, repo / path)
     with pytest.raises(S32Error, match=f"^benchmark_producer_dirty:{FROZEN[0]}$"):
         producers.producer_identity("a2-scale640", repo)
+
+
+def test_the_identity_at_a_frozen_commit_survives_later_changes(frozen_repo):
+    """A later commit redefining a producer, and a dirty working tree, change nothing at the frozen commit."""
+    frozen = _git(frozen_repo, "rev-parse", "HEAD").stdout.decode("ascii").strip()
+    registry = frozen_repo / FROZEN[0]
+    document = json.loads(registry.read_bytes())
+    for entry in document["producers"]:
+        if entry["producerId"] == "a2-scale1280":
+            entry["bindingPath"] = FROZEN[1]  # redefined: the 640 binding
+    registry.write_bytes(json.dumps(document, indent=2).encode() + b"\n")
+    _git(frozen_repo, "commit", "-q", "-am", "later registry change")
+    assert producers.producer_identity("a2-scale1280", frozen_repo)["modelPackId"] == IDENTITY["a2-scale640"]["modelPackId"]
+    (frozen_repo / FROZEN[3]).write_bytes(b"{}\n")  # and an uncommitted edit
+    for name, expected in IDENTITY.items():
+        identity = producers.producer_identity_at(name, frozen, frozen_repo)
+        assert producers.journal_identity(identity) == producers.journal_identity(expected)
+        assert identity["gitCommit"] == frozen
+    with pytest.raises(S32Error, match=f"^{producers.DIRTY}:{FROZEN[3]}$"):
+        producers.producer_identity("a2-scale1280", frozen_repo)  # new execution still refuses a dirty tree
+    with pytest.raises(S32Error, match="^benchmark_producer_commit_unknown:"):
+        producers.producer_identity_at("a2-scale640", "0" * 40, frozen_repo)
+    with pytest.raises(S32Error, match="^benchmark_producer_commit_invalid$"):
+        producers.producer_identity_at("a2-scale640", "HEAD", frozen_repo)
