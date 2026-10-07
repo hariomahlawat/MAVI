@@ -156,9 +156,10 @@ export default function CamerasPage() {
   const code = draft.code.trim();
   const name = draft.name.trim();
   const timeZoneId = timeZoneValue.trim();
-  useEffect(() => {
-    onScreen.current = { code, name, timeZoneId };
-  }, [code, name, timeZoneId]);
+  // Written as the form renders, not from an effect: a response can be
+  // delivered after an edit has committed and before a passive effect would
+  // have run, and it must then be compared with the edited values.
+  onScreen.current = { code, name, timeZoneId };
 
   /**
    * Dirty is a comparison, not a flag (§21).
