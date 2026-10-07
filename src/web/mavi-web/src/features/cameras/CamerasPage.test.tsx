@@ -415,6 +415,29 @@ describe('CamerasPage', () => {
       }
     });
 
+    it('brings a field-owned server refusal into view and focuses that field (§12, §21)', async () => {
+      const user = userEvent.setup();
+      const scrolled: Element[] = [];
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) { scrolled.push(this); };
+      vi.mocked(createCamera).mockRejectedValueOnce(new ApiError({ status: 409, code: 'camera_code_duplicate', detail: 'A camera with this code already exists.' }));
+      try {
+        renderWithApp(<CamerasPage />);
+        await screen.findByText('North Gate');
+        const form = await openCreate(user);
+        await user.type(screen.getByLabelText('Camera code'), 'CAM-01');
+        await user.type(screen.getByLabelText('Camera name'), 'Duplicate');
+        await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+        await user.click(submit(form));
+        await screen.findByText('A camera with this code already exists.');
+        const code = screen.getByLabelText('Camera code');
+        await waitFor(() => expect(code).toHaveFocus());
+        expect(scrolled.at(-1)).toBe(code);
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
+    });
+
     it('moves no focus for a failure no field owns', async () => {
       const user = userEvent.setup();
       vi.mocked(createCamera).mockRejectedValueOnce(new ApiError({ status: 503, code: 'camera_store_unavailable', detail: 'The camera store is unavailable.' }));

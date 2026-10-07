@@ -66,20 +66,60 @@ export default function Tooltip({
   // Centred under its trigger unless that would cut it off: a trigger near the
   // edge of what clips it (the inspector's Close at the right of the content
   // column) gets a hint aligned to that edge instead. Measured before paint,
-  // each time it opens.
+  // each time it opens, and again while open if anything scrolls or resizes.
   const tipRef = useRef<HTMLSpanElement | null>(null);
   useLayoutEffect(() => {
     const tip = tipRef.current;
-    if (!shown || !tip) return;
-    tip.removeAttribute('data-align');
-    tip.removeAttribute('data-place');
-    const bounds = clippingBounds(tip);
-    const rect = tip.getBoundingClientRect();
-    if (rect.right > bounds.right) tip.setAttribute('data-align', 'end');
-    else if (rect.left < bounds.left) tip.setAttribute('data-align', 'start');
-    // Below the trigger unless that is cut off — the last row of a scrolled
-    // Ledger, whose frame clips what hangs below it.
-    if (rect.bottom > bounds.bottom) tip.setAttribute('data-place', 'above');
+    if (!shown || !tip) return undefined;
+    const place = () => {
+      tip.removeAttribute('data-align');
+      tip.removeAttribute('data-place');
+      tip.removeAttribute('data-float');
+      tip.style.left = '';
+      tip.style.top = '';
+      const bounds = clippingBounds(tip);
+      const rect = tip.getBoundingClientRect();
+      const anchor = (tip.parentElement ?? tip).getBoundingClientRect();
+      const height = rect.bottom - rect.top;
+      const fitsAcross = rect.right - rect.left <= bounds.right - bounds.left;
+      const fitsBelow = rect.bottom <= bounds.bottom;
+      const fitsAbove = anchor.top - (rect.top - anchor.bottom) - height >= bounds.top;
+      if (fitsAcross && (fitsBelow || fitsAbove)) {
+        if (rect.right > bounds.right) tip.setAttribute('data-align', 'end');
+        else if (rect.left < bounds.left) tip.setAttribute('data-align', 'start');
+        // Below the trigger unless that is cut off — the last row of a
+        // scrolled Ledger, whose frame clips what hangs below it.
+        if (!fitsBelow) tip.setAttribute('data-place', 'above');
+        return;
+      }
+      // A hint that cannot fit inside what clips it on either side — the full
+      // value of a long truncated file name inside a Ledger frame — would be
+      // cut off wherever it is aligned, so it leaves that box: it wraps, and is
+      // placed against the viewport beside its trigger (§16: the full value
+      // must be readable).
+      tip.setAttribute('data-float', '');
+      const floated = tip.getBoundingClientRect();
+      const width = floated.right - floated.left;
+      const tall = floated.bottom - floated.top;
+      const margin = FLOAT_MARGIN_PX;
+      const left = Math.min(
+        Math.max(anchor.left + (anchor.right - anchor.left) / 2 - width / 2, margin),
+        Math.max(margin, window.innerWidth - margin - width),
+      );
+      const below = anchor.bottom + margin / 2;
+      const top = below + tall <= window.innerHeight - margin
+        ? below
+        : Math.max(margin, anchor.top - margin / 2 - tall);
+      tip.style.left = `${left}px`;
+      tip.style.top = `${top}px`;
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
   }, [shown]);
 
   useEffect(() => {
@@ -124,6 +164,9 @@ export default function Tooltip({
   );
 }
 
+/** The gap a floated hint keeps from the viewport edge. */
+const FLOAT_MARGIN_PX = 8;
+
 /** The motion token the delay is defined by, read from the stylesheet; 120ms where it is not loaded. */
 function tooltipDelayMs(): number {
   const raw = typeof document === 'undefined'
@@ -134,8 +177,9 @@ function tooltipDelayMs(): number {
 }
 
 /** The extent a hint may occupy: the viewport, narrowed by every ancestor that clips it. */
-function clippingBounds(element: HTMLElement): { left: number; right: number; bottom: number } {
+function clippingBounds(element: HTMLElement): { left: number; right: number; top: number; bottom: number } {
   let left = 0;
+  let top = 0;
   let right = typeof window === 'undefined' ? Number.POSITIVE_INFINITY : window.innerWidth;
   let bottom = typeof window === 'undefined' ? Number.POSITIVE_INFINITY : window.innerHeight;
   for (let node = element.parentElement; node; node = node.parentElement) {
@@ -149,7 +193,10 @@ function clippingBounds(element: HTMLElement): { left: number; right: number; bo
       right = Math.min(right, rect.right);
     }
     // jsdom lays nothing out; a zero-height box clips nothing.
-    if (clipsY && rect.height > 0) bottom = Math.min(bottom, rect.bottom);
+    if (clipsY && rect.height > 0) {
+      top = Math.max(top, rect.top);
+      bottom = Math.min(bottom, rect.bottom);
+    }
   }
-  return { left, right, bottom };
+  return { left, right, top, bottom };
 }

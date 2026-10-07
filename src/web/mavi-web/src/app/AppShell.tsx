@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useId, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
 import { Link, Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { getPlatformHealth } from '../api/platform';
 import Icon from '../shared/components/Icon';
@@ -210,7 +210,10 @@ export default function AppShell() {
 
 /** The one place the document title is written (§5, §37.1 long names). */
 function DocumentTitle({ title }: { title: string }) {
-  useEffect(() => {
+  // Before paint, in the same phase the Context Bar registers its title in:
+  // a passive effect would leave the previous surface's title in the tab, and
+  // with assistive technology, for a frame after navigating away.
+  useLayoutEffect(() => {
     document.title = title;
   }, [title]);
   return null;

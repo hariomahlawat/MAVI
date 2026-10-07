@@ -467,3 +467,11 @@ a.summary-band__item:hover .summary-band__value { text-decoration: underline; te
 .tooltip[data-align='end'] { left: auto; right: 0; transform: none; }
 .tooltip[data-align='start'] { left: 0; transform: none; }
 .tooltip[data-place='above'] { top: auto; bottom: calc(100% + var(--s-1)); }
+/* A hint too large for what clips it on any side (a long truncated value in a
+   Ledger frame) leaves that box: fixed to the viewport beside its trigger,
+   placed by the Tooltip, and wrapped so the whole value can be read. */
+.tooltip[data-float] {
+  position: fixed; bottom: auto; right: auto; transform: none;
+  width: max-content; max-width: min(40rem, calc(100vw - 2 * var(--s-2)));
+  white-space: normal; overflow-wrap: anywhere;
+}

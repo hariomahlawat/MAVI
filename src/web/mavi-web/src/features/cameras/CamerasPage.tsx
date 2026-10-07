@@ -63,7 +63,8 @@ export default function CamerasPage() {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [submitted, setSubmitted] = useState(false);
-  // Bumped on a submit the form itself refuses, and on nothing else (§12).
+  // Bumped on a submit the form itself refuses, or the server refuses for a
+  // reason a field owns (a duplicate code), and on nothing else (§12).
   const [refusals, setRefusals] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
   useFocusFirstInvalid(formRef, refusals);
@@ -97,6 +98,9 @@ export default function CamerasPage() {
       // every other value the operator typed (§21).
       if (error instanceof ApiError && error.code === 'camera_code_duplicate') {
         setCodeConflict('A camera with this code already exists.');
+        // The Code field now owns the refusal: take the operator to it, as a
+        // refusal the form made itself would (§12).
+        setRefusals((count) => count + 1);
       }
     },
   });
