@@ -70,6 +70,10 @@ export default function CamerasPage() {
   useFocusFirstInvalid(formRef, refusals);
   /** Set from a 409 and cleared the moment the code is edited (§21). */
   const [codeConflict, setCodeConflict] = useState<string | null>(null);
+  // What the form holds now, read when a response arrives: the fields stay
+  // editable while a create is in flight, so the values that were sent and the
+  // values on screen can differ by the time the server answers.
+  const onScreen = useRef<CreateCameraInput>({ code: '', name: '', timeZoneId: '' });
 
   const openRef = useRef<HTMLButtonElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
@@ -93,14 +97,21 @@ export default function CamerasPage() {
       close();
       await queryClient.invalidateQueries({ queryKey: queryKeys.cameras });
     },
-    onError: (error) => {
+    onError: (error, sent) => {
       // A conflict attributable to a field highlights that field and keeps
       // every other value the operator typed (§21).
       if (error instanceof ApiError && error.code === 'camera_code_duplicate') {
+        const now = onScreen.current;
+        // The server refused the code it was sent. If the operator has since
+        // changed it, that refusal is about a value no longer in the field,
+        // and stating it there would be false; the next submit asks again.
+        if (sent.code !== now.code) return;
         setCodeConflict('A camera with this code already exists.');
         // The Code field now owns the refusal: take the operator to it, as a
-        // refusal the form made itself would (§12).
-        setRefusals((count) => count + 1);
+        // refusal the form made itself would (§12) — unless they have gone on
+        // editing while the request was in flight, when moving focus would
+        // interrupt their typing. The message is on the field either way.
+        if (sent.name === now.name && sent.timeZoneId === now.timeZoneId) setRefusals((count) => count + 1);
       }
     },
   });
@@ -145,6 +156,9 @@ export default function CamerasPage() {
   const code = draft.code.trim();
   const name = draft.name.trim();
   const timeZoneId = timeZoneValue.trim();
+  useEffect(() => {
+    onScreen.current = { code, name, timeZoneId };
+  }, [code, name, timeZoneId]);
 
   /**
    * Dirty is a comparison, not a flag (§21).

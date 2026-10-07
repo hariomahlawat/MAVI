@@ -438,6 +438,53 @@ describe('CamerasPage', () => {
       }
     });
 
+    it('states no conflict on a code the operator changed while the request was in flight', async () => {
+      const user = userEvent.setup();
+      let refuse: (error: unknown) => void = () => {};
+      vi.mocked(createCamera).mockImplementationOnce(() => new Promise((_, reject) => { refuse = reject; }));
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      const form = await openCreate(user);
+      await user.type(screen.getByLabelText('Camera code'), 'CAM-01');
+      await user.type(screen.getByLabelText('Camera name'), 'Duplicate');
+      await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+      await user.click(submit(form));
+      await waitFor(() => expect(createCamera).toHaveBeenCalled());
+
+      // The operator corrects the code before the server answers for the old one.
+      const code = screen.getByLabelText('Camera code');
+      await user.type(code, '9');
+      refuse(new ApiError({ status: 409, code: 'camera_code_duplicate', detail: 'A camera with this code already exists.' }));
+      await waitFor(() => expect(submit(form)).toBeEnabled());
+
+      expect(screen.queryByText('A camera with this code already exists.')).not.toBeInTheDocument();
+      expect(code).not.toHaveAttribute('aria-invalid', 'true');
+      expect(code).toHaveValue('CAM-019');
+    });
+
+    it('states the conflict on Code but leaves focus where the operator is still typing', async () => {
+      const user = userEvent.setup();
+      let refuse: (error: unknown) => void = () => {};
+      vi.mocked(createCamera).mockImplementationOnce(() => new Promise((_, reject) => { refuse = reject; }));
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      const form = await openCreate(user);
+      await user.type(screen.getByLabelText('Camera code'), 'CAM-01');
+      await user.type(screen.getByLabelText('Camera name'), 'Duplicate');
+      await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+      await user.click(submit(form));
+      await waitFor(() => expect(createCamera).toHaveBeenCalled());
+
+      // Still editing the name when the refusal of the unchanged code arrives.
+      const name = screen.getByLabelText('Camera name');
+      await user.type(name, ' gate');
+      refuse(new ApiError({ status: 409, code: 'camera_code_duplicate', detail: 'A camera with this code already exists.' }));
+
+      await screen.findByText('A camera with this code already exists.');
+      expect(screen.getByLabelText('Camera code')).toHaveAttribute('aria-invalid', 'true');
+      expect(name).toHaveFocus();
+    });
+
     it('moves no focus for a failure no field owns', async () => {
       const user = userEvent.setup();
       vi.mocked(createCamera).mockRejectedValueOnce(new ApiError({ status: 503, code: 'camera_store_unavailable', detail: 'The camera store is unavailable.' }));
