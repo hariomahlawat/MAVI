@@ -1,6 +1,6 @@
 # Vehicle Subclass — Stage-3 Acceptance Register
 
-**Status:** Open. S3.1 is merged. S3.2a (T1–T6) and S3.2b-1 (T7/T8 and fixture-only T9 tooling) are merged. S3.2b-2 (real corpus intake and derivation) has executed event `2026-10-03-commons`: E1–E21 PASS (E17 NOT TRIGGERED). S3.2b-3 (Development-host T9 execution) is complete: F1–F6 PASS (attempt 2). S3.2c (pilot, T10) is pre-registered (G1–G3 PASS). The pilot is labelled, adjudicated and measured: G4–G9 PASS (G6 with an owner-accepted pilot-specific deviation; G9 freezing the measured thresholds 0.6 / 3 as the benchmark baseline, with no optimality claim). Nothing is operator-exposed, and nothing is Production-qualified.\
+**Status:** **STAGE 3 COMPLETE — Development capability and operator exposure accepted** (closed 2026-10-07 on `main@9ab499bd41e48e553d2f462998bec4158768881f`, the merge of PR #179). Every A–G row is PASS (E17 NOT TRIGGERED; G6 by owner-accepted deviation), H1–H5 are PASS, and X1, X2 and X3 are PASS. The operator-exposed subclass subset is exactly `{car}`, source-gated to the release profile `1.3.0-candidate` (`afb03b6c…`). Truck and bus stay benchmark-supported in limited evidence domains but are not operator-exposed; motorcycle stays deferred (insufficient support); the A2 scale-1280 producer stays a Development candidate and is not the operator release profile. Nothing is Production-qualified: the Production/qualification boundary (Task 18; qualification record `pending`) is unchanged.\
 **Date opened:** 2026-10-03\
 **Baseline:** `main@379b7b22a3d8722d8c4d99df50794805494155aa` (merge of PR #150)
 
@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT COMPLETE:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d complete, benchmark-driven under ADR-017 (H1 PASS; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4 PASS — domain-diversity measurement recorded on VisDrone2019-MOT only (aerial), domain-limited; H5 PASS — per-class decision recorded: car, truck and bus benchmark-supported (truck and bus on BDD100K only, caveated), motorcycle deferred). **EXPOSURE DECIDED, NOT IMPLEMENTED:** X1 PASS — global subset `{car}` only; X2 and X3 OPEN (triggered). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT COMPLETE:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d complete, benchmark-driven under ADR-017 (H1 PASS; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4 PASS — domain-diversity measurement recorded on VisDrone2019-MOT only (aerial), domain-limited; H5 PASS — per-class decision recorded: car, truck and bus benchmark-supported (truck and bus on BDD100K only, caveated), motorcycle deferred). **OPERATOR EXPOSURE ACCEPTED:** X1 PASS — global subset `{car}` only; X2 PASS and X3 PASS (PR #179, merge commit `9ab499bd`, post-merge CI green on that commit). **STAGE 3 COMPLETE — Development capability and operator exposure accepted. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -34,7 +34,7 @@ Also binding: ADR-005, ADR-006, ADR-007, ADR-009, and the dependency/offline-pac
 - SUV, van and make/model are out of scope.
 - The product meaning is "detector-reported vehicle type" (ADR-016).
 
-**Measurement first** (ADR-016 §7). Subclass is measured before any operator exposure. Stage-3 Development evidence comprises the completed T10 pilot on MAVI-held, publicly sourced video (G rows) and benchmark-driven measurements on externally labelled research datasets (H rows, ADR-017). Public benchmark evidence is Development or reference evidence and never becomes final Production qualification merely by being a respected benchmark (ADR-015 §3–§4, ADR-017 §8–§9). API, search and UI exposure is a later increment, decided as one global class subset informed by the per-class, per-domain evidence (X1; no domain-restricted runtime exposure), and happens only if that evidence supports it.
+**Measurement first** (ADR-016 §7). Subclass is measured before any operator exposure. Stage-3 Development evidence comprises the completed T10 pilot on MAVI-held, publicly sourced video (G rows) and benchmark-driven measurements on externally labelled research datasets (H rows, ADR-017). Public benchmark evidence is Development or reference evidence and never becomes final Production qualification merely by being a respected benchmark (ADR-015 §3–§4, ADR-017 §8–§9). API, search and UI exposure was a later increment, decided as one global class subset informed by the per-class, per-domain evidence (X1; no domain-restricted runtime exposure) and delivered only where that evidence supported it (X2/X3, PR #179: `{car}` only).
 
 These are four distinct levels. Completing one never implies the next.
 
@@ -42,7 +42,7 @@ These are four distinct levels. Completing one never implies the next.
 |---|---|---|---|
 | Implementation complete | the plumbing and the measurement tooling are merged with green exact-head and post-merge CI | A, B, C, D | **PASS** |
 | Development measurement complete | real corpus intake, derivation, Development-host execution, the labelled pilot and its measurement exist (any expansion only if justified) | E, F, G, H | **PASS** (E17 NOT TRIGGERED; G6 by owner-accepted deviation; H4 domain-limited) |
-| Operator exposure | the API predicate, search and UI exposure of subclass, decided on measurement evidence and built as a later increment | X | OPEN |
+| Operator exposure | the API predicate, search and UI exposure of subclass, decided on measurement evidence and built as a later increment | X | **PASS** (X1 decision; X2/X3 post-merge verified on `9ab499bd`) |
 | Production qualification | outside this register: Task 18 and the qualification record (`models/qualifications/rtmdet-m-coco-phase1-v2.json`, status `pending`) | — | not claimed |
 
 **Stage 3 exit.** Stage 3 is complete only when:
@@ -963,9 +963,9 @@ This section synthesises already-recorded evidence only. No experiment, inferenc
 
 | ID | Requirement | Status |
 |---|---|---|
-| X1 | Exposure decision (expose or decline) recorded on S3.2 measurement evidence: G8, G9, and every S3.2d row (H1, H2, H3, H5 PASS; H4 PASS or NOT TRIGGERED). H5 evidence is per class and per evidence domain; X1 selects **one global class subset** from the H5-eligible classes. Domain evidence informs that selection and its caveats but creates no domain-specific runtime exposure. Exposure requires the G9-frozen subclass policy values (`minShare` 0.6, `minMatchedDetections` 3) and adequate evidence for each exposed class on the applicable measured profile family; matching threshold values alone do not transfer evidence between profiles | **PASS — expose global subset `{car}` only.** `truck`, `bus` and `motorcycle` stay unavailable to operators; truck and bus remain H5 benchmark-supported, motorcycle H5-deferred. X2 and X3 are triggered. Nothing is operator-visible until X2 is implemented and accepted; nothing is Production-qualified. See *X1 exposure decision* below. |
-| X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment, exposing only the class subset X1 approved on H5: an explicit allowlist in the API, search and UI, **containing exactly `car`** (X1). `truck`, `bus` and `motorcycle` — and any class X1 did not approve, whatever its H5 disposition — are neither returned, filterable nor displayed, even though Track persists every vocabulary value; acceptance evidence shows those classes remain unavailable (NOT TRIGGERED if X1 declines) | OPEN — triggered by X1; implemented in the X2/X3 PR, pending merge and post-merge verification (*X2/X3 implementation*) |
-| X3 | Every pre-existing Vehicle search returns the same Tracks (implementation roadmap Stage-3 acceptance; NOT TRIGGERED if X1 declines) | OPEN — triggered by X1; regression evidence in the X2/X3 PR, pending merge and post-merge verification (*X2/X3 implementation*) |
+| X1 | Exposure decision (expose or decline) recorded on S3.2 measurement evidence: G8, G9, and every S3.2d row (H1, H2, H3, H5 PASS; H4 PASS or NOT TRIGGERED). H5 evidence is per class and per evidence domain; X1 selects **one global class subset** from the H5-eligible classes. Domain evidence informs that selection and its caveats but creates no domain-specific runtime exposure. Exposure requires the G9-frozen subclass policy values (`minShare` 0.6, `minMatchedDetections` 3) and adequate evidence for each exposed class on the applicable measured profile family; matching threshold values alone do not transfer evidence between profiles | **PASS — expose global subset `{car}` only.** `truck`, `bus` and `motorcycle` stay unavailable to operators; truck and bus remain H5 benchmark-supported, motorcycle H5-deferred. X2 and X3 were triggered and are now PASS (*Stage 3 closure*); nothing is Production-qualified. See *X1 exposure decision* below. |
+| X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment, exposing only the class subset X1 approved on H5: an explicit allowlist in the API, search and UI, **containing exactly `car`** (X1). `truck`, `bus` and `motorcycle` — and any class X1 did not approve, whatever its H5 disposition — are neither returned, filterable nor displayed, even though Track persists every vocabulary value; acceptance evidence shows those classes remain unavailable (NOT TRIGGERED if X1 declines) | **PASS — X1-approved car-only operator exposure implemented and post-merge verified on main.** PR #179 merged: implementation head `b9777b2e23dcc5ac6a005403d90bd9a78fa3022a`, merge commit `9ab499bd41e48e553d2f462998bec4158768881f`, post-merge CI green on that exact commit. Operator-facing allowlist exactly `{car}`; approved source exactly `detector-native:afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf`; search filter, API responses, Track detail and UI exposure implemented through one `VehicleSubclassExposurePolicy`; `truck`, `bus`, `motorcycle` and any A2-profile `car` are unavailable as operator-facing subclasses; broad `Vehicle` remains the stable base class. No Production qualification claim. Evidence: *Stage 3 closure*. |
+| X3 | Every pre-existing Vehicle search returns the same Tracks (implementation roadmap Stage-3 acceptance; NOT TRIGGERED if X1 declines) | **PASS — pre-existing Vehicle-search population and cursor/search semantics preserved.** The merged tests (`VehicleSubclassExposureApiTests`, `TrackSearchAnalyticsApiTests`, `VehicleSubclassExposureTests`, `vehicleSubclass.test.tsx`) prove that every pre-existing Vehicle search keeps its Track population when `objectSubclass` is absent (default, class, camera, video, run, time window, duration/confidence, full pagination, analytic zone search); hidden subclasses stay inside broad Vehicle results; filtering narrows only when `objectSubclass=car` is explicitly requested and can never broaden a search; v2/v3 cursor and fingerprint compatibility is preserved (a search without the predicate fingerprints byte-for-byte as before); ordinary and analytic paths are covered. Post-merge verified on `9ab499bd` (*Stage 3 closure*). |
 
 ### X1 exposure decision (recorded 2026-10-07)
 
@@ -1014,13 +1014,13 @@ This section synthesises already-recorded evidence only. No experiment, inferenc
 - **X2:** triggered. It will implement exactly that allowlist.
 - **X3:** triggered. It will prove that pre-existing Vehicle search behaviour is unchanged.
 - **What X1 PASS does not mean:** that X2 is implemented, that car is already visible to operators, that A2 is Production-qualified, that Stage 3 is complete, or that Task 18 is satisfied.
-- **Nothing becomes operator-visible until X2 is implemented and accepted.**
-- **X2 and X3:** both OPEN.
+- **Nothing becomes operator-visible until X2 is implemented and accepted.** *(As recorded at decision time; superseded by *Stage 3 closure*.)*
+- **X2 and X3:** both OPEN at decision time *(superseded by *Stage 3 closure*: both PASS)*.
 - **Qualification:** nothing is Production-qualified.
 
-### X2/X3 implementation (recorded 2026-10-07; pending merge)
+### X2/X3 implementation (recorded 2026-10-07, before merge; closed by *Stage 3 closure* below)
 
-This records the implemented contract only. X2 and X3 stay OPEN until the implementation PR is merged, its exact-head and post-merge CI are green, and a post-merge closure update binds the merge commit. Nothing here is post-merge evidence.
+This recorded the implemented contract before merge. The conditions it set — merge, green exact-head and post-merge CI, and a closure update binding the merge commit — are met in *Stage 3 closure* below, which closes X2 and X3.
 
 **The one exposure policy.**
 - **Where it lives:** `src/platform/Mavi.Application/Modules/Intelligence/VehicleSubclassExposurePolicy.cs`.
@@ -1052,3 +1052,29 @@ This records the implemented contract only. X2 and X3 stay OPEN until the implem
 - a time window, and the duration and confidence filters;
 - a full paginated walk;
 - an analytic zone search.
+
+### Stage 3 closure (recorded 2026-10-07)
+
+**Baseline.** `main@9ab499bd41e48e553d2f462998bec4158768881f` is the merge commit of PR #179 (`feat(stage3): expose car subclass and preserve Vehicle search`); its parents are `1a9cc70b` (the X1 merge) and the implementation head `b9777b2e23dcc5ac6a005403d90bd9a78fa3022a`. The implementation head descends from `1a9cc70b`, so the merge commit's tree is identical to the head's (`git diff b9777b2e 9ab499bd` is empty).
+
+**Post-merge CI on the exact merge commit.**
+
+| Workflow | Run | Commit | Result |
+|---|---|---|---|
+| MAVI Quality Gate | `37574453819` (push) | `9ab499bd` | success |
+| Task 17 Acceptance Validation | `37574453843` (push) | `9ab499bd` | success |
+| Task 10 Runtime Qualification | `37573581272` (pull_request, exact head) | `b9777b2e` | success — scope gate: not applicable to this change; qualification matrix jobs skipped |
+
+Task 10's `push` trigger is path-filtered to the vision runtime files, none of which PR #179 touched, so no push run exists on the merge commit by design. Its exact-head run on `b9777b2e` reported not-applicable (scope gate passed, matrix jobs skipped), consistent with an unchanged vision runtime; the merge commit's tree is identical to that head. PR #179's exact-head CI was fully green before merge.
+
+**Verification on `main`.** The implementation on `9ab499bd` matches the recorded X2/X3 contract: one central `VehicleSubclassExposurePolicy` (allowlist `{car}`, approved source `detector-native:afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf`); the `objectSubclass=car` predicate on `GET /api/tracks`, rejecting every other value; search items and Track detail exposing only an eligible release-profile `car`; an A2-profile `car` hidden; ordinary Vehicle queries unchanged; the predicate inside the v2/v3 filter fingerprint and omitted when absent; and the web client offering and displaying Car only. The test files recorded above are present on `main`.
+
+**Closure.**
+- **X2:** PASS — X1-approved car-only operator exposure implemented and post-merge verified on main.
+- **X3:** PASS — pre-existing Vehicle-search population and cursor/search semantics preserved.
+- **Stage 3:** COMPLETE — Development capability and operator exposure accepted. Every row of the exit gate holds: A–G PASS (E17 NOT TRIGGERED, which its own requirement defines as the terminal outcome when remux is unused), H1–H5 PASS, X1–X3 PASS.
+- **Operator-exposed subclass subset:** exactly `{car}`.
+- **Not operator-exposed:** truck and bus (benchmark-supported on BDD100K only, caveated; H5) and motorcycle (deferred — insufficient support; H5).
+- **Producers:** the A2 scale-1280 producer remains the preferred Development candidate, `developmentOnly`, refused in Production, and is not the operator release profile. Operator exposure applies to Tracks produced under the release binding `phase1-v2` (profile `afb03b6c…`).
+- **Production boundary unchanged:** nothing became Production-qualified; the qualification record stays `pending`; Task 18 is unaffected.
+- **Next (owner direction, 2026-10-07):** a cross-cutting UI/UX Professionalisation Programme (working label Stage 3.5) precedes Stage 4. It does not renumber the capability stages. Its architecture, scope, quality bar and implementation sequence will be frozen separately.
