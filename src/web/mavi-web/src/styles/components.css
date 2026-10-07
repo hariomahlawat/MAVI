@@ -34,20 +34,36 @@
   font-size: var(--fs-2); font-weight: 500; line-height: 1; white-space: nowrap;
   text-decoration: none; transition: background var(--dur), border-color var(--dur);
 }
-.btn:hover:not(:disabled) { background: var(--surface-raised-2); border-color: var(--border-strong); text-decoration: none; }
-.btn:disabled, .btn[aria-disabled="true"] { opacity: var(--disabled-opacity); }
+.btn:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--surface-raised-2); border-color: var(--border-strong); text-decoration: none; }
 /* A control carrying aria-pressed without a pressed style is a defect
    (section 12). */
 .btn[aria-pressed="true"] {
   background: var(--accent-soft); border-color: var(--accent); color: var(--text-primary);
 }
-.btn[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent-strong); }
+.btn[aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--accent-soft); border-color: var(--accent-strong); }
 .btn--primary { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--text-on-accent); }
-.btn--primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn--primary:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--text-secondary); }
 .btn--ghost[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
-.btn--ghost:hover:not(:disabled) { background: var(--surface-raised); color: var(--text-primary); border-color: transparent; }
+/* Hover is a surface step, never a text repaint (section 12). */
+.btn--ghost:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--surface-raised); border-color: transparent; }
 .btn--danger { color: var(--status-err); border-color: var(--status-err-border); background: var(--status-err-soft); }
+/* Disabled is a surface and a text colour, never an opacity (section 12): a
+   translucent primary reads as "half on". Every variant lands on the same
+   three tokens, so a disabled primary, secondary, danger and ghost are one
+   state, a ghost included: section 12 grants no variant an exception, so a
+   disabled ghost takes the same tokens as every other variant (the disabled
+   text is the visible cue; the surface and border sit within 1.3:1 of the
+   chrome, which the S3 reference-surface inspection revisits). The pressed
+   selectors are listed explicitly because
+   `.btn[aria-pressed="true"]` outranks `.btn:disabled` on specificity alone,
+   and a layer toggle that is both pressed and unavailable (the Evidence Player
+   draws exactly that) must read as disabled, not as an enabled pressed one. */
+.btn:disabled, .btn[aria-disabled="true"],
+.btn[aria-pressed="true"]:disabled, .btn[aria-pressed="true"][aria-disabled="true"] {
+  background: var(--control-disabled-bg); border-color: var(--control-disabled-border); color: var(--text-disabled);
+  cursor: not-allowed;
+}
 .btn--sm { height: var(--control-h-sm); padding: 0 var(--s-2); font-size: var(--fs-1); }
 .btn--icon { width: var(--control-h); padding: 0; }
 .btn--icon.btn--sm { width: var(--control-h-sm); }
@@ -86,10 +102,15 @@
 .badge--plain::before { display: none; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 /* Alerts */
+/* An alert is a sentence and, where there is one, the action that answers it.
+   It is capped at a readable width and left-anchored (section 14.1): an
+   operator sentence stretched across 2400px is harder to read, not easier.
+   Inside a column narrower than the cap it simply fills the column. */
 .alert {
   display: flex; gap: var(--s-3); align-items: flex-start;
+  max-width: var(--alert-max);
   padding: var(--s-2) var(--s-3); border: var(--stroke-hair) solid var(--status-neutral-border); border-radius: var(--r-2);
-  background: var(--status-neutral-soft); color: var(--text-primary); font-size: var(--fs-2); line-height: 1.45;
+  background: var(--status-neutral-soft); color: var(--text-primary); font-size: var(--fs-2); line-height: var(--lh);
 }
 .alert > .icon { flex: 0 0 auto; margin-top: var(--s-hair); }
 .alert__body { flex: 1; min-width: 0; }
@@ -113,13 +134,14 @@
 /* Forms */
 .field { display: grid; gap: var(--s-1); min-width: 0; }
 .field > span:first-child, .field__label { color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
-.field__help { color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; }
+/* Help wraps at the readable measure rather than at the width of the form. */
+.field__help { color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; max-width: var(--measure); }
 /* Section 21: optional fields are marked, required ones are not. */
 .field__optional { color: var(--text-muted); font-weight: 400; }
 /* The refusal itself. The message is text, which is the non-colour cue
-   section 23 requires; the control carries aria-invalid and its warning
-   border alongside. */
-.field__error { color: var(--status-err); font-size: var(--fs-1); line-height: 1.4; }
+   section 23 requires; the control carries aria-invalid and an error border in
+   the same hue alongside (section 12: one hue for one state). */
+.field__error { color: var(--status-err); font-size: var(--fs-1); line-height: 1.4; max-width: var(--measure); }
 .field--inline { grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--s-2); }
 .form-stack { display: grid; gap: var(--s-3); }
 .form-stack label, .search-filter-grid label { display: grid; gap: var(--s-1); color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
@@ -129,13 +151,26 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, tex
   background: var(--surface-inset); color: var(--text-primary); font-size: var(--fs-2);
 }
 /* An invalid field states it in the boundary, the attribute and an associated
-   message (section 12); colour is never the only carrier. */
+   message (section 12); colour is never the only carrier. The boundary is the
+   error hue, the same hue the message uses, and it is drawn 2px so it reads
+   against the resting 1px control border rather than merely differing from it
+   in tint. Focus still wins: the ring is an outline, outside the border, and
+   the border keeps its hue beneath it. */
 input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"] {
-  border-color: var(--status-warn);
+  border-color: var(--status-err);
+  box-shadow: inset 0 0 0 var(--s-px) var(--status-err);
+}
+input[aria-invalid="true"]:focus-visible, select[aria-invalid="true"]:focus-visible, textarea[aria-invalid="true"]:focus-visible {
+  box-shadow: inset 0 0 0 var(--s-px) var(--status-err), 0 0 0 var(--s-px) var(--focus-ring-inner);
 }
 textarea { height: auto; padding: var(--s-2) var(--control-px); }
-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover, select:hover { border-color: var(--border-strong); }
-input:disabled, select:disabled, textarea:disabled { opacity: var(--disabled-opacity); cursor: not-allowed; }
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):hover:not(:disabled):not([aria-invalid="true"]), select:hover:not(:disabled):not([aria-invalid="true"]) { border-color: var(--border-strong); }
+/* Disabled controls take the disabled surface and text (section 12), never an
+   opacity. */
+input:disabled, select:disabled, textarea:disabled {
+  background: var(--control-disabled-bg); border-color: var(--control-disabled-border); color: var(--text-disabled);
+  cursor: not-allowed;
+}
 input[type="file"] { width: 100%; color: var(--text-secondary); font-size: var(--fs-1); }
 input::file-selector-button {
   margin-right: var(--s-3); height: var(--control-h-sm); padding: 0 var(--s-2);
@@ -170,7 +205,7 @@ table.table--ledger { width: 100%; max-width: max-content; }
 /* Named once so the accessible name is not lost when the visible statement
    about the table lives in the toolbar instead (section 23). */
 .table caption { text-align: left; }
-.table th, .table td { padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: middle; }
+.table th, .table td { padding: var(--s-2) var(--s-3); border-bottom: var(--stroke-hair) solid var(--border-subtle); text-align: left; vertical-align: middle; }
 .table th {
   position: sticky; top: 0; z-index: var(--z-sticky); background: var(--surface-base);
   color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase; white-space: nowrap;
@@ -224,12 +259,19 @@ table.table--ledger { width: 100%; max-width: max-content; }
 .kv--grid > div { min-width: 0; }
 .kv--grid dt { margin-bottom: var(--s-hair); }
 /* Empty / loading */
+/* An empty presentation is content-sized (section 37.1): it sits at the top of
+   whatever region holds it at its own height, and a region that stretches it
+   (a flex column with nothing else in it) does not spread its icon, title and
+   sentence across the void — `align-content: start` keeps them together, and
+   `flex: 0 0 auto` stops a flex column from growing it (and its hatch) to the
+   column's full height in the first place. */
 .empty {
-  display: grid; justify-items: center; text-align: center; gap: var(--s-2);
-  padding: var(--s-8) var(--s-4); color: var(--text-secondary); font-size: var(--fs-2);
+  display: grid; justify-items: center; align-content: start; flex: 0 0 auto; text-align: center; gap: var(--s-2);
+  padding: var(--s-6) var(--s-4); color: var(--text-secondary); font-size: var(--fs-2);
 }
 .empty .icon { width: var(--icon-lg); height: var(--icon-lg); color: var(--text-muted); }
 .empty strong { color: var(--text-primary); font-weight: 600; }
+.empty > span { max-width: var(--measure); }
 .empty__actions { display: flex; gap: var(--s-2); margin-top: var(--s-1); }
 .empty--compact { padding: var(--s-4); }
 /* "Not configured" and "unavailable" are hatched, so they never read as the
@@ -245,13 +287,21 @@ table.table--ledger { width: 100%; max-width: max-content; }
   animation: spin var(--dur-spin) linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-/* Skeleton rows, only where the row height is known (section 14). */
-.skeleton { display: grid; gap: var(--s-hair); padding: var(--s-2) 0; }
+/* Skeleton rows, only where the row height is known (section 14). A skeleton
+   has the geometry of the content it precedes (section 36.3, section 38): each
+   row is one table-row pitch, so the rows that replace it land where it was.
+   It is a static placeholder; section 13 permits no shimmer. */
+.skeleton { display: grid; gap: 0; }
 .skeleton__row {
-  height: var(--s-6); border-radius: var(--r-1); background: var(--surface-raised);
-  animation: skeleton-pulse var(--dur-pulse) ease-in-out infinite;
+  height: var(--table-row-h); padding: var(--s-2) var(--s-3);
+  border-bottom: var(--stroke-hair) solid var(--border-subtle);
 }
-@keyframes skeleton-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.skeleton__row::before {
+  content: ""; display: block; height: 100%; width: 60%;
+  border-radius: var(--r-1); background: var(--skeleton-bg);
+}
+.skeleton__row:nth-child(even)::before { width: 45%; }
+.skeleton__row:last-child { border-bottom: 0; }
 
 /* Progress */
 .progress { display: grid; gap: var(--s-1); }
@@ -271,7 +321,7 @@ table.table--ledger { width: 100%; max-width: max-content; }
   height: var(--control-h); padding: 0 var(--s-3); border: 0; border-bottom: var(--stroke-2) solid transparent; margin-bottom: -1px;
   background: transparent; color: var(--text-secondary); font-size: var(--fs-2); font-weight: 500;
 }
-.tabs button:hover { color: var(--text-primary); }
+.tabs button:hover { background: var(--surface-raised); }
 .tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); }
 
 /* Details (progressive disclosure) */
@@ -309,7 +359,7 @@ a.summary-band__item:hover .summary-band__value { text-decoration: underline; te
 }
 .chip code { color: var(--text-secondary); }
 .chip button { width: var(--control-min-target); height: var(--control-min-target); padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text-muted); line-height: 1; }
-.chip button:hover { background: var(--surface-raised-2); color: var(--text-primary); }
+.chip button:hover { background: var(--surface-raised-2); }
 .chip-row { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 /* Thumbnails */
 .thumb { display: block; width: 100%; height: 100%; object-fit: cover; background: var(--evidence-matte); }

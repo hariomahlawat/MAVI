@@ -77,6 +77,23 @@ describe('text contrast (4.5:1)', () => {
     expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('keeps the error message readable on every form surface', () => {
+    // The invalid message is the non-colour cue (section 12); it still has to
+    // be read, and a form sits on the base or raised surface.
+    expect(contrast('--status-err', '--surface-base')).toBeGreaterThanOrEqual(4.5);
+    expect(contrast('--status-err', '--surface-raised')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('keeps a disabled label legible without claiming it is enabled', () => {
+    // A disabled control is exempt from the 4.5:1 text minimum, and must still
+    // be read (section 12). 3:1 is the floor pinned here; the disabled text
+    // must also sit below the muted floor so the two states never collapse.
+    expect(contrast('--text-disabled', '--control-disabled-bg')).toBeGreaterThanOrEqual(3);
+    expect(contrast('--text-disabled', '--control-disabled-bg')).toBeLessThan(
+      contrast('--text-muted', '--control-disabled-bg'),
+    );
+  });
+
   it('paints text on --accent-strong, never on --accent', () => {
     // The defect named in section 8.1: --accent cannot legally carry text.
     expect(contrast('--text-on-accent', '--accent-strong')).toBeGreaterThanOrEqual(4.5);
@@ -85,6 +102,18 @@ describe('text contrast (4.5:1)', () => {
 });
 
 describe('non-text contrast (3:1)', () => {
+  it('draws the invalid boundary at 3:1 on the inset and base surfaces', () => {
+    // Section 23: a boundary that identifies a state is not decorative.
+    expect(contrast('--status-err', '--surface-inset')).toBeGreaterThanOrEqual(3);
+    expect(contrast('--status-err', '--surface-base')).toBeGreaterThanOrEqual(3);
+  });
+
+  it('keeps the scrollbar thumb visible on every scrolling surface', () => {
+    for (const surface of SURFACES) {
+      expect(contrast('--scrollbar-thumb', surface), surface).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it.each(SURFACES)('the focus ring is visible on %s', (surface) => {
     expect(contrast('--focus-ring', surface)).toBeGreaterThanOrEqual(3);
   });

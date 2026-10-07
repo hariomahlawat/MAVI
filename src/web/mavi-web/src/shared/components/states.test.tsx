@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import Alert from './Alert';
 import EmptyState from './EmptyState';
-import LoadingState from './LoadingState';
+import LoadingState, { DEFAULT_SKELETON_ROWS } from './LoadingState';
 
 /**
  * The shared state presentations. Section 14 treats conflating "unavailable"
@@ -55,5 +55,29 @@ describe('LoadingState', () => {
     render(<LoadingState label="Loading videos…" rows={3} />);
     const region = screen.getByRole('status', { name: 'Loading videos…' });
     expect(region.querySelectorAll('.skeleton__row')).toHaveLength(3);
+  });
+
+  it('renders the confirmed default row count on request', () => {
+    render(<LoadingState label="Loading videos…" rows="default" />);
+    expect(screen.getByRole('status').querySelectorAll('.skeleton__row')).toHaveLength(DEFAULT_SKELETON_ROWS);
+    expect(DEFAULT_SKELETON_ROWS).toBe(8);
+  });
+
+  it('renders a skeleton row as geometry only: no text, no icon, no spinner', () => {
+    const { container } = render(<LoadingState rows={2} />);
+    expect(container.querySelector('.spinner')).toBeNull();
+    for (const row of container.querySelectorAll('.skeleton__row')) {
+      expect(row).toBeEmptyDOMElement();
+    }
+  });
+});
+
+describe('EmptyState geometry', () => {
+  it('is content-sized: no wrapper beyond the presentation itself', () => {
+    const { container } = render(<EmptyState icon="video" title="No videos imported yet">Import one.</EmptyState>);
+    const empty = container.querySelector('.empty');
+    expect(empty).not.toBeNull();
+    expect(empty?.children).toHaveLength(3);
+    expect(container.firstElementChild).toBe(empty);
   });
 });
