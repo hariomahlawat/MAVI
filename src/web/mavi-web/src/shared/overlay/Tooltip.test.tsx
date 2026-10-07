@@ -149,6 +149,42 @@ describe('Tooltip', () => {
     expect(await screen.findByRole('tooltip')).toBeInTheDocument();
   });
 
+  it('aligns to the edge of what clips it instead of being cut off, and stays centred where it fits', async () => {
+    const user = userEvent.setup();
+    // jsdom does no layout: give the clipping column, the trigger's hint and
+    // everything else the geometry of the inspector's Close button at 1920px.
+    const rects = new Map<string, Partial<DOMRect>>([
+      ['clip', { left: 216, right: 1920 }],
+      ['tooltip', { left: 1812, right: 1936 }],
+    ]);
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const key = this.classList.contains('tooltip') ? 'tooltip' : this.dataset.testid === 'clip' ? 'clip' : '';
+      return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}), ...rects.get(key) } as DOMRect;
+    });
+    try {
+      const { rerender } = render(
+        <div data-testid="clip" style={{ overflow: 'hidden' }}>
+          <Tooltip content="Close inspector · Esc"><button type="button">Close inspector</button></Tooltip>
+        </div>,
+      );
+      await user.hover(screen.getByRole('button', { name: 'Close inspector' }));
+      expect(await screen.findByRole('tooltip')).toHaveAttribute('data-align', 'end');
+
+      // Room on both sides: centred, as everywhere else.
+      await user.unhover(screen.getByRole('button', { name: 'Close inspector' }));
+      rects.set('tooltip', { left: 900, right: 1024 });
+      rerender(
+        <div data-testid="clip" style={{ overflow: 'hidden' }}>
+          <Tooltip content="Close inspector · Esc"><button type="button">Close inspector</button></Tooltip>
+        </div>,
+      );
+      await user.hover(screen.getByRole('button', { name: 'Close inspector' }));
+      expect(await screen.findByRole('tooltip')).not.toHaveAttribute('data-align');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('does not swallow Escape: the surface still hears it', async () => {
     const onEscape = vi.fn();
     window.addEventListener('keydown', onEscape);

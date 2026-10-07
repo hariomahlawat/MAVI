@@ -449,3 +449,7 @@ a.summary-band__item:hover .summary-band__value { text-decoration: underline; te
   box-shadow: var(--elevation-floating);
 }
 .tooltip[hidden] { display: none; }
+/* Edge-aware: a hint that would be cut off by what clips it aligns to that
+   edge of its trigger instead of centring (set by the Tooltip on open). */
+.tooltip[data-align='end'] { left: auto; right: 0; transform: none; }
+.tooltip[data-align='start'] { left: 0; transform: none; }

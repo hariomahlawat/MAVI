@@ -1,4 +1,4 @@
-import { cloneElement, useEffect, useId, useRef, useState, type FocusEvent, type ReactElement } from 'react';
+import { cloneElement, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, type ReactElement } from 'react';
 
 /**
  * Non-essential information about a control, shown on hover and on keyboard
@@ -55,6 +55,21 @@ export default function Tooltip({
     cancel('focus');
   }, []);
 
+  // Centred under its trigger unless that would cut it off: a trigger near the
+  // edge of what clips it (the inspector's Close at the right of the content
+  // column) gets a hint aligned to that edge instead. Measured before paint,
+  // each time it opens.
+  const tipRef = useRef<HTMLSpanElement | null>(null);
+  useLayoutEffect(() => {
+    const tip = tipRef.current;
+    if (!shown || !tip) return;
+    tip.removeAttribute('data-align');
+    const bounds = clippingBounds(tip);
+    const rect = tip.getBoundingClientRect();
+    if (rect.right > bounds.right) tip.setAttribute('data-align', 'end');
+    else if (rect.left < bounds.left) tip.setAttribute('data-align', 'start');
+  }, [shown]);
+
   useEffect(() => {
     if (!shown) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -85,7 +100,7 @@ export default function Tooltip({
       {trigger}
       {/* Always in the document so the description is there before it is
           shown; `hidden` keeps it off screen and out of the reading order. */}
-      <span className="tooltip" role="tooltip" id={id} hidden={!shown}>
+      <span ref={tipRef} className="tooltip" role="tooltip" id={id} hidden={!shown}>
         {content}
       </span>
     </span>
@@ -99,4 +114,18 @@ function tooltipDelayMs(): number {
     : getComputedStyle(document.documentElement).getPropertyValue('--dur').trim();
   const ms = raw.endsWith('ms') ? parseFloat(raw) : raw.endsWith('s') ? parseFloat(raw) * 1000 : NaN;
   return Number.isFinite(ms) && ms >= 0 ? ms : 120;
+}
+
+/** The horizontal extent a hint may occupy: the viewport, narrowed by every ancestor that clips it. */
+function clippingBounds(element: HTMLElement): { left: number; right: number } {
+  let left = 0;
+  let right = typeof window === 'undefined' ? Number.POSITIVE_INFINITY : window.innerWidth;
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (/(hidden|auto|scroll|clip)/.test(getComputedStyle(node).overflowX)) {
+      const rect = node.getBoundingClientRect();
+      left = Math.max(left, rect.left);
+      right = Math.min(right, rect.right);
+    }
+  }
+  return { left, right };
 }
