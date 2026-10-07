@@ -325,6 +325,36 @@ describe('control states are painted by tokens, not by opacity (section 12)', ()
     }
   });
 
+  it('grants no variant a disabled exception (section 12)', () => {
+    // Exactly one rule, in the shared sheet, paints a disabled button, and it
+    // paints only the three disabled tokens plus the cursor. A rule in any
+    // consumer sheet that targets a disabled button — a transparent ghost, a
+    // danger fill, a toolbar override — would put that variant outside the
+    // one disabled state.
+    const CANONICAL = [
+      '.btn:disabled', '.btn[aria-disabled="true"]',
+      '.btn[aria-pressed="true"]:disabled', '.btn[aria-pressed="true"][aria-disabled="true"]',
+    ];
+    const disabledRules: string[] = [];
+    for (const file of featureCss) {
+      for (const match of withoutComments(read(file)).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        // Hover rules exclude the disabled states through `:not()`; they are
+        // not disabled rules.
+        const selectors = match[1].split(',').map((sel) => sel.trim().replace(/:not\([^)]*\)/g, '').replace(/\s+/g, ' '));
+        if (!selectors.some((sel) => sel.includes('.btn') && /:disabled|aria-disabled/.test(sel))) continue;
+        disabledRules.push(`${file}: ${selectors.join(', ')}`);
+        expect(selectors, match[1].trim()).toEqual(CANONICAL);
+        const declarations = match[2].split(';').map((d) => d.trim()).filter(Boolean);
+        for (const declaration of declarations) {
+          expect(declaration, declaration).toMatch(
+            /^(background: var\(--control-disabled-bg\)|border-color: var\(--control-disabled-border\)|color: var\(--text-disabled\)|cursor: not-allowed)$/,
+          );
+        }
+      }
+    }
+    expect(disabledRules).toHaveLength(1);
+  });
+
   it('paints a pressed-and-disabled button as disabled, not as pressed', () => {
     // `.btn[aria-pressed="true"]` outranks `.btn:disabled` on specificity, so
     // the disabled rule must name the pressed case itself.

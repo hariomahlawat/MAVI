@@ -7,9 +7,12 @@
  *
  * `stale` and `unavailable` are not hues on their own: stale carries a dashed
  * edge and unavailable a diagonal hatch, because section 23 forbids colour as
- * the only carrier of a status. `disabled` is deliberately absent — it is an
- * opacity, not a tone, and giving it a colour would make it look like a state
- * the system is in rather than a control the operator cannot use.
+ * the only carrier of a status. `disabled` is deliberately absent: it is a
+ * control state, not an operational state, and giving it a tone would make it
+ * look like something the system is in rather than a control the operator
+ * cannot use. Its appearance comes from the disabled semantic tokens
+ * (`--control-disabled-bg`, `--control-disabled-border`, `--text-disabled`;
+ * specification section 12), never from this vocabulary.
  */
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'active' | 'neutral' | 'stale' | 'unavailable';
 

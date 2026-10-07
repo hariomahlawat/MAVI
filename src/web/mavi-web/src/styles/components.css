@@ -51,7 +51,11 @@
 /* Disabled is a surface and a text colour, never an opacity (section 12): a
    translucent primary reads as "half on". Every variant lands on the same
    three tokens, so a disabled primary, secondary, danger and ghost are one
-   state. The pressed selectors are listed explicitly because
+   state, a ghost included: section 12 grants no variant an exception, so a
+   disabled ghost takes the same tokens as every other variant (the disabled
+   text is the visible cue; the surface and border sit within 1.3:1 of the
+   chrome, which the S3 reference-surface inspection revisits). The pressed
+   selectors are listed explicitly because
    `.btn[aria-pressed="true"]` outranks `.btn:disabled` on specificity alone,
    and a layer toggle that is both pressed and unavailable (the Evidence Player
    draws exactly that) must read as disabled, not as an enabled pressed one. */
@@ -59,10 +63,6 @@
 .btn[aria-pressed="true"]:disabled, .btn[aria-pressed="true"][aria-disabled="true"] {
   background: var(--control-disabled-bg); border-color: var(--control-disabled-border); color: var(--text-disabled);
   cursor: not-allowed;
-}
-.btn--ghost:disabled, .btn--ghost[aria-disabled="true"],
-.btn--ghost[aria-pressed="true"]:disabled, .btn--ghost[aria-pressed="true"][aria-disabled="true"] {
-  background: transparent; border-color: transparent;
 }
 .btn--sm { height: var(--control-h-sm); padding: 0 var(--s-2); font-size: var(--fs-1); }
 .btn--icon { width: var(--control-h); padding: 0; }
