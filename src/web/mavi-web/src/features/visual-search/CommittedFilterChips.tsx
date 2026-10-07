@@ -1,4 +1,5 @@
 import type { Camera } from '../../api/cameras';
+import { objectSubclassLabel } from '../../api/tracks';
 import type { VideoAsset } from '../../api/videos';
 import { displayTimestamp } from '../../shared/format/format';
 import {
@@ -91,7 +92,21 @@ export function committedChips(
   }
 
   if (filters.objectClass) {
-    chips.push({ key: 'objectClass', label: 'Class', value: filters.objectClass, removes: ['objectClass'] });
+    // The vehicle type refines Vehicle, so removing the class removes it too.
+    chips.push({
+      key: 'objectClass',
+      label: 'Class',
+      value: filters.objectClass,
+      removes: filters.objectSubclass ? ['objectClass', 'objectSubclass'] : ['objectClass'],
+    });
+  }
+  if (filters.objectSubclass) {
+    chips.push({
+      key: 'objectSubclass',
+      label: 'Vehicle type',
+      value: objectSubclassLabel(filters.objectSubclass) ?? filters.objectSubclass,
+      removes: ['objectSubclass'],
+    });
   }
 
   // §24 and ADR-004: an absolute time is shown in the configured display zone,

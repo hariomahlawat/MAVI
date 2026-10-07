@@ -72,6 +72,15 @@ export function commitDraft({
   if (draft.objectClass) next.objectClass = draft.objectClass;
   else delete next.objectClass;
 
+  // A vehicle type states its Vehicle class; under Person it cannot stand, and
+  // the rail clears it whenever any other class is chosen.
+  if (draft.objectSubclass && draft.objectClass !== 'Person') {
+    next.objectClass = 'Vehicle';
+    next.objectSubclass = draft.objectSubclass;
+  } else {
+    delete next.objectSubclass;
+  }
+
   if (numericDirty.duration) {
     try {
       const duration = secondsTextToMilliseconds(draft.minimumDurationSeconds);

@@ -349,6 +349,65 @@ public sealed class TrackSearchAnalyticsApiTests(PostgresFixture fixture)
         return document.RootElement.GetProperty("analyticsCoverage").GetRawText();
     }
 
+    // --- Stage 3 X2/X3: the subclass filter inside an analytic search ---------
+
+    [Fact]
+    public async Task TheSubclassFilterNarrowsAnAnalyticSearchWhileItsVehicleSearchStaysWhole()
+    {
+        const string a2Source = "detector-native:b4c6a6cf8c68382f3af266b884801dbb77fb908cbaca7ed41336d4834463e62e";
+        var world = await SceneAnalyticsWorld.CreateAsync(fixture, Now);
+        var car = await AddVehicleAsync(world, 2, "car", VehicleSubclassExposurePolicy.ApprovedSource);
+        var truck = await AddVehicleAsync(world, 3, "truck", VehicleSubclassExposurePolicy.ApprovedSource);
+        var a2Car = await AddVehicleAsync(world, 4, "car", a2Source);
+        await CommitFactsAsync(world, [world.TrackId, car, truck, a2Car]);
+        await using var factory = CreateFactory(world);
+        using var client = factory.CreateClient();
+
+        var vehicles = await client.GetFromJsonAsync<TrackSearchResponse>(
+            $"/api/tracks?cameraId={world.CameraId}&objectClass=Vehicle&zoneId={world.ZoneId}", Json);
+        Assert.Equal([car, truck, a2Car], vehicles!.Items.Select(item => item.Id).ToHashSet());
+        Assert.Equal(3, vehicles.AnalyticsCoverage!.AnalysedTracks);
+        Assert.Equal(["car"], vehicles.Items.Select(item => item.ObjectSubclass).OfType<string>());
+
+        var cars = await client.GetFromJsonAsync<TrackSearchResponse>(
+            $"/api/tracks?cameraId={world.CameraId}&objectSubclass=car&zoneId={world.ZoneId}", Json);
+        var item = Assert.Single(cars!.Items);
+        Assert.Equal(car, item.Id);
+        Assert.Equal("car", item.ObjectSubclass);
+        Assert.NotNull(item.Analytics);
+        // The subclass is an ordinary base-scope filter, so coverage counts within it.
+        Assert.Equal(1, cars.AnalyticsCoverage!.AnalysedTracks);
+
+        using var refused = await client.GetAsync(
+            $"/api/tracks?cameraId={world.CameraId}&objectSubclass=truck&zoneId={world.ZoneId}");
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+
+        // The subclass is inside the v3 fingerprint: an analytic Vehicle cursor cannot
+        // continue the analytic car search.
+        var firstVehiclePage = await client.GetFromJsonAsync<TrackSearchResponse>(
+            $"/api/tracks?cameraId={world.CameraId}&objectClass=Vehicle&zoneId={world.ZoneId}&limit=1", Json);
+        var vehicleCursor = Uri.EscapeDataString(firstVehiclePage!.NextCursor!);
+        using var crossed = await client.GetAsync(
+            $"/api/tracks?cameraId={world.CameraId}&objectSubclass=car&zoneId={world.ZoneId}&limit=1&cursor={vehicleCursor}");
+        Assert.Equal(HttpStatusCode.BadRequest, crossed.StatusCode);
+        using var continued = await client.GetAsync(
+            $"/api/tracks?cameraId={world.CameraId}&objectClass=Vehicle&zoneId={world.ZoneId}&limit=1&cursor={vehicleCursor}");
+        Assert.Equal(HttpStatusCode.OK, continued.StatusCode);
+    }
+
+    private static async Task<Guid> AddVehicleAsync(SceneAnalyticsWorld world, int localTrackNumber, string subclass, string source)
+    {
+        await using var db = world.Read();
+        var track = Track.Create(
+            world.RunId, world.VideoId, localTrackNumber, ObjectClass.Vehicle,
+            0, 6_000, world.RecordingStartUtc,
+            detectionCount: 6, meanConfidence: 0.7, maxConfidence: 0.8, createdAtUtc: world.RunCompletedAtUtc,
+            objectSubclass: subclass, objectSubclassVocabulary: VehicleSubclass.VocabularyV1, objectSubclassSource: source);
+        db.Tracks.Add(track);
+        await db.SaveChangesAsync();
+        return track.Id;
+    }
+
     private static async Task<string?> ReadCodeAsync(HttpResponseMessage response)
     {
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());

@@ -3,6 +3,32 @@ import { apiRequest } from './client';
 export type TrackObjectClass = 'Person' | 'Vehicle';
 
 /**
+ * The operator-facing vehicle subclasses (Stage 3, X1/X2): exactly what the
+ * backend's exposure policy can return or accept. The backend is the authority;
+ * this list only mirrors it so the filter offers nothing the server refuses.
+ */
+export const OBJECT_SUBCLASSES = ['car'] as const;
+export type TrackObjectSubclass = (typeof OBJECT_SUBCLASSES)[number];
+
+const OBJECT_SUBCLASS_LABELS: Record<TrackObjectSubclass, string> = { car: 'Car' };
+
+export function objectSubclassLabel(subclass: string | undefined): string | undefined {
+  return subclass !== undefined && (OBJECT_SUBCLASSES as readonly string[]).includes(subclass)
+    ? OBJECT_SUBCLASS_LABELS[subclass as TrackObjectSubclass]
+    : undefined;
+}
+
+/**
+ * The class line a Track is shown under: the broad class, refined by the
+ * subclass the server exposed (`Vehicle · Car`). The subclass never replaces
+ * the class, and only a server-sent value is ever shown.
+ */
+export function objectClassLabel(track: { objectClass: TrackObjectClass; objectSubclass?: string }): string {
+  const subclass = objectSubclassLabel(track.objectSubclass);
+  return subclass ? track.objectClass + ' · ' + subclass : track.objectClass;
+}
+
+/**
  * The analytic query grammar frozen in plan §S, mirrored by hand as the rest of
  * this client mirrors its server contracts (`TrackSearchContractRules`).
  * Values are sent case-sensitively, exactly as listed; the backend is the
@@ -27,6 +53,7 @@ export type TrackSearchFilters = {
   videoAssetId?: string;
   processingRunId?: string;
   objectClass?: TrackObjectClass;
+  objectSubclass?: TrackObjectSubclass;
   fromUtc?: string;
   toUtc?: string;
   minimumDurationMs?: number;
@@ -103,6 +130,8 @@ export type TrackSearchItem = {
   cameraCode: string;
   cameraName: string;
   objectClass: TrackObjectClass;
+  /** Present only when the server exposes the Track's subclass (X1: `car`). */
+  objectSubclass?: TrackObjectSubclass;
   startTimestampUtc: string;
   endTimestampUtc: string;
   startOffsetMs: number;
@@ -289,6 +318,8 @@ export type TrackDetail = {
   videoAssetId: string;
   camera: TrackCamera;
   objectClass: TrackObjectClass;
+  /** Present only when the server exposes the Track's subclass (X1: `car`). */
+  objectSubclass?: TrackObjectSubclass;
   localTrackNumber: number;
   startOffsetMs: number;
   endOffsetMs: number;
@@ -348,6 +379,7 @@ const orderedFilterKeys: ReadonlyArray<keyof TrackSearchFilters> = [
   'videoAssetId',
   'processingRunId',
   'objectClass',
+  'objectSubclass',
   'fromUtc',
   'toUtc',
   'minimumDurationMs',

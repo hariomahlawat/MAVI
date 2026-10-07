@@ -964,8 +964,8 @@ This section synthesises already-recorded evidence only. No experiment, inferenc
 | ID | Requirement | Status |
 |---|---|---|
 | X1 | Exposure decision (expose or decline) recorded on S3.2 measurement evidence: G8, G9, and every S3.2d row (H1, H2, H3, H5 PASS; H4 PASS or NOT TRIGGERED). H5 evidence is per class and per evidence domain; X1 selects **one global class subset** from the H5-eligible classes. Domain evidence informs that selection and its caveats but creates no domain-specific runtime exposure. Exposure requires the G9-frozen subclass policy values (`minShare` 0.6, `minMatchedDetections` 3) and adequate evidence for each exposed class on the applicable measured profile family; matching threshold values alone do not transfer evidence between profiles | **PASS — expose global subset `{car}` only.** `truck`, `bus` and `motorcycle` stay unavailable to operators; truck and bus remain H5 benchmark-supported, motorcycle H5-deferred. X2 and X3 are triggered. Nothing is operator-visible until X2 is implemented and accepted; nothing is Production-qualified. See *X1 exposure decision* below. |
-| X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment, exposing only the class subset X1 approved on H5: an explicit allowlist in the API, search and UI, **containing exactly `car`** (X1). `truck`, `bus` and `motorcycle` — and any class X1 did not approve, whatever its H5 disposition — are neither returned, filterable nor displayed, even though Track persists every vocabulary value; acceptance evidence shows those classes remain unavailable (NOT TRIGGERED if X1 declines) | OPEN — triggered by X1 |
-| X3 | Every pre-existing Vehicle search returns the same Tracks (implementation roadmap Stage-3 acceptance; NOT TRIGGERED if X1 declines) | OPEN — triggered by X1 |
+| X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment, exposing only the class subset X1 approved on H5: an explicit allowlist in the API, search and UI, **containing exactly `car`** (X1). `truck`, `bus` and `motorcycle` — and any class X1 did not approve, whatever its H5 disposition — are neither returned, filterable nor displayed, even though Track persists every vocabulary value; acceptance evidence shows those classes remain unavailable (NOT TRIGGERED if X1 declines) | OPEN — triggered by X1; implemented in the X2/X3 PR, pending merge and post-merge verification (*X2/X3 implementation*) |
+| X3 | Every pre-existing Vehicle search returns the same Tracks (implementation roadmap Stage-3 acceptance; NOT TRIGGERED if X1 declines) | OPEN — triggered by X1; regression evidence in the X2/X3 PR, pending merge and post-merge verification (*X2/X3 implementation*) |
 
 ### X1 exposure decision (recorded 2026-10-07)
 
@@ -1017,3 +1017,38 @@ This section synthesises already-recorded evidence only. No experiment, inferenc
 - **Nothing becomes operator-visible until X2 is implemented and accepted.**
 - **X2 and X3:** both OPEN.
 - **Qualification:** nothing is Production-qualified.
+
+### X2/X3 implementation (recorded 2026-10-07; pending merge)
+
+This records the implemented contract only. X2 and X3 stay OPEN until the implementation PR is merged, its exact-head and post-merge CI are green, and a post-merge closure update binds the merge commit. Nothing here is post-merge evidence.
+
+**The one exposure policy.**
+- **Where it lives:** `src/platform/Mavi.Application/Modules/Intelligence/VehicleSubclassExposurePolicy.cs`.
+- **The rule:** a persisted subclass is operator-facing only when all three hold:
+  - the Track is a Vehicle;
+  - the subclass is on the X1 allowlist, `{car}` (exact match);
+  - its `object_subclass_source` is exactly `detector-native:afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf`, the release profile `phase1-detection-tracking-v1` (`1.3.0-candidate`).
+- **Everything else is hidden:** truck, bus, motorcycle, an A2-profile `car`, an undetermined Vehicle, and a legacy Track with no subclass.
+- **One authority:** the search filter, the search results and Track detail all ask this policy. Persistence, schema, Completion 3.3, the vocabulary, G9, profiles, bindings and Model Packs are unchanged.
+
+**`GET /api/tracks`.**
+- **New filter:** an additive key, `objectSubclass`, which accepts only `car`, case-sensitive and once.
+  - Any other value, a duplicate, or `objectClass=Person&objectSubclass=car` is the ordinary `400 track_search_invalid`, never an empty page.
+  - `objectSubclass=car` implies Vehicle. `objectSubclass=car` and `objectClass=Vehicle&objectSubclass=car` are one canonical search with one fingerprint.
+- **What it matches:** release-profile cars only. It is an ordinary base-scope filter, so it composes with every ordinary filter and with analytic predicates; an analytic search's coverage is counted within it.
+- **Cursors:** the predicate is part of the v2/v3 filter fingerprint, so a cursor cannot cross between a car search and any other search. It is omitted from the fingerprint payload when absent, so a search without it fingerprints exactly as before X2.
+- **New response field:** each item gains `objectSubclass` (`"car"`), present only when the policy exposes it and omitted otherwise. `objectClass` keeps its meaning.
+
+**`GET /api/tracks/{id}`.** The detail gains the same `objectSubclass` field, under the same policy.
+
+**Web.**
+- **Search filter:** a Vehicle type filter offering only Car. It states Vehicle, is disabled under Person, and commits the canonical `objectClass=Vehicle&objectSubclass=car`.
+- **URL handling:** an unsupported or duplicate value in the URL makes the search invalid, and no Track request is issued.
+- **Display:** results, the inspector and the detail summary show `Vehicle · Car` only for a server-exposed car. The client never infers a subclass.
+
+**X3 (backward compatibility).** Without `objectSubclass`, every Vehicle search returns the same Tracks as before X2: car, truck, bus, motorcycle, A2-profile, undetermined and legacy Vehicles alike. Only their operator-facing label is restricted. The integration tests pin this for:
+- default search and `objectClass=Vehicle`;
+- camera, video and run scopes;
+- a time window, and the duration and confidence filters;
+- a full paginated walk;
+- an analytic zone search.

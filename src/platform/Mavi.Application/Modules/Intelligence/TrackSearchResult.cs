@@ -32,7 +32,17 @@ public sealed record TrackSearchRow(
     double MeanConfidence,
     double MaxConfidence,
     ReviewStatus ReviewStatus,
-    Guid? ThumbnailArtifactId);
+    Guid? ThumbnailArtifactId,
+    string? PersistedObjectSubclass = null,
+    string? PersistedObjectSubclassSource = null)
+{
+    /// <summary>
+    /// The subclass an operator may see, by <see cref="VehicleSubclassExposurePolicy"/>; the
+    /// persisted values are internal and never mapped to a contract directly.
+    /// </summary>
+    public string? ExposedObjectSubclass =>
+        VehicleSubclassExposurePolicy.Expose(ObjectClass, PersistedObjectSubclass, PersistedObjectSubclassSource);
+}
 
 /// <summary>The scalar part of a Track's detail: Track, run, video and camera.</summary>
 /// <remarks>
@@ -73,7 +83,14 @@ public sealed record TrackDetailRow(
     int FrameRateNumerator,
     int FrameRateDenominator,
     Guid? RepresentativeObservationId,
-    Guid? TrajectoryArtifactId);
+    Guid? TrajectoryArtifactId,
+    string? PersistedObjectSubclass = null,
+    string? PersistedObjectSubclassSource = null)
+{
+    /// <summary>The subclass an operator may see, by <see cref="VehicleSubclassExposurePolicy"/>.</summary>
+    public string? ExposedObjectSubclass =>
+        VehicleSubclassExposurePolicy.Expose(ObjectClass, PersistedObjectSubclass, PersistedObjectSubclassSource);
+}
 
 // --- Analytics (Slice 4) ---------------------------------------------------
 

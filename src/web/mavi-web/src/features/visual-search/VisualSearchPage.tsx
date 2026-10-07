@@ -87,6 +87,7 @@ function draftFromFilters(filters: CommittedTrackSearch, timeZoneId: string | un
     cameraId: filters.cameraId ?? '',
     videoAssetId: filters.videoAssetId ?? '',
     objectClass: filters.objectClass ?? '',
+    objectSubclass: filters.objectSubclass ?? '',
     fromLocal: wallValue(filters.fromUtc, timeZoneId),
     toLocal: wallValue(filters.toUtc, timeZoneId),
     minimumDurationSeconds: millisecondsToSecondsText(filters.minimumDurationMs),

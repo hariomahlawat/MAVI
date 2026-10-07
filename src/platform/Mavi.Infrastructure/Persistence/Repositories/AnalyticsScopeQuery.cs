@@ -34,7 +34,8 @@ public sealed record AnalyticsScopeRequest(
     DateTimeOffset? FromUtc,
     DateTimeOffset? ToUtc,
     long? MinimumDurationMs,
-    double? MinimumConfidence)
+    double? MinimumConfidence,
+    string? ObjectSubclass = null)
 {
     /// <summary>The scope a Track-search query describes.</summary>
     public static AnalyticsScopeRequest From(TrackSearchQuery query)
@@ -48,7 +49,8 @@ public sealed record AnalyticsScopeRequest(
             query.FromUtc,
             query.ToUtc,
             query.MinimumDurationMs,
-            query.MinimumConfidence);
+            query.MinimumConfidence,
+            query.ObjectSubclass);
     }
 
     /// <summary>The scope a Slice-6 camera/window request describes.</summary>
@@ -153,6 +155,18 @@ public static class AnalyticsScopeQuery
             tracks = tracks.Where(x => x.track.DurationMs >= minimumDurationMs);
         if (scope.MinimumConfidence is { } minimumConfidence)
             tracks = tracks.Where(x => x.track.MeanConfidence >= minimumConfidence);
+        if (scope.ObjectSubclass is { } subclass)
+        {
+            // The operator-facing subclass filter (X2): the exposure policy's subclass and
+            // approved source, so a value or profile the policy hides is never matched.
+            if (!VehicleSubclassExposurePolicy.IsExposable(subclass))
+                throw new ArgumentException("The subclass is not operator-exposable.", nameof(scope));
+            var approvedSource = VehicleSubclassExposurePolicy.ApprovedSource;
+            tracks = tracks.Where(x =>
+                x.track.ObjectClass == ObjectClass.Vehicle &&
+                x.track.ObjectSubclass == subclass &&
+                x.track.ObjectSubclassSource == approvedSource);
+        }
 
         return tracks;
     }

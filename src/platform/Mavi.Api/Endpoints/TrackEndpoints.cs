@@ -116,6 +116,8 @@ public static partial class TrackEndpoints
             "minimumConfidence",
             "cursor",
             "limit",
+            // Stage 3 X2: the operator-facing vehicle subclass.
+            TrackSearchContractRules.ObjectSubclassKey,
             // Slice 4 analytics grammar (plan §S). The whitelist is closed: a key not
             // named here is a 400, as it always was.
             TrackSearchContractRules.SceneRevisionIdKey,
@@ -149,6 +151,7 @@ public static partial class TrackEndpoints
             !TryDouble(values, "minimumConfidence", out var confidence) ||
             !TryInt(values, "limit", 50, out var limit) ||
             !SingleOrMissing(values, "cursor", out var cursor) ||
+            !TryObjectSubclass(values, out var objectSubclass) ||
             !TryAnalytics(values, out var analytics))
             return false;
 
@@ -163,7 +166,26 @@ public static partial class TrackEndpoints
             confidence,
             cursor,
             limit,
-            analytics);
+            analytics,
+            objectSubclass);
+        return true;
+    }
+
+    /// <summary>
+    /// The subclass filter: only a value the exposure policy makes operator-facing, exactly
+    /// as spelled (X1: <c>car</c>). A hidden or unknown value is a 400, never an empty page.
+    /// Its relation to <c>objectClass</c> is the service's rule.
+    /// </summary>
+    private static bool TryObjectSubclass(IQueryCollection values, out string? result)
+    {
+        result = null;
+        if (!SingleOrMissing(values, TrackSearchContractRules.ObjectSubclassKey, out var raw))
+            return false;
+        if (raw is null)
+            return true;
+        if (!VehicleSubclassExposurePolicy.IsExposable(raw))
+            return false;
+        result = raw;
         return true;
     }
 
@@ -394,7 +416,8 @@ public static partial class TrackEndpoints
         $"/api/videos/{row.VideoAssetId:D}/content",
         itemAnalytics is not null && itemAnalytics.TryGetValue(row.Id, out var explained)
             ? ToItemAnalytics(explained)
-            : null);
+            : null,
+        row.ExposedObjectSubclass);
 
     // --- Analytics mapping -------------------------------------------------
 
@@ -530,7 +553,8 @@ public static partial class TrackEndpoints
             observations,
             row.TrajectoryArtifactId,
             ArtifactContentUrl(row.TrajectoryArtifactId),
-            ToDetailAnalytics(analytics));
+            ToDetailAnalytics(analytics),
+            row.ExposedObjectSubclass);
     }
 
     private static TrackEvidenceObservationResponse ToObservation(TrackEvidenceObservationRow observation) => new(

@@ -36,6 +36,12 @@ public static class TrackSearchContractRules
     public const string AnalyticsCoverageKey = "analyticsCoverage";
 
     /// <summary>
+    /// The operator-facing vehicle subclass filter (Stage 3, X2). An ordinary filter, not an
+    /// analytic one. Which values it accepts is the Application's exposure policy.
+    /// </summary>
+    public const string ObjectSubclassKey = "objectSubclass";
+
+    /// <summary>
     /// The keys whose presence makes a Track query analytics-dependent. Any one of
     /// them turns an ordinary search into one that resolves a scene identity and
     /// reports coverage.

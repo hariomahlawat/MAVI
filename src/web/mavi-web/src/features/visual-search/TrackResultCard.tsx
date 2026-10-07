@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { TrackAnalyticsIdentity, TrackSearchItem } from '../../api/tracks';
+import { objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence } from '../../shared/format/format';
@@ -50,7 +50,8 @@ export default function TrackResultCard({
   }, [track.thumbnailContentUrl]);
 
   const className = ['track-card', onSelect ? 'is-selectable' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ');
-  const title = `${track.objectClass} · ${track.cameraCode} · ${track.cameraName}`;
+  const classLabel = objectClassLabel(track);
+  const title = `${classLabel} · ${track.cameraCode} · ${track.cameraName}`;
   const select = onSelect ? selectControlProps(track.id, `Select ${title}`, onSelect) : null;
   const ref = useKeepSelectedVisible<HTMLElement>(selected);
 
@@ -61,7 +62,7 @@ export default function TrackResultCard({
         {track.thumbnailContentUrl && !thumbnailFailed ? (
           <img
             src={track.thumbnailContentUrl}
-            alt={track.objectClass + ' representative evidence from ' + track.cameraCode}
+            alt={classLabel + ' representative evidence from ' + track.cameraCode}
             loading="lazy"
             onError={() => setThumbnailFailed(true)}
           />
@@ -74,7 +75,7 @@ export default function TrackResultCard({
 
       <div className="track-card__body">
         <div className="track-card__title-row">
-          <strong>{track.objectClass}</strong>
+          <strong>{classLabel}</strong>
           <StatusBadge status={track.reviewStatus} />
         </div>
         <div className="track-card__camera">{track.cameraCode} · {track.cameraName}</div>

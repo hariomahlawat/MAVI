@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import type { TrackAnalyticsIdentity, TrackSearchItem } from '../../api/tracks';
+import { objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import Icon from '../../shared/components/Icon';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
@@ -66,7 +66,7 @@ function ResultRow({
   // with the Grid card, not this row's own idea (§22).
   const ref = useKeepSelectedVisible<HTMLLIElement>(selected);
 
-  const title = `${track.objectClass} · ${track.cameraCode} · ${track.cameraName}`;
+  const title = `${objectClassLabel(track)} · ${track.cameraCode} · ${track.cameraName}`;
   const select = selectControlProps(track.id, `Select ${title}`, onSelect);
 
   return (
