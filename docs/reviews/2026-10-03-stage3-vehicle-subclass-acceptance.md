@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT COMPLETE:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d complete, benchmark-driven under ADR-017 (H1 PASS; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4 PASS — domain-diversity measurement recorded on VisDrone2019-MOT only (aerial), domain-limited; H5 PASS — per-class decision recorded: car, truck and bus benchmark-supported (truck and bus on BDD100K only, caveated), motorcycle deferred; X1 OPEN). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT COMPLETE:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d complete, benchmark-driven under ADR-017 (H1 PASS; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4 PASS — domain-diversity measurement recorded on VisDrone2019-MOT only (aerial), domain-limited; H5 PASS — per-class decision recorded: car, truck and bus benchmark-supported (truck and bus on BDD100K only, caveated), motorcycle deferred). **EXPOSURE DECIDED, NOT IMPLEMENTED:** X1 PASS — global subset `{car}` only; X2 and X3 OPEN (triggered). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -34,7 +34,7 @@ Also binding: ADR-005, ADR-006, ADR-007, ADR-009, and the dependency/offline-pac
 - SUV, van and make/model are out of scope.
 - The product meaning is "detector-reported vehicle type" (ADR-016).
 
-**Measurement first** (ADR-016 §7). Subclass is measured before any operator exposure. Stage-3 Development evidence comprises the completed T10 pilot on MAVI-held, publicly sourced video (G rows) and benchmark-driven measurements on externally labelled research datasets (H rows, ADR-017). Public benchmark evidence is Development or reference evidence and never becomes final Production qualification merely by being a respected benchmark (ADR-015 §3–§4, ADR-017 §8–§9). API, search and UI exposure is a later increment, decided per class subset and evidence domain (X1), and happens only if that evidence supports it.
+**Measurement first** (ADR-016 §7). Subclass is measured before any operator exposure. Stage-3 Development evidence comprises the completed T10 pilot on MAVI-held, publicly sourced video (G rows) and benchmark-driven measurements on externally labelled research datasets (H rows, ADR-017). Public benchmark evidence is Development or reference evidence and never becomes final Production qualification merely by being a respected benchmark (ADR-015 §3–§4, ADR-017 §8–§9). API, search and UI exposure is a later increment, decided as one global class subset informed by the per-class, per-domain evidence (X1; no domain-restricted runtime exposure), and happens only if that evidence supports it.
 
 These are four distinct levels. Completing one never implies the next.
 
@@ -963,6 +963,57 @@ This section synthesises already-recorded evidence only. No experiment, inferenc
 
 | ID | Requirement | Status |
 |---|---|---|
-| X1 | Exposure decision (expose or decline) recorded on S3.2 measurement evidence: G8, G9, and every S3.2d row (H1, H2, H3, H5 PASS; H4 PASS or NOT TRIGGERED); exposure is decided per class subset and evidence domain (H5), only for a profile whose thresholds G9 froze | OPEN |
-| X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment, exposing only the class subset X1 approved on H5: an explicit allowlist in the API, search and UI, so a class H5 left Development-only, insufficiently supported or deferred is neither returned, filterable nor displayed even though Track persists every vocabulary value; acceptance evidence shows the deferred classes remain unavailable (NOT TRIGGERED if X1 declines) | OPEN |
-| X3 | Every pre-existing Vehicle search returns the same Tracks (implementation roadmap Stage-3 acceptance; NOT TRIGGERED if X1 declines) | OPEN |
+| X1 | Exposure decision (expose or decline) recorded on S3.2 measurement evidence: G8, G9, and every S3.2d row (H1, H2, H3, H5 PASS; H4 PASS or NOT TRIGGERED). H5 evidence is per class and per evidence domain; X1 selects **one global class subset** from the H5-eligible classes. Domain evidence informs that selection and its caveats but creates no domain-specific runtime exposure. Exposure requires the G9-frozen subclass policy values (`minShare` 0.6, `minMatchedDetections` 3) and adequate evidence for each exposed class on the applicable measured profile family; matching threshold values alone do not transfer evidence between profiles | **PASS — expose global subset `{car}` only.** `truck`, `bus` and `motorcycle` stay unavailable to operators; truck and bus remain H5 benchmark-supported, motorcycle H5-deferred. X2 and X3 are triggered. Nothing is operator-visible until X2 is implemented and accepted; nothing is Production-qualified. See *X1 exposure decision* below. |
+| X2 | `objectSubclass` API/search predicate and UI display, as a later implementation increment, exposing only the class subset X1 approved on H5: an explicit allowlist in the API, search and UI, **containing exactly `car`** (X1). `truck`, `bus` and `motorcycle` — and any class X1 did not approve, whatever its H5 disposition — are neither returned, filterable nor displayed, even though Track persists every vocabulary value; acceptance evidence shows those classes remain unavailable (NOT TRIGGERED if X1 declines) | OPEN — triggered by X1 |
+| X3 | Every pre-existing Vehicle search returns the same Tracks (implementation roadmap Stage-3 acceptance; NOT TRIGGERED if X1 declines) | OPEN — triggered by X1 |
+
+### X1 exposure decision (recorded 2026-10-07)
+
+**Owner decision (Hari Om Ahlawat, 2026-10-07):** expose the global subclass subset **`{car}`** only. `truck`, `bus` and `motorcycle` stay unavailable to operators in this Stage-3 increment.
+
+**Scope of the decision.**
+- **A product decision, not evidence:** X1 is a product and exposure decision taken on the completed Stage-3 Development evidence. It is not another evidence classification. H5 and every G and H row are unchanged.
+- **Nothing new run or changed:** no experiment, benchmark, tuning, threshold, profile, binding, Model Pack, qualification record or code change was made for X1.
+
+**Exposure scope: one global class allowlist.**
+- **Global:** Stage-3 operator exposure uses one global class allowlist.
+- **No domain mechanism:** no validated runtime mechanism classifies a deployment, video or camera into a benchmark domain (such as BDD100K-like dashcam or VisDrone-like aerial) and changes subclass exposure accordingly.
+- **H5's per-domain cells:** they are evidence and caveat inputs to this decision only. They do not create, and X1 does not authorise, any domain-restricted or domain-gated exposure.
+- **Future change:** any future domain-restricted exposure needs its own explicit architecture and acceptance decision.
+
+**Profile and G9 interpretation.**
+- **What G9 froze:** the subclass resolution policy values, `minShare` = 0.6 and `minMatchedDetections` = 3. They were frozen on the measured profile `phase1-detection-tracking-v1.json` (`1.3.0-candidate`, SHA-256 `afb03b6c4da61fbf6021ef855307f80c5b7206996e7e21c8d297394b091a18bf`; scale 640, track activation 0.70, high-confidence 0.60).
+- **The A2 profile:** the A2 Development profile `phase1-detection-tracking-a2-v1.json` (`1.0.0-development`, SHA-256 `b4c6a6cf8c68382f3af266b884801dbb77fb908cbaca7ed41336d4834463e62e`; `developmentOnly`, activation 0.61, high-confidence 0.60) carries the same two subclass values.
+  - G9 did **not** freeze the A2 profile.
+  - The two profiles are not equivalent.
+  - Equal threshold values are not profile identity.
+- **The rule X1 applies:** exposure requires the G9-frozen subclass policy values, and adequate evidence for each exposed class on the applicable measured profile family. Matching threshold values alone never transfer class evidence from one profile to another.
+- **Release identity unchanged:** binding `phase1-v2` and profile `afb03b6c…`.
+- **The applicable profile:** operator-facing exposure applies to Tracks produced under the current release binding `phase1-v2` (profile `afb03b6c…`). The A2 Development profile is refused in Production. Car's evidence on that release-profile family is G8 103 and H3 BDD100K 1,595; its A2 evidence (H4) is supplementary.
+
+**Per-class decision.**
+
+| Class | H5 disposition (unchanged) | X1 | Basis |
+|---|---|---|---|
+| car | benchmark-supported | **APPROVE** — global allowlist | Supported on both measured profile families: the release-profile family (`afb03b6c…`, scale 640: G8 pilot 103; H3 BDD100K 1,595) and the A2 Development evidence (H4 VisDrone, at the floor on both `a2-scale640` and `a2-scale1280`). Track-conditional recall is strong in every source, and precision is ≈ 1.0 wherever computable. |
+| truck | benchmark-supported (BDD100K only, caveated) | **DECLINE** for this increment | The only ≥ 30 benchmark support is H3 BDD100K on `afb03b6c…` at scale 640. H4 `a2-scale1280` support is 26, below the floor. H3 precision is 47/74 = 0.6351, and van/caravan-to-car folding complicates how truck precision and recall read. |
+| bus | benchmark-supported (BDD100K only, domain-limited) | **DECLINE** for this increment | It reaches the floor only in H3 BDD100K (34). The pilot has 7 and H4 `a2-scale1280` has 7. Its support is narrow and tied to the scale-640 release-profile family and one domain. |
+| motorcycle | deferred — insufficient support | **DECLINE** (not eligible) | No source reaches the floor. |
+
+- **Car caveat (end-to-end coverage):** exposure covers detector-reported subclass on Tracks MAVI produces. End-to-end car association was weak on BDD100K (12.8%), improved materially on VisDrone at scale 1280 (31.0% → 52.9%), and vehicles under 20 px remain largely unresolved. Exposing car is not a coverage claim and not Production qualification.
+- **What declining means for truck and bus:** it does not reverse H5 or claim either class is unsupported. They stay persisted on Tracks but are not returned, filterable or displayed by the operator-facing API, search or UI.
+- **Motorcycle:** it stays H5-deferred and is likewise persisted but unavailable.
+
+**Preferred Development producer.** H5's conclusion stands: `a2-scale1280` is the preferred Development candidate for subsequent work.
+- **Still Development:** it remains `developmentOnly`, and the resolver refuses its profile in Production.
+- **Not the operator profile:** it is not automatically the operator profile, and approving car does not promote A2 into Production.
+- **Nothing else changed:** X1 does not modify the release binding, Model Pack qualification, pipeline qualification (`models/qualifications/rtmdet-m-coco-phase1-v2.json` stays `pending`), Task 18 status or the Setup kit composition. No profile or binding was created.
+
+**Status:**
+- **X1:** PASS — expose the global subset `{car}` only. Operator exposure is approved in principle for `car` only; `truck`, `bus` and `motorcycle` stay unavailable to the operator-facing API, search and UI.
+- **X2:** triggered. It will implement exactly that allowlist.
+- **X3:** triggered. It will prove that pre-existing Vehicle search behaviour is unchanged.
+- **What X1 PASS does not mean:** that X2 is implemented, that car is already visible to operators, that A2 is Production-qualified, that Stage 3 is complete, or that Task 18 is satisfied.
+- **Nothing becomes operator-visible until X2 is implemented and accepted.**
+- **X2 and X3:** both OPEN.
+- **Qualification:** nothing is Production-qualified.
