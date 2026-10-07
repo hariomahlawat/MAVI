@@ -1,9 +1,9 @@
 # ADR-012 — Operator Interface Design Architecture
 
-**Status:** Accepted  
+**Status:** Accepted; amended 2026-10-07 (Stage 3.5 — see *Amendment 2026-10-07* below)  
 **Date:** 2026-09-20  
 **Context:** Operator plane (React/TypeScript), following the independent UI/UX audit of `main@b99ce26f`  
-**Specification:** `docs/architecture/ui-ux-design-specification.md`
+**Specification:** `docs/architecture/ui-ux-design-specification.md` (v1.0 accepted here; v2.0 accepted by the 2026-10-07 amendment)
 
 > ADR-010 is reserved by `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` for operator identity, authorization and audit. ADR-011 freezes the scene-analytics lifecycle. This ADR takes the next number.
 
@@ -61,7 +61,7 @@ This keeps ADR-003 intact: no CDN asset, no remote font, no telemetry, and no In
 
 ## Consequences
 
-- The specification is normative for frontend work from UI-1 onward. Existing screens are not retroactively non-conformant; each becomes conformant as its UI-n PR lands, per the transitional clause in specification §34.1.
+- The specification is normative for frontend work from UI-1 onward. Existing screens are not retroactively non-conformant; each becomes conformant as its UI-n PR lands, per the transitional clause in specification §34.1 (closed by the 2026-10-07 amendment).
 - Frontend PRs gain a conformance checklist and a visual QA obligation.
 - Scene Analytics Slice 3 is gated as stated in Decision 5, and the roadmap documents record that gate.
 - This ADR freezes design architecture only. It changes no domain model, contract, persistence or qualification decision, and no accepted ADR is superseded.
@@ -69,3 +69,57 @@ This keeps ADR-003 intact: no CDN asset, no remote font, no telemetry, and no In
 ## Not decided here
 
 Light palette (deferred, not refused), exact evidence hues, the timeline lane presentation for multiple analytical interval types, and the font choice — all recorded as open decisions in specification §32 and resolved by visual validation in the PR that needs them.
+
+## Amendment 2026-10-07 (Stage 3.5 — UI/UX Professionalisation)
+
+**Context.** The UI-1 → UI-5 programme this ADR gated is complete, Scene Analytics Slices 0–7 landed on its grammar, and Stage 3 closed on `main@98e5cd3f3ae8ca636ffbe2115c6b74b4ebcb2b16`. Before capability Stage 4 (ANPR/OCR), the owner directed a cross-cutting product-quality programme (working label *Stage 3.5*; it renumbers nothing). Its first act was an architecture audit of the real application at that baseline — code, every route, every §14 state, and a scripted visual pass of 125 fixture states at the four v1.0 anchors — recorded in `docs/superpowers/plans/2026-10-07-stage3-5-ui-ux-professionalisation.md`. The audit found that Decisions 1–6 hold: no surface has left its archetype, no colour role is crossed, no feature dialect exists, no dependency was added. It also found that the architecture, as frozen, was **insufficient** in five respects, each of which showed up on several surfaces at once and none of which a page-level fix could close. This amendment records the decisions that close them. The specification moves to **version 2.0**; v1.0 text is kept and marked historical, not rewritten.
+
+### Decision 7 — Craftsmanship is an acceptance criterion, defined at the component layer
+
+A surface is not complete because its functional tests pass. Specification §36 states the standard (alignment, rhythm, metrics, capitalisation, truncation, numerals, cursors, focus, state treatments, scrollbars, sticky regions, transitions, skeleton geometry, nothing-states) and §34 makes it conformance item 14. Every standard is an obligation on a token, component or archetype, so that a defect found on one surface is corrected on all of them by one change.
+
+Rejected: **a polish pass per page.** It is what the v1.0 programme's "refine" rows amounted to in practice — the audit found the same empty-frame, same repeated-primary and same invalid-state defects on every Ledger and every form — and it leaves the ninth page free to differ from the first eight again. Also rejected: **stating the bar as a visual reference** ("make it look like X"). The bar is a standard of finish; MAVI does not clone another product's appearance.
+
+Consequence accepted: slower first slices, because the primitives are fixed before any surface is, and a conformance checklist that is longer and partly measured by the harness rather than by review.
+
+### Decision 8 — Three support tiers replace the desktop-snapshot viewport table
+
+Specification §25 freezes **Tier A Workstation (≥1366)**, the only tier in which a workflow is accepted; **Tier B Compact (768–1365)**, every workflow possible with designed single-column and drawer compositions, not optimised for long use; **Tier C Narrow (390–767)**, intentional degradation for reading and status, with editing surfaces stating that they need a wider display. Rules are ranges between anchors, and breakpoints are derived from measured region minimums, as the 1600px Investigation threshold already was.
+
+Rejected: **keeping "functional, not optimised" below 1100 and "must not break" below 768.** The audit found that the product did not break there because nothing was designed there: the rail force-collapses with its toggle hidden and the stacking is flex wrapping. Rejected: **making narrow widths an operational workstation.** Tier C degrades on purpose; the mobile analyst experience stays deferred (§31) and no workflow is accepted below Tier A. Rejected: **desktop compression as responsiveness** — a Tier A layout shrunk until it fits is not Tier B behaviour.
+
+Consequence accepted: two more tiers to design, assert and sweep, and a Workbench that refuses to render its canvas below 768px rather than rendering it unusably.
+
+### Decision 9 — One state grammar, served everywhere, placed by rule
+
+The §14.1 boundary becomes mandatory on every data region (the audit found it on three of ten surfaces), and §37 fixes the presentation of each state per region kind and its placement: inside the region it replaces, at the top, uncontained, retry trailing, one alert per cause, one vocabulary per state. Ledger containment is applied to the table, not to the slot (§4.1), so sparse, loading, empty and unavailable Ledgers no longer render as a viewport-high empty frame.
+
+Rejected: **leaving state selection to each surface with the boundary as an option.** Optional architecture is per-page architecture; four retry placements and two words for one missing-thumbnail condition were the result.
+
+### Decision 10 — Visual regression is gated by deterministic layout assertions in CI, not by pixels
+
+The scripted harness is confirmed as the method and extended: it runs in CI on every frontend PR, assertions only, at every tier anchor, with captures kept as expiring CI artefacts; it gains assertions for row pitch, one primary per surface, containment depth, state placement, skip link and landmarks, drawer and dialog focus placement, rendered stickiness, text overflow and the tier rules; and it records layout-shift and long-task measurements so that §38 budgets can be set from a measured baseline.
+
+Rejected: **pixel-diff screenshot baselines.** The UI font is the platform stack (§32 decision 1), so Windows and Linux captures differ by design; making them match would mean bundling a font *for the screenshots*, which Decision 6 and decision 1 reject, and masking or thresholds would make the gate either blind or flaky. Rejected: **adding an accessibility engine or a screenshot library.** Decision 6 stands; the obligations are asserted directly.
+
+Consequence accepted: no automatic detection of a purely painterly regression (a wrong colour at the right size and place); the bounded human pass in §26 remains for that.
+
+### Decision 11 — WCAG 2.2 AA is the accessibility target, with structural obligations asserted by the harness
+
+§23 names the target and adds the shell and overlay obligations the audit found missing: a skip link and landmarks, drawer and dialog focus management, keyboard completeness for every overlay, 200% zoom at 1366 reflowing under Tier C rules, and the harness assertions that check them. Two gaps are recorded rather than claimed: WCAG 1.4.10 reflow at 320px is not targeted, and the Workbench canvas, which is not rendered below 768px, is a documented 1.4.4 exception at 200% zoom on a 1366-wide display.
+
+### Decision 12 — Programme shape: foundation, then one reference surface per archetype, then migration by archetype
+
+The programme (§39; plan and register linked there) runs: freeze → foundation primitives, tokens and state grammar → harness v2 → six reference surfaces (Overview, Videos, Processing detail, Scene Editor, Search, Review) → remaining surfaces by archetype → Tiers B and C → accessibility and performance hardening → closure. Each slice is independently reviewable and revertible.
+
+Rejected: **one rewrite PR** (unreviewable, unrevertible, and the UI-1 → UI-5 experience already showed that a slice per layer is the reviewable unit). Rejected: **a stream of per-page cosmetic PRs** (Decision 7).
+
+Conformance during the programme is staged, not suspended: specification §34.2 states, slice by slice, which §34 obligations a PR must assert and which may remain open only as register findings against a named later slice, and the §26 assertion manifest makes the same distinction in CI (`blocking` / `measured/pending` / `not-applicable`), so a rule never blocks before its implementing slice merges and never disappears. §34.1 is not reopened; §34.2 expires at S7 closure, which has no exemption.
+
+### Decisions reaffirmed unchanged
+
+Decisions 1–4 and 6 stand as written. Decision 5's programme is complete and its gate lifted; the clause is historical. Specification §34.1 (transitional conformance) is **closed**: no surface may rely on it, and a legacy pattern is a register finding (the programme's own staged rule is §34.2, above). The Workbench's measured responsive thresholds (§4.3.1: side by side from the measured ~1150px threshold, drawer from 1101px up to it, stacked ≤1100px) are kept unchanged inside Tier B; a tier boundary is an acceptance boundary, never a breakpoint. §4.4 open decision 4 (results cap with nothing selected) is reaffirmed after measurement at 2560: a column that moves on selection is worse than a column with space beside it. The Record centring exception and the Overview centring exception stand; Overview additionally becomes attention-first (§4.1.1).
+
+### Not decided here
+
+Budgets for §38 (set from the first measured baseline in the register, never invented); the exact Tier B and C compositions beyond the §25 table (settled in the reference-surface slices by inspection); open decisions 2b and 6 (unchanged); any light palette, density preference, resizable pane, command palette or mobile experience (still deferred, §31). Nothing in this amendment changes a domain model, contract, persistence, qualification or capability-stage decision, and capability Stage 4 is gated on the register's closure of this programme.
