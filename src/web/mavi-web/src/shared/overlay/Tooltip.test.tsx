@@ -185,6 +185,41 @@ describe('Tooltip', () => {
     }
   });
 
+  it('floats a hint too wide for what clips it, wrapped and placed in the viewport, so the whole value reads (§16)', async () => {
+    const user = userEvent.setup();
+    const long = 'north-perimeter-vehicle-gate-'.repeat(8) + '.mp4';
+    // A Ledger frame 684px wide; the hint, unwrapped, is far wider than that.
+    const rects = new Map<string, Partial<DOMRect>>([
+      ['clip', { left: 236, right: 920, top: 100, bottom: 400 }],
+      ['tooltip', { left: 100, right: 1900, top: 160, bottom: 180 }],
+      ['anchor', { left: 300, right: 500, top: 130, bottom: 156 }],
+    ]);
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const key = this.classList.contains('tooltip')
+        ? (this.hasAttribute('data-float') ? 'floated' : 'tooltip')
+        : this.classList.contains('tooltip-anchor') ? 'anchor' : this.dataset.testid === 'clip' ? 'clip' : '';
+      const floated = { left: 0, right: 600, top: 0, bottom: 60 };
+      return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}), ...(key === 'floated' ? floated : rects.get(key)) } as DOMRect;
+    });
+    try {
+      render(
+        <div data-testid="clip" style={{ overflow: 'auto' }}>
+          <Tooltip content={long}><span tabIndex={0}>north-perimeter…</span></Tooltip>
+        </div>,
+      );
+      await user.tab();
+      const tip = await screen.findByRole('tooltip');
+      expect(tip).toHaveTextContent(long);
+      expect(tip).toHaveAttribute('data-float');
+      expect(tip).not.toHaveAttribute('data-align');
+      // Centred on its trigger (400 − 300) and below it (156 + 4).
+      expect(tip.style.left).toBe('100px');
+      expect(tip.style.top).toBe('160px');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('does not swallow Escape: the surface still hears it', async () => {
     const onEscape = vi.fn();
     window.addEventListener('keydown', onEscape);

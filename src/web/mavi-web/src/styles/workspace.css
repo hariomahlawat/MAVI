@@ -30,33 +30,42 @@
 /* The trail has to fit a band that cannot grow. `Camera.Create` permits a
    32-character code, so on a narrow workspace the crumbs either truncate or
    push the state badges and actions off the end — and the second is what a
-   44px bar looks like when it breaks. Earlier crumbs give way first; the last
-   one names where the operator is and keeps its width, because the crumb that
-   answers "where am I?" is the wrong one to lose. The full text stays on the
-   element's `title`, and on the bar's heading. */
+   44px bar looks like when it breaks. Which crumb gives way is set below. */
 .context-bar__crumbs { min-width: 0; flex: 0 1 auto; }
 .context-bar__crumbs ol { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
 .context-bar__crumbs li { display: flex; align-items: center; gap: var(--s-2); min-width: 0; flex: 0 1 auto; font-size: var(--fs-2); }
-.context-bar__crumbs li:last-child { flex: 0 0 auto; }
-.context-bar__crumbs li > a, .context-bar__crumbs li > span {
+/* The object's identity — a camera, a file name — is the crumb that gives
+   way, so no identity, however long the domain permits, can push the state
+   and actions off the end of a 44px bar (§37.1, long names). The static IA
+   words around it (`Cameras`, `Scene`) are short and keep their width. The
+   full identity is the document title, the bar's heading, and a tooltip on
+   the crumb while it is cut off. */
+.context-bar__crumbs li.context-bar__crumb { flex-shrink: 0; }
+.context-bar__crumbs li.context-bar__crumb--object { flex-shrink: 1; min-width: 4ch; }
+.context-bar__crumbs .tooltip-anchor { min-width: 0; max-width: 100%; }
+.context-bar__crumbs li a, .context-bar__crumbs li span:not(.tooltip-anchor):not(.tooltip) {
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
 }
-/* The status group gives way before the actions do: a badge that has been
-   shortened still reads, a Save button that has been pushed off cannot. */
+/* The status group may give way too, after the identity has, and always
+   before the actions: a shortened badge still reads, a Save button pushed off
+   the end cannot. */
 /* The separator is decoration between crumbs, so it is not announced. */
 .context-bar__crumbs li + li::before { content: "›"; color: var(--text-muted); }
 /* Section 10.1: an effective target of at least 24x24 wherever practical. A
    crumb's text is 19px tall inside a 44px band, so the room is there and the
    link simply has to claim it. */
-.context-bar__crumbs li > a, .context-bar__crumbs li > span {
-  display: inline-flex; align-items: center; min-height: var(--control-min-target);
+.context-bar__crumbs li a, .context-bar__crumbs li span:not(.tooltip-anchor):not(.tooltip) {
+  display: block; line-height: var(--control-min-target); min-height: var(--control-min-target);
 }
 .context-bar__crumbs a { color: var(--text-secondary); }
 /* Section 12: hover never repaints text. A crumb underlines, as every link
    in the product does. */
 .context-bar__crumbs a:hover { text-decoration: underline; text-underline-offset: 0.12em; }
 .context-bar__crumbs [aria-current="page"] { color: var(--text-primary); font-weight: 600; }
-.context-bar__status { display: flex; align-items: center; gap: var(--s-2); flex: 0 1 auto; }
+.context-bar__status { display: flex; align-items: center; gap: var(--s-2); flex: 0 1 auto; min-width: 0; }
+/* The item a surface is reviewing, beside its state (Review's Track). Text,
+   not a badge: it names the subject, it does not grade it. */
+.context-bar__subject { color: var(--text-secondary); font-size: var(--fs-2); white-space: nowrap; }
 .context-bar__spacer { flex: 1 1 auto; min-width: 0; }
 .context-bar__actions { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
 
@@ -143,8 +152,30 @@
  * the scrolling container, so the sticky header would stick to the wrong one —
  * which is what the legacy `.table-wrap`, now removed, did). */
 .workspace--ledger { height: 100%; min-height: 0; }
-.workspace--ledger .workspace__body--scroll {
-  flex: 1 1 auto; min-height: 0; overflow: auto;
+/* The region below the bands. It takes the remaining height so a long table
+   has somewhere to grow, and is neither bordered nor a scroller itself: what it
+   holds is either the table's own frame or an uncontained state presentation
+   (section 4.1 amended, 37.1). */
+.workspace--ledger .workspace__body--ledger {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3);
+}
+.workspace--ledger .workspace__body--ledger > * { flex: 0 0 auto; max-width: 100%; }
+/* A state presentation in a Ledger (loading, empty, filtered-empty,
+   unavailable) is uncontained, on the base surface, and starts exactly where
+   the table would (section 37.1): no inset of its own, no frame, no fill. A
+   skeleton spans the readable working width so its rows have a width to be
+   drawn at. */
+.workspace--ledger .workspace__body--ledger > .state-region {
+  padding: 0; align-self: stretch; max-width: var(--content-max);
+}
+/* The table's containment and its single scroll owner. It is as tall as the
+   table until the table needs more than the region has, then it stops and
+   scrolls; it is as wide as the column-capped table and never wider, so on a
+   wide display the border ends where the columns do. */
+.workspace--ledger .workspace__body--ledger > .ledger-table {
+  flex: 0 1 auto; min-height: 0; overflow: auto;
+  width: fit-content;
   border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
   background: var(--surface-base);
 }
@@ -155,7 +186,7 @@
    viewport resolves against the initial containing block, escapes the clip and
    makes the *page* scroll sideways. Caught at 1366 on Videos, where the table
    overflows: the body clipped correctly and the document still scrolled 52px. */
-.workspace--ledger .workspace__body--scroll,
+.ledger-table,
 .workspace--ledger-summary .workspace__body--scroll,
 /* The same rule for every other scroll owner. On Investigation the results
    list and the rail were static, so the hidden label in each of a full page of
@@ -374,7 +405,7 @@
 @media (max-width: 1100px) {
   .workspace--ledger, .workspace--ledger-summary,
   .workspace--workbench, .workspace--investigation { height: auto; }
-  .workspace--ledger .workspace__body--scroll,
+  .workspace--ledger .workspace__body--ledger > .ledger-table,
   .workspace--ledger-summary .workspace__body--scroll { overflow: visible; }
   .workspace__record-grid,
   .workspace__review-grid,

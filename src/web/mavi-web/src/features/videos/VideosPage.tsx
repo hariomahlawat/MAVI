@@ -19,7 +19,8 @@ import { formatDuration } from '../../shared/format/duration';
 import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/format/format';
 import { FINALIZATION_FAILED_LABEL, isActiveStatus, VIDEO_STATUSES } from '../../shared/status/status';
 import { SortableColumn, sortRows, useLedgerSort } from '../../shared/table';
-import { ContextBar, LedgerLayout, Toolbar } from '../../shared/workspace';
+import TruncatedText from '../../shared/overlay/Truncated';
+import { ContextBar, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from './useVideoProcessing';
 import { compareVideoRows, filterVideoRows, joinVideoRows, parseStatusFilter, type VideoColumn, type VideoRow } from './videoRows';
 
@@ -175,7 +176,7 @@ export default function VideosPage() {
   return (
     <section className="page page--full page--workspace">
       <ContextBar
-        crumbs={[{ label: 'Videos' }]}
+        surface="videos"
         status={<DisplayTimeZone timeZoneId={displayZone} />}
         actions={<ButtonLink to="/import" variant="primary" icon="upload">Import video</ButtonLink>}
       />
@@ -191,7 +192,9 @@ export default function VideosPage() {
             icon: 'video',
             title: 'No videos imported yet',
             body: 'Import an MP4 recording against a registered camera to begin.',
-            action: <ButtonLink to="/import" variant="primary">Import the first video</ButtonLink>,
+            // Secondary: the Context Bar's `Import video` is this surface's one
+            // primary (§8.1).
+            action: <ButtonLink to="/import">Import the first video</ButtonLink>,
           }}
           unavailableMessage={(error) => describeError(error, 'Video inventory is unavailable.')}
           degradedMessage="Showing the last known media inventory; refreshing failed."
@@ -203,8 +206,7 @@ export default function VideosPage() {
               <FilteredEmptyState subject="videos" onClear={() => setParams(new URLSearchParams(), { replace: true })} />
             </div>
           ) : (
-            <table className="table table--ledger">
-              <caption className="visually-hidden">Imported videos</caption>
+            <LedgerTable caption="Imported videos">
               <thead>
                 <tr>
                   <SortableColumn sort={sort} column="file">File</SortableColumn>
@@ -222,11 +224,11 @@ export default function VideosPage() {
                   const liveState = processing.stateOf(row.id);
                   return (
                     <tr key={row.id}>
-                      <td><span className="truncate cap-lg" title={row.originalFileName}>{row.originalFileName}</span></td>
+                      <td><TruncatedText text={row.originalFileName} className="cap-lg" /></td>
                       <td>
-                        <span className="truncate cap-md" title={`${row.cameraCode} · ${row.cameraName}`}>
+                        <TruncatedText text={`${row.cameraCode} · ${row.cameraName}`} className="cap-md">
                           <strong>{row.cameraCode}</strong> <span className="faint">{row.cameraName}</span>
-                        </span>
+                        </TruncatedText>
                       </td>
                       {/* Compact in the column, full on the cell (§24). */}
                       <td className="num" title={displayTimestamp(row.recordingStartUtc, displayZone)}>
@@ -245,7 +247,7 @@ export default function VideosPage() {
                             {/* The code rides the status line rather than a
                                 second one: a failed row is still one row. */}
                             {row.processingStatus === 'Failed' && run?.failureCode ? (
-                              <code className="truncate cap-sm" title={run.failureCode}>{run.failureCode}</code>
+                              <code><TruncatedText text={run.failureCode} className="cap-sm" /></code>
                             ) : null}
                           </span>
                           {/* The run's phase, where it says more than the badge (§16). */}
@@ -273,21 +275,22 @@ export default function VideosPage() {
                         </div>
                       </td>
                       <td>
-                        {/* One primary text action, plus at most one icon-only
-                            secondary (§16). While a video is processing there
-                            is nothing to open and nothing to queue, so its
-                            detail becomes the primary action rather than
-                            leaving the row with a lone icon. */}
+                        {/* One secondary text action, plus at most one
+                            icon-only action (§16). A row never carries the
+                            accent-filled primary (§8.1): the surface's one
+                            primary is the Context Bar's `Import video`. While a
+                            video is processing there is nothing to open and
+                            nothing to queue, so its detail becomes the text
+                            action rather than leaving the row with a lone icon. */}
                         <div className="table__actions">
                           {row.processingStatus === 'Processed' ? (
-                            <ButtonLink size="sm" variant="primary" to={`/search?videoAssetId=${row.id.toLowerCase()}`} icon="search">
+                            <ButtonLink size="sm" to={`/search?videoAssetId=${row.id.toLowerCase()}`} icon="search">
                               Results
                             </ButtonLink>
                           ) : null}
                           {canQueue(row.processingStatus) ? (
                             <Button
                               size="sm"
-                              variant="primary"
                               icon="play"
                               disabled={queue.isPending && queue.variables === row.id}
                               onClick={() => queue.mutate(row.id)}
@@ -308,7 +311,7 @@ export default function VideosPage() {
                   );
                 })}
               </tbody>
-            </table>
+            </LedgerTable>
           )}
         </StateRegion>
       </LedgerLayout>

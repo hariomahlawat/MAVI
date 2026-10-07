@@ -3,14 +3,13 @@ import { useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
+import { getVideo } from '../../api/videos';
 import { ALGORITHM_VERSION_PATTERN, getTrack, type TrackAnalyticsIdentity } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
-import { ButtonLink } from '../../shared/components/Button';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
 import { hasFailure } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
-import PageHeader from '../../shared/components/PageHeader';
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { ContextBar, ReviewLayout } from '../../shared/workspace';
@@ -28,10 +27,16 @@ function shouldRetryQuery(failureCount: number, error: unknown): boolean {
   return failureCount < 1;
 }
 
-function Invalid({ message }: { message: string }) {
+/**
+ * A Review route that cannot be shown. It is still Review (§5): its bar says
+ * `Search › {video} › Review` like every other Review state — the video named
+ * whenever the route names a valid one — and its Search crumb still returns to
+ * the Investigation it was opened from.
+ */
+function Invalid({ message, rootTo, video }: { message: string; rootTo: string; video?: string }) {
   return (
     <section className="page">
-      <PageHeader title="Evidence Review" />
+      <ContextBar surface="review" rootTo={rootTo} object={video ? { label: video } : undefined} />
       <Alert tone="error">{message}</Alert>
     </section>
   );
@@ -117,6 +122,19 @@ export default function VideoReviewPage() {
     staleTime: 60_000,
   });
 
+  // The video's name for the crumb (§5: `Search › {video} › Review`). The same
+  // query Processing detail reads, so it is usually already cached; while it is
+  // loading or unavailable the crumb names the video by its identifier rather
+  // than by a stale or invented name, and nothing else on the surface depends
+  // on it.
+  const video = useQuery({
+    queryKey: queryKeys.video(videoAssetId),
+    queryFn: ({ signal }) => getVideo(videoAssetId, signal),
+    enabled: validVideoId,
+    staleTime: 60_000,
+    retry: shouldRetryQuery,
+  });
+
   const detail = track.data;
   const identityMismatch = Boolean(detail && detail.videoAssetId.toLowerCase() !== videoAssetId.toLowerCase());
   const trajectory = useTrajectory(
@@ -134,14 +152,22 @@ export default function VideoReviewPage() {
     [usable?.analytics, scene],
   );
 
-  if (!validVideoId) return <Invalid message="The video identifier in this route is invalid." />;
-  if (!validTrackId) return <Invalid message="Exactly one valid Track identifier is required in the trackId query parameter." />;
-  if (invalidIdentity) return <Invalid message="This review link names an invalid analytics identity, so the evidence it refers to cannot be identified. Open the Track again from search." />;
-  if (track.error instanceof ApiError && track.error.status === 404) return <Invalid message="Track was not found." />;
-  if (identityMismatch) return <Invalid message="The selected Track does not belong to the video identified by this review route." />;
+  // Computed before any terminal state, so each of them keeps the way back.
+  const backToSearch = validVideoId && validTrackId
+    ? returnToSearchPath(searchParams.get('from'), videoAssetId, trackId)
+    : '/search';
+
+  // Every state below names the video the route names (§5, §14): its file name
+  // once read, otherwise its identifier. Only an invalid video id names none.
+  const videoLabel = video.data?.originalFileName ?? `Video ${videoAssetId.slice(0, 8)}…`;
+
+  if (!validVideoId) return <Invalid message="The video identifier in this route is invalid." rootTo={backToSearch} />;
+  if (!validTrackId) return <Invalid message="Exactly one valid Track identifier is required in the trackId query parameter." rootTo={backToSearch} video={videoLabel} />;
+  if (invalidIdentity) return <Invalid message="This review link names an invalid analytics identity, so the evidence it refers to cannot be identified. Open the Track again from search." rootTo={backToSearch} video={videoLabel} />;
+  if (track.error instanceof ApiError && track.error.status === 404) return <Invalid message="Track was not found." rootTo={backToSearch} video={videoLabel} />;
+  if (identityMismatch) return <Invalid message="The selected Track does not belong to the video identified by this review route." rootTo={backToSearch} video={videoLabel} />;
 
   const displayTimeZoneId = systemConfig.data?.displayTimeZoneId;
-  const backToSearch = returnToSearchPath(searchParams.get('from'), videoAssetId, trackId);
 
   const notices = (
     <>
@@ -173,16 +199,19 @@ export default function VideoReviewPage() {
   return (
     <section className="page page--full page--workspace">
       <ContextBar
-        crumbs={detail
-          ? [{ label: 'Evidence Review' }, { label: `${detail.objectClass} · Track ${detail.localTrackNumber}` }]
-          : [{ label: 'Evidence Review' }]}
-        status={detail ? <StatusBadge status={detail.reviewStatus} /> : undefined}
-        actions={(
+        // Review belongs to Search (§5). Its root crumb is the way back: to the
+        // Investigation it was opened from, with that URL state intact, or to
+        // /search otherwise — which is why the separate `Back to search` and
+        // `Visual Search` buttons, two controls for one destination, are gone.
+        surface="review"
+        rootTo={backToSearch}
+        object={{ label: videoLabel }}
+        status={detail ? (
           <>
-            <ButtonLink to={backToSearch} size="sm" icon="chevronLeft">Back to search</ButtonLink>
-            <ButtonLink to="/search" size="sm" variant="ghost">Visual Search</ButtonLink>
+            <span className="context-bar__subject">{`${detail.objectClass} · Track ${detail.localTrackNumber}`}</span>
+            <StatusBadge status={detail.reviewStatus} />
           </>
-        )}
+        ) : undefined}
       />
 
       {detail ? (

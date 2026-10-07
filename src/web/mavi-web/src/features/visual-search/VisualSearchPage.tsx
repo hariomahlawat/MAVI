@@ -222,6 +222,8 @@ export default function VisualSearchPage() {
   // outright; every other committed change rebases around outstanding edits.
   const submittedFingerprint = useRef<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<SearchFieldErrors>({});
+  // Each submit refused for field errors; the rail reveals the first (§12).
+  const [refusedSubmits, setRefusedSubmits] = useState(0);
   const [view, setView] = useState<ResultView>(readView);
 
   const outstanding = dirtyFields(draft);
@@ -553,6 +555,7 @@ export default function VisualSearchPage() {
     });
     if (!result.ok) {
       setFieldErrors(result.errors);
+      setRefusedSubmits((count) => count + 1);
       return;
     }
     const settled = canonicalSearchKey(result.filters);
@@ -641,7 +644,7 @@ export default function VisualSearchPage() {
   return (
     <section className="page page--full page--workspace">
       <ContextBar
-        crumbs={[{ label: 'Visual Search' }]}
+        surface="search"
         status={(
           <>
             {/* §21: draft state appears in the Context Bar. The wording is the
@@ -663,6 +666,7 @@ export default function VisualSearchPage() {
             errors={fieldErrors}
             onDraftChange={onDraftChange}
             onSubmit={submitSearch}
+            refusedSubmits={refusedSubmits}
             onReset={resetSearch}
             cameras={cameras.data}
             videos={videos.data}

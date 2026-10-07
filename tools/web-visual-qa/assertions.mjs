@@ -198,7 +198,63 @@ export const PAGE_ASSERTIONS = `(() => {
   const bars = document.querySelectorAll('.context-bar').length;
   if (bars !== 1) problems.push('expected exactly one Context Bar, found ' + bars);
 
-  return { problems, pageWidth: width, declaresFullWidth: full, viewport: doc.clientWidth };
+  // 6. The shell (§5, S1d): measured on every state, because the shell is on
+  //    every state. The Context Bar is 44px; the rail is 216px expanded or 56px
+  //    collapsed; its collapse control is at the 32px control metric; the skip
+  //    link is the first thing Tab reaches; the page has one banner and one
+  //    main; and at most one accent-filled action is visible at a time (§8.1).
+  //    Below 760px the rail is a Tier C concern and is not asserted here.
+  const shell = {};
+  const bar = document.querySelector('.context-bar');
+  if (bar) {
+    shell.contextBarHeight = Math.round(bar.getBoundingClientRect().height * 10) / 10;
+    if (Math.abs(shell.contextBarHeight - 44) > 0.5) problems.push('Context Bar is ' + shell.contextBarHeight + 'px tall, not 44px');
+  }
+  const rail = document.querySelector('.sidebar');
+  if (rail && doc.clientWidth > 760) {
+    shell.railWidth = Math.round(rail.getBoundingClientRect().width);
+    shell.railCollapsed = Boolean(document.querySelector('.shell--collapsed'));
+    const expected = shell.railCollapsed ? 56 : 216;
+    if (shell.railWidth !== expected) problems.push('rail is ' + shell.railWidth + 'px, not ' + expected + 'px');
+    const toggle = rail.querySelector('.sidebar__toggle');
+    if (!toggle) problems.push('rail has no collapse control');
+    else {
+      const box = toggle.getBoundingClientRect();
+      shell.collapseControl = [Math.round(box.width), Math.round(box.height)];
+      if (Math.round(box.height) !== 32) problems.push('rail collapse control is ' + Math.round(box.height) + 'px tall, not 32px');
+      if (shell.railCollapsed && Math.round(box.width) !== 32) problems.push('collapsed rail control is ' + Math.round(box.width) + 'px wide, not 32px');
+      if (!toggle.hasAttribute('aria-expanded')) problems.push('rail collapse control does not announce its state');
+    }
+  }
+  const focusables = Array.from(document.querySelectorAll('a[href], button, input, select, textarea, [tabindex]'))
+    .filter((el) => el.getAttribute('tabindex') !== '-1' && !el.closest('[inert]') && !el.disabled);
+  shell.firstFocusable = focusables[0] ? (focusables[0].className || focusables[0].tagName) : null;
+  // A Dialog (section 15) makes everything but itself inert, the skip link
+  // included, by design; the skip link is asserted whenever none is open.
+  const dialogOpen = Boolean(document.querySelector('.dialog-host'));
+  if (!dialogOpen && (!focusables[0] || !focusables[0].classList.contains('skip-link'))) {
+    problems.push('the skip link is not the first focusable element (first is ' + shell.firstFocusable + ')');
+  }
+  const mains = document.querySelectorAll('main, [role="main"]').length;
+  const banners = Array.from(document.querySelectorAll('header, [role="banner"]'))
+    .filter((el) => el.getAttribute('role') === 'banner' || !el.closest('article, aside, main, nav, section')).length;
+  shell.mains = mains;
+  shell.banners = banners;
+  if (mains !== 1) problems.push('expected one main landmark, found ' + mains);
+  if (banners !== 1) problems.push('expected one banner landmark, found ' + banners);
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' && !el.closest('[hidden]');
+  };
+  // A disabled primary takes the disabled tokens, not the accent (section 12),
+  // and one under an overlay is not on offer: neither is an accent-filled action.
+  const primaries = Array.from(document.querySelectorAll('.btn--primary')).filter(visible)
+    .filter((el) => !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.closest('[inert]'));
+  shell.visiblePrimaries = primaries.map((el) => (el.textContent || '').trim());
+  if (primaries.length > 1) problems.push('more than one accent-filled action is visible: ' + shell.visiblePrimaries.join(', '));
+  shell.title = document.title;
+
+  return { problems, pageWidth: width, declaresFullWidth: full, viewport: doc.clientWidth, shell };
 })()`;
 
 /**
@@ -285,37 +341,54 @@ export const WORKSPACE_ASSERTIONS = `(() => {
   // and whether a full-width workspace stretched a sparse table across the
   // display.
   if (archetype === 'workspace--ledger' || archetype === 'workspace--ledger-summary') {
-    const body = workspace.querySelector('.workspace__body--scroll');
-    if (!body) {
-      problems.push('Ledger is missing its scrolling body region');
-      return { problems, measured };
-    }
-
-    // §4.1: the table body owns vertical scroll and the page does not.
+    // §4.1: the table owns vertical scroll and the page does not.
     if (measured.shellScroll !== 'contain') {
       problems.push('Ledger did not declare no-page-scroll to the shell: the content column is "'
-        + measured.shellScroll + '", so the page may scroll instead of the table body');
+        + measured.shellScroll + '", so the page may scroll instead of the table');
     }
     if (doc.clientWidth > 1100 && doc.scrollHeight > doc.clientHeight + 1) {
       problems.push('Ledger page scrolls: scrollHeight ' + doc.scrollHeight + ' > clientHeight ' + doc.clientHeight);
     }
 
-    // Exactly one scrolling ancestor for the rows. A legacy .table-wrap inside
-    // the body would be a second, and the sticky header would stick to it.
-    const nested = Array.from(body.querySelectorAll('*')).filter((el) => {
-      const style = getComputedStyle(el);
-      return /(auto|scroll)/.test(style.overflowY) || /(auto|scroll)/.test(style.overflowX);
-    });
-    measured.nestedScrollRegions = nested.map((el) => (typeof el.className === 'string' && el.className
-      ? '.' + el.className.trim().split(/\s+/).join('.')
-      : el.tagName.toLowerCase()));
-    if (nested.length) {
-      problems.push('Ledger has a scrolling container inside its scroll owner: '
-        + measured.nestedScrollRegions.join(', '));
+    // The standard Ledger (S1d, §4.1 amended): the containment border bounds
+    // the *table*. Its frame is the table's single scroll owner, as tall as the
+    // table until the region runs out, as wide as the column-capped table; a
+    // state presentation is never inside a frame. The Overview summary variant
+    // keeps its own scrolling body, which is not drawn as a container.
+    const summary = archetype === 'workspace--ledger-summary';
+    const region = workspace.querySelector(summary ? '.workspace__body--scroll' : '.workspace__body--ledger');
+    if (!region) {
+      problems.push('Ledger is missing its body region');
+      return { problems, measured };
+    }
+    const table = region.querySelector('table');
+    const frame = summary ? region : region.querySelector(':scope > .ledger-table');
+
+    if (!summary) {
+      const regionStyle = getComputedStyle(region);
+      if (parseFloat(regionStyle.borderTopWidth) > 0 || /(auto|scroll)/.test(regionStyle.overflowY)) {
+        problems.push('Ledger body region is itself bordered or scrolling: the frame belongs to the table, not to the slot');
+      }
+      if (table && !frame) problems.push('Ledger table is not inside its containment frame');
+      if (!table && region.querySelector('.ledger-table')) {
+        problems.push('Ledger shows a containment frame with no table in it: a state presentation is contained');
+      }
     }
 
-    const table = body.querySelector('table');
-    if (table) {
+    if (table && frame) {
+      // Exactly one scrolling ancestor for the rows.
+      const nested = Array.from(frame.querySelectorAll('*')).filter((el) => {
+        const style = getComputedStyle(el);
+        return /(auto|scroll)/.test(style.overflowY) || /(auto|scroll)/.test(style.overflowX);
+      });
+      measured.nestedScrollRegions = nested.map((el) => (typeof el.className === 'string' && el.className
+        ? '.' + el.className.trim().split(' ').join('.')
+        : el.tagName.toLowerCase()));
+      if (nested.length) {
+        problems.push('Ledger has a scrolling container inside its scroll owner: '
+          + measured.nestedScrollRegions.join(', '));
+      }
+
       // The sticky header has to stick to the element the operator scrolls.
       const th = table.querySelector('thead th');
       if (th) {
@@ -329,18 +402,60 @@ export const WORKSPACE_ASSERTIONS = `(() => {
           const style = getComputedStyle(node);
           if (/(auto|scroll)/.test(style.overflowY)) { scroller = node; break; }
         }
-        if (scroller !== body) {
+        if (scroller !== frame) {
           problems.push('Ledger header would stick to ' + (scroller ? scroller.className : 'nothing')
-            + ' rather than to the body that owns the scroll');
+            + ' rather than to the frame that owns the scroll');
+        }
+      }
+
+      const tableRect = table.getBoundingClientRect();
+      const frameRect = frame.getBoundingClientRect();
+      measured.tableWidth = round(tableRect.width);
+      measured.tableHeight = round(tableRect.height);
+      measured.frameWidth = round(frameRect.width);
+      measured.frameHeight = round(frameRect.height);
+      measured.regionHeight = round(region.getBoundingClientRect().height);
+
+      if (!summary) {
+        // §4.1 amended: the frame ends where the table does, sideways and
+        // downward. Its own border and, when it scrolls, its own scrollbar are
+        // the only allowance; a frame that runs on past the table is the
+        // viewport-high empty box the audit found (F1).
+        const scrollbarAllowance = 24;
+        if (frameRect.width > tableRect.width + scrollbarAllowance) {
+          problems.push('Ledger frame is ' + measured.frameWidth + 'px wide around a ' + measured.tableWidth
+            + 'px table: the containment runs past the table\u2019s right edge');
+        }
+        const scrolls = frame.scrollHeight > frame.clientHeight + 1;
+        measured.frameScrolls = scrolls;
+        if (!scrolls && frameRect.height > tableRect.height + scrollbarAllowance) {
+          problems.push('Ledger frame is ' + measured.frameHeight + 'px tall around a ' + measured.tableHeight
+            + 'px table that does not scroll: an empty bordered box below the rows');
+        }
+
+        // §10, §16 amended: body rows 36-40px, single line, measured.
+        const pitches = Array.from(table.querySelectorAll('tbody tr')).map((row) => row.getBoundingClientRect().height);
+        if (pitches.length) {
+          measured.rowPitchMin = round(Math.min(...pitches));
+          measured.rowPitchMax = round(Math.max(...pitches));
+          measured.rowCount = pitches.length;
+          if (measured.rowPitchMin < 35.5 || measured.rowPitchMax > 40.5) {
+            problems.push('Ledger row pitch is ' + measured.rowPitchMin + '-' + measured.rowPitchMax
+              + 'px, outside the frozen 36-40px single-line target');
+          }
+        }
+
+        // §8.1, §16: a row never carries the accent-filled primary.
+        const rowPrimaries = table.querySelectorAll('tbody .btn--primary');
+        if (rowPrimaries.length) {
+          problems.push('Ledger rows carry ' + rowPrimaries.length + ' accent-filled primary action(s)');
         }
       }
 
       // §4.1: "left-aligned and not stretched". At the ultra-wide acceptance
       // width a sparse inventory must not become a band of text across the
       // display; the standard Ledger fixtures are all sparse.
-      const tableWidth = table.getBoundingClientRect().width;
-      measured.tableWidth = round(tableWidth);
-      if (archetype === 'workspace--ledger' && doc.clientWidth >= 2400 && working - tableWidth < 200) {
+      if (!summary && doc.clientWidth >= 2400 && working - tableRect.width < 200) {
         problems.push('Ledger table is ' + measured.tableWidth + 'px inside a ' + round(working)
           + 'px workspace: a sparse table has been stretched rather than left-aligned');
       }

@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAnalyticsAggregates, type AnalyticsAggregateResponse } from '../../api/analytics';
@@ -94,6 +94,49 @@ beforeEach(() => {
   vi.mocked(getCamera).mockResolvedValue(camera);
   vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' } as never);
   vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer());
+});
+
+describe('Analytics identity (§5, §14)', () => {
+  const fallback = `Camera ${cameraId.slice(0, 8)}…`;
+  const renderInShell = () => renderWithApp(<AnalyticsPage />, {
+    route: `/cameras/${cameraId}/analytics`,
+    routePath: '/cameras/:cameraId/analytics',
+    shell: 'analytics',
+  });
+
+  /** `Cameras › {identity} › Analytics` in the bar and the title, the full GUID in neither. */
+  async function expectCameraIdentity(identity: string) {
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(crumbs).getByRole('link', { name: 'Cameras' })).toHaveAttribute('href', '/cameras');
+    // The camera still links to its scene configuration while it is unresolved.
+    expect(await within(crumbs).findByRole('link', { name: identity })).toHaveAttribute('href', `/cameras/${cameraId}/scene`);
+    expect(within(crumbs).getByText('Analytics')).toHaveAttribute('aria-current', 'page');
+    expect(crumbs.textContent).not.toContain(cameraId);
+    await waitFor(() => expect(document.title).toBe(`Analytics — ${identity} — Cameras — MAVI`));
+    expect(document.title).not.toContain(cameraId);
+  }
+
+  it('names a camera that is still loading by its shortened identifier, then by its code and name', async () => {
+    let resolve: (value: typeof camera) => void = () => {};
+    vi.mocked(getCamera).mockImplementation(() => new Promise((done) => { resolve = done; }));
+    renderInShell();
+
+    await expectCameraIdentity(fallback);
+    await act(async () => { resolve(camera); });
+    await expectCameraIdentity('CAM-01 · North Gate');
+    expect(screen.queryByText(fallback)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['missing', new ApiError({ status: 404, code: 'camera_not_found', detail: 'Camera was not found.' })],
+    ['unavailable', new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' })],
+  ])('keeps the camera named by its identifier when it is %s', async (_, error) => {
+    vi.mocked(getCamera).mockRejectedValue(error);
+    renderInShell();
+
+    await waitFor(() => expect(getCamera).toHaveBeenCalled());
+    await expectCameraIdentity(fallback);
+  });
 });
 
 describe('Analytics Workbench', () => {

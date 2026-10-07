@@ -176,7 +176,7 @@ export default function ProcessingPage() {
   function frame(name: string, body: ReactNode) {
     return (
       <section className="page">
-        <ContextBar crumbs={[{ label: 'Processing', to: '/processing' }, { label: name }]} />
+        <ContextBar surface="processing-detail" object={{ label: name }} />
         <RecordLayout>{body}</RecordLayout>
       </section>
     );
@@ -186,11 +186,17 @@ export default function ProcessingPage() {
     return frame('Unknown video', <Alert tone="error">The video identifier in this route is invalid.</Alert>);
   }
 
+  // The video this route names, before (or without) its file name: loading, a
+  // failed read and a 404 all keep `Processing › {video}` (§5), named by its
+  // identifier rather than by a state word or a bare `Video` (§14).
+  const videoLabel = video.data?.originalFileName ?? `Video ${videoAssetId.toLowerCase().slice(0, 8)}…`;
+
   const notFound = (video.error instanceof ApiError && video.error.status === 404)
     || (processing.error instanceof ApiError && processing.error.status === 404);
 
   if (notFound) {
-    return frame('Not found', <Alert tone="error">Video was not found.</Alert>);
+    // `Not found` is the video's state, said by the alert, not its identity.
+    return frame(videoLabel, <Alert tone="error">Video was not found.</Alert>);
   }
 
   const state = processing.data;
@@ -244,7 +250,8 @@ export default function ProcessingPage() {
   return (
     <section className="page">
       <ContextBar
-        crumbs={[{ label: 'Processing', to: '/processing' }, { label: video.data?.originalFileName ?? 'Video' }]}
+        surface="processing-detail"
+        object={{ label: videoLabel }}
         status={(
           <>
             {state ? <StatusBadge status={state.videoStatus} /> : null}
@@ -549,7 +556,9 @@ function SceneAnalyticsPanel({
       {effective === 'Failed' ? (
         <div className="inline-alert-actions">
           <Alert tone="error">Scene analytics failed for this run. Retrying starts a new attempt cycle on the same analysis; existing facts are kept until it succeeds.</Alert>
-          <Button variant="primary" icon="refresh" onClick={onRetry} disabled={retrying}>
+          {/* Secondary (§8.1): analytics exist only for a processed video, whose
+              surface primary is the Context Bar's `Open results`. */}
+          <Button icon="refresh" onClick={onRetry} disabled={retrying}>
             {retrying ? 'Retrying…' : 'Retry analytics'}
           </Button>
         </div>

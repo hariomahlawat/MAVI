@@ -578,6 +578,10 @@ describe('VisualSearchPage', () => {
       expect(document.getElementById(confidence.getAttribute('aria-describedby')!.split(' ')[0]))
         .toHaveTextContent(/between 0 and 100/i);
 
+      // The rail scrolls, so the first refused field — in reading order — is
+      // brought into view and focused rather than left above the fold (§12, F13).
+      await waitFor(() => expect(duration).toHaveFocus());
+
       // Nothing was committed and nothing was requested.
       expect(searchTracks).toHaveBeenCalledTimes(1);
       expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search');

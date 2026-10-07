@@ -9,10 +9,12 @@ import StateRegion from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
+import { useFocusFirstInvalid } from '../../shared/forms/useFocusFirstInvalid';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatCount } from '../../shared/format/format';
 import { SortableColumn, sortRows, useLedgerSort } from '../../shared/table';
-import { ContextBar, LedgerLayout, Toolbar } from '../../shared/workspace';
+import TruncatedText from '../../shared/overlay/Truncated';
+import { ContextBar, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
 
 type CameraColumn = 'code' | 'name' | 'state';
 
@@ -61,8 +63,17 @@ export default function CamerasPage() {
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [submitted, setSubmitted] = useState(false);
+  // Bumped on a submit the form itself refuses, or the server refuses for a
+  // reason a field owns (a duplicate code), and on nothing else (§12).
+  const [refusals, setRefusals] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFocusFirstInvalid(formRef, refusals);
   /** Set from a 409 and cleared the moment the code is edited (§21). */
   const [codeConflict, setCodeConflict] = useState<string | null>(null);
+  // What the form holds now, read when a response arrives: the fields stay
+  // editable while a create is in flight, so the values that were sent and the
+  // values on screen can differ by the time the server answers.
+  const onScreen = useRef<CreateCameraInput>({ code: '', name: '', timeZoneId: '' });
 
   const openRef = useRef<HTMLButtonElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
@@ -86,11 +97,21 @@ export default function CamerasPage() {
       close();
       await queryClient.invalidateQueries({ queryKey: queryKeys.cameras });
     },
-    onError: (error) => {
+    onError: (error, sent) => {
       // A conflict attributable to a field highlights that field and keeps
       // every other value the operator typed (§21).
       if (error instanceof ApiError && error.code === 'camera_code_duplicate') {
+        const now = onScreen.current;
+        // The server refused the code it was sent. If the operator has since
+        // changed it, that refusal is about a value no longer in the field,
+        // and stating it there would be false; the next submit asks again.
+        if (sent.code !== now.code) return;
         setCodeConflict('A camera with this code already exists.');
+        // The Code field now owns the refusal: take the operator to it, as a
+        // refusal the form made itself would (§12) — unless they have gone on
+        // editing while the request was in flight, when moving focus would
+        // interrupt their typing. The message is on the field either way.
+        if (sent.name === now.name && sent.timeZoneId === now.timeZoneId) setRefusals((count) => count + 1);
       }
     },
   });
@@ -135,6 +156,10 @@ export default function CamerasPage() {
   const code = draft.code.trim();
   const name = draft.name.trim();
   const timeZoneId = timeZoneValue.trim();
+  // Written as the form renders, not from an effect: a response can be
+  // delivered after an edit has committed and before a passive effect would
+  // have run, and it must then be compared with the edited values.
+  onScreen.current = { code, name, timeZoneId };
 
   /**
    * Dirty is a comparison, not a flag (§21).
@@ -162,7 +187,11 @@ export default function CamerasPage() {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitted(true);
-    if (!code || !name || !timeZoneId || createMutation.isPending) return;
+    if (createMutation.isPending) return;
+    if (!code || !name || !timeZoneId) {
+      setRefusals((count) => count + 1);
+      return;
+    }
     createMutation.mutate({ code, name, timeZoneId });
   }
 
@@ -179,6 +208,7 @@ export default function CamerasPage() {
 
   const createRegion = (
     <form
+      ref={formRef}
       className="camera-create"
       aria-label="Add camera"
       onSubmit={submit}
@@ -261,7 +291,7 @@ export default function CamerasPage() {
   return (
     <section className="page page--full page--workspace">
       <ContextBar
-        crumbs={[{ label: 'Cameras' }]}
+        surface="cameras"
         status={dirty ? <StatusBadge tone="warn">Unsaved changes</StatusBadge> : null}
         actions={creating ? null : (
           <Button ref={openRef} variant="primary" icon="camera" onClick={open}>Add camera</Button>
@@ -289,15 +319,16 @@ export default function CamerasPage() {
             icon: 'camera',
             title: 'No cameras registered',
             body: 'A camera has to exist before media can be imported against it.',
-            action: creating ? undefined : <Button variant="primary" onClick={open}>Add the first camera</Button>,
+            // Secondary: the Context Bar's `Add camera` is this surface's one
+            // primary (§8.1); this is the same act offered where the eye is.
+            action: creating ? undefined : <Button onClick={open}>Add the first camera</Button>,
           }}
           unavailableMessage={(error) => describeError(error, 'Camera inventory is unavailable.')}
           degradedMessage="Showing the last known camera inventory; refreshing failed."
           onRetry={() => cameras.refetch()}
         >
           {() => (
-            <table className="table table--ledger">
-              <caption className="visually-hidden">Camera inventory</caption>
+            <LedgerTable caption="Camera inventory">
               <thead>
                 <tr>
                   <SortableColumn sort={sort} column="code">Code</SortableColumn>
@@ -312,26 +343,31 @@ export default function CamerasPage() {
                   <tr key={camera.id}>
                     <td><strong>{camera.code}</strong></td>
                     {/* A long name truncates rather than widening the column;
-                        §10.2 keeps the full value on the element itself. */}
-                    <td><span className="truncate cap-lg" title={camera.name}>{camera.name}</span></td>
+                        its full value is reachable by pointer and keyboard (§16). */}
+                    <td><TruncatedText text={camera.name} className="cap-lg" /></td>
                     <td><code>{camera.timeZoneId}</code></td>
                     <td>
                       <StatusBadge tone={camera.isActive ? 'ok' : 'neutral'}>{stateLabel(camera)}</StatusBadge>
                     </td>
                     <td>
+                      {/* §16: one secondary text action plus at most one
+                          icon-only action. Scene is the row's text action —
+                          a camera's scene is what an operator configures here,
+                          and its analytics depend on it — and Analytics is the
+                          icon, named for the camera it opens. */}
                       <div className="table__actions">
-                        <ButtonLink size="sm" variant="ghost" icon="layers" to={`/cameras/${camera.id}/scene`}>
+                        <ButtonLink size="sm" icon="layers" to={`/cameras/${camera.id}/scene`}>
                           Scene
                         </ButtonLink>
-                        <ButtonLink size="sm" variant="ghost" icon="activity" to={`/cameras/${camera.id}/analytics`}>
-                          Analytics
+                        <ButtonLink size="sm" variant="ghost" iconOnly icon="activity" to={`/cameras/${camera.id}/analytics`}>
+                          {`Analytics for ${camera.code}`}
                         </ButtonLink>
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </LedgerTable>
           )}
         </StateRegion>
       </LedgerLayout>

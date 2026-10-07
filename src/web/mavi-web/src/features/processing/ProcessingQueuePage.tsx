@@ -13,7 +13,8 @@ import Progress from '../../shared/components/Progress';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/format/format';
 import { FINALIZATION_FAILED_LABEL, isActiveStatus } from '../../shared/status/status';
-import { ContextBar, LedgerLayout, Toolbar } from '../../shared/workspace';
+import TruncatedText from '../../shared/overlay/Truncated';
+import { ContextBar, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from '../videos/useVideoProcessing';
 import { joinVideoRows, sortVideoRows, type VideoRow } from '../videos/videoRows';
 import { analyticsReadinessText } from './analyticsReadiness';
@@ -88,7 +89,7 @@ export default function ProcessingQueuePage() {
   return (
     <section className="page page--full page--workspace">
       <ContextBar
-        crumbs={[{ label: 'Processing' }]}
+        surface="processing"
         status={<DisplayTimeZone timeZoneId={displayZone} />}
       />
 
@@ -153,8 +154,7 @@ export default function ProcessingQueuePage() {
           onRetry={() => videos.refetch()}
         >
           {() => (
-            <table className="table table--ledger">
-              <caption className="visually-hidden">Latest processing run per video</caption>
+            <LedgerTable caption="Latest processing run per video">
               <thead>
                 <tr>
                   <th scope="col">Video</th>
@@ -190,9 +190,9 @@ export default function ProcessingQueuePage() {
                   return (
                     <tr key={row.id}>
                       <td>
-                        <span className="truncate cap-lg" title={`${row.originalFileName} · ${row.cameraCode} · ${row.cameraName}`}>
+                        <TruncatedText text={`${row.originalFileName} · ${row.cameraCode} · ${row.cameraName}`} className="cap-lg">
                           {row.originalFileName} <span className="faint">{row.cameraCode}</span>
-                        </span>
+                        </TruncatedText>
                       </td>
                       <td>
                         <div className="run-cell">
@@ -202,7 +202,7 @@ export default function ProcessingQueuePage() {
                             {active && run && !finalizing ? <Progress value={run.progressPercent} inline /> : null}
                             {/* The code rides the status line rather than a
                                 second one: a failed row is still one row. */}
-                            {run?.failureCode ? <code className="truncate cap-md" title={run.failureCode}>{run.failureCode}</code> : null}
+                            {run?.failureCode ? <code><TruncatedText text={run.failureCode} className="cap-md" /></code> : null}
                           </span>
                           {runState ? <span className="run-cell__line">Run: {runState}</span> : null}
                           {/* A failed lookup must never keep reading as a
@@ -242,8 +242,9 @@ export default function ProcessingQueuePage() {
                         )}
                       </td>
                       <td>
-                        {/* §16: one primary text action per row, plus at most
-                            one icon-only action. A processed run has somewhere
+                        {/* §16: one secondary text action per row (§8.1: a row
+                            never carries the accent primary), plus at most one
+                            icon-only action. A processed run has somewhere
                             to go, so Results is the text and its detail is the
                             icon; a run with nothing to open yet makes its
                             detail the text rather than leaving the row with a
@@ -272,7 +273,7 @@ export default function ProcessingQueuePage() {
                   );
                 })}
               </tbody>
-            </table>
+            </LedgerTable>
           )}
         </StateRegion>
       </LedgerLayout>

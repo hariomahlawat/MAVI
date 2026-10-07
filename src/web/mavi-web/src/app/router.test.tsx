@@ -77,9 +77,10 @@ describe('MAVI application routes', () => {
     expect(await screen.findByRole('heading', { name: 'Import route' })).toBeInTheDocument();
   });
 
-  it('renders a not-found page for unknown routes', async () => {
+  it('renders the Not found surface for unknown routes', async () => {
     renderRoute('/nowhere');
-    expect(await screen.findByText(/not found/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Not found', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to Overview' })).toHaveAttribute('href', '/');
   });
 
   it('resolves direct processing, Search and Review deep links in the client router', async () => {

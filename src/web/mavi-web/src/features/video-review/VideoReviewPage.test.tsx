@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSystemConfig } from '../../api/system';
 import { getTrack, type TrackDetail } from '../../api/tracks';
+import { getVideo, type VideoAsset } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
@@ -15,6 +16,11 @@ import {
   trackEvidence,
 } from '../../test/trackEvidenceFixtures';
 import VideoReviewPage from './VideoReviewPage';
+
+vi.mock('../../api/videos', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/videos')>();
+  return { ...actual, getVideo: vi.fn() };
+});
 
 vi.mock('../../api/system', () => ({
   getSystemConfig: vi.fn(),
@@ -127,6 +133,22 @@ describe('VideoReviewPage', () => {
     vi.clearAllMocks();
     vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
     vi.mocked(getTrack).mockResolvedValue(detail());
+    vi.mocked(getVideo).mockResolvedValue({ id: videoId, originalFileName: 'north-gate-0800.mp4' } as VideoAsset);
+  });
+
+  it('is crumbed under Search, names its video, and states the Track beside its review status (§5)', async () => {
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+    await screen.findByLabelText(/source video evidence$/);
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    await waitFor(() => expect(within(crumbs).getByText('north-gate-0800.mp4')).toBeInTheDocument());
+    expect(within(crumbs).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Search', 'north-gate-0800.mp4', 'Review']);
+    expect(within(crumbs).getByText('Review')).toHaveAttribute('aria-current', 'page');
+    // One way back, not two controls for one destination.
+    expect(screen.queryByRole('link', { name: 'Visual Search' })).not.toBeInTheDocument();
+    expect(screen.getByText(/· Track \d+$/)).toBeInTheDocument();
   });
 
   it('reconstructs a cold review route and seeks one second before Track start', async () => {
@@ -375,6 +397,103 @@ describe('VideoReviewPage', () => {
     await waitFor(() => expect(getTrack).toHaveBeenCalledTimes(1));
   });
 
+  it('keeps every terminal Review state under Search, with the way back to its Investigation (§5)', async () => {
+    const { ApiError } = await import('../../api/client');
+    vi.mocked(getTrack).mockRejectedValueOnce(new ApiError({ status: 404, code: 'track_not_found', detail: 'Track was not found.' }));
+    const from = 'cameraId=018f3f5a-2f70-7a2b-8a12-2d02f4c21412&objectClass=Person&track=' + trackId;
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId + '&from=' + encodeURIComponent(from),
+      routePath: '/review/video/:videoAssetId',
+    });
+    expect(await screen.findByText('Track was not found.')).toBeInTheDocument();
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(within(crumbs).getByRole('link', { name: 'Search' })).toHaveAttribute('href', '/search?' + from);
+    expect(within(crumbs).getByText('Review')).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByText('Evidence Review')).not.toBeInTheDocument();
+  });
+
+  it('names the video by its identifier when its name cannot be read, never by a generic word (§14)', async () => {
+    vi.mocked(getVideo).mockRejectedValue(new Error('offline'));
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+    await screen.findByLabelText(/source video evidence$/);
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    await waitFor(() => expect(within(crumbs).getByText(`Video ${videoId.slice(0, 8)}…`)).toBeInTheDocument());
+  });
+
+  describe('video identity in every Review state (§5, §14)', () => {
+    const fallback = `Video ${videoId.slice(0, 8)}…`;
+    const from = 'cameraId=018f3f5a-2f70-7a2b-8a12-2d02f4c21412&objectClass=Person&track=' + trackId;
+    const renderInShell = (route: string) => renderWithApp(<VideoReviewPage />, {
+      route,
+      routePath: '/review/video/:videoAssetId',
+      shell: 'review',
+    });
+
+    /** `Search › {identity} › Review`, the root returning to `rootTo`, the title the same trail. */
+    async function expectVideoIdentity(identity: string, rootTo?: string) {
+      const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+      const root = within(crumbs).getByRole('link', { name: 'Search' });
+      if (rootTo) expect(root).toHaveAttribute('href', rootTo);
+      expect(await within(crumbs).findByText(identity)).toBeInTheDocument();
+      expect(within(crumbs).getByText('Review')).toHaveAttribute('aria-current', 'page');
+      expect(within(crumbs).getAllByRole('listitem')).toHaveLength(3);
+      expect(crumbs.textContent).not.toContain(videoId);
+      await waitFor(() => expect(document.title).toBe(`Review — ${identity} — Search — MAVI`));
+    }
+
+    it.each([
+      ['no single Track', '', /Exactly one valid Track identifier/, '/search'],
+      ['an invalid analytics identity', '?trackId=' + trackId + '&sceneRevisionId=not-a-guid&from=' + encodeURIComponent(from), /names an invalid analytics identity/, '/search?' + from],
+      ['a missing Track', '?trackId=' + trackId + '&from=' + encodeURIComponent(from), /Track was not found\./, '/search?' + from],
+      ['a Track of another video', '?trackId=' + trackId + '&from=' + encodeURIComponent(from), /does not belong to the video/, '/search?' + from],
+    ])('names the video the route names when the state is %s', async (name, query, message, rootTo) => {
+      vi.mocked(getVideo).mockImplementation(() => new Promise(() => {}));
+      const { ApiError } = await import('../../api/client');
+      if (name === 'a missing Track') {
+        vi.mocked(getTrack).mockRejectedValueOnce(new ApiError({ status: 404, code: 'track_not_found', detail: 'Track was not found.' }));
+      }
+      if (name === 'a Track of another video') {
+        vi.mocked(getTrack).mockResolvedValueOnce(detail({ videoAssetId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21422' }));
+      }
+      renderInShell('/review/video/' + videoId + query);
+
+      expect(await screen.findByText(message)).toBeInTheDocument();
+      await expectVideoIdentity(fallback, rootTo);
+    });
+
+    it('names the video by its file name in a terminal state once it is read', async () => {
+      const { ApiError } = await import('../../api/client');
+      vi.mocked(getTrack).mockRejectedValueOnce(new ApiError({ status: 404, code: 'track_not_found', detail: 'Track was not found.' }));
+      renderInShell('/review/video/' + videoId + '?trackId=' + trackId + '&from=' + encodeURIComponent(from));
+
+      expect(await screen.findByText('Track was not found.')).toBeInTheDocument();
+      await expectVideoIdentity('north-gate-0800.mp4', '/search?' + from);
+    });
+
+    it('names the video by its identifier while its record loads, not by a bare `Video`', async () => {
+      vi.mocked(getVideo).mockImplementation(() => new Promise(() => {}));
+      renderInShell('/review/video/' + videoId + '?trackId=' + trackId);
+
+      await screen.findByLabelText(/source video evidence$/);
+      await expectVideoIdentity(fallback);
+      expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).queryByText('Video')).not.toBeInTheDocument();
+    });
+
+    it('invents no video for a route whose video identifier is not one', async () => {
+      renderInShell('/review/video/not-a-guid?trackId=' + trackId);
+
+      expect(await screen.findByText(/video identifier.*invalid/i)).toBeInTheDocument();
+      const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+      expect(within(crumbs).getByRole('link', { name: 'Search' })).toHaveAttribute('href', '/search');
+      expect(within(crumbs).getAllByRole('listitem')).toHaveLength(2);
+      await waitFor(() => expect(document.title).toBe('Review — Search — MAVI'));
+      expect(getVideo).not.toHaveBeenCalled();
+    });
+  });
+
   describe('analytic identity (Slice 4)', () => {
     const revision = '018f3f5a-2f70-7a2b-8a12-2d02f4c21481';
 
@@ -439,7 +558,11 @@ describe('VideoReviewPage', () => {
         routePath: '/review/video/:videoAssetId',
       });
       await screen.findByLabelText(/source video evidence$/);
-      expect(screen.getByRole('link', { name: 'Back to search' })).toHaveAttribute('href', '/search?' + from);
+      // Review belongs to Search (§5): its root crumb is the way back, with
+      // the Investigation's URL state intact.
+      const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+      expect(within(crumbs).getByRole('link', { name: 'Search' })).toHaveAttribute('href', '/search?' + from);
+      expect(screen.queryByRole('link', { name: 'Back to search' })).not.toBeInTheDocument();
     });
 
     it('falls back to the video scope on a direct link or refresh without a search context', async () => {
@@ -448,7 +571,8 @@ describe('VideoReviewPage', () => {
         routePath: '/review/video/:videoAssetId',
       });
       await screen.findByLabelText(/source video evidence$/);
-      expect(screen.getByRole('link', { name: 'Back to search' }))
+      const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+      expect(within(crumbs).getByRole('link', { name: 'Search' }))
         .toHaveAttribute('href', '/search?videoAssetId=' + videoId + '&track=' + trackId);
     });
 
@@ -459,7 +583,8 @@ describe('VideoReviewPage', () => {
         routePath: '/review/video/:videoAssetId',
       });
       await screen.findByLabelText(/source video evidence$/);
-      expect(screen.getByRole('link', { name: 'Back to search' }))
+      const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+      expect(within(crumbs).getByRole('link', { name: 'Search' }))
         .toHaveAttribute('href', '/search?videoAssetId=' + videoId + '&track=' + trackId);
     });
   });

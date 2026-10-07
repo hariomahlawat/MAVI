@@ -70,11 +70,11 @@ type Surface = 'plain' | 'scene' | 'other' | 'historical';
 function surfaceFor(surface: Surface) {
   switch (surface) {
     case 'scene':
-      return <ContextBar crumbs={[{ label: 'Cameras' }, { label: 'CAM-01' }, { label: 'Scene' }]} />;
+      return <ContextBar surface="scene" object={{ label: 'CAM-01' }} />;
     case 'historical':
-      return <ContextBar tone="caution" crumbs={[{ label: 'Cameras' }, { label: 'CAM-01' }, { label: 'Revision 3' }]} />;
+      return <ContextBar tone="caution" surface="scene" object={{ label: 'CAM-01 · Revision 3' }} />;
     case 'other':
-      return <ContextBar crumbs={[{ label: 'Videos' }, { label: 'Gate clip' }]} />;
+      return <ContextBar surface="processing-detail" object={{ label: 'Gate clip' }} />;
     default:
       return <p>an unmigrated page</p>;
   }
@@ -188,7 +188,7 @@ describe('Context Bar ownership at the commit boundary', () => {
       commitOnly(() => {
         root.render(
           <Shell>
-            <ContextBar crumbs={[{ label: 'Cameras' }, { label: 'CAM-01' }, { label: 'Scene' }]} />
+            <ContextBar surface="scene" object={{ label: 'CAM-01' }} />
           </Shell>,
         );
       });
@@ -208,7 +208,7 @@ describe('Context Bar ownership at the commit boundary', () => {
     // depending on it.
     render(
       <MemoryRouter>
-        <ContextBar tone="caution" crumbs={[{ label: 'Cameras' }, { label: 'Scene' }]} />
+        <ContextBar tone="caution" surface="scene" />
       </MemoryRouter>,
     );
     expect(screen.getAllByRole('navigation', { name: 'Breadcrumb' })).toHaveLength(1);
@@ -312,7 +312,7 @@ describe('the shell returns to its fallback state on the way out', () => {
         <Shell>
           {where === 'scene' ? (
             <>
-              <ContextBar tone="caution" crumbs={[{ label: 'Cameras' }, { label: 'CAM-01' }, { label: 'Revision 3' }]} />
+              <ContextBar tone="caution" surface="scene" object={{ label: 'CAM-01 · Revision 3' }} />
               <WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />
             </>
           ) : (

@@ -106,7 +106,7 @@ export default function OverviewPage() {
   return (
     <section className="page page--workspace">
       <ContextBar
-        crumbs={[{ label: 'Overview' }]}
+        surface="overview"
         status={<DisplayTimeZone timeZoneId={displayZone} />}
         actions={(
           <>

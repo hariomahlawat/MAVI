@@ -170,6 +170,28 @@ describe('VideoImportPage', () => {
     expect(screen.getByText('An MP4 file is required.')).toBeInTheDocument();
   });
 
+  it('brings the first refused field into view and focuses it, in reading order (§12)', async () => {
+    const user = userEvent.setup();
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) { scrolled.push(this); };
+    try {
+      renderWithApp(<VideoImportPage />);
+      await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+      await user.click(screen.getByRole('button', { name: 'Import and process' }));
+      await waitFor(() => expect(screen.getByLabelText('Camera')).toHaveFocus());
+      expect(scrolled).toEqual([screen.getByLabelText('Camera')]);
+
+      // Camera chosen: the next refusal goes to the next refused field.
+      await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+      await user.click(screen.getByRole('button', { name: 'Import and process' }));
+      await waitFor(() => expect(screen.getByLabelText('Recording local date/time')).toHaveFocus());
+      expect(scrolled.at(-1)).toBe(screen.getByLabelText('Recording local date/time'));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it('blocks the import when there is no active camera, and offers the way out', async () => {
     vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }]);
     renderWithApp(<VideoImportPage />);
