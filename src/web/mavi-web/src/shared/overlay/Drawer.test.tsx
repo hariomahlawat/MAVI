@@ -6,6 +6,7 @@ import Dialog from './Dialog';
 import Drawer from './Drawer';
 
 let toggleWidth: () => void = () => {};
+let showNotice: () => void = () => {};
 
 function Harness({ overlay: initialOverlay = true }: { overlay?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -13,13 +14,19 @@ function Harness({ overlay: initialOverlay = true }: { overlay?: boolean }) {
   const [confirming, setConfirming] = useState(false);
   const coveredRef = useRef<HTMLDivElement | null>(null);
   toggleWidth = () => setOverlay((value) => !value);
+  const [notice, setNotice] = useState(false);
+  showNotice = () => setNotice(true);
+  const noticeRef = useRef<HTMLDivElement | null>(null);
   return (
     <div>
+      {notice ? (
+        <div ref={noticeRef} data-testid="late-notice"><button type="button">Retry</button></div>
+      ) : null}
       <div ref={coveredRef} data-testid="covered">
         <button type="button" onClick={() => setOpen(true)}>Inspect</button>
         <button type="button">Covered action</button>
       </div>
-      <Drawer open={open} overlay={overlay} onClose={() => setOpen(false)} covers={[coveredRef]} className="inspector">
+      <Drawer open={open} overlay={overlay} onClose={() => setOpen(false)} covers={[coveredRef, noticeRef]} className="inspector">
         <h2>Track 42</h2>
         <p>Plain detail text</p>
         <label>
@@ -87,6 +94,17 @@ describe('Drawer', () => {
     expect(covered).toHaveAttribute('inert');
     await user.keyboard('{Escape}');
     expect(covered).not.toHaveAttribute('inert');
+  });
+
+  it('makes a covered region that mounts while it is open inert too, and releases it on close', async () => {
+    const { user } = await openDrawer();
+    act(() => showNotice());
+    const notice = screen.getByTestId('late-notice');
+    expect(notice).toHaveAttribute('inert');
+    expect(screen.getByTestId('covered')).toHaveAttribute('inert');
+    await user.keyboard('{Escape}');
+    expect(notice).not.toHaveAttribute('inert');
+    expect(screen.getByTestId('covered')).not.toHaveAttribute('inert');
   });
 
   it('closes when the scrim over the covered region is clicked', async () => {

@@ -22,19 +22,25 @@ export default function Tooltip({
   children: ReactElement<{ 'aria-describedby'?: string; disabled?: boolean; 'aria-disabled'?: boolean | 'true' | 'false' }>;
 }) {
   const id = useId();
-  const [hovered, setShown] = useState(false);
+  // Two channels, tracked apart: leaving one must not hide a hint the other
+  // still holds open (pointer still over a focused trigger, or focus still on
+  // a trigger the pointer has left).
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
   // §36.3: never on a disabled control — a hint for an action that cannot be
   // taken advertises it. The wrapper stays, so the control is not remounted
   // when it becomes enabled again.
   const inactive = Boolean(children.props.disabled)
     || children.props['aria-disabled'] === true || children.props['aria-disabled'] === 'true';
-  const shown = hovered && !inactive;
+  const shown = (hovered || focused) && !inactive;
 
   useEffect(() => {
     if (!shown) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      setShown(false);
+      // Dismissed until the next pointer entry or focus, whichever comes.
+      setHovered(false);
+      setFocused(false);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
@@ -48,11 +54,11 @@ export default function Tooltip({
   return (
     <span
       className="tooltip-anchor"
-      onPointerEnter={() => setShown(true)}
-      onPointerLeave={() => setShown(false)}
-      onFocus={() => setShown(true)}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
       onBlur={(event: FocusEvent<HTMLSpanElement>) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setShown(false);
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
       }}
     >
       {trigger}

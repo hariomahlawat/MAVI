@@ -50,6 +50,8 @@ export default function Drawer({
   const headingFallbackId = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  /** Every inert this drawer applied while open, released together on close. */
+  const releasesRef = useRef<Array<() => void>>([]);
   const modal = open && overlay;
 
   // Before paint, so the first frame of the drawer is already the modal one.
@@ -58,7 +60,7 @@ export default function Drawer({
     const panel = panelRef.current;
     if (!panel) return undefined;
     invokerRef.current = document.activeElement;
-    const release = makeInert(covers.map((ref) => ref.current));
+    releasesRef.current = [makeInert(covers.map((ref) => ref.current))];
     focusHeading(panel, headingFallbackId);
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -81,13 +83,26 @@ export default function Drawer({
 
     return () => {
       window.removeEventListener('keydown', onKeyDown, true);
-      release();
+      for (const release of releasesRef.current) release();
+      releasesRef.current = [];
       panel.removeAttribute('aria-labelledby');
     };
     // `covers` is read when the drawer opens; a new array identity per render
-    // must not re-run the trap.
+    // must not re-run the trap. Regions that appear later are caught below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modal, headingFallbackId]);
+
+  // A covered region can mount while the drawer is open — a notice that
+  // appears when a supporting request fails behind it. It is made inert (and
+  // so dimmed) on the commit that mounts it, before paint, and released with
+  // the rest; nothing operable may appear beside a modal drawer.
+  useLayoutEffect(() => {
+    if (!modal) return;
+    const late = covers
+      .map((ref) => ref.current)
+      .filter((element): element is HTMLElement => element !== null && !element.hasAttribute('inert'));
+    if (late.length > 0) releasesRef.current.push(makeInert(late));
+  });
 
   // Focus goes back after the commit, not in the layout cleanup above: React
   // re-focuses whatever held focus before a commit once its mutations are done,

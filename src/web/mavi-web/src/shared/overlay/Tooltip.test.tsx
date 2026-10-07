@@ -108,6 +108,30 @@ describe('Tooltip', () => {
     expect(trigger).toHaveAccessibleDescription('Previous result · k or ↑');
   });
 
+  it('stays open while either channel holds it: leaving the pointer keeps a focused hint, blurring keeps a hovered one', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Next result' });
+
+    // Focus, then hover, then the pointer leaves: focus still holds it.
+    await user.tab();
+    await user.tab();
+    await user.hover(trigger);
+    await user.unhover(trigger);
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    // Hover, then focus leaves: the pointer still holds it.
+    await user.hover(trigger);
+    await user.tab({ shift: true });
+    expect(trigger).not.toHaveFocus();
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    // Both gone: closed.
+    await user.unhover(trigger);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
   it('does not swallow Escape: the surface still hears it', async () => {
     const onEscape = vi.fn();
     window.addEventListener('keydown', onEscape);
