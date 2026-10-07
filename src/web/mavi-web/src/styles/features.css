@@ -550,7 +550,6 @@
 /* Rank 0 leads in weight as well as in position; the others stay readable. */
 .evidence-set__control[data-role='Representative'] .evidence-set__role { font-weight: 600; }
 .evidence-set__offset { align-self: start; font-size: var(--fs-0); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.evidence-set__offset .evidence-set__missing { color: var(--text-secondary); }
 .evidence-set__empty { margin: 0; color: var(--text-secondary); font-size: var(--fs-1); }
 
 @media (max-width: 1100px) {

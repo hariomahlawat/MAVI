@@ -97,8 +97,6 @@ export default function TrackEvidenceSet({ detail, compact = false }: Props) {
                     <span className="evidence-set__role">{EVIDENCE_ROLE_LABELS[observation.evidenceRole]}</span>
                     <span className="evidence-set__offset">
                       {formatOffset(observation.videoOffsetMs, 'tenths')}
-                      {/* Said in words, beside the empty box: never colour or absence alone. */}
-                      {state === 'available' ? null : <span className="evidence-set__missing"> · No image</span>}
                     </span>
                   </button>
                 </li>
