@@ -25,7 +25,8 @@ H4 is domain-diversity evidence. It is not another H3 optimisation, and it is no
 - **Confounding between arms.** Both arms run the same prepared MP4s, harness, mapping, association policy, requirements, frame time and evaluation tooling. Inside one domain, `h4.compare` refuses results that differ in anything but the producer. The PR #174 journal binding stops one arm's journal from resuming as the other.
 - **Frame rate.**
   - VisDrone states no frame rate. 30/1 is declared as an assumption.
-  - The A2 tracker is timestamp-aware, with a 1.0 s lost buffer, so the assumption affects absolute tracking figures in both arms alike. It does not bias the paired difference.
+  - Both arms share the same assumed timing, so there is no explicit between-arm input asymmetry.
+  - The paired result is still conditional on the assumed cadence. The A2 tracker's lifecycle is timestamp-sensitive (a 1.0 s lost buffer), and the two arms feed it different detector streams, so a different true cadence could change the two arms' tracking differently. (Corrected 2026-10-07; this is an interpretation correction only, and no input, run or frozen value changed.)
   - UAVDT's 30 fps is stated by its authors.
   - H3 ran at 5 Hz, so absolute rates are not comparable with H3 (§8).
 - **Odd frame dimensions.**
@@ -82,6 +83,8 @@ Steps for each unit:
 2. **Start.** Launch the API on the fresh catalogue, then the worker with the same `-DevelopmentProducer`.
 3. **Run.** Run `tools.benchmarks.cli execute --development-producer <id>` against the unit's journal. It checks every export's attested producer against the frozen tuple immediately after each run, so a wrong producer stops the unit at its first sequence.
 4. **Receipt.** When the unit completes, `tools.benchmarks.h4.receipt build` writes the unit receipt, which is then verified. A verified receipt makes the unit's inference immutable.
+   - The receipt checks its producer tuple against the registry as committed at the freeze commit, not at HEAD, so no later change can redefine or invalidate it.
+   - Its identity is a pure function of the retained evidence. The build time is kept in an unhashed sidecar.
 
 Rules during execution:
 - **Resume.** Rerun the identical command on the same journal and catalogue.
@@ -95,7 +98,12 @@ Rules during execution:
 - **Per domain.** Run `tools.benchmarks.h4.compare`. It:
   - re-verifies every result;
   - requires each envelope to name its arm's frozen tuple;
+  - requires the methodology file to equal its blob at the freeze commit (`c2f3db25`), and records that commit and the file's SHA-256 in the comparison;
+  - requires every partition and both results to carry the values frozen here: descriptor, dataset, adapter id and version, mapping, association policy, requirements, declared frame rate, the selected sequences and frame counts per partition, and the Runtime Pack id and variant;
+  - re-verifies each (partition, arm) completion receipt from its retained derivation, exports, evidence and journal, and requires the result to evaluate exactly the receipted exports, before consuming that result;
   - reconstructs per-GT outcomes, which must reproduce Scope A.
+
+  The three bindings above were added to the tooling on 2026-10-07, after VisDrone execution and before the comparison was formally recorded. They check values this freeze already fixed; none of them changed.
 
 Per arm (Observed):
 - expected-vehicle GT outcomes and ignored GT;

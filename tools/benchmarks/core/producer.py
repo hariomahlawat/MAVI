@@ -11,6 +11,10 @@ blobs at ``HEAD`` (never from the working tree), and each of the three working f
 * ``producerId``, ``pipelineProfileSha256``, ``componentBindingSha256`` and the detector ``modelPackId``: what every
   run of that producer attests, and what the resume journal binds;
 * ``gitCommit`` and, per file, its path, Git blob id and SHA-256: where those bytes came from.
+
+``producer_identity_at`` reads the same identity from the blobs of a named historical commit (for example a
+methodology freeze), with no working-tree check: what a frozen commit defines cannot be redefined or invalidated by
+any later registry, binding or profile change, while new execution still goes through ``producer_identity``.
 """
 
 from __future__ import annotations
@@ -39,8 +43,8 @@ def _head(root: Path) -> str:
     return commit
 
 
-def _committed(root: Path, commit: str, path: str) -> tuple[str, bytes]:
-    """The ``HEAD`` blob of ``path`` and its bytes; the working file must hash to the same blob."""
+def _committed(root: Path, commit: str, path: str, working: bool = True) -> tuple[str, bytes]:
+    """The blob of ``path`` at ``commit`` and its bytes; with ``working``, the working file must hash to that blob."""
     listed = _git(root, "ls-tree", "-z", "--full-tree", commit, "--", path)
     require(listed.returncode == 0, f"{DIRTY}:{path}")
     entry = listed.stdout.rstrip(b"\0")
@@ -48,8 +52,9 @@ def _committed(root: Path, commit: str, path: str) -> tuple[str, bytes]:
     parts = meta.split(b" ")
     require(listed_path.decode("utf-8") == path and len(parts) == 3 and parts[1] == b"blob", f"{DIRTY}:{path}")
     blob = parts[2].decode("ascii")
-    working = _git(root, "hash-object", "--path", path, "--", str(Path(root) / path))
-    require(working.returncode == 0 and working.stdout.decode("ascii").strip() == blob, f"{DIRTY}:{path}")
+    if working:
+        hashed = _git(root, "hash-object", "--path", path, "--", str(Path(root) / path))
+        require(hashed.returncode == 0 and hashed.stdout.decode("ascii").strip() == blob, f"{DIRTY}:{path}")
     shown = _git(root, "cat-file", "blob", blob)
     require(shown.returncode == 0, f"{DIRTY}:{path}")
     return blob, shown.stdout
@@ -57,13 +62,24 @@ def _committed(root: Path, commit: str, path: str) -> tuple[str, bytes]:
 
 def producer_identity(producer_id: str, root: Path = ROOT) -> dict[str, Any]:
     """The committed identity of ``producer_id``; refuses ``benchmark_producer_dirty:<path>`` on any uncommitted byte."""
+    return _identity(producer_id, Path(root), _head(Path(root)), working=True)
+
+
+def producer_identity_at(producer_id: str, commit: str, root: Path = ROOT) -> dict[str, Any]:
+    """The identity of ``producer_id`` as committed at ``commit`` (a full SHA-1); independent of HEAD and the tree."""
+    require(isinstance(commit, str) and COMMIT_RE.fullmatch(commit) is not None, "benchmark_producer_commit_invalid")
+    resolved = _git(Path(root), "rev-parse", "--verify", f"{commit}^{{commit}}")
+    require(resolved.returncode == 0 and resolved.stdout.decode("ascii").strip() == commit,
+            f"benchmark_producer_commit_unknown:{commit}")
+    return _identity(producer_id, Path(root), commit, working=False)
+
+
+def _identity(producer_id: str, root: Path, commit: str, *, working: bool) -> dict[str, Any]:
     require(isinstance(producer_id, str) and producer_id, "benchmark_development_producer_unknown")
-    root = Path(root)
-    commit = _head(root)
     files: list[dict[str, str]] = []
 
     def read(path: str) -> bytes:
-        blob, data = _committed(root, commit, path)
+        blob, data = _committed(root, commit, path, working)
         files.append({"path": path, "gitBlob": blob, "sha256": sha256_hex(data)})
         return data
 
