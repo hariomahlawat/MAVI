@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react';
+import { useRef, type FormEvent } from 'react';
 import type { Camera } from '../../api/cameras';
 import {
   CROSSING_DIRECTIONS,
@@ -16,6 +16,7 @@ import type { VideoAsset } from '../../api/videos';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
+import { useFocusFirstInvalid } from '../../shared/forms/useFocusFirstInvalid';
 import { WALL_TIME_FORMAT } from '../../shared/time/wallTime';
 import { MOTION_DIRECTION_LABELS, ZONE_RELATION_LABELS, crossingDirectionLabel, shortId } from '../../shared/evidence/analyticsLabels';
 import type { SearchFieldErrors } from './searchValidation';
@@ -88,6 +89,12 @@ type Props = {
   errors: SearchFieldErrors;
   onDraftChange: (patch: Partial<SearchDraft>) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  /**
+   * Bumped by the page each time a submit is refused for field errors. The
+   * rail then brings its first invalid field into view and focuses it — the
+   * rail scrolls, so an error above its scroll position was invisible (F13).
+   */
+  refusedSubmits: number;
   onReset: () => void;
   cameras: Camera[] | undefined;
   videos: VideoAsset[] | undefined;
@@ -136,6 +143,7 @@ export default function SearchFilterRail({
   errors,
   onDraftChange,
   onSubmit,
+  refusedSubmits,
   onReset,
   cameras,
   videos,
@@ -144,6 +152,8 @@ export default function SearchFilterRail({
   analyticsScoped,
   geometry,
 }: Props) {
+  const formRef = useRef<HTMLFormElement>(null);
+  useFocusFirstInvalid(formRef, refusedSubmits);
   const selectedCameraKnown = draft.cameraId
     ? cameras?.some((camera) => camera.id.toLowerCase() === draft.cameraId.toLowerCase()) ?? false
     : true;
@@ -189,7 +199,7 @@ export default function SearchFilterRail({
   const geometryEditable = analyticsScoped && geometry.status === 'ready';
 
   return (
-    <form className="filter-rail" onSubmit={onSubmit} noValidate aria-label="Search filters">
+    <form ref={formRef} className="filter-rail" onSubmit={onSubmit} noValidate aria-label="Search filters">
       <section className="filter-rail__section" aria-labelledby="filter-scope">
         <h2 id="filter-scope">Scope</h2>
         <Field label="Camera">

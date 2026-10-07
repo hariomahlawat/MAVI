@@ -214,9 +214,9 @@ describe('scene editor', () => {
     await screen.findByRole('button', { name: /^Gate/ });
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(within(crumbs).getByText('Cameras')).toBeInTheDocument();
-    expect(within(crumbs).getByText('CAM-01')).toBeInTheDocument();
+    // §5: `Cameras › {camera} › Scene`, the camera named by code and name.
+    expect(within(crumbs).getByText('CAM-01 · North Gate')).toBeInTheDocument();
     expect(within(crumbs).getByText('Scene')).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByText('North Gate')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Gate/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Kerb/ })).toBeInTheDocument();
     expect(getCameraScene).toHaveBeenCalledWith(cameraId, expect.anything());

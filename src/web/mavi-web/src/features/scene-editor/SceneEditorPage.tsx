@@ -388,11 +388,8 @@ export default function SceneEditorPage() {
       <section className="page page--full page--workspace">
         {leaveGuard}
         <ContextBar
-          crumbs={[
-            { label: 'Cameras', to: '/cameras' },
-            { label: camera.data?.code ?? 'Camera' },
-            { label: 'Scene' },
-          ]}
+          surface="scene"
+          object={camera.data ? { label: `${camera.data.code} · ${camera.data.name}` } : undefined}
         />
         <StateRegion
           kind="page"

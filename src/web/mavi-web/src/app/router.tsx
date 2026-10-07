@@ -10,33 +10,30 @@ import VideoImportPage from '../features/video-import/VideoImportPage';
 import VideoReviewPage from '../features/video-review/VideoReviewPage';
 import VideosPage from '../features/videos/VideosPage';
 import VisualSearchPage from '../features/visual-search/VisualSearchPage';
-import EmptyState from '../shared/components/EmptyState';
-import { ButtonLink } from '../shared/components/Button';
+import NotFoundPage from './NotFoundPage';
 
+/**
+ * Route paths live here; what each route *is* lives in the IA map
+ * (`shared/workspace/ia.ts`). Each route names its §5 surface in `handle`, and
+ * the shell reads that to decide the rail highlight, the fallback crumb and the
+ * document title — so there is no second table keyed on paths.
+ */
 export const appRoutes: RouteObject[] = [
   {
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <OverviewPage /> },
-      { path: 'cameras', element: <CamerasPage /> },
-      { path: 'cameras/:cameraId/scene', element: <SceneEditorPage /> },
-      { path: 'cameras/:cameraId/analytics', element: <AnalyticsPage /> },
-      { path: 'videos', element: <VideosPage /> },
-      { path: 'import', element: <VideoImportPage /> },
-      { path: 'processing', element: <ProcessingQueuePage /> },
-      { path: 'processing/:videoAssetId', element: <ProcessingPage /> },
-      { path: 'search', element: <VisualSearchPage /> },
-      { path: 'review/video/:videoAssetId', element: <VideoReviewPage /> },
-      {
-        path: '*',
-        element: (
-          <section className="page">
-            <h1>Page not found</h1>
-            <EmptyState title="The requested MAVI page does not exist." actions={<ButtonLink to="/">Go to Overview</ButtonLink>} />
-          </section>
-        ),
-      },
+      { index: true, element: <OverviewPage />, handle: { surface: 'overview' } },
+      { path: 'cameras', element: <CamerasPage />, handle: { surface: 'cameras' } },
+      { path: 'cameras/:cameraId/scene', element: <SceneEditorPage />, handle: { surface: 'scene' } },
+      { path: 'cameras/:cameraId/analytics', element: <AnalyticsPage />, handle: { surface: 'analytics' } },
+      { path: 'videos', element: <VideosPage />, handle: { surface: 'videos' } },
+      { path: 'import', element: <VideoImportPage />, handle: { surface: 'import' } },
+      { path: 'processing', element: <ProcessingQueuePage />, handle: { surface: 'processing' } },
+      { path: 'processing/:videoAssetId', element: <ProcessingPage />, handle: { surface: 'processing-detail' } },
+      { path: 'search', element: <VisualSearchPage />, handle: { surface: 'search' } },
+      { path: 'review/video/:videoAssetId', element: <VideoReviewPage />, handle: { surface: 'review' } },
+      { path: '*', element: <NotFoundPage />, handle: { surface: 'not-found' } },
     ],
   },
 ];

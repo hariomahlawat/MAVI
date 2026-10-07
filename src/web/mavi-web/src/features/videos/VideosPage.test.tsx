@@ -103,7 +103,7 @@ describe('VideosPage', () => {
 
     expect(container.querySelector('.workspace--ledger')).not.toBeNull();
     expect(container.querySelector('.page--full')).not.toBeNull();
-    expect(container.querySelector('.workspace__body--scroll > table.table--ledger')).not.toBeNull();
+    expect(container.querySelector('.workspace__body--ledger > .ledger-table > table.table--ledger')).not.toBeNull();
     // §24: the display timezone is disclosed once, on the surface.
     expect(within(container.querySelector('.context-bar') as HTMLElement).getByText('Asia/Kolkata')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Import video' })).toHaveAttribute('href', '/import');
@@ -313,7 +313,7 @@ describe('VideosPage latest-run lookup (U1)', () => {
 
     const cell = await statusCell('dock-night.mp4');
     expect(await within(cell).findByText('Run: Finalization failed')).toBeInTheDocument();
-    expect(within(cell).getByText('vision_finalization_staging_missing').tagName).toBe('CODE');
+    expect(within(cell).getByText('vision_finalization_staging_missing').closest('code')).not.toBeNull();
     expect(cell.querySelectorAll('.badge')).toHaveLength(1);
     expect(within(cell).getByText('Failed')).toHaveAttribute('data-status', 'Failed');
     expect(within(cell).queryByRole('progressbar')).not.toBeInTheDocument();
@@ -371,5 +371,64 @@ describe('VideosPage latest-run lookup (U1)', () => {
     expect(await screen.findByText(/Showing the last known media inventory/)).toBeInTheDocument();
     expect(screen.queryByText(/Loading videos/)).not.toBeInTheDocument();
     expect(screen.queryByText('No videos imported yet')).not.toBeInTheDocument();
+  });
+});
+
+describe('VideosPage — S1d Ledger grammar and one primary', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    vi.mocked(listVideos).mockResolvedValue([fresh, failed, processed]);
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Processed', latestRun: null });
+    vi.mocked(queueProcessing).mockResolvedValue({ processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21432' });
+  });
+
+  const primaries = (root: ParentNode) => Array.from(root.querySelectorAll('.btn--primary'));
+
+  it('never fills a row action with the accent, and keeps one text action plus at most one icon per row (§8.1, §16)', async () => {
+    const { container } = renderWithApp(<VideosPage />, { route: '/videos' });
+    await screen.findByRole('table');
+    const rows = Array.from(container.querySelectorAll('tbody tr'));
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      const actions = Array.from(row.querySelectorAll('.table__actions .btn'));
+      expect(actions.filter((action) => !action.classList.contains('btn--icon'))).toHaveLength(1);
+      expect(actions.filter((action) => action.classList.contains('btn--icon')).length).toBeLessThanOrEqual(1);
+      expect(primaries(row)).toHaveLength(0);
+    }
+    // Behaviour unchanged: each action is still offered, by name.
+    expect(screen.getByRole('link', { name: /Results/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Process/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Retry/ })).toBeInTheDocument();
+    // The surface's one primary is the Context Bar's.
+    expect(primaries(container).map((action) => action.textContent)).toEqual(['Import video']);
+  });
+
+  it('offers the empty-state import as a secondary, leaving one primary on the surface', async () => {
+    vi.mocked(listVideos).mockResolvedValue([]);
+    const { container } = renderWithApp(<VideosPage />, { route: '/videos' });
+    const first = await screen.findByRole('link', { name: 'Import the first video' });
+    expect(first).not.toHaveClass('btn--primary');
+    expect(primaries(container).map((action) => action.textContent)).toEqual(['Import video']);
+  });
+
+  it("renders every state presentation uncontained at the table's top, and contains only the ready table (§4.1, §37.1)", async () => {
+    const filtered = renderWithApp(<VideosPage />, { route: '/videos?q=nothing-matches-this' });
+    await screen.findByText('No videos match these filters');
+    expect(filtered.container.querySelector('.ledger-table')).toBeNull();
+    expect(filtered.container.querySelector('.workspace__body--ledger > .state-region')).not.toBeNull();
+    filtered.unmount();
+
+    vi.mocked(listVideos).mockRejectedValue(new Error('down'));
+    const unavailable = renderWithApp(<VideosPage />, { route: '/videos' });
+    await screen.findByText(/Video inventory is unavailable|could not be loaded|down/);
+    expect(unavailable.container.querySelector('.ledger-table')).toBeNull();
+    unavailable.unmount();
+
+    vi.mocked(listVideos).mockReturnValue(new Promise(() => {}));
+    const loading = renderWithApp(<VideosPage />, { route: '/videos' });
+    await waitFor(() => expect(loading.container.querySelector('.workspace__body--ledger > .state-region .skeleton')).not.toBeNull());
+    expect(loading.container.querySelector('.ledger-table')).toBeNull();
   });
 });

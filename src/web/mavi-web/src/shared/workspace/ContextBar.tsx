@@ -1,6 +1,9 @@
 import { useId, useLayoutEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
+import Tooltip from '../overlay/Tooltip';
+import { useIsTruncated } from '../overlay/Truncated';
+import { crumbsFor, documentTitleFor, type Crumb, type SurfaceId } from './ia';
 import { useSurfaceSlot, type ContextTone } from './surfaceSlot';
 
 /**
@@ -13,7 +16,8 @@ import { useSurfaceSlot, type ContextTone } from './surfaceSlot';
  * §27.1 promotion: every archetype begins with this bar (§4), the semantics are
  * identical on each — identity, state, primary actions — the interaction
  * contract is the same (links navigate, actions act), and the accessibility
- * contract is the same (one banner landmark, a labelled breadcrumb). The
+ * contract is the same (a labelled breadcrumb and one heading, inside the
+ * workspace's `main`). The
  * variation points are the three slots, which is what a structural primitive
  * should vary by.
  *
@@ -22,20 +26,26 @@ import { useSurfaceSlot, type ContextTone } from './surfaceSlot';
  * them under a new name.
  */
 
-export type Crumb = {
-  label: string;
-  /** A crumb links to an ancestor surface; the last crumb is where you are. */
-  to?: string;
-};
+export type { Crumb } from './ia';
 
 export default function ContextBar({
-  crumbs,
+  surface,
+  object,
+  rootTo,
   status,
   actions,
   tone,
 }: {
-  /** `Section › Object › Sub-surface`. A child surface must name itself (§5). */
-  crumbs: Crumb[];
+  /**
+   * Which §5 surface this is. The root crumb, the sub-surface word and the
+   * document title all come from the IA map (`ia.ts`); a page never spells
+   * them, which is what keeps the rail, the crumb and the title one word.
+   */
+  surface: SurfaceId;
+  /** The object this surface is about — a camera, a video — when it has one. */
+  object?: Crumb;
+  /** Where the root crumb returns to, when that is not the destination itself (Review → its Investigation). */
+  rootTo?: string;
   /** Key state badges for this surface. */
   status?: ReactNode;
   /** Primary actions for this surface. */
@@ -48,6 +58,8 @@ export default function ContextBar({
    */
   tone?: ContextTone;
 }) {
+  const crumbs = crumbsFor(surface, { object, rootTo });
+  const title = documentTitleFor(crumbs);
   const slot = useSurfaceSlot();
   const register = slot?.register;
   const unregister = slot?.unregister;
@@ -67,9 +79,12 @@ export default function ContextBar({
   // that could be a frame behind the ownership it describes.
   useLayoutEffect(() => {
     if (!register || !unregister || !element) return undefined;
-    register(id, tone ?? null);
+    // The document title rides the same registration as ownership and tone:
+    // it is a fact about the surface that owns the band, and a title set from
+    // a separate effect could name the previous surface for a frame.
+    register(id, { tone: tone ?? null, title });
     return () => unregister(id);
-  }, [register, unregister, element, id, tone]);
+  }, [register, unregister, element, id, tone, title]);
 
   const content = (
     <>
@@ -90,7 +105,7 @@ export default function ContextBar({
   // itself. A surface must not lose its identity, state and actions merely
   // because of where it was mounted — which is also what keeps a page testable
   // on its own rather than only through the whole application.
-  if (!slot) return <header className={barClass(tone)}>{content}</header>;
+  if (!slot) return <div className={barClass(tone)}>{content}</div>;
 
   // Inside the shell, the band is the shell's. Before it exists there is
   // nowhere to render; the shell shows its own fallback for that one frame.
@@ -103,25 +118,41 @@ export function barClass(tone: ContextTone | null | undefined): string {
   return tone ? `context-bar context-bar--${tone}` : 'context-bar';
 }
 
-export function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
+export function Breadcrumbs({ crumbs }: { crumbs: readonly Crumb[] }) {
   return (
     <nav className="context-bar__crumbs" aria-label="Breadcrumb">
       <ol>
-        {crumbs.map((crumb, index) => {
-          const last = index === crumbs.length - 1;
-          return (
-            <li key={`${crumb.label}-${index}`}>
-              {/* A crumb truncates rather than pushing the bar's controls off
-                  the end, so the full text stays reachable on the title. */}
-              {crumb.to && !last ? (
-                <Link to={crumb.to} title={crumb.label}>{crumb.label}</Link>
-              ) : (
-                <span aria-current={last ? 'page' : undefined} title={crumb.label}>{crumb.label}</span>
-              )}
-            </li>
-          );
-        })}
+        {crumbs.map((crumb, index) => (
+          <CrumbItem key={`${crumb.label}-${index}`} crumb={crumb} last={index === crumbs.length - 1} />
+        ))}
       </ol>
     </nav>
+  );
+}
+
+/**
+ * One crumb. A crumb truncates with an ellipsis rather than pushing the bar's
+ * state and actions off the end (§37.1, long names); while it is cut off its
+ * full text is a tooltip on hover and on keyboard focus — the current crumb
+ * becomes focusable for exactly that long — and it is always complete in the
+ * document title and the bar's heading.
+ */
+function CrumbItem({ crumb, last }: { crumb: Crumb; last: boolean }) {
+  const [attachLink, linkTruncated] = useIsTruncated<HTMLAnchorElement>(crumb.label);
+  const [attachText, textTruncated] = useIsTruncated<HTMLSpanElement>(crumb.label);
+  return (
+    <li className={crumb.dynamic ? 'context-bar__crumb context-bar__crumb--object' : 'context-bar__crumb'}>
+      {crumb.to && !last ? (
+        <Tooltip content={crumb.label} enabled={linkTruncated}>
+          <Link ref={attachLink} to={crumb.to}>{crumb.label}</Link>
+        </Tooltip>
+      ) : (
+        <Tooltip content={crumb.label} enabled={textTruncated}>
+          <span ref={attachText} aria-current={last ? 'page' : undefined} tabIndex={textTruncated ? 0 : undefined}>
+            {crumb.label}
+          </span>
+        </Tooltip>
+      )}
+    </li>
   );
 }

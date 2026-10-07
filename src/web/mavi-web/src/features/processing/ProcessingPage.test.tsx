@@ -233,6 +233,10 @@ describe('ProcessingPage', () => {
       const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
       expect(within(panel).getByText('Analysis failed')).toBeInTheDocument();
       expect(await within(panel).findByText('analytics_attempts_exhausted')).toBeInTheDocument();
+      // §8.1: the surface's one primary is the Context Bar's `Open results`;
+      // the retry beside the failure is secondary.
+      expect(within(panel).getByRole('button', { name: 'Retry analytics' })).not.toHaveClass('btn--primary');
+      expect(Array.from(document.querySelectorAll('.btn--primary')).map((button) => button.textContent)).toEqual(['Open results']);
       await user.click(within(panel).getByRole('button', { name: 'Retry analytics' }));
       await waitFor(() => expect(retryRunAnalytics).toHaveBeenCalledWith(runId));
       expect(requestSceneReanalysis).not.toHaveBeenCalled();

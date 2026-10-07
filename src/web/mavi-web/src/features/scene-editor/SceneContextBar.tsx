@@ -73,20 +73,16 @@ export default function SceneContextBar({
       // A past revision is not the live scene, and that is worth more than one
       // chip: the whole bar says so, as it did before the migration.
       tone={readOnly ? 'caution' : undefined}
-      crumbs={[
-        { label: 'Cameras', to: '/cameras' },
-        // No camera record surface exists yet, so this crumb names the object
-        // without linking; a crumb that navigates to a 404 is worse than one
-        // that does not navigate.
-        { label: cameraCode },
-        { label: 'Scene' },
-      ]}
+      surface="scene"
+      // The camera is the object (§5: `Cameras › {camera} › Scene`): its code
+      // is the identity and its name is what the operator recognises, so both
+      // are the crumb, which truncates as one and is complete in the document
+      // title. No camera record surface exists yet, so the crumb names the
+      // object without linking; a crumb that navigates to a 404 is worse than
+      // one that does not navigate.
+      object={{ label: cameraName ? `${cameraCode} · ${cameraName}` : cameraCode }}
       status={(
         <>
-          {/* The name is not the identity — the code is — but it is what the
-              operator recognises, so it stays beside it rather than being
-              dropped for the sake of a tidier crumb trail. */}
-          <span className="scene-context__name truncate">{cameraName}</span>
 
           <span className={`scene-context__revision is-${saveState}`}>
             <span className="scene-context__revision-number">

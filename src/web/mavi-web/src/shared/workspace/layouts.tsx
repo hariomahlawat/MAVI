@@ -56,7 +56,11 @@ export function LedgerLayout({
    * and renders nothing.
    */
   editor?: ReactNode;
-  /** The table or list. Owns vertical scroll. */
+  /**
+   * The Ledger's region: a `LedgerTable` when there are rows, or a §37.1 state
+   * presentation (loading, empty, filtered-empty, unavailable) when there are
+   * not. The region itself is neither bordered nor a scroller.
+   */
   children: ReactNode;
 }) {
   // §4.1: "The table body. The page does not scroll."
@@ -66,8 +70,49 @@ export function LedgerLayout({
       {toolbar ? <div className="workspace__band">{toolbar}</div> : null}
       {notices ? <div className="workspace__notices">{notices}</div> : null}
       {editor ? <div className="workspace__editor">{editor}</div> : null}
-      <div className="workspace__body workspace__body--scroll">{children}</div>
+      <div className="workspace__body workspace__body--ledger">{children}</div>
     </section>
+  );
+}
+
+/**
+ * **Ledger** — the table and its containment (§4.1, amended in v2.0).
+ *
+ * The containment border bounds the *table*, not the slot the table occupies:
+ * a short table is bordered to its own height, a sparse one ends at its own
+ * column-capped right edge, and only a table that needs more height than the
+ * workspace has grows to the available height and scrolls. This frame is the
+ * table's single scroll owner — vertically and, when the columns need more
+ * than the width, horizontally — so the sticky header sticks to it.
+ *
+ * It exists because the Ledger's state presentations must *not* be contained:
+ * loading, empty, filtered-empty and unavailable render on the base surface at
+ * the table's top offset (§37.1). Drawing the border on the region made every
+ * one of them a small message in the corner of a viewport-high box. The border
+ * now comes with the rows and only with them.
+ *
+ * §27.1: every standard Ledger (Cameras, Videos, Processing) means the same
+ * thing by it — rows of one record kind under one scroll boundary — with the
+ * same interaction (one scroller, sticky header) and the same accessibility
+ * contract (a captioned table). It is the archetype's own region, not a
+ * de-duplication of three tables.
+ */
+export function LedgerTable({
+  caption,
+  children,
+}: {
+  /** The table's accessible name; the visible statement lives in the toolbar. */
+  caption: string;
+  /** `<thead>` and `<tbody>`. */
+  children: ReactNode;
+}) {
+  return (
+    <div className="ledger-table">
+      <table className="table table--ledger">
+        <caption className="visually-hidden">{caption}</caption>
+        {children}
+      </table>
+    </div>
   );
 }
 

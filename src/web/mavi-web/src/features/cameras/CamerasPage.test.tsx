@@ -53,7 +53,7 @@ describe('CamerasPage', () => {
     expect(container.querySelector('.context-bar')).not.toBeNull();
     // The Ledger's body is the single scroll owner: the table is its direct
     // child, with no wrapper that could become a second scrolling container.
-    expect(container.querySelector('.workspace__body--scroll > table.table--ledger')).not.toBeNull();
+    expect(container.querySelector('.workspace__body--ledger > .ledger-table > table.table--ledger')).not.toBeNull();
     // §4.1: full width, not the capped `.page`.
     expect(container.querySelector('.page--full')).not.toBeNull();
   });
@@ -327,5 +327,107 @@ describe('CamerasPage', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Add the first camera' }));
     expect(screen.getByRole('form', { name: 'Add camera' })).toBeInTheDocument();
+  });
+
+  describe('S1d: Ledger grammar, one primary and validation focus', () => {
+    const primaries = (root: ParentNode) => Array.from(root.querySelectorAll('.btn--primary'));
+
+    it('contains the ready table and only the ready table (§4.1, §37.1)', async () => {
+      const ready = renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      expect(ready.container.querySelector('.workspace__body--ledger > .ledger-table > table')).not.toBeNull();
+      ready.unmount();
+
+      vi.mocked(listCameras).mockResolvedValue([]);
+      const empty = renderWithApp(<CamerasPage />);
+      await screen.findByText('No cameras registered');
+      expect(empty.container.querySelector('.ledger-table')).toBeNull();
+      expect(empty.container.querySelector('.workspace__body--ledger > .state-region')).not.toBeNull();
+      empty.unmount();
+
+      vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
+      const unavailable = renderWithApp(<CamerasPage />);
+      await screen.findByText(/Camera store unavailable/);
+      expect(unavailable.container.querySelector('.ledger-table')).toBeNull();
+      expect(unavailable.container.querySelector('.workspace__body--ledger > .state-region [role="alert"], .workspace__body--ledger > .state-region .alert')).not.toBeNull();
+      unavailable.unmount();
+
+      vi.mocked(listCameras).mockReturnValue(new Promise(() => {}));
+      const loading = renderWithApp(<CamerasPage />);
+      expect(await screen.findByRole('status')).toBeInTheDocument();
+      expect(loading.container.querySelector('.ledger-table')).toBeNull();
+      expect(loading.container.querySelector('.workspace__body--ledger > .state-region .skeleton')).not.toBeNull();
+    });
+
+    it('gives each row one secondary text action and one named icon action (§16)', async () => {
+      const { container } = renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      const row = container.querySelector('tbody tr') as HTMLElement;
+      const actions = within(row).getAllByRole('link');
+      expect(actions.map((link) => link.textContent?.trim())).toEqual(['Scene', 'Analytics for CAM-01']);
+      expect(within(row).getByRole('link', { name: 'Analytics for CAM-01' })).toHaveAttribute('href', `/cameras/${camera.id}/analytics`);
+      // Text action secondary; the icon action is icon-only; neither is the accent primary.
+      expect(primaries(row)).toHaveLength(0);
+      expect(within(row).getByRole('link', { name: 'Analytics for CAM-01' })).toHaveClass('btn--icon');
+      expect(within(row).getByRole('link', { name: 'Scene' })).not.toHaveClass('btn--icon');
+    });
+
+    it('shows at most one accent-filled action in every state of the surface (§8.1)', async () => {
+      const user = userEvent.setup();
+      const ready = renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      expect(primaries(ready.container).map((button) => button.textContent)).toEqual(['Add camera']);
+      // The create form is the surface's purpose while open: its submit is the
+      // one primary, and the Context Bar's withdraws.
+      await openCreate(user);
+      expect(primaries(ready.container).map((button) => button.textContent)).toEqual(['Add camera']);
+      expect(within(screen.getByRole('form', { name: 'Add camera' })).getByRole('button', { name: 'Add camera' })).toHaveClass('btn--primary');
+      ready.unmount();
+
+      vi.mocked(listCameras).mockResolvedValue([]);
+      const empty = renderWithApp(<CamerasPage />);
+      const first = await screen.findByRole('button', { name: 'Add the first camera' });
+      expect(first).not.toHaveClass('btn--primary');
+      expect(primaries(empty.container)).toHaveLength(1);
+    });
+
+    it('brings the first invalid field into view and focuses it on a refused submit (§12)', async () => {
+      const user = userEvent.setup();
+      const scrolled: Element[] = [];
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) { scrolled.push(this); };
+      try {
+        renderWithApp(<CamerasPage />);
+        await screen.findByText('North Gate');
+        const form = await openCreate(user);
+        await user.click(submit(form));
+        // Reading order: Code is the first refused field.
+        await waitFor(() => expect(screen.getByLabelText('Camera code')).toHaveFocus());
+        expect(scrolled).toContain(screen.getByLabelText('Camera code'));
+
+        // Code now valid: the next refusal goes to Name.
+        await user.type(screen.getByLabelText('Camera code'), 'CAM-02');
+        await user.click(submit(form));
+        await waitFor(() => expect(screen.getByLabelText('Camera name')).toHaveFocus());
+        expect(scrolled.at(-1)).toBe(screen.getByLabelText('Camera name'));
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
+    });
+
+    it('moves no focus for a failure no field owns', async () => {
+      const user = userEvent.setup();
+      vi.mocked(createCamera).mockRejectedValueOnce(new ApiError({ status: 503, code: 'camera_store_unavailable', detail: 'The camera store is unavailable.' }));
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      const form = await openCreate(user);
+      await user.type(screen.getByLabelText('Camera code'), 'CAM-02');
+      await user.type(screen.getByLabelText('Camera name'), 'East Gate');
+      await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+      const button = submit(form);
+      await user.click(button);
+      await screen.findByText(/camera store is unavailable/);
+      expect(button).toHaveFocus();
+    });
   });
 });

@@ -105,7 +105,7 @@ describe('ProcessingQueuePage', () => {
 
     expect(container.querySelector('.workspace--ledger')).not.toBeNull();
     expect(container.querySelector('.page--full')).not.toBeNull();
-    expect(container.querySelector('.workspace__body--scroll > table.table--ledger')).not.toBeNull();
+    expect(container.querySelector('.workspace__body--ledger > .ledger-table > table.table--ledger')).not.toBeNull();
     // §30: no stat tiles restating the table below them.
     expect(container.querySelector('.stat')).toBeNull();
     // §32 decision 5: this Ledger's order is the statement; nothing re-orders it.
@@ -121,14 +121,22 @@ describe('ProcessingQueuePage', () => {
     const row = within(table).getAllByRole('row')[3];
     const actions = within(row).getAllByRole('cell').at(-1) as HTMLElement;
 
-    // §16: one primary text action plus at most one icon-only action.
+    // §16: one secondary text action plus at most one icon-only action, and
+    // no row ever carries the accent primary (§8.1).
     expect(within(actions).getByRole('link', { name: 'Results' })).toBeInTheDocument();
+    expect(within(actions).getByRole('link', { name: 'Results' })).not.toHaveClass('btn--primary');
     const detail = within(actions).getByRole('link', { name: /Processing detail for/ });
     expect(detail).toHaveAttribute('href', `/processing/${done.id}`);
     // Icon-only means its label is there for assistive technology and not on
-    // screen; the visible text of the cell is the one primary action.
+    // screen; the visible text of the cell is the one text action.
     expect(detail).toHaveClass('btn--icon');
     expect(visibleText(actions)).toBe('Results');
+  });
+
+  it('shows no accent-filled action anywhere on the queue (§8.1)', async () => {
+    const { container } = renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    await screen.findByRole('table');
+    expect(container.querySelectorAll('.btn--primary')).toHaveLength(0);
   });
 
   it('gives a row with nothing to open a single text action instead of a lone icon', async () => {
@@ -208,7 +216,7 @@ describe('ProcessingQueuePage', () => {
     const rows = within(await screen.findByRole('table')).getAllByRole('row').slice(1);
     const [finalization, ordinary] = rows.map((row) => within(row).getAllByRole('cell')[1]);
     expect(await within(finalization).findByText('Run: Finalization failed')).toBeInTheDocument();
-    expect(within(finalization).getByText('vision_finalization_staging_missing').tagName).toBe('CODE');
+    expect(within(finalization).getByText('vision_finalization_staging_missing').closest('code')).not.toBeNull();
 
     expect(await within(ordinary).findByText('worker_watchdog_timeout')).toBeInTheDocument();
     expect(within(ordinary).queryByText(/Finalization failed/)).not.toBeInTheDocument();

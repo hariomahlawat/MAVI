@@ -64,6 +64,13 @@ export type ContextTone = 'caution';
  */
 export type ScrollPolicy = 'page' | 'contain';
 
+/** What a surface that owns the Context Bar publishes about itself. */
+export type SurfaceOwner = {
+  tone: ContextTone | null;
+  /** The document title, derived from the IA map (§5): the full identity even when the bar truncates it. */
+  title: string;
+};
+
 type SurfaceSlot = {
   /** The shell's Context Bar element, once it exists. */
   element: HTMLElement | null;
@@ -71,13 +78,15 @@ type SurfaceSlot = {
   claimed: boolean;
   /** Declared by the owning surface; the shell, which owns the band, applies it. */
   tone: ContextTone | null;
+  /** The owning surface's document title, or `null` while no surface owns the band. */
+  title: string | null;
   /**
    * Publishing and owning are one operation, so they are one call: a surface
    * registers when it has somewhere to publish and is publishing there, and the
    * tone travels with the registration rather than in a second effect that
    * could be left stale for a frame.
    */
-  register: (id: string, tone: ContextTone | null) => void;
+  register: (id: string, owner: SurfaceOwner) => void;
   unregister: (id: string) => void;
   /** The scroll policy the mounted archetype declares; `page` when none does. */
   scroll: ScrollPolicy;
@@ -98,6 +107,8 @@ export type ShellSurface = {
   /** True while a surface is publishing into the band. */
   claimed: boolean;
   tone: ContextTone | null;
+  /** The owning surface's document title; the shell supplies its own when nothing owns the band. */
+  title: string | null;
   scroll: ScrollPolicy;
 };
 
@@ -115,7 +126,7 @@ function useRegister<T>(): [ReadonlyMap<string, T>, (id: string, value: T) => vo
 
   const add = useCallback((id: string, value: T) => {
     setEntries((current) => {
-      if (current.has(id) && current.get(id) === value) return current;
+      if (current.has(id) && sameValue(current.get(id) as T, value)) return current;
       const next = new Map(current);
       // Deleting first keeps a re-registration at the end of the insertion
       // order, so "whichever surface holds this now" stays well defined rather
@@ -138,6 +149,15 @@ function useRegister<T>(): [ReadonlyMap<string, T>, (id: string, value: T) => vo
   return [entries, add, remove];
 }
 
+/** Equal by value for the plain records registered here, so a re-registration with the same facts is a no-op. */
+function sameValue<T>(a: T, b: T): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  const keys = Object.keys(a as object);
+  return keys.length === Object.keys(b as object).length
+    && keys.every((key) => (a as Record<string, unknown>)[key] === (b as Record<string, unknown>)[key]);
+}
+
 /** The most recently registered value, which with one owner is simply its value. */
 function latest<T>(entries: ReadonlyMap<string, T>, fallback: T): T {
   let last = fallback;
@@ -152,25 +172,27 @@ export function SurfaceSlotProvider({
   children: (surface: ShellSurface) => ReactNode;
 }) {
   const [element, setElement] = useState<HTMLElement | null>(null);
-  const [owners, register, unregister] = useRegister<ContextTone | null>();
+  const [owners, register, unregister] = useRegister<SurfaceOwner>();
   const [policies, registerScroll, unregisterScroll] = useRegister<ScrollPolicy>();
 
   // The band carries the tone of the surface that owns it, and the content
   // column the policy of the archetype mounted in it. With one of each — which
   // the architecture requires, and `workspace.test.tsx` asserts — both are
   // simply that surface's own value.
-  const tone = useMemo(() => latest<ContextTone | null>(owners, null), [owners]);
+  const owner = useMemo(() => latest<SurfaceOwner | null>(owners, null), [owners]);
+  const tone = owner?.tone ?? null;
+  const title = owner?.title ?? null;
   const scroll = useMemo(() => latest<ScrollPolicy>(policies, 'page'), [policies]);
   const claimed = owners.size > 0;
 
   const value = useMemo<SurfaceSlot>(
-    () => ({ element, claimed, tone, register, unregister, scroll, registerScroll, unregisterScroll }),
-    [element, claimed, tone, register, unregister, scroll, registerScroll, unregisterScroll],
+    () => ({ element, claimed, tone, title, register, unregister, scroll, registerScroll, unregisterScroll }),
+    [element, claimed, tone, title, register, unregister, scroll, registerScroll, unregisterScroll],
   );
 
   return (
     <SurfaceSlotContext.Provider value={value}>
-      {children({ attachContextBar: setElement, claimed, tone, scroll })}
+      {children({ attachContextBar: setElement, claimed, tone, title, scroll })}
     </SurfaceSlotContext.Provider>
   );
 }

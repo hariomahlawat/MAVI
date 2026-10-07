@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
@@ -14,6 +14,7 @@ import { queryKeys } from '../../app/queryClient';
 import { fromQuery } from '../../shared/async/fromQuery';
 import StateRegion from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
+import { useFocusFirstInvalid } from '../../shared/forms/useFocusFirstInvalid';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
 import KeyValue from '../../shared/components/KeyValue';
@@ -117,6 +118,10 @@ export default function VideoImportPage() {
   const [recordingStartLocal, setRecordingStartLocal] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  // Bumped on a submit the form itself refuses, and on nothing else (§12).
+  const [refusals, setRefusals] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
+  useFocusFirstInvalid(formRef, refusals);
 
   const selectedCamera = activeCameras.find((camera) => camera.id === cameraId);
 
@@ -161,7 +166,11 @@ export default function VideoImportPage() {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitted(true);
-    if (!cameraId || !recordingStartLocal || !file || fileProblem() || workflow.isPending) return;
+    if (workflow.isPending) return;
+    if (!cameraId || !recordingStartLocal || !file || fileProblem()) {
+      setRefusals((count) => count + 1);
+      return;
+    }
     workflow.mutate({ cameraId, recordingStartLocal, file });
   }
 
@@ -202,7 +211,7 @@ export default function VideoImportPage() {
   return (
     <section className="page">
       <ContextBar
-        crumbs={[{ label: 'Videos', to: '/videos' }, { label: 'Import' }]}
+        surface="import"
         status={dirty ? <StatusBadge tone="warn">Unsaved changes</StatusBadge> : null}
       />
 
@@ -228,7 +237,7 @@ export default function VideoImportPage() {
             onRetry={() => cameras.refetch()}
           >
             {() => (
-            <form className="form-stack" onSubmit={submit} noValidate>
+            <form ref={formRef} className="form-stack" onSubmit={submit} noValidate>
               {workflow.isError ? <Alert tone="error">{importError(workflow.error)}</Alert> : null}
 
               <Field label="Camera" error={errors.camera}>

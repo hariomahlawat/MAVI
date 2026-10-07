@@ -202,6 +202,19 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; font-si
    inside its capped cells. The cap belongs here rather than on `table.table`,
    which Search and Review also use. */
 table.table--ledger { width: 100%; max-width: max-content; }
+/* Ledger row pitch (section 10, 16): 36-40px, single line, measured. The body
+   row is bound to --table-row-h, the same token the skeleton rows are drawn
+   at, so a loading Ledger's rows land where the real rows do. A 4px cell
+   padding around the 26px in-row control metric (section 10) is what keeps
+   the tallest cell content — a small button, a 20px badge — inside the pitch;
+   border-box makes the 40px the row's whole height, its divider included. The
+   skeleton's rows share the pitch; it has no header row of its own, so its
+   first row sits where the header will. */
+.table--ledger tbody td {
+  box-sizing: border-box; height: var(--table-row-h);
+  padding-top: var(--s-1); padding-bottom: var(--s-1);
+  white-space: nowrap;
+}
 /* Named once so the accessible name is not lost when the visible statement
    about the table lives in the toolbar instead (section 23). */
 .table caption { text-align: left; }
@@ -453,3 +466,4 @@ a.summary-band__item:hover .summary-band__value { text-decoration: underline; te
    edge of its trigger instead of centring (set by the Tooltip on open). */
 .tooltip[data-align='end'] { left: auto; right: 0; transform: none; }
 .tooltip[data-align='start'] { left: 0; transform: none; }
+.tooltip[data-place='above'] { top: auto; bottom: calc(100% + var(--s-1)); }

@@ -162,16 +162,12 @@ export default function AnalyticsPage() {
     && active.error instanceof ApiError
     && active.error.code === ANALYTICS_CAMERA_NOT_FOUND;
 
-  const crumbs = [
-    { label: 'Cameras', to: '/cameras' },
-    { label: camera.data ? `${camera.data.code} · ${camera.data.name}` : cameraId, to: `/cameras/${cameraId}/scene` },
-    { label: 'Analytics' },
-  ];
 
   return (
     <>
       <ContextBar
-        crumbs={crumbs}
+        surface="analytics"
+        object={{ label: camera.data ? `${camera.data.code} · ${camera.data.name}` : cameraId, to: `/cameras/${cameraId}/scene` }}
         status={(() => {
           const coverage = state.mode === 'heatmap' ? heatmap.data?.coverage : response?.coverage;
           return coverage ? <CoverageChip complete={coverage.complete} /> : null;

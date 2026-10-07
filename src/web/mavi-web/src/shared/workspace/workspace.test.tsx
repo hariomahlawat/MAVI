@@ -47,7 +47,7 @@ describe('Context Bar', () => {
   it('fills the shell band rather than adding a second one', () => {
     const { container } = render(
       <Shell>
-        <ContextBar crumbs={[{ label: 'Cameras', to: '/cameras' }, { label: 'CAM-01' }, { label: 'Scene' }]} />
+        <ContextBar surface="scene" object={{ label: 'CAM-01' }} />
       </Shell>,
     );
 
@@ -74,7 +74,7 @@ describe('Context Bar', () => {
       return (
         <Shell>
           <button type="button" onClick={() => setOpen(false)}>leave</button>
-          {open ? <ContextBar crumbs={[{ label: 'Cameras' }]} /> : null}
+          {open ? <ContextBar surface="cameras" /> : null}
         </Shell>
       );
     }
@@ -92,7 +92,7 @@ describe('Context Bar', () => {
       return (
         <Shell>
           <button type="button" onClick={() => setPast(false)}>return</button>
-          <ContextBar crumbs={[{ label: 'Scene' }]} tone={past ? 'caution' : undefined} />
+          <ContextBar surface="scene" tone={past ? 'caution' : undefined} />
         </Shell>
       );
     }
@@ -112,7 +112,7 @@ describe('Context Bar', () => {
     // was mounted — which is also what keeps a surface testable on its own.
     const { container } = render(
       <MemoryRouter>
-        <ContextBar crumbs={[{ label: 'Cameras' }, { label: 'Scene' }]} status={<span>Saved</span>} />
+        <ContextBar surface="scene" status={<span>Saved</span>} />
       </MemoryRouter>,
     );
     expect(container.querySelectorAll('.context-bar')).toHaveLength(1);
@@ -198,9 +198,10 @@ describe('archetypes', () => {
     const { container } = render(
       <LedgerLayout toolbar={<div>filters</div>}><table><tbody /></table></LedgerLayout>,
     );
-    // A Ledger's body scrolls and its page does not, and a page cannot opt out
-    // of that because it never declares it.
-    expect(container.querySelector('.workspace--ledger .workspace__body--scroll')).toBeInTheDocument();
+    // A Ledger's page does not scroll, and a page cannot opt out of that
+    // because it never declares it; the region below the bands holds the
+    // table's own frame (or a state presentation), and is not itself a frame.
+    expect(container.querySelector('.workspace--ledger .workspace__body--ledger')).toBeInTheDocument();
   });
 
   it('makes the Workbench inspector a drawer that can actually be shut', async () => {

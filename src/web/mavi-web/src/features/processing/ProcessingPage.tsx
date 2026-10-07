@@ -176,7 +176,7 @@ export default function ProcessingPage() {
   function frame(name: string, body: ReactNode) {
     return (
       <section className="page">
-        <ContextBar crumbs={[{ label: 'Processing', to: '/processing' }, { label: name }]} />
+        <ContextBar surface="processing-detail" object={{ label: name }} />
         <RecordLayout>{body}</RecordLayout>
       </section>
     );
@@ -244,7 +244,8 @@ export default function ProcessingPage() {
   return (
     <section className="page">
       <ContextBar
-        crumbs={[{ label: 'Processing', to: '/processing' }, { label: video.data?.originalFileName ?? 'Video' }]}
+        surface="processing-detail"
+        object={{ label: video.data?.originalFileName ?? 'Video' }}
         status={(
           <>
             {state ? <StatusBadge status={state.videoStatus} /> : null}
@@ -549,7 +550,9 @@ function SceneAnalyticsPanel({
       {effective === 'Failed' ? (
         <div className="inline-alert-actions">
           <Alert tone="error">Scene analytics failed for this run. Retrying starts a new attempt cycle on the same analysis; existing facts are kept until it succeeds.</Alert>
-          <Button variant="primary" icon="refresh" onClick={onRetry} disabled={retrying}>
+          {/* Secondary (§8.1): analytics exist only for a processed video, whose
+              surface primary is the Context Bar's `Open results`. */}
+          <Button icon="refresh" onClick={onRetry} disabled={retrying}>
             {retrying ? 'Retrying…' : 'Retry analytics'}
           </Button>
         </div>

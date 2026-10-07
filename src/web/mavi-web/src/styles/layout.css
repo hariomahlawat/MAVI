@@ -44,7 +44,32 @@
   font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase;
 }
 .sidebar__footer { margin-top: auto; padding: var(--s-2); border-top: var(--stroke-hair) solid var(--border-subtle); display: grid; gap: var(--s-2); }
-.sidebar__toggle { justify-content: center; }
+/* The rail's collapse control (§5): a labelled control with a visible icon at
+   the 32px control metric, not the 26px icon-only ghost it replaces. Expanded,
+   its name is its visible text; collapsed, it is a 32x32 icon button named by
+   `aria-label`. Either way `aria-expanded` announces the rail's state. */
+.sidebar__toggle {
+  display: flex; align-items: center; gap: var(--s-3);
+  height: var(--control-h); padding: 0 var(--s-3);
+  border: var(--stroke-hair) solid transparent; border-radius: var(--r-2);
+  background: transparent; color: var(--text-secondary);
+  font-size: var(--fs-2); font-weight: 500; cursor: pointer; text-align: left;
+  transition: background var(--dur);
+}
+.sidebar__toggle:hover { background: var(--surface-raised); }
+.sidebar__toggle .icon { color: var(--text-muted); flex: 0 0 auto; }
+.shell--collapsed .sidebar__toggle { width: var(--control-h); padding: 0; justify-content: center; justify-self: center; }
+
+/* The skip link (§5, §23): the first focusable element, off screen until it
+   has focus, then the first thing on screen. It moves keyboard focus to the
+   workspace itself, not merely the scroll position. */
+.skip-link {
+  position: absolute; top: var(--s-2); left: var(--s-2); z-index: var(--z-tooltip);
+  padding: var(--s-2) var(--s-3); border-radius: var(--r-2);
+  background: var(--accent-strong); color: var(--text-on-accent); font-weight: 600;
+  transform: translateY(-200%);
+}
+.skip-link:focus { transform: none; text-decoration: none; }
 
 .shell--collapsed .sidebar__brand div,
 .shell--collapsed .sidebar__nav a span,
@@ -64,6 +89,31 @@
 .status-dot--pending { background: var(--status-warn); }
 
 .content { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+/* The workspace is the `main` landmark and the skip link's target. Focused by
+   script, its ring is drawn inside its own edge so it is visible rather than
+   clipped by the viewport. */
+.content:focus-visible { outline-offset: calc(-1 * var(--focus-ring-w)); }
+
+/* The `?` shortcut sheet: the shared Drawer, anchored to the viewport's right
+   edge over the whole shell (§11: one drawer style). */
+.shortcut-sheet {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); z-index: var(--z-drawer);
+  overflow-y: auto; border-left: var(--stroke-hair) solid var(--border-panel);
+  background: var(--surface-base); box-shadow: var(--elevation-floating);
+}
+.shell > .drawer-scrim { position: fixed; inset: 0; }
+.shortcut-sheet__body { display: grid; gap: var(--s-3); padding: var(--c-inspector-pad); }
+.shortcut-sheet__head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
+.shortcut-sheet__head h2 { font-size: var(--fs-3); }
+.shortcut-sheet h3 {
+  color: var(--text-muted); font-size: var(--fs-0); font-weight: 600;
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.shortcut-sheet__note { color: var(--text-secondary); font-size: var(--fs-1); }
+.shortcut-list { display: grid; gap: var(--s-1); margin: 0; }
+.shortcut-list__row { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: var(--s-3); min-height: var(--control-min-target); }
+.shortcut-list dt { display: flex; gap: var(--s-1); }
+.shortcut-list dd { margin: 0; color: var(--text-primary); font-size: var(--fs-2); }
 
 /* The content column scrolls by default, as it always has. An archetype that
    names its own scroll owner (§4) declares `contain`, and then it must not:
