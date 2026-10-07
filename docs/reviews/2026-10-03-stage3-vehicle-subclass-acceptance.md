@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d is the current slice, benchmark-driven under ADR-017 (H1 PASS; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4–H5 OPEN). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d is the current slice, benchmark-driven under ADR-017 (H1 PASS; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4 PASS — domain-diversity measurement recorded on VisDrone2019-MOT only (aerial), domain-limited; H5 OPEN). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -218,7 +218,7 @@ H2–H5 are evidence outcomes, not mandated PR boundaries, approval meetings, in
 | H1 | Expansion undertaken only if the pilot evidence justifies it (continuation or supplemental), otherwise recorded NOT TRIGGERED | PASS | On the G8 evidence, two of the plan §14 triggers hold: an important class is below the minimum support (truck 5, bus 7, motorcycle 0, each < 30), and support is too small for per-class conclusions. The pilot evidence therefore justified expansion. **Mechanism (owner decision 2026-10-04, ADR-017):** expansion is benchmark-driven, through S3.2d-1 to S3.2d-4 in the amended plan §14, against established labelled tracking benchmarks with explicit per-class mappings. The manual `continuation`/`supplemental` path of the pilot design remains available only as a documented-gap fallback. ADR-017 adopted this benchmark-driven expansion mechanism in PR #159 (`main@906fc8a7fcdfebac646ecedf503a77cb34fecc6a`), and the expansion has since been undertaken through S3.2d (H2 PASS; H3 measured). H1 is therefore closed PASS. H1 alone never unlocks exposure: X1 still depends on H2–H5 and the other register requirements. |
 | H2 | S3.2d-1: benchmark framework and tooling merged with deterministic tests: dataset descriptor and adapter contract; per-native-class mapping contract (`exact`/`subset`/`unsupported` with reason); ground-truth Track representation; prediction-independent GT↔MAVI association with ambiguity and unmatched reporting in both directions; dataset and result provenance; split identity; known-exposure metadata (plan §14 amendment; ADR-017 §4–§6) | PASS | **S3.2d-1 slices 1–3 (PR #161, PR #162, PR #163), effective when PR #163 merges with green exact-head CI.** Contracts (schema SHA-256 / example SHA-256): `benchmark-dataset-release-v1` `aa47eefe…`/`5aa46d7b…`, `benchmark-class-mapping-v1` `210fa4c9…`/`144ccf22…`, `benchmark-association-v1` `6686ba74…`/`086d5535…`, `benchmark-vehicle-subclass-result-v1` `db814601…`/`acec370d…`. Association policy `vehicle-tracks-association-v1` SHA-256 `a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05`. Synthetic end-to-end through the CLI (`tools/benchmarks/tests/test_bench_synthetic_e2e.py`: describe → prepare with the FFmpeg pack → exports → evaluate, byte-identical on repeat): golden `associationBodySha256` `57266783a8bc97fce8b8a11a80e0fd7dc7dd85195d1f65425f233899f740db9b`, golden scope A+B `dfa53811a90ef76f90bf76ac8bf7ee87e6b3f7f67f23738079080d35a6bf0a73`. Mutation tests present: class/subclass/confidence mutation leaves the association body identical (`test_bench_association.py`); prediction, native-class and mapping mutations change only evaluation (`test_bench_vehicle_subclass_evaluate.py`, E2E). Modules: `tools/benchmarks/{core,datasets,capabilities/vehicle_tracks,capabilities/vehicle_subclass}`, `prepare.py`, `run.py`, `cli.py`; `msgpack>=1.1,<2` on the tools surface (`tools/requirements.txt`, dependency policy). Synthetic and tooling evidence only: no real dataset, no capability claim. |
 | H3 | S3.2d-2: primary benchmark measurement recorded. A benchmark whose native labels exactly cover the capability is preferred where reasonably available; otherwise the strongest available benchmark or combination, with explicit `exact`/`subset`/`unsupported` mappings. Lack of one perfect taxonomy does not block evidence-supported class subsets. Recorded: dataset and release identity (and source, including any archival copy and its credibility basis), research-use status with its basis (ADR-017 §7), mapping declarations, association coverage, class confusion on valid associations, per-class support, known or possible exposure; dataset bytes outside Git | PASS — evidence-completeness gate; performance findings feed H5 | **Run `bea73d13cd76bcd432319cab88a763d2af6139a34c013e2e93b71363a17f9f9b` (attempt 2), executed 2026-10-05 on `main@359073429154bb0839e53cc30b2f55f58f9f35d4`** under the runbook `docs/superpowers/plans/2026-10-05-stage3-s3-2d-2-bdd100k-h3-execution.md`. Complete (200 of 200 sequences), reproducible (frozen descriptor; derivation manifest reproduced byte-for-byte across two attempts; write-once results verified by `run.verify`), provenance-bound and reported under the frozen association policy. Association coverage is weak (12.6%) but not coverage-limited (1.87% against the 1/10 threshold). Full evidence in **H3 evidence** below. |
-| H4 | S3.2d-3: domain-diversity benchmark measurement(s) recorded with the same fields, each contributing only to the classes and domains it supports; or recorded NOT TRIGGERED with a technical rationale showing that additional domain-diversity evidence is not materially useful for the current capability decision (no owner approval needed for that call; the owner may still intervene where the decision is consequential) | OPEN — methodology frozen | Event `H4-2026-10-06`: methodology `docs/qualification/stage3/h4/h4-methodology-v1.{md,json}` frozen before any H4 inference (*H4 methodology freeze*). Paired `a2-scale640` / `a2-scale1280` on VisDrone2019-MOT, and on UAVDT-M if acquired; execution and evidence pending. |
+| H4 | S3.2d-3: domain-diversity benchmark measurement(s) recorded with the same fields, each contributing only to the classes and domains it supports; or recorded NOT TRIGGERED with a technical rationale showing that additional domain-diversity evidence is not materially useful for the current capability decision (no owner approval needed for that call; the owner may still intervene where the decision is consequential) | PASS — evidence-completeness gate, domain-limited (VisDrone2019-MOT, aerial, only); performance findings feed H5 | Event `H4-2026-10-06`: methodology `docs/qualification/stage3/h4/h4-methodology-v1.{md,json}` frozen at `c2f3db25` before any H4 inference (*H4 methodology freeze*). Paired `a2-scale640` / `a2-scale1280` executed on VisDrone2019-MOT (24 sequences, 9,481 frames; four verified v2 arm receipts). Association 21.8% → 37.4%, Δ +15.64 pp, descriptive interval [+11.53, +19.78]. UAVDT-M not executed (authoritative source quota-unavailable; owner terminated retries); fixed-camera traffic unavailable. No UAVDT-condition, Production or H5 claim. Full evidence in **H4 evidence** below. |
 | H5 | S3.2d-4: evidence-backed capability decision recorded per class and evidence domain (benchmark-supported, Development-only, insufficiently supported, deferred), on H3, H4 and the pilot (G8); no unsupported class advanced | OPEN | |
 
 ### H3 evidence — S3.2d-2 primary benchmark measurement (BDD100K MOT 2020 val)
@@ -681,6 +681,191 @@ Event `H4-2026-10-06`; methodology `docs/qualification/stage3/h4/h4-methodology-
 - H4 OPEN, methodology frozen, execution pending;
 - H5 OPEN;
 - nothing Production-qualified.
+
+### H4 evidence — S3.2d-3 domain-diversity measurement (event `H4-2026-10-06`, recorded 2026-10-07)
+
+H4 is closed on the evidence actually obtained: one completed domain, **VisDrone2019-MOT** (aerial). It is Development evidence only. Nothing is Production-qualified, no H5 decision is taken here, and H3's figures are context only, never pooled. Paths are relative to the controlled-store root `Stage3/H4-2026-10-06`. No dataset bytes, derived videos, exports or trajectories are in Git.
+
+**Methodology and chronology.**
+- **Methodology:** `docs/qualification/stage3/h4/h4-methodology-v1.{md,json}`.
+  - Frozen at commit `c2f3db250d1b895af0a4f9ba53b7026238679651` (2026-10-06T19:16:42Z).
+  - JSON SHA-256 `be6a55b57bf1c2c60608e3b299735c4e1378126a5696778b1ff3d3b608b5f72b`, unchanged since the freeze.
+  - Merged by PR #175 as merge commit `34898dd9`, so `c2f3db25` remains an ancestor of `main`.
+- **Chronology:** the freeze preceded all inference and every outcome inspection.
+  - The first unit catalogue was created at 19:50:09Z.
+  - The earliest H4 run, UUIDv7 `01a112c4-9ed6-7b12-bd75-e476d63eb488`, started at 19:50:38Z.
+  - The first outcome inspection (the first-export sentinel) was at 19:52:22Z.
+  - Every unit ran with `HEAD == c2f3db25` on a clean worktree, and every export attests `maviCommit` `c2f3db25`.
+  - Evidence: Git commit times, the ledger `campaign-state.json` (UTC), each unit's `evidence/catalogue-creation.json` `createdAtUtc`, and the UUIDv7 run ids.
+  - The `Z`-suffixed times in the units' `host/logs/unit-log.txt` are local IST mislabelled as UTC (`Get-Date -Format u`). They are not UTC evidence and are not used here; the ledger records this.
+- **Arms:** frozen by PR #174 and unchanged. They share the A2 profile `b4c6a6cf8c68382f3af266b884801dbb77fb908cbaca7ed41336d4834463e62e`, checkpoint `229f527c…792b` and Runtime Pack `mavi-runtime-v2-89fd8bfcc32fb1bd8ab77f0deb9f33675ae228c75ffd11f13e6838e990003a1d` (`windows-x86_64-cuda`).
+
+| Arm | Producer | Component binding | Model Pack | Resolved config |
+|---|---|---|---|---|
+| reference | `a2-scale640` | `f7ace806b79576ec58707a14a5ac9c3fb6a274e52124894f7f667478e27989b7` | `mavi-model-v2-86754e364c7560c407b531900de58eb5e66fd365685677f8f24a5a61b3186700` | `377d9f57…5ee3` |
+| candidate | `a2-scale1280` | `03d3a00b33d0565bf2909df94e4f7999bc700ecbcc36229cd670f00299612fa3` | `mavi-model-v2-9f1f9f70f69388e1bb1068a6a1bcd97d3439c8c9f14bd3cdaa2abf78d513d871` | `6ef856f4…2047` |
+
+**Domains.**
+
+| Domain | Outcome |
+|---|---|
+| VisDrone2019-MOT (aerial drone video) | **Executed:** val and test-dev, all 24 sequences, 9,481 frames |
+| UAVDT-Benchmark-M (aerial; night, fog, altitude, view) | **Not executed: acquisition unavailable.** Both authoritative archives on the authors' Google Drive (`UAV-benchmark-M.zip`, 6,790,452,113 B; `UAV-benchmark-MOTD_v1.0.zip`, 245,719,325 B) returned a Google Drive "Quota exceeded" page on every logged retry round (rounds 1–46, from 2026-10-06T23:23 IST); an earlier, untimestamped downloader run had failed on curl byte-range resume errors. The owner terminated further retries at round 46 (2026-10-07T01:26:54Z). The frozen 60-round × 10-min window was not completed, so this is an **early termination** and an owner-directed deviation from the methodology's frozen condition for recording UAVDT unavailable; the methodology file itself is unchanged. No substitute source was used. The partial files (2,040-byte quota pages) and `acquisition/download.log` are retained. |
+| Fixed-camera traffic (UA-DETRAC, KITTI tracking) | **Unavailable.** UA-DETRAC has no authoritative download; KITTI requires account registration. |
+
+**Dataset and provenance (VisDrone2019-MOT).**
+
+| Item | Value |
+|---|---|
+| Dataset / release / splits | `visdrone2019-mot` / VisDrone2019-MOT (val, test-dev; toolkit v1.0.2 category scheme) / `val` (7 sequences, 2,846 frames), `test-dev` (17 sequences, 6,635 frames) |
+| Archives | `VisDrone2019-MOT-val.zip`, 1,602,397,759 B, SHA-256 `e53571990dfc79229e0a8ae10264bc4fa604a027c44b06e3a097417e4fa55705`; `VisDrone2019-MOT-test-dev.zip`, 2,293,482,321 B, SHA-256 `758abe40bf20246e7e778ac61eaa557cf004b034b6e68e85006e5add68e17eb5`. Both from the authors' links on `github.com/VisDrone/VisDrone-Dataset`; acquisition manifest `acquisition/acquisition-manifest.json` |
+| Adapter | `visdrone2019-mot` v2 (`tools/benchmarks/datasets/visdrone_mot.py`) |
+| Frozen descriptor | `visdrone/desc/frozen.json`, SHA-256 `62fe0c4ce543a60845b13145819ad2acbb60e8ccfab4960ecd4bc559576c79c3`; 9,505 manifest entries |
+| Derivation manifests | val `9de3bffdf65694b367eb25684ef4f954a23de3a54d7ec44e5191def1d34d3463`; test-dev `71bd96fa3b4908cdf7ce3defbf84094a5ea79201ee7b5d445b41a681dc966a32`. Frame time 30/1. Nine sequences with an odd height (1360×765, 1904×1071) were padded by one black bottom row, with the GT re-expressed in the padded frame. |
+| Source resolutions | 680×382, 960×540, 1344×756, 1360×765, 1904×1071, 1920×1080, 2688×1512, 2720×1530, 3840×2160 |
+| Mapping | SHA-256 `d45e28d93e23b0141939ec3b0ee308502e7a23850cffa73d664f699c181deaf1`: car, truck, bus `exact`; motor → motorcycle `exact`; van, tricycle, awning-tricycle, others `vehicle-unresolved`; pedestrian, people, bicycle `outside-capability` |
+| GT semantics | Category 0 → ignore regions; score 0 → ignored frame; a class change → ignored throughout; `others` → ignored throughout |
+| Research use | RESEARCH-UNCERTAIN: the dataset repository states no licence, and the toolkit says "for research purpose only" |
+| Exposure | `none-known`: the detector checkpoint trains on COCO 2017 only; no MAVI record names VisDrone, and VisDrone images are not COCO images |
+
+**Execution.** Four units, one per (partition, arm). Each had its own fresh catalogue, media and evidence store, journal and receipt, and none was rerun.
+- **Execution identity:** MAVI commit, `toolingCommit` and attested `maviCommit` are all `c2f3db250d1b895af0a4f9ba53b7026238679651`; `toolingSha256` is `543360493c283b4223242a3755c1e64d8c990451983d3d6e06e67c375a61ce55`.
+- **Evaluation:** association policy `a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05` and requirements `ca28702f82c6845298a2cf348d7b057024923c7a0a0f4fd496097bf1b7272d75`, both inherited unchanged from H3.
+- **First-export sentinel:** each unit's sentinel confirmed the arm's tuple and resolved config on its first export.
+
+| Unit | Catalogue (created, UTC) | Sequences | Vehicle Tracks (sealed trajectories) | `benchmarkRunId` | `result.json` SHA-256 |
+|---|---|---|---|---|---|
+| val × 640 | `mavi_h4_20261006_vd_val_640` (19:50:09Z) | 7 / 7 | 122 | `bf79ccdff86bae0d406fe53369b6fad3451db1571f6a5e12c36933befad5f133` | `b83e2eac127ad646d35534063d7d606705ca99b09ab3ad1cc0b517ae7187218b` |
+| val × 1280 | `mavi_h4_20261006_vd_val_1280` (20:01:43Z) | 7 / 7 | 247 | `c1362467ace2fcedcdcd73d02e5b5a398809041455eb409c4b574138e06c61d3` | `9ca6e7e0d9347552d468f89344eef7a9e90f85c6ec22341a45fc73957b3987d5` |
+| test-dev × 640 | `mavi_h4_20261006_vd_testdev_640` (20:31:05Z) | 17 / 17 | 646 | `125c81785b40813a1a9e9152d0734f44edd58e7e28240980dda88acda0157444` | `44ec877901a7409a7d7ea5a668074a19ec592d51884dd79d95e38992e7e2748f` |
+| test-dev × 1280 | `mavi_h4_20261006_vd_testdev_1280` (20:47:09Z) | 17 / 17 | 1,075 | `eab2603439b62e37ebc4429730df51fbd85e63487643ebee643a815b94693abe` | `ab98a724d79ba8f4ced3cf8011b8043dd2845944d1a9b9a5d502d67585f85457` |
+
+**Arm completion receipts** (`h4-arm-receipt-v2`, `units/<unit>/evidence/arm-receipt.json`).
+- Each receipt binds the derivation manifest, the producer tuple at freeze commit `c2f3db25`, every `Completed` export with its SHA-256, every sealed trajectory hash and the journal.
+- Each was rebuilt on 2026-10-07 from retained evidence only, with no inference: identity is now a pure function of that evidence, and the build time is in an unhashed sidecar.
+- Each verified. A second independent build of each gave byte-identical files, which are retained in `analysis/receipt-determinism/` with `determinism.txt`.
+- The v1 receipts are kept as `arm-receipt.superseded-v1.json`.
+
+| Unit | `receiptSha256` (v2) | Superseded v1 |
+|---|---|---|
+| val × 640 | `33caaadd9f862c73f6f14b9824e46638913fd4adea0e7dc166304ff23ec6b3cc` | `492fa9bb…ac90` |
+| val × 1280 | `5911b674aa387220d302941523216c3dd1fe550a75aa69dbaaf68f6985406573` | `45f333d6…28dd` |
+| test-dev × 640 | `15fc7ceed8242f4b4d0f20366c58778afd434444ccd827c861b3e178a2b9b6b4` | `29c7aef1…1748` |
+| test-dev × 1280 | `2dd2c3a81302561f7064c43b513757f1080c4fff030e204d2818c1a359138888` | `eb08995a…08bd` |
+
+**Paired comparison.**
+- **Files:** `analysis/visdrone-comparison-v2.json`, SHA-256 `c190437f42b57f002061e00b6aa9e7fd2ac149ed5d9803298b179c0a297dc1af`, from spec `analysis/visdrone-spec-v2.json` (`c6afff04ada72841962eddd3fb0ddce7db346a9f8d1d22202f505cce7af2c703`), by `tools.benchmarks.h4.compare` as merged in PR #175.
+- **Bindings checked:** it binds `methodologyCommit` `c2f3db25` and `methodologySha256` `be6a55b5…f72b`, every frozen value, and the four verified receipts above.
+- **Same figures as before:** the earlier `analysis/visdrone-comparison.json` (`8d1d7e1e…f1e5`), made before those bindings existed, has identical figures; it is superseded, not discarded.
+
+**Scope A — association coverage, both partitions summed (Observed).**
+
+| Measure | a2-scale640 | a2-scale1280 |
+|---|---|---|
+| Expected-vehicle GT | 1,528 | 1,528 |
+| — assigned | 333 | 572 |
+| — ambiguous / merged / fragmented / unverified | 2 / 3 / 22 / 23 | 5 / 11 / 41 / 52 |
+| — unmatched | 1,145 | 847 |
+| Ignored GT | 161 | 161 |
+| **Association rate** | **333/1,528 = 21.8%** | **572/1,528 = 37.4%** |
+| Vehicle Tracks | 768 | 1,322 |
+| — assigned / fragment / unverified / ignored / unmatched | 333 / 36 / 26 / 23 / 350 | 574 / 116 / 56 / 75 / 501 |
+| Zero-assigned sequences | 2 | 2 |
+
+**Paired 640 → 1280 (Derived).**
+- **Association:** ΔAssigned is +239 and Δassociation is **+15.64 pp**.
+  - Descriptive paired, partition-stratified sequence bootstrap: 10,000 draws, seed 20261006, 95% interval **[+11.53, +19.78] pp**.
+  - That interval is descriptive; there is no pass/fail.
+- **Transitions:** 272 GT become assigned and 33 stop being assigned; 300 are assigned in both arms.
+- **Tracking cost per extra assigned GT:**
+  - 2.32 Vehicle Tracks (+554);
+  - 0.079 fragmented GT (+19);
+  - 0.335 fragment MAVI Tracks (+80).
+- **Unmatched MAVI Tracks:** +151.
+
+**Strata (Observed).**
+
+| GT median source height | GT | 640 assigned | 1280 assigned |
+|---|---|---|---|
+| < 20 px | 140 | 2 (1.4%) | 5 (3.6%) |
+| 20–40 px | 623 | 59 (9.5%) | 169 (27.1%) |
+| 40–80 px | 531 | 159 (29.9%) | 257 (48.4%) |
+| 80–160 px | 197 | 87 (44.2%) | 115 (58.4%) |
+| ≥ 160 px | 37 | 26 (70.3%) | 26 (70.3%) |
+
+| Native class (association) | GT | 640 assigned | 1280 assigned |
+|---|---|---|---|
+| car (`exact`) | 922 | 286 (31.0%) | 488 (52.9%) |
+| truck (`exact`) | 68 | 14 (20.6%) | 26 (38.2%) |
+| bus (`exact`) | 15 | 2 (13.3%) | 7 (46.7%) |
+| motor → motorcycle (`exact`) | 349 | 0 (0.0%) | 8 (2.3%) |
+| van (`vehicle-unresolved`) | 84 | 29 (34.5%) | 40 (47.6%) |
+| tricycle (`vehicle-unresolved`) | 60 | 1 (1.7%) | 1 (1.7%) |
+| awning-tricycle (`vehicle-unresolved`) | 30 | 1 (3.3%) | 2 (6.7%) |
+
+| Source resolution | Sequences | GT | 640 assigned | 1280 assigned |
+|---|---|---|---|---|
+| 680×382 | 1 | 70 | 23 | 31 |
+| 960×540 | 3 | 167 | 15 | 36 |
+| 1344×756 | 4 | 330 | 39 | 97 |
+| 1360×765 | 5 | 386 | 114 | 162 |
+| 1904×1071 | 4 | 252 | 69 | 101 |
+| 1920×1080 | 3 | 152 | 30 | 79 |
+| 2688×1512 | 1 | 64 | 18 | 32 |
+| 2720×1530 | 2 | 62 | 18 | 27 |
+| 3840×2160 | 1 | 45 | 7 | 7 |
+
+**Scope B — Track-conditional subclass quality, per partition (assigned exact-GT pairs only; support floor 30).** Each cell gives support / recall / precision among judged Tracks (precision status when it is not computed) / undetermined.
+
+| Partition | Class | a2-scale640 | a2-scale1280 |
+|---|---|---|---|
+| val | car | 55 adequate / 53/55 / 53/53 (not-available: 12 unjudgeable) / 2/55 | 80 adequate / 78/80 / 78/78 (not-available: 15 unjudgeable) / 0/80 |
+| val | truck | 1 insufficient / 1/1 / 1/1 / 0/1 | 2 insufficient / 2/2 / 2/4 / 0/2 |
+| val | bus | 0 / — / no-judgeable-predictions / — | 0 / — / no-judgeable-predictions / — |
+| val | motorcycle | 0 / — / no-judgeable-predictions / — | 5 insufficient / 5/5 / 5/7 (not-available: 1 unjudgeable) / 0/5 |
+| test-dev | car | 231 adequate / 228/231 / 228/228 (not-available: 13 unjudgeable) / 1/231 | 408 adequate / 405/408 / 405/405 (not-available: 18 unjudgeable) / 2/408 |
+| test-dev | truck | 13 insufficient / 7/13 / 7/7 / 6/13 | 24 insufficient / 19/24 / 19/19 (not-available: 1 unjudgeable) / 2/24 |
+| test-dev | bus | 2 insufficient / 1/2 / 1/3 (not-available: 1 unjudgeable) / 1/2 | 7 insufficient / 7/7 / 7/11 (not-available: 1 unjudgeable) / 0/7 |
+| test-dev | motorcycle | 0 / — / no-judgeable-predictions / — | 3 insufficient / 3/3 / 3/3 / 0/3 |
+
+- **Off-diagonal confusion (truth → MAVI outcome):**
+  - 640: val car → undetermined 2; test-dev car → bus 2, car → undetermined 1, bus → undetermined 1, truck → undetermined 6.
+  - 1280: val car → truck 2; test-dev car → bus 1, car → undetermined 2, truck → bus 3, truck → undetermined 2.
+- **Overall exact-GT, correct of evaluable:**
+  - val: 54/56 (640) and 85/87 (1280);
+  - test-dev: 236/246 (640) and 434/442 (1280).
+- **Unjudgeable Tracks:** unjudgeable predictions are mostly Tracks assigned to `van`, which is `vehicle-unresolved`. For example, test-dev 1280 has van → car 18, truck 1, bus 1.
+
+**Interpretation.**
+- **Observed:** on identical aerial footage, the scale-1280 candidate associates 572 of 1,528 expected-vehicle GT, against 333 for the 640 reference.
+- **Derived:** Δassociation is +15.6 pp, with a descriptive interval of [+11.5, +19.8].
+- **Derived from Observed per-arm rates — where the gain sits:** it concentrates at 20–160 px. Under 20 px stays near zero (1.4% → 3.6%), and ≥ 160 px is unchanged (70.3% in both arms).
+- **Derived — tracking cost:**
+  - Each extra assigned GT costs 2.32 Vehicle Tracks, 0.079 fragmented GT and 0.335 fragment MAVI Tracks.
+  - Every ratio is lower than the scale-1280 diagnostic on BDD100K (5.192 / 0.533 / 0.578; *H3 detector-side diagnosis*). That is a cross-domain comparison of Development diagnostics, not pooled evidence and not a limit.
+- **Observed — Vehicle Tracks:** they rise from 768 to 1,322, and unmatched MAVI Tracks from 350 to 501. VisDrone may not label every visible vehicle (and ignores `others`), so unmatched Tracks are not automatically false positives.
+- **Observed — subclass on associated Tracks:**
+  - car stays near-perfect in both arms with adequate support;
+  - truck recall improves on test-dev (7/13 → 19/24), with three trucks classified bus at 1280;
+  - bus support grows from 2 to 7, all 7 correct at 1280 (recall 7/7). Precision among judged Tracks is only 7/11, because one car and three trucks were classified bus;
+  - motorcycle goes from no association (0 of 349 motor GT) to 8 assigned exact-GT pairs (5 val, 3 test-dev), all classified motorcycle.
+  - Truck, bus and motorcycle support are all far below the floor of 30, so those classes remain insufficiently supported in this domain.
+- **Inferred:** the scale-1280 candidate's association gain on BDD100K transfers to this aerial domain. Here it comes with a lower tracking cost per extra assigned GT than on BDD100K. Small vehicles under 20 px remain unsolved.
+- **Hypothesis (post hoc, descriptive, not tested):** the gain may depend on effective object scale rather than source resolution. The one 3840×2160 sequence shows no gain (7 → 7). n = 1, so no inference is drawn.
+
+**Limitations.**
+- **One domain:** both obtainable H4 domains were aerial, and only VisDrone was executed. There is no fixed-camera traffic evidence, and **no claim is made about night, fog, altitude, view or any other UAVDT condition**.
+- **Frame rate:** 30 fps is an assumption, because VisDrone states no frame rate. Both arms share the same assumed timing, so there is no explicit between-arm input asymmetry. The paired result is still conditional on that cadence, because the A2 tracker lifecycle is timestamp-sensitive (1.0 s lost buffer) and the arms feed it different detector streams. Absolute rates are not comparable with H3, which ran at 5 Hz.
+- **Small support:** Scope B support is small for every class except car.
+- **`max_per_img` saturation:** not observable from the formal runs.
+- **Not official scores:** these are not official VisDrone MOT scores.
+- **Research use:** RESEARCH-UNCERTAIN.
+
+**Status:**
+- **H4: PASS.** This is the evidence-completeness gate only, and it is domain-limited to VisDrone2019-MOT (aerial). UAVDT was not executed because acquisition was unavailable (owner-terminated retries, an owner-directed deviation from the frozen retry window); fixed-camera traffic was unavailable.
+- **Performance findings** feed H5.
+- **H5 is OPEN, with no decision taken.**
+- **Nothing is operator-exposed or Production-qualified.**
 
 ## X. Operator exposure
 
