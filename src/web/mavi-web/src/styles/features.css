@@ -92,6 +92,12 @@
 /* Why a group's controls are disabled, stated once above them rather than on
    every field: the reason is the group's, not each control's. */
 .filter-rail__hint { margin: 0; color: var(--text-muted); font-size: var(--fs-0); line-height: 1.4; }
+/* An alert inside the 252px rail: its trailing action moves below the
+   sentence (still trailing, still right-aligned) rather than squeezing the
+   sentence into a column of single words beside it. */
+.filter-rail .alert { flex-wrap: wrap; }
+.filter-rail .alert__body { flex-basis: calc(100% - var(--icon-md) - var(--s-3)); }
+.filter-rail .alert__actions { flex-basis: 100%; justify-content: flex-end; }
 
 /* The analytics coverage strip (UI/UX §14 "partially available", §17). A band
    in the results column beneath the header, not a floating alert: it describes
