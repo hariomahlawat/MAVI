@@ -303,7 +303,8 @@ public static class TrackCursorCodec
         query.FromUtc?.ToUniversalTime(),
         query.ToUtc?.ToUniversalTime(),
         query.MinimumDurationMs,
-        query.MinimumConfidence);
+        query.MinimumConfidence,
+        query.ObjectSubclass);
 
     private static bool IsBase64Url(string value) =>
         value.All(character =>
@@ -346,7 +347,11 @@ public static class TrackCursorCodec
         DateTimeOffset? FromUtc,
         DateTimeOffset? ToUtc,
         long? MinimumDurationMs,
-        double? MinimumConfidence);
+        double? MinimumConfidence,
+        // Omitted when null, so a search without a subclass filter fingerprints byte for
+        // byte as it did before X2 and its cursors stay valid across the upgrade.
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? ObjectSubclass = null);
 
     private sealed record AnalyticFilterPayload(
         FilterPayload Base,

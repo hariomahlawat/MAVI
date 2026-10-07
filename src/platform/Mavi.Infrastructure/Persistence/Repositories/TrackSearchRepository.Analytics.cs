@@ -315,7 +315,9 @@ public sealed partial class TrackSearchRepository
                     x.Candidate.track.MeanConfidence,
                     x.Candidate.track.MaxConfidence,
                     x.Candidate.track.ReviewStatus,
-                    x.Candidate.observation == null ? null : x.Candidate.observation.ThumbnailArtifactId),
+                    x.Candidate.observation == null ? null : x.Candidate.observation.ThumbnailArtifactId,
+                    x.Candidate.track.ObjectSubclass,
+                    x.Candidate.track.ObjectSubclassSource),
                 x.Unit.Id))
             .Take(take)
             .ToArrayAsync(cancellationToken);

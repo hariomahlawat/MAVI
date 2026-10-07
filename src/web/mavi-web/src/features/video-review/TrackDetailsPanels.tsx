@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ApiError } from '../../api/client';
 import { getRunAttestation } from '../../api/processing';
-import type { TrackDetail } from '../../api/tracks';
+import { objectClassLabel, type TrackDetail } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import KeyValue from '../../shared/components/KeyValue';
@@ -18,7 +18,7 @@ export function TrackSummary({ detail, displayTimeZoneId }: { detail: TrackDetai
     <KeyValue
       grid
       items={[
-        { label: 'Object class', value: detail.objectClass },
+        { label: 'Object class', value: objectClassLabel(detail) },
         { label: 'Camera', value: `${detail.camera.code} · ${detail.camera.name}` },
         { label: 'Track start', value: displayTimestamp(detail.startTimestampUtc, displayTimeZoneId) },
         { label: 'Track end', value: displayTimestamp(detail.endTimestampUtc, displayTimeZoneId) },

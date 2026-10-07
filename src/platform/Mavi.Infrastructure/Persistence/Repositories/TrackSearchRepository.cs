@@ -102,7 +102,9 @@ public sealed partial class TrackSearchRepository(
                 video.FrameRateNumerator,
                 video.FrameRateDenominator,
                 track.RepresentativeObservationId,
-                track.TrajectoryArtifactId))
+                track.TrajectoryArtifactId,
+                track.ObjectSubclass,
+                track.ObjectSubclassSource))
         .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<TrackEvidenceObservationRow>> GetEvidenceSetAsync(
@@ -170,7 +172,9 @@ public sealed partial class TrackSearchRepository(
                 x.track.MeanConfidence,
                 x.track.MaxConfidence,
                 x.track.ReviewStatus,
-                x.observation == null ? null : x.observation.ThumbnailArtifactId));
+                x.observation == null ? null : x.observation.ThumbnailArtifactId,
+                x.track.ObjectSubclass,
+                x.track.ObjectSubclassSource));
     }
 
     /// <summary>

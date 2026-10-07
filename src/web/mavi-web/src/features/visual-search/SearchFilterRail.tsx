@@ -3,10 +3,13 @@ import type { Camera } from '../../api/cameras';
 import {
   CROSSING_DIRECTIONS,
   MOTION_DIRECTIONS,
+  OBJECT_SUBCLASSES,
   ZONE_RELATIONS,
+  objectSubclassLabel,
   type CrossingDirection,
   type MotionDirection,
   type TrackObjectClass,
+  type TrackObjectSubclass,
   type ZoneRelation,
 } from '../../api/tracks';
 import type { VideoAsset } from '../../api/videos';
@@ -40,6 +43,7 @@ export type SearchDraft = {
   cameraId: string;
   videoAssetId: string;
   objectClass: '' | TrackObjectClass;
+  objectSubclass: '' | TrackObjectSubclass;
   fromLocal: string;
   toLocal: string;
   minimumDurationSeconds: string;
@@ -58,6 +62,7 @@ export const emptyDraft: SearchDraft = {
   cameraId: '',
   videoAssetId: '',
   objectClass: '',
+  objectSubclass: '',
   fromLocal: '',
   toLocal: '',
   minimumDurationSeconds: '',
@@ -222,11 +227,36 @@ export default function SearchFilterRail({
             <select
               {...control}
               value={draft.objectClass}
-              onChange={(event) => onDraftChange({ objectClass: event.target.value as '' | TrackObjectClass })}
+              onChange={(event) => {
+                const objectClass = event.target.value as '' | TrackObjectClass;
+                // A vehicle type is a refinement of Vehicle: any other choice clears it.
+                onDraftChange(objectClass === 'Vehicle' ? { objectClass } : { objectClass, objectSubclass: '' });
+              }}
             >
               <option value="">Any class</option>
               <option value="Person">Person</option>
               <option value="Vehicle">Vehicle</option>
+            </select>
+          )}
+        </Field>
+        <Field
+          label="Vehicle type"
+          help={draft.objectClass === 'Person' ? 'Vehicle type applies to Vehicles only.' : undefined}
+        >
+          {(control) => (
+            <select
+              {...control}
+              value={draft.objectSubclass}
+              disabled={draft.objectClass === 'Person'}
+              onChange={(event) => {
+                const objectSubclass = event.target.value as '' | TrackObjectSubclass;
+                onDraftChange(objectSubclass ? { objectSubclass, objectClass: 'Vehicle' } : { objectSubclass });
+              }}
+            >
+              <option value="">Any vehicle type</option>
+              {OBJECT_SUBCLASSES.map((subclass) => (
+                <option key={subclass} value={subclass}>{objectSubclassLabel(subclass)}</option>
+              ))}
             </select>
           )}
         </Field>

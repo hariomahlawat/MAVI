@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { ApiError } from '../../api/client';
-import { getTrack, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
+import { getTrack, objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
@@ -85,7 +85,7 @@ export default function TrackInspector({
     [detail?.analytics, scene],
   );
 
-  const title = detail ? `${detail.objectClass} · Track ${detail.localTrackNumber}` : summary ? `${summary.objectClass}` : 'Track';
+  const title = detail ? `${objectClassLabel(detail)} · Track ${detail.localTrackNumber}` : summary ? objectClassLabel(summary) : 'Track';
   const canPrevious = position > 0;
   const canNext = position >= 0 && (position < total - 1 || hasMore);
 

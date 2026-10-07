@@ -9,6 +9,10 @@ namespace Mavi.Contracts.Api.Tracks;
 /// compatibility, and is always derived from <c>Observations[0]</c>: it is null exactly
 /// when <see cref="Observations"/> is empty, which is the legacy shape of a Track with no
 /// Representative relation.
+/// <para>
+/// <see cref="ObjectSubclass"/> is the operator-facing vehicle subclass under the same
+/// exposure policy as search (Stage 3, X2), omitted when the Track has none to expose.
+/// </para>
 /// </remarks>
 public sealed record TrackDetailResponse(
     Guid Id,
@@ -33,7 +37,9 @@ public sealed record TrackDetailResponse(
     Guid? TrajectoryArtifactId,
     string? TrajectoryContentUrl,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    TrackDetailAnalyticsResponse? Analytics = null);
+    TrackDetailAnalyticsResponse? Analytics = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? ObjectSubclass = null);
 
 public sealed record TrackCameraResponse(Guid Id, string Code, string Name);
 

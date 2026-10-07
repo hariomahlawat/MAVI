@@ -4,11 +4,13 @@ import {
   CROSSING_DIRECTIONS,
   DEFAULT_ZONE_RELATION,
   MOTION_DIRECTIONS,
+  OBJECT_SUBCLASSES,
   ZONE_RELATIONS,
   serializePlainDecimal,
   type CrossingDirection,
   type MotionDirection,
   type TrackObjectClass,
+  type TrackObjectSubclass,
   type TrackSearchFilters,
   type ZoneRelation,
 } from '../../api/tracks';
@@ -71,6 +73,7 @@ const supportedKeys = [
   'videoAssetId',
   'processingRunId',
   'objectClass',
+  'objectSubclass',
   'fromUtc',
   'toUtc',
   'minimumDurationMs',
@@ -187,6 +190,7 @@ export function canonicalSearchParams(filters: CommittedTrackSearch): URLSearchP
   if (filters.videoAssetId) params.set('videoAssetId', filters.videoAssetId.toLowerCase());
   if (filters.processingRunId) params.set('processingRunId', filters.processingRunId.toLowerCase());
   if (filters.objectClass) params.set('objectClass', filters.objectClass);
+  if (filters.objectSubclass) params.set('objectSubclass', filters.objectSubclass);
   if (filters.fromUtc) params.set('fromUtc', canonicalUtc(filters.fromUtc) ?? filters.fromUtc);
   if (filters.toUtc) params.set('toUtc', canonicalUtc(filters.toUtc) ?? filters.toUtc);
   if (filters.minimumDurationMs !== undefined) params.set('minimumDurationMs', String(filters.minimumDurationMs));
@@ -248,6 +252,12 @@ export function withCameraScope(
 }
 
 function settleDependencies(next: CommittedTrackSearch, previous: CommittedTrackSearch): CommittedTrackSearch {
+  // A vehicle subclass is a refinement of Vehicle: it states that class, and it
+  // cannot stand under any other.
+  if (next.objectSubclass !== undefined) {
+    if (next.objectClass === undefined) next.objectClass = 'Vehicle';
+    else if (next.objectClass !== 'Vehicle') delete next.objectSubclass;
+  }
   if (next.zoneId === undefined) {
     delete next.zoneRelation;
     delete next.minDwellMs;
@@ -306,6 +316,20 @@ export function parseCommittedSearch(params: URLSearchParams): SearchParseResult
     const value = canonicalObjectClass(raw.objectClass);
     if (!value) return { isValid: false, filters: {}, canonicalQuery: '', error: 'Object class must be Person or Vehicle.' };
     filters.objectClass = value;
+  }
+
+  // Stage 3 X2: only an operator-facing subclass, exactly as spelled. It implies
+  // Vehicle, so `objectSubclass=car` and `objectClass=Vehicle&objectSubclass=car`
+  // are one search with one canonical query; it cannot stand under Person.
+  if (raw.objectSubclass !== undefined) {
+    if (!inVocabulary<TrackObjectSubclass>(OBJECT_SUBCLASSES, raw.objectSubclass)) {
+      return { isValid: false, filters: {}, canonicalQuery: '', error: 'Vehicle type must be car.' };
+    }
+    if (filters.objectClass !== undefined && filters.objectClass !== 'Vehicle') {
+      return { isValid: false, filters: {}, canonicalQuery: '', error: 'A vehicle type needs the Vehicle class.' };
+    }
+    filters.objectClass = 'Vehicle';
+    filters.objectSubclass = raw.objectSubclass;
   }
 
   if (raw.fromUtc !== undefined) {

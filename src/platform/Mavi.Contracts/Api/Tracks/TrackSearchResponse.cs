@@ -20,6 +20,12 @@ public sealed record TrackSearchResponse(
 /// <paramref name="Analytics"/> is the bounded explanation of why the row matched an
 /// analytics-dependent query, for the identity that query pinned. It is absent on an
 /// ordinary search.
+/// <para>
+/// <paramref name="ObjectSubclass"/> is the operator-facing vehicle subclass (Stage 3, X2):
+/// present only on a Vehicle whose persisted subclass the exposure policy allows (X1:
+/// <c>car</c> from the release profile), and omitted otherwise. It refines
+/// <paramref name="ObjectClass"/>; it never replaces it.
+/// </para>
 /// </remarks>
 public sealed record TrackSearchItemResponse(
     Guid Id,
@@ -42,4 +48,6 @@ public sealed record TrackSearchItemResponse(
     string? ThumbnailContentUrl,
     string VideoContentUrl,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    TrackItemAnalyticsResponse? Analytics = null);
+    TrackItemAnalyticsResponse? Analytics = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? ObjectSubclass = null);

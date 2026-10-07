@@ -53,6 +53,9 @@ public sealed class TrackSearchService(
         if (!IsValid(query))
             return TrackSearchServiceResult.Invalid();
 
+        // One semantic search, one fingerprint, one repository query.
+        query = query.Canonical;
+
         var nowUtc = timeProvider.GetUtcNow().ToUniversalTime();
         if (query.IsAnalytic)
             return await SearchAnalyticAsync(query, nowUtc, cancellationToken);
@@ -225,6 +228,13 @@ public sealed class TrackSearchService(
             return false;
 
         if (query.Analytics is { } analytics && !TrackAnalyticsQueryRules.IsValid(analytics))
+            return false;
+
+        // Only an operator-facing subclass may be searched for, and only among Vehicles:
+        // a hidden value is refused, never coerced to an empty result.
+        if (query.ObjectSubclass is { } subclass &&
+            (!VehicleSubclassExposurePolicy.IsExposable(subclass) ||
+             (query.ObjectClass is { } objectClass && objectClass != Domain.Intelligence.ObjectClass.Vehicle)))
             return false;
 
         return true;
