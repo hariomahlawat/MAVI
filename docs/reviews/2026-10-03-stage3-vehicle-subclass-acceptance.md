@@ -15,7 +15,7 @@ This register is the only authoritative exit gate for Stage 3 (`docs/architectur
 - **S3.2a T1–T6:** PRs #146–#148;
 - **S3.2b-1 T7/T8/T9 tooling:** PRs #149–#150.
 
-**DEVELOPMENT MEASUREMENT IN PROGRESS:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d is the current slice, benchmark-driven under ADR-017 (H1 PASS; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4 PASS — domain-diversity measurement recorded on VisDrone2019-MOT only (aerial), domain-limited; H5 OPEN). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
+**DEVELOPMENT MEASUREMENT COMPLETE:** S3.2b-2 complete (every E row PASS, E17 NOT TRIGGERED); S3.2b-3 complete (F1–F6 PASS); S3.2c pilot complete (G1–G9 PASS; G6 by owner-accepted deviation, G9 baseline 0.6 / 3); S3.2d complete, benchmark-driven under ADR-017 (H1 PASS; H2 PASS — framework and tooling, synthetic evidence only; H3 PASS — primary BDD100K benchmark measurement recorded, association coverage weak; H4 PASS — domain-diversity measurement recorded on VisDrone2019-MOT only (aerial), domain-limited; H5 PASS — per-class decision recorded: car, truck and bus benchmark-supported (truck and bus on BDD100K only, caveated), motorcycle deferred; X1 OPEN). **NOT OPERATOR-EXPOSED. NOT PRODUCTION-QUALIFIED.**
 
 ## Governing documents
 
@@ -41,7 +41,7 @@ These are four distinct levels. Completing one never implies the next.
 | Level | Meaning | Rows | State |
 |---|---|---|---|
 | Implementation complete | the plumbing and the measurement tooling are merged with green exact-head and post-merge CI | A, B, C, D | **PASS** |
-| Development measurement complete | real corpus intake, derivation, Development-host execution, the labelled pilot and its measurement exist (any expansion only if justified) | E, F, G, H | OPEN |
+| Development measurement complete | real corpus intake, derivation, Development-host execution, the labelled pilot and its measurement exist (any expansion only if justified) | E, F, G, H | **PASS** (E17 NOT TRIGGERED; G6 by owner-accepted deviation; H4 domain-limited) |
 | Operator exposure | the API predicate, search and UI exposure of subclass, decided on measurement evidence and built as a later increment | X | OPEN |
 | Production qualification | outside this register: Task 18 and the qualification record (`models/qualifications/rtmdet-m-coco-phase1-v2.json`, status `pending`) | — | not claimed |
 
@@ -219,7 +219,7 @@ H2–H5 are evidence outcomes, not mandated PR boundaries, approval meetings, in
 | H2 | S3.2d-1: benchmark framework and tooling merged with deterministic tests: dataset descriptor and adapter contract; per-native-class mapping contract (`exact`/`subset`/`unsupported` with reason); ground-truth Track representation; prediction-independent GT↔MAVI association with ambiguity and unmatched reporting in both directions; dataset and result provenance; split identity; known-exposure metadata (plan §14 amendment; ADR-017 §4–§6) | PASS | **S3.2d-1 slices 1–3 (PR #161, PR #162, PR #163), effective when PR #163 merges with green exact-head CI.** Contracts (schema SHA-256 / example SHA-256): `benchmark-dataset-release-v1` `aa47eefe…`/`5aa46d7b…`, `benchmark-class-mapping-v1` `210fa4c9…`/`144ccf22…`, `benchmark-association-v1` `6686ba74…`/`086d5535…`, `benchmark-vehicle-subclass-result-v1` `db814601…`/`acec370d…`. Association policy `vehicle-tracks-association-v1` SHA-256 `a8e2e7f18d6912c226444a2639dc7ee928575085d683690b8408efc6eb8ffe05`. Synthetic end-to-end through the CLI (`tools/benchmarks/tests/test_bench_synthetic_e2e.py`: describe → prepare with the FFmpeg pack → exports → evaluate, byte-identical on repeat): golden `associationBodySha256` `57266783a8bc97fce8b8a11a80e0fd7dc7dd85195d1f65425f233899f740db9b`, golden scope A+B `dfa53811a90ef76f90bf76ac8bf7ee87e6b3f7f67f23738079080d35a6bf0a73`. Mutation tests present: class/subclass/confidence mutation leaves the association body identical (`test_bench_association.py`); prediction, native-class and mapping mutations change only evaluation (`test_bench_vehicle_subclass_evaluate.py`, E2E). Modules: `tools/benchmarks/{core,datasets,capabilities/vehicle_tracks,capabilities/vehicle_subclass}`, `prepare.py`, `run.py`, `cli.py`; `msgpack>=1.1,<2` on the tools surface (`tools/requirements.txt`, dependency policy). Synthetic and tooling evidence only: no real dataset, no capability claim. |
 | H3 | S3.2d-2: primary benchmark measurement recorded. A benchmark whose native labels exactly cover the capability is preferred where reasonably available; otherwise the strongest available benchmark or combination, with explicit `exact`/`subset`/`unsupported` mappings. Lack of one perfect taxonomy does not block evidence-supported class subsets. Recorded: dataset and release identity (and source, including any archival copy and its credibility basis), research-use status with its basis (ADR-017 §7), mapping declarations, association coverage, class confusion on valid associations, per-class support, known or possible exposure; dataset bytes outside Git | PASS — evidence-completeness gate; performance findings feed H5 | **Run `bea73d13cd76bcd432319cab88a763d2af6139a34c013e2e93b71363a17f9f9b` (attempt 2), executed 2026-10-05 on `main@359073429154bb0839e53cc30b2f55f58f9f35d4`** under the runbook `docs/superpowers/plans/2026-10-05-stage3-s3-2d-2-bdd100k-h3-execution.md`. Complete (200 of 200 sequences), reproducible (frozen descriptor; derivation manifest reproduced byte-for-byte across two attempts; write-once results verified by `run.verify`), provenance-bound and reported under the frozen association policy. Association coverage is weak (12.6%) but not coverage-limited (1.87% against the 1/10 threshold). Full evidence in **H3 evidence** below. |
 | H4 | S3.2d-3: domain-diversity benchmark measurement(s) recorded with the same fields, each contributing only to the classes and domains it supports; or recorded NOT TRIGGERED with a technical rationale showing that additional domain-diversity evidence is not materially useful for the current capability decision (no owner approval needed for that call; the owner may still intervene where the decision is consequential) | PASS — evidence-completeness gate, domain-limited (VisDrone2019-MOT, aerial, only); performance findings feed H5 | Event `H4-2026-10-06`: methodology `docs/qualification/stage3/h4/h4-methodology-v1.{md,json}` frozen at `c2f3db25` before any H4 inference (*H4 methodology freeze*). Paired `a2-scale640` / `a2-scale1280` executed on VisDrone2019-MOT (24 sequences, 9,481 frames; four verified v2 arm receipts). Association 21.8% → 37.4%, Δ +15.64 pp, descriptive interval [+11.53, +19.78]. UAVDT-M not executed (authoritative source quota-unavailable; owner terminated retries); fixed-camera traffic unavailable. No UAVDT-condition, Production or H5 claim. Full evidence in **H4 evidence** below. |
-| H5 | S3.2d-4: evidence-backed capability decision recorded per class and evidence domain (benchmark-supported, Development-only, insufficiently supported, deferred), on H3, H4 and the pilot (G8); no unsupported class advanced | OPEN | |
+| H5 | S3.2d-4: evidence-backed capability decision recorded per class and evidence domain (benchmark-supported, Development-only, insufficiently supported, deferred), on H3, H4 and the pilot (G8); no unsupported class advanced | PASS — evidence-backed per-class/per-domain capability decision recorded; no unsupported class advanced | Overall (owner-ruled definitions, *H5 evidence*): car **benchmark-supported** (BDD100K and VisDrone); truck **benchmark-supported** (BDD100K only; precision 47/74 = 0.6351 and van/caravan taxonomy caveat carried to X1); bus **benchmark-supported** (BDD100K only, 34; domain-limited); motorcycle **deferred — insufficient support** (no source ≥ 30). Track-conditional evidence status only: not exposure approval, quality pass or Production qualification; end-to-end association coverage remains weak and is recorded separately. X1/X2 read the overall disposition for global allowlist eligibility; no domain-restricted exposure. `a2-scale1280` is the preferred Development candidate only. X1 stays OPEN. |
 
 ### H3 evidence — S3.2d-2 primary benchmark measurement (BDD100K MOT 2020 val)
 
@@ -866,6 +866,98 @@ H4 is closed on the evidence actually obtained: one completed domain, **VisDrone
 - **Performance findings** feed H5.
 - **H5 is OPEN, with no decision taken.**
 - **Nothing is operator-exposed or Production-qualified.**
+
+### H5 evidence — S3.2d-4 capability decision (recorded 2026-10-07)
+
+This section synthesises already-recorded evidence only. No experiment, inference, acquisition, tuning or threshold change was run for H5, and no G or H evidence above is altered.
+
+**Disposition definitions (owner ruling, 2026-10-07).** H5 evidence stays per class and per evidence domain.
+
+| Disposition | Definition |
+|---|---|
+| **benchmark-supported** | At least one admissible benchmark domain (ADR-017 §7) provides ≥ 30 supporting/evaluable Tracks for the class under an applicable mapping, which permits a per-class benchmark conclusion. A different source below 30 is insufficient evidence *for that source*; it does not negate an adequately supported benchmark result. |
+| **Development-only** | Meaningful Development evidence exists, but no benchmark domain reaches a benchmark-supported per-class conclusion. |
+| **insufficiently supported** | No available source reaches the registered support floor. |
+| **deferred** | Insufficiently supported, with no further Stage-3 evidence acquisition being pursued. |
+
+**Meaning and rules.**
+- **An evidence status only:** `benchmark-supported` is not an operator-exposure approval, not a quality pass and not Production qualification.
+- **No threshold invented:** the registered operational precision and recall minimums are all `null` (G1, `ca28702f…`), so no post-hoc performance threshold is applied. Measured precision and recall are carried as caveats.
+- **Floor:** 30 evaluable Tracks per class, per evidence source. Below it, no per-class conclusion is drawn for that source, and sparse correct examples never make a class supported.
+- **No pooling:** sources are never pooled. The two VisDrone partitions of one release are summed only to show a sub-floor class stays below the floor; each is below it on its own.
+- **Track-conditional metrics:** every recall and precision figure below is Track-conditional subclass classification on associated (or human-labelled) Tracks. None of them is end-to-end detection or tracking performance.
+- **End-to-end coverage:** association coverage is reported separately, and it is weak.
+  - **BDD100K:** 1,685/13,412 = 12.6% of expected vehicle GT (car 12.8%, truck 8.1%, bus 18.4%, motorcycle 0 of 41).
+  - **VisDrone:** 21.8% at scale 640 and 37.4% at scale 1280.
+- **How X1 and X2 use H5:**
+  - For the current Stage-3 product architecture, they read the **overall** H5 disposition to decide which classes are eligible for the global allowlist.
+  - Per-domain cells inform the X1 decision and its caveats, but they do not authorise domain-restricted exposure. There is no validated runtime domain-enforcement mechanism, so any future domain-restricted exposure needs its own design and decision.
+  - X1 may approve only a subset of the H5-eligible classes.
+
+**Evidence sources.**
+
+| Source | Domain | Profile / producer | Kind | Admissibility |
+|---|---|---|---|---|
+| G8 pilot | publicly sourced street video (Wikimedia Commons, event `2026-10-03-commons`), 6 cameras | `afb03b6c…` (`1.3.0-candidate`, G9 thresholds 0.6 / 3) at scale 640 | human-labelled sampled Tracks, Track-conditional; not a benchmark | — |
+| H3 BDD100K MOT 2020 val | moving U.S. dashcam | `afb03b6c…` at scale 640 | benchmark: Scope A association, Scope B Track-conditional | RESEARCH-ADMISSIBLE |
+| H4 VisDrone2019-MOT val + test-dev | aerial drone | A2 Development producers, profile `b4c6a6cf…` (`developmentOnly`, activation 0.61; same subclass thresholds 0.6 / 3) at scales 640 and 1280 | benchmark, paired 640 / 1280 | RESEARCH-UNCERTAIN (Development use permitted, ADR-017 §7) |
+
+**Producer attachment.** The pilot and H3 cells were measured on `afb03b6c…` at scale 640. The VisDrone cells were measured on the A2 profile. The preferred `a2-scale1280` therefore has subclass evidence only from VisDrone, and at the floor only for car: its truck (26) and bus (7) evidence is below 30. The truck and bus benchmark support exists only on `afb03b6c…` at scale 640. No disposition depends on VisDrone's RESEARCH-UNCERTAIN status, because car is benchmark-supported on BDD100K alone and every VisDrone cell for truck, bus and motorcycle is below the floor.
+
+**Matrix.**
+- Support is evaluable Tracks against the floor of 30.
+- Recall and precision are Track-conditional.
+- H4 figures are for `a2-scale1280` (`a2-scale640` in brackets), shown as val + test-dev.
+
+| Class | G8 pilot | H3 BDD100K | H4 VisDrone | Overall H5 disposition |
+|---|---|---|---|---|
+| car | 103 ≥ 30 · recall 101/103 · precision 101/102 · adequately supported (not a benchmark) | 1,595 ≥ 30 · recall 0.9787 · precision 0.9962 · **benchmark-supported** | 80 + 408 ≥ 30 (55 + 231) · recall 78/80, 405/408 · precision among judged 100% (status not-available: mostly van Tracks unjudgeable) · **benchmark-supported** | **benchmark-supported** (two benchmark domains) |
+| truck | 5 < 30 · insufficient for this source | 56 ≥ 30 · recall 47/56 = 0.8393 · precision 47/74 = 0.6351 (27 `car` → truck; van/caravan → car alias caveat) · **benchmark-supported** | 2 + 24 = 26 < 30 (1 + 13) · insufficient for this source | **benchmark-supported** (BDD100K only; precision and taxonomy caveat carried to X1) |
+| bus | 7 < 30 · insufficient for this source | 34 ≥ 30 · recall 34/34 = 1.000 · precision 34/37 = 0.9189 · **benchmark-supported** | 0 + 7 = 7 < 30 (0 + 2) · insufficient for this source | **benchmark-supported** (BDD100K only; domain-limited) |
+| motorcycle | 0 · insufficient | 0 (41 GT, none associated) · insufficient | 5 + 3 = 8 < 30 (0) · insufficient | **deferred — insufficient support** |
+
+**Car — benchmark-supported.**
+- **Support:** car clears the floor in both benchmark domains (BDD100K dashcam; VisDrone aerial, both partitions, both producers) and in the pilot.
+- **Classification:** Track-conditional recall is 0.96–0.99, and precision is at or near 1.0 wherever it is computable. VisDrone car precision is formally `not-available`, because MAVI `car` predictions on `vehicle-unresolved` Tracks (mostly van) cannot be judged.
+- **End-to-end caveat:** end-to-end car coverage is weak (BDD100K 12.8%; VisDrone 31.0% at 640, 52.9% at 1280). That is a detector and tracker limitation, recorded separately.
+- **Not separately evidenced:** subclass results broken down by lighting or weather (night, fog, adverse conditions), and a fixed-camera traffic benchmark.
+
+**Truck — benchmark-supported (BDD100K only), caveated.**
+- **Support:** BDD100K provides 56 evaluable Tracks under its `exact` truck mapping, so H5 records a per-class benchmark conclusion.
+- **Caveats carried explicitly into X1:**
+  - Precision is 47/74 = 0.6351. Twenty-seven BDD100K `car` Tracks were classified truck.
+  - The conversion may fold van/caravan aliases into `car` (H3 caveat; taxonomy review), so it is not established how much of the precision shortfall is MAVI error and how much is label taxonomy. H3 notes the same caveat also affects the interpretation of truck recall.
+  - Recall is 47/56 = 0.8393.
+- **Sub-floor sources:** the pilot (5; precision 3/7) and VisDrone (26 at 1280; 19 of 24 correct on test-dev, with 3 trucks classified bus) are insufficient for those sources. They do not negate the BDD100K result and are not interpreted.
+
+**Bus — benchmark-supported (BDD100K only), domain-limited.**
+- **Support:** BDD100K clears the floor with 34 (recall 34/34, precision 34/37), only just above it.
+- **Domain limit:** the conclusion rests on one dashcam benchmark.
+- **Sub-floor sources:** the pilot (7; recall 2/7) and VisDrone (7; 7/7) are insufficient for those sources and are not interpreted.
+
+**Motorcycle — deferred (insufficient support).**
+- **No source reaches the floor.** The pilot had 0. BDD100K had 41 GT, none associated. VisDrone at 1280 produced 8 associated motorcycle Tracks (8 of 349 motor GT, 2.3%), all classified motorcycle.
+- **Why deferred:** that is sparse descriptive evidence and does not advance the class. No further Stage-3 evidence acquisition is being pursued: the UAVDT retries were terminated by the owner (H4).
+- **Limitation:** classification quality is unmeasured at the floor, and the immediate limitation is end-to-end association.
+
+**Development producer disposition.** This is separate from the per-class decision, and it is not producer selection for exposure.
+
+| Evidence | Scale 640 → 1280 |
+|---|---|
+| H3 BDD100K diagnostics (*H3 detector-side diagnosis*) | Δassociation +4.47 pp, descriptive CI [+3.73, +5.21]. Per extra assigned GT: 5.192 Vehicle Tracks, 0.533 fragmented GT, 0.578 fragment MAVI Tracks. Under 20 px: 0.11% → 0.83% |
+| H4 VisDrone (paired A2 producers) | Association 21.8% → 37.4%, Δ +15.64 pp, descriptive interval [+11.53, +19.78]. Vehicle Tracks 768 → 1,322. Per extra assigned GT: 2.32 Vehicle Tracks, 0.079 fragmented GT, 0.335 fragment MAVI Tracks. Under 20 px: 1.4% → 3.6% |
+
+- **Inferred:** scale 1280 materially improves association in both measured domains. The gain costs extra Vehicle Tracks and fragmentation, and vehicles under 20 px remain largely unresolved.
+- **Disposition:** the evidence supports `a2-scale1280` (`phase1-rtmdet-m-scale1280-a2`, `1.0.0-development`) as the **preferred Development candidate for subsequent work**.
+- **What this is not:** it is not Production promotion or qualification, and it does not define the operator-exposed profile.
+- **G9 is unchanged:** G9 froze `minShare` 0.6 and `minMatchedDetections` 3 on the measured profile `afb03b6c…` (`1.3.0-candidate`). The A2 profile `b4c6a6cf…` carries the same subclass thresholds, but it is a distinct, `developmentOnly` profile. Whether any profile, and which, may back operator exposure is left to X1.
+
+**Status:**
+- **H5:** PASS. The evidence-backed per-class and per-domain decision is recorded under the definitions above, and no class without a benchmark domain at the floor was advanced.
+- **H5-eligible classes (overall `benchmark-supported`):** car, truck and bus. Motorcycle is deferred.
+- **What H5 PASS does not mean:** that any class is approved for operators, that any quality bar is passed, that anything is Production-qualified, or that scale 1280 is Production-ready.
+- **X1:** stays OPEN. Operator exposure is a separate, consequential product decision: X1 decides which of the H5-eligible classes, if any, become operator-visible and under which profile. It may approve a subset, and it must carry the truck and bus caveats, including that their benchmark support exists only on `afb03b6c…` at scale 640 and not on `a2-scale1280`.
+- **Exposure and qualification:** nothing is operator-exposed or Production-qualified.
 
 ## X. Operator exposure
 
