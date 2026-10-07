@@ -1,14 +1,14 @@
 # MAVI UI/UX Design Specification
 
 **Version:** 2.0 (Stage 3.5 architecture freeze, 2026-10-07)
-**Status:** Adopted. Normative for all frontend work. Full conformance (§34) is the baseline; the UI-1 → UI-5 transitional clause (§34.1) is closed.
+**Status:** Adopted. Normative for all frontend work. Full conformance (§34) is the baseline from Stage 3.5 closure; during the Stage 3.5 programme the staged-conformance rule §34.2 states exactly what each slice must meet. The UI-1 → UI-5 transitional clause (§34.1) is closed.
 **Design baseline (v1.0):** `main@b99ce26f041b3fff25094b8a5ac6a84f7305fc87`
 **Audit baseline (v2.0):** `main@98e5cd3f3ae8ca636ffbe2115c6b74b4ebcb2b16` (Stage 3 closed; UI-1 → UI-5 and Scene Analytics Slices 0–7 merged)
 **Scope of authority:** the MAVI operator UI (`src/web/mavi-web`).
 **Decision record:** `docs/decisions/ADR-012-operator-interface-design-architecture.md` accepts the architecture this document specifies; its **Amendment 2026-10-07 (Stage 3.5)** accepts the v2.0 changes. The ADR records the decisions and the trade-offs; this document is the normative detail.
 **Programme record:** the Stage 3.5 audit, decisions and slice sequence are in `docs/superpowers/plans/2026-10-07-stage3-5-ui-ux-professionalisation.md`; the exit gate is `docs/reviews/2026-10-07-stage3-5-ui-ux-professionalisation-acceptance.md`.
 
-**What changed in 2.0.** Version 1.0 froze the architecture (archetypes, tokens, colour roles, state taxonomy, accessibility, visual QA) and the UI-1 → UI-5 programme that built it. Every surface now sits on that architecture, and the Stage 3.5 audit of the real application found that the architecture holds but the *product quality* on top of it does not yet: containment that reads as empty frames, a primary-action accent repeated on every row, four different placements of the same "unavailable" state, drawers that move no focus, native confirms still in use, responsive behaviour defined only at desktop snapshots, and a visual-QA method with no automated layout assertions beyond overflow and overlap. Version 2.0 therefore adds a quality direction (§2), the **product craftsmanship standard** (§36), the **edge-state and progressive-disclosure catalogue** (§37), **performance as UX** (§38), explicit **support tiers** replacing the v1.0 viewport table (§25), a revised **visual-regression strategy** (§26), a WCAG 2.2 AA target with harness-asserted obligations (§23), amended archetype, colour, state, shell, interaction, table, search, inspector and component rules where the audit found them insufficient (each marked *Amended in v2.0*), a conformance definition (§34) under which a surface is not complete merely because its functional tests pass, and the programme pointer (§39). The UI-1 → UI-5 roadmap (§33) and its transitional clause (§34.1) are marked **Historical**, the mobile deferral (§31) is clarified, and v1.0 text that is no longer normative is kept rather than rewritten out of the record.
+**What changed in 2.0.** Version 1.0 froze the architecture (archetypes, tokens, colour roles, state taxonomy, accessibility, visual QA) and the UI-1 → UI-5 programme that built it. Every surface now sits on that architecture, and the Stage 3.5 audit of the real application found that the architecture holds but the *product quality* on top of it does not yet: containment that reads as empty frames, a primary-action accent repeated on every row, four different placements of the same "unavailable" state, drawers that move no focus, native confirms still in use, responsive behaviour defined only at desktop snapshots, and a visual-QA method with no automated layout assertions beyond overflow and overlap. Version 2.0 therefore adds a quality direction (§2), the **product craftsmanship standard** (§36), the **edge-state and progressive-disclosure catalogue** (§37), **performance as UX** (§38), explicit **support tiers** replacing the v1.0 viewport table (§25), a revised **visual-regression strategy** (§26), a WCAG 2.2 AA target with harness-asserted obligations (§23), amended archetype, colour, state, shell, interaction, table, search, inspector and component rules where the audit found them insufficient (each marked *Amended in v2.0*), a conformance definition (§34) under which a surface is not complete merely because its functional tests pass, a staged-conformance rule for the programme that implements v2.0 (§34.2), and the programme pointer (§39). The UI-1 → UI-5 roadmap (§33) and its transitional clause (§34.1) are marked **Historical**, the mobile deferral (§31) is clarified, and v1.0 text that is no longer normative is kept rather than rewritten out of the record.
 
 Status markers used throughout:
 
@@ -30,7 +30,7 @@ This document governs the visual design, layout architecture, interaction gramma
 
 **Does not govern:** backend contracts, API shape, analytics semantics, worker behaviour, or the capability roadmap sequence. Where a UI rule and an ADR conflict, the ADR wins and this document is amended.
 
-**Conformance:** §34 defines what a frontend PR must satisfy. §34.1, which governed the UI-1 → UI-5 migration period, is closed; no surface may rely on it.
+**Conformance:** §34 defines what a frontend PR must satisfy. §34.1, which governed the UI-1 → UI-5 migration period, is closed; no surface may rely on it. §34.2 governs the Stage 3.5 programme slices S1–S6 and expires at S7 closure.
 
 **Precedence:** `AGENTS.md` and accepted ADRs > this specification > individual PR judgement.
 
@@ -89,9 +89,9 @@ Shared rules for all archetypes:
 - Each begins with a **Context Bar** (§5): 44px, identity + state + primary actions.
 - A large page title with a description sentence is **removed** from the product. Explanatory prose moves to a disclosure or is cut.
 - Exactly one element owns vertical scroll per archetype.
-- Below 1100px viewport width all archetypes stack to a single column and the page scrolls. Below 768px layout must not break, but is not an acceptance target (§25).
+- ~~Below 1100px viewport width all archetypes stack to a single column and the page scrolls. Below 768px layout must not break, but is not an acceptance target (§25).~~ **Amended in v2.0:** composition below Tier A is defined per archetype and per tier in §25, which is authoritative for responsive composition; this section is authoritative for scroll ownership at Tier A. The shared ≤1100px rule survives for the multi-column archetypes — Record, Workbench, Investigation and Review stack to a single column at ≤1100px and the page scrolls — while a Ledger, which has one column at every width, keeps the table body as its scroll owner and collapses columns per §25. Below 768px (Tier C) each archetype has the explicit degraded composition in §25; "must not break" is no longer the rule.
 
-**Scroll-ownership summary (frozen, authoritative — §25 must agree with this table):**
+**Scroll-ownership summary (frozen, authoritative at Tier A — §25 must agree with this table, and states the ≤1100px page-scroll stacking for Record, Workbench, Investigation and Review):**
 
 | Archetype | Owns vertical scroll | Page scrolls? |
 |---|---|---|
@@ -106,11 +106,11 @@ Shared rules for all archetypes:
 | | |
 |---|---|
 | **Purpose** | Scan, filter and act on many records of one kind. |
-| **Structure** | Context Bar → filter toolbar (one row, ≤5 controls) → table or list. |
+| **Structure** | Context Bar → filter toolbar (one row, ≤5 controls, at Tier A; §25 for B/C) → table or list. |
 | **Scroll owner** | The table body. The page does not scroll. |
 | **Width** | Full width. Columns carry individual `max-width`; when total natural width is less than available, the table is **left-aligned and not stretched**. A Ledger must never become a sparse band of text across 2560px. |
 | **Inspector** | None by default. MAY open a right drawer on row selection where a record has more detail than a row can carry. |
-| **Responsive** | 1366: all columns visible, or the least-important column collapses into the primary cell. Never horizontal *page* scroll; the table body MAY scroll horizontally. |
+| **Responsive** | 1366: all columns visible, or the least-important column collapses into the primary cell. Never horizontal *page* scroll; the table body MAY scroll horizontally. (Tier A; §25 for Tier B/C.) |
 | **Now** | Cameras, Videos, Processing Queue, **Overview (Ledger-summary variant — §4.1.1)** |
 | **Future** | Events, Entities, Cases, cross-camera scene revisions |
 
@@ -164,7 +164,7 @@ Restated in §25 so the responsive rules and the archetype rules cannot drift ap
 - The stage receives **all residual width** after the application rail, the fixed inspector and required gutters. The inspector is fixed; the stage absorbs everything else.
 - **The stage MUST NOT be narrower than 65% of the workspace working width** (the content column minus page padding).
 - At 1366×768 with the rail expanded and the inspector at its 300px minimum, this rule yields a stage of **approximately 800px (about 72% of the working width)** — comfortably above the floor. That figure is the expected outcome of the rule, not a second rule.
-- **Adaptation, not compression.** Below the viewport width at which the rule can be satisfied (approximately 1150px), the Workbench inspector MUST become an **overlay drawer** so the stage keeps the full working width. Below 1100px the workspace stacks per the shared rule above. The stage MUST NOT be compressed below the floor in order to keep a side-by-side inspector.
+- **Adaptation, not compression.** Below the viewport width at which the rule can be satisfied (approximately 1150px), the Workbench inspector MUST become an **overlay drawer** so the stage keeps the full working width. At 1100px and below the workspace stacks per the shared rule above. The stage MUST NOT be compressed below the floor in order to keep a side-by-side inspector. **Confirmed in v2.0:** these measured thresholds are the Workbench's Tier B composition, restated unchanged in the §25 table — side by side with the 65% floor from the measured ~1150px threshold up, overlay drawer from 1101px up to that threshold, stacked (stage first, inspector below) at 768–1100px. The threshold is measured, not chosen: T1 records the value at which the floor is actually met, and the ~1150 figure is its expected outcome, not a second rule. Below 768px (Tier C) the Workbench does not render the editing canvas at all (§25); the stage-width rule has nothing to adapt there.
 - **This MUST NOT be solved by making the inspector resizable.** Resizable panes remain deferred (§31).
 
 #### 4.3.2 Workbench viewport rule (frozen)
@@ -180,7 +180,7 @@ Workbench **MUST fit within the viewport without page scroll at 1366×768.** Thi
 | **Scroll owner** | The results list; the inspector body scrolls independently. The page does not scroll. |
 | **Width** | Full width. Results column capped at approximately 900px; **surplus width goes to the inspector**, because the inspector contains evidence. |
 | **Inspector** | Appears on selection. **In-place third column only at viewport ≥1600px; below that it is a right overlay drawer** over the results column. Never below approximately 440px in place. The results column MUST NOT be compressed below approximately 560px. |
-| **Responsive** | 1366, 1440 and 1500: rail + results, inspector as drawer. 1600+: three columns in place. |
+| **Responsive** | 1366, 1440 and 1500: rail + results, inspector as drawer. 1600+: three columns in place. (Tier A; §25 for Tier B/C.) |
 | **Now** | Search |
 | **Future** | Visual similarity, OCR/ANPR lookup, structured intelligence query, NL query |
 
@@ -415,7 +415,7 @@ The token at the design baseline named "Inter" and shipped no `@font-face`, so t
 - Maximum nesting depth: **one** contained surface inside the workspace. Card-inside-card is a defect.
 - Radii: 4px for controls, 6px for containers. Nothing rounder.
 - Shadows are reserved for floating layers (drawers, popovers). Resting containers on a dark surface get a border, not a shadow.
-- Floating layers: one drawer style (right, 420–480px at Tier A; side and width by tier per §25 — Amended in v2.0) and one popover style. No other floating surfaces.
+- Floating layers: one drawer style and one popover style. No other floating surfaces. **Amended in v2.0:** the drawer is the §27 Drawer primitive — right-anchored, 420–480px (the Workbench inspector drawer keeps its 300–360px inspector width) at Tiers A and B, capped at the working width; full width at Tier C; the filter rail's Tier B/C drawer opens from the results or toolbar header. Exact Tier B/C drawer geometry is confirmed by inspection in S5 (T1/T2).
 - A containment border that exists only to group content visually is decorative and is not required to meet the 3:1 boundary threshold (§8.1, §23). A border that identifies an interactive or scrollable region is not decorative and does carry that threshold.
 
 ---
@@ -515,7 +515,7 @@ Confirmations state the **consequence**, not the question: "Saving disables anal
 - Row actions sit at the row's trailing edge, consistently: one ~~primary~~ **secondary** text action plus at most one icon-only action (Amended in v2.0, §8.1: a row never carries the accent-filled primary).
 - **Amended in v2.0 — row pitch.** The 36–40px single-line target is measured, not aspired to: the harness asserts it (§26). The audit measured 43px (8px cell padding around a 20px badge plus line height); the row's vertical padding is the component token, and a badge inside a row uses the in-row 26px control metric, not the standalone one.
 - **Amended in v2.0 — truncation.** A truncated cell exposes its full value by keyboard as well as pointer: `title` alone is pointer-only. The row's inspector or detail surface is the full-value home; where a Ledger has no inspector the full value appears on focus via the same tooltip the pointer gets (§27 Tooltip).
-- **Filters live in a toolbar row above the table**, never inside the container header.
+- **Filters live in a toolbar row above the table**, never inside the container header (at Tier A; §25 moves them to a drawer at Tier C).
 - Sorting: only where meaningful; indicator required; client-side sorting is acceptable for small inventories. The per-Ledger scope is settled in §32 decision 5.
 - Empty / filtered-empty / unavailable are three distinct treatments (§14).
 - Identifiers (GUIDs) MUST NOT appear in table cells. They belong in inspectors and disclosures.
@@ -582,7 +582,7 @@ Extension points MUST exist for analytical lanes, but **lanes for data that does
 
 | Archetype | Inspector |
 |---|---|
-| Workbench | **Always present**, fixed width, shows a summary when nothing is selected. Becomes an overlay drawer below approximately 1150px per §4.3.1. |
+| Workbench | **Always present**, fixed width, shows a summary when nothing is selected. Becomes an overlay drawer below approximately 1150px per §4.3.1 (from 1101px up to the measured threshold); at ≤1100px it is stacked below the stage, and at Tier C the editing canvas is not rendered (§25). |
 | Investigation | **On selection**; in-place at 1600px and above, drawer below that (§4.4, open decision 3 closed in UI-4). |
 | Review | The evidence rail; always present. |
 | Ledger | **None by default.** MAY use a right drawer on selection. |
@@ -687,14 +687,14 @@ Centralised in shared formatters. Per ADR-004, the browser or operating-system t
 
 ## 25. Responsive and ultra-wide behaviour
 
-**Desktop-first. Frozen.** This section and §4 must agree; §4's scroll-ownership table is authoritative on scroll.
+**Desktop-first. Frozen.** This section and §4 must agree; §4's scroll-ownership table is authoritative on scroll at Tier A, and the compositions below say where the page scrolls at Tier B and C.
 
 **Amended in v2.0 — support tiers replace the v1.0 viewport table.** Version 1.0 defined behaviour at four desktop snapshots and said only "functional, not optimised" below 1100px and "must not break" below 768px. The audit found that the product does not break there because nothing was designed there: the rail force-collapses at 760px with its toggle hidden, the Ledgers and Investigation stack by accident of flex wrapping, and no state below 1366px was ever inspected. A rule that holds only at the widths someone happened to screenshot is not a responsive rule. Version 2.0 freezes three **support tiers**, each with a stated purpose, a stated acceptance, and behaviour defined as *ranges* between anchors, so that every width between two anchors is covered by the rule that spans them.
 
 | Tier | Width range | Purpose | Acceptance |
 |---|---|---|---|
 | **A — Workstation** | **≥ 1366px** (anchors 1366×768, 1440×900, 1920×1080, ~2560×1080 and ~2560×1440) | The operational workstation: every archetype in full form; multi-hour use. | Every §4 rule; every §34 item; the §26 sweep at every anchor. **This is the only tier in which a workflow is accepted.** |
-| **B — Compact** | **768px ≤ width < 1366px** (anchors 1024×768 landscape and 768×1024 tablet portrait; the 1101–1149 Workbench drawer band and the ≤1100 stacking band lie inside it) | A smaller laptop, a half-screen window, a tablet in landscape or portrait: the operator can do everything, with layouts that trade parallelism for space on purpose. | Designed single-column and drawer behaviours per the table below; no horizontal page overflow; no clipped or unreachable control; every §14 state distinguishable; the §26 sweep at both anchors. **Not optimised for multi-hour operation and not an acceptance viewport for a workflow.** |
+| **B — Compact** | **768px ≤ width < 1366px** (anchors 1024×768 landscape and 768×1024 tablet portrait; the measured ~1150 Workbench threshold, the drawer band below it and the ≤1100 stacking band of §4 all lie inside it and are unchanged) | A smaller laptop, a half-screen window, a tablet in landscape or portrait: the operator can do everything, with layouts that trade parallelism for space on purpose. | Designed single-column and drawer behaviours per the table below; no horizontal page overflow; no clipped or unreachable control; every §14 state distinguishable; the §26 sweep at both anchors. **Not optimised for multi-hour operation and not an acceptance viewport for a workflow.** |
 | **C — Narrow** | **390px ≤ width < 768px** (anchors 390×844 and 430×932) | Reading, not operating: a quick check of status, a Record, a Review playback. **Not an operational workstation and not made one by this tier.** | Intentional degradation per the table below; no horizontal overflow; no clipped control; every action that is offered is reachable; editing surfaces state that they need a wider display rather than rendering unusably. **No workflow acceptance.** The mobile analyst experience stays deferred (§31). |
 | below 390px | — | Not supported. | Nothing asserted. |
 
@@ -703,14 +703,14 @@ Centralised in shared formatters. Per ADR-004, the browser or operating-system t
 | Archetype | Tier A | Tier B | Tier C |
 |---|---|---|---|
 | **Shell** | Rail expanded (216px) or collapsed (56px) by operator choice; Context Bar 44px. | Rail collapsed by default, expandable as an overlay; the collapse control stays visible and labelled. Context Bar 44px; its primary action keeps its label. | Rail is a top-of-page menu control opening an overlay; Context Bar wraps its identity to one truncated line with the primary action icon-plus-label at 32px. |
-| **Ledger** | Full width, column-capped, body scrolls. | Columns collapse by stated priority into the primary cell (§4.1); the table still scrolls its body; a filter toolbar wraps to two rows at most. | A single-column list of the primary cell plus status; the row's action is reachable; filters move into a drawer. |
+| **Ledger** | Full width, column-capped, body scrolls. | Columns collapse by stated priority into the primary cell (§4.1); the table still scrolls its body at every Tier B width (a Ledger is one column and has nothing to stack); a filter toolbar wraps to two rows at most. | A single-column list of the primary cell plus status; the row's action is reachable; filters move into a drawer. |
 | **Ledger-summary (Overview)** | Centred at `--content-max`. | Regions stack in attention order. | Attention list only, then counts. |
-| **Record** | Centred, primary ~70% + facts rail ~30%. | 1101–1365: the Tier A composition is fluid — the primary column shrinks and the facts rail holds a 280px minimum (a measured region minimum, confirmed in S3b); ≤1100: facts rail stacks below. | Facts rail stacks above the primary column when it carries identity, otherwise below (§4.2). |
-| **Workbench** | Stage ≥65%, inspector fixed; drawer at 1101–1149. | Inspector as a drawer across the whole tier; the stage keeps its aspect; mode strip wraps. | **Explicit unsupported state**: the Workbench renders its Context Bar, its read-only object list and a one-sentence statement that editing needs a display of at least 768px; it does not render the canvas. |
-| **Investigation** | Rail 252 + results + inspector (drawer <1600, in place ≥1600). | Rail as a drawer opened from the results header; results full width; inspector as a drawer. | Results list full width; filters and inspector as full-width drawers; grid view unavailable. |
-| **Review** | Player ≥65% + rail; player sticky. | 1101–1365: the Tier A composition is fluid — the player keeps its 65% floor and the rail shrinks to its 320px minimum (confirmed in S3e); ≤1100: rail stacks below the player; sticky released. | Player full width, then the summary, then provenance; transport keeps every control at ≥24px effective target. |
+| **Record** | Centred, primary ~70% + facts rail ~30%. | 1101–1365: the Tier A composition is fluid — the primary column shrinks and the facts rail holds a 280px minimum (a region minimum to be measured and confirmed in S3b); ≤1100: facts rail stacks below. | Facts rail stacks above the primary column when it carries identity, otherwise below (§4.2). |
+| **Workbench** | Stage ≥65%, inspector fixed, no page scroll (§4.3.1, §4.3.2). | Exactly the §4.3.1 progression: **~1150–1365px** side by side, stage ≥65% of working width, fixed inspector, no page scroll; **1101px up to the measured ~1150 threshold** inspector as an overlay drawer (the §27 Drawer, opened from the mode strip's inspector control, which is the one control added at this width), stage at full working width, no page scroll; **768–1100px** single-column stacked composition per the shared §4 rule — stage first at full width, inspector below, the page scrolls. The mode strip MAY wrap; every editing control stays reachable at every width. | **Explicit unsupported state**: the Workbench renders its Context Bar, its read-only object summary and a one-sentence statement that editing needs a display of at least 768px; it does not render the editing canvas. |
+| **Investigation** | Rail 252 + results + inspector (drawer <1600, in place ≥1600). | **1101–1365px**: rail in place beside the results (252 + ≥560 fits the working width down to 1101 with the shell rail collapsed), inspector as a drawer — the §4.4 drawer composition unchanged; **768–1100px**: stacked per the shared §4 rule — rail as a drawer opened from the results header, results full width, inspector as a drawer, page scrolls. | Results list full width; filters and inspector as full-width drawers; grid view unavailable. |
+| **Review** | Player ≥65% + rail; player sticky. | 1101–1365: the Tier A composition is fluid — the player keeps its 65% floor and the rail shrinks to its 320px minimum (to be confirmed in S3e); ≤1100: rail stacks below the player; sticky released. | Player full width, then the summary, then provenance; transport keeps every control at ≥24px effective target. |
 
-**Fluid rules between anchors (frozen).** A layout rule is stated as a range, never as a point. Where a region has a minimum and a maximum width, it is fluid between them and the breakpoint is where the minimum can no longer be met — the 1600px Investigation threshold (§4.4) and the 1150px Workbench threshold (§4.3.1) are both derived this way and are the model. New breakpoints are derived from measured minimums, not chosen round numbers. Desktop compression — shrinking a Tier A layout until it fits — is not Tier B behaviour; Tier B is a different composition of the same regions.
+**Fluid rules between anchors (frozen).** A layout rule is stated as a range, never as a point. Where a region has a minimum and a maximum width, it is fluid between them and the breakpoint is where the minimum can no longer be met — the 1600px Investigation threshold (§4.4) and the ~1150px Workbench threshold (§4.3.1) are both derived this way and are the model, and both are kept unchanged by this section: a tier boundary (768, 1366) is a boundary of *acceptance*, never a breakpoint, and a measured breakpoint is never moved to coincide with one. New breakpoints are derived from measured minimums, not chosen round numbers. Desktop compression — shrinking a Tier A layout until it fits — is not Tier B behaviour; Tier B is a different composition of the same regions.
 
 **Ultra-wide (unchanged from v1.0).** Ultra-wide is used, not capped. Workbench, Investigation, Review and standard Ledgers occupy full width; surplus goes to the stage (Workbench), the inspector (Investigation), the player (Review). Standard Ledgers are **left-aligned and column-capped**, not stretched, and (Amended in v2.0, §4.1) their containment is capped with them. Record remains centred at `--content-max`. Overview, as the Ledger-summary variant, MAY also remain centred at `--content-max` (§4.1.1) — this is the only Ledger permitted to do so. ~2560×1440 is added as an anchor because a 1440-high display exposes vertical fill: a region that pads itself to the viewport height is as much a defect at 1440 high as a frame that stretches to 2560 wide.
 
@@ -722,7 +722,7 @@ Centralised in shared formatters. Per ADR-004, the browser or operating-system t
 
 **Normative. Unit tests do not satisfy this requirement.**
 
-**Every significant frontend PR MUST** be visually checked in a real browser at **1366×768, 1440×900, 1920×1080 and approximately 2560×1080**, across the states relevant to the change:
+**Every significant frontend PR MUST** be visually checked in a real browser at ~~1366×768, 1440×900, 1920×1080 and approximately 2560×1080~~ **every applicable tier anchor (Amended in v2.0; the table below)**, across the states relevant to the change:
 
 - populated, empty, loading, unavailable/error, selected/detail, long-name and dense-data, validation and conflict where applicable.
 
@@ -747,6 +747,7 @@ Centralised in shared formatters. Per ADR-004, the browser or operating-system t
 | **Deterministic layout and DOM assertions are the regression gate**, not pixels. The harness asserts, per state and width: no horizontal overflow; no page error; no overlapping controls; token resolution; focus visibility; archetype geometry and scroll ownership (all existing); and, added in Stage 3.5: table row pitch within 36–40px; at most one accent-filled primary per surface; containment nesting depth ≤1 and no viewport-high frame around sparse content; the §37 state presentation present inside its region; skip link, landmarks and drawer/dialog focus placement (§23); no text overflow outside its box; no `aria-pressed` without a pressed style; and the tier rules of §25 at the width being swept. | Frozen |
 | **The default sweep covers every tier anchor**: 1366×768, 1440×900, 1920×1080, 2560×1080, 2560×1440 (Tier A); 1024×768, 768×1024 (Tier B); 430×932, 390×844 (Tier C). A state declares which tiers apply to it; a Workbench state at Tier C asserts the unsupported-state rendering, not the canvas. | Frozen |
 | **The harness runs in CI** on every frontend PR, assertions only, against the production build; captures are uploaded as a CI artefact for human review and expire with the run. Nothing is committed. The runner needs a Chromium and ffmpeg, both already present on the hosted runner image; no npm dependency is added. | Frozen |
+| **Assertion manifest (Stage 3.5, §34.2).** The harness may know every v2.0 rule from S2 onward, but a rule becomes a *blocking* CI assertion only when the slice that implements the behaviour has merged. The manifest (`tools/web-visual-qa`, one entry per rule **per tier**) records each rule, at each tier it is evaluated at, as **`blocking`**, **`measured/pending`** (evaluated and reported, never fails the build, with the owning slice named) or **`not-applicable`** (with the reason, for example a Tier C assertion on a state that declares Tier A only). Until T1/T2 flip them, every assertion evaluated at a Tier B or C anchor — generic (overflow, overlap, clipped column) or tier-specific — is `measured/pending`, because nothing below 1366px has been inspected at the baseline and S2 must not block on S5 behaviour. No rule silently disappears: a rule leaves `measured/pending` only by becoming `blocking` when its slice merges, and the register row for that slice cites the manifest change. At S7 every rule is `blocking` or `not-applicable`. | Frozen |
 | **Pixel-diff screenshot baselines are not adopted.** The UI font is the platform stack (§32 decision 1), so a pixel baseline captured on Windows does not match a Linux runner and vice versa; making it match would mean bundling a font *for the screenshots*, which ADR-012 Decision 6 and §32 decision 1 reject. Masking, thresholds and per-platform baselines would make the gate either blind or flaky. Layout assertions are deterministic across platforms; they are the gate. Revisited only if a pinned Windows runner with a frozen font set becomes part of CI, and then by amendment. | Frozen |
 | **The human pass is bounded.** A PR's visual pass is the *changed* surfaces at every applicable anchor plus the six reference surfaces (§39) at 1366 and 2560 as a canary; the full 125-state sweep is a release-gate activity, not a per-PR one. | Frozen |
 | Typography determinism: the harness records the resolved `font-family` per state so a platform-font fallback is visible in the measurement, not silently absorbed. | Frozen |
@@ -1002,7 +1003,7 @@ A frontend PR claims conformance by satisfying all of:
 16. **Support tiers (Amended in v2.0).** The surface behaves per §25 at every tier anchor applicable to it, with Tier B and C behaviour designed, not inherited from flex wrapping, and the §26 sweep run at those anchors.
 17. **Performance as UX (Amended in v2.0).** No layout shift between a loading presentation and the content it precedes; no spinner where a skeleton or nothing is correct; local feedback is immediate; refresh preserves layout; the §38 measurements are recorded where the surface is one the harness measures.
 
-A PR that cannot honestly assert items 1–17 is not conformant, regardless of test status. **A frontend surface is not complete merely because its functional tests pass; it is complete when it meets the archetype, design-system, responsive, accessibility, performance and craftsmanship standards of this specification and has been visually verified in the real application at the supported widths and edge states.**
+A PR that cannot honestly assert items 1–17 is not conformant, regardless of test status — with one bounded, dated exception: during the Stage 3.5 programme, §34.2 states which items a slice must assert and which may remain open against a named later slice. **A frontend surface is not complete merely because its functional tests pass; it is complete when it meets the archetype, design-system, responsive, accessibility, performance and craftsmanship standards of this specification and has been visually verified in the real application at the supported widths and edge states.**
 
 ### 34.1 Transitional conformance during UI-1 → UI-5 (Historical — closed)
 
@@ -1019,6 +1020,33 @@ Migration is incremental by design. The following governed the programme period 
 | A PR **SHOULD** name the legacy surfaces it deliberately left alone and the UI PR that owns them. | SHOULD |
 | **Once UI-5 is merged, full frontend conformance becomes the expected baseline** and this transitional clause no longer applies. | Frozen |
 
+### 34.2 Stage 3.5 programme conformance (Added in v2.0, frozen; expires at S7 closure)
+
+Stage 3.5 deliberately migrates the existing frontend to v2.0 in bounded slices (§39; plan §15). A rule that every intervening PR must already meet all seventeen §34 items would be either false or unmeetable, and §34.1 is not reopened to cover it. This subsection is the Stage 3.5 rule, and it is mechanical.
+
+**Governing principle.** During S1–S6 a frontend PR MUST satisfy every v2.0 requirement whose enabling slice has already merged, MUST NOT introduce or extend any deviation, and MUST satisfy the acceptance-register rows its slice owns. Full §34 items 1–17 on every operator surface become mandatory at S7 closure, which has no migration exemption.
+
+**Progression — when each obligation becomes blocking.**
+
+| Slice | What the PR must assert | What may remain open (only as named register findings against a later slice) |
+|---|---|---|
+| **S1 — foundation** | §34 items 1–13 on everything it touches (item 4 through the boundary; item 6 limited to the §23 obligations frozen before v2.0 plus the §5, §15 and §20 obligations S1 implements; item 7 at the Tier A anchors; item 8 reported in the PR); the S1-owned rules in full: tokens (§7, §8), Ledger containment (§4.1), one primary (§8.1, §16), boundary everywhere with §37.1 presentation and placement (§14.1), IA map, skip link, landmarks and rail control (§5), Dialog, Drawer and Tooltip contracts (§15, §20, §27), invalid and disabled states (§12), row pitch and truncation (§16), the §27 retirements. Items 14, 15 and 17 for every *newly created or rebuilt* component. | Surface-level finish (items 14–15, 17 on a surface as a whole) until that surface's S3/S4 slice; item 16 (tiers B/C) until S5; S6's programme-wide obligations. |
+| **S2 — harness v2** | As S1 for anything it touches; everything S1 made blocking is now asserted by the harness as `blocking` manifest entries; every later-slice rule, and every assertion evaluated at a Tier B or C anchor, is present as `measured/pending`, reported, never failing the build; P1 baseline measured and recorded. | As S1. |
+| **S3a–S3e — reference surfaces** | On the reference surface: items 1–15 and 17 — every currently implemented v2.0 requirement and the complete Tier A standard, including §36 and §37 for that surface, every §37.1 state inspected at every Tier A anchor — with item 6 excluding the §23 obligations owned by T3 (200% zoom) and X1–X4, and item 15 excluding the keyboard-only journeys owned by X2. S3e additionally flips the rendered-stickiness manifest entry to `blocking` (R6). | Item 16 (Tier B/C) and T3 until S5; X1–X4 until S6; findings on *other* surfaces until S4. |
+| **S4 — remaining surfaces** | The S3 standard, with the same item 6 and 15 carve-outs, on every remaining operator route; after S4 no surface is on a pre-v2.0 pattern. | Item 16 and T3 until S5; X1–X4 until S6. |
+| **S5 — support tiers** | Item 16 on every applicable surface; the Tier B and C manifest entries become `blocking`. | S6 obligations. |
+| **S6 — accessibility and performance hardening** | The remaining programme-wide §23 and §38 obligations (X1–X4), including the budgets set from the S2 baseline; their manifest entries become `blocking`. | Nothing by design; any residue is a P2 single-surface or P3 finding carried under C5 with an owner and declared under §34 item 13 — never a P0/P1 and never a §23 MUST. |
+| **S7 — closure** | Items 1–17 on every current operator surface; every manifest entry `blocking` or `not-applicable`; no Stage 3.5 exception of any kind remains. | Nothing. |
+
+**Distinctions that keep this from being a licence.**
+
+- This is not permission for arbitrary legacy divergence. **Only a finding recorded in the Stage 3.5 register and assigned to a future slice may remain open**, and only until that slice.
+- A slice MUST NOT make a deferred defect worse, and MUST NOT copy a known defect to another surface or into new code.
+- A newly created or rebuilt component conforms to every rule already frozen for it, whatever slice it lands in.
+- A P0 or P1 defect is not carried past the earliest slice capable of fixing it; if a slice can fix one, it does.
+- A PR states, in its description, which §34 items it asserts, which it leaves open and against which register row; a PR that cannot make that statement truthfully is not conformant.
+- S7 has no exemption. When C5 is PASS this subsection expires and §34 applies unqualified.
+
 ---
 
 ## 35. Final design baseline
@@ -1031,9 +1059,9 @@ MAVI is a **dark-first, evidence-first, offline professional Visual Intelligence
 
 **Open, closed in the named PR:** the UI font decision (UI-1); the exact evidence hues (UI-1 visual validation); the Investigation inspector threshold and ultra-wide split (**closed in UI-4**: threshold amended to 1600px, split unchanged); the Ledger sorting scope (closed in UI-3); Overview's long-term fate (after Events); analytical timeline lane presentation (Slice 5).
 
-**Transitional (Historical):** §34.1 governed conformance until UI-5 merged. It is closed; full frontend conformance is the baseline.
+**Transitional (Historical):** §34.1 governed conformance until UI-5 merged. It is closed. **Staged (current, dated):** §34.2 governs the Stage 3.5 slices S1–S6 and expires at S7 closure, after which full frontend conformance is the unqualified baseline.
 
-**Added in v2.0 (frozen):** the quality direction of §2; the three support tiers and the range-based responsive rules of §25; the Ledger containment and attention-first Overview rules of §4.1; the one-primary-per-surface rule of §8.1; the boundary-everywhere and placement rules of §14.1; the IA map, skip link and landmarks of §5; the Dialog, Drawer, Tooltip, EvidencePlaceholder, FileInput, ToggleChip and StateRegion primitives of §27; the WCAG 2.2 AA target and harness-asserted accessibility obligations of §23; the deterministic-assertion visual-regression strategy of §26; the craftsmanship standard of §36; the edge-state and progressive-disclosure catalogue of §37; performance as UX in §38; and the conformance definition of §34 under which a surface is not complete merely because its functional tests pass.
+**Added in v2.0 (frozen):** the quality direction of §2; the three support tiers and the range-based responsive rules of §25; the Ledger containment and attention-first Overview rules of §4.1; the one-primary-per-surface rule of §8.1; the boundary-everywhere and placement rules of §14.1; the IA map, skip link and landmarks of §5; the Dialog, Drawer, Tooltip, EvidencePlaceholder, FileInput, ToggleChip and StateRegion primitives of §27; the WCAG 2.2 AA target and harness-asserted accessibility obligations of §23; the deterministic-assertion visual-regression strategy of §26; the craftsmanship standard of §36; the edge-state and progressive-disclosure catalogue of §37; performance as UX in §38; and the conformance definition of §34 under which a surface is not complete merely because its functional tests pass, with the staged-conformance rule of §34.2 for the programme that implements it.
 
 Everything else is settled. Future work implements this specification or amends it explicitly.
 
@@ -1048,10 +1076,10 @@ Architecture decides what goes where. Craftsmanship decides whether it is right 
 | Standard | Rule |
 |---|---|
 | **Alignment** | Edges that are meant to align, align to the pixel. Label and value columns in a key/value grid share one baseline grid; the Context Bar's identity, badges and actions share one vertical centre; an icon beside text is optically centred on the text's x-height, not geometrically centred on the line box. A 1–2px misalignment is a defect, not a nit. |
-| **Spacing rhythm** | Every gap is a step on the 4px scale and the same gap means the same relationship everywhere: 4 within a control, 8 between related controls, 12 inside an inspector, 16 inside a form or between regions, 24 between sections (the §10 values; the 24 section step is a default confirmed by measurement in S1). No ad-hoc values; no `calc()` that produces one. |
+| **Spacing rhythm** | Every gap is a step on the 4px scale and the same gap means the same relationship everywhere: 4 within a control, 8 between related controls, 12 inside an inspector, 16 inside a form or between regions, 24 between sections (the §10 values; the 24 section step is a default to be confirmed by measurement in S1). No ad-hoc values; no `calc()` that produces one. |
 | **Control metrics** | 32px default, 26px in-row, 44px Context Bar; inputs and buttons in one row share a height and a baseline. A native control (file input, date input, select) is styled to the same metrics or replaced by the §27 primitive; a native control at native height beside a 32px button is a defect. |
 | **Row and line heights** | Table rows 36–40px single-line (measured); key/value rows 22–24px (measured ~23px on Processing detail); list rows with a thumbnail are the thumbnail's height plus one gutter step and no more. |
-| **Borders and radii** | One border width (1px) for containment and controls; 2px only for focus and the selected inset bar. Radii 4px controls, 6px containers, pill for badges only. Nested radii are concentric (outer radius = inner radius + padding) or equal — a default rule, confirmed on the reference surfaces in S3; never a 6px container with 6px controls flush to its edge. |
+| **Borders and radii** | One border width (1px) for containment and controls; 2px only for focus and the selected inset bar. Radii 4px controls, 6px containers, pill for badges only. Nested radii are concentric (outer radius = inner radius + padding) or equal — a default rule, to be confirmed on the reference surfaces in S3; never a 6px container with 6px controls flush to its edge. |
 | **Surfaces** | Four surface levels, used in order: a raised surface sits on a base surface, never on another raised surface; an input is inset on whichever surface holds it. A region that is not a scroll boundary or an editable region is not bordered (§11) and is not filled. |
 | **Content widths** | Reading text wraps at a readable measure (`--measure`; the value is set in S1, ~68ch as the starting default); a key/value grid's value column, a form field and an alert have a readable maximum; a table, a canvas and a player do not. |
 
@@ -1096,7 +1124,7 @@ It is not more white space, larger type, bigger radii, softer colours, shadows, 
 
 | State | Page | Column | Panel | Row / card | Media |
 |---|---|---|---|---|---|
-| **loading** | Context Bar renders with identity; regions each render their own loading | Skeleton rows at the region's row pitch, count = the last known or a default (8, confirmed in S1) | Skeleton key/value rows | Skeleton of the row | Matte at the media's aspect, no spinner |
+| **loading** | Context Bar renders with identity; regions each render their own loading | Skeleton rows at the region's row pitch, count = the last known or a default (8, to be confirmed in S1) | Skeleton key/value rows | Skeleton of the row | Matte at the media's aspect, no spinner |
 | **empty** | n/a | One line at the top: icon, title, one sentence, one secondary action; no frame, no fill | One line | n/a | n/a |
 | **filtered-empty** | n/a | As empty with the filter icon and a *Clear filters* secondary | n/a | n/a | n/a |
 | **not configured** | n/a | Hatched placeholder at the content's aspect (canvas) or the empty line (list) | One line with the action | n/a | Hatched at aspect |
@@ -1122,7 +1150,7 @@ Evidence remains visually dominant on every surface that has it (§18). Around i
 | Tier | Content | Presentation |
 |---|---|---|
 | **1 — Operational** | What the operator acts on: identity, class, camera, time, duration, confidence, status, the one next action. | Always visible; the first thing in the region. |
-| **2 — Explanation** | Why: analytic facts (zones, crossings, dwell, heading), readiness and revision identity, coverage. | Visible when short; a bounded list with a disclosure beyond N when long (N per region; default 5, confirmed in S1 — five crossings inline, the sixth and after behind *Show all*). |
+| **2 — Explanation** | Why: analytic facts (zones, crossings, dwell, heading), readiness and revision identity, coverage. | Visible when short; a bounded list with a disclosure beyond N when long (N per region; default 5, to be confirmed in S1 — five crossings inline, the sixth and after behind *Show all*). |
 | **3 — Forensic** | Identifiers (Track ID, run ID, pipeline version), raw coordinates and vertices, engine identity, attestation, measurement detail. | Collapsed by default behind one disclosure per region; mono; copyable. Never in a list row or a Ledger cell (§16). |
 
 A fact appears in exactly one tier and once per surface. The audit found scene-revision identity in tier 2 and again as a tier-3 footer line in the same inspector, and polygon vertices at six decimal places in tier 1 of the Scene Editor properties panel.
@@ -1154,6 +1182,6 @@ This section is the specification's pointer to the programme that implements v2.
 - **Plan:** `docs/superpowers/plans/2026-10-07-stage3-5-ui-ux-professionalisation.md` — audit findings, decisions, non-goals, slice sequence, rollback.
 - **Register:** `docs/reviews/2026-10-07-stage3-5-ui-ux-professionalisation-acceptance.md` — the only exit gate.
 - **Reference surfaces:** Overview (Ledger-summary), Videos (Ledger), Processing detail (Record), Scene Editor (Workbench), Search (Investigation), Review (Review). Each is finished to this specification first, inspected, and then used as the measure for migrating its archetype's remaining surfaces.
-- **Sequence:** audit and freeze (this version) → foundation primitives, tokens and state grammar → harness v2 → reference surfaces, one per archetype → remaining surfaces by archetype → support tiers B and C → accessibility and performance hardening → final acceptance. Every slice is independently reviewable and revertible; there is no single rewrite and no stream of cosmetic patches.
-- **Closure:** no P0 or P1 finding open; no systemic P2 open; no surface relying on §34.1; every §34 item asserted on every surface; the §26 sweep green at every tier anchor; tests, typecheck, build and `verify_repo` green. Remaining P2 single-surface and P3 findings are listed in the register with an owner slice or an explicit deferral; "looks better" is not an exit criterion.
+- **Sequence:** audit and freeze (this version) → foundation primitives, tokens and state grammar → harness v2 → reference surfaces, one per archetype → remaining surfaces by archetype → support tiers B and C → accessibility and performance hardening → final acceptance. Every slice is independently reviewable and revertible; there is no single rewrite and no stream of cosmetic patches. §34.2 states what each slice must assert and the §26 assertion manifest states which harness rules block at each point.
+- **Closure:** no P0 or P1 finding open; no systemic P2 open; no surface relying on §34.1 and no §34.2 exception remaining; every §34 item asserted on every surface; the §26 sweep green at every tier anchor; tests, typecheck, build and `verify_repo` green. Remaining P2 single-surface and P3 findings are listed in the register with an owner slice or an explicit deferral; "looks better" is not an exit criterion.
 - **Gate:** capability Stage 4 (ANPR/OCR) begins only after this programme is closed in the register. The programme renumbers nothing.

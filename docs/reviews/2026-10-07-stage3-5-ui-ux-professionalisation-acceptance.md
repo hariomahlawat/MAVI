@@ -5,7 +5,7 @@
 **Baseline:** `main@98e5cd3f3ae8ca636ffbe2115c6b74b4ebcb2b16` (merge of PR #180; Stage 3 closed)
 **Governing documents:** `docs/architecture/ui-ux-design-specification.md` v2.0; `docs/decisions/ADR-012-operator-interface-design-architecture.md` (Amendment 2026-10-07); plan `docs/superpowers/plans/2026-10-07-stage3-5-ui-ux-professionalisation.md`.
 
-This register is the only authoritative exit gate for Stage 3.5 (`docs/architecture/README.md`, "Documentation precedence" item 4). The plan references these row IDs rather than keeping a second list. **Nothing unexecuted is marked PASS.** A row becomes PASS only when its evidence is entered here: PR and merge commit, harness run and anchors, measured values, or the capture set read. "Looks better" is not evidence and is not an exit criterion anywhere in this register.
+This register is the only authoritative exit gate for Stage 3.5 (`docs/architecture/README.md`, "Documentation precedence" item 4). The plan references these row IDs rather than keeping a second list. **Conformance during the programme is specification §34.2:** a slice's PR asserts every v2.0 requirement whose enabling slice has merged and its own rows here, introduces or extends no deviation, and may leave open only findings recorded here against a later slice. The §26 assertion manifest records each harness rule as `blocking`, `measured/pending` or `not-applicable`; a rule blocks CI only once its implementing slice has merged (S1/S2 rules at S2; rendered stickiness at S3e; every assertion evaluated at a Tier B or C anchor, generic or tier-specific, at S5; the remaining §23/§38 rules at S6); at S7 every rule is `blocking` or `not-applicable` and §34 applies unqualified. **Nothing unexecuted is marked PASS.** A row becomes PASS only when its evidence is entered here: PR and merge commit, harness run and anchors, measured values, or the capture set read. "Looks better" is not evidence and is not an exit criterion anywhere in this register.
 
 "Stage 3.5" is a working label for an owner-directed cross-cutting product-quality programme; capability stages 1–11 are not renumbered. Capability Stage 4 (ANPR/OCR) begins only after row C5 is PASS.
 
@@ -42,16 +42,16 @@ This register is the only authoritative exit gate for Stage 3.5 (`docs/architect
 
 | Row | Requirement | Status | Evidence |
 |---|---|---|---|
-| V1 | Assertions added per specification §26 (row pitch, primary count, containment depth, state placement, skip link/landmarks, drawer/dialog focus, rendered stickiness, text overflow, `aria-pressed` style, tier rules). | OPEN | |
-| V2 | Default sweep at every tier anchor: 1366×768, 1440×900, 1920×1080, 2560×1080, 2560×1440, 1024×768, 768×1024, 430×932, 390×844; states declare applicable tiers. | OPEN | |
+| V1 | Assertions added per specification §26 with the assertion manifest: rules implemented by S1 (row pitch, primary count, containment depth, state placement, skip link/landmarks, drawer/dialog focus, text overflow, `aria-pressed` style) are `blocking`; rendered stickiness (R6), Tier B/C rules (T1–T3) and the §23/§38 hardening rules (X1–X4) are `measured/pending` with their owning row named; no rule absent. | OPEN | |
+| V2 | Default sweep at every tier anchor: 1366×768, 1440×900, 1920×1080, 2560×1080, 2560×1440, 1024×768, 768×1024, 430×932, 390×844; states declare applicable tiers. Tier A assertions block; every assertion evaluated at a Tier B or C anchor, generic or tier-specific, is `measured/pending` (reported, never failing) until T1/T2 flip it. | OPEN | |
 | V3 | Deterministic waits (no mid-load captures: `processing-queue-dense` at 1920 reproduces settled). | OPEN | |
-| V4 | CI job runs the harness (assertions only) on every frontend PR against the production build; captures uploaded as an expiring artefact; no npm dependency added; no screenshot committed. | OPEN | |
+| V4 | CI job runs the harness on every frontend PR against the production build; the job fails only on `blocking` manifest entries and prints `measured/pending` results as diagnostics; captures uploaded as an expiring artefact; no npm dependency added; no screenshot committed. | OPEN | |
 | V5 | Pixel-diff baselines **not** adopted; typography determinism recorded per state (resolved font family). | OPEN | |
 | P1 | Baseline measured and recorded here: cumulative layout shift during loading→content per state and anchor; long tasks on first interaction; resolved font. **Budgets are entered in this row only after measurement and never before.** | OPEN | |
 
 ## Section R — Reference surfaces (slices S3a–S3e)
 
-Each row requires: every §34 item 1–17 asserted; every §37.1 state the surface reaches inspected at every Tier A anchor; the harness green; the capture set listed; and the surface's plan-§5 findings closed or explicitly carried to a named row.
+Each row requires: §34 items 1–15 and 17 asserted on the surface per §34.2 (item 16 is T1–T3; item 6's T3 and X1–X4 obligations and item 15's keyboard-only journeys are carried to those rows); every §37.1 state the surface reaches inspected at every Tier A anchor; the harness green; the capture set listed; and the surface's plan-§5 findings closed or explicitly carried to a named row.
 
 | Row | Surface (archetype) | Status | Evidence |
 |---|---|---|---|
@@ -60,9 +60,11 @@ Each row requires: every §34 item 1–17 asserted; every §37.1 state the surfa
 | R3 | Processing detail (Record) — F3 (unavailable with retry), F16, F19 closed; completed/running/failed/finalizing/failed-finalization/stale/unavailable inspected. | OPEN | |
 | R4 | Scene Editor (Workbench) — F5 (Dialog), F7, F18, F3 (alert consolidation), one drawing entry; unconfigured/dirty/long-identity/dense/unavailable inspected. | OPEN | |
 | R5 | Search (Investigation) — F3, F12, F13, F18, F19 closed; every `search-*` fixture inspected including drawer and in-place inspector, continuation and failure states. | OPEN | |
-| R6 | Video Review (Review) — F8 (rendered sticky player at 1366 asserted), F18, F19, F4 closed; bright/dark/saturated/low-contrast/letterbox/pillarbox footage inspected. | OPEN | |
+| R6 | Video Review (Review) — F8 (rendered sticky player at 1366 asserted; its manifest entry flipped to `blocking`), F18, F19, F4 closed; bright/dark/saturated/low-contrast/letterbox/pillarbox footage inspected. | OPEN | |
 
 ## Section M — Migration of remaining surfaces (slice S4)
+
+M rows are held to the Section R standard (§34.2 S4 row).
 
 | Row | Surface | Status | Evidence |
 |---|---|---|---|
@@ -75,15 +77,15 @@ Each row requires: every §34 item 1–17 asserted; every §37.1 state the surfa
 
 | Row | Requirement | Status | Evidence |
 |---|---|---|---|
-| T1 | Tier B compositions per §25 table on every surface; inspected at 1024×768 and 768×1024; no overflow; every action reachable; the 1101–1149 and ≤1100 bands covered by range rules. | OPEN | |
-| T2 | Tier C degradation per §25 table on every surface; Workbench unsupported state; inspected at 430×932 and 390×844; no overflow, no clipped control; no workflow acceptance claimed; mobile remains deferred. | OPEN | |
-| T3 | 200% zoom at 1366×768 reflows under Tier C rules. | OPEN | |
+| T1 | Tier B compositions per §25 table on every surface — Workbench keeps the §4.3.1 progression (side by side ≥~1150, drawer from 1101 up to the measured threshold, stacked 768–1100; T1 records the measured threshold) and Investigation keeps its rail in place down to 1101; inspected at 1024×768 and 768×1024 plus a 1200×800 spot check of the 1101–1365 band; no overflow; every action reachable; Tier B manifest entries flipped to `blocking`. | OPEN | |
+| T2 | Tier C degradation per §25 table on every surface; Workbench unsupported state (no editing canvas; Context Bar + read-only object summary + "editing requires at least 768px"); inspected at 430×932 and 390×844; no overflow, no clipped control; no workflow acceptance claimed; mobile remains deferred; Tier C manifest entries flipped to `blocking`. | OPEN | |
+| T3 | 200% zoom at 1366×768 reflows under Tier C rules; its manifest entry flipped to `blocking`. | OPEN | |
 
 ## Section X — Accessibility and performance hardening (slice S6)
 
 | Row | Requirement | Status | Evidence |
 |---|---|---|---|
-| X1 | Every §23 obligation asserted on every surface by the harness or by `styles/contrast.test.ts`; WCAG 1.4.10 at 320px recorded as not targeted and the Workbench canvas at 200% zoom on 1366 recorded as a 1.4.4 exception. | OPEN | |
+| X1 | Every §23 obligation asserted on every surface by the harness or by `styles/contrast.test.ts`, their manifest entries flipped to `blocking`; WCAG 1.4.10 at 320px recorded as not targeted and the Workbench canvas at 200% zoom on 1366 recorded as a 1.4.4 exception. | OPEN | |
 | X2 | The six operator journeys (plan §5.3) completed keyboard-only, recorded step by step. | OPEN | |
 | X3 | §38 budgets set from the P1 baseline, recorded here with tolerance, and met on every reference surface; no regression beyond tolerance. | OPEN | |
 | X4 | Reduced motion verified: no transition or animation duration above 0 under `prefers-reduced-motion: reduce`. | OPEN | |
@@ -93,7 +95,7 @@ Each row requires: every §34 item 1–17 asserted; every §37.1 state the surfa
 | Row | Requirement | Status | Evidence |
 |---|---|---|---|
 | C1 | No P0 or P1 finding open; no systemic P2 finding open (plan §5.1 F1–F13 and F21–F22 closed). | OPEN | |
-| C2 | No surface relying on the closed §34.1 clause; every §34 item 1–17 asserted on every surface. | OPEN | |
+| C2 | No surface relying on the closed §34.1 clause and no §34.2 exception remaining; every §34 item 1–17 asserted on every surface, with any C5-carried finding declared under item 13; every manifest entry `blocking` or `not-applicable`. | OPEN | |
 | C3 | Full 125-state (or current) sweep green at every tier anchor; captures read; the pass enumerated in the closing PR. | OPEN | |
 | C4 | Tests, typecheck, build and `verify_repo` green on the closing merge commit; independent cold review recorded. | OPEN | |
 | C5 | Remaining P2 single-surface and P3 findings listed below with an owner slice or an explicit owner-accepted deferral; roadmaps and README carry closure wording; **Stage 4 unblocked.** | OPEN | |

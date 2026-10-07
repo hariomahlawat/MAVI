@@ -114,9 +114,11 @@ The programme (§39; plan and register linked there) runs: freeze → foundation
 
 Rejected: **one rewrite PR** (unreviewable, unrevertible, and the UI-1 → UI-5 experience already showed that a slice per layer is the reviewable unit). Rejected: **a stream of per-page cosmetic PRs** (Decision 7).
 
+Conformance during the programme is staged, not suspended: specification §34.2 states, slice by slice, which §34 obligations a PR must assert and which may remain open only as register findings against a named later slice, and the §26 assertion manifest makes the same distinction in CI (`blocking` / `measured/pending` / `not-applicable`), so a rule never blocks before its implementing slice merges and never disappears. §34.1 is not reopened; §34.2 expires at S7 closure, which has no exemption.
+
 ### Decisions reaffirmed unchanged
 
-Decisions 1–4 and 6 stand as written. Decision 5's programme is complete and its gate lifted; the clause is historical. Specification §34.1 (transitional conformance) is **closed**: no surface may rely on it, and a legacy pattern is a register finding. §4.4 open decision 4 (results cap with nothing selected) is reaffirmed after measurement at 2560: a column that moves on selection is worse than a column with space beside it. The Record centring exception and the Overview centring exception stand; Overview additionally becomes attention-first (§4.1.1).
+Decisions 1–4 and 6 stand as written. Decision 5's programme is complete and its gate lifted; the clause is historical. Specification §34.1 (transitional conformance) is **closed**: no surface may rely on it, and a legacy pattern is a register finding (the programme's own staged rule is §34.2, above). The Workbench's measured responsive thresholds (§4.3.1: side by side from the measured ~1150px threshold, drawer from 1101px up to it, stacked ≤1100px) are kept unchanged inside Tier B; a tier boundary is an acceptance boundary, never a breakpoint. §4.4 open decision 4 (results cap with nothing selected) is reaffirmed after measurement at 2560: a column that moves on selection is worse than a column with space beside it. The Record centring exception and the Overview centring exception stand; Overview additionally becomes attention-first (§4.1.1).
 
 ### Not decided here
 

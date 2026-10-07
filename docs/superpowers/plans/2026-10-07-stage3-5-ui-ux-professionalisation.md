@@ -171,7 +171,7 @@ Light palette; density preference; resizable panes; command palette (the `?` she
 | Ledger | Table-bounded containment; uncontained states; secondary row actions; measured pitch; Tier B column collapse by priority; Tier C single-column list. |
 | Ledger-summary | Attention-first Overview. |
 | Record | Content-sized regions; identity truncation; unavailable-with-retry in the primary column; Tier C rail-first. |
-| Workbench | Dialog replaces confirm; alerts consolidated; vertices to tier 3; one way to start drawing; Tier C unsupported state. |
+| Workbench | Dialog replaces confirm; alerts consolidated; vertices to tier 3; one way to start drawing; Tier B is the unchanged §4.3.1 progression (side by side from the measured ~1150 threshold, drawer from 1101 up to it, stacked 768–1100); Tier C unsupported state. |
 | Investigation | Drawer primitive; legend to `?`; ordinals removed; EvidencePlaceholder; scroll-to-invalid; one vocabulary; inspector tiers. |
 | Review | Rendered sticky player; one back route; tier-3 identity; Tier C full-width read-only. |
 
@@ -193,7 +193,7 @@ Together they exercise every primitive in §27 and every state in §37.1.
 | Anchor | Tier | What is asserted |
 |---|---|---|
 | 1366×768, 1440×900, 1920×1080, 2560×1080, 2560×1440 | A | Every §4 rule, every §34 item, the full state catalogue. |
-| 1024×768 | B | Rail collapsed-with-toggle; Ledger priority collapse; Workbench inspector drawer; Investigation rail drawer; Record stacked; Review stacked; no overflow; all actions reachable. |
+| 1024×768 | B | Rail collapsed-with-toggle; Ledger priority collapse; Workbench stacked (stage first, inspector below — the ≤1100 band); Investigation stacked with rail and inspector as drawers; Record stacked; Review stacked; no overflow; all actions reachable. The 1101–1365 Tier B band (Workbench side by side from the measured ~1150 threshold / drawer below it; Investigation rail in place) has no anchor in the default sweep and is asserted by the range rule and a 1200×800 spot check in S5. |
 | 768×1024 | B | As 1024 with portrait stacking; toolbar wraps ≤2 rows. |
 | 430×932, 390×844 | C | Menu-control rail; single-column Ledgers; Record rail-first; Workbench unsupported state; Investigation full-width drawers; Review read-only stack; no overflow; no clipped control. |
 | 200% zoom at 1366×768 | C-equivalent | Same as 390–767 (effective 683px). |
@@ -212,22 +212,22 @@ No layout shift, no jank, no expensive animation, no unnecessary spinners, immed
 
 ## 15. Slices
 
-Each slice is one PR (or a short run of PRs under one register row), independently reviewable and revertible, leaves `main` shippable, and runs the full test suite, typecheck, build, `verify_repo` and the §26 sweep for the surfaces it touches.
+Each slice is one PR (or a short run of PRs under one register row), independently reviewable and revertible, leaves `main` shippable, and runs the full test suite, typecheck, build, `verify_repo` and the §26 sweep for the surfaces it touches. **Conformance per slice is specification §34.2**: a PR asserts every v2.0 requirement whose enabling slice has merged, introduces or extends no deviation, satisfies its own register rows, and states in its description which §34 items it asserts and which remain open against which register row. The §26 assertion manifest records each harness rule as `blocking`, `measured/pending` or `not-applicable`; a rule blocks only once its implementing slice has merged, and every rule is `blocking` or `not-applicable` at S7.
 
 | Slice | Scope | Register rows | Depends on |
 |---|---|---|---|
 | **S0 — Audit and freeze** | This PR: specification v2.0, ADR-012 amendment, plan, register, roadmap/README pointers. No code. | A1–A6 | — |
 | **S1 — Foundation** | Tokens (§8); primitives added/refined/retired (§27); Ledger containment (§4.1); one-primary rule; boundary adoption on every surface with the §37.1 presentations (no visual redesign of surfaces beyond what the primitives change); IA map, skip link, landmarks, rail control; `window.confirm` → Dialog; drawers → Drawer; invalid/disabled states; row pitch; truncation; dead CSS. | D1–D9 | S0 |
-| **S2 — Harness v2** | New assertions (§26); tier anchors; deterministic waits; rendered-sticky and CLS/long-task measurement; CI job with artefact upload; baseline measurement recorded. | V1–V5, P1 | S1 (assertions target the primitives) |
+| **S2 — Harness v2** | New assertions (§26) with the assertion manifest: S1-implemented rules `blocking`, S3–S6 rules `measured/pending`; tier anchors swept with Tier B/C rules `measured/pending` until S5; deterministic waits; rendered-sticky and CLS/long-task measurement; CI job with artefact upload; baseline measurement recorded. | V1–V5, P1 | S1 (assertions target the primitives) |
 | **S3a — Reference: Overview + Videos** | Attention-first Overview; Videos finished to §36; both inspected at every tier A anchor and every state. | R1, R2 | S1, S2 |
 | **S3b — Reference: Processing detail** | Record finished; unavailable-with-retry; identity truncation; tiers. | R3 | S1, S2 |
 | **S3c — Reference: Scene Editor** | Workbench finished; alerts consolidated; vertices tier 3; one drawing entry; Dialog in use. | R4 | S1, S2 |
 | **S3d — Reference: Search** | Investigation finished; legend/ordinals; placeholder; scroll-to-invalid; inspector tiers; Drawer in use. | R5 | S1, S2 |
 | **S3e — Reference: Review** | Rendered sticky player; one back route; identity tier 3; evidence set copy. | R6 | S1, S2 |
 | **S4 — Migration** | Cameras and Processing queue (Ledger), Import (Record), Camera Analytics (Workbench) onto the references; nothing left on a pre-v2.0 pattern. | M1–M4 | S3a–S3e |
-| **S5 — Tiers B and C** | Designed compositions per §25 table on every surface; the first Tier B/C inspection; `mobile: false` stays (no touch emulation claimed). | T1–T3 | S4 |
-| **S6 — Accessibility and performance hardening** | Every §23 row asserted on every surface; keyboard-only completion of the six journeys; CLS/long-task budgets set from the S2 baseline and met. | X1–X4 | S5 |
-| **S7 — Final acceptance** | Full 125-state sweep at every anchor; cold review; register closure; roadmap/README closure wording; Stage 4 unblocked. | C1–C5 | S6 |
+| **S5 — Tiers B and C** | Designed compositions per §25 table on every surface (Workbench and Investigation keep the measured §4 progression inside Tier B); the first Tier B/C inspection; Tier B/C manifest entries flip to `blocking`; `mobile: false` stays (no touch emulation claimed). | T1–T3 | S4 |
+| **S6 — Accessibility and performance hardening** | Every §23 row asserted on every surface; keyboard-only completion of the six journeys; CLS/long-task budgets set from the S2 baseline and met; the remaining manifest entries flip to `blocking`. | X1–X4 | S5 |
+| **S7 — Final acceptance** | Full 125-state sweep at every anchor with every manifest entry `blocking` or `not-applicable`; §34 items 1–17 on every surface with no §34.2 exception; cold review; register closure; roadmap/README closure wording; Stage 4 unblocked. | C1–C5 | S6 |
 
 Ordering is strict S0 → S1 → S2 → S3 → S4 → S5 → S6 → S7 except that S3a–S3e may run in parallel after S2.
 
@@ -237,7 +237,7 @@ None added, in any slice. Each slice's PR states this explicitly. If a slice fin
 
 ## 17. Acceptance
 
-The register is the only exit gate. Its structure: **A** (architecture and audit — this PR), **D** (design-system implementation), **V/P** (harness v2 and baseline measurement), **R** (reference surfaces), **M** (migration), **T** (tiers), **X** (accessibility/performance), **C** (closure). Closure conditions are specification §39. P2 single-surface and P3 findings open at closure are listed with an owner slice or an explicit, owner-accepted deferral; they do not block Stage 4 unless the register says so. "Looks better" is not an exit criterion anywhere.
+The register is the only exit gate. During S1–S6 the standard a PR is held to is specification §34.2 (staged by slice); at S7 it is §34 unqualified. Its structure: **A** (architecture and audit — this PR), **D** (design-system implementation), **V/P** (harness v2 and baseline measurement), **R** (reference surfaces), **M** (migration), **T** (tiers), **X** (accessibility/performance), **C** (closure). Closure conditions are specification §39. P2 single-surface and P3 findings open at closure are listed with an owner slice or an explicit, owner-accepted deferral; they do not block Stage 4 unless the register says so. "Looks better" is not an exit criterion anywhere.
 
 ## 18. Rollback
 
@@ -260,3 +260,5 @@ Every slice is a revert-able PR. S1 is the widest diff; it is split into PRs by 
 13. Nothing a Stage-4 (ANPR/OCR) surface could not follow: every rule is archetype-generic.
 14. Long names, dense data, missing evidence, failures, stale and partial states, and large evidence sets are addressed, not assumed.
 15. Every "observed" statement names a capture or a file; every inference is marked as one; nothing uninspected is described as inspected.
+16. Every slice can truthfully state the conformance it is required to meet (§34.2), CI can distinguish blocking rules from later-slice rules (the §26 manifest), and no migration exception survives S7.
+17. Every archetype has exactly one composition at every width from 390px up, and §4 and §25 agree on scroll ownership and breakpoints.
