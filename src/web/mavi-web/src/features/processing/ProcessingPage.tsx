@@ -535,11 +535,14 @@ function SceneAnalyticsPanel({
       ) : null}
       {analyticsRefreshFailed ? (
         <Alert tone="warning" actions={onRetryAnalyticsDetails ? <Button size="sm" onClick={onRetryAnalyticsDetails}>Retry</Button> : undefined}>
-          Analysis details could not be refreshed, so this page has stopped checking for progress. The details above are the last known; Retry resumes.
+          Analysis details could not be refreshed, so this page has stopped checking for progress. The details above are the last known
+          {onRetryAnalyticsDetails ? '; Retry resumes.' : '.'}
         </Alert>
       ) : null}
 
-      {effective === 'Pending' && !analyticsRefreshFailed ? (
+      {/* Polling stops on any analytics failure — a first load or a refresh —
+          so the page says it keeps refreshing only while it actually does. */}
+      {effective === 'Pending' && !analyticsRefreshFailed && !analyticsUnavailable ? (
         <p className="small faint">The analytics host will analyse this run against the active scene revision; this page keeps refreshing until it does.</p>
       ) : null}
 

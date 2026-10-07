@@ -332,6 +332,32 @@ describe('ProcessingPage', () => {
       await waitFor(() => expect(requests()).toBeGreaterThan(afterRetry), { timeout: 4_000 });
     }, 15_000);
 
+    it('does not claim to keep refreshing a Pending run whose analytics never loaded', async () => {
+      arrange('Pending', []);
+      vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'Down.' }));
+      render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(await within(panel).findByText(/Analysis details are unavailable/, {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(within(panel).queryByText(/keeps refreshing until it does/)).not.toBeInTheDocument();
+    });
+
+    it('promises a Retry only when it offers one', async () => {
+      arrange('Pending', [unit({ status: 'Running', attemptCount: 2, completedAtUtc: null })]);
+      const { queryClient } = render();
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(await within(panel).findByText('Running · attempt 2')).toBeInTheDocument();
+
+      // The run's analytics no longer exist: retrying cannot help, so none is offered — or promised.
+      vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 404, code: 'not_found', detail: 'Gone.' }));
+      await act(async () => {
+        await queryClient.refetchQueries({ queryKey: queryKeys.runAnalytics(runId) });
+      });
+      const warning = await within(panel).findByText(/could not be refreshed/, {}, { timeout: 4000 });
+      expect(warning).not.toHaveTextContent('Retry resumes');
+      expect(within(warning.closest('[role="status"]') as HTMLElement).queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    });
+
     it('falls back to the status readiness when the lifecycle endpoint is unavailable', async () => {
       arrange('Ready', []);
       vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'Down.' }));
