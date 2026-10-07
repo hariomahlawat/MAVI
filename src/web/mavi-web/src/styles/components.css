@@ -417,3 +417,39 @@ a.summary-band__item:hover .summary-band__value { text-decoration: underline; te
 /* Keyboard hint row */
 .hints { display: flex; flex-wrap: wrap; gap: var(--s-3); color: var(--text-muted); font-size: var(--fs-0); }
 .hints span { display: inline-flex; align-items: center; gap: var(--s-1); }
+
+/* Dialog (section 15): one consequential decision. Centred over a scrim that
+   covers the whole application, which is inert behind it. */
+.dialog-host { position: fixed; inset: 0; z-index: var(--z-dialog); display: grid; place-items: center; padding: var(--s-4); }
+.dialog-backdrop { position: absolute; inset: 0; background: var(--scrim); }
+.dialog {
+  position: relative; display: grid; gap: var(--s-3);
+  width: min(440px, 100%); padding: var(--s-4);
+  border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-2);
+  background: var(--surface-raised); box-shadow: var(--elevation-floating);
+}
+.dialog:focus-visible { outline: none; }
+.dialog__title { font-size: var(--fs-3); font-weight: 600; }
+.dialog__body { color: var(--text-secondary); font-size: var(--fs-2); max-width: var(--measure); }
+/* Cancel first, the named action last: the eye ends on what will happen. */
+.dialog__actions { display: flex; justify-content: flex-end; gap: var(--s-2); }
+
+/* Drawer (section 20): the dimming over the region a drawer covers. The
+   archetype places it over exactly that region; a click on it closes the
+   drawer. */
+.drawer-scrim { background: var(--scrim); z-index: calc(var(--z-drawer) - 1); }
+
+/* Tooltip (section 23): a hint beside a control, never its name. */
+.tooltip-anchor { position: relative; display: inline-flex; }
+.tooltip {
+  position: absolute; top: calc(100% + var(--s-1)); left: 50%; transform: translateX(-50%);
+  z-index: var(--z-tooltip); padding: var(--s-1) var(--s-2); white-space: nowrap; pointer-events: none;
+  border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-1);
+  background: var(--surface-raised-2); color: var(--text-primary); font-size: var(--fs-1);
+  box-shadow: var(--elevation-floating);
+}
+.tooltip[hidden] { display: none; }
+/* Edge-aware: a hint that would be cut off by what clips it aligns to that
+   edge of its trigger instead of centring (set by the Tooltip on open). */
+.tooltip[data-align='end'] { left: auto; right: 0; transform: none; }
+.tooltip[data-align='start'] { left: 0; transform: none; }

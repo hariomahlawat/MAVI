@@ -5,6 +5,7 @@ import { getTrack, objectClassLabel, type TrackAnalyticsIdentity, type TrackSear
 import { queryKeys } from '../../app/queryClient';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
+import Tooltip from '../../shared/overlay/Tooltip';
 import StateRegion from '../../shared/async/StateRegion';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { Inspector } from '../../shared/workspace';
@@ -99,15 +100,15 @@ export default function TrackInspector({
       title={title}
       actions={(
         <div className="track-inspector__nav">
-          <Button size="sm" iconOnly icon="chevronLeft" onClick={onPrevious} disabled={!canPrevious} title="Previous result (k / ↑)">Previous result</Button>
+          <Tooltip content="Previous result · k or ↑"><Button size="sm" iconOnly icon="chevronLeft" onClick={onPrevious} disabled={!canPrevious}>Previous result</Button></Tooltip>
           <span className="track-inspector__pos" aria-live="polite">{position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total}</span>
-          <Button size="sm" iconOnly icon="chevronRight" onClick={onNext} disabled={!canNext} title="Next result (j / ↓)">Next result</Button>
+          <Tooltip content="Next result · j or ↓"><Button size="sm" iconOnly icon="chevronRight" onClick={onNext} disabled={!canNext}>Next result</Button></Tooltip>
           {detail ? (
             <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext, analyticsIdentity)} icon="external" title="Open full review (Enter)">
               Open
             </ButtonLink>
           ) : null}
-          <Button size="sm" iconOnly icon="x" onClick={onClose} title="Close inspector (Esc)">Close inspector</Button>
+          <Tooltip content="Close inspector · Esc"><Button size="sm" iconOnly icon="x" onClick={onClose}>Close inspector</Button></Tooltip>
         </div>
       )}
     >

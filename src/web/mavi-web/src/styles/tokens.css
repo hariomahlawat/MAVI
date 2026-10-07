@@ -319,6 +319,10 @@
      containers on a dark surface take a border instead. UI-2 introduces the
      first floating layer: the Workbench and Investigation inspector drawers. */
   --elevation-floating: 0 8px 24px rgb(0 0 0 / 35%);
+  /* The dimming laid over what a dialog or a drawer covers (section 20): it
+     says "not available right now" without hiding what the operator was
+     looking at. */
+  --scrim: rgb(0 0 0 / 45%);
 
 
   /* --- Scrollbars (section 36.3). The platform scrollbar, styled only in
@@ -344,6 +348,9 @@
      level arrives with the popover. --------------------------------------- */
   --z-sticky: 1;
   --z-drawer: 30;
+  /* A dialog sits over everything, a drawer included; a tooltip over that. */
+  --z-dialog: 50;
+  --z-tooltip: 60;
 }
 
 /* ------------------------------------------------------------------ *

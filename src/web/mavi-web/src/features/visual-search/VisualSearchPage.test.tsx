@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../api/client';
 import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
@@ -11,6 +11,8 @@ import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import { evidenceSet, FULL_EVIDENCE_SET_ROLES, trackEvidence } from '../../test/trackEvidenceFixtures';
+import { stubMatchMedia } from '../../test/matchMedia';
+import { OVERLAY_QUERIES } from '../../shared/overlay/useMediaQuery';
 import VisualSearchPage from './VisualSearchPage';
 
 vi.mock('../../api/cameras', () => ({
@@ -1155,6 +1157,106 @@ describe('VisualSearchPage', () => {
       await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
       expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({ cursor: 'page-two' }));
       expect(await screen.findByText(/3 \/ 3/)).toBeInTheDocument();
+    });
+  });
+
+  describe('inspector as an overlay drawer (1101 to 1599px)', () => {
+    const first = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451');
+    const second = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21452', { objectClass: 'Vehicle', cameraName: 'East Gate' });
+    let restoreMatchMedia: () => void = () => {};
+
+    beforeEach(() => {
+      restoreMatchMedia = stubMatchMedia((query) => query === OVERLAY_QUERIES.investigation);
+      vi.mocked(searchTracks).mockResolvedValue({ items: [first, second], nextCursor: null });
+      vi.mocked(getTrack).mockImplementation(async (id) => detail(id === first.id ? first : second, id === first.id ? 7 : 8));
+    });
+    afterEach(() => restoreMatchMedia());
+
+    async function openFromFirstRow() {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      const results = await screen.findByRole('list', { name: 'Track results' });
+      const control = within(within(results).getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / });
+      await user.click(control);
+      const heading = await screen.findByRole('heading', { name: 'Person · Track 7' });
+      return { user, control, heading };
+    }
+
+    it('is a modal drawer named by its heading, which takes focus', async () => {
+      const { heading } = await openFromFirstRow();
+      const drawer = screen.getByRole('dialog', { name: 'Person · Track 7' });
+      expect(drawer).toHaveAttribute('aria-modal', 'true');
+      expect(drawer).toContainElement(screen.getByRole('complementary', { name: 'Track inspector' }));
+      await waitFor(() => expect(heading).toHaveFocus());
+    });
+
+    it('makes the covered results inert and keeps Tab inside the drawer', async () => {
+      const { user } = await openFromFirstRow();
+      expect(document.querySelector('.workspace__results')).toHaveAttribute('inert');
+      const drawer = screen.getByRole('dialog');
+      for (let i = 0; i < 12; i += 1) {
+        await user.tab();
+        expect(drawer.contains(document.activeElement)).toBe(true);
+      }
+    });
+
+    it('makes the rail inert with the results, so the modal is modal to the pointer too', async () => {
+      await openFromFirstRow();
+      expect(document.querySelector('.workspace__rail')).toHaveAttribute('inert');
+    });
+
+    it('closes on Escape from a field inside the drawer too (§20)', async () => {
+      const { user, control } = await openFromFirstRow();
+      const drawer = screen.getByRole('dialog');
+      const field = drawer.querySelector<HTMLElement>('input, select, textarea');
+      expect(field).not.toBeNull();
+      field!.focus();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      await waitFor(() => expect(control).toHaveFocus());
+    });
+
+    it('closes on Escape, frees the results, and returns focus to the result it was opened from', async () => {
+      const { user, control } = await openFromFirstRow();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(document.querySelector('.workspace__results')).not.toHaveAttribute('inert');
+      await waitFor(() => expect(control).toHaveFocus());
+    });
+
+    it('returns focus to the result from its own close control too', async () => {
+      const { user, control } = await openFromFirstRow();
+      await user.click(screen.getByRole('button', { name: 'Close inspector' }));
+      await waitFor(() => expect(control).toHaveFocus());
+      expect(document.querySelector('[inert]')).toBeNull();
+    });
+
+    it('keeps the drawer, and focus in it, while the keyboard steps to the next result', async () => {
+      const { user } = await openFromFirstRow();
+      await user.click(screen.getByRole('button', { name: 'Next result' }));
+      await screen.findByRole('heading', { name: 'Vehicle · Track 8' });
+      const drawer = screen.getByRole('dialog', { name: 'Vehicle · Track 8' });
+      await waitFor(() => expect(drawer.contains(document.activeElement)).toBe(true));
+      expect(document.querySelector('.workspace__results')).toHaveAttribute('inert');
+    });
+  });
+
+  describe('inspector in place (1600px and wider)', () => {
+    it('claims no drawer semantics: no dialog, nothing inert, focus left where the operator put it', async () => {
+      const restore = stubMatchMedia(() => false);
+      try {
+        const user = userEvent.setup();
+        renderWithApp(<VisualSearchPage />, { route: '/search' });
+        const results = await screen.findByRole('list', { name: 'Track results' });
+        const control = within(within(results).getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / });
+        await user.click(control);
+        await screen.findByRole('complementary', { name: 'Track inspector' });
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(document.querySelector('[aria-modal], [inert], .drawer-scrim')).toBeNull();
+        expect(control).toHaveFocus();
+      } finally {
+        restore();
+      }
     });
   });
 });

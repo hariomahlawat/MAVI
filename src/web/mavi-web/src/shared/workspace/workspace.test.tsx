@@ -2,6 +2,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import { stubMatchMedia } from '../../test/matchMedia';
+import { OVERLAY_QUERIES } from '../overlay/useMediaQuery';
 import { describe, expect, it, vi } from 'vitest';
 import ContextBar, { barClass, Breadcrumbs } from './ContextBar';
 import Inspector from './Inspector';
@@ -227,6 +229,8 @@ describe('archetypes', () => {
   it('lets Escape shut the drawer, and only while it is open', async () => {
     const user = userEvent.setup();
     const onEscape = vi.fn();
+    // The drawer is an overlay only in the 1101–1149 band (§4.3.1).
+    const restore = stubMatchMedia((query) => query === OVERLAY_QUERIES.workbench);
     window.addEventListener('keydown', onEscape);
     try {
       const { container } = render(<WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />);
@@ -247,7 +251,39 @@ describe('archetypes', () => {
       expect(onEscape).toHaveBeenCalledTimes(1);
     } finally {
       window.removeEventListener('keydown', onEscape);
+      restore();
     }
+  });
+
+  it('makes everything beside the open overlay drawer inert, the revision footer included', async () => {
+    const user = userEvent.setup();
+    const restore = stubMatchMedia((query) => query === OVERLAY_QUERIES.workbench);
+    try {
+      const { container } = render(
+        <WorkbenchLayout
+          stage={<canvas />}
+          inspector={<p>inspector</p>}
+          modes={<div>modes</div>}
+          notices={<p>notice</p>}
+          footer={<button type="button">Revision 3</button>}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Inspector' }));
+      for (const region of ['band', 'notices', 'stage', 'footer']) {
+        expect(container.querySelector(`.workspace__${region}`)).toHaveAttribute('inert');
+      }
+      expect(container.querySelector('.workspace__inspector')).not.toHaveAttribute('inert');
+
+      await user.keyboard('{Escape}');
+      expect(container.querySelector('[inert]')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it('dims every inert region beside a drawer, not only the one under its scrim', () => {
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\.workspace > \[inert\]::after\s*\{[^}]*background:\s*var\(--scrim\)/);
   });
 
   it('gives the Workbench a stage and an inspector that are not interchangeable', () => {
@@ -412,6 +448,29 @@ describe('the archetype set is closed', () => {
     const threshold = css.slice(css.indexOf('@media (min-width: 1600px)'));
     expect(threshold.slice(0, threshold.indexOf('@media', 1)))
       .toMatch(/--inspector-placement:\s*in-place/);
+  });
+
+  it('makes an inspector modal exactly where the stylesheet draws it over the workspace', () => {
+    // The Drawer's semantics (dialog role, trap, inert) follow a media query
+    // in script; the overlay itself is drawn by workspace.css. If the two
+    // disagree, either a covered workspace stays operable or an in-place
+    // column traps focus — so the script's queries are the stylesheet's own.
+    const css = SHEETS['/src/styles/workspace.css'].replace(/\/\*[\s\S]*?\*\//g, '');
+    const block = (query: string) => {
+      const start = css.indexOf(`@media ${query}`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const rest = css.slice(start + 1);
+      return rest.slice(0, rest.indexOf('@media'));
+    };
+    // Workbench: the stylesheet floats the inspector in exactly this band.
+    expect(block(OVERLAY_QUERIES.workbench))
+      .toMatch(/\.workspace--workbench \.workspace__inspector\s*\{[^}]*position:\s*absolute/);
+    // Investigation: floated below the in-place threshold, stacked at or below
+    // the stacking threshold; the script's band is what lies between.
+    expect(block('(max-width: 1599px)')).toMatch(/\.workspace--investigation\.has-inspector \.workspace__inspector\s*\{[^}]*position:\s*absolute/);
+    expect(css).toContain('@media (min-width: 1600px)');
+    expect(css).toContain('@media (max-width: 1100px)');
+    expect(OVERLAY_QUERIES.investigation).toBe('(min-width: 1101px) and (max-width: 1599px)');
   });
 
   it('gives the in-place Investigation inspector a floor the results yield to', () => {

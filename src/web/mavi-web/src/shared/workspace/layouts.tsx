@@ -1,5 +1,7 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import Button from '../components/Button';
+import Drawer from '../overlay/Drawer';
+import { OVERLAY_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
 import { useScrollPolicy } from './surfaceSlot';
 
 /**
@@ -168,25 +170,22 @@ export function WorkbenchLayout({
   // its floor. A drawer that cannot be shut is not a drawer — it is a panel
   // parked on top of the canvas — so it starts closed and has a way out.
   //
-  // The state is only ever consulted inside that band, by CSS. At every other
-  // width the inspector is in flow and this is inert, which is what stops a
-  // drawer closed at 1120 from hiding the inspector at 1920.
+  // At every other width the inspector is in flow. Leaving the band closes the
+  // drawer, so a drawer opened at 1120 is never found open — and modal — when
+  // the window comes back into the band later.
+  const overlay = useMediaQuery(OVERLAY_QUERIES.workbench);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const inspectorId = useId();
+  // Everything in the workspace beside the drawer: inert while it is open as
+  // an overlay, so the modal it declares is the modal the operator gets.
+  const bandRef = useRef<HTMLDivElement | null>(null);
+  const noticesRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!drawerOpen) return undefined;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      // Captured at the window, so an open drawer takes Escape before the
-      // surface's own handler does: closing what is covering the canvas is
-      // what the operator meant, not cancelling what they were drawing on it.
-      event.stopPropagation();
-      setDrawerOpen(false);
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [drawerOpen]);
+    if (!overlay) setDrawerOpen(false);
+  }, [overlay]);
 
   const toggle = (
     <Button
@@ -204,14 +203,23 @@ export function WorkbenchLayout({
   return (
     <section className={`workspace workspace--workbench${drawerOpen ? ' has-open-drawer' : ''}`}>
       {modes ? (
-        <div className="workspace__band">{modes}{toggle}</div>
+        <div className="workspace__band" ref={bandRef}>{modes}{toggle}</div>
       ) : (
-        <div className="workspace__band workspace__band--drawer-only">{toggle}</div>
+        <div className="workspace__band workspace__band--drawer-only" ref={bandRef}>{toggle}</div>
       )}
-      {notices ? <div className="workspace__notices">{notices}</div> : null}
+      {notices ? <div className="workspace__notices" ref={noticesRef}>{notices}</div> : null}
       <div className="workspace__stage-grid">
-        <div className="workspace__stage">{stage}</div>
-        <div className="workspace__inspector" id={inspectorId}>
+        <div className="workspace__stage" ref={stageRef}>{stage}</div>
+        {/* §20: a drawer only in the overlay band and only while open; an
+            ordinary column everywhere else. */}
+        <Drawer
+          open={drawerOpen}
+          overlay={overlay}
+          onClose={() => setDrawerOpen(false)}
+          covers={[bandRef, noticesRef, stageRef, footerRef]}
+          id={inspectorId}
+          className="workspace__inspector"
+        >
           <Button
             size="sm"
             variant="ghost"
@@ -223,9 +231,9 @@ export function WorkbenchLayout({
             {`Close ${inspectorLabel.toLowerCase()}`}
           </Button>
           {inspector}
-        </div>
+        </Drawer>
       </div>
-      {footer ? <div className="workspace__footer">{footer}</div> : null}
+      {footer ? <div className="workspace__footer" ref={footerRef}>{footer}</div> : null}
     </section>
   );
 }
@@ -251,6 +259,7 @@ export function InvestigationLayout({
   notices,
   children,
   inspector,
+  onCloseInspector,
 }: {
   /** The filter rail, 252px (§4.4). */
   rail: ReactNode;
@@ -259,16 +268,42 @@ export function InvestigationLayout({
   children: ReactNode;
   /** Appears on selection; its body scrolls independently. */
   inspector?: ReactNode;
+  /**
+   * Closes the inspector — Escape and a click on the covered results while it
+   * is a drawer. The surface returns focus itself, to the selected result.
+   */
+  onCloseInspector?: () => void;
 }) {
   // §4.4: results and inspector scroll independently; the page does not.
   useScrollPolicy('contain');
+  // §20, amended in v2.0: below 1600px the inspector covers the results and is
+  // a drawer — focus moves into it, stays there, and the results it covers are
+  // inert until it closes. The rail is inert with them: a modal drawer that
+  // left the filters live would be modal to the keyboard and to assistive
+  // technology but not to the pointer. At 1600px and above it is an in-place
+  // column and claims none of that.
+  const overlay = useMediaQuery(OVERLAY_QUERIES.investigation);
+  const noticesRef = useRef<HTMLDivElement | null>(null);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
   return (
     <section className={`workspace workspace--investigation${inspector ? ' has-inspector' : ''}`}>
-      {notices ? <div className="workspace__notices">{notices}</div> : null}
+      {notices ? <div className="workspace__notices" ref={noticesRef}>{notices}</div> : null}
       <div className="workspace__investigation-grid">
-        <div className="workspace__rail">{rail}</div>
-        <div className="workspace__results">{children}</div>
-        {inspector ? <div className="workspace__inspector">{inspector}</div> : null}
+        <div className="workspace__rail" ref={railRef}>{rail}</div>
+        <div className="workspace__results" ref={resultsRef}>{children}</div>
+        {inspector ? (
+          <Drawer
+            open
+            overlay={overlay}
+            onClose={() => onCloseInspector?.()}
+            covers={[noticesRef, railRef, resultsRef]}
+            restoreFocusOnClose={false}
+            className="workspace__inspector"
+          >
+            {inspector}
+          </Drawer>
+        ) : null}
       </div>
     </section>
   );

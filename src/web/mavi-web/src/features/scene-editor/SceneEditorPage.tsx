@@ -36,12 +36,13 @@ import SceneObjectList from './SceneObjectList';
 import ScenePropertiesPanel from './ScenePropertiesPanel';
 import SceneToolbar from './SceneToolbar';
 import { issuesByKey, validateDraft } from './sceneValidation';
+import Dialog from '../../shared/overlay/Dialog';
 import { useUnsavedChangesGuard } from './useUnsavedChangesGuard';
 
 /** The frame the stage falls back to when no reference video is loaded. */
 const NEUTRAL_FRAME = { width: 16, height: 9 };
 
-const UNSAVED_MESSAGE = 'You have unsaved scene changes. Leave without saving?';
+const UNSAVED_MESSAGE = 'Your unsaved scene changes are discarded if you leave this page now.';
 
 export const sceneQueryKeys = {
   scene: (cameraId: string) => ['camera-scene', cameraId] as const,
@@ -180,7 +181,24 @@ export default function SceneEditorPage() {
   // An unfinished polygon is unsaved work the draft has not been told about
   // yet, and losing a dozen placed vertices to a stray navigation is the same
   // loss as losing a saved-shaped one.
-  useUnsavedChangesGuard(state.dirty || state.drawing.kind !== 'none', UNSAVED_MESSAGE);
+  // The one consequential decision open on this surface, if any (§15).
+  const [pendingDiscard, setPendingDiscard] = useState<'reset' | 'reload' | null>(null);
+  // A discard decision exists only while the editor it concerns is on screen.
+  // If a background read turns the page into not-found (or back into its
+  // loading/unavailable frame) while one is open, the decision is dropped:
+  // otherwise it would hold the leave guard busy with no dialog left to
+  // answer, silently refusing every navigation.
+  const editorShown = Boolean(cameraId)
+    && !isCameraMissing(camera.error) && !isCameraMissing(scene.error)
+    && camera.data !== undefined && scene.data !== undefined;
+  const leaveGuard = useUnsavedChangesGuard(
+    state.dirty || state.drawing.kind !== 'none',
+    UNSAVED_MESSAGE,
+    pendingDiscard !== null && editorShown,
+  );
+  useEffect(() => {
+    if (!editorShown && pendingDiscard !== null) setPendingDiscard(null);
+  }, [editorShown, pendingDiscard]);
 
   const saveMutation = useMutation({
     mutationFn: (draft: SceneDraft) => saveCameraScene(cameraId, saveRequestFromDraft(draft)),
@@ -291,19 +309,26 @@ export default function SceneEditorPage() {
     saveMutation.mutate(state.draft);
   }, [canSave, analyticsEnabled, confirmingDisable, saveMutation, state.draft]);
 
-  const reset = useCallback(() => {
-    if (state.dirty && !window.confirm('Discard unsaved scene changes and return to the active revision?')) return;
+  // A discard that would lose edits is decided in the product's own Dialog
+  // (§15): it states what is lost and names the action. A discard that loses
+  // nothing simply happens.
+
+  const performReset = useCallback(() => {
     dispatch({ type: 'reset' });
     setPreviewVideoId(activeRevision?.referenceFrameVideoAssetId ?? null);
     setConflict(false);
     setSaved(false);
-  }, [state.dirty, activeRevision]);
+  }, [activeRevision]);
 
-  const reloadActive = useCallback(async () => {
-    if (state.dirty
-      && !window.confirm('Discard your unsaved scene changes and load the revision that is now saved?')) {
+  const reset = useCallback(() => {
+    if (state.dirty) {
+      setPendingDiscard('reset');
       return;
     }
+    performReset();
+  }, [state.dirty, performReset]);
+
+  const performReload = useCallback(async () => {
     // Adopt what the refetch returns rather than waiting for the query's own
     // value to change identity. React Query shares structure between fetches,
     // so a refetch that returns an unchanged scene hands back the same object,
@@ -316,11 +341,42 @@ export default function SceneEditorPage() {
       staleTime: 0,
     });
     adopt(refreshed.activeRevision ?? null);
-  }, [queryClient, cameraId, state.dirty, adopt]);
+  }, [queryClient, cameraId, adopt]);
 
-  if (!cameraId) return <NotFound />;
+  const reloadActive = useCallback(() => {
+    if (state.dirty) {
+      setPendingDiscard('reload');
+      return;
+    }
+    void performReload();
+  }, [state.dirty, performReload]);
 
-  if (isCameraMissing(camera.error) || isCameraMissing(scene.error)) return <NotFound />;
+  const discardDialog = (
+    <Dialog
+      open={pendingDiscard !== null}
+      title={pendingDiscard === 'reload' ? 'Discard your changes and load the saved revision?' : 'Discard your unsaved scene changes?'}
+      confirmLabel={pendingDiscard === 'reload' ? 'Discard and load revision' : 'Discard changes'}
+      destructive
+      onCancel={() => setPendingDiscard(null)}
+      onConfirm={() => {
+        const action = pendingDiscard;
+        setPendingDiscard(null);
+        if (action === 'reset') performReset();
+        else if (action === 'reload') void performReload();
+      }}
+    >
+      {pendingDiscard === 'reload'
+        ? 'Your unsaved edits are discarded and the editor loads the revision that was saved while you were editing. This cannot be undone.'
+        : 'Your unsaved edits are discarded and the editor returns to the active revision. This cannot be undone.'}
+    </Dialog>
+  );
+
+  // The leave guard is rendered in every branch: the router keeps blocking
+  // while the draft is dirty, so a branch without it would hold a navigation
+  // with nothing on screen to release it.
+  if (!cameraId) return <>{leaveGuard}<NotFound /></>;
+
+  if (isCameraMissing(camera.error) || isCameraMissing(scene.error)) return <>{leaveGuard}<NotFound /></>;
 
   // The camera and its scene are one page region (§37.1, page): the editor
   // cannot be drawn until both have answered, a failure of either is one alert
@@ -330,6 +386,7 @@ export default function SceneEditorPage() {
   if (camera.data === undefined || scene.data === undefined) {
     return (
       <section className="page page--full page--workspace">
+        {leaveGuard}
         <ContextBar
           crumbs={[
             { label: 'Cameras', to: '/cameras' },
@@ -451,6 +508,8 @@ export default function SceneEditorPage() {
 
   return (
     <section className="page page--full page--workspace">
+      {leaveGuard}
+      {discardDialog}
       <SceneContextBar
         cameraCode={camera.data?.code ?? 'Camera'}
         cameraName={camera.data?.name ?? ''}
