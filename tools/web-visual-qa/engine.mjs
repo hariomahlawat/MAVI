@@ -144,16 +144,22 @@ export function unreachedFaults(results) {
 
 /**
  * pressed.visible across a sweep: the control kinds some capture left unproven
- * (its pressed form never on that page) that no capture proved distinct, each
- * with the first valid case it was seen in.
+ * (its pressed form never on that page) that no capture proved distinct in the
+ * same rendering context — the same surface at the same tier, so a pressed look
+ * shown on another surface or at a narrower tier never stands in for this one —
+ * each with the first valid case it was seen in.
  */
 export function unprovenPressedKinds(results) {
-  const proven = new Set(results.flatMap((r) => r.pressed?.proven ?? []));
+  const context = (kind, r) => `${kind} @ ${r.surface ?? '?'} / Tier ${r.tier}`;
+  const proven = new Set(results.filter((r) => r.valid).flatMap((r) => (r.pressed?.proven ?? []).map((kind) => context(kind, r))));
   const firstSeen = new Map();
   for (const r of results.filter((x) => x.valid)) {
-    for (const u of r.pressed?.unproven ?? []) if (!proven.has(u.kind) && !firstSeen.has(u.kind)) firstSeen.set(u.kind, { result: r, control: u.control });
+    for (const u of r.pressed?.unproven ?? []) {
+      const key = context(u.kind, r);
+      if (!proven.has(key) && !firstSeen.has(key)) firstSeen.set(key, { kind: u.kind, result: r, control: u.control });
+    }
   }
-  return Array.from(firstSeen, ([kind, seen]) => ({ kind, ...seen }));
+  return Array.from(firstSeen.values());
 }
 
 export function exitStatus({ harnessErrors, blocking, keep = false }) {

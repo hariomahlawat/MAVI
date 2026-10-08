@@ -16,8 +16,17 @@ export async function openBrowser() {
   mkdirSync(join(dist, 'fixtures'), { recursive: true });
   const lane = { scenario: {} };
   lane.server = await startServer({ distDir: dist, fixtureDir: join(dist, 'fixtures'), scenario: () => lane.scenario, footage: () => null });
-  lane.browser = await launch();
-  await lane.browser.addInitScript(OBSERVERS);
+  // A browser that fails to start must not leave the server listening (it
+  // would hold the test run open) or the temporary directory behind.
+  try {
+    lane.browser = await launch();
+    await lane.browser.addInitScript(OBSERVERS);
+  } catch (error) {
+    await lane.browser?.close().catch(() => {});
+    await lane.server.close().catch(() => {});
+    rmSync(dist, { recursive: true, force: true });
+    throw error;
+  }
   lane.page = async (html, { width = 1366, height = 768, api = {} } = {}) => {
     lane.scenario = api;
     lane.server.resetSequences();

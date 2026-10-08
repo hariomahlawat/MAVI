@@ -190,12 +190,24 @@ describe('surface-scoped findings in the ledger', () => {
 
 describe('pressed.visible across a sweep', () => {
   it('leaves no kind unproven once any capture shows it distinct, and names the first case of one never shown', () => {
+    const at = (surface, tier) => ({ surface, tier, valid: true });
     const results = [
-      { state: 'a', valid: true, pressed: { proven: [], unproven: [{ kind: 'button.chip in div', control: 'R3' }, { kind: 'button in li.nav', control: 'Forecourt' }] } },
-      { state: 'b', valid: false, pressed: { proven: [], unproven: [{ kind: 'button.seg in div', control: 'x' }] } },
-      { state: 'c', valid: true, pressed: { proven: ['button in li.nav'], unproven: [{ kind: 'button.chip in div', control: 'R4' }] } },
+      { state: 'a', ...at('scene-editor', 'A'), pressed: { proven: [], unproven: [{ kind: 'button.chip in div', control: 'R3' }, { kind: 'button in li.nav', control: 'Forecourt' }] } },
+      { state: 'b', ...at('scene-editor', 'A'), valid: false, pressed: { proven: [], unproven: [{ kind: 'button.seg in div', control: 'x' }] } },
+      { state: 'c', ...at('scene-editor', 'A'), pressed: { proven: ['button in li.nav'], unproven: [{ kind: 'button.chip in div', control: 'R4' }] } },
     ];
     const unproven = unprovenPressedKinds(results);
     assert.deepEqual(unproven.map((u) => [u.kind, u.result.state, u.control]), [['button.chip in div', 'a', 'R3']]);
+  });
+
+  it('does not let proof from another surface or another tier stand in for this one', () => {
+    const results = [
+      { state: 'wide', surface: 'scene-editor', tier: 'A', valid: true, pressed: { proven: [], unproven: [{ kind: 'button.chip in li', control: 'R3' }] } },
+      { state: 'narrow', surface: 'scene-editor', tier: 'C', valid: true, pressed: { proven: ['button.chip in li'], unproven: [] } },
+      { state: 'elsewhere', surface: 'review', tier: 'A', valid: true, pressed: { proven: ['button.chip in li'], unproven: [] } },
+    ];
+    assert.deepEqual(unprovenPressedKinds(results).map((u) => [u.result.state, u.result.tier]), [['wide', 'A']]);
+    results.push({ state: 'same', surface: 'scene-editor', tier: 'A', valid: true, pressed: { proven: ['button.chip in li'], unproven: [] } });
+    assert.deepEqual(unprovenPressedKinds(results), []);
   });
 });
