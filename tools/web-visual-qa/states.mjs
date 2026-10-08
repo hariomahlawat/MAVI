@@ -2299,6 +2299,44 @@ const FAILED_FINALIZATION_STATUS = {
   },
 };
 
+/** R3: the completed run of `VIDEO` and the running run of `LONG_VIDEO` (fixtures), for states that vary one thing. */
+const R3_COMPLETED_STATUS = JSON.parse(readFileSync(new URL(`./fixtures/videos_${VIDEO}_processing.json`, import.meta.url), 'utf8'));
+const R3_COMPLETED_RUN = R3_COMPLETED_STATUS.latestRun;
+const R3_RUNNING_STATUS = JSON.parse(readFileSync(new URL(`./fixtures/videos_${LONG_VIDEO}_processing.json`, import.meta.url), 'utf8'));
+
+/** R3: a completed run with the given analytics readiness, both endpoints agreeing. */
+function r3Analytics(readiness, activeSceneRevisionId, units) {
+  return {
+    [`/api/videos/${VIDEO}/processing`]: { ...R3_COMPLETED_STATUS, latestRun: { ...R3_COMPLETED_RUN, analyticsReadiness: readiness } },
+    [`/api/processing/runs/${R3_COMPLETED_RUN.processingRunId}/analytics`]: {
+      processingRunId: R3_COMPLETED_RUN.processingRunId, readiness, activeSceneRevisionId, algorithmVersion: 'scene-analytics-v1',
+      analyses: units.map((unit, index) => ({
+        analysisId: `aaaaaaa${index + 1}-aaaa-7aaa-8aaa-aaaaaaaaaaa${index + 1}`, processingRunId: R3_COMPLETED_RUN.processingRunId,
+        sceneRevisionId: REVISION, sceneRevisionNumber: 4, algorithmVersion: 'scene-analytics-v1', status: 'Completed', attemptCount: 1,
+        queuedAtUtc: '2026-09-14T03:10:00Z', startedAtUtc: '2026-09-14T03:10:02Z', completedAtUtc: '2026-09-14T03:12:41Z',
+        leaseExpiresAtUtc: null, analysedTrackCount: 5, unavailableTrackCount: 1, failureCode: null, ...unit,
+      })),
+    },
+  };
+}
+
+/**
+ * R3: the failed video under a long file name, on a camera with a long name,
+ * run by a worker with a long identity — the values that stress the Context
+ * Bar, the facts rail and the Diagnostics disclosure at once.
+ */
+const R3_FAILED_VIDEO_RECORD = JSON.parse(readFileSync(new URL(`./fixtures/videos_${FAILED_VIDEO}.json`, import.meta.url), 'utf8'));
+const R3_FAILED_STATUS = JSON.parse(readFileSync(new URL(`./fixtures/videos_${FAILED_VIDEO}_processing.json`, import.meta.url), 'utf8'));
+const R3_CAMERA = JSON.parse(readFileSync(new URL(`./fixtures/cameras_${CAM}.json`, import.meta.url), 'utf8'));
+const R3_LONG_IDENTITY = {
+  [`/api/videos/${FAILED_VIDEO}/processing`]: {
+    ...R3_FAILED_STATUS,
+    latestRun: { ...R3_FAILED_STATUS.latestRun, workerId: 'worker-gpu-node-17.site-recorder.local' },
+  },
+  [`/api/videos/${FAILED_VIDEO}`]: { ...R3_FAILED_VIDEO_RECORD, originalFileName: 'south-dock-2200-overnight-perimeter-recording-exported-from-site-recorder-channel-02.mp4' },
+  [`/api/cameras/${CAM}`]: { ...R3_CAMERA, name: 'North Gate perimeter fence south-east approach (vehicle lane 2)' },
+};
+
 export const STATES = [
   // --- The shell (S1d, §5). The shell is on every state below; these three
   //     put it into the conditions no surface fixture reaches on its own. ---
@@ -2648,7 +2686,9 @@ export const STATES = [
   },
   {
     name: 'processing-detail-failed', path: `/processing/${FAILED_VIDEO}`, fullWidth: false,
-    archetype: 'record', expectText: 'vision_job_attempts_exhausted',
+    // R3 / F19: a terminal failure's counts were never produced, and it ended by failing.
+    archetype: 'record', expectText: ['vision_job_attempts_exhausted', 'Not produced'],
+    forbidText: 'Final count after completion',
   },
   {
     // S1.4 B3 F4 plan §15.3 (B5 `finalizingStateDistinct`, `noPrematureCounts`): a job the
@@ -2659,8 +2699,8 @@ export const STATES = [
     name: 'processing-finalizing', path: `/processing/${LONG_VIDEO}`, fullWidth: false,
     archetype: 'record',
     api: { [`/api/videos/${LONG_VIDEO}/processing`]: FINALIZING_STATUS },
-    expectText: ['Finalizing', 'Final count after completion'],
-    forbidText: 'Progress',
+    expectText: ['Finalizing', 'Final count after publication'],
+    forbidText: ['Progress', 'Final count after completion'],
   },
   {
     // B5 `failedFinalizationDistinct`: a finalization failure is presented as such, never as
@@ -2668,7 +2708,8 @@ export const STATES = [
     name: 'processing-failed-finalization', path: `/processing/${FAILED_VIDEO}`, fullWidth: false,
     archetype: 'record',
     api: { [`/api/videos/${FAILED_VIDEO}/processing`]: FAILED_FINALIZATION_STATUS },
-    expectText: ['vision_finalization_staging_missing', 'Finalization failed'],
+    expectText: ['vision_finalization_staging_missing', 'Finalization failed', 'Not published'],
+    forbidText: 'Final count after completion',
   },
   {
     name: 'processing-detail-unavailable', path: `/processing/${VIDEO}`, fullWidth: false,
@@ -3278,6 +3319,129 @@ export const STATES = [
       },
     },
     expectText: ['Analysis failed', 'Retry analytics', 'analytics_attempts_exhausted'],
+  },
+
+  // --- R3: the rest of the Processing Detail catalogue (§37.1, every state the
+  //     Record can reach). Each answers only what the page asks for, through
+  //     the existing fixtures where one serves. ---
+  {
+    name: 'processing-detail-queued', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: { [`/api/videos/${VIDEO}/processing`]: { videoStatus: 'Queued', latestRun: { ...R3_COMPLETED_RUN, status: 'Queued', phase: 'queued', progressPercent: 0, startedAtUtc: null, completedAtUtc: null, workerId: null, framesProcessed: 0, tracksCreated: 0 } } },
+    expectText: ['Queued', 'Final count after completion'], forbidText: ['Queue processing', 'Scene analytics'],
+  },
+  {
+    // No run is a state of its own, never an unavailable one (§14.1).
+    name: 'processing-detail-not-queued', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: { [`/api/videos/${VIDEO}/processing`]: { videoStatus: 'NotQueued', latestRun: null } },
+    expectText: ['Not queued', 'Queue processing to make this video searchable.'], forbidText: 'unavailable',
+  },
+  {
+    // A route whose identifier is not one: refused before any request.
+    name: 'processing-detail-invalid', path: '/processing/not-a-video', fullWidth: false, archetype: 'record',
+    expectText: ['Unknown video', 'The video identifier in this route is invalid.'],
+  },
+  {
+    // The video record unreadable while its run status answers: the facts rail
+    // says so with its retry; the run, its badge and its action stand.
+    name: 'processing-detail-metadata-unavailable', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: { [`/api/videos/${VIDEO}`]: 'unavailable', [`/api/videos/${VIDEO}/processing`]: R3_COMPLETED_STATUS },
+    expectText: ['Video metadata is unavailable.', 'Video 22222222…', 'Open results', '15,000', 'Scene analytics', 'Analysed'],
+    forbidText: 'Processing status is unavailable.',
+  },
+  {
+    // Codex P2 on PR #191: with the video record unavailable the camera is
+    // unknown, so a readiness that points at the Scene Editor offers no link —
+    // never the camera ledger in its place. Its recovered form (the link to
+    // this camera's editor) is `processing-detail-analytics-not-configured`.
+    name: 'processing-detail-metadata-unavailable-unconfigured', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: { ...r3Analytics('NotConfigured', null, []), [`/api/videos/${VIDEO}`]: 'unavailable' },
+    expectText: ['Video metadata is unavailable.', 'No scene configured', 'no scene configuration yet'],
+    forbidText: ['Open Scene Editor', 'Re-analyse camera', 'Processing status is unavailable.'],
+  },
+  {
+    // Long identities beside a failure and its primary action: the crumb gives
+    // way, the badge and `Retry processing` never do (F16, §37.1 long names).
+    name: 'processing-detail-long-identity', path: `/processing/${FAILED_VIDEO}`, fullWidth: false, archetype: 'record',
+    api: R3_LONG_IDENTITY,
+    expectText: ['Retry processing', 'Not produced'],
+  },
+  {
+    // The Diagnostics disclosure opened over long technical values: they wrap
+    // inside the facts rail rather than widening it (§37.1 panel long names).
+    name: 'processing-detail-diagnostics', interaction: 'open the diagnostics disclosure', path: `/processing/${FAILED_VIDEO}`, fullWidth: false, archetype: 'record',
+    api: R3_LONG_IDENTITY,
+    prepare: `(async () => {
+      ${UNTIL}
+      const summary = await until(() => Array.from(document.querySelectorAll('summary')).find((s) => s.textContent.trim() === 'Diagnostics'), 'the Diagnostics disclosure');
+      summary.focus();
+      window.__vqa.mark('interaction-start');
+      summary.click();
+      return Boolean(await until(() => summary.parentElement.open && document.body.innerText.includes('worker-gpu-node-17.site-recorder.local'), 'the opened diagnostics'));
+    })()`,
+    expectText: ['Processing run', 'worker-gpu-node-17.site-recorder.local', 'phase1-detection-tracking · phase1-v1'],
+  },
+  {
+    // Retrying a failed run that the API refuses: one alert naming the video,
+    // the run and its action still on screen (§14.1).
+    name: 'processing-detail-retry-error', interaction: 'retry a failed run that the API refuses', path: `/processing/${FAILED_VIDEO}`, fullWidth: false, archetype: 'record',
+    api: {
+      [`POST /api/videos/${FAILED_VIDEO}/process`]: {
+        status: 503, body: { title: 'Queue unavailable', detail: 'The processing queue did not respond.', code: 'queue_unavailable' },
+      },
+    },
+    prepare: `(async () => {
+      ${UNTIL}
+      const retry = await until(() => Array.from(document.querySelectorAll('button')).find((b) => b.textContent.trim() === 'Retry processing'), 'Retry processing');
+      retry.focus();
+      window.__vqa.mark('interaction-start');
+      retry.click();
+      return Boolean(await until(() => document.body.innerText.includes('Processing could not be queued for south-dock-2200.mp4'), 'the queue failure alert'));
+    })()`,
+    expectText: ['Processing could not be queued for south-dock-2200.mp4. The processing queue did not respond. (queue_unavailable)', 'Retry processing'],
+  },
+  {
+    // A running run whose poll then fails (the query's one retry included):
+    // the run stays, labelled as last known, with its retry (§37.1 degraded).
+    name: 'processing-detail-degraded', path: `/processing/${LONG_VIDEO}`, fullWidth: false, archetype: 'record',
+    api: { [`/api/videos/${LONG_VIDEO}/processing`]: { sequence: [R3_RUNNING_STATUS, 'unavailable'] } },
+    expectText: ['Showing the last known processing status; refreshing failed.', 'Final count after completion'],
+  },
+  {
+    name: 'processing-detail-analytics-not-configured', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: r3Analytics('NotConfigured', null, []),
+    expectText: ['No scene configured', 'Open Scene Editor'], forbidText: 'Disabled by scene',
+  },
+  {
+    name: 'processing-detail-analytics-disabled', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: r3Analytics('Disabled', REVISION, []),
+    expectText: ['Disabled by scene', 'Open Scene Editor'], forbidText: 'No scene configured',
+  },
+  {
+    // The lifecycle endpoint unreadable on first load: the readiness the run
+    // status carries still stands, said to be from there, with a retry.
+    name: 'processing-detail-analytics-unavailable', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: { [`/api/videos/${VIDEO}/processing`]: R3_COMPLETED_STATUS, [`/api/processing/runs/${R3_COMPLETED_RUN.processingRunId}/analytics`]: 'unavailable' },
+    expectText: ['Analysis details are unavailable; the readiness above is from the processing status.', 'Analysed'],
+  },
+  {
+    // Retry analytics refused: the failure stated once, the refusal named, the
+    // action offered again.
+    name: 'processing-detail-analytics-retry-error', interaction: 'retry failed analytics that the API refuses', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: {
+      ...r3Analytics('Failed', REVISION, [{ status: 'Failed', attemptCount: 3, failureCode: 'analytics_attempts_exhausted', analysedTrackCount: 0, unavailableTrackCount: 0 }]),
+      [`POST /api/processing/runs/${R3_COMPLETED_RUN.processingRunId}/analytics/retry`]: {
+        status: 409, body: { title: 'Not retryable', detail: 'The analysis is not in a retryable state.', code: 'analysis_not_retryable' },
+      },
+    },
+    prepare: `(async () => {
+      ${UNTIL}
+      const retry = await until(() => Array.from(document.querySelectorAll('button')).find((b) => b.textContent.trim() === 'Retry analytics'), 'Retry analytics');
+      retry.focus();
+      window.__vqa.mark('interaction-start');
+      retry.click();
+      return Boolean(await until(() => document.body.innerText.includes('Scene analytics could not be retried.') && !retry.disabled, 'the retry refusal'));
+    })()`,
+    expectText: 'Scene analytics could not be retried. The analysis is not in a retryable state. (analysis_not_retryable)',
   },
 
   // --- Review: capped today; its archetype migration is UI-5, not UI-1. ---
