@@ -37,7 +37,7 @@ const PAGE = `
     window.nudge = () => { const b = document.getElementById('box'); b.style.marginTop = (parseInt(b.style.marginTop || '0', 10) + 150) + 'px'; };
   </script>`;
 
-async function sequence({ interaction = null, busyMs = 0, reloadInPreparation = true, markAfterBusy = false } = {}) {
+async function sequence({ interaction = null, busyMs = 0, reloadInPreparation = true, markAfterBusy = false, handlerMs = 0 } = {}) {
   await lane.page(PAGE, { api: { '/api/thing': { label: 'Ready', height: 200 } } });
   const navigated = await settle(lane, { expectText: 'Ready' }, { timeoutMs: 8000 });
   assert.equal(navigated.ok, true, JSON.stringify(navigated));
@@ -46,9 +46,16 @@ async function sequence({ interaction = null, busyMs = 0, reloadInPreparation = 
   await lane.browser.evaluate('window.nudge()');
   await lane.browser.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
   const prepareStart = await lane.browser.evaluate('window.__vqa.mark("prepare-start")');
+  // Setup a multi-step preparation does before its action, in its own task
+  // (as an awaited step is), when the action is marked.
+  if (markAfterBusy) {
+    await lane.browser.evaluate(`(() => { const end = performance.now() + ${busyMs}; while (performance.now() < end) { /* setup */ } return true; })()`);
+    await lane.browser.evaluate('new Promise((r) => requestAnimationFrame(() => r()))');
+  }
   await lane.browser.evaluate(`(() => {
-    ${busyMs ? `const end = performance.now() + ${busyMs}; while (performance.now() < end) { /* a long task */ }` : ''}
+    ${busyMs && !markAfterBusy ? `const end = performance.now() + ${busyMs}; while (performance.now() < end) { /* a long task */ }` : ''}
     ${markAfterBusy ? "window.__vqa.mark('interaction-start');" : ''}
+    ${handlerMs ? `{ const stop = performance.now() + ${handlerMs}; while (performance.now() < stop) { /* the action's synchronous handler */ } }` : ''}
     ${reloadInPreparation ? 'window.reload();' : ''}
     return true;
   })()`);
@@ -107,11 +114,17 @@ describe('first-interaction long tasks', () => {
     assert.ok(perf.longTasks.window.to > perf.longTasks.window.from);
   });
 
-  it('starts at the action a multi-step preparation marks, so its setup is not attributed to it', async () => {
+  it('starts at the action a multi-step preparation marks, so setup in earlier tasks is not attributed to it', async () => {
     const perf = await sequence({ interaction: 'reload the region', busyMs: 120, markAfterBusy: true });
     assert.equal(perf.longTasks.status, 'measured');
     assert.equal(perf.longTasks.startsAt, 'the marked action');
     assert.equal(perf.longTasks.count, 0, JSON.stringify(perf.longTasks));
+  });
+
+  it('counts the task that contains the marked action, which began before the mark', async () => {
+    const perf = await sequence({ interaction: 'reload the region', markAfterBusy: true, handlerMs: 120 });
+    assert.equal(perf.longTasks.startsAt, 'the marked action');
+    assert.ok(perf.longTasks.count >= 1 && perf.longTasks.maxMs >= 100, JSON.stringify(perf.longTasks));
   });
 
   it('counts work the interaction causes after its last DOM change, up to the probe that confirmed settling', async () => {

@@ -216,7 +216,10 @@ export function perfCollect(input) {
     // preparation's start (a preparation that is that one action).
     const marked = vqa.marks['interaction-start'];
     const from = typeof marked === 'number' && marked >= input.prepareStart && marked <= input.confirmedAt ? marked : input.prepareStart;
-    const inWindow = vqa.longTasks.filter((task) => task.startTime >= from && task.startTime <= input.confirmedAt);
+    // A task is in the window if it runs at any point in it: the task that
+    // performs the marked action began before the mark set inside it, and is
+    // the one the action's own synchronous handlers run in.
+    const inWindow = vqa.longTasks.filter((task) => task.startTime + task.duration >= from && task.startTime <= input.confirmedAt);
     // A long task that ran a settle probe is the harness's work, not the action's.
     const harness = (task) => (vqa.probeSpans || []).some(([a, b]) => task.startTime <= b && task.startTime + task.duration >= a);
     const tasks = inWindow.filter((task) => !harness(task));
