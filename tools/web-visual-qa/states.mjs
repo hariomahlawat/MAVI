@@ -509,6 +509,41 @@ export const TIER_POLICIES = {
   },
 };
 
+/**
+ * An Overview inventory (R1): the video list and, for every video the
+ * attention region looks up (failed and processed ones), its processing
+ * status. Overrides match by path prefix, so each looked-up video's
+ * `/processing` path must be answered here, or the inventory's own override
+ * would answer it with the list.
+ */
+const OVERVIEW_VIDEO = JSON.parse(readFileSync(new URL('./fixtures/videos.json', import.meta.url), 'utf8'))[0];
+const OVERVIEW_CAM_2 = '33333333-3333-7333-8333-333333333333';
+function overviewInventory(entries) {
+  const api = { '/api/videos': [] };
+  entries.forEach((entry, index) => {
+    const id = `0${(index + 1).toString(16).padStart(7, '0')}-0000-7000-8000-${String(index + 1).padStart(12, '0')}`;
+    const importedAtUtc = new Date(Date.UTC(2026, 8, 14, 12) - index * 3_600_000).toISOString().replace('.000', '');
+    api['/api/videos'].push({
+      ...OVERVIEW_VIDEO, id, originalFileName: entry.name, cameraId: entry.camera ?? OVERVIEW_VIDEO.cameraId,
+      processingStatus: entry.status, importedAtUtc,
+    });
+    if (entry.status === 'Failed' || entry.status === 'Processed') {
+      const failed = entry.status === 'Failed';
+      api[`/api/videos/${id}/processing`] = entry.lookup ?? {
+        videoStatus: entry.status,
+        latestRun: {
+          processingRunId: id.replace(/^0/, 'a'), status: failed ? 'Failed' : 'Completed', pipeline: 'deepstream-yolo-bytetrack',
+          pipelineVersion: '1.0.0', workerId: 'worker-01', queuedAtUtc: importedAtUtc, startedAtUtc: importedAtUtc, completedAtUtc: importedAtUtc,
+          progressPercent: failed ? 42 : 100, attemptCount: failed ? 3 : 1, failureCode: failed ? (entry.code ?? 'vision_job_attempts_exhausted') : null,
+          framesProcessed: 15000, tracksCreated: failed ? 0 : 6, analyticsReadiness: entry.readiness ?? (failed ? 'NotConfigured' : 'Ready'),
+          phase: failed ? 'failed' : 'completed',
+        },
+      };
+    }
+  });
+  return api;
+}
+
 /** The keys a state may carry. Nothing here can name or change a severity. */
 export const STATE_KEYS = new Set([
   'name', 'path', 'fullWidth', 'archetype', 'api', 'prepare', 'expectText', 'forbidText',
@@ -2299,7 +2334,77 @@ export const STATES = [
     expectText: ['Not found', 'This page does not exist.'],
   },
   // --- Ledger-summary: Overview, the one Ledger permitted to stay capped. ---
-  { name: 'overview', path: '/', fullWidth: false, archetype: 'ledger-summary' },
+  // R1: attention-first. The base fixture has one failed and one not-queued
+  // video, so its first region is a two-row attention list.
+  { name: 'overview', path: '/', fullWidth: false, archetype: 'ledger-summary', expectText: ['Needs attention', 'south-dock-2200.mp4', '1 video'] },
+  {
+    // Every check answered and nothing needs attention: one line, no frame.
+    name: 'overview-clear', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    api: overviewInventory([
+      { name: 'north-gate-0800.mp4', status: 'Processed' },
+      { name: 'north-gate-0900.mp4', status: 'Processed' },
+      { name: 'south-dock-2200.mp4', status: 'Processed', readiness: 'Disabled' },
+      { name: 'yard-sweep-0615.mp4', status: 'Processing' },
+    ]),
+    expectText: 'No items need attention.', forbidText: 'Needs attention',
+  },
+  {
+    // Only media waiting to be processed: one aggregate row.
+    name: 'overview-awaiting', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    api: overviewInventory([
+      { name: 'north-gate-0800.mp4', status: 'Processed' },
+      { name: 'yard-sweep-0615.mp4', status: 'NotQueued' },
+      { name: 'yard-sweep-0700.mp4', status: 'NotQueued' },
+      { name: 'yard-sweep-0745.mp4', status: 'NotQueued' },
+    ]),
+    expectText: ['Needs attention', '3 videos'],
+  },
+  {
+    // Scene analytics of completed runs: failed and stale need attention;
+    // pending and the operator's scene choices do not.
+    name: 'overview-analytics', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    api: overviewInventory([
+      { name: 'north-gate-0800.mp4', status: 'Processed', readiness: 'Failed' },
+      { name: 'north-gate-0900.mp4', status: 'Processed', readiness: 'Stale' },
+      { name: 'south-dock-2200.mp4', status: 'Processed', readiness: 'Pending' },
+      { name: 'yard-sweep-0615.mp4', status: 'Processed', readiness: 'NotConfigured' },
+    ]),
+    expectText: ['Analysis failed', 'Stale', 'north-gate-0900.mp4'], forbidText: 'south-dock-2200.mp4 ·',
+  },
+  {
+    // Many items at once, with the longest identities the fixtures carry:
+    // concise ordering, a bounded list and its disclosure.
+    name: 'overview-attention-many', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    api: overviewInventory([
+      { name: 'north-gate-0900-very-long-original-file-name-for-truncation-of-the-identity.mp4', status: 'Failed', camera: OVERVIEW_CAM_2 },
+      { name: 'south-dock-2200.mp4', status: 'Failed', code: 'vision_finalization_exhausted' },
+      { name: 'south-dock-2300.mp4', status: 'Failed' },
+      { name: 'perimeter-0100.mp4', status: 'Failed', camera: OVERVIEW_CAM_2 },
+      { name: 'perimeter-0200.mp4', status: 'Failed', camera: OVERVIEW_CAM_2 },
+      { name: 'perimeter-0300.mp4', status: 'Failed', camera: OVERVIEW_CAM_2 },
+      { name: 'north-gate-0800.mp4', status: 'Processed', readiness: 'Failed' },
+      { name: 'north-gate-1000.mp4', status: 'Processed', readiness: 'Stale' },
+      { name: 'yard-sweep-0615.mp4', status: 'NotQueued' },
+      { name: 'yard-sweep-0700.mp4', status: 'NotQueued' },
+    ]),
+    expectText: ['Needs attention', 'Show 4 more'],
+  },
+  {
+    // A failed video whose status lookup failed: it stays an item, from the
+    // inventory, and the region says its detail could not be read.
+    name: 'overview-lookup-unavailable', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    api: overviewInventory([
+      { name: 'south-dock-2200.mp4', status: 'Failed', lookup: 'unavailable' },
+      { name: 'north-gate-0800.mp4', status: 'Processed' },
+    ]),
+    expectText: ['Needs attention', 'south-dock-2200.mp4', 'failure detail of 1 video could not be read'],
+  },
+  {
+    // The video inventory still answering: the attention region's own loading line.
+    name: 'overview-loading', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    holds: 'loading', api: { '/api/videos': 'hang' },
+    expectText: 'Checking what needs attention',
+  },
   {
     name: 'overview-empty', path: '/', fullWidth: false, archetype: 'ledger-summary',
     api: { '/api/videos': [], '/api/tracks': { items: [], nextCursor: null, totalCount: 0 } },
@@ -2308,8 +2413,8 @@ export const STATES = [
   {
     // One section's request failed; the other three must still answer.
     name: 'overview-partial-failure', path: '/', fullWidth: false, archetype: 'ledger-summary', api: { '/api/videos': 'unavailable' },
-    expectText: ['video inventory is unavailable', 'its distribution cannot be shown'],
-    forbidText: 'No tracks yet',
+    expectText: ['video inventory is unavailable', 'its distribution cannot be shown', 'cannot be determined while the video inventory is unavailable'],
+    forbidText: ['No tracks yet', 'No items need attention'],
   },
 
   // --- Standard Ledgers: full width, column-capped, never stretched. --------
