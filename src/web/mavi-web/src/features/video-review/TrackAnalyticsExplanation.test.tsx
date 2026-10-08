@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { TrackDetailAnalytics } from '../../api/tracks';
 import {
@@ -161,6 +161,53 @@ describe('facts', () => {
     expect(panel).toHaveTextContent('Gate line · 2 crossings');
     expect(panel).toHaveTextContent('Inbound at 00:12.5');
     expect(panel).toHaveTextContent('Outbound at 00:30.0');
+  });
+
+  it('in the inspector (compact), states the identity once and keeps crossing times one disclosure away; Review is unchanged (F18)', () => {
+    const inspector = show(rich, ready, true);
+    expect(within(inspector).getAllByText(/Scene revision 4 · Engine v1/)).toHaveLength(1);
+    expect(inspector).not.toHaveTextContent('reference point: Box centre');
+    // A short list is the operator's answer, inline: direction and media time.
+    expect(within(inspector).getByText(/Inbound at 00:12\.5/).closest('details')).toBeNull();
+    expect(within(inspector).getByText(/Outbound at 00:30\.0/).closest('details')).toBeNull();
+    cleanup();
+
+    // Review renders exactly as before: the footer, and the crossings listed
+    // with no disclosure around them.
+    const review = show(rich);
+    expect(review).toHaveTextContent('Scene revision 4 · Engine v1 · reference point: Box centre');
+    expect(within(review).getByText(/Inbound at 00:12\.5/).closest('details')).toBeNull();
+    expect(within(review).getByText(/Outbound at 00:30\.0/).closest('details')).toBeNull();
+  });
+
+  it('bounds the inspector\'s crossings at five inline, the rest behind one closed disclosure (§37.1 large data)', () => {
+    const many = analysedAnalytics({
+      lineCrossings: Array.from({ length: 7 }, (_, index) => lineCrossing({ crossingIndex: index, offsetMs: 10_000 + index * 1_000, direction: 'aToB' })),
+    });
+    const inspector = show(many, ready, true);
+    const rest = within(inspector).getByText('2 more crossings').closest('details')!;
+    expect(rest).not.toHaveAttribute('open');
+    for (const second of ['10', '11', '12', '13', '14']) {
+      expect(within(inspector).getByText(new RegExp(`at 00:${second}\\.0`)).closest('details')).toBeNull();
+    }
+    for (const second of ['15', '16']) {
+      expect(within(inspector).getByText(new RegExp(`at 00:${second}\\.0`)).closest('details')).toBe(rest);
+    }
+    cleanup();
+    // Review keeps all seven inline.
+    const review = show(many);
+    expect(within(review).queryByText(/more crossings/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the reference point the inspector would have lost with the footer, for a revision with no facts', () => {
+    const pending = analysedAnalytics({ status: 'Pending', zoneSummaries: [], zoneVisits: [], lineCrossings: [], motion: null });
+    const inspector = show(pending, ready, true);
+    expect(within(inspector).getByText('Reference point').nextElementSibling).toHaveTextContent('Box centre');
+    cleanup();
+    // Review states it in its footer, as before, and adds no row.
+    const review = show(pending);
+    expect(within(review).queryByText('Reference point')).not.toBeInTheDocument();
+    expect(review).toHaveTextContent('reference point: Box centre');
   });
 
   it('states heading as an image direction and never as a compass bearing', () => {

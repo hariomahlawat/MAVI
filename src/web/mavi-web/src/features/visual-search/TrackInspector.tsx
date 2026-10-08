@@ -7,6 +7,7 @@ import Button, { ButtonLink } from '../../shared/components/Button';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
 import Tooltip from '../../shared/overlay/Tooltip';
 import StateRegion from '../../shared/async/StateRegion';
+import KeyValue from '../../shared/components/KeyValue';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { Inspector } from '../../shared/workspace';
 import { TrackSummary } from '../video-review/TrackDetailsPanels';
@@ -140,10 +141,9 @@ export default function TrackInspector({
               onRetryTrajectory={() => void trajectory.refetch()}
               compact
             />
-            <div className="row row--between">
-              <StatusBadge status={detail.reviewStatus} />
-              <span className="small faint">Local track {detail.localTrackNumber} · <code>{detail.id.slice(0, 8)}…</code></span>
-            </div>
+            {/* The Track's number is the heading's; its identifier is forensic
+                (§37.2, F18) and sits in the disclosure at the foot. */}
+            <StatusBadge status={detail.reviewStatus} />
             <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
             {/* Guarded rather than assumed: a detail from a server without the
                 analytics block must degrade to the Slice-3 inspector, not blank it. */}
@@ -167,6 +167,12 @@ export default function TrackInspector({
                 the same component Review shows, and its rank 0 is the
                 Representative crop, so the crop is not rendered a second time. */}
             <TrackEvidenceSet detail={detail} compact />
+            <details className="disclosure">
+              <summary>Identifiers</summary>
+              <div className="disclosure__body">
+                <KeyValue items={[{ label: 'Track', value: detail.id, mono: true }]} />
+              </div>
+            </details>
           </>
           )}
         </StateRegion>

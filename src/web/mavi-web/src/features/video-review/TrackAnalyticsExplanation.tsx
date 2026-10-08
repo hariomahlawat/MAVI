@@ -66,6 +66,9 @@ export function identityFooter(analytics: TrackDetailAnalytics): string | null {
     + ` · reference point: ${referencePointLabel(analytics.referencePoint)}`;
 }
 
+/** Crossings shown inline in the inspector before the rest go behind a disclosure (§37.1, N = 5). */
+const CROSSINGS_INLINE = 5;
+
 function visitLine(visit: TrackDetailZoneVisit): string {
   const note = visitBoundaryNote(visit);
   return `${formatOffset(visit.entryOffsetMs, 'tenths')} to ${formatOffset(visit.exitOffsetMs, 'tenths')}`
@@ -97,7 +100,10 @@ export default function TrackAnalyticsExplanation({
     { label: 'Identity', value: identity },
   ];
 
-  if (analytics.status === 'Analysed' || analytics.status === 'Stale') {
+  // The inspector does not repeat the footer (F18), so a reference point that
+  // only the footer stated — a revision with no facts — is a row there instead.
+  if (analytics.status === 'Analysed' || analytics.status === 'Stale'
+    || (compact && analytics.sceneRevisionNumber !== null)) {
     items.push({ label: 'Reference point', value: referencePointLabel(analytics.referencePoint) });
   }
 
@@ -166,10 +172,21 @@ export default function TrackAnalyticsExplanation({
         ),
     });
 
+    const crossingItems = (lineId: string, crossings: typeof analytics.lineCrossings) => crossings.map((crossing) => (
+      <li key={crossing.crossingIndex}>
+        {crossingDirectionLabel(crossing.direction, geometry?.lines.get(lineId.toLowerCase()))}
+        {' at '}{formatOffset(crossing.offsetMs, 'tenths')}
+        {' · '}{displayTimestamp(crossing.timestampUtc, displayTimeZoneId)}
+      </li>
+    ));
     const byLine = new Map<string, typeof analytics.lineCrossings>();
     for (const crossing of analytics.lineCrossings) {
       byLine.set(crossing.lineId, [...(byLine.get(crossing.lineId) ?? []), crossing]);
     }
+    // §37.1 large data, §37.2: in the inspector the crossings are a bounded
+    // list — the first five in the panel inline (direction and media time are
+    // what an operator searched by), any after them one disclosure away.
+    let inlineBudget = CROSSINGS_INLINE;
     items.push({
       label: 'Line crossings',
       value: byLine.size === 0
@@ -180,15 +197,26 @@ export default function TrackAnalyticsExplanation({
               <li key={lineId}>
                 <strong>{lineLabel(lineId, geometry)}</strong>
                 {' · '}{crossings.length} {crossings.length === 1 ? 'crossing' : 'crossings'}
-                <ul className="analytics-list">
-                  {crossings.map((crossing) => (
-                    <li key={crossing.crossingIndex}>
-                      {crossingDirectionLabel(crossing.direction, geometry?.lines.get(lineId.toLowerCase()))}
-                      {' at '}{formatOffset(crossing.offsetMs, 'tenths')}
-                      {' · '}{displayTimestamp(crossing.timestampUtc, displayTimeZoneId)}
-                    </li>
-                  ))}
-                </ul>
+                {/* Review lists every crossing, as it always has — its rendering
+                    is R6's to decide, so nothing about it changes here. */}
+                {compact ? (() => {
+                  const inline = crossings.slice(0, Math.max(0, inlineBudget));
+                  const rest = crossings.slice(inline.length);
+                  inlineBudget -= inline.length;
+                  return (
+                    <>
+                      {inline.length > 0 ? <ul className="analytics-list">{crossingItems(lineId, inline)}</ul> : null}
+                      {rest.length > 0 ? (
+                        <details className="disclosure">
+                          <summary>{`${rest.length} more ${rest.length === 1 ? 'crossing' : 'crossings'}`}</summary>
+                          <ul className="analytics-list disclosure__body">{crossingItems(lineId, rest)}</ul>
+                        </details>
+                      ) : null}
+                    </>
+                  );
+                })() : (
+                  <ul className="analytics-list">{crossingItems(lineId, crossings)}</ul>
+                )}
               </li>
             ))}
           </ul>
@@ -298,7 +326,9 @@ export default function TrackAnalyticsExplanation({
         </details>
       ) : null}
 
-      {footer ? <p className="analytics-summary__footer">{footer}</p> : null}
+      {/* The footer restates the Identity and Reference point rows above; the
+          inspector shows them once (F18). Review keeps it until R6 decides. */}
+      {footer && !compact ? <p className="analytics-summary__footer">{footer}</p> : null}
     </section>
   );
 }

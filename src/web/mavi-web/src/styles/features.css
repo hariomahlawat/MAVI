@@ -221,7 +221,6 @@
   padding: var(--s-2) var(--s-4); border-bottom: var(--stroke-hair) solid var(--border-subtle); min-height: 40px;
 }
 .results__head .video-title { flex: 1 1 auto; min-width: 0; }
-.results__head .hints { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .results__head .segmented { flex: 0 0 auto; }
 .results__foot { display: flex; align-items: center; justify-content: center; gap: var(--s-3); padding: var(--s-2) var(--s-4); border-top: 1px solid var(--border-subtle); min-height: 40px; color: var(--text-muted); font-size: var(--fs-1); }
 .results__list { overflow-y: auto; min-height: 0; }
@@ -244,18 +243,20 @@
 .result-row__meta b { color: var(--text-secondary); font-weight: 500; }
 .result-row__side { display: grid; justify-items: end; gap: var(--s-1); }
 .result-row__side time { color: var(--text-muted); font-size: var(--fs-0); white-space: nowrap; }
-.result-row__index { color: var(--text-muted); font-size: var(--fs-0); font-variant-numeric: tabular-nums; }
 
 .track-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); padding: var(--s-3); }
 /* Three rows — evidence, facts, action — and a selection control occupying the
    first two of them. The control is a grid item, not an absolutely positioned
    overlay, so it covers exactly the area the grid gives it and the review link
    in the third row is somewhere it can never reach. */
+/* A card is a fill, not a frame: the results column is the one contained
+   surface (§11), so a bordered card inside it was a panel inside a panel. The
+   raised fill separates the cards; hover and selection are rings, not borders. */
 .track-card {
   display: grid; grid-template-rows: auto auto auto; grid-template-columns: minmax(0, 1fr);
   min-width: 0; overflow: hidden;
-  border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-3);
-  background: var(--surface-base);
+  border-radius: var(--r-3);
+  background: var(--surface-raised);
 }
 .track-card__select {
   grid-row: 1 / 3; grid-column: 1;
@@ -280,7 +281,9 @@
 .track-card__metrics dt { color: var(--text-muted); font-size: var(--fs-0); }
 .track-card__metrics dd { margin: var(--s-hair) 0 0; font-size: var(--fs-1); }
 .track-card__action { justify-self: start; }
-.track-card.is-selectable:hover { background: var(--surface-raised); }
+/* Not on the selected card: its accent ring is the selection, and hover must
+   not replace it while the operator is pointing at it. */
+.track-card.is-selectable:not(.is-selected):hover { box-shadow: inset 0 0 0 var(--stroke-hair) var(--border-panel); }
 
 /* Track inspector / review.
    Named for the surface it belongs to: `.inspector` is the shared shell in
@@ -595,7 +598,7 @@
 
 .results__foot { flex-wrap: wrap; }
 .results__foot .alert { flex-basis: 100%; }
-.track-card.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.track-card.is-selected { box-shadow: 0 0 0 var(--stroke-2) var(--accent); }
 .track-card.is-selectable { cursor: pointer; }
 .results-end { color: var(--text-muted); font-size: var(--fs-1); }
 .results__head .video-title strong { white-space: nowrap; }

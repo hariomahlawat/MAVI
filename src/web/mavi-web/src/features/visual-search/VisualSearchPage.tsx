@@ -603,6 +603,13 @@ export default function VisualSearchPage() {
     commitFilters(removeCriteria(committed.filters, keys));
   }, [committed, commitFilters]);
 
+  const focusResultsAfterReset = useRef(false);
+  useEffect(() => {
+    if (!focusResultsAfterReset.current || !committed.isValid) return;
+    focusResultsAfterReset.current = false;
+    resultsRef.current?.focus();
+  }, [committed.isValid]);
+
   const continuationInvalid = tracks.isFetchNextPageError
     && tracks.error instanceof ApiError
     && tracks.error.code === 'track_search_invalid';
@@ -614,7 +621,6 @@ export default function VisualSearchPage() {
   // above the scroll owner is what stops it scrolling away with the rows.
   const notices = (
     <>
-      {!committed.isValid ? <Alert tone="error">{committed.error}</Alert> : null}
       <SupportingRequestNotice
         state={fromQuery(systemConfig)}
         unavailableMessage="Display timezone is unavailable. Existing UTC time scope remains active; time editing is disabled and result timestamps are shown explicitly in UTC."
@@ -638,8 +644,7 @@ export default function VisualSearchPage() {
       />
     </>
   );
-  const hasNotice = !committed.isValid
-    || hasFailure(fromQuery(systemConfig)) || hasFailure(fromQuery(cameras)) || hasFailure(fromQuery(videos));
+  const hasNotice = hasFailure(fromQuery(systemConfig)) || hasFailure(fromQuery(cameras)) || hasFailure(fromQuery(videos));
 
   return (
     <section className="page page--full page--workspace">
@@ -720,11 +725,8 @@ export default function VisualSearchPage() {
                   : 'Newest first'}
               </span>
             </div>
-            {items.length > 0 ? (
-              <span className="hints" aria-hidden="true">
-                <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close
-              </span>
-            ) : null}
+            {/* §17 (v2.0): the keys are in the `?` shortcut sheet, not standing
+                header chrome. */}
             {/* §14 of the brief: the List/Grid choice is a property of the
                 results column, so it lives on the column rather than in
                 permanent page chrome above the whole workspace. */}
@@ -759,7 +761,7 @@ export default function VisualSearchPage() {
             skeleton={view === 'list' ? { rows: 'default', pitch: 'list' } : undefined}
             isEmpty={(found) => found.length === 0}
             empty={resultsEmpty(coverage)}
-            unavailableMessage={(error) => describeError(error, 'Visual search could not be completed.')}
+            unavailableMessage={(error) => describeError(error, 'The search could not be completed.')}
             degradedMessage="Showing the results that arrived last; refreshing them failed."
             onRetry={() => void tracks.refetch()}
           >
@@ -810,7 +812,32 @@ export default function VisualSearchPage() {
           </>
             )}
           </StateRegion>
-          ) : null}
+          ) : (
+            // A link whose search cannot be read asks the server nothing, so the
+            // results column — the region it would have filled — says why, with
+            // the recovery beside it (§37.1, column), rather than a page alert
+            // above an empty frame (F3). The rail stays usable.
+            <div className="state-region state-region--column state-region--inline">
+              <Alert
+                tone="error"
+                actions={(
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      // The alert and this button leave with the invalid link;
+                      // focus goes to the results it is replaced by, not the page.
+                      focusResultsAfterReset.current = true;
+                      resetSearch();
+                    }}
+                  >
+                    Reset search
+                  </Button>
+                )}
+              >
+                {`This search link cannot be used. ${committed.error}`}
+              </Alert>
+            </div>
+          )}
         </section>
       </InvestigationLayout>
     </section>

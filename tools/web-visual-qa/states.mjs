@@ -3101,7 +3101,9 @@ export const STATES = [
   // widths either side of it and nowhere else.
   {
     name: 'search', path: '/search', fullWidth: true, archetype: 'investigation',
-    expectText: 'Newest first',
+    // R5 (§17, F13): the header says why this set; the keys are in the `?`
+    // sheet and a row carries no ordinal.
+    expectText: 'Newest first', forbidText: ['Esc close', '#1'],
   },
   {
     name: 'search-loading', path: '/search', fullWidth: true,
@@ -3123,9 +3125,10 @@ export const STATES = [
   {
     name: 'search-invalid', path: '/search?objectClass=Person&objectClass=Vehicle',
     fullWidth: true, archetype: 'investigation',
-    // A malformed committed URL is refused at page level, and no Track request
-    // is issued for it — the results column stays empty rather than loading.
-    expectText: 'must occur exactly once', forbidText: 'Searching…',
+    // A malformed committed URL issues no Track request. R5 (F3, §37.1): the
+    // results column — the region it would have filled — says why, with the
+    // recovery beside it, not a page alert above an empty frame.
+    expectText: ['This search link cannot be used.', 'must occur exactly once', 'Reset search'], forbidText: 'Searching…',
   },
   {
     name: 'search-grid', interaction: 'switch the results to the grid view', path: '/search', fullWidth: true, archetype: 'investigation',
@@ -3178,6 +3181,64 @@ export const STATES = [
     archetype: 'investigation', prepare: REFUSE_FIELDS,
     // §10: both refusals land on their own fields, at once.
     expectText: ['decimal places', 'between 0 and 100'],
+  },
+  {
+    // R5 (F13): a field refused above the rail's scroll position. The rail is
+    // scrolled to its foot first; the refused To field must be brought into
+    // view and focused, with its error, and nothing committed.
+    name: 'search-field-errors-above', interaction: 'submit an inverted time range with the rail scrolled to its foot', path: '/search', fullWidth: true,
+    archetype: 'investigation',
+    prepare: `(async () => {
+      ${UNTIL}
+      const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      const field = (label) => Array.from(document.querySelectorAll('.field')).find((el) => el.querySelector('label')?.textContent.trim() === label)?.querySelector('input');
+      const from = await until(() => field('From'), 'the From field');
+      const to = field('To');
+      set.call(from, '2026-09-14 10:00:00'); from.dispatchEvent(new Event('input', { bubbles: true }));
+      set.call(to, '2026-09-14 09:00:00'); to.dispatchEvent(new Event('input', { bubbles: true }));
+      let scroller = to.parentElement;
+      while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+      if (scroller) scroller.scrollTop = scroller.scrollHeight;
+      // The claim this state carries: at 1366 and 1440 the rail, scrolled to its
+      // foot, hides To above its scroll box, so focusing it is a scroll-to-
+      // invalid and not the focusing of a field already in view. There the
+      // precondition must hold, or the state is not reached. Where the rail is
+      // tall enough to show To at its foot (1920 and up, 768), the field cannot
+      // start above it and the state proves focus and visibility only.
+      const claimed = ['1366x768', '1440x900'].includes(window.innerWidth + 'x' + window.innerHeight);
+      const above = scroller ? to.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().top : false;
+      if (claimed && !above) return false;
+      const search = Array.from(document.querySelectorAll('button[type="submit"]')).find((el) => el.textContent.includes('Search'));
+      const committedBefore = location.search;
+      search.focus();
+      window.__vqa.mark('interaction-start');
+      search.click();
+      await until(() => document.activeElement && document.activeElement.getAttribute('aria-invalid') === 'true', 'focus on the refused field');
+      // Refused, so nothing was committed: the URL is the state of record (§17).
+      if (location.search !== committedBefore) return false;
+      const focused = document.activeElement;
+      if (!scroller) return focused === to;
+      const r = focused.getBoundingClientRect(); const box = scroller.getBoundingClientRect();
+      return focused === to && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+    })()`,
+    expectText: 'To time must be later',
+  },
+  {
+    // R5 (§17, F13): the keys the header no longer carries, in the `?` sheet
+    // opened over Search.
+    name: 'search-shortcut-sheet', interaction: 'open the keyboard shortcut sheet over Search', path: '/search', fullWidth: true,
+    prepare: `(async () => {
+      ${UNTIL}
+      // Opened from a focused result, as an operator does, so the sheet's
+      // return of focus to its invoker is observable (overlay.drawer).
+      const invoker = await until(() => document.querySelector('.result-row__select'), 'a result selection control');
+      invoker.focus();
+      window.__vqa.mark('interaction-start');
+      invoker.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+      return Boolean(await until(() => document.querySelector('.shortcut-sheet'), 'the shortcut sheet'));
+    })()`,
+    // (Section headings are uppercase on screen; the rows are asserted.)
+    expectText: ['Keyboard shortcuts', 'Select the next result', 'Select the previous result', 'Open the selected result in Review', 'Close the inspector'],
   },
   {
     name: 'search-long-names', path: `/search?cameraId=${CAM2}`, fullWidth: true,
