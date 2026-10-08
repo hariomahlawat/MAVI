@@ -22,27 +22,54 @@
  * forbids committing them, and no pixel baseline exists (V5).
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { cpus } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { focusAssertions, overlayExitProbe, overlayOpened, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions } from './assertions.mjs';
-import { launch } from './cdp.mjs';
-import { createLedger, exitStatus, HarnessError, planCases, settle, unreachedFaults } from './engine.mjs';
-import { CONDITIONS, ensureFootage } from './footage.mjs';
-import { manifestSummary, RULES, TIERS, validateManifest } from './manifest.mjs';
-import { startServer } from './server.mjs';
-import { OBSERVERS, perfCollect, TRANSIENT } from './settle.mjs';
-import { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf } from './states.mjs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+/** A harness fault before the run: said synchronously (an asynchronous write to
+ *  a pipe can be lost when the process exits), then exit 2. */
+function fatal(text) {
+  try { writeSync(2, text.endsWith('\n') ? text : text + '\n'); } catch { /* stderr gone */ }
+  process.exit(2);
+}
 
 // A fault outside the case loop is a harness failure (exit 2), never the
 // blocking-finding status an uncaught error would otherwise produce.
-process.on('uncaughtException', (error) => { process.stderr.write(`HARNESS ERROR: ${error.stack || error}\n`); process.exit(2); });
-process.on('unhandledRejection', (error) => { process.stderr.write(`HARNESS ERROR: ${error?.stack || error}\n`); process.exit(2); });
+process.on('uncaughtException', (error) => { fatal(`HARNESS ERROR: ${error.stack || error}\n`); });
+process.on('unhandledRejection', (error) => { fatal(`HARNESS ERROR: ${error?.stack || error}\n`); });
+
+// The harness's modules load after the handlers above, so one that fails to
+// load is a harness fault (exit 2) too. The states are the registered ones or —
+// for the harness's own tests only — a module that re-exports them with test
+// states added (MAVI_VQA_STATES_MODULE).
+const STATES_MODULE = process.env.MAVI_VQA_STATES_MODULE ? resolve(process.env.MAVI_VQA_STATES_MODULE) : null;
+let modules;
+try {
+  modules = await Promise.all([
+    import('./assertions.mjs'), import('./cdp.mjs'), import('./engine.mjs'), import('./footage.mjs'),
+    import('./manifest.mjs'), import('./server.mjs'), import('./settle.mjs'),
+    import(STATES_MODULE ? pathToFileURL(STATES_MODULE).href : './states.mjs'),
+  ]);
+} catch (error) {
+  fatal(`HARNESS ERROR: a harness module did not load: ${error.stack || error}\n`);
+}
+const [
+  { focusAssertions, overlayExitProbe, overlayOpened, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions },
+  { launch },
+  { createLedger, exitStatus, HarnessError, planCases, settle, unprovenPressedKinds, unreachedFaults },
+  { CONDITIONS, ensureFootage },
+  { manifestSummary, RULES, TIERS, validateManifest },
+  { startServer },
+  { OBSERVERS, perfCollect, TRANSIENT },
+  { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf },
+] = modules;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEB = join(HERE, '..', '..', 'src', 'web', 'mavi-web');
-const OUT = join(HERE, '.captures');
+// Captures and results; the harness's own tests point this elsewhere so they never
+// overwrite a sweep's evidence.
+const OUT = process.env.MAVI_VQA_OUT ? resolve(process.env.MAVI_VQA_OUT) : join(HERE, '.captures');
 
 function arg(name, fallback) {
   const index = process.argv.indexOf(`--${name}`);
@@ -63,16 +90,15 @@ const onlyStates = list('states');
 const onlyTiers = list('tiers');
 const onlyWidths = list('widths')?.map(Number) ?? null;
 const repeat = Math.max(1, Number(arg('repeat', 1)));
-const fullSweep = !onlyStates && !onlyTiers && !onlyWidths && repeat === 1;
+const fullSweep = !onlyStates && !onlyTiers && !onlyWidths && repeat === 1 && !STATES_MODULE;
 const workers = Math.max(1, Number(arg('workers', Math.min(4, Math.max(1, cpus().length - 1)))));
 
 const manifestProblems = validateManifest();
 if (manifestProblems.length) {
-  process.stderr.write('assertion manifest is invalid:\n  ' + manifestProblems.join('\n  ') + '\n');
-  process.exit(2);
+  fatal('assertion manifest is invalid:\n  ' + manifestProblems.join('\n  ') + '\n');
 }
 for (const name of onlyStates ?? []) {
-  if (!STATES.some((state) => state.name === name)) { process.stderr.write(`unknown state ${name}\n`); process.exit(2); }
+  if (!STATES.some((state) => state.name === name)) { fatal(`unknown state ${name}\n`); }
 }
 
 let plan;
@@ -82,19 +108,26 @@ try {
     onlyStates, onlyTiers, onlyWidths, repeat,
   });
 } catch (error) {
-  process.stderr.write(String(error.message || error) + '\n');
-  process.exit(2);
+  fatal(String(error.message || error) + '\n');
 }
 const { cases, applicability } = plan;
-if (!cases.length) { process.stderr.write('nothing to run\n'); process.exit(2); }
+if (!cases.length) { fatal('nothing to run\n'); }
 
 if (flag('build')) {
   process.stdout.write('building frontend…\n');
   execFileSync('npm', ['run', 'build'], { cwd: WEB, stdio: 'inherit', shell: process.platform === 'win32' });
 }
 
+// The default output directory is the harness's own (and ignored by Git); one
+// MAVI_VQA_OUT names is replaced only if it is missing, empty or one the
+// harness wrote (its marker), since that variable can point anywhere.
+const MARKER = '.mavi-visual-qa-output';
+if (process.env.MAVI_VQA_OUT && existsSync(OUT) && readdirSync(OUT).length && !existsSync(join(OUT, MARKER))) {
+  fatal(`HARNESS ERROR: ${OUT} is not empty and is not a visual-QA output directory; refusing to replace it\n`);
+}
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
+writeFileSync(join(OUT, MARKER), 'Written by tools/web-visual-qa/run.mjs; replaced on every run.\n');
 const MEDIA = join(OUT, 'media');
 // Every clip before any browser starts: ffmpeg is synchronous, and encoding on
 // first request would stall the server mid-load.
@@ -134,17 +167,23 @@ async function openLane(index) {
 
 const results = [];
 const harnessErrors = [];
+/** Cases that threw: no result, no capture — a harness fault with its cause. */
+const errored = [];
 const ledger = createLedger(RULES);
 const { findings, coverage } = ledger;
-const record = (c, rule, message) => ledger.record(c, rule, message);
-const markEvaluated = (c, rules) => ledger.markEvaluated(c, rules);
+const record = (c, rule, message, scope) => ledger.record(c, rule, message, scope);
+const markEvaluated = (c, rules, scope) => ledger.markEvaluated(c, rules, scope);
 
 async function runCase(lane, c) {
   const { state, viewport } = c;
   const where = `${state.name} @ ${viewport.label}${c.attempt > 1 ? ` #${c.attempt}` : ''}`;
   const name = `${state.name}--${viewport.label}${repeat > 1 ? `--${c.attempt}` : ''}`;
   const caseFindings = [];
-  const add = (rule, message) => caseFindings.push(record(c, rule, message));
+  const add = (rule, message, scope = null) => caseFindings.push(record(c, rule, message, scope));
+  // The harness could not establish the declared state. Not a finding: a
+  // fault at every tier (engine.unreachedFaults), first cause kept.
+  let unreached = null;
+  const unreach = (stage, reason) => { if (!unreached) unreached = { stage, reason }; };
   const browser = lane.browser;
 
   lane.server.releaseHung();
@@ -168,28 +207,29 @@ async function runCase(lane, c) {
   // by an action: §20 restoration to an invoking control does not apply to it.
   const openOnLoad = await browser.evaluate(`Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))`);
   let reached = loaded.ok;
-  if (!loaded.ok) add('harness.state-reached', `did not settle within ${SETTLE_TIMEOUT_MS}ms: ${loaded.why.join('; ')}`);
+  if (!loaded.ok) unreach('navigation settle', `did not settle within ${SETTLE_TIMEOUT_MS}ms: ${loaded.why.join('; ')}`);
 
   let prepareStart = null;
-  let prepareEnd = null;
+  let preparedAt = null;
   let afterPrepare = null;
   if (state.prepare && reached) {
     prepareStart = await browser.evaluate('window.__vqa.mark("prepare-start")');
     let prepared = false;
     try {
-      // The preparation resolves when the outcome of its action is on screen,
-      // so its own span is the interaction's window; the settle probes that
-      // follow are the harness's work and are kept out of it.
-      prepared = Boolean(await browser.evaluate(`(async () => { const ok = await ${state.prepare}; window.__vqa.mark('prepare-end'); return ok; })()`));
+      // An interaction's long tasks are read from the action (its
+      // `interaction-start` mark, else here) until the page went quiet after
+      // it; a long task that ran one of the settle probes is the harness's and
+      // is excluded (settle.mjs, perfCollect).
+      prepared = Boolean(await browser.evaluate(`(async () => await ${state.prepare})()`));
     } catch (error) {
-      add('harness.state-reached', `preparation failed: ${String(error.message || error).split('\n')[0]}`);
+      unreach('preparation', `preparation failed: ${String(error.message || error).split('\n')[0]}`);
     }
     if (prepared) {
       afterPrepare = await settle(lane, state, { timeoutMs: SETTLE_TIMEOUT_MS });
-      if (afterPrepare.ok) prepareEnd = await browser.evaluate('window.__vqa.marks["prepare-end"] ?? null');
-      else add('harness.state-reached', `did not settle after its preparation within ${SETTLE_TIMEOUT_MS}ms: ${afterPrepare.why.join('; ')}`);
-    } else if (!caseFindings.length) {
-      add('harness.state-reached', 'preparation reported that the state was not reached');
+      if (afterPrepare.ok) preparedAt = await browser.evaluate('performance.now()');
+      else unreach('settle after preparation', `did not settle after its preparation within ${SETTLE_TIMEOUT_MS}ms: ${afterPrepare.why.join('; ')}`);
+    } else {
+      unreach('preparation', 'preparation reported that the state was not reached');
     }
     reached = prepared && Boolean(afterPrepare?.ok);
   }
@@ -208,7 +248,7 @@ async function runCase(lane, c) {
       if (overlay.ok) break;
       if (state.prepare && Date.now() - lastSeek > 1500) { await browser.evaluate(state.prepare).catch(() => false); lastSeek = Date.now(); }
     }
-    if (!overlay.ok) { add('harness.state-reached', `overlay not ready for capture: ${overlay.why}`); reached = false; }
+    if (!overlay.ok) { unreach('footage overlay', `overlay not ready for capture: ${overlay.why}`); reached = false; }
   }
 
   const input = {
@@ -220,13 +260,15 @@ async function runCase(lane, c) {
   let workspace = null;
   if (reached) {
     // Order matters: the page rules read the resting state; the focus pass
-    // then moves focus through every control and leaves it on the first.
+    // then moves focus through every control and puts focus and scroll back.
     page = await browser.evaluate(toExpression(pageAssertions, input));
     focus = await browser.evaluate(toExpression(focusAssertions));
     workspace = state.archetype ? await browser.evaluate(toExpression(workspaceAssertions, input)) : null;
     for (const part of [page, focus, workspace].filter(Boolean)) {
       markEvaluated(c, part.evaluated);
-      for (const finding of part.findings) add(finding.rule, finding.message);
+      // Surface-scoped rules also evaluated inside S1 regions, where they block.
+      if (part.foundationEvaluated) markEvaluated(c, part.foundationEvaluated, 'foundation');
+      for (const finding of part.findings) add(finding.rule, finding.message, finding.scope ?? null);
     }
     markEvaluated(c, ['harness.focus-coverage']);
     const skippedTotal = Object.values(focus.skipped).reduce((sum, count) => sum + count, 0);
@@ -234,10 +276,17 @@ async function runCase(lane, c) {
       add('harness.focus-coverage', `${focus.discovered} discovered, ${focus.checked} checked, ${skippedTotal} skipped`);
     }
   }
-  markEvaluated(c, ['harness.state-reached', 'page.uncaught-error', 'page.resource-error']);
+  if (reached) markEvaluated(c, ['page.uncaught-error', 'page.resource-error']);
 
-  // P1 and V5 measurements: recorded, never pass/fail.
-  const perf = await browser.evaluate(toExpression(perfCollect, { holds: state.holds ?? null, settledAt, prepareStart, prepareEnd }));
+  // P1 and V5 measurements: recorded, never pass/fail — and only of a state
+  // the harness reached: an unreached page is not the state's evidence.
+  const notReached = { status: 'failed', why: 'the declared state was not reached' };
+  const perf = reached
+    ? await browser.evaluate(toExpression(perfCollect, {
+      holds: state.holds ?? null, settledAt, prepareStart, preparedAt,
+      quietAt: afterPrepare?.quietAt ?? null, interaction: state.interaction ?? null,
+    }))
+    : { cls: notReached, clsPreparation: notReached, longTasks: notReached };
   // The platform fonts are read per text-bearing element: Chromium reports the
   // fonts of a node's own text, so the probe is the first element that holds
   // text in the Context Bar and in the surface.
@@ -249,7 +298,7 @@ async function runCase(lane, c) {
     return { contextBar: bar ? path(bar) : null, content: surface ? path(surface) : null, declared: getComputedStyle(document.body).fontFamily };
   })()`);
   const fonts = { declared: probes.declared, contextBar: null, content: null, status: 'measured', why: undefined };
-  try {
+  if (!reached) { fonts.status = 'failed'; fonts.why = 'the declared state was not reached'; } else try {
     if (probes.contextBar) fonts.contextBar = await browser.platformFonts(probes.contextBar);
     if (probes.content) fonts.content = await browser.platformFonts(probes.content);
     if (!fonts.content?.length && !fonts.contextBar?.length) { fonts.status = 'failed'; fonts.why = `no platform font reported for ${probes.content ?? 'any text on the page'}`; }
@@ -265,7 +314,8 @@ async function runCase(lane, c) {
     ...(fonts.status === 'measured' ? ['typography.resolved-font'] : []),
   ]);
 
-  const capture = `${name}.png`;
+  // A capture of a state not reached is kept for diagnosis and named so.
+  const capture = reached ? `${name}.png` : `${name}--UNREACHED.png`;
   writeFileSync(join(OUT, capture), await browser.screenshot());
   // What the capture shows, read before the probes below act on the page.
   const signature = await browser.evaluate(`(() => {
@@ -310,21 +360,28 @@ async function runCase(lane, c) {
     }
   }
 
-  for (const problem of browser.problems()) add('page.uncaught-error', problem);
+  // A page the harness did not reach is not the state's evidence: its errors
+  // are kept with the case for diagnosis, not recorded as its findings.
+  const diagnostics = [];
+  const pageProblem = (rule, problem) => (reached ? add(rule, problem) : diagnostics.push({ rule, message: problem }));
+  for (const problem of browser.problems()) pageProblem('page.uncaught-error', problem);
   const failing = (value) => value === 'unavailable' || (value !== null && typeof value === 'object' && typeof value.status === 'number');
   const expectedPaths = Object.entries(state.api ?? {})
     .filter(([, value]) => failing(value) || (value !== null && typeof value === 'object' && Array.isArray(value.sequence) && value.sequence.some(failing)))
     .map(([key]) => (key.includes(' ') ? key.slice(key.indexOf(' ') + 1) : key));
   for (const problem of browser.resourceErrors()) {
-    if (!expectedPaths.some((path) => problem.includes(path))) add('page.resource-error', problem);
+    if (!expectedPaths.some((path) => problem.includes(path))) pageProblem('page.resource-error', problem);
   }
   lane.server.releaseHung();
 
   const result = {
     state: state.name, viewport: viewport.label, tier: viewport.tier, kind: viewport.kind, attempt: c.attempt, lane: lane.index,
     settled: { ok: loaded.ok, ms: loaded.ms, probes: loaded.probes, why: loaded.ok ? undefined : loaded.why },
-    prepared: state.prepare ? { ok: Boolean(afterPrepare?.ok), ms: afterPrepare?.ms ?? null } : null,
+    prepared: state.prepare ? { ok: Boolean(afterPrepare?.ok), ms: afterPrepare?.ms ?? null, interaction: state.interaction ?? null } : null,
     reached,
+    valid: reached,
+    unreached,
+    surface: c.surface,
     capture,
     pageWidth: page?.pageWidth ?? null,
     shell: page?.shell ?? null,
@@ -332,11 +389,13 @@ async function runCase(lane, c) {
     workspace: workspace?.measured ?? null,
     perf, fonts, sticky, overlayExit, signature,
     findings: caseFindings.map(({ rule, severity, message }) => ({ rule, severity, message })),
+    ...(diagnostics.length ? { diagnostics } : {}),
+    pressed: page?.pressed ?? null,
   };
   writeFileSync(join(OUT, `${name}.json`), JSON.stringify(result, null, 2));
   results.push(result);
   const blocking = caseFindings.filter((f) => f.severity === 'blocking').length;
-  process.stdout.write(`  ${blocking ? 'FAIL' : caseFindings.length ? 'diag' : ' ok '}  ${where}${reached ? '' : '  (state not reached)'}\n`);
+  process.stdout.write(`  ${!reached ? 'UNRCH' : blocking ? 'FAIL ' : caseFindings.length ? 'diag ' : ' ok  '} ${where}${reached ? '' : `  (not reached at ${unreached?.stage}: ${unreached?.reason})`}\n`);
 }
 
 // --- Run --------------------------------------------------------------------------
@@ -355,6 +414,7 @@ try {
       } catch (error) {
         if (error instanceof HarnessError) throw error;
         harnessErrors.push(`${c.state.name} @ ${c.viewport.label}: ${String(error.stack || error).split('\n').slice(0, 3).join(' | ')}`);
+        errored.push({ state: c.state.name, viewport: c.viewport.label, tier: c.viewport.tier, stage: 'exception', reason: String(error.message || error).split('\n')[0] });
         process.stdout.write(`  ERR   ${c.state.name} @ ${c.viewport.label}: ${String(error.message || error).split('\n')[0]}\n`);
       }
     }
@@ -394,6 +454,18 @@ if (repeat > 1) {
   }
 }
 
+// pressed.visible: a control whose pressed form a capture never shows is
+// unproven there, not passed. On the full sweep every such kind must be shown
+// distinct in some capture; one never proven is a finding where first seen.
+const pressedUnproven = [];
+if (fullSweep) {
+  for (const { kind, result: r, control } of unprovenPressedKinds(results)) {
+    const c = { state: { name: r.state }, viewport: { label: r.viewport, tier: r.tier, kind: r.kind }, surface: r.surface };
+    record(c, 'pressed.visible', `${control} (${kind}): its pressed treatment is never shown in any capture of the sweep, so it is unproven`);
+    pressedUnproven.push(kind);
+  }
+}
+
 // Non-vacuity: on the full sweep every blocking assertion must have run.
 harnessErrors.push(...unreachedFaults(results));
 const vacuous = fullSweep && !harnessErrors.length ? ledger.vacuous() : [];
@@ -411,9 +483,11 @@ if (fullSweep && !harnessErrors.length) {
 // --- Report -----------------------------------------------------------------------
 
 const count = (items, key) => items.reduce((acc, item) => { acc[item[key]] = (acc[item[key]] ?? 0) + 1; return acc; }, {});
+const valid = results.filter((r) => r.valid);
 const byTier = Object.fromEntries(TIERS.map((tier) => [tier, {
-  anchorCaptures: results.filter((r) => r.tier === tier && r.kind === 'anchor').length,
-  probeCaptures: results.filter((r) => r.tier === tier && r.kind === 'probe').length,
+  anchorCaptures: valid.filter((r) => r.tier === tier && r.kind === 'anchor').length,
+  probeCaptures: valid.filter((r) => r.tier === tier && r.kind === 'probe').length,
+  invalid: results.filter((r) => r.tier === tier && !r.valid).length + errored.filter((e) => e.tier === tier).length,
   blocking: findings.filter((f) => f.tier === tier && f.severity === 'blocking').length,
   pending: findings.filter((f) => f.tier === tier && f.severity === 'measured/pending').length,
 }]));
@@ -421,6 +495,7 @@ const measure = (key) => count(results.map((r) => ({ status: r.perf?.[key]?.stat
 const clsValues = results.filter((r) => r.perf?.cls?.status === 'measured').map((r) => r.perf.cls.value);
 const report = {
   harness: 'web-visual-qa v2',
+  statesModule: STATES_MODULE,
   head: (() => { try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: HERE }).toString().trim(); } catch { return null; } })(),
   startedAt: new Date(started).toISOString(),
   durationMs,
@@ -428,27 +503,36 @@ const report = {
   fullSweep,
   manifest: manifestSummary(),
   states: { registered: STATES.length, selected: new Set(cases.map((c) => c.state.name)).size, applicability },
-  executions: { total: results.length, byTier, notReached: results.filter((r) => !r.reached).map((r) => `${r.state} @ ${r.viewport}`) },
+  executions: {
+    scheduled: cases.length,
+    validCaptures: valid.length,
+    byTier,
+    notReached: results.filter((r) => !r.reached).map((r) => ({ state: r.state, viewport: r.viewport, tier: r.tier, ...r.unreached })),
+    errored,
+  },
   findings: { blocking: findings.filter((f) => f.severity === 'blocking').length, pending: findings.filter((f) => f.severity === 'measured/pending').length, byRule: count(findings, 'rule') },
   coverage,
   perf: {
     cls: { statuses: measure('cls'), measured: clsValues.length, min: clsValues.length ? Math.min(...clsValues) : null, max: clsValues.length ? Math.max(...clsValues) : null, nonZero: clsValues.filter((v) => v > 0).length },
+    clsPreparation: { statuses: measure('clsPreparation') },
     longTasks: { statuses: measure('longTasks') },
     fonts: count(results.map((r) => ({ fonts: r.fonts?.status === 'measured' ? (r.fonts.content?.length ? r.fonts.content : r.fonts.contextBar).map((f) => f.family).join(' + ') : `failed: ${r.fonts?.why}` })), 'fonts'),
   },
   determinism,
+  pressedUnproven,
   harnessErrors,
 };
 writeFileSync(join(OUT, 'results.json'), JSON.stringify({ ...report, findingsList: findings, cases: results }, null, 2));
 
 const line = (text = '') => process.stdout.write(text + '\n');
 line();
-line(`${results.length} captures (${STATES.length} registered states, ${report.states.selected} selected) in ${Math.round(durationMs / 1000)}s on ${lanes.length} lane(s)`);
+line(`${valid.length} valid captures of ${cases.length} scheduled (${STATES.length} registered states, ${report.states.selected} selected) in ${Math.round(durationMs / 1000)}s on ${lanes.length} lane(s)`);
 for (const tier of TIERS) {
   const t = byTier[tier];
-  line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe captures; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);
+  line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe valid captures, ${t.invalid} invalid; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);
 }
-line(`  CLS: ${JSON.stringify(report.perf.cls.statuses)}; measured range ${report.perf.cls.min ?? '-'}..${report.perf.cls.max ?? '-'}`);
+line(`  CLS (navigation): ${JSON.stringify(report.perf.cls.statuses)}; measured range ${report.perf.cls.min ?? '-'}..${report.perf.cls.max ?? '-'}`);
+line(`  CLS (preparation): ${JSON.stringify(report.perf.clsPreparation.statuses)}`);
 line(`  long tasks: ${JSON.stringify(report.perf.longTasks.statuses)}`);
 line(`  fonts: ${Object.entries(report.perf.fonts).map(([k, v]) => `${k} (${v})`).join('; ')}`);
 for (const d of determinism) line(`  determinism ${d.case}: ${d.runs} runs, ${d.reached} reached, ${d.distinctStates} distinct state(s), rows ${d.rows.join('/')}`);
@@ -476,13 +560,13 @@ if (process.env.GITHUB_STEP_SUMMARY) {
   const md = [
     `## Visual QA (harness v2) — ${harnessErrors.length ? 'harness error' : blocking.length ? `${blocking.length} blocking finding(s)` : 'no blocking findings'}`,
     '',
-    `${results.length} captures of ${report.states.selected} states in ${Math.round(durationMs / 1000)}s on ${lanes.length} lanes.`,
+    `${valid.length} valid captures of ${cases.length} scheduled, ${report.states.selected} states, in ${Math.round(durationMs / 1000)}s on ${lanes.length} lanes.`,
     '',
-    '| Tier | Anchor captures | Probe captures | Blocking | Measured/pending |',
-    '|---|---|---|---|---|',
-    ...TIERS.map((tier) => `| ${tier} | ${byTier[tier].anchorCaptures} | ${byTier[tier].probeCaptures} | ${byTier[tier].blocking} | ${byTier[tier].pending} |`),
+    '| Tier | Valid anchor captures | Valid probe captures | Invalid | Blocking | Measured/pending |',
+    '|---|---|---|---|---|---|',
+    ...TIERS.map((tier) => `| ${tier} | ${byTier[tier].anchorCaptures} | ${byTier[tier].probeCaptures} | ${byTier[tier].invalid} | ${byTier[tier].blocking} | ${byTier[tier].pending} |`),
     '',
-    `CLS: ${JSON.stringify(report.perf.cls.statuses)}, measured range ${report.perf.cls.min ?? '-'}..${report.perf.cls.max ?? '-'}; long tasks: ${JSON.stringify(report.perf.longTasks.statuses)}.`,
+    `CLS (navigation): ${JSON.stringify(report.perf.cls.statuses)}, measured range ${report.perf.cls.min ?? '-'}..${report.perf.cls.max ?? '-'}; CLS (preparation): ${JSON.stringify(report.perf.clsPreparation.statuses)}; long tasks: ${JSON.stringify(report.perf.longTasks.statuses)}.`,
     '',
     ...(harnessErrors.length ? ['### Harness errors', ...harnessErrors.map((e) => `- ${e}`), ''] : []),
     ...(blocking.length ? ['### Blocking findings', ...blocking.slice(0, 100).map((f) => `- \`${f.state} @ ${f.viewport}\` [${f.rule}] ${f.message}`), ''] : []),

@@ -98,15 +98,23 @@ describe('surface.one-primary', () => {
 });
 
 describe('text.overflow', () => {
-  it('fires on text that spills out of its box in an S1 region (blocking rule)', async () => {
+  const scoped = (result, scope) => fired(result, 'text.overflow').filter((f) => (f.scope ?? null) === scope);
+  it('fires on text that spills out of its box in an S1 region, scoped to the foundation', async () => {
     const result = await page('<div class="context-bar"><div style="width:80px;white-space:nowrap">averyveryveryverylongidentifier</div></div>');
-    assert.match(fired(result, 'text.overflow')[0].message, /spills out/);
-    assert.deepEqual(fired(result, 'text.overflow-surface'), []);
+    assert.match(scoped(result, 'foundation')[0].message, /spills out/);
+    assert.ok(result.foundationEvaluated.includes('text.overflow'));
   });
-  it('reports the same overflow on unmigrated surface content under the surface rule', async () => {
+  it('scopes every S1 region to the foundation: Ledger, Dialog host, shortcut sheet and StateRegion', async () => {
+    for (const region of ['workspace--ledger', 'dialog-host', 'shortcut-sheet', 'state-region']) {
+      const result = await page(`<main><div class="${region}"><div style="width:80px;white-space:nowrap">averyveryveryverylongidentifier</div></div></main>`);
+      assert.equal(scoped(result, 'foundation').length, 1, region);
+    }
+  });
+  it('leaves the same overflow on surface content unscoped, for the manifest to weigh by surface', async () => {
     const result = await page('<main><div style="width:80px;white-space:nowrap">averyveryveryverylongidentifier</div></main>');
-    assert.match(fired(result, 'text.overflow-surface')[0].message, /spills out/);
-    assert.deepEqual(fired(result, 'text.overflow'), []);
+    assert.match(scoped(result, null)[0].message, /spills out/);
+    assert.deepEqual(scoped(result, 'foundation'), []);
+    assert.ok(result.evaluated.includes('text.overflow'));
   });
   it('fires on text cut off without an ellipsis', async () => {
     const result = await page('<div class="workspace--ledger"><div style="width:80px;white-space:nowrap;overflow:hidden">averyveryveryverylongidentifier</div></div>');
@@ -118,47 +126,138 @@ describe('text.overflow', () => {
       <div style="width:80px;white-space:nowrap;overflow-x:auto">averyveryveryverylongidentifier</div>
       <div class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">averyveryveryverylongidentifier</div>
       <p>An ordinary sentence that wraps where it needs to.</p></main>`);
-    assert.deepEqual([...fired(result, 'text.overflow'), ...fired(result, 'text.overflow-surface')], []);
-    assert.ok(result.evaluated.includes('text.overflow-surface'));
+    assert.deepEqual(fired(result, 'text.overflow'), []);
+    assert.ok(result.evaluated.includes('text.overflow'));
   });
 });
 
 describe('pressed.visible', () => {
-  it('fires on a pressed control whose pressed state changes nothing visible', async () => {
-    const result = await page('<main><button aria-pressed="true">Zones</button></main>');
-    assert.match(fired(result, 'pressed.visible')[0].message, /looks the same as when it is not/);
+  const pressed = (result) => fired(result, 'pressed.visible');
+  // Negative cases (cold review, item 3).
+  it('fires on an isolated, unstyled aria-pressed="false" control', async () => {
+    assert.match(pressed(await page('<main><button aria-pressed="false">Zones</button></main>'))[0].message, /looks the same pressed and unpressed/);
   });
-  it('fires on a group whose pressed member looks like its unpressed peer, class or not', async () => {
+  it('fires on an isolated, unstyled aria-pressed="true" control', async () => {
+    assert.match(pressed(await page('<main><button aria-pressed="true">Zones</button></main>'))[0].message, /looks the same pressed and unpressed/);
+  });
+  it('fires on an is-active class that gives the pressed state nothing visible', async () => {
+    assert.equal(pressed(await page('<main><button class="seg is-active" aria-pressed="true">Activity</button></main>')).length, 1);
+    assert.equal(pressed(await page('<main><ul><li class="is-selected"><button aria-pressed="true">Loading bay</button></li></ul></main>')).length, 1);
+  });
+  it('fires on a group whose pressed and unpressed members look identical', async () => {
     const result = await page(`<main><div role="group" aria-label="Mode">
       <button class="seg is-active" aria-pressed="true">Activity</button><button class="seg" aria-pressed="false">Heatmap</button></div></main>`);
-    assert.ok(fired(result, 'pressed.visible').some((f) => /unpressed peer/.test(f.message)));
+    assert.equal(pressed(result).length, 2);
   });
-  it('passes a group whose pressed style comes from a class the product sets, and a selected row', async () => {
-    const result = await page(`<style>.seg.is-active{background:#2563eb} li.is-selected{background:#1b2a45}</style><main>
+  it('is not satisfied by a peer that differs for an unrelated reason', async () => {
+    // The unpressed peer is the "active revision" (styled); the pressed chip's
+    // own state class changes nothing — the difference is not its pressed state.
+    const result = await page(`<style>.chip.is-active{border:2px solid #2563eb}</style><main><div role="group" aria-label="Revisions">
+      <button class="chip is-viewing" aria-pressed="true">R3</button><button class="chip is-active" aria-pressed="false">R4</button>
+      <button class="chip" aria-pressed="false">R2</button></div></main>`);
+    assert.ok(pressed(result).some((f) => /"R3"/.test(f.message)));
+  });
+  // Positive cases: every way the product draws a pressed state.
+  it('passes class-driven pressed states the product sets, on the control and on its row', async () => {
+    const result = await page(`<style>.seg.is-active{background:#2563eb} .nav-item.is-selected{background:#1b2a45} .chip.is-viewing{background:#333}</style><main>
       <div role="group" aria-label="Mode"><button class="seg is-active" aria-pressed="true">Activity</button><button class="seg" aria-pressed="false">Heatmap</button></div>
-      <ul><li class="is-selected"><button aria-pressed="true">Loading bay</button></li><li><button aria-pressed="false">Forecourt</button></li></ul></main>`);
-    assert.deepEqual(fired(result, 'pressed.visible'), []);
+      <ul><li class="nav-item is-selected"><button aria-pressed="true">Loading bay</button></li><li class="nav-item"><button aria-pressed="false">Forecourt</button></li></ul>
+      <div role="group" aria-label="Revisions"><button class="chip is-viewing" aria-pressed="true">R3</button><button class="chip" aria-pressed="false">R4</button></div></main>`);
+    assert.deepEqual(pressed(result), []);
   });
-  it('passes a fill, a descendant mark, and a fill behind a transition', async () => {
+  it('leaves an isolated unpressed control unproven — not passed — when only its stylesheet speaks for it', async () => {
+    // The stylesheet's state class could be anything (here an unrelated
+    // "active revision" look): it is not evidence of a pressed treatment.
+    const result = await page(`<style>.chip.is-active{background:#2563eb} .nav-item.is-selected{background:#1b2a45}</style><main>
+      <div><button class="chip" aria-pressed="false">R3</button></div>
+      <ul><li class="nav-item"><button aria-pressed="false">Forecourt</button></li></ul></main>`);
+    assert.deepEqual(pressed(result), []);
+    assert.equal(result.pressed.unproven.length, 2);
+    assert.deepEqual(result.pressed.proven, []);
+  });
+  it('proves an isolated control from a pressed one of the same kind elsewhere on the page', async () => {
+    const result = await page(`<style>.nav-item.is-selected{background:#1b2a45}</style><main>
+      <ul><li class="nav-item"><button aria-pressed="false">Forecourt</button></li></ul>
+      <ul><li class="nav-item is-selected"><button aria-pressed="true">Loading bay</button></li></ul></main>`);
+    assert.deepEqual(pressed(result), []);
+    assert.deepEqual(result.pressed.unproven, []);
+    assert.equal(result.pressed.proven.length, 1);
+  });
+  it('reads a state class on a wrapping element that is not a list row', async () => {
+    const result = await page(`<style>.opt.is-on{background:#2563eb}</style><main><div role="group" aria-label="Options">
+      <div class="opt is-on"><button aria-pressed="true">On</button></div><div class="opt"><button aria-pressed="false">Off</button></div></div></main>`);
+    assert.deepEqual(pressed(result), []);
+  });
+  it('passes a fill, a border, a shape, a descendant mark, a checkmark and a fill behind a transition', async () => {
     const result = await page(`<style>
         .fill[aria-pressed="true"]{background:#123456}
+        .edge[aria-pressed="true"]{border:2px solid #2563eb}
+        .shape[aria-pressed="true"]{border-radius:12px}
         .chip .mark{display:inline-block;width:10px;height:10px;border:1px solid #fff}
         .chip[aria-pressed="true"] .mark{background:#2563eb}
+        .tick[aria-pressed="true"]::before{content:"✓"}
         .slow{transition:background 2s} .slow[aria-pressed="true"]{background:#654321}
       </style><main>
         <button class="fill" aria-pressed="true">Fill</button>
+        <button class="edge" aria-pressed="false">Edge</button>
+        <button class="shape" aria-pressed="false">Shape</button>
         <button class="chip" aria-pressed="false"><span class="mark"></span>Chip</button>
+        <button class="tick" aria-pressed="false">Tick</button>
         <button class="slow" aria-pressed="false">Slow</button></main>`);
-    assert.deepEqual(fired(result, 'pressed.visible'), []);
+    assert.deepEqual(pressed(result), []);
     assert.ok(result.evaluated.includes('pressed.visible'));
   });
-  it('leaves the control in the state it found it', async () => {
-    await page('<main><button aria-pressed="false">Zones</button></main>');
-    assert.equal(await lane.browser.evaluate('document.querySelector("button").getAttribute("aria-pressed")'), 'false');
+  it('leaves the page exactly as it found it: attributes, classes, styles, no transition running', async () => {
+    const html = `<style>.slow{transition:background 2s} .slow[aria-pressed="true"]{background:#654321} .seg.is-active{background:#2563eb}</style><main>
+      <div role="group" aria-label="Mode"><button class="seg is-active" aria-pressed="true">A</button><button class="seg" aria-pressed="false">B</button></div>
+      <ul><li class="row"><button class="slow" aria-pressed="false">Slow</button></li></ul></main>`;
+    await page(html);
+    const before = await lane.browser.evaluate('document.querySelector("main").outerHTML');
+    await lane.browser.evaluate(toExpression(pageAssertions, PAGE_INPUT));
+    assert.equal(await lane.browser.evaluate('document.querySelector("main").outerHTML'), before);
+    assert.equal(await lane.browser.evaluate('document.getAnimations().length'), 0);
+    // Chromium serialises inline style lazily: no element gains an empty style.
+    assert.equal(await lane.browser.evaluate('document.querySelectorAll("main [style]").length'), 0);
   });
 });
 
 describe('containment.depth and state.placement', () => {
+  it('scopes a nested frame inside an S1 region to the foundation, and one on a surface to nothing', async () => {
+    const nest = '<div style="border:1px solid #444;width:400px;height:200px"><div style="border:1px solid #444;width:300px;height:100px">card</div></div>';
+    const ledger = await page(`<main><div class="workspace--ledger">${nest}</div></main>`);
+    assert.equal(fired(ledger, 'containment.depth')[0].scope, 'foundation');
+    assert.ok(ledger.foundationEvaluated.includes('containment.depth'));
+    const surface = await page(`<main>${nest}</main>`);
+    assert.equal(fired(surface, 'containment.depth')[0].scope, undefined);
+  });
+  it('checks the Dialog host and the shortcut sheet wherever they are mounted', async () => {
+    const result = await page('<main></main><div class="dialog-host"><div style="border:1px solid #444;width:400px;height:200px"><div style="border:1px solid #444;width:300px;height:100px">card</div></div></div>');
+    assert.equal(fired(result, 'containment.depth')[0].scope, 'foundation');
+  });
+  it('treats a frame round nothing but media as the object, not a containment level', async () => {
+    const result = await page(`<main><div style="border:1px solid #444;width:400px;height:300px">
+      <div style="border:1px solid #333;width:200px;height:184px"><img alt="crop" style="width:100px;height:100px"></div>
+      <div style="border:1px solid #333;width:200px;height:184px"><div class="evidence-placeholder">No image</div></div></div></main>`);
+    assert.deepEqual(fired(result, 'containment.depth'), []);
+  });
+  it('does not take an icon, or a frame with its own text, for media', async () => {
+    const outer = (inner) => `<main><div style="border:1px solid #444;width:400px;height:300px">${inner}</div></main>`;
+    const icon = '<svg width="16" height="16"><rect width="16" height="16"/></svg>';
+    const card = await page(outer(`<div style="border:1px solid #333;width:200px;height:120px">Status ${icon}</div>`));
+    assert.equal(fired(card, 'containment.depth').length, 1);
+    const chart = await page(outer(`<div style="border:1px solid #333;width:200px;height:120px"><svg width="180" height="100"><rect width="180" height="100"/></svg></div>`));
+    assert.equal(fired(chart, 'containment.depth').length, 1);
+  });
+  it('scopes a nesting by the frame doing the containing: a surface panel round an S1 presentation is the surface', async () => {
+    const result = await page(`<main><div style="border:1px solid #444;width:400px;height:300px">
+      <div class="state-region"><div style="border:1px solid #333;width:300px;height:100px">Nothing here yet.</div></div></div></main>`);
+    assert.equal(fired(result, 'containment.depth')[0].scope, undefined);
+  });
+  it('still fires on a frame holding media and anything else', async () => {
+    const result = await page(`<main><div style="border:1px solid #444;width:400px;height:300px">
+      <div style="border:1px solid #333;width:200px;height:184px"><img alt="crop" style="width:100px;height:100px"><p>Caption and controls</p></div></div></main>`);
+    assert.equal(fired(result, 'containment.depth').length, 1);
+  });
   it('fires on a bordered card inside a bordered panel', async () => {
     const result = await page('<main><div style="border:1px solid #444;width:400px;height:200px"><div style="border:1px solid #444;width:300px;height:100px">card</div></div></main>');
     assert.equal(fired(result, 'containment.depth').length, 1);

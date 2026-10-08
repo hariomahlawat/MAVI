@@ -28,6 +28,19 @@
  * Tier policy (§26, §34.2): until S5 flips them, every rule evaluated at a
  * Tier B or C anchor is `measured/pending` — generic or tier-specific — so S2
  * never blocks on S5 behaviour. `validateManifest` enforces that.
+ *
+ * Surface scope (§34.2 staged conformance). A rule with `scope: 'surface'` is
+ * `blocking` at Tier A, and a finding of it carries where it was found: in a
+ * region S1 owns (`foundation` — the shell, Context Bar, Ledgers, Dialog,
+ * shortcut sheet, StateRegion) it always blocks; on a surface it blocks once
+ * that surface's register row is accepted (`SURFACES`), and until then it is
+ * `measured/pending` against that row. Each surface is promoted on its own by
+ * its slice — never by a global switch — and no surface status can soften a
+ * finding in an S1 region.
+ *
+ * Whether the harness reached the declared state is not a rule here: a state
+ * not reached is a harness fault at every tier (`engine.unreachedFaults`),
+ * which no severity can soften.
  */
 
 export const TIERS = ['A', 'B', 'C'];
@@ -44,6 +57,48 @@ const C = pending('S5 / T2 (Tier C degradation)');
 
 /** An S1-implemented rule: blocking at the accepted tier, pending below it. */
 const s1 = () => ({ A: blocking(), B, C });
+
+/**
+ * The surfaces a `scope: 'surface'` finding can belong to, with the register
+ * row that finishes each (plan §4, S3a–S3e and S4). `accepted` flips to true in
+ * the PR that closes the row, and promotes that surface alone.
+ */
+export const SURFACES = {
+  foundation: { owner: 'S1 foundation (D1-D9)', accepted: true },
+  'not-found': { owner: 'S1d shell (D4)', accepted: true },
+  overview: { owner: 'S3a / R1', accepted: false },
+  videos: { owner: 'S3a / R2', accepted: false },
+  'processing-detail': { owner: 'S3b / R3', accepted: false },
+  'scene-editor': { owner: 'S3c / R4', accepted: false },
+  search: { owner: 'S3d / R5', accepted: false },
+  review: { owner: 'S3e / R6', accepted: false },
+  cameras: { owner: 'S4 / M1', accepted: false },
+  'processing-queue': { owner: 'S4 / M2', accepted: false },
+  import: { owner: 'S4 / M3', accepted: false },
+  'camera-analytics': { owner: 'S4 / M4', accepted: false },
+};
+
+/** Route to surface. A route no entry owns is refused, never defaulted. */
+export const ROUTES = [
+  [/^\/$/, 'overview'],
+  [/^\/videos$/, 'videos'],
+  [/^\/processing$/, 'processing-queue'],
+  [/^\/processing\/[^/]+$/, 'processing-detail'],
+  [/^\/cameras$/, 'cameras'],
+  [/^\/cameras\/[^/]+\/scene$/, 'scene-editor'],
+  [/^\/cameras\/[^/]+\/analytics$/, 'camera-analytics'],
+  [/^\/search$/, 'search'],
+  [/^\/review\/video\/[^/]+$/, 'review'],
+  [/^\/import$/, 'import'],
+  [/^\/no-such-page$/, 'not-found'],
+];
+
+export function surfaceOf(path) {
+  const route = path.split('?')[0];
+  const hit = ROUTES.find(([pattern]) => pattern.test(route));
+  if (!hit) throw new Error(`no surface owns route ${route}: add it to ROUTES in manifest.mjs`);
+  return hit[1];
+}
 
 const TIER_A_ONLY = 'evaluated only at the ultra-wide Tier A anchors, where the §25 width rule bites';
 
@@ -62,8 +117,8 @@ export const RULES = {
     tiers: { A: blocking(), B: na(TIER_A_ONLY), C: na(TIER_A_ONLY) },
   },
   'text.overflow': {
-    section: '§26, §36.2, §16', kind: 'assertion',
-    summary: 'No visible text extends outside its box without sanctioned wrapping or truncation — in the regions S1 owns: the shell and Context Bar, every Ledger, the Dialog and the shortcut sheet. (A drawer\'s content belongs to the surface that renders it.)',
+    section: '§26, §36.2, §16', kind: 'assertion', scope: 'surface',
+    summary: 'No visible text extends outside its box without sanctioned wrapping or truncation. Blocks in every S1 region; on a surface, once its row is accepted.',
     tiers: s1(),
   },
   'pressed.visible': { section: '§12, §26', kind: 'assertion', summary: 'Every visible enabled aria-pressed control has a visible pressed treatment.', tiers: s1() },
@@ -79,11 +134,6 @@ export const RULES = {
   'surface.one-primary': { section: '§8.1, §16', kind: 'assertion', summary: 'At most one visible, enabled, non-inert accent-filled action on the surface.', tiers: s1() },
   'a11y.focus-visible': { section: '§23, §12', kind: 'assertion', summary: 'Every focusable control shows a focus ring when focused.', tiers: s1() },
   'harness.focus-coverage': { section: '§26', kind: 'assertion', summary: 'Every discovered control is focus-checked or skipped for a named reason.', tiers: s1() },
-  'harness.state-reached': {
-    section: '§26 (method)', kind: 'assertion',
-    summary: 'The capture is of the declared state: preparation ran, the state settled, expected text present, forbidden text absent, overlay drawn. An unreached state is also a harness fault (exit 2) at every tier, whatever its severity here.',
-    tiers: s1(),
-  },
 
   // --- Overlays (S1c, §15, §20) ------------------------------------------------
   'overlay.dialog': { section: '§15, §23', kind: 'assertion', summary: 'An open Dialog is a named modal dialog holding focus, with everything else inert and nothing outside it focusable.', tiers: s1() },
@@ -117,15 +167,10 @@ export const RULES = {
   'review.analytical-geometry': { section: '§18', kind: 'assertion', summary: 'Analytical shapes inside the content rectangle; direction cues perpendicular, arrowed and labelled; no native controls.', tiers: s1() },
 
   // --- Rules evaluated now, owned by a later slice ---------------------------
-  'text.overflow-surface': {
-    section: '§26, §36.2, §16', kind: 'assertion',
-    summary: 'The same rule on the content of surfaces S1 did not migrate; each becomes blocking with its surface slice.',
-    tiers: { A: pending('S3a-S3e / R1-R6 and S4 / M1-M4 (surface finish on each surface)'), B, C },
-  },
   'containment.depth': {
-    section: '§11', kind: 'assertion',
-    summary: 'At most one contained surface: no bordered panel inside a bordered panel (card-inside-card).',
-    tiers: { A: pending('S3a-S3e / R1-R6 and S4 / M1-M4 (surface finish on each surface)'), B, C },
+    section: '§11', kind: 'assertion', scope: 'surface',
+    summary: 'At most one contained surface: no bordered panel inside a bordered panel (card-inside-card); a frame holding only media is an object, not a container. Blocks in every S1 region; on a surface, once its row is accepted.',
+    tiers: s1(),
   },
   'review.sticky-rendered': {
     section: '§4.5.1, §36.3', kind: 'assertion',
@@ -187,13 +232,20 @@ export const RULES = {
   },
 };
 
-/** The status of a rule at a tier, or a thrown error for anything unregistered. */
-export function severityOf(rule, tier) {
-  const entry = RULES[rule];
+/**
+ * The status of a rule at a tier — for a surface-scoped rule, on the surface
+ * the finding belongs to — or a thrown error for anything unregistered.
+ */
+export function severityOf(rule, tier, surface = null, { rules = RULES, surfaces = SURFACES } = {}) {
+  const entry = rules[rule];
   if (!entry) throw new Error(`unregistered rule "${rule}": every finding must name a manifest rule`);
   const at = entry.tiers[tier];
   if (!at) throw new Error(`rule "${rule}" has no status at tier ${tier}`);
-  return at;
+  if (entry.scope !== 'surface' || at.status !== 'blocking') return at;
+  if (!surface) throw new Error(`rule "${rule}" is surface-scoped: its finding must name the surface it belongs to`);
+  const owner = surfaces[surface];
+  if (!owner) throw new Error(`rule "${rule}": unknown surface "${surface}"`);
+  return owner.accepted ? at : { status: 'measured/pending', owner: `${owner.owner} (surface not yet accepted)` };
 }
 
 /**
@@ -202,7 +254,7 @@ export function severityOf(rule, tier) {
  * from the assertion and run sources, so a rule with no code and a finding
  * with no rule are both caught.
  */
-export function validateManifest(rules = RULES, implemented = null) {
+export function validateManifest(rules = RULES, implemented = null, { surfaces = SURFACES, routes = ROUTES } = {}) {
   const problems = [];
   for (const [id, entry] of Object.entries(rules)) {
     if (!/^[a-z0-9]+(\.[a-z0-9-]+)+$/.test(id)) problems.push(`${id}: malformed rule id`);
@@ -221,6 +273,8 @@ export function validateManifest(rules = RULES, implemented = null) {
       problems.push(`${id}: a ${entry.kind} rule cannot block`);
     }
     if (entry.kind === 'future' && !entry.execution) problems.push(`${id}: future rule without an execution policy`);
+    if (entry.scope !== undefined && entry.scope !== 'surface') problems.push(`${id}: unknown scope "${entry.scope}"`);
+    if (entry.scope === 'surface' && entry.tiers?.A?.status !== 'blocking') problems.push(`${id}: a surface-scoped rule must block at Tier A, where S1 owns it`);
     if (implemented) {
       const isImplemented = implemented.has(id);
       if (entry.kind !== 'future' && !isImplemented) problems.push(`${id}: registered as ${entry.kind} but no code produces it`);
@@ -230,12 +284,22 @@ export function validateManifest(rules = RULES, implemented = null) {
   if (implemented) {
     for (const id of implemented) if (!rules[id]) problems.push(`${id}: produced by code but not registered`);
   }
+  for (const [name, surface] of Object.entries(surfaces)) {
+    if (typeof surface.accepted !== 'boolean') problems.push(`surface ${name}: accepted must be true or false`);
+    if (!/S[1-7]/.test(surface.owner ?? '')) problems.push(`surface ${name}: no owning slice`);
+  }
+  if (surfaces.foundation?.accepted !== true) problems.push('surface foundation: S1 regions must always block');
+  for (const [, name] of routes) if (!surfaces[name]) problems.push(`route to unknown surface ${name}`);
   return problems;
 }
 
 /** Counts by tier and status, for the report and the register. */
 export function manifestSummary(rules = RULES) {
-  const summary = { rules: Object.keys(rules).length, byKind: {}, byTier: {} };
+  const summary = {
+    rules: Object.keys(rules).length, byKind: {}, byTier: {},
+    surfaceScoped: Object.keys(rules).filter((id) => rules[id].scope === 'surface'),
+    surfaces: Object.fromEntries(Object.entries(SURFACES).map(([name, s]) => [name, s.accepted ? 'accepted' : `pending: ${s.owner}`])),
+  };
   for (const entry of Object.values(rules)) summary.byKind[entry.kind] = (summary.byKind[entry.kind] ?? 0) + 1;
   for (const tier of TIERS) {
     summary.byTier[tier] = Object.fromEntries(STATUSES.map((s) => [s, 0]));

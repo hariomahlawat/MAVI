@@ -26,7 +26,15 @@ export function toExpression(fn, input) {
 export function pageAssertions(input) {
   const findings = [];
   const evaluated = new Set();
-  const fail = (rule, message) => findings.push({ rule, message });
+  // Surface-scoped rules (manifest `scope: 'surface'`) evaluated inside a
+  // region S1 owns, where they block whatever the surface's status.
+  const foundationEvaluated = new Set();
+  const fail = (rule, message, scope = null) => findings.push(scope ? { rule, message, scope } : { rule, message });
+  // The regions S1 built and accepted: the shell, the Context Bar, every
+  // Ledger, the Dialog host, the shortcut sheet, the skip link and every
+  // StateRegion presentation. A surface-scoped finding inside one is S1's.
+  const S1_OWNED = '.sidebar, .context-bar, .workspace--ledger, .dialog-host, .shortcut-sheet, .skip-link, .state-region';
+  const scopeOf = (el) => (el.closest(S1_OWNED) ? 'foundation' : null);
   const doc = document.documentElement;
   const round = (n) => Math.round(n * 10) / 10;
 
@@ -328,85 +336,173 @@ export function pageAssertions(input) {
     if (style.display === 'inline' || style.display === 'contents' || style.display === 'none') return false;
     return el.clientWidth > 0 && shown(el);
   });
-  // The rule blocks in the regions S1 built and accepted; on the content of a
-  // surface no slice has migrated yet it is measured against that slice.
-  const S1_REGIONS = '.sidebar, .context-bar, .workspace--ledger, .dialog-host, .shortcut-sheet, .skip-link';
-  const overflowRule = (el) => (el.closest(S1_REGIONS) ? 'text.overflow' : 'text.overflow-surface');
-  for (const el of textBlocks) evaluated.add(overflowRule(el));
+  // Blocking in an S1 region; on a surface, as the manifest says for it.
+  for (const el of textBlocks) (scopeOf(el) ? foundationEvaluated : evaluated).add('text.overflow');
   for (const el of textBlocks) {
     if (el.scrollWidth <= el.clientWidth + 1) continue;
     const style = getComputedStyle(el);
     if (/(auto|scroll)/.test(style.overflowX)) continue;
     const clipped = style.overflowX !== 'visible';
     if (clipped && style.textOverflow === 'ellipsis') continue;
-    fail(overflowRule(el), (clipped ? 'text is cut off without an ellipsis in ' : 'text spills out of ') + describe(el)
-      + ' (' + el.scrollWidth + 'px of text in a ' + el.clientWidth + 'px box)');
+    fail('text.overflow', (clipped ? 'text is cut off without an ellipsis in ' : 'text spills out of ') + describe(el)
+      + ' (' + el.scrollWidth + 'px of text in a ' + el.clientWidth + 'px box)', scopeOf(el));
   }
 
-  // 10. aria-pressed has a visible pressed treatment (§12). The control's
-  //     rendered appearance, its own and its descendants', is read in the
-  //     current state and again with aria-pressed flipped — transitions held
-  //     off so the second reading is the end state, not the start of a fade —
-  //     and restored before anything paints. Identical readings mean the
-  //     attribute changes nothing anyone can see.
-  const SIGNATURE = ['backgroundColor', 'borderTopColor', 'borderBottomColor', 'color', 'boxShadow', 'outlineStyle',
-    'outlineColor', 'opacity', 'visibility', 'display', 'fill', 'stroke', 'textDecorationLine', 'fontWeight'];
-  const signature = (el) => [el, ...el.querySelectorAll('*')]
-    .map((node) => { const s = getComputedStyle(node); return SIGNATURE.map((p) => s[p]).join('|'); }).join('#');
+  // 10. aria-pressed has a visible pressed treatment (§12). The proof is the
+  //     control itself rendered in its other state and compared with how it
+  //     looks now — its own, its descendants', its pseudo-elements' and its
+  //     row's computed appearance — never a class name, an attribute or a
+  //     peer's unrelated difference taken on trust.
+  //
+  //     The other state is the attribute flipped together with the classes the
+  //     product pairs with it, read from evidence on the page: the nearest
+  //     control of the same kind in the other state — in its group, else
+  //     anywhere on the page — and the classes that differ between the two (the
+  //     one with the fewest differences, so an unrelated class such as an
+  //     "active revision" is not taken for the pressed one). With no such
+  //     control, a pressed one loses its `is-` classes; an unpressed one gets
+  //     the attribute alone. Identical readings are a finding — except for an
+  //     unpressed control whose stylesheet does define `is-` states for it but
+  //     whose pressed form the page never shows: that is unproven here, not
+  //     passed, and a full sweep requires every such kind proven somewhere.
+  //     Transitions are held off, and every attribute, class and style is put
+  //     back exactly before anything paints.
+  const SIGNATURE = ['backgroundColor', 'backgroundImage', 'borderTopColor', 'borderRightColor', 'borderBottomColor', 'borderLeftColor',
+    'borderTopWidth', 'borderTopStyle', 'borderRadius', 'color', 'boxShadow', 'outlineStyle', 'outlineColor', 'opacity',
+    'visibility', 'display', 'fill', 'stroke', 'textDecorationLine', 'fontWeight', 'transform', 'content'];
+  // Where a selection may be painted besides the control: its list row, or
+  // the element that wraps it.
+  const rowOf = (el) => el.closest('li, [role="listitem"], [role="row"]') || el.parentElement;
+  const looks = (el) => {
+    const row = rowOf(el);
+    const nodes = [el, ...el.querySelectorAll('*'), ...(row && row !== el ? [row] : [])];
+    return nodes.map((node) => [null, '::before', '::after'].map((pseudo) => {
+      const s = getComputedStyle(node, pseudo);
+      return SIGNATURE.map((prop) => s[prop]).join('|');
+    }).join('/')).join('#');
+  };
+  const classes = (node) => (node ? Array.from(node.classList) : []);
+  const diff = (a, b) => a.filter((name) => !b.includes(name));
+  const base = (node) => classes(node).filter((name) => !/^is-/.test(name)).sort().join('.');
+  // A control's kind: what it is apart from its state.
+  const kindOf = (el) => el.tagName.toLowerCase() + (base(el) ? '.' + base(el) : '') + ' in ' + (rowOf(el) ? rowOf(el).tagName.toLowerCase() + (base(rowOf(el)) ? '.' + base(rowOf(el)) : '') : '-');
+  // Every `is-` class some style rule pairs with one of `node`'s own classes.
+  const definedStates = (() => {
+    const pairs = [];
+    for (const sheet of Array.from(document.styleSheets)) {
+      let rules;
+      try { rules = sheet.cssRules; } catch { continue; }
+      const walk = (list) => {
+        for (const rule of Array.from(list || [])) {
+          if (rule.cssRules && !rule.selectorText) { walk(rule.cssRules); continue; }
+          for (const compound of String(rule.selectorText || '').split(/[\s>+~,()]+/)) {
+            const names = (compound.match(/\.[A-Za-z0-9_-]+/g) || []).map((c) => c.slice(1));
+            if (names.length > 1) pairs.push(names);
+          }
+        }
+      };
+      walk(rules);
+    }
+    return (node) => {
+      if (!node) return [];
+      const own = classes(node);
+      const found = new Set();
+      for (const names of pairs) {
+        if (!names.some((name) => own.includes(name))) continue;
+        for (const name of names) if (/^is-/.test(name) && !own.includes(name)) found.add(name);
+      }
+      return Array.from(found);
+    };
+  })();
   const pressables = Array.from(document.querySelectorAll('[aria-pressed]'))
     .filter((el) => shown(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'
       && /^(true|false)$/.test(el.getAttribute('aria-pressed') || ''));
   if (pressables.length) evaluated.add('pressed.visible');
-  // In a group whose pressed style comes with a class the product sets with
-  // the attribute (Segmented's .is-active), flipping the attribute alone
-  // changes nothing; there the evidence is a pressed control looking different
-  // from an unpressed member of the same group.
-  const OWN = ['backgroundColor', 'borderTopColor', 'borderLeftColor', 'color', 'boxShadow', 'outlineStyle', 'fontWeight', 'textDecorationLine'];
-  // A selection may be painted on the control's row (a navigator item's
-  // .is-selected), so the row is read with the control.
-  const rowOf = (el) => el.closest('li, [role="listitem"], [role="row"]') || el.parentElement;
-  const own = (el) => [el, rowOf(el)].filter(Boolean)
-    .map((node) => { const s = getComputedStyle(node); return OWN.map((p) => s[p]).join('|'); }).join('#');
-  const distinctFromPeer = (el) => {
+  const otherStates = (el) => {
+    const state = el.getAttribute('aria-pressed');
+    const row = rowOf(el);
+    const kind = kindOf(el);
     const group = el.closest('[role="group"], [role="toolbar"], ul, ol, [role="list"]') || el.parentElement;
-    const state = el.getAttribute('aria-pressed');
-    const peer = Array.from(group.querySelectorAll('[aria-pressed]')).find((other) => other !== el
-      && other.tagName === el.tagName && other.getAttribute('aria-pressed') !== state && shown(other) && !other.disabled);
-    return peer ? own(peer) !== own(el) : null;
-  };
-  for (const el of pressables) {
-    const peer = distinctFromPeer(el);
-    if (peer === true) continue;
-    // With no peer in the other state, flipping the attribute is the only
-    // evidence. It is decisive when the pressed style hangs on the attribute;
-    // when the product pairs the attribute with a class it sets itself, an
-    // unchanged flip proves nothing, so a control with no peer and no
-    // attribute-driven style is left to the captures in which it has one.
-    const nodes = [el, ...el.querySelectorAll('*')];
-    const held = nodes.map((node) => node.style.transition);
-    nodes.forEach((node) => { node.style.transition = 'none'; });
-    const before = signature(el);
-    const state = el.getAttribute('aria-pressed');
-    el.setAttribute('aria-pressed', state === 'true' ? 'false' : 'true');
-    const after = signature(el);
-    el.setAttribute('aria-pressed', state);
-    // Flush the restored style while transitions are still held, so restoring
-    // them starts nothing: the page is left exactly as it was found.
-    signature(el);
-    nodes.forEach((node, index) => { node.style.transition = held[index]; });
-    if (before === after && peer === false) fail('pressed.visible', describe(el) + ' looks the same as an unpressed peer, pressed or not');
-    else if (before === after && peer === null && !/is-(active|selected)/.test(el.getAttribute('class') || '')
-      && !(rowOf(el) && /is-(active|selected)/.test(rowOf(el).getAttribute('class') || '')) && el.getAttribute('aria-pressed') === 'true') {
-      fail('pressed.visible', describe(el) + ' is pressed and looks the same as when it is not');
+    const other = (scope) => Array.from(scope.querySelectorAll('[aria-pressed]')).filter((candidate) => candidate !== el
+      && candidate.tagName === el.tagName && candidate.getAttribute('aria-pressed') !== state && shown(candidate));
+    let peers = other(group);
+    let source = 'peer';
+    if (!peers.length) { peers = other(document).filter((candidate) => kindOf(candidate) === kind); source = 'page'; }
+    if (peers.length) {
+      const changes = peers.map((peer) => {
+        const peerRow = rowOf(peer);
+        return {
+          el: { remove: diff(classes(el), classes(peer)), add: diff(classes(peer), classes(el)) },
+          row: row && peerRow && row !== peerRow ? { remove: diff(classes(row), classes(peerRow)), add: diff(classes(peerRow), classes(row)) } : { remove: [], add: [] },
+        };
+      });
+      const size = (c) => c.el.remove.length + c.el.add.length + c.row.remove.length + c.row.add.length;
+      changes.sort((a, b) => size(a) - size(b));
+      return { source, variants: [changes[0]] };
     }
+    const none = { remove: [], add: [] };
+    if (state === 'true') {
+      return { source: 'self', variants: [{ el: { remove: classes(el).filter((c) => /^is-/.test(c)), add: [] }, row: { remove: classes(row).filter((c) => /^is-/.test(c)), add: [] } }] };
+    }
+    return { source: 'self', variants: [{ el: none, row: none }] };
+  };
+  const pressed = { proven: new Set(), unproven: [] };
+  for (const el of pressables) {
+    const row = rowOf(el);
+    const touched = [el, ...el.querySelectorAll('*'), ...(row && row !== el ? [row] : [])];
+    const savedStyle = touched.map((node) => node.getAttribute('style'));
+    const savedClass = [el, row].map((node) => (node ? node.getAttribute('class') : null));
+    const state = el.getAttribute('aria-pressed');
+    touched.forEach((node) => { node.style.transition = 'none'; });
+    const before = looks(el);
+    const { source, variants } = otherStates(el);
+    let distinct = false;
+    for (const variant of variants) {
+      el.setAttribute('aria-pressed', state === 'true' ? 'false' : 'true');
+      variant.el.remove.forEach((name) => el.classList.remove(name));
+      variant.el.add.forEach((name) => el.classList.add(name));
+      if (row) { variant.row.remove.forEach((name) => row.classList.remove(name)); variant.row.add.forEach((name) => row.classList.add(name)); }
+      const after = looks(el);
+      el.setAttribute('aria-pressed', state);
+      [el, row].forEach((node, index) => {
+        if (!node) return;
+        if (savedClass[index] === null) node.removeAttribute('class'); else node.setAttribute('class', savedClass[index]);
+      });
+      if (after !== before) { distinct = true; break; }
+    }
+    // Flush the restored appearance while transitions are still held, then put
+    // every style attribute back exactly as it was found. Reading the attribute
+    // first makes Chromium serialise the inline style it updates lazily, or
+    // removing it would leave an empty `style=""` behind.
+    looks(el);
+    touched.forEach((node, index) => {
+      node.getAttribute('style');
+      if (savedStyle[index] === null) node.removeAttribute('style'); else node.setAttribute('style', savedStyle[index]);
+    });
+    const kind = kindOf(el);
+    if (distinct) { pressed.proven.add(kind); continue; }
+    if (source === 'self' && state === 'false' && (definedStates(el).length || definedStates(row).length)) {
+      pressed.unproven.push({ kind, control: describe(el) });
+      continue;
+    }
+    fail('pressed.visible', describe(el) + (source === 'self'
+      ? ' looks the same pressed and unpressed (attribute flipped' + (state === 'true' ? ', its state classes removed' : '') + ')'
+      : ' looks the same pressed and unpressed (its other state rendered as ' + (source === 'peer' ? 'the nearest peer' : 'the nearest control of its kind') + ' shows it)'));
   }
 
   // 11. Containment depth (§11): one contained surface, never a bordered panel
   //     inside a bordered panel. A frame is a block bordered on all four sides,
   //     large enough to contain something; alerts, controls, badges, media and
   //     placeholders are messages and objects, not containers.
+  // A frame round nothing but media — an image, a video, a canvas, an
+  // evidence placeholder — is that object's edge, not a containment level.
+  // Not an icon (an svg) and not a frame that also holds text of its own.
+  const MEDIA = 'img, picture, video, canvas, .evidence-placeholder';
+  const mediaFrame = (el) => el.children.length > 0 && Array.from(el.children).every((child) => child.matches(MEDIA))
+    && !Array.from(el.childNodes).some((node) => node.nodeType === 3 && node.textContent.trim());
   const framed = (el) => {
     if (el.matches('button, a, input, select, textarea, img, video, canvas, svg, kbd, code, [role="alert"], [role="status"], .alert, .badge, .chip, .evidence-placeholder, .tooltip, .skip-link')) return false;
+    if (mediaFrame(el)) return false;
     const s = getComputedStyle(el);
     if (s.display === 'inline') return false;
     const sides = ['Top', 'Right', 'Bottom', 'Left'];
@@ -415,15 +511,23 @@ export function pageAssertions(input) {
     const r = el.getBoundingClientRect();
     return r.width >= 120 && r.height >= 48 && painted(el);
   };
-  const frames = Array.from(document.querySelectorAll('main *')).filter(framed);
-  if (frames.length) evaluated.add('containment.depth');
+  // The workspace, and the overlays S1 owns wherever they are mounted.
+  const frames = Array.from(new Set(document.querySelectorAll('main *, .dialog-host *, .shortcut-sheet *'))).filter(framed);
+  for (const el of frames) (scopeOf(el) ? foundationEvaluated : evaluated).add('containment.depth');
   const nestedFrames = frames.filter((el) => frames.some((outer) => outer !== el && outer.contains(el)));
-  for (const el of nestedFrames.slice(0, 5)) {
-    const outer = frames.find((candidate) => candidate !== el && candidate.contains(el));
-    fail('containment.depth', 'a bordered container (' + (el.className || el.tagName) + ') sits inside another ('
-      + (outer.className || outer.tagName) + ')');
+  const outerOf = (el) => frames.find((candidate) => candidate !== el && candidate.contains(el));
+  // A nesting is S1's when the frame doing the containing is in an S1 region:
+  // a surface's panel round an S1 presentation is the surface's choice.
+  // Reported per scope, the first five of each in full.
+  for (const scope of ['foundation', null]) {
+    const nested = nestedFrames.filter((el) => scopeOf(outerOf(el)) === scope);
+    for (const el of nested.slice(0, 5)) {
+      const outer = outerOf(el);
+      fail('containment.depth', 'a bordered container (' + (el.className || el.tagName) + ') sits inside another ('
+        + (outer.className || outer.tagName) + ')', scope);
+    }
+    if (nested.length > 5) fail('containment.depth', (nested.length - 5) + ' more nested containers', scope);
   }
-  if (nestedFrames.length > 5) fail('containment.depth', (nestedFrames.length - 5) + ' more nested containers');
 
   // 12. State placement (§37.1, §14.1). A state presentation is content-sized
   //     — it never pads itself to fill the region it replaces — and the first
@@ -540,7 +644,10 @@ export function pageAssertions(input) {
   evaluated.add('a11y.target-size');
   if (small.length) fail('a11y.target-size', small.length + ' pointer target(s) under 24x24: ' + small.slice(0, 4).join(', '));
 
-  return { findings, evaluated: Array.from(evaluated), pageWidth, declaresFullWidth, shell };
+  return {
+    findings, evaluated: Array.from(evaluated), foundationEvaluated: Array.from(foundationEvaluated), pageWidth, declaresFullWidth, shell,
+    pressed: { proven: Array.from(pressed.proven), unproven: pressed.unproven },
+  };
 }
 
 /**

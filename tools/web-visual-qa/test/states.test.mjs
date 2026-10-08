@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { HarnessError, planCases } from '../engine.mjs';
+import { SURFACES, surfaceOf } from '../manifest.mjs';
 import { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf } from '../states.mjs';
 
 const plan = (overrides = {}) => planCases({ states: STATES, anchors: ANCHORS, policies: TIER_POLICIES, stateKeys: STATE_KEYS, tierOf, ...overrides });
@@ -119,5 +120,25 @@ describe('preparations', () => {
     for (const state of STATES.filter((s) => s.prepare)) {
       assert.doesNotMatch(state.prepare, /setTimeout|\bwait\(/, `${state.name} sleeps`);
     }
+  });
+
+  it('name an operator interaction only where a preparation performs one (P1)', () => {
+    const interactions = STATES.filter((s) => s.interaction);
+    assert.ok(interactions.length >= 10, 'interactions are designated');
+    for (const state of interactions) {
+      assert.ok(state.prepare, `${state.name} names an interaction it never performs`);
+      assert.ok(typeof state.interaction === 'string' && state.interaction.length > 8, state.name);
+    }
+    // Fixture setup and passive checks are not interactions.
+    for (const name of ['not-found', 'review-saturated', 'search-analytics-scene-degraded', 'search-field-errors']) {
+      assert.equal(STATES.find((s) => s.name === name).interaction, undefined, name);
+    }
+  });
+});
+
+describe('surfaces', () => {
+  it('give every state a surface, so a surface-scoped finding always has an owner', () => {
+    for (const state of STATES) assert.ok(SURFACES[surfaceOf(state.path)], state.name);
+    assert.ok(plan().cases.every((c) => c.surface), 'every planned case carries its surface');
   });
 });

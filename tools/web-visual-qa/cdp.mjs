@@ -55,6 +55,24 @@ export async function launch() {
     '--disable-lcd-text',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
+  // Until the browser is fully up the caller has no browser object to close,
+  // so a failure on the way owns the cleanup: the process and its profile go
+  // here, or they would keep the harness alive past the fault it reports.
+  try {
+    return await connect(child, profile);
+  } catch (error) {
+    await new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
+      child.once('exit', resolve);
+      try { child.kill('SIGKILL'); } catch { resolve(); }
+      setTimeout(resolve, 5_000).unref();
+    });
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch { /* untidy, not fatal */ }
+    throw error;
+  }
+}
+
+async function connect(child, profile) {
   const wsUrl = await new Promise((resolve, reject) => {
     let buffer = '';
     const timer = setTimeout(() => reject(new Error('Chromium did not report a DevTools endpoint within 30s')), 30_000);
@@ -64,13 +82,21 @@ export async function launch() {
       if (match) { clearTimeout(timer); resolve(match[0]); }
     });
     child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`Chromium exited with ${code}`)); });
+    // A binary that cannot be started at all (a directory, no permission).
+    child.on('error', (error) => { clearTimeout(timer); reject(new Error(`Chromium could not be started: ${error.message}`)); });
   });
 
   const socket = new WebSocket(wsUrl);
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', resolve, { once: true });
-    socket.addEventListener('error', () => reject(new Error('Could not connect to Chromium')), { once: true });
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Chromium accepted no DevTools connection within 30s')), 30_000);
+      socket.addEventListener('open', () => { clearTimeout(timer); resolve(); }, { once: true });
+      socket.addEventListener('error', () => { clearTimeout(timer); reject(new Error('Could not connect to Chromium')); }, { once: true });
+    });
+  } catch (error) {
+    try { socket.close(); } catch { /* never opened */ }
+    throw error;
+  }
 
   let nextId = 0;
   const pending = new Map();
@@ -211,7 +237,7 @@ export async function launch() {
         if (child.exitCode !== null) { resolve(); return; }
         child.once('exit', resolve);
         child.kill();
-        setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 5_000);
+        setTimeout(() => { child.kill('SIGKILL'); resolve(); }, 5_000).unref();
       });
       try {
         rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

@@ -3,7 +3,7 @@
  * what a finding weighs, when a page has settled, and what the run exits with.
  * Kept separate from `run.mjs` so each decision is tested directly.
  */
-import { RULES, severityOf, TIERS } from './manifest.mjs';
+import { RULES, severityOf, SURFACES, surfaceOf, TIERS } from './manifest.mjs';
 import { settleProbe, TRANSIENT } from './settle.mjs';
 import { toExpression } from './assertions.mjs';
 
@@ -35,6 +35,8 @@ export function planCases({ states, anchors, policies, stateKeys, tierOf, onlySt
   const cases = [];
   for (const state of states) {
     if (onlyStates && !onlyStates.includes(state.name)) continue;
+    let surface;
+    try { surface = surfaceOf(state.path); } catch (error) { throw new HarnessError(`state ${state.name}: ${error.message}`); }
     const applies = applicability.find((entry) => entry.state === state.name);
     const viewports = anchors.filter((anchor) => applies.tiers.includes(anchor.tier)).map((anchor) => ({ ...anchor, kind: 'anchor' }));
     for (const width of state.probeWidths ?? []) {
@@ -47,7 +49,7 @@ export function planCases({ states, anchors, policies, stateKeys, tierOf, onlySt
     for (const viewport of viewports) {
       if (onlyTiers && !onlyTiers.includes(viewport.tier)) continue;
       if (onlyWidths && !onlyWidths.includes(viewport.width)) continue;
-      for (let attempt = 1; attempt <= repeat; attempt += 1) cases.push({ state, viewport, attempt });
+      for (let attempt = 1; attempt <= repeat; attempt += 1) cases.push({ state, viewport, attempt, surface });
     }
   }
   return { cases, applicability };
@@ -57,15 +59,21 @@ export function planCases({ states, anchors, policies, stateKeys, tierOf, onlySt
  * Every finding and every evaluation goes through here, so its severity can
  * only come from the manifest. A finding or an evaluation the manifest does
  * not allow at that tier is a harness fault, not something to report.
+ *
+ * A surface-scoped rule is resolved on the surface it was found on: `scope`
+ * `'foundation'` (an S1 region, wherever it is rendered) or, by default, the
+ * case's own surface.
  */
-export function createLedger(rules = RULES) {
+export function createLedger(rules = RULES, surfaces = SURFACES) {
   const findings = [];
-  const coverage = Object.fromEntries(Object.keys(rules).map((rule) => [rule, Object.fromEntries(TIERS.map((t) => [t, { evaluated: 0, findings: 0 }]))]));
+  const coverage = Object.fromEntries(Object.keys(rules).map((rule) => [rule, Object.fromEntries(TIERS.map((t) => [t, { evaluated: 0, blockingEvaluated: 0, findings: 0 }]))]));
   const tierOfCase = (c) => c.viewport.tier;
+  const surfaceFor = (c, scope) => (scope === 'foundation' ? 'foundation' : c.surface ?? null);
 
-  function resolve(rule, tier, what) {
+  function resolve(rule, tier, surface, what) {
     if (!rules[rule]) throw new HarnessError(`unregistered rule "${rule}" ${what}: every assertion must have a manifest entry`);
-    const at = severityOf(rule, tier);
+    let at;
+    try { at = severityOf(rule, tier, surface, { rules, surfaces }); } catch (error) { throw new HarnessError(`${rule} ${what}: ${error.message}`); }
     if (at.status === 'not-applicable') {
       throw new HarnessError(`${rule} ${what} at Tier ${tier}, where the manifest says it is not applicable (${at.reason})`);
     }
@@ -75,28 +83,39 @@ export function createLedger(rules = RULES) {
   return {
     findings,
     coverage,
-    record(c, rule, message) {
+    record(c, rule, message, scope = null) {
       const tier = tierOfCase(c);
-      const at = resolve(rule, tier, 'produced a finding');
-      const finding = { state: c.state.name, viewport: c.viewport.label, tier, kind: c.viewport.kind, rule, severity: at.status, owner: at.owner ?? null, message };
+      const surface = surfaceFor(c, scope);
+      const at = resolve(rule, tier, surface, 'produced a finding');
+      const finding = {
+        state: c.state.name, viewport: c.viewport.label, tier, kind: c.viewport.kind, rule,
+        ...(rules[rule].scope === 'surface' ? { surface } : {}),
+        severity: at.status, owner: at.owner ?? null, message,
+      };
       findings.push(finding);
       coverage[rule][tier].findings += 1;
       return finding;
     },
-    markEvaluated(c, evaluated) {
+    markEvaluated(c, evaluated, scope = null) {
       const tier = tierOfCase(c);
+      const surface = surfaceFor(c, scope);
       for (const rule of evaluated) {
-        resolve(rule, tier, 'was evaluated');
+        const at = resolve(rule, tier, surface, 'was evaluated');
         coverage[rule][tier].evaluated += 1;
+        if (at.status === 'blocking') coverage[rule][tier].blockingEvaluated += 1;
       }
     },
-    /** Blocking assertions the sweep never evaluated: a rule that matched nothing has not passed. */
+    /**
+     * Blocking assertions the sweep never evaluated where they block: a rule
+     * that matched nothing has not passed, and a surface-scoped rule evaluated
+     * only on surfaces where it is still pending has not passed either.
+     */
     vacuous() {
       const missing = [];
       for (const [rule, entry] of Object.entries(rules)) {
         if (entry.kind !== 'assertion') continue;
         for (const tier of TIERS) {
-          if (entry.tiers[tier].status === 'blocking' && coverage[rule][tier].evaluated === 0) missing.push(`${rule} @ Tier ${tier}`);
+          if (entry.tiers[tier].status === 'blocking' && coverage[rule][tier].blockingEvaluated === 0) missing.push(`${rule} @ Tier ${tier}`);
         }
       }
       return missing;
@@ -111,16 +130,30 @@ export function createLedger(rules = RULES) {
  * A case whose declared state was not reached is a harness fault at every
  * tier: whatever it measured is not the state it claims to be evidence of.
  * Tier severity applies to what a reached state shows, never to whether the
- * harness reached it.
+ * harness reached it, so no manifest entry is consulted here.
  *
- * @param {Array<{ state: string, viewport: string, tier: string, reached: boolean, findings: Array<{ rule: string, message: string }> }>} results
+ * @param {Array<{ state: string, viewport: string, tier: string, reached: boolean, unreached?: { stage: string, reason: string } | null }>} results
  * @returns {string[]}
  */
 export function unreachedFaults(results) {
-  return results.filter((r) => !r.reached).map((r) => {
-    const why = r.findings.filter((f) => f.rule === 'harness.state-reached').map((f) => f.message);
-    return `${r.state} @ ${r.viewport} (Tier ${r.tier}): the declared state was not reached${why.length ? ': ' + why.join('; ') : ''}`;
-  });
+  return results.filter((r) => !r.reached).map((r) => (
+    `${r.state} @ ${r.viewport} (Tier ${r.tier}): the declared state was not reached`
+    + (r.unreached ? ` at ${r.unreached.stage}: ${r.unreached.reason}` : '')
+  ));
+}
+
+/**
+ * pressed.visible across a sweep: the control kinds some capture left unproven
+ * (its pressed form never on that page) that no capture proved distinct, each
+ * with the first valid case it was seen in.
+ */
+export function unprovenPressedKinds(results) {
+  const proven = new Set(results.flatMap((r) => r.pressed?.proven ?? []));
+  const firstSeen = new Map();
+  for (const r of results.filter((x) => x.valid)) {
+    for (const u of r.pressed?.unproven ?? []) if (!proven.has(u.kind) && !firstSeen.has(u.kind)) firstSeen.set(u.kind, { result: r, control: u.control });
+  }
+  return Array.from(firstSeen, ([kind, seen]) => ({ kind, ...seen }));
 }
 
 export function exitStatus({ harnessErrors, blocking, keep = false }) {
@@ -142,6 +175,9 @@ export async function settle(lane, state, { timeoutMs = 20_000, stable = 2, befo
   let run = 0;
   let probes = 0;
   let last = [];
+  // The page clock at the probe that began the final quiet run: by then the
+  // outcome being waited for had rendered and nothing changed after it.
+  let quietAt = null;
   // Before a preparation the page has only to finish loading: the state's
   // expected and forbidden text describe what the preparation produces.
   const input = {
@@ -158,7 +194,10 @@ export async function settle(lane, state, { timeoutMs = 20_000, stable = 2, befo
     if (previous && net.started !== previous.started) why.push('new requests started');
     if (previous && probe.mutations !== previous.mutations) why.push('the DOM is still changing');
     run = previous && why.length === 0 ? run + 1 : 0;
-    if (run >= stable) return { ok: true, ms: Date.now() - started, probes };
+    // The quiet run begins at the first probe that found nothing pending.
+    if (run === 0) quietAt = why.length === 0 ? probe.at ?? null : null;
+    else if (quietAt === null) quietAt = probe.at ?? null;
+    if (run >= stable) return { ok: true, ms: Date.now() - started, probes, quietAt };
     previous = { started: net.started, mutations: probe.mutations };
     last = why;
   }

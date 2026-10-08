@@ -15,6 +15,17 @@
  * `probeWidths` adds special non-anchor widths; `holds: 'loading'` marks a state
  * whose loading presentation is the state.
  *
+ * `interaction` names the operator action a state's `prepare` performs, where
+ * it is one — a click, a submit, a key press — and only then is the
+ * preparation measured as the state's first interaction (P1 long tasks) — from
+ * `window.__vqa.mark('interaction-start')`, which a preparation of several
+ * steps sets immediately before the one action it names, or else from the
+ * preparation's start. A
+ * loading presentation any preparation starts is measured for CLS either way,
+ * apart from the navigation's, and labelled with it. A preparation without it is fixture
+ * setup or verification (a programmatic seek, a page-clock advance, scripted
+ * field values, a condition check) and its long tasks are not-applicable.
+ *
  * `expectText` / `forbidText` make a state prove it rendered what it claims,
  * and are part of what it settles on (V3): an unavailable state is reached when
  * its unavailable text is shown — after the query client's one retry — not
@@ -262,6 +273,8 @@ const DIRTY_SCENE = `(async () => {
   // Through the native setter, so React sees a real change rather than a
   // value assignment it never hears about.
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  // The measured interaction is the rename; selecting the object sets it up.
+  window.__vqa.mark('interaction-start');
   setter.call(field, 'A considerably longer zone name');
   field.dispatchEvent(new Event('input', { bubbles: true }));
   return Boolean(await until(() => document.querySelector('.scene-context__note input'), 'the revision note field of a dirty draft'));
@@ -280,6 +293,7 @@ const DISCARD_DIALOG = `(async () => {
   if (!reset) return false;
   // An operator's click focuses the button, which is the Dialog's invoker.
   reset.focus();
+  window.__vqa.mark('interaction-start');
   reset.click();
   return Boolean(await until(() => document.querySelector('[role="dialog"][aria-modal="true"]'), 'the discard Dialog'));
 })()`;
@@ -292,6 +306,7 @@ const RELOAD_DIALOG = `(async () => {
   // The fixture answers the save with a 409; the conflict offers the reload.
   const reload = await until(() => ${clickButton('Reload active revision')}, 'the Reload active revision action of the conflict');
   reload.focus();
+  window.__vqa.mark('interaction-start');
   reload.click();
   return Boolean(await until(() => document.querySelector('[role="dialog"][aria-modal="true"]'), 'the reload Dialog'));
 })()`;
@@ -359,6 +374,7 @@ const INVALID_CAMERA_FORM = `(async () => {
   const form = await until(() => document.querySelector('form[aria-label="Add camera"]'), 'the create region');
   const submit = form.querySelector('button[type="submit"]');
   if (!submit) return false;
+  window.__vqa.mark('interaction-start');
   submit.click();
   return Boolean(await until(() => document.querySelector('.field__error'), 'the field-level refusals'));
 })()`;
@@ -381,6 +397,7 @@ const CONFLICTED_CAMERA_FORM = `(async () => {
   type(inputs[0], 'CAM-01');
   type(inputs[1], 'Duplicate of the north gate');
   await until(() => inputs[0].value === 'CAM-01' && inputs[1].value === 'Duplicate of the north gate', 'the typed draft');
+  window.__vqa.mark('interaction-start');
   form.querySelector('button[type="submit"]').click();
   return Boolean(await until(() => document.querySelector('.field__error'), 'the 409 conflict on the Code field'));
 })()`;
@@ -495,7 +512,7 @@ export const TIER_POLICIES = {
 /** The keys a state may carry. Nothing here can name or change a severity. */
 export const STATE_KEYS = new Set([
   'name', 'path', 'fullWidth', 'archetype', 'api', 'prepare', 'expectText', 'forbidText',
-  'footage', 'requireOverlay', 'holds', 'tierPolicy', 'probeWidths', 'probeOf',
+  'footage', 'requireOverlay', 'holds', 'tierPolicy', 'probeWidths', 'probeOf', 'interaction',
 ]);
 
 /**
@@ -2245,7 +2262,7 @@ export const STATES = [
   {
     // The rail collapsed by the operator: 56px, icon-only items named, the
     // 32x32 collapse control still labelled and announcing its state.
-    name: 'shell-rail-collapsed', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    name: 'shell-rail-collapsed', interaction: 'collapse the navigation rail', path: '/cameras', fullWidth: true, archetype: 'ledger',
     prepare: `(async () => {
       ${UNTIL}
       const toggle = document.querySelector('.sidebar__toggle');
@@ -2258,13 +2275,14 @@ export const STATES = [
   {
     // The ? shortcut sheet open over a Ledger: the shared Drawer, focus on its
     // heading, the rail and workspace inert beneath its scrim.
-    name: 'shell-shortcut-sheet', path: '/videos', fullWidth: true, archetype: 'ledger',
+    name: 'shell-shortcut-sheet', interaction: 'press ? to open the shortcut sheet', path: '/videos', fullWidth: true, archetype: 'ledger',
     prepare: `(async () => {
       ${UNTIL}
       // From a focused control, as an operator would press it: the sheet must
       // give focus back to that control when it closes (§20).
       const from = document.querySelector('nav[aria-label="Primary"] a');
       from.focus();
+      window.__vqa.mark('interaction-start');
       from.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
       return Boolean(await until(() => {
         const sheet = document.querySelector('.shortcut-sheet[role="dialog"][aria-modal="true"]');
@@ -2312,18 +2330,18 @@ export const STATES = [
   {
     // The create region open and clean: §21's inline form, and the widest the
     // Context Bar gets on this surface.
-    name: 'cameras-create', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    name: 'cameras-create', interaction: 'open the Add camera form', path: '/cameras', fullWidth: true, archetype: 'ledger',
     prepare: OPEN_CAMERA_FORM, expectText: 'Camera timezone',
     forbidText: 'Unsaved changes',
   },
   {
     // Submitted empty: three field-level refusals at once (§21).
-    name: 'cameras-create-invalid', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    name: 'cameras-create-invalid', interaction: 'submit the Add camera form empty', path: '/cameras', fullWidth: true, archetype: 'ledger',
     prepare: INVALID_CAMERA_FORM, expectText: 'A camera code is required.',
   },
   {
     // A duplicate-code 409 mapped onto the Code field, other drafts intact.
-    name: 'cameras-create-conflict', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    name: 'cameras-create-conflict', interaction: 'submit a camera whose code is already registered', path: '/cameras', fullWidth: true, archetype: 'ledger',
     prepare: CONFLICTED_CAMERA_FORM,
     api: {
       'POST /api/cameras': {
@@ -2414,7 +2432,7 @@ export const STATES = [
     forbidText: 'No active camera to import against',
   },
   {
-    name: 'import-invalid', path: '/import', fullWidth: false, archetype: 'record',
+    name: 'import-invalid', interaction: 'submit the import form with nothing chosen', path: '/import', fullWidth: false, archetype: 'record',
     prepare: SUBMIT_EMPTY_IMPORT, expectText: 'Enter the recording date and time.',
   },
 
@@ -2487,7 +2505,7 @@ export const STATES = [
   {
     // The bar at its fullest: identity, three badges, the note field, Reset and
     // Save, all in 44px.
-    name: 'scene-editor-dirty',
+    name: 'scene-editor-dirty', interaction: 'rename the selected scene object',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -2500,7 +2518,7 @@ export const STATES = [
     // The worst identity the domain permits: `Camera.Create` allows a 32-character
     // code, and a long name beside it. A 44px band cannot grow, so this is where
     // the crumb trail either truncates or pushes the controls off the end.
-    name: 'scene-editor-long-identity',
+    name: 'scene-editor-long-identity', interaction: 'rename the selected scene object',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -2525,7 +2543,7 @@ export const STATES = [
   },
   {
     // S1c: Reset over a dirty draft asks, in the product's Dialog (§15).
-    name: 'scene-editor-discard-dialog',
+    name: 'scene-editor-discard-dialog', interaction: 'reset a dirty draft, opening the discard Dialog',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -2535,7 +2553,7 @@ export const STATES = [
   {
     // S1c: a save refused because the active revision moved on; taking the
     // saved revision discards the draft, so it asks first.
-    name: 'scene-editor-reload-dialog',
+    name: 'scene-editor-reload-dialog', interaction: 'reload the active revision over a dirty draft, opening its Dialog',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -2550,12 +2568,53 @@ export const STATES = [
   },
   {
     // S1c: the only width band where the Workbench inspector is an overlay.
-    name: 'scene-editor-drawer',
+    name: 'scene-editor-drawer', interaction: 'open the inspector drawer',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
     prepare: OPEN_WORKBENCH_DRAWER,
     tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor', probeWidths: [1120],
+  },
+  {
+    // A past revision open for reading: its chip pressed (`is-viewing`) and
+    // the Context Bar in its caution form. Without it no capture shows a
+    // revision chip pressed, and pressed.visible could not prove its look.
+    name: 'scene-editor-viewing-revision', interaction: 'view revision 3 from the revision strip',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    api: { [`/api/cameras/${CAM}/scene/revisions/3`]: HISTORICAL_REVISION },
+    prepare: `(async () => {
+      ${UNTIL}
+      const strip = Array.from(document.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === 'Revisions');
+      if (!strip) return false;
+      strip.click();
+      const chip = await until(() => Array.from(document.querySelectorAll('.scene-revisions__chip'))
+        .find((b) => b.querySelector('.scene-revisions__number')?.textContent.trim() === 'R3'), 'the R3 chip in the open revision strip');
+      chip.focus();
+      window.__vqa.mark('interaction-start');
+      chip.click();
+      return Boolean(await until(() => chip.isConnected && chip.getAttribute('aria-pressed') === 'true'
+        && document.querySelector('.context-bar--caution'), 'revision 3 open for reading'));
+    })()`,
+  },
+  {
+    // A zone's vertex selected in the inspector: its point pressed
+    // (`is-selected`) — the only capture that shows one.
+    name: 'scene-editor-vertex-selected', interaction: 'select a vertex of the selected zone',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    prepare: `(async () => {
+      ${UNTIL}
+      const object = document.querySelector('.scene-navigator__name');
+      if (!object) return false;
+      object.click();
+      const point = await until(() => document.querySelector('.scene-inspector__point'), 'the vertices of the selected zone');
+      window.__vqa.mark('interaction-start');
+      point.click();
+      return Boolean(await until(() => document.querySelector('.scene-inspector__point[aria-pressed="true"]'), 'the selected vertex'));
+    })()`,
   },
   {
     // The stress case for the frozen no-page-scroll rule (§4.3.2): every fixed
@@ -2649,7 +2708,7 @@ export const STATES = [
     expectText: 'must occur exactly once', forbidText: 'Searching…',
   },
   {
-    name: 'search-grid', path: '/search', fullWidth: true, archetype: 'investigation',
+    name: 'search-grid', interaction: 'switch the results to the grid view', path: '/search', fullWidth: true, archetype: 'investigation',
     prepare: PICK_GRID, expectText: 'Review evidence',
   },
   {
@@ -2725,7 +2784,7 @@ export const STATES = [
     expectText: ['24 Tracks', 'more to load'],
   },
   {
-    name: 'search-continuation-failed', path: '/search', fullWidth: true,
+    name: 'search-continuation-failed', interaction: 'load more results', path: '/search', fullWidth: true,
     archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_503 },
     // The query client retries a 5xx once before the failure is terminal.
     prepare: LOAD_MORE,
@@ -2734,7 +2793,7 @@ export const STATES = [
     expectText: ['next page could not be loaded', 'Retry load more'],
   },
   {
-    name: 'search-snapshot-expired', path: '/search', fullWidth: true,
+    name: 'search-snapshot-expired', interaction: 'load more results', path: '/search', fullWidth: true,
     archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_EXPIRED }, prepare: LOAD_MORE,
     expectText: ['snapshot can no longer continue', 'Refresh results'],
   },
@@ -2749,7 +2808,7 @@ export const STATES = [
   {
     // The inspector opened by an action rather than by the URL: below 1600px
     // its drawer must return focus to the selecting control on Escape (§20).
-    name: 'search-inspector-opened', path: '/search', fullWidth: true, archetype: 'investigation',
+    name: 'search-inspector-opened', interaction: 'select a result to inspect it', path: '/search', fullWidth: true, archetype: 'investigation',
     prepare: `(async () => {
       ${UNTIL}
       const select = await until(() => document.querySelector('.result-row__select'), 'a result selection control');
@@ -2764,7 +2823,7 @@ export const STATES = [
     expectText: INSPECTOR_LOADED,
   },
   {
-    name: 'search-inspecting-grid', path: `/search?track=${TRACK}`, fullWidth: true,
+    name: 'search-inspecting-grid', interaction: 'switch the results to the grid view', path: `/search?track=${TRACK}`, fullWidth: true,
     archetype: 'investigation', prepare: PICK_GRID, expectText: INSPECTOR_LOADED,
   },
   {
@@ -2890,7 +2949,11 @@ export const STATES = [
       const overview = Array.from(document.querySelectorAll('a')).find((a) => a.textContent.trim() === 'Overview');
       if (!overview) return false;
       overview.click();
-      await until(() => location.pathname === '/', 'the Overview route');
+      // The Overview page rendered and Search gone, not only the URL changed:
+      // going back while the route is still loading keeps Search mounted, and
+      // a page that never remounts never refetches (a race seen on CI).
+      await until(() => location.pathname === '/' && !document.querySelector('.workspace--investigation')
+        && document.body.innerText.includes('Recent tracks'), 'the Overview page to replace Search');
       history.back();
       return Boolean(await until(() => document.body.innerText.includes('Scene geometry is unavailable'),
         'the refetch on return to fail after its one retry', 15000));
@@ -3051,7 +3114,7 @@ export const STATES = [
   // The full four-role set at every acceptance width, including 1366x768 where
   // the player and the primary summary must both still be in the first viewport.
   { name: 'review-evidence-set', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, probeWidths: [1600], expectText: ['Evidence Set', 'Representative', 'Near view', 'Early diverse', 'Late diverse', 'Track summary'] },
-  { name: 'review-evidence-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: INSPECT_LATE_DIVERSE, probeWidths: [1600], expectText: ['Late diverse', 'Frame 78'] },
+  { name: 'review-evidence-selected', interaction: 'select an evidence observation', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: INSPECT_LATE_DIVERSE, probeWidths: [1600], expectText: ['Late diverse', 'Frame 78'] },
   { name: 'review-evidence-representative-only', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, probeWidths: [1600], api: { [`/api/tracks/${TRACK}`]: EVIDENCE_REPRESENTATIVE_ONLY }, expectText: ['Evidence Set', 'Representative'], forbidText: ['Near view', 'No image'] },
   { name: 'review-evidence-crop-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, probeWidths: [1600], api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP }, expectText: ['Near view', 'No image'] },
   { name: 'review-evidence-legacy', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated',  api: { [`/api/tracks/${TRACK}`]: EVIDENCE_LEGACY }, expectText: ['No Evidence Set was persisted for this Track.'], forbidText: ['No image'] },
@@ -3110,7 +3173,7 @@ export const STATES = [
   {
     // Occupancy: a reading taken at an instant, with its peak and the moment it
     // happened, and the "Not additive" tag that stops a reader summing it.
-    name: 'analytics-occupancy', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-occupancy', interaction: 'choose the zone occupancy report', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: OCCUPANCY_METRIC,
     expectText: ['Peak occupancy', 'Not additive'],
@@ -3118,7 +3181,7 @@ export const STATES = [
   {
     // Two series in one chart: a trip line's directions, told apart by the
     // operator's own labels as well as by hue.
-    name: 'analytics-line-crossings', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-line-crossings', interaction: 'choose the line crossings report', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: LINE_METRIC,
     expectText: ['Inbound', 'Outbound'],
@@ -3158,7 +3221,7 @@ export const STATES = [
   // measurements are made analytically instead, and re-derived in
   // `contrast.test.ts`.
   {
-    name: 'analytics-heatmap', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     expectText: ['trajectory sample density', '64 × 36'],
@@ -3166,7 +3229,7 @@ export const STATES = [
   {
     // The refusal that names its bound. A map is never drawn for a scope the
     // server would not open.
-    name: 'analytics-heatmap-too-large', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap-too-large', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     api: {
@@ -3185,7 +3248,7 @@ export const STATES = [
   },
   {
     // Evidence that could not be read: no partial map, and no storage key.
-    name: 'analytics-heatmap-evidence-unreadable', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap-evidence-unreadable', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     api: {
@@ -3202,7 +3265,7 @@ export const STATES = [
   },
   {
     // Slice 7: the sparse end of the density scale.
-    name: 'analytics-heatmap-sparse', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap-sparse', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     api: { [`/api/cameras/${CAM}/analytics/heatmap`]: SPARSE_HEATMAP },

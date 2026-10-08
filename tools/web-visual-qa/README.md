@@ -28,17 +28,32 @@ node --test 'tools/web-visual-qa/test/*.test.mjs'   # the harness's own tests
 | `--keep` | report blocking findings but exit 0 |
 
 Exit status: **0** no blocking finding; **1** at least one blocking finding;
-**2** the harness itself failed (a browser or server fault, a finding or an
-evaluation the manifest does not allow, or — on the full sweep — a blocking rule
-that never evaluated anything). A harness fault is never reported as a finding.
+**2** the harness itself failed — a browser or server fault, a case that threw,
+**a state it could not reach at any tier** (failed or unconfirmed preparation,
+settle timeout, footage overlay never drawn), a finding or an evaluation the
+manifest does not allow, or — on the full sweep — a blocking rule that never
+evaluated anything where it blocks. A harness fault is never reported as a
+finding, so no tier severity can soften it, and a later case that succeeds
+does not clear an earlier fault. An unreached state's capture is kept for
+diagnosis as `<state>--<viewport>--UNREACHED.png`, marked `valid: false` with
+its `unreached.stage` and `reason`, and left out of the valid-capture counts.
 **A clean exit is necessary, not sufficient** — §26 requires looking at the
 captures.
 
 Everything a run produced is in `.captures/`: one PNG and one JSON per
 capture, and `results.json` — the manifest summary, every state's tier
-applicability with its exclusion reasons, executions by tier, every finding with
-its rule, tier, severity and owner, per-rule coverage, the P1 measurements and
-any harness errors.
+applicability with its exclusion reasons, executions (scheduled, valid captures
+by tier, unreached and errored cases with their stage and reason), every
+finding with its rule, tier, surface, severity and owner, per-rule coverage,
+the P1 measurements and any harness errors.
+
+Two environment variables exist for the harness's own tests and nothing else:
+`MAVI_VQA_OUT` writes the run somewhere other than `.captures/` (a directory it
+names is replaced only if it is missing, empty or a previous output — it carries
+a `.mavi-visual-qa-output` marker), and
+`MAVI_VQA_STATES_MODULE` loads a module that re-exports `states.mjs` with test
+states added (the deliberately unreachable state of `test/run.test.mjs`); a run
+under it records `statesModule` and is never a full sweep.
 
 ## Harness v2 (Stage 3.5 S2)
 
@@ -47,7 +62,20 @@ and, for each support tier, its status there: `blocking`, `measured/pending`
 (reported, never failing, with the owning slice and register row named) or
 `not-applicable` (with the reason). Every finding names a rule and takes that
 rule's severity at the tier of the width it was found at — from the manifest and
-nowhere else. A finding or an evaluation the manifest does not allow at that
+nowhere else.
+
+**Surface scope.** `text.overflow` and `containment.depth` are `scope: 'surface'`
+rules: blocking at Tier A wherever S1 owns the region (the shell, the Context
+Bar, every Ledger, the Dialog host, the shortcut sheet, the skip link and every
+StateRegion — a finding there carries `surface: 'foundation'`), and on a product
+surface only once that surface's register row is accepted. `SURFACES` in
+`manifest.mjs` lists each surface with its row (Search R5, Review R6, Camera
+Analytics M4, …) and an `accepted` flag that the slice closing the row flips —
+one surface at a time, never all together; `ROUTES` maps every state's route to
+its surface and refuses a route it does not know. Until then a surface's
+findings are `measured/pending` against its own row. A frame round nothing but
+media (an image, a video, an evidence placeholder) is that object's edge, not a
+containment level. A finding or an evaluation the manifest does not allow at that
 tier, and a finding naming no rule, are harness faults. Until S5 flips them,
 every rule evaluated at a Tier B or C width is `measured/pending`; the manifest
 refuses anything else. Rules owned by later slices are registered now: measured
@@ -72,7 +100,8 @@ threshold, 1600 for the Evidence Set — reported apart from the anchors.
 taken when the page and the fixture server agree the state is reached, on two
 consecutive probes: the page's expected text is shown and its forbidden text is
 not; no loading presentation is on screen (or, for a state that `holds:
-'loading'`, one is); images have loaded; no finite transition is running; the
+'loading'`, one is); images have loaded; a visible video has its metadata and
+is not mid-seek (a page that seeks on load has done so); no finite transition is running; the
 DOM has stopped changing; and no request is in flight or newly started. A
 request held open to keep a loading state is not "in flight" — it never
 completes by design. Preparations wait for the consequence of each action, never
@@ -84,11 +113,21 @@ await), and `search-analytics-scene-degraded` moves the page clock past the
 30-second stale time instead of sleeping through it.
 
 **Measurements** (P1, V5), recorded per capture, never pass/fail:
-cumulative layout shift during the loading-to-content transition (Layout
-Instability API, scoped from the first loading presentation to the settled
-state; a state with no loading presentation is `not-applicable`, never 0);
-long tasks during the state's first interaction, which is its declared
-preparation (`not-applicable` when it has none); and the resolved font — the
+cumulative layout shift during each loading-to-content transition (Layout
+Instability API): the navigation's, from its first loading presentation to the
+settled state (`perf.cls`), and — kept apart — one a preparation starts, from
+that loading presentation to the state settling after it (`perf.clsPreparation`,
+labelled with the interaction or `fixture preparation`); harness activity
+between the two is in neither, and a transition that did not happen is
+`not-applicable`, never 0. Long tasks during the state's first operator
+interaction (`perf.longTasks`): only where the state names one (`interaction` in
+`states.mjs` — a click, a submit, a key press), from the action until the page
+went quiet with its outcome shown (a long task that ran one of the harness's
+settle probes is excluded and counted as `excludedAsHarness`); a preparation
+of several steps marks `interaction-start` immediately before the one action it
+names; a preparation that is fixture setup or a
+condition check (a programmatic seek, a page-clock advance, scripted field
+values) is `not-applicable`. And the resolved font — the
 declared `font-family` stack and the platform fonts Chromium actually used for
 the glyphs (`CSS.getPlatformFontsForNode`). Each measurement is `measured`,
 `not-applicable`, `unsupported` or `failed`, with the reason.
@@ -108,6 +147,25 @@ was opened by its URL and has no invoker; for it restoration is reported
 which no Tier A Dialog or Drawer opened by an action had its restoration judged
 is a harness fault. The focus pass that precedes it puts back both the scroll
 positions and the focus it found.
+
+**Pressed state** (`pressed.visible`, §12): every visible enabled
+`aria-pressed` control is rendered in its other state and compared with itself
+— its own, its descendants', its pseudo-elements' and its row's computed
+appearance. The other state is the attribute flipped with the classes the
+product pairs with it: read from the nearest peer in the other state (the one
+with the fewest class differences, so an unrelated class is not mistaken for
+the pressed one) or, with no such peer, the `is-` state classes the stylesheet
+defines for the control's own class or its row's. Identical readings are a
+finding, whether the control is pressed or not, isolated or grouped — except
+an unpressed control whose stylesheet defines `is-` states for it but whose
+pressed form the page never shows: that is *unproven* in that capture, not
+passed, and on a full sweep every such control kind must be shown distinct in
+some capture or it is a finding where first seen. Every
+attribute, class and style is restored exactly, with transitions held, so the
+probe leaves the page as it found it. Its limits: the stylesheet scan reads
+compound selectors, not `:is()`/`:where()` lists or CSS nesting (the product
+uses neither), so a state class defined only that way leaves an isolated
+unpressed control a finding rather than unproven.
 
 **CI** (V4): the `visual QA` job of the MAVI Quality Gate builds the production
 bundle, runs `node --test 'tools/web-visual-qa/test/*.test.mjs'`, sweeps with three lanes and
