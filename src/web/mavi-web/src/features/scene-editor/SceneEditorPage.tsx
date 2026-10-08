@@ -155,6 +155,15 @@ export default function SceneEditorPage() {
   // the way a past revision is — readable, selectable, not editable.
   const cameraActive = camera.data?.isActive ?? false;
   const editable = !readOnly && cameraActive;
+  // Losing editability — a camera refetched as inactive — abandons an
+  // unfinished polygon or line and disarms the tool: the gesture belongs to an
+  // editor that is no longer offered, so it must neither keep the leave guard
+  // busy with work the operator can no longer see or cancel, nor come back
+  // armed if the camera is reactivated. Completed draft changes and the note
+  // are untouched (`setTool` never touches the draft).
+  useEffect(() => {
+    if (!editable) dispatch({ type: 'setTool', tool: 'select' });
+  }, [editable]);
 
   // The two drafts mint their own local keys, so a selection made in one names
   // nothing in the other. Crossing between them without clearing it leaves the
@@ -178,6 +187,11 @@ export default function SceneEditorPage() {
   const historicalMissing = readOnly && historicalDraft === null;
   // What the panels say in place of a revision they cannot show yet — or at
   // all: its geometry is unknown, never absent (§14: unavailable is not empty).
+  // A failure with no revision read is the stage's unavailable state; a failed
+  // refresh of a revision already shown keeps it — named, read only — and says
+  // it may be out of date, with its retry (§37.1 degraded).
+  const revisionUnavailable = historicalMissing && historicalRevision.isError;
+  const revisionRefreshFailed = readOnly && !historicalMissing && historicalRevision.isError;
   const historicalPending = historicalMissing
     ? historicalRevision.isError
       ? `Revision ${viewingRevisionNumber} is unavailable.`
@@ -219,8 +233,11 @@ export default function SceneEditorPage() {
   const editorShown = Boolean(cameraId)
     && !isCameraMissing(camera.error) && !isCameraMissing(scene.error)
     && camera.data !== undefined && scene.data !== undefined;
+  // The revision note is the operator's typing even when the geometry is back
+  // at its baseline, so it is guarded, offered for Reset and kept visible.
+  const noteRetained = state.draft.note.trim().length > 0;
   const leaveGuard = useUnsavedChangesGuard(
-    state.dirty || state.drawing.kind !== 'none',
+    state.dirty || noteRetained || state.drawing.kind !== 'none',
     UNSAVED_MESSAGE,
     pendingDiscard !== null && editorShown,
   );
@@ -349,12 +366,12 @@ export default function SceneEditorPage() {
   }, [activeRevision]);
 
   const reset = useCallback(() => {
-    if (state.dirty) {
+    if (state.dirty || noteRetained) {
       setPendingDiscard('reset');
       return;
     }
     performReset();
-  }, [state.dirty, performReset]);
+  }, [state.dirty, noteRetained, performReset]);
 
   const performReload = useCallback(async () => {
     // Adopt what the refetch returns rather than waiting for the query's own
@@ -532,6 +549,7 @@ export default function SceneEditorPage() {
         canSave={canSave}
         blockedReason={blockedReason}
         inactive={!cameraActive}
+        noteRetained={noteRetained}
         confirmingDisable={confirmingDisable}
         onNoteChange={(note) => dispatch({ type: 'setNote', note })}
         onReset={reset}
@@ -576,24 +594,30 @@ export default function SceneEditorPage() {
                       one that appears already populated is routinely not
                       announced — and entering read-only is exactly the mode
                       change a screen-reader user must not miss. */}
-                  <div className={`scene-stage__banner${readOnly && !historicalRevision.isError ? '' : ' is-idle'}`} role="status">
-                    {/* The revision's own request, in the shared loading grammar
-                        (§37.1, row): loading said in place, then its name. */}
-                    {readOnly && !historicalRevision.isError ? (
-                      <StateRegion
-                        kind="row"
-                        state={fromQuery(historicalRevision)}
-                        label={`revision ${viewingRevisionNumber}`}
-                        loadingLabel={`Loading revision ${viewingRevisionNumber}…`}
-                      >
-                        {() => `Viewing revision ${viewingRevisionNumber} — read only`}
-                      </StateRegion>
+                  <div className={`scene-stage__banner${readOnly && !revisionUnavailable ? '' : ' is-idle'}`} role="status">
+                    {/* The revision's own request: loading said in place, in the
+                        shared loading grammar (§37.1, row), then its name — which
+                        a failed refresh of a revision already shown keeps. */}
+                    {readOnly && !revisionUnavailable ? (
+                      historicalMissing
+                        ? <span className="state-row state-row--loading">{`Loading revision ${viewingRevisionNumber}…`}</span>
+                        : `Viewing revision ${viewingRevisionNumber} — read only`
                     ) : null}
                   </div>
+                  {revisionRefreshFailed ? (
+                    <div className="scene-stage__refresh">
+                      <Alert
+                        tone="warning"
+                        actions={<Button size="sm" onClick={() => void historicalRevision.refetch()}>Retry</Button>}
+                      >
+                        {`Revision ${viewingRevisionNumber} could not be refreshed. It is shown as last loaded.`}
+                      </Alert>
+                    </div>
+                  ) : null}
                   {/* A past revision that will not load leaves nothing to show:
                       the stage says so, with its retry, instead of drawing the
                       active geometry (or nothing) under the revision's name. */}
-                  {readOnly && historicalRevision.isError ? (
+                  {revisionUnavailable ? (
                     <div className="scene-stage__state">
                       <Alert
                         tone="error"
@@ -603,7 +627,7 @@ export default function SceneEditorPage() {
                       </Alert>
                     </div>
                   ) : null}
-                  {mediaFailed && !historicalRevision.isError ? (
+                  {mediaFailed && !revisionUnavailable ? (
                     <p className="scene-stage__media-note" role="status">
                       Reference video unavailable · geometry is shown on a blank frame and is unchanged
                     </p>
