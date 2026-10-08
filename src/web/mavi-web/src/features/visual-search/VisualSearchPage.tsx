@@ -603,6 +603,13 @@ export default function VisualSearchPage() {
     commitFilters(removeCriteria(committed.filters, keys));
   }, [committed, commitFilters]);
 
+  const focusResultsAfterReset = useRef(false);
+  useEffect(() => {
+    if (!focusResultsAfterReset.current || !committed.isValid) return;
+    focusResultsAfterReset.current = false;
+    resultsRef.current?.focus();
+  }, [committed.isValid]);
+
   const continuationInvalid = tracks.isFetchNextPageError
     && tracks.error instanceof ApiError
     && tracks.error.code === 'track_search_invalid';
@@ -811,7 +818,22 @@ export default function VisualSearchPage() {
             // the recovery beside it (§37.1, column), rather than a page alert
             // above an empty frame (F3). The rail stays usable.
             <div className="state-region state-region--column state-region--inline">
-              <Alert tone="error" actions={<Button size="sm" onClick={resetSearch}>Reset search</Button>}>
+              <Alert
+                tone="error"
+                actions={(
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      // The alert and this button leave with the invalid link;
+                      // focus goes to the results it is replaced by, not the page.
+                      focusResultsAfterReset.current = true;
+                      resetSearch();
+                    }}
+                  >
+                    Reset search
+                  </Button>
+                )}
+              >
                 {`This search link cannot be used. ${committed.error}`}
               </Alert>
             </div>

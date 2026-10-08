@@ -1,7 +1,8 @@
 /**
  * The keys the Search results implement (`VisualSearchPage`'s window handler),
- * as the `?` shortcut sheet lists them (§17, §22). Owned here, beside the
- * handler, so the sheet cannot drift from what the keys do.
+ * as the `?` shortcut sheet lists them (§17, §22). Kept beside the handler, and
+ * `VisualSearchPage.test.tsx` presses every key listed here and checks it does
+ * what its description says, so the sheet and the handler fail together.
  */
 export const SEARCH_SHORTCUTS: ReadonlyArray<{ keys: readonly string[]; description: string }> = [
   { keys: ['j', '↓'], description: 'Select the next result' },

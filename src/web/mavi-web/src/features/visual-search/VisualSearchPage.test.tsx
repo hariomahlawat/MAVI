@@ -13,6 +13,7 @@ import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import { evidenceSet, FULL_EVIDENCE_SET_ROLES, trackEvidence } from '../../test/trackEvidenceFixtures';
 import { stubMatchMedia } from '../../test/matchMedia';
 import { OVERLAY_QUERIES } from '../../shared/overlay/useMediaQuery';
+import { SEARCH_SHORTCUTS } from './searchShortcuts';
 import VisualSearchPage from './VisualSearchPage';
 
 vi.mock('../../api/cameras', () => ({
@@ -675,6 +676,8 @@ describe('VisualSearchPage', () => {
       await user.click(within(notice.closest('.alert') as HTMLElement).getByRole('button', { name: 'Reset search' }));
       await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
       expect(screen.queryByText(/This search link cannot be used/)).not.toBeInTheDocument();
+      // The button left with the alert; focus is on the results that replaced it.
+      await waitFor(() => expect(screen.getByRole('region', { name: 'Search results' })).toHaveFocus());
     });
   });
 
@@ -1187,6 +1190,45 @@ describe('VisualSearchPage', () => {
       const identifiers = within(inspector).getByText('Identifiers').closest('details')!;
       expect(identifiers).not.toHaveAttribute('open');
       expect(within(identifiers).getByText(first.id)).toBeInTheDocument();
+      // Nowhere else in the inspector: not the id, not its prefix.
+      const outside = Array.from(inspector.querySelectorAll('*'))
+        .filter((element) => !identifiers.contains(element) && element.children.length === 0)
+        .map((element) => element.textContent ?? '').join(' ');
+      expect(outside).not.toContain(first.id.slice(0, 8));
+    });
+
+    it('does what the `?` sheet says for every key it lists, on the Search results', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+      const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+      await user.click(within(rows[0]).getByRole('button', { name: /^Select / }));
+      await screen.findByRole('heading', { name: 'Person · Track 7' });
+      const press: Record<string, string> = { j: 'j', k: 'k', '↓': '{ArrowDown}', '↑': '{ArrowUp}', Enter: '{Enter}', Esc: '{Escape}' };
+      const location = () => screen.getByLabelText('Current search location').textContent ?? '';
+      for (const shortcut of SEARCH_SHORTCUTS) {
+        for (const key of shortcut.keys) {
+          expect(press[key], `the sheet lists ${key}, which this test does not know how to press`).toBeDefined();
+          if (shortcut.description === 'Select the next result' || shortcut.description === 'Select the previous result') {
+            // Start from a row with both neighbours available in this two-row list.
+            await user.click(within(rows[shortcut.description === 'Select the next result' ? 0 : 1]).getByRole('button', { name: /^Select / }));
+            const before = location();
+            await user.keyboard(press[key]);
+            await waitFor(() => expect(location()).not.toBe(before));
+          } else if (shortcut.description === 'Close the inspector') {
+            // Select whichever row is not already selected, so the click opens
+            // (never toggles closed) and only the key can close it.
+            const unselected = rows.find((row) => row.getAttribute('aria-current') !== 'true')!;
+            await user.click(within(unselected).getByRole('button', { name: /^Select / }));
+            await waitFor(() => expect(location()).toContain('track='));
+            await user.keyboard(press[key]);
+            await waitFor(() => expect(location()).not.toContain('track='));
+          } else if (shortcut.description === 'Open the selected result in Review') {
+            continue; // proven by 'steps through results with the keyboard and opens the full review on Enter'
+          } else {
+            throw new Error(`no assertion for the listed shortcut "${shortcut.description}"`);
+          }
+        }
+      }
     });
 
     it('steps through results with the keyboard and opens the full review on Enter', async () => {

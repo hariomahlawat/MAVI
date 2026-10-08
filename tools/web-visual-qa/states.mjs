@@ -3209,10 +3209,13 @@ export const STATES = [
       const above = scroller ? to.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().top : false;
       if (claimed && !above) return false;
       const search = Array.from(document.querySelectorAll('button[type="submit"]')).find((el) => el.textContent.includes('Search'));
+      const committedBefore = location.search;
       search.focus();
       window.__vqa.mark('interaction-start');
       search.click();
       await until(() => document.activeElement && document.activeElement.getAttribute('aria-invalid') === 'true', 'focus on the refused field');
+      // Refused, so nothing was committed: the URL is the state of record (§17).
+      if (location.search !== committedBefore) return false;
       const focused = document.activeElement;
       if (!scroller) return focused === to;
       const r = focused.getBoundingClientRect(); const box = scroller.getBoundingClientRect();
