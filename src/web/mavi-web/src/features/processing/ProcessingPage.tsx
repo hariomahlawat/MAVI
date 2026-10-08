@@ -24,7 +24,7 @@ import {
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { analyticsReadinessText } from './analyticsReadiness';
-import { fromQuery } from '../../shared/async/fromQuery';
+import { describeError, fromQuery } from '../../shared/async/fromQuery';
 import { hasFailure } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
@@ -58,6 +58,21 @@ function coarseState(status: string): string {
  * explicitly in UTC, as every other surface does — rather than as "—", which
  * would read as "not happened yet" (§14.1: a failure is never an empty answer).
  */
+/**
+ * What a run's final counts say before, or instead of, existing (§36.2, F19).
+ * Counts are recorded only when a run completes, so an active run is told when
+ * they arrive and a failed one is told that they never will — never "after
+ * completion" for a run that is terminal, never an invented zero, and never a
+ * running total that would read as the answer.
+ */
+function finalCountText(run: { status: string }, finalizing: boolean, finalizationFailed: boolean): string | null {
+  if (run.status === 'Completed') return null;
+  if (finalizing) return 'Final count after publication';
+  if (finalizationFailed) return 'Not published';
+  if (run.status === 'Failed') return 'Not produced';
+  return 'Final count after completion';
+}
+
 function safeFormatTimestamp(value: string | null | undefined, timeZoneId: string | undefined, zoneUnavailable: boolean): string {
   if (!value) return '—';
   if (!timeZoneId) return zoneUnavailable ? displayTimestamp(value) : '—';
@@ -76,8 +91,9 @@ function safeFormatTimestamp(value: string | null | undefined, timeZoneId: strin
  * The breadcrumb is the way back to the queue, so the "All processing" button
  * this page used to carry is gone rather than duplicated beside it.
  *
- * Deliberately absent: Scene Analytics readiness. It is excluded from UI-3 and
- * lands on this grammar in Slice 4 (§33.4).
+ * Scene analytics readiness for a completed run is the second primary panel:
+ * readiness as text, the facts that readiness supports, and the one action the
+ * state calls for. It is the Record archetype's reference (R3).
  */
 export default function ProcessingPage() {
   const { videoAssetId = '' } = useParams();
@@ -223,6 +239,7 @@ export default function ProcessingPage() {
   // notices band for a failure this page deliberately never renders.
   const retryFailed = retry.isError
     && !(retry.error instanceof ApiError && retry.error.code === 'processing_already_active');
+  const pendingCount = run ? finalCountText(run, finalizing, finalizationFailed) : null;
   // The two requests are two regions (§37.1): the processing status is the
   // primary column, the video metadata is the facts rail. Each states its own
   // failure inside the region it replaces, so neither is reported here.
@@ -241,7 +258,7 @@ export default function ProcessingPage() {
       />
       {retryFailed ? (
         <Alert tone="error">
-          {retry.error instanceof ApiError ? `${retry.error.detail} (${retry.error.code})` : 'Processing could not be queued.'}
+          {describeError(retry.error, `Processing could not be queued for ${videoLabel}.`)}
         </Alert>
       ) : null}
     </>
@@ -365,14 +382,28 @@ export default function ProcessingPage() {
             >
               {() => run ? (
               <div className="stack">
+                {/* A failure leads: it is what the operator came for, and its
+                    code and the consequence of retrying sit with it (§15). */}
+                {finalizationFailed ? (
+                  <Alert tone="error">
+                    {FINALIZATION_FAILED_LABEL} after inference completed · <code>{run.failureCode}</code>. Retrying queues a new run for this video.
+                  </Alert>
+                ) : run.failureCode ? (
+                  <Alert tone="error">
+                    Processing failed with <code>{run.failureCode}</code>. Retrying queues a new run for this video.
+                  </Alert>
+                ) : null}
+
                 {/* Finalization has no percentage, and a full inference bar
-                    would read as done, so a Finalizing run gets a sentence. */}
+                    would read as done — or, captioned with a finalization
+                    failure, as a bar about publication — so neither a
+                    Finalizing run nor a failed finalization draws one. */}
                 {finalizing ? (
-                  <p>Inference is complete. The results are being finalized and published; counts appear when publication completes.</p>
-                ) : (
+                  <p>Inference is complete. The results are being finalized and published.</p>
+                ) : finalizationFailed ? null : (
                   <Progress
                     value={run.progressPercent}
-                    label={finalizationFailed ? FINALIZATION_FAILED_LABEL : isActiveStatus(run.status) ? 'Progress' : run.status}
+                    label={isActiveStatus(run.status) ? 'Progress' : run.status}
                     tone={run.status === 'Failed' ? 'err' : run.status === 'Completed' ? 'ok' : 'info'}
                   />
                 )}
@@ -383,27 +414,16 @@ export default function ProcessingPage() {
                     { label: 'Attempt', value: formatCount(run.attemptCount) },
                     { label: 'Queued', value: safeFormatTimestamp(run.queuedAtUtc, displayZone, zoneUnavailable) },
                     { label: 'Started', value: safeFormatTimestamp(run.startedAtUtc, displayZone, zoneUnavailable) },
-                    { label: 'Completed', value: safeFormatTimestamp(run.completedAtUtc, displayZone, zoneUnavailable) },
-                    // Counts are only true once the run has finished; showing
-                    // a running total would invite reading it as the answer.
-                    { label: 'Frames processed', value: run.status === 'Completed' ? formatCount(run.framesProcessed) : 'Final count after completion' },
-                    { label: 'Tracks created', value: run.status === 'Completed' ? formatCount(run.tracksCreated) : 'Final count after completion' },
+                    // A failed run's end is when it failed, not a completion.
+                    { label: run.status === 'Failed' ? 'Failed' : 'Completed', value: safeFormatTimestamp(run.completedAtUtc, displayZone, zoneUnavailable) },
+                    { label: 'Frames processed', value: pendingCount ?? formatCount(run.framesProcessed) },
+                    { label: 'Tracks created', value: pendingCount ?? formatCount(run.tracksCreated) },
                   ]}
                 />
-
-                {finalizationFailed ? (
-                  <Alert tone="error">
-                    {FINALIZATION_FAILED_LABEL} after inference completed · <code>{run.failureCode}</code>. Retrying queues a new run for this video.
-                  </Alert>
-                ) : run.failureCode ? (
-                  <Alert tone="error">
-                    Processing failed with <code>{run.failureCode}</code>. Retrying queues a new run for this video.
-                  </Alert>
-                ) : null}
               </div>
             ) : (
               <EmptyState icon="activity" title="Not queued" compact>
-                Use Queue processing to start the authoritative pipeline for this video.
+                Queue processing to make this video searchable.
               </EmptyState>
             )}
             </StateRegion>
@@ -414,7 +434,11 @@ export default function ProcessingPage() {
             state calls for. Failed retries the unit; Stale offers the camera-level
             re-analysis that exists, stating its camera-wide consequence before the
             click (§15). */}
-        {video.data && run && run.status === 'Completed' ? (
+        {/* Its request is the run's, not the video record's (§37.1: a region
+            that does not depend on a failed request still renders). Only the
+            camera-wide re-analysis needs the video's camera, so only it waits
+            for the facts rail's retry. */}
+        {run && run.status === 'Completed' ? (
           <Panel title="Scene analytics">
             <SceneAnalyticsPanel
               readiness={run.analyticsReadiness}
@@ -435,7 +459,7 @@ export default function ProcessingPage() {
               onRetry={() => retryAnalytics.mutate()}
               retrying={retryAnalytics.isPending}
               retryError={retryAnalytics.error}
-              onReanalyse={() => reanalyse.mutate()}
+              onReanalyse={isGuid(cameraId) ? () => reanalyse.mutate() : undefined}
               reanalysing={reanalyse.isPending}
               reanalyseResult={reanalyse.data}
               reanalyseError={reanalyse.error}
@@ -447,10 +471,6 @@ export default function ProcessingPage() {
   );
 }
 
-
-function errorText(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? `${error.detail} (${error.code})` : fallback;
-}
 
 /**
  * What the six readiness states mean for this run, and what the operator can do.
@@ -494,7 +514,8 @@ function SceneAnalyticsPanel({
   onRetry: () => void;
   retrying: boolean;
   retryError: unknown;
-  onReanalyse: () => void;
+  /** Absent while the video's camera is unknown: the re-analysis is camera-wide. */
+  onReanalyse?: () => void;
   reanalysing: boolean;
   reanalyseResult: { created: number; runsInScope: number } | undefined;
   reanalyseError: unknown;
@@ -555,7 +576,9 @@ function SceneAnalyticsPanel({
 
       {effective === 'Failed' ? (
         <div className="inline-alert-actions">
-          <Alert tone="error">Scene analytics failed for this run. Retrying starts a new attempt cycle on the same analysis; existing facts are kept until it succeeds.</Alert>
+          {/* The failure itself is the readiness and its code above; this says
+              what the action does before the click (§15). */}
+          <Alert tone="error">Retrying starts a new attempt cycle on the same analysis; existing facts are kept until it succeeds.</Alert>
           {/* Secondary (§8.1): analytics exist only for a processed video, whose
               surface primary is the Context Bar's `Open results`. */}
           <Button icon="refresh" onClick={onRetry} disabled={retrying}>
@@ -563,17 +586,19 @@ function SceneAnalyticsPanel({
           </Button>
         </div>
       ) : null}
-      {retryError ? <Alert tone="error">{errorText(retryError, 'The analysis could not be retried.')}</Alert> : null}
+      {retryError ? <Alert tone="error">{describeError(retryError, 'Scene analytics could not be retried.')}</Alert> : null}
 
       {effective === 'Stale' ? (
         <div className="inline-alert-actions">
           <Alert tone="stale">
             The current scene geometry or analytics engine has not been applied to this run; the earlier facts are kept and stay searchable by their revision.
-            Re-analysing queues the latest completed run of <strong>every video of {cameraLabel}</strong> against the active revision, not just this one.
+            {onReanalyse ? <> Re-analysing queues the latest completed run of <strong>every video of {cameraLabel}</strong> against the active revision, not just this one.</> : null}
           </Alert>
-          <Button variant="secondary" icon="refresh" onClick={onReanalyse} disabled={reanalysing}>
-            {reanalysing ? 'Queueing…' : 'Re-analyse camera'}
-          </Button>
+          {onReanalyse ? (
+            <Button variant="secondary" icon="refresh" onClick={onReanalyse} disabled={reanalysing}>
+              {reanalysing ? 'Queueing…' : 'Re-analyse camera'}
+            </Button>
+          ) : null}
         </div>
       ) : null}
       {reanalyseResult ? (
@@ -581,7 +606,7 @@ function SceneAnalyticsPanel({
           Re-analysis requested: {formatCount(reanalyseResult.created)} of {formatCount(reanalyseResult.runsInScope)} runs queued; the rest were already analysed, queued or need an explicit retry.
         </Alert>
       ) : null}
-      {reanalyseError ? <Alert tone="error">{errorText(reanalyseError, 'Re-analysis could not be requested.')}</Alert> : null}
+      {reanalyseError ? <Alert tone="error">{describeError(reanalyseError, `Re-analysis of ${cameraLabel} could not be requested.`)}</Alert> : null}
 
       {effective === 'Disabled' ? (
         <div className="inline-alert-actions">

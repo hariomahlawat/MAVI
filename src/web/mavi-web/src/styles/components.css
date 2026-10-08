@@ -451,6 +451,9 @@ table.table--ledger { width: 100%; max-width: max-content; }
 
 /* Details (progressive disclosure) */
 .disclosure { border-top: var(--stroke-hair) solid var(--border-subtle); }
+/* The rule separates a disclosure from content above it; as the first thing in
+   a panel there is nothing to separate, and the line is an empty band. */
+.panel__body > .disclosure:first-child { border-top: 0; }
 .disclosure summary { cursor: pointer; padding: var(--s-2) 0; color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; list-style: none; display: flex; align-items: center; gap: var(--s-2); }
 .disclosure summary::-webkit-details-marker { display: none; }
 .disclosure summary::before { content: "▸"; color: var(--text-muted); font-size: var(--fs-0); }

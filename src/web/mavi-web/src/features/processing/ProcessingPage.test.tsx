@@ -242,6 +242,44 @@ describe('ProcessingPage', () => {
       expect(requestSceneReanalysis).not.toHaveBeenCalled();
     });
 
+    it('states an analytics failure once — the readiness and code — and the alert only says what retrying does', async () => {
+      arrange('Failed', [unit({ status: 'Failed', attemptCount: 3, failureCode: 'analytics_attempts_exhausted' })]);
+      render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      expect(await within(panel).findByText('analytics_attempts_exhausted')).toBeInTheDocument();
+      expect(within(panel).getAllByText(/failed/i)).toHaveLength(1);
+      expect(within(panel).getByRole('alert')).toHaveTextContent(/^Retrying starts a new attempt cycle/);
+    });
+
+    it('says what could not be retried when the analytics retry is refused, then the API detail and code', async () => {
+      const user = userEvent.setup();
+      arrange('Failed', [unit({ status: 'Failed', attemptCount: 3, failureCode: 'analytics_attempts_exhausted' })]);
+      vi.mocked(retryRunAnalytics).mockRejectedValue(new ApiError({ status: 409, code: 'analysis_not_retryable', detail: 'The analysis is not in a retryable state.' }));
+      render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      await user.click(await within(panel).findByRole('button', { name: 'Retry analytics' }));
+      expect(await within(panel).findByText('Scene analytics could not be retried. The analysis is not in a retryable state. (analysis_not_retryable)')).toBeInTheDocument();
+      // Recovery stays where it was: the action is offered again once settled.
+      await waitFor(() => expect(within(panel).getByRole('button', { name: 'Retry analytics' })).toBeEnabled());
+    });
+
+    it('keeps scene analytics when only the video record fails, withholding just the camera-wide re-analysis', async () => {
+      arrange('Stale', [unit({ sceneRevisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21481', sceneRevisionNumber: 1 })]);
+      vi.mocked(getVideo).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Video store unavailable.' }));
+      render();
+
+      // §37.1: the analytics region's request is the run's, so it still renders.
+      const panel = (await screen.findByText('Scene analytics', {}, { timeout: 4000 })).closest('.panel') as HTMLElement;
+      expect(within(panel).getByText('Stale')).toBeInTheDocument();
+      expect(await screen.findByText('Video metadata is unavailable.', {}, { timeout: 4000 })).toBeInTheDocument();
+      // Re-analysis is camera-wide and the camera is the video record's: it waits for that retry.
+      expect(within(panel).queryByRole('button', { name: 'Re-analyse camera' })).not.toBeInTheDocument();
+      expect(within(panel).queryByText(/every video of/)).not.toBeInTheDocument();
+      expect(requestSceneReanalysis).not.toHaveBeenCalled();
+    });
+
     it('explains a stale run and offers the camera-wide re-analysis with its consequence stated', async () => {
       const user = userEvent.setup();
       arrange('Stale', [unit({ sceneRevisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21481', sceneRevisionNumber: 1, status: 'Superseded' })]);
@@ -534,6 +572,60 @@ describe('ProcessingPage', () => {
     expect(container.querySelector('.workspace__notices')).toBeNull();
   });
 
+  it('names the video when queueing is refused, with the API detail and code last', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'NotQueued', latestRun: null });
+    vi.mocked(queueProcessing).mockRejectedValue(new ApiError({ status: 503, code: 'queue_unavailable', detail: 'The processing queue did not respond.' }));
+    render();
+
+    await user.click(await screen.findByRole('button', { name: 'Queue processing' }));
+    expect(await screen.findByText('Processing could not be queued for source.mp4. The processing queue did not respond. (queue_unavailable)')).toBeInTheDocument();
+    // The not-queued state is unchanged and the action is offered again.
+    expect(within(await runPanel()).getByText('Not queued')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Queue processing' })).toBeEnabled();
+  });
+
+  it('keeps the queue action disabled until the authoritative refresh after it has answered', async () => {
+    const user = userEvent.setup();
+    let answer: (value: Awaited<ReturnType<typeof getProcessingStatus>>) => void = () => {};
+    vi.mocked(getProcessingStatus)
+      .mockResolvedValueOnce({ videoStatus: 'NotQueued', latestRun: null })
+      .mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    render();
+
+    await user.click(await screen.findByRole('button', { name: 'Queue processing' }));
+    await waitFor(() => expect(queueProcessing).toHaveBeenCalledOnce());
+    // Queued on the server, but the page has not yet read that back: no second click.
+    expect(screen.getByRole('button', { name: 'Queueing…' })).toBeDisabled();
+    await act(async () => {
+      answer({ videoStatus: 'Queued', latestRun: latestRun({ status: 'Queued', phase: 'queued', progressPercent: 0, startedAtUtc: null, workerId: null }) });
+    });
+    // The authoritative answer is Queued, which offers nothing to queue.
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Queue/ })).not.toBeInTheDocument());
+    expect(queueProcessing).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the retained run, labelled as last known, when a refresh of it fails — and recovers on Retry', async () => {
+    const user = userEvent.setup();
+    const failed = { videoStatus: 'Failed' as const, latestRun: latestRun({ status: 'Failed', phase: 'failed', progressPercent: 12, completedAtUtc: '2026-09-09T02:35:02Z', failureCode: 'vision_job_attempts_exhausted' }) };
+    vi.mocked(getProcessingStatus)
+      .mockResolvedValueOnce(failed)
+      .mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Status store unavailable.' }));
+    render();
+
+    // The queue request succeeds; the refresh after it fails (the query's one retry included).
+    await user.click(await screen.findByRole('button', { name: 'Retry processing' }));
+    const panel = await runPanel();
+    const warning = await within(panel).findByText('Showing the last known processing status; refreshing failed.', {}, { timeout: 5000 });
+    expect(within(panel).getByText('vision_job_attempts_exhausted')).toBeInTheDocument();
+    expect(screen.queryByText('Not queued')).not.toBeInTheDocument();
+
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Queued', latestRun: latestRun({ status: 'Queued', phase: 'queued', progressPercent: 0, startedAtUtc: null, workerId: null }) });
+    await user.click(within(warning.closest('.alert') as HTMLElement).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(within(panel).queryByText(/last known/)).not.toBeInTheDocument());
+    expect(within(panel).getAllByText('Final count after completion', { selector: 'dd' })).toHaveLength(2);
+  });
+
   it('offers retry on a failed run and queues a new one', async () => {
     const user = userEvent.setup();
     vi.mocked(getProcessingStatus).mockResolvedValue({
@@ -659,8 +751,11 @@ describe('ProcessingPage', () => {
       expect(screen.queryByText('Progress')).not.toBeInTheDocument();
       expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
       expect(container.textContent).not.toMatch(/\bRunning\b/);
-      expect(screen.getByText('Frames processed').parentElement).toHaveTextContent(/final count after completion/i);
-      expect(screen.getByText('Tracks created').parentElement).toHaveTextContent(/final count after completion/i);
+      // Counts arrive with publication, which is what this run is waiting for.
+      expect(screen.getByText('Frames processed').parentElement).toHaveTextContent('Final count after publication');
+      expect(screen.getByText('Tracks created').parentElement).toHaveTextContent('Final count after publication');
+      // Said once: the sentence no longer repeats when counts appear.
+      expect(within(panel).getByText(/Inference is complete/)).not.toHaveTextContent(/counts/i);
 
       // The Context Bar keeps the video's own, still truthful, status.
       const bar = container.querySelector('.context-bar') as HTMLElement;
@@ -692,8 +787,16 @@ describe('ProcessingPage', () => {
       const alert = await within(panel).findByRole('alert');
       expect(alert).toHaveTextContent(/^Finalization failed/);
       expect(within(alert).getByText('vision_finalization_staging_missing').tagName).toBe('CODE');
-      expect(within(panel).getByText('Finalization failed', { selector: '.progress__label span' })).toBeInTheDocument();
+      // R3: no inference bar captioned with a finalization failure — it would
+      // read as a bar about publication — and no completion language: the run
+      // is terminal, its counts were never published, and it ended by failing.
+      expect(within(panel).queryByRole('progressbar')).not.toBeInTheDocument();
       expect(screen.queryByText(/Processing failed/)).not.toBeInTheDocument();
+      expect(within(panel).getByText('Frames processed').parentElement).toHaveTextContent('Not published');
+      expect(within(panel).getByText('Tracks created').parentElement).toHaveTextContent('Not published');
+      expect(within(panel).queryByText(/after completion/)).not.toBeInTheDocument();
+      expect(within(panel).getByText('Failed', { selector: 'dt' })).toBeInTheDocument();
+      expect(within(panel).queryByText('Completed')).not.toBeInTheDocument();
 
       // Retry is unchanged: it queues a new run.
       await user.click(screen.getByRole('button', { name: 'Retry processing' }));
@@ -713,6 +816,12 @@ describe('ProcessingPage', () => {
       expect(within(panel).getByText('Failed', { selector: '.progress__label span' })).toBeInTheDocument();
       expect(screen.queryByText(/Finalization failed/)).not.toBeInTheDocument();
       expect(screen.queryByText('Finalizing')).not.toBeInTheDocument();
+      // F19: a terminal failure never says its counts come "after completion",
+      // and its end time is when it failed.
+      expect(within(panel).getByText('Frames processed').parentElement).toHaveTextContent('Not produced');
+      expect(within(panel).getByText('Tracks created').parentElement).toHaveTextContent('Not produced');
+      expect(within(panel).queryByText(/after completion/)).not.toBeInTheDocument();
+      expect(within(panel).queryByText('Completed')).not.toBeInTheDocument();
     });
 
     it('leaves a queued run and a completed run exactly as they were', async () => {
