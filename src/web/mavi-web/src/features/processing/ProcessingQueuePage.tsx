@@ -204,7 +204,9 @@ export default function ProcessingQueuePage() {
                                 second one: a failed row is still one row. */}
                             {run?.failureCode ? <code><TruncatedText text={run.failureCode} className="cap-md" /></code> : null}
                           </span>
-                          {runState ? <span className="run-cell__line">Run: {runState}</span> : null}
+                          {/* Its own truncating element: a flex line's bare text can never show
+                              the ellipsis (§36.2) when the capped cell squeezes it. */}
+                          {runState ? <span className="run-cell__line"><TruncatedText text={`Run: ${runState}`} /></span> : null}
                           {/* A failed lookup must never keep reading as a
                               lookup still in progress (§14). */}
                           {/* The row's run status is its own request (§37.1,

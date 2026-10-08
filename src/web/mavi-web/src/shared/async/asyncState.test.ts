@@ -103,8 +103,9 @@ describe('combineStates: one region on two requests', () => {
 });
 
 describe('describeError', () => {
-  it('uses the API detail and code, and the fallback otherwise', () => {
-    expect(describeError(new ApiError({ status: 503, code: 'store_down', detail: 'Store unavailable.' }), 'x')).toBe('Store unavailable. (store_down)');
+  it('names what failed, then adds the API detail with its code last', () => {
+    expect(describeError(new ApiError({ status: 503, code: 'store_down', detail: 'Store unavailable.' }), 'Videos could not be loaded.'))
+      .toBe('Videos could not be loaded. Store unavailable. (store_down)');
     expect(describeError(new Error('network'), 'Videos could not be loaded.')).toBe('Videos could not be loaded.');
   });
 });

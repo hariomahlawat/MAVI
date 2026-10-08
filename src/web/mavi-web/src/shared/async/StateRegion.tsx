@@ -91,6 +91,17 @@ export type StateRegionProps<T> = {
   /** Overrides the loading label; defaults to "Loading {label}…". */
   loadingLabel?: string;
   /**
+   * The retry control's text where `Retry` alone would be ambiguous — a row
+   * whose own action is also called Retry. Defaults to `Retry`.
+   */
+  retryLabel?: string;
+  /**
+   * A row region in a dense cell (a Ledger status cell) retries with a
+   * 26×26 icon-only control (§36.3, in-row) named by `retryLabel`, so the
+   * message — not the control — is what gives way to the column's cap.
+   */
+  compactRetry?: boolean;
+  /**
    * A failure retrying cannot mend — a 404, a refusal — keeps its sentence and
    * loses the control that would only fail again.
    */
@@ -119,7 +130,14 @@ export default function StateRegion<T>({
   loadingLabel,
   retryable,
   causeAnnouncedElsewhere = false,
+  retryLabel = 'Retry',
+  compactRetry = false,
 }: StateRegionProps<T>) {
+  const rowRetry = (action: () => void) => (
+    <Button size="sm" variant="ghost" icon="refresh" iconOnly={compactRetry} title={compactRetry ? retryLabel : undefined} onClick={action}>
+      {retryLabel}
+    </Button>
+  );
   const loadingText = loadingLabel ?? `Loading ${label}…`;
 
   if (state.kind === 'loading') {
@@ -155,13 +173,13 @@ export default function StateRegion<T>({
       return (
         <span className="state-row">
           <span className="text-err">{message}</span>
-          {canRetry ? <Button size="sm" variant="ghost" icon="refresh" onClick={onRetry}>Retry</Button> : null}
+          {canRetry && onRetry ? rowRetry(onRetry) : null}
         </span>
       );
     }
     return (
       <div className={`state-region state-region--${kind} state-region--inline`}>
-        <Alert tone="error" actions={canRetry ? <Button size="sm" onClick={onRetry}>Retry</Button> : undefined}>
+        <Alert tone="error" actions={canRetry ? <Button size="sm" onClick={onRetry}>{retryLabel}</Button> : undefined}>
           {message}
         </Alert>
       </div>
@@ -194,7 +212,7 @@ export default function StateRegion<T>({
           {body}
           <span className="state-row state-row--degraded">
             <span className="faint">{message}</span>
-            {canRetry ? <Button size="sm" variant="ghost" icon="refresh" onClick={onRetry}>Retry</Button> : null}
+            {canRetry && onRetry ? rowRetry(onRetry) : null}
           </span>
         </>
       );
@@ -202,7 +220,7 @@ export default function StateRegion<T>({
     return (
       <>
         <div className={`state-region state-region--${kind} state-region--degraded`}>
-          <Alert tone="warning" actions={canRetry ? <Button size="sm" onClick={onRetry}>Retry</Button> : undefined}>
+          <Alert tone="warning" actions={canRetry ? <Button size="sm" onClick={onRetry}>{retryLabel}</Button> : undefined}>
             {message}
           </Alert>
         </div>

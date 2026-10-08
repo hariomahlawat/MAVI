@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
@@ -87,13 +87,33 @@ export default function VideosPage() {
   );
   const processing = useVideoProcessing(runStatusIds);
 
+  // One mutation serves every row, so which rows are being queued, and which
+  // one failed, is tracked per video: the mutation's own `variables` name only
+  // the latest call, and a row queued first must stay disabled until its own
+  // request — and the refresh after it — has settled.
+  const [queueing, setQueueing] = useState<ReadonlySet<string>>(() => new Set());
+  const [queueFailure, setQueueFailure] = useState<{ readonly videoId: string; readonly error: unknown } | null>(null);
   const queue = useMutation({
     mutationFn: (videoId: string) => queueProcessing(videoId),
+    onMutate: (videoId) => {
+      setQueueing((current) => new Set(current).add(videoId));
+      setQueueFailure((current) => (current?.videoId === videoId ? null : current));
+    },
+    onError: (error, videoId) => {
+      // `processing_already_active` is reconciled rather than reported: the
+      // video is already doing what the operator asked for.
+      if (!(error instanceof ApiError && error.code === 'processing_already_active')) setQueueFailure({ videoId, error });
+    },
     onSettled: async (_result, _error, videoId) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.videos }),
         queryClient.invalidateQueries({ queryKey: queryKeys.videoProcessing(videoId) }),
       ]);
+      setQueueing((current) => {
+        const next = new Set(current);
+        next.delete(videoId);
+        return next;
+      });
     },
   });
 
@@ -140,11 +160,10 @@ export default function VideosPage() {
     </Toolbar>
   );
 
-  // `processing_already_active` is reconciled rather than reported: the video
-  // is already doing what the operator asked for. It must not open an empty
-  // notices region either, which is why the condition is computed once.
-  const queueFailed = queue.isError
-    && !(queue.error instanceof ApiError && queue.error.code === 'processing_already_active');
+  // A reconciled `processing_already_active` never becomes a failure, so it
+  // cannot open an empty notices region either.
+  const queueFailed = queueFailure !== null;
+  const failedName = queueFailure ? videos.data?.find((video) => video.id === queueFailure.videoId)?.originalFileName : undefined;
   const camerasState = fromQuery(cameras);
   // The display timezone has no region of its own (§37.1): timestamps fall back
   // to explicit UTC, and the page says so once, with its own Retry.
@@ -165,9 +184,9 @@ export default function VideosPage() {
         degradedMessage="Showing the last known camera names; refreshing camera metadata failed."
         onRetry={() => void cameras.refetch()}
       />
-      {queueFailed ? (
+      {queueFailure ? (
         <Alert tone="error">
-          {queue.error instanceof ApiError ? `${queue.error.detail} (${queue.error.code})` : 'Processing could not be queued.'}
+          {describeError(queueFailure.error, failedName ? `Processing could not be queued for ${failedName}.` : 'Processing could not be queued.')}
         </Alert>
       ) : null}
     </>
@@ -251,22 +270,30 @@ export default function VideosPage() {
                             ) : null}
                           </span>
                           {/* The run's phase, where it says more than the badge (§16). */}
-                          {active && isFinalizing(run) ? <span className="run-cell__line">Run: Finalizing</span> : null}
+                          {active && isFinalizing(run) ? <span className="run-cell__line"><TruncatedText text="Run: Finalizing" /></span> : null}
                           {row.processingStatus === 'Failed' && isFinalizationFailure(run) ? (
-                            <span className="run-cell__line">Run: {FINALIZATION_FAILED_LABEL}</span>
+                            <span className="run-cell__line"><TruncatedText text={`Run: ${FINALIZATION_FAILED_LABEL}`} /></span>
                           ) : null}
-                          {/* The row's live status is its own request (§37.1,
+                          {/* The row's run lookup is its own request (§37.1,
                               row): the row keeps its identity and the cell
-                              says why the live part is missing. */}
-                          {active && hasFailure(liveState) ? (
+                              says why the looked-up part is missing — the live
+                              progress of an active run, or a failed run's code
+                              and kind, which is otherwise silently absent. */}
+                          {(active || row.processingStatus === 'Failed') && hasFailure(liveState) ? (
                             <span className="run-cell__line">
                               <StateRegion
                                 kind="row"
                                 state={liveState}
-                                label="live status"
-                                unavailableMessage={() => 'Live status unavailable'}
-                                degradedMessage="Live status may be out of date"
+                                label={active ? 'live status' : 'failure detail'}
+                                unavailableMessage={() => (active ? 'Live status unavailable' : 'Failure detail unavailable')}
+                                degradedMessage={active ? 'Live status may be out of date' : 'Failure detail may be out of date'}
                                 onRetry={() => processing.retry(row.id)}
+                                // A failed row's own action is already "Retry"
+                                // (processing): the lookup's control is named
+                                // for what it does, and in this dense cell it is
+                                // an icon so the message, not it, gives way.
+                                retryLabel={active ? `Retry live status for ${row.originalFileName}` : `Reload failure detail for ${row.originalFileName}`}
+                                compactRetry
                               >
                                 {() => null}
                               </StateRegion>
@@ -292,7 +319,7 @@ export default function VideosPage() {
                             <Button
                               size="sm"
                               icon="play"
-                              disabled={queue.isPending && queue.variables === row.id}
+                              disabled={queueing.has(row.id)}
                               onClick={() => queue.mutate(row.id)}
                             >
                               {row.processingStatus === 'Failed' ? 'Retry' : 'Process'}

@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
+import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { getProcessingStatus, listVideos, queueProcessing, type ProcessingRunStatus, type ProcessingStatus, type VideoAsset } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
@@ -430,5 +431,85 @@ describe('VideosPage — S1d Ledger grammar and one primary', () => {
     const loading = renderWithApp(<VideosPage />, { route: '/videos' });
     await waitFor(() => expect(loading.container.querySelector('.workspace__body--ledger > .state-region .skeleton')).not.toBeNull());
     expect(loading.container.querySelector('.ledger-table')).toBeNull();
+  });
+});
+
+describe('VideosPage — R2 actions, run lookups and failure copy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+    vi.mocked(listVideos).mockResolvedValue([fresh, failed, processed]);
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: null });
+  });
+  const rowOf = async (fileName: string) => (await screen.findByText(fileName)).closest('tr') as HTMLElement;
+
+  it('keeps each queued row disabled until its own request settles, whichever row was queued last', async () => {
+    const user = userEvent.setup();
+    let release: () => void = () => {};
+    vi.mocked(queueProcessing).mockImplementation((id) => (id === fresh.id
+      ? new Promise((resolve) => { release = () => resolve({ processingRunId: 'run-fresh' }); })
+      : Promise.resolve({ processingRunId: 'run-failed' })));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+
+    const freshRow = await rowOf('yard.mp4');
+    await user.click(within(freshRow).getByRole('button', { name: 'Process' }));
+    expect(within(freshRow).getByRole('button', { name: 'Process' })).toBeDisabled();
+
+    const failedRow = await rowOf('dock-night.mp4');
+    await user.click(within(failedRow).getByRole('button', { name: 'Retry' }));
+    // The later call does not re-enable the first row while its request is open.
+    expect(within(freshRow).getByRole('button', { name: 'Process' })).toBeDisabled();
+    await act(async () => { release(); });
+    await waitFor(() => expect(within(freshRow).getByRole('button', { name: 'Process' })).toBeEnabled());
+  });
+
+  it('names the video whose processing could not be queued, with the API detail and code last', async () => {
+    const user = userEvent.setup();
+    vi.mocked(queueProcessing).mockRejectedValue(new ApiError({ status: 500, code: 'queue_unavailable', detail: 'The processing queue did not respond.' }));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    await user.click(within(await rowOf('yard.mp4')).getByRole('button', { name: 'Process' }));
+    expect(await screen.findByText('Processing could not be queued for yard.mp4. The processing queue did not respond. (queue_unavailable)')).toBeInTheDocument();
+  });
+
+  it('reconciles processing_already_active: no alert, and the inventory is refreshed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(queueProcessing).mockRejectedValue(new ApiError({ status: 409, code: 'processing_already_active', detail: 'Processing is already active.' }));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    await user.click(within(await rowOf('yard.mp4')).getByRole('button', { name: 'Process' }));
+    await waitFor(() => expect(listVideos).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('says the failure detail of a failed row is unavailable when its lookup fails, and reloads it', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getProcessingStatus).mockRejectedValue(new Error('down'));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    const row = await rowOf('dock-night.mp4');
+    expect(await within(row).findByText('Failure detail unavailable', undefined, { timeout: 5000 })).toBeInTheDocument();
+
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: run({ failureCode: 'vision_job_attempts_exhausted' }) });
+    // Distinct from the row's own Retry (processing): one control per meaning.
+    expect(within(row).getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
+    await user.click(within(row).getByRole('button', { name: 'Reload failure detail for dock-night.mp4' }));
+    expect(await within(row).findByText('vision_job_attempts_exhausted')).toBeInTheDocument();
+    expect(within(row).queryByText('Failure detail unavailable')).not.toBeInTheDocument();
+  });
+
+  it('names the inventory in its unavailable alert, then the API detail', async () => {
+    vi.mocked(listVideos).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'The upstream service did not respond.' }));
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    expect(await screen.findByText('Video inventory is unavailable. The upstream service did not respond. (upstream_unavailable)')).toBeInTheDocument();
+  });
+
+  it('keeps the toolbar in reading order for the keyboard: text, camera, status', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideosPage />, { route: '/videos' });
+    await screen.findByRole('table');
+    screen.getByRole('searchbox', { name: 'Filter by file or camera' }).focus();
+    await user.tab();
+    expect(screen.getByRole('combobox', { name: 'Camera' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveFocus();
   });
 });
