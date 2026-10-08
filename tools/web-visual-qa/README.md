@@ -6,27 +6,172 @@ The repeatable procedure behind **§26 Visual QA standard** of
 §26 is normative and explicitly says unit tests do not satisfy it: focus
 visibility, contrast as rendered, ultra-wide structure and overlay legibility
 over real footage are not things jsdom can answer. This harness drives the real
-production bundle in a real browser at the four acceptance widths, asserts what
+production bundle in a real browser at every support-tier anchor, asserts what
 can be asserted, and writes screenshots for the part that still needs a person.
 
 ## Running it
 
 ```bash
-cd src/web/mavi-web && npm run build      # the harness runs the real bundle
-cd - && node tools/web-visual-qa/run.mjs  # or add --build to do both
+cd src/web/mavi-web && npm run build          # the harness runs the real bundle
+cd - && node tools/web-visual-qa/run.mjs       # or add --build to do both
+node --test 'tools/web-visual-qa/test/*.test.mjs'   # the harness's own tests
 ```
-
-Useful flags:
 
 | Flag | Effect |
 |---|---|
 | `--build` | run `npm run build` first |
 | `--states cameras,search` | only these states (see `states.mjs`) |
-| `--widths 1366,2560` | only these viewports |
-| `--keep` | report findings but exit 0 |
+| `--tiers A` | only the anchors and probes of these support tiers |
+| `--widths 1366,2560` | only these widths |
+| `--workers 3` | parallel lanes (default: CPUs − 1, at most 4) |
+| `--repeat 5` | prepare every selected case this many times, independently, and require one settled state |
+| `--keep` | report blocking findings but exit 0 |
 
-Exit code 1 means an automated assertion failed. **A clean exit is necessary,
-not sufficient** — §26 requires looking at the captures.
+Exit status: **0** no blocking finding; **1** at least one blocking finding;
+**2** the harness itself failed — a browser or server fault, a case that threw,
+**a state it could not reach at any tier** (failed or unconfirmed preparation,
+settle timeout, footage overlay never drawn), a finding or an evaluation the
+manifest does not allow, or — on the full sweep — a blocking rule that never
+evaluated anything where it blocks. A harness fault is never reported as a
+finding, so no tier severity can soften it, and a later case that succeeds
+does not clear an earlier fault. An unreached state's capture is kept for
+diagnosis as `<state>--<viewport>--UNREACHED.png`, marked `valid: false` with
+its `unreached.stage` and `reason`, and left out of the valid-capture counts.
+**A clean exit is necessary, not sufficient** — §26 requires looking at the
+captures.
+
+Everything a run produced is in `.captures/`: one PNG and one JSON per
+capture, and `results.json` — the manifest summary, every state's tier
+applicability with its exclusion reasons, executions (scheduled, valid captures
+by tier, unreached and errored cases with their stage and reason), every
+finding with its rule, tier, surface, severity and owner, per-rule coverage,
+the P1 measurements and any harness errors.
+
+Two environment variables exist for the harness's own tests and nothing else:
+`MAVI_VQA_OUT` writes the run somewhere other than `.captures/` (a directory it
+names is replaced only if it is missing, empty or a previous output — it carries
+a `.mavi-visual-qa-output` marker), and
+`MAVI_VQA_STATES_MODULE` loads a module that re-exports `states.mjs` with test
+states added (the deliberately unreachable state of `test/run.test.mjs`); a run
+under it records `statesModule` and is never a full sweep.
+
+## Harness v2 (Stage 3.5 S2)
+
+**The assertion manifest** (`manifest.mjs`, register V1) has one entry per rule
+and, for each support tier, its status there: `blocking`, `measured/pending`
+(reported, never failing, with the owning slice and register row named) or
+`not-applicable` (with the reason). Every finding names a rule and takes that
+rule's severity at the tier of the width it was found at — from the manifest and
+nowhere else.
+
+**Surface scope.** `text.overflow` and `containment.depth` are `scope: 'surface'`
+rules: blocking at Tier A wherever S1 owns the region (the shell, the Context
+Bar, every Ledger, the Dialog host, the shortcut sheet, the skip link and every
+StateRegion — a finding there carries `surface: 'foundation'`), and on a product
+surface only once that surface's register row is accepted. `SURFACES` in
+`manifest.mjs` lists each surface with its row (Search R5, Review R6, Camera
+Analytics M4, …) and an `accepted` flag that the slice closing the row flips —
+one surface at a time, never all together; `ROUTES` maps every state's route to
+its surface and refuses a route it does not know. Until then a surface's
+findings are `measured/pending` against its own row. A frame round nothing but
+media (an image, a video, an evidence placeholder) is that object's edge, not a
+containment level. A finding or an evaluation the manifest does not allow at that
+tier, and a finding naming no rule, are harness faults. Until S5 flips them,
+every rule evaluated at a Tier B or C width is `measured/pending`; the manifest
+refuses anything else. Rules owned by later slices are registered now: measured
+where code exists (`review.sticky-rendered`, `containment.depth`, the §25 tier
+rules, the P1 measurements) and declared `future` with an execution policy where
+it does not yet (200% zoom, reduced motion, keyboard journeys, the remaining
+§23 rows).
+
+**Tiers and states** (`states.mjs`, V2). The default sweep is every §25 anchor:
+1366×768, 1440×900, 1920×1080, 2560×1080 and 2560×1440 (Tier A); 1024×768 and
+768×1024 (Tier B); 430×932 and 390×844 (Tier C). A state applies at every tier
+unless it names a tier policy, and a policy that leaves a tier out says why:
+`footage-variant` (Tier A only — a footage condition differs from the canonical
+Review state only in the video's pixels) and `breakpoint-probe` (only its probe
+widths — it exists to settle a measured transition). Applicability is not
+severity: a state cannot carry a severity, a known-issue list or any key the
+model does not define. `probeWidths` adds the special widths a state is also
+checked at — the 1120 Workbench drawer band, the 1440–1700 Investigation
+threshold, 1600 for the Evidence Set — reported apart from the anchors.
+
+**Deterministic settling** (`settle.mjs`, `engine.mjs`, V3). A capture is
+taken when the page and the fixture server agree the state is reached, on two
+consecutive probes: the page's expected text is shown and its forbidden text is
+not; no loading presentation is on screen (or, for a state that `holds:
+'loading'`, one is); images have loaded; a visible video has its metadata and
+is not mid-seek (a page that seeks on load has done so); no finite transition is running; the
+DOM has stopped changing; and no request is in flight or newly started. A
+request held open to keep a loading state is not "in flight" — it never
+completes by design. Preparations wait for the consequence of each action, never
+for a guessed duration. Every wait is bounded; a timeout refuses the state and
+says what was still pending. Two deliberate exceptions, both documented in the
+code: a footage state re-issues its seek at a bounded interval until the overlay
+is drawn over a decoded frame (media decoding exposes no completion the page can
+await), and `search-analytics-scene-degraded` moves the page clock past the
+30-second stale time instead of sleeping through it.
+
+**Measurements** (P1, V5), recorded per capture, never pass/fail:
+cumulative layout shift during each loading-to-content transition (Layout
+Instability API): the navigation's, from its first loading presentation to the
+settled state (`perf.cls`), and — kept apart — one a preparation starts, from
+that loading presentation to the state settling after it (`perf.clsPreparation`,
+labelled with the interaction or `fixture preparation`); harness activity
+between the two is in neither, and a transition that did not happen is
+`not-applicable`, never 0. Long tasks during the state's first operator
+interaction (`perf.longTasks`): only where the state names one (`interaction` in
+`states.mjs` — a click, a submit, a key press), from the action until the settle probe
+that confirmed its outcome, with the observers flushed (a settle probe's own
+work inside a task is subtracted; what remains still counts if it is 50ms or
+more, else the task is counted as `excludedAsHarness`); a preparation
+of several steps marks `interaction-start` immediately before the one action it
+names; a preparation that is fixture setup or a
+condition check (a programmatic seek, a page-clock advance, scripted field
+values) is `not-applicable`. And the resolved font — the
+declared `font-family` stack and the platform fonts Chromium actually used for
+the glyphs (`CSS.getPlatformFontsForNode`). Each measurement is `measured`,
+`not-applicable`, `unsupported` or `failed`, with the reason.
+
+**No pixel baselines** (V5): screenshots are diagnostic artefacts for the
+human pass, never compared. The resolved font matters to the assertions too:
+the Ubuntu CI runner resolves the stack to DejaVu Sans, wider than the Segoe UI
+Variable of a Windows host, and so exercises the truncation and overflow rules
+with metrics a Windows sweep does not.
+
+**Overlay exit** (§15, §20): after the capture, Escape must close an open
+Dialog or Drawer, leave nothing inert and return focus to its invoker — the
+last element focused outside any modal before focus first entered that overlay,
+recorded by the page observers. An overlay already open when the page settled
+was opened by its URL and has no invoker; for it restoration is reported
+`not-applicable` and only the close and inert checks apply. A full sweep in
+which no Tier A Dialog or Drawer opened by an action had its restoration judged
+is a harness fault. The focus pass that precedes it puts back both the scroll
+positions and the focus it found.
+
+**Pressed state** (`pressed.visible`, §12): every visible enabled
+`aria-pressed` control is rendered in its other state and compared with itself
+— its own, its descendants', its pseudo-elements' and its row's computed
+appearance. The other state is the attribute flipped with the classes the
+product pairs with it: read from the nearest peer in the other state (the one
+with the fewest class differences, so an unrelated class is not mistaken for
+the pressed one) or, with no such peer, the `is-` state classes the stylesheet
+defines for the control's own class or its row's. Identical readings are a
+finding, whether the control is pressed or not, isolated or grouped — except
+an unpressed control whose stylesheet defines `is-` states for it but whose
+pressed form the page never shows: that is *unproven* in that capture, not
+passed, and on a full sweep every such control kind must be shown distinct in
+some capture or it is a finding where first seen. Every
+attribute, class and style is restored exactly, with transitions held, so the
+probe leaves the page as it found it. Its limits: the stylesheet scan reads
+compound selectors, not `:is()`/`:where()` lists or CSS nesting (the product
+uses neither), so a state class defined only that way leaves an isolated
+unpressed control a finding rather than unproven.
+
+**CI** (V4): the `visual QA` job of the MAVI Quality Gate builds the production
+bundle, runs `node --test 'tools/web-visual-qa/test/*.test.mjs'`, sweeps with three lanes and
+uploads `.captures/` as the `visual-qa-captures` artefact (14 days), whether or
+not the sweep failed.
 
 ## What it needs
 
@@ -41,7 +186,8 @@ automation package would put a post-install browser download into a product
 whose Development setup runs `npm ci --offline` from a canonical cache
 (ADR-003, and the npm `changeRule` in
 `config/dependencies/offline-dependency-policy-v1.json`). The harness therefore
-lives in `tools/`, outside the frontend package, and CI does not run it.
+lives in `tools/`, outside the frontend package; CI uses the Chromium and
+ffmpeg of the hosted runner image.
 
 ## What is asserted automatically
 
@@ -116,17 +262,11 @@ geometry to get wrong:
   results stay readable underneath, and a `role="dialog"`, `aria-modal` or
   `inert` anywhere in the workspace is a finding.
 
-A state may pin its own viewports with `widths`. The four §25 acceptance widths
-are the standard sweep, but a breakpoint is settled by the widths either side of
-it and nowhere else: `search-threshold` runs at 1440, 1500, 1550, 1599, 1600 and
-1700 — the threshold is 1600 — `search-ultrawide` at 1920 and 2560, and
-`search-rail-overflow` at 1366 and 1440, where the rail is taller than the
-viewport and a second scroll owner or a stuck action bar would show. An explicit
-`--widths` still wins — that is a person asking to look at one width.
-
-`prepareSettleMs` sets how long to wait after a state's `prepare` step, for
-preparations whose consequence is slower than a render — a continuation that
-fails with a 5xx is retried once by the query client before it settles.
+A breakpoint is settled by the widths either side of it and nowhere else:
+`search-threshold` probes 1440, 1500, 1550, 1599, 1600 and 1700 — the threshold
+is 1600 — and `scene-editor-drawer` probes 1120, inside the Workbench drawer
+band. Both are `breakpoint-probe` states; their anchor geometry is their base
+state's.
 
 A fixture override may also be a **sequence**: `{ sequence: [pageOne,
 'unavailable'] }` answers successive requests to the same path with successive
@@ -152,11 +292,10 @@ quietly. `scene-editor-dense` is the state that exercises this — an inactive
 camera, an unavailable video list, a revision that will not load and the
 revision strip open, which is every fixed band this surface can have at once.
 
-The four widths are the §25 acceptance viewports, so the Workbench's drawer
-band — 1101 to 1149, where the inspector covers the stage — is outside them by
-construction. Check it deliberately with `--widths 1120`; the drawer's own
-behaviour (starts shut, toggles, closes, takes Escape only while open) is held
-by `workspace.test.tsx`.
+The Workbench's drawer band — 1101 to 1149, where the inspector covers the
+stage — lies in Tier B (§25), so the 1120 probe's findings are `measured/pending`
+until S5 like every Tier B finding; the drawer's own behaviour (starts shut,
+toggles, closes, takes Escape only while open) is held by `workspace.test.tsx`.
 
 Overlap detection clips before it compares. `getBoundingClientRect` reports
 where an element *would* be, so a row scrolled out of an inspector body still
@@ -165,8 +304,8 @@ between two things nobody can see at once. Each element is therefore clipped by
 every scrolling ancestor and by the viewport first, and one clipped to nothing
 takes no part in the comparison.
 
-Effective target sizes below 24×24 are reported per state in the JSON beside
-each capture rather than failed, because §10.1 allows small canvas handles with
+Effective target sizes below 24×24 are reported as the `a11y.target-size` rule,
+`measured/pending` against S6 / X1, because §10.1 allows small canvas handles with
 a large hit area and requires a documented exception, not an automatic failure.
 
 ## What still needs a person
@@ -185,7 +324,8 @@ job for the rendered result.
 `fixtures/*.json` are served for `/api/...`; a file name is the path with `/`
 replaced by `_`. A state can override one in `states.mjs`: a literal value is
 served as the response, `'unavailable'` answers 503, and `'hang'` never answers,
-which is how the loading state is held still long enough to look at.
+which is how the loading state is held still long enough to look at; such a
+state declares `holds: 'loading'`, and settles on its loading presentation.
 
 Footage is **generated by ffmpeg at run time**, not committed: the repository
 does not carry video datasets and `tools/verify_repo.py` enforces that.

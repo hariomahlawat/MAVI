@@ -2511,6 +2511,15 @@ def test_the_quality_gate_retains_a_trx_per_test_project_and_the_web_junit() -> 
     # root (so trx/ and junit/ survive), always, and the final quality job
     # re-publishes them as the one canonical artifact of the run.
     uploads = workflow.split("uses: actions/upload-artifact@v4")[1:]
+    # The visual-QA captures are a diagnostic artefact, not qualification evidence:
+    # they expire, live outside qualification-evidence/ and are never merged into
+    # the canonical result (their name does not match quality-lane-*).
+    diagnostic = [u for u in uploads if "name: visual-qa-captures\n" in u.split("\n      - ", 1)[0]]
+    assert len(diagnostic) == 1
+    step = diagnostic[0].split("\n      - ", 1)[0]
+    assert "path: tools/web-visual-qa/.captures/\n" in step and "retention-days: 14\n" in step, step
+    assert "qualification-evidence" not in step, step
+    uploads = [u for u in uploads if u not in diagnostic]
     assert len(uploads) == 3
     for upload in uploads:
         step = upload.split("\n      - ", 1)[0]

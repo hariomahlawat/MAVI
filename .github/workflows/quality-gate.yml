@@ -343,6 +343,73 @@ jobs:
           include-hidden-files: false
           if-no-files-found: warn
 
+  visual-qa:
+    # Stage 3.5 S2 (specification §26 as amended, register V4): the visual-QA
+    # harness against the production build at every tier anchor. The job fails
+    # only on a `blocking` manifest finding (exit 1) or a harness fault (exit
+    # 2); `measured/pending` findings are printed and kept in results.json.
+    # It builds the frontend itself rather than waiting on web-host's build: the
+    # Vite build takes seconds, and depending on that lane would serialise this
+    # job behind its .NET publish for no isolation gain.
+    name: visual QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/web/mavi-web/package-lock.json
+      - name: Locate Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$browser"
+          "$browser" --version
+          echo "MAVI_CHROMIUM=$browser" >> "$GITHUB_ENV"
+      - name: Ensure FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+            exit 0
+          fi
+          if sudo apt-get install -y ffmpeg; then
+            exit 0
+          fi
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
+          sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y ffmpeg
+      - name: Install frontend dependencies
+        working-directory: src/web/mavi-web
+        run: npm ci
+      - name: Build frontend (production)
+        working-directory: src/web/mavi-web
+        run: npm run build
+      - name: Test the harness
+        run: node --test 'tools/web-visual-qa/test/*.test.mjs'
+      - name: Run the visual-QA sweep
+        run: node tools/web-visual-qa/run.mjs --workers 3
+      - name: Retain captures and results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-qa-captures
+          path: tools/web-visual-qa/.captures/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
+
   quality:
     name: quality
     if: always()
@@ -353,6 +420,7 @@ jobs:
       - guard-coverage
       - qualification-tests
       - web-host
+      - visual-qa
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -394,6 +462,7 @@ jobs:
           test '${{ needs.guard-coverage.result }}' = 'success'
           test '${{ needs.qualification-tests.result }}' = 'success'
           test '${{ needs.web-host.result }}' = 'success'
+          test '${{ needs.visual-qa.result }}' = 'success'
       - name: Require one TRX per test project and the web JUnit
         shell: bash
         run: |
