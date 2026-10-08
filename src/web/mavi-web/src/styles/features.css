@@ -706,10 +706,11 @@
 /* The reference video failed: a short status on the frame it would have been
    (§37.1, media) — the geometry over it is still the scene, and unchanged. */
 /* A past revision already shown whose refresh failed: it stays on the stage,
-   named, and this says so with its retry (§37.1, degraded). */
-.scene-stage__refresh { position: absolute; top: var(--s-2); right: var(--s-2); max-width: min(52ch, calc(100% - 2 * var(--s-2))); }
+   named, and this says so with its retry (§37.1, degraded). At the foot of the
+   frame, opposite the media note, so it never covers the revision's banner. */
+.scene-stage__refresh { position: absolute; right: var(--s-2); bottom: var(--s-2); max-width: min(52ch, calc(50% - 1.5 * var(--s-2))); }
 .scene-stage__media-note {
-  position: absolute; left: var(--s-2); bottom: var(--s-2); max-width: calc(100% - 2 * var(--s-2));
+  position: absolute; left: var(--s-2); bottom: var(--s-2); max-width: calc(50% - 1.5 * var(--s-2));
   padding: var(--s-1) var(--s-2); border: 1px solid var(--border-subtle); border-radius: var(--r-1);
   background: var(--surface-overlay); color: var(--text-secondary); font-size: var(--fs-1); pointer-events: none;
 }

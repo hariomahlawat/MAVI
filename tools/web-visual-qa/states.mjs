@@ -2340,6 +2340,40 @@ const R3_LONG_IDENTITY = {
   [`/api/cameras/${CAM}`]: { ...R3_CAMERA, name: 'North Gate perimeter fence south-east approach (vehicle lane 2)' },
 };
 
+/** R4: the scene under the longest camera identity the domain permits (32-character code). */
+const R4_LONG_CAMERA = {
+  [`/api/cameras/${CAM}/scene`]: 'fixture',
+  [`/api/cameras/${CAM}`]: {
+    id: CAM, code: 'NORTH-PERIMETER-GATE-CAM-00042', name: 'North perimeter vehicle entrance, outer gate',
+    description: null, locationName: null, timeZoneId: 'Asia/Kolkata', isActive: true,
+    createdAtUtc: '2026-09-01T04:00:00Z', updatedAtUtc: '2026-09-01T04:00:00Z',
+  },
+};
+
+/** R4: disable every object, then Save — the in-band confirmation, with the note field shown. */
+const R4_CONFIRM_DISABLE = `(async () => {
+  ${UNTIL}
+  const objects = await until(() => {
+    const found = Array.from(document.querySelectorAll('[aria-label="Scene objects"] .scene-navigator__name'));
+    return found.length ? found : null;
+  }, 'the scene objects');
+  for (let index = 0; index < objects.length; index += 1) {
+    const object = document.querySelectorAll('[aria-label="Scene objects"] .scene-navigator__name')[index];
+    const name = object.querySelector('.truncate').textContent.trim();
+    object.click();
+    // The inspector names the object just selected before its control is used.
+    await until(() => Array.from(document.querySelectorAll('.scene-inspector__head h3')).some((h) => h.textContent.trim() === name), 'the inspector showing ' + name);
+    const box = await until(() => Array.from(document.querySelectorAll('label.checkbox')).find((l) => /^Evaluate this (zone|line)$/.test(l.textContent.trim())), 'the Enabled control of the selected object');
+    const input = box.querySelector('input');
+    if (input.checked) input.click();
+  }
+  const save = await until(() => Array.from(document.querySelectorAll('button')).find((b) => b.textContent.trim() === 'Save revision' && !b.disabled), 'an enabled Save revision');
+  save.focus();
+  window.__vqa.mark('interaction-start');
+  save.click();
+  return Boolean(await until(() => Array.from(document.querySelectorAll('button')).some((b) => b.textContent.trim() === 'Save and disable analytics'), 'the in-band confirmation'));
+})()`;
+
 /** R4: the scene's camera (fixture), for states that vary one thing about it. */
 const R4_CAMERA = JSON.parse(readFileSync(new URL(`./fixtures/cameras_${CAM}.json`, import.meta.url), 'utf8'));
 
@@ -2913,6 +2947,30 @@ export const STATES = [
       return Boolean(await until(() => Array.from(document.querySelectorAll('button')).some((b) => b.textContent.trim() === 'Finish zone'), 'Finish zone in the mode strip'));
     })()`,
     expectText: ['Finish zone', 'Cancel', 'Click to add a vertex'],
+  },
+  {
+    // R4 (cold review): the Context Bar's widest state — a long identity, a
+    // dirty draft with its note, and the in-band confirmation of a save that
+    // disables analytics ("Cancel", "Save and disable analytics").
+    name: 'scene-editor-confirm-disable', interaction: 'save a scene with every object disabled, opening its confirmation',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    api: R4_LONG_CAMERA,
+    prepare: R4_CONFIRM_DISABLE,
+    expectText: ['Save and disable analytics', 'Nothing here is enabled'],
+  },
+  {
+    // The same state at the widths that settle where the Scene's no-wrap
+    // status rule may begin: the bar's measured minimum (§25, §4.3.1).
+    name: 'scene-editor-confirm-disable-probe', interaction: 'save a scene with every object disabled, opening its confirmation',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    api: R4_LONG_CAMERA,
+    prepare: R4_CONFIRM_DISABLE,
+    expectText: ['Save and disable analytics', 'Nothing here is enabled'],
+    tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor-confirm-disable', probeWidths: [1150, 1180, 1200, 1230],
   },
   {
     // R4: an inactive camera, alone. The server refuses its changes, so the

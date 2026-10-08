@@ -97,7 +97,9 @@ export default function SceneEditorPage() {
   // dirties the draft — it describes the save, not the scene — but it is still
   // the operator's typing, so adopting a revision over it would lose work.
   const dirtyRef = useRef(state.dirty);
-  dirtyRef.current = state.dirty || state.draft.note.trim().length > 0;
+  // An unfinished polygon or line is the operator's work too: adopting a
+  // revision over it would drop it with no prompt.
+  dirtyRef.current = state.dirty || state.draft.note.trim().length > 0 || state.drawing.kind !== 'none';
 
   const activeRevision = scene.data?.activeRevision ?? null;
 
@@ -148,13 +150,33 @@ export default function SceneEditorPage() {
     enabled: Boolean(cameraId) && viewingRevisionNumber !== null,
   });
 
+  const saveMutation = useMutation({
+    mutationFn: (draft: SceneDraft) => saveCameraScene(cameraId, saveRequestFromDraft(draft)),
+    onSuccess: async (revision: SceneRevision) => {
+      setConflict(false);
+      setSaved(true);
+      // The server-issued identities arrive with the response; the draft is
+      // rebuilt from it rather than guessing what the server chose.
+      loadedRevisionRef.current = revision.revisionId;
+      dispatch({ type: 'savedRevision', revision });
+      setPreviewVideoId(revision.referenceFrameVideoAssetId ?? null);
+      await queryClient.invalidateQueries({ queryKey: sceneQueryKeys.scene(cameraId) });
+    },
+    onError: (error: unknown) => {
+      setSaved(false);
+      setConflict(isRevisionConflict(error));
+    },
+  });
+
   const readOnly = viewingRevisionNumber !== null;
   // The server refuses every scene change on an inactive camera
   // (`scene_camera_inactive`), so its editing tools are withheld rather than
   // offered and then refused at Save: a scene that cannot be changed is shown
   // the way a past revision is — readable, selectable, not editable.
   const cameraActive = camera.data?.isActive ?? false;
-  const editable = !readOnly && cameraActive;
+  // Nor while a save is in flight: its response rebuilds the draft from the
+  // server, so an edit made during the round trip would vanish unannounced.
+  const editable = !readOnly && cameraActive && !saveMutation.isPending;
   // Losing editability — a camera refetched as inactive — abandons an
   // unfinished polygon or line and disarms the tool: the gesture belongs to an
   // editor that is no longer offered, so it must neither keep the leave guard
@@ -212,8 +234,11 @@ export default function SceneEditorPage() {
     recoverFocusRef.current = false;
     const active = document.activeElement;
     if (active && active !== document.body && active.isConnected) return;
-    document.querySelector<HTMLElement>('[aria-label="Scene objects"] .scene-navigator__name')?.focus();
-  }, [state.draft]);
+    // The navigator lists the rest of the scene; with nothing left in it, the
+    // armed tool in the mode strip is where drawing the next object starts.
+    (document.querySelector<HTMLElement>('[aria-label="Scene objects"] .scene-navigator__name')
+      ?? document.querySelector<HTMLElement>('[aria-label="Drawing tools"] [aria-pressed="true"]'))?.focus();
+  }, [state.draft, state.selection]);
 
   const issues = useMemo(() => (readOnly ? [] : validateDraft(state.draft)), [readOnly, state.draft]);
   const issuesForKey = useMemo(() => issuesByKey(issues), [issues]);
@@ -245,23 +270,6 @@ export default function SceneEditorPage() {
     if (!editorShown && pendingDiscard !== null) setPendingDiscard(null);
   }, [editorShown, pendingDiscard]);
 
-  const saveMutation = useMutation({
-    mutationFn: (draft: SceneDraft) => saveCameraScene(cameraId, saveRequestFromDraft(draft)),
-    onSuccess: async (revision: SceneRevision) => {
-      setConflict(false);
-      setSaved(true);
-      // The server-issued identities arrive with the response; the draft is
-      // rebuilt from it rather than guessing what the server chose.
-      loadedRevisionRef.current = revision.revisionId;
-      dispatch({ type: 'savedRevision', revision });
-      setPreviewVideoId(revision.referenceFrameVideoAssetId ?? null);
-      await queryClient.invalidateQueries({ queryKey: sceneQueryKeys.scene(cameraId) });
-    },
-    onError: (error: unknown) => {
-      setSaved(false);
-      setConflict(isRevisionConflict(error));
-    },
-  });
 
   const referenceOffsetForCanvas = readOnly
     ? historicalRevision.data?.referenceFrameOffsetMs ?? null
@@ -293,10 +301,17 @@ export default function SceneEditorPage() {
 
       if (event.key === 'Escape') {
         if (state.drawing.kind !== 'none') dispatch({ type: 'cancelDrawing' });
-        else if (state.selection.kind !== 'none') dispatch({ type: 'select', selection: { kind: 'none' } });
+        else if (state.selection.kind !== 'none') {
+          dispatch({ type: 'select', selection: { kind: 'none' } });
+          // The inspector's controls for that object leave with it.
+          recoverFocusRef.current = true;
+        }
         return;
       }
-      if (event.key === 'Enter' && state.drawing.kind === 'zone') {
+      // Enter on the inspector's geometry controls — its disclosure, a vertex
+      // — is that control's activation, not "finish the polygon". Everywhere
+      // else (the armed tool keeps focus after it is pressed) Enter finishes.
+      if (event.key === 'Enter' && state.drawing.kind === 'zone' && !isGeometryControl(event.target as HTMLElement | null)) {
         event.preventDefault();
         dispatch({ type: 'closeZone' });
         return;
@@ -389,12 +404,12 @@ export default function SceneEditorPage() {
   }, [queryClient, cameraId, adopt]);
 
   const reloadActive = useCallback(() => {
-    if (state.dirty) {
+    if (state.dirty || noteRetained) {
       setPendingDiscard('reload');
       return;
     }
     void performReload();
-  }, [state.dirty, performReload]);
+  }, [state.dirty, noteRetained, performReload]);
 
   const discardDialog = (
     <Dialog
@@ -445,7 +460,9 @@ export default function SceneEditorPage() {
           loadingLabel="Loading scene…"
           unavailableMessage={(error) => sceneErrorMessage(
             error,
-            camera.isError ? 'The camera could not be loaded.' : 'The scene could not be loaded.',
+            // The request with no data is the one that failed to load; a camera
+            // already read whose refresh failed is not the subject.
+            camera.data === undefined && camera.isError ? 'The camera could not be loaded.' : 'The scene could not be loaded.',
           )}
           onRetry={() => {
             if (camera.isError) void camera.refetch();
@@ -640,7 +657,7 @@ export default function SceneEditorPage() {
                       same tool — and steps aside once a tool is armed. */}
                   {editable && !configured && state.tool === 'select'
                     && shownDraft.zones.length === 0 && shownDraft.tripLines.length === 0 ? (
-                    <div className={`scene-stage__intro${canvasVideoId ? '' : ' is-empty'}`}>
+                    <div className={`scene-stage__intro${canvasVideoId && !mediaFailed ? '' : ' is-empty'}`}>
                       <strong>No scene configured</strong>
                       <span>
                         {cameraVideos.length > 0
@@ -770,6 +787,11 @@ function NotFound({ camera }: { camera?: string }) {
       </EmptyState>
     </section>
   );
+}
+
+/** The inspector's forensic-tier controls, whose own activation Enter is. */
+function isGeometryControl(target: HTMLElement | null): boolean {
+  return Boolean(target?.closest('.scene-inspector__geometry'));
 }
 
 function isTextEntry(target: HTMLElement | null): boolean {

@@ -505,6 +505,112 @@ describe('scene editor', () => {
     });
   });
 
+  describe('cold-review corrections on PR #192', () => {
+    it('names the scene, not the camera, when only a cached camera refresh failed beside a scene that never loaded', async () => {
+      vi.mocked(getCamera).mockResolvedValueOnce(camera).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store down.' }));
+      vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 500, code: 'api_error', detail: 'Scene store is down.' }));
+      const { queryClient } = render();
+      await screen.findByText('The scene could not be loaded. Scene store is down. (api_error)');
+
+      // The camera already read now fails its refresh; Retry re-renders the
+      // page with the camera in error but still holding its data.
+      await act(async () => { await queryClient.refetchQueries({ queryKey: queryKeys.camera(cameraId) }); });
+      await userEvent.setup().click(within(screen.getByRole('alert')).getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(vi.mocked(getCameraScene).mock.calls.length).toBeGreaterThan(1));
+      expect(await screen.findByRole('alert')).toHaveTextContent('The scene could not be loaded. Scene store is down. (api_error)');
+      expect(screen.queryByText(/The camera could not be loaded/)).not.toBeInTheDocument();
+    });
+
+    it('asks before Reload active revision discards a retained note', async () => {
+      const user = userEvent.setup();
+      vi.mocked(saveCameraScene).mockRejectedValue(new ApiError({ status: 409, code: 'scene_revision_conflict', detail: 'stale' }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      const name = screen.getByLabelText('Name');
+      await user.type(name, 'x');
+      await user.type(screen.getByLabelText('Revision note (optional)'), 'Moved the gate');
+      await user.click(screen.getByRole('button', { name: 'Save revision' }));
+      await screen.findByText(/This scene changed since you started editing/);
+      // The edit is reverted; the note is not.
+      await user.clear(name);
+      await user.type(name, 'Gate');
+
+      await user.click(screen.getByRole('button', { name: 'Reload active revision' }));
+      expect(await screen.findByRole('dialog', { name: 'Discard your changes and load the saved revision?' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Revision note (optional)')).toHaveValue('Moved the gate');
+    });
+
+    it('returns focus to the armed tool when the last object is deleted from a focused vertex', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(configured({ activeRevision: revision({ tripLines: [] }) }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.click(screen.getByText(/^Vertices · \d+$/));
+      await user.tab();
+      await user.keyboard('{Enter}{Delete}');
+
+      expect(queryObjectButton('Gate')).toBeNull();
+      await waitFor(() => expect(toolButton('Select')).toHaveFocus());
+    });
+
+    it('lets Enter act on a focused vertex while a zone is being drawn, and Escape keep focus on the page', async () => {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.click(screen.getByText(/^Vertices · \d+$/));
+      await user.click(toolButton('Zone'));
+      await clickFrame(user, 0.6, 0.6);
+
+      const vertex = screen.getByRole('button', { name: /^Vertex 2: / });
+      vertex.focus();
+      await user.keyboard('{Enter}');
+      // The vertex is selected; the unfinished polygon is still unfinished.
+      expect(vertex).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Finish zone' })).toBeInTheDocument();
+
+      await user.click(toolButton('Select'));
+      screen.getByRole('button', { name: /^Vertex 2: / }).focus();
+      await user.keyboard('{Escape}');
+      // The selection clears and its inspector controls go; focus does not fall to the page.
+      await waitFor(() => expect(objectButton('Gate')).toHaveFocus());
+    });
+
+    it('locks editing while a save is in flight, so nothing typed then is lost to the response', async () => {
+      const user = userEvent.setup();
+      let resolve: (value: SceneRevision) => void = () => {};
+      vi.mocked(saveCameraScene).mockReturnValue(new Promise((done) => { resolve = done; }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      await user.click(screen.getByRole('button', { name: 'Save revision' }));
+
+      expect(await screen.findByRole('button', { name: 'Saving…' })).toBeDisabled();
+      expect(screen.getByLabelText('Name')).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /^Delete / })).not.toBeInTheDocument();
+      await act(async () => { resolve(revision({ revisionNumber: 3 })); });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Save revision' })).toBeInTheDocument());
+    });
+
+    it('does not adopt a newer revision over an unfinished polygon; it says so and keeps the drawing', async () => {
+      const user = userEvent.setup();
+      const { queryClient } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await user.click(toolButton('Zone'));
+      await clickFrame(user, 0.6, 0.6);
+
+      vi.mocked(getCameraScene).mockResolvedValue(configured({ activeRevision: revision({ revisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c219ff', revisionNumber: 5 }) }));
+      await act(async () => { await queryClient.refetchQueries({ queryKey: sceneQueryKeys.scene(cameraId) }); });
+
+      expect(await screen.findByText(/Somebody saved revision 5 while you were editing/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(true);
+    });
+  });
+
   it('offers Reset only when there is something to reset', async () => {
     const user = userEvent.setup();
     render();
