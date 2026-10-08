@@ -69,6 +69,21 @@ describe('LoadingState', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Loading videos…');
   });
 
+  it('reserves one header region only for a Ledger skeleton, never for a list or key/value one (S1e, D3)', () => {
+    const { container, unmount } = render(<LoadingState rows={3} pitch="ledger" />);
+    expect(container.querySelectorAll('.skeleton__head')).toHaveLength(1);
+    expect(container.querySelector('.skeleton__head')).toHaveAttribute('aria-hidden', 'true');
+    // The header comes before the rows, and the rows keep the count asked for.
+    expect(container.querySelector('.skeleton')?.firstElementChild?.nextElementSibling).toHaveClass('skeleton__head');
+    expect(container.querySelectorAll('.skeleton__row')).toHaveLength(3);
+    unmount();
+    for (const pitch of ['table', 'list', 'compactList', 'keyValue'] as const) {
+      const other = render(<LoadingState rows={3} pitch={pitch} />);
+      expect(other.container.querySelector('.skeleton__head'), pitch).toBeNull();
+      other.unmount();
+    }
+  });
+
   it('renders a skeleton row as geometry only: no text, no icon, no spinner', () => {
     const { container } = render(<LoadingState rows={2} />);
     expect(container.querySelector('.spinner')).toBeNull();

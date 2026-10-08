@@ -97,6 +97,14 @@ export function LedgerLayout({
  * contract (a captioned table). It is the archetype's own region, not a
  * de-duplication of three tables.
  */
+/**
+ * The loading skeleton of a standard Ledger (§37.1 column, §38): the header
+ * region the table will draw, then the confirmed default rows at the Ledger
+ * row pitch. One contract for every Ledger, so a Ledger's loading geometry is
+ * decided here rather than by each page.
+ */
+export const LEDGER_SKELETON = { rows: 'default', pitch: 'ledger' } as const;
+
 export function LedgerTable({
   caption,
   children,

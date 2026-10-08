@@ -375,6 +375,26 @@ export const WORKSPACE_ASSERTIONS = `(() => {
       }
     }
 
+    // S1e (D3, section 38): where the first body row sits, measured from the
+    // top of the viewport, whether it is the table's or the loading
+    // skeleton's. run.mjs compares a loading state with its ready state at the
+    // same width; a skeleton that reserves no header, or a band that arrives
+    // with the data, moves the rows and fails there.
+    if (!summary) {
+      const firstRow = table ? table.querySelector('tbody tr') : region.querySelector('.skeleton__row');
+      if (firstRow) {
+        measured.firstRowTop = round(firstRow.getBoundingClientRect().top);
+        measured.firstRowKind = table ? 'table' : 'skeleton';
+      }
+      if (!table && region.querySelector('.skeleton__row') && !region.querySelector('.skeleton__head')) {
+        problems.push('Ledger loading skeleton reserves no header region: the table header will push its rows down');
+      }
+      if (table) {
+        const headRow = table.querySelector('thead tr');
+        if (headRow) measured.headerHeight = round(headRow.getBoundingClientRect().height);
+      }
+    }
+
     if (table && frame) {
       // Exactly one scrolling ancestor for the rows.
       const nested = Array.from(frame.querySelectorAll('*')).filter((el) => {

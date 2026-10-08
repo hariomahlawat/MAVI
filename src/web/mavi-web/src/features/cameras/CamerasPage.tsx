@@ -14,7 +14,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatCount } from '../../shared/format/format';
 import { SortableColumn, sortRows, useLedgerSort } from '../../shared/table';
 import TruncatedText from '../../shared/overlay/Truncated';
-import { ContextBar, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
+import { ContextBar, LEDGER_SKELETON, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
 
 type CameraColumn = 'code' | 'name' | 'state';
 
@@ -300,11 +300,18 @@ export default function CamerasPage() {
 
       <LedgerLayout
         // No filters here, so the band exists only while it has something to
-        // say; an empty 32px strip is chrome, not a toolbar.
-        toolbar={cameras.data ? (
+        // say; an empty 32px strip is chrome, not a toolbar. While the
+        // inventory loads it names the Ledger without a count, so the table
+        // that follows arrives under it instead of below a band that appears
+        // with it (section 38); only an unavailable inventory has no band.
+        toolbar={cameras.data || cameras.isPending ? (
           <Toolbar
             label="Camera inventory"
-            hint={`${formatCount(cameras.data.length)} camera${cameras.data.length === 1 ? '' : 's'} registered`}
+            // While loading, the band says so in the region's own words, which
+            // also gives it the hint line's height the count will have.
+            hint={cameras.data
+              ? `${formatCount(cameras.data.length)} camera${cameras.data.length === 1 ? '' : 's'} registered`
+              : 'Loading cameras…'}
           />
         ) : undefined}
         editor={creating ? createRegion : null}
@@ -313,7 +320,7 @@ export default function CamerasPage() {
           kind="column"
           state={fromQuery(cameras)}
           label="cameras"
-          skeleton={{ rows: 'default' }}
+          skeleton={LEDGER_SKELETON}
           isEmpty={(all) => all.length === 0}
           empty={{
             icon: 'camera',

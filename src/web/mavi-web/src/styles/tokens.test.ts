@@ -355,6 +355,32 @@ describe('control states are painted by tokens, not by opacity (section 12)', ()
     expect(disabledRules).toHaveLength(1);
   });
 
+  it('lets no stylesheet paint a disabled button outside the shared contract, whatever selects it (section 12)', () => {
+    // The check above reads selectors that name `.btn`. A consumer rule that
+    // reaches a button through its element or a feature class —
+    // `.some-feature button:disabled` — escaped it, and the Evidence Timeline
+    // navigator did exactly that until S1e. Every rule that selects a disabled
+    // button by any route is one of two: the shared contract above, or the
+    // base sheet's reset, which sets only the cursor for unstyled buttons.
+    const offenders: string[] = [];
+    for (const file of featureCss) {
+      for (const match of withoutComments(read(file)).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        for (const raw of match[1].split(',')) {
+          const selector = raw.trim().replace(/:not\([^)]*\)/g, '').replace(/\s+/g, ' ');
+          if (!/:disabled|aria-disabled/.test(selector)) continue;
+          const subject = selector.split(/[\s>+~]+/).pop() ?? '';
+          const isButton = /^button\b|\.btn\b|\[type="?(button|submit)"?\]/.test(subject);
+          if (!isButton) continue;
+          const canonical = file === 'components.css' && subject.startsWith('.btn') && selector === subject;
+          const reset = file === 'base.css' && selector === 'button:disabled'
+            && match[2].split(';').map((d) => d.trim()).filter(Boolean).join(';') === 'cursor: not-allowed';
+          if (!canonical && !reset) offenders.push(`${file}: ${selector}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('paints a pressed-and-disabled button as disabled, not as pressed', () => {
     // `.btn[aria-pressed="true"]` outranks `.btn:disabled` on specificity, so
     // the disabled rule must name the pressed case itself.
@@ -411,6 +437,18 @@ describe('control states are painted by tokens, not by opacity (section 12)', ()
       if (!match[1].includes('.skeleton')) continue;
       expect(match[2], match[1].trim()).not.toMatch(/animation/);
     }
+  });
+
+  it('reserves the Ledger header in the Ledger skeleton from the same token the header is drawn at (S1e, D3)', () => {
+    // The header row and the skeleton's header region are one geometry, so a
+    // loading Ledger's rows land where the table's do (sections 36.3, 38).
+    expect(tokens).toMatch(/--table-head-h:\s*\d+px/);
+    expect(ruleFor('.table--ledger thead th', true)).toMatch(/height: var\(--table-head-h\)/);
+    expect(ruleFor('.table--ledger thead th.is-sortable .col-sort', true)).toContain('var(--table-head-h)');
+    // The frame's top border and the header row, nothing else.
+    expect(ruleFor('.skeleton__head', true)).toMatch(/height: calc\(var\(--stroke-hair\) \+ var\(--table-head-h\)\)/);
+    // A bordered table is not drawn around a loading Ledger (section 4.1).
+    expect(ruleFor('.skeleton__head', true)).not.toMatch(/border(-top|-left|-right)?:/);
   });
 
   it('keeps an empty presentation content-sized', () => {

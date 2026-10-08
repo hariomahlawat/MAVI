@@ -155,17 +155,11 @@
 .page--workspace > * { flex: 0 0 auto; min-height: 0; }
 .page--workspace > :last-child { flex: 1 1 auto; }
 
-.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s-4); }
-.page-header h1 { font-size: var(--fs-5); }
-.page-header p { margin-top: var(--s-hair); color: var(--text-secondary); font-size: var(--fs-2); max-width: 72ch; }
-.page-header__actions { display: flex; gap: var(--s-2); flex: 0 0 auto; align-items: center; }
 
 /* The `.split` list/inspector pair the pre-archetype pages used is gone with
    UI-3: Cameras and Processing detail were its last callers, and they are a
    Ledger and a Record now. */
 
-.rail-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: var(--s-4); min-height: 0; height: 100%; }
-.rail-layout > * { min-height: 0; }
 .scroll-y { overflow-y: auto; min-height: 0; }
 .stack { display: grid; gap: var(--s-3); align-content: start; }
 .stack--tight { gap: var(--s-2); }
@@ -174,14 +168,10 @@
 .row--nowrap { flex-wrap: nowrap; }
 .grow { flex: 1; min-width: 0; }
 
-@media (max-width: 1100px) {
-  .rail-layout { grid-template-columns: 1fr; height: auto; }
-}
 @media (max-width: 760px) {
   .shell, .shell--collapsed { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr); }
   .sidebar__brand div, .sidebar__nav a span, .sidebar__section, .api-health__text, .sidebar__toggle { display: none; }
   .sidebar__nav a { justify-content: center; padding: 0; }
   .page { padding: var(--s-3); }
   .context-bar { padding: 0 var(--s-3); }
-  .page-header { flex-direction: column; align-items: stretch; }
 }

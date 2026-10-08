@@ -19,6 +19,7 @@ export { default as Segmented, type SegmentedOption } from './Segmented';
 export { default as Toolbar } from './Toolbar';
 export {
   InvestigationLayout,
+  LEDGER_SKELETON,
   LedgerLayout,
   LedgerTable,
   LedgerSummaryLayout,

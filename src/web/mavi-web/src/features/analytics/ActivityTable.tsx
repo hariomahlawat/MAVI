@@ -21,7 +21,7 @@ export default function ActivityTable({
   if (rows.length === 0) return null;
 
   return (
-    <table className="table table--compact analytics-table">
+    <table className="table analytics-table">
       <caption className="visually-hidden">
         {METRICS[reading.metric].label}
         {reading.subjectLabel ? ` for ${reading.subjectLabel}` : ''} by bucket. {reading.definition}

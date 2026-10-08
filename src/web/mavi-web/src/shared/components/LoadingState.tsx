@@ -18,6 +18,14 @@
  */
 export const DEFAULT_SKELETON_ROWS = 8;
 
+const SKELETON_CLASS = {
+  table: 'skeleton',
+  ledger: 'skeleton skeleton--ledger',
+  list: 'skeleton skeleton--list',
+  compactList: 'skeleton skeleton--compact-list',
+  keyValue: 'skeleton skeleton--kv',
+} as const;
+
 export default function LoadingState({
   label = 'Loading…',
   rows,
@@ -29,16 +37,24 @@ export default function LoadingState({
    * the confirmed eight.
    */
   rows?: number | 'default';
-  /** The row geometry the skeleton precedes: a Ledger table row, a result-list row with a thumbnail, or a key/value row. */
-  pitch?: 'table' | 'list' | 'compactList' | 'keyValue';
+  /**
+   * The geometry the skeleton precedes: table rows, a whole Ledger table
+   * (its header region, then table rows), a result-list row with a thumbnail,
+   * a compact list row, or a key/value row. Only `ledger` reserves a header:
+   * a list or a key/value block has none, so nothing else assumes one.
+   */
+  pitch?: 'table' | 'ledger' | 'list' | 'compactList' | 'keyValue';
 }) {
   const count = rows === 'default' ? DEFAULT_SKELETON_ROWS : rows;
   if (count && count > 0) {
     return (
-      <div className={pitch === 'list' ? 'skeleton skeleton--list' : pitch === 'keyValue' ? 'skeleton skeleton--kv' : pitch === 'compactList' ? 'skeleton skeleton--compact-list' : 'skeleton'} role="status">
+      <div className={SKELETON_CLASS[pitch]} role="status">
         {/* A live region announces its content, not a name: the label is text
             inside it, hidden visually, so the load is actually said — once. */}
         <span className="visually-hidden">{label}</span>
+        {/* A span, not a div, so the rows' alternating widths still count
+            from the first row. */}
+        {pitch === 'ledger' ? <span className="skeleton__head" aria-hidden="true" /> : null}
         {Array.from({ length: count }, (_, index) => (
           <div key={index} className="skeleton__row" />
         ))}
