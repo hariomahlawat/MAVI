@@ -1208,13 +1208,26 @@ export async function stickyProbe() {
   const distance = Math.min(600, scroller.scrollHeight - scroller.clientHeight);
   if (distance < 40) return { evaluated: false, why: 'the page has nothing to scroll' };
   const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const start = scroller.scrollTop;
   const before = player.getBoundingClientRect();
-  scroller.scrollTop += distance;
+  scroller.scrollTop = start + distance;
   await frame();
   const after = player.getBoundingClientRect();
   const viewport = scroller.getBoundingClientRect();
   const visible = Math.max(0, Math.min(after.bottom, viewport.bottom) - Math.max(after.top, viewport.top));
-  scroller.scrollTop -= distance;
+  // Pinned clear of the Context Bar, which is sticky in the same scroller: a
+  // player pinned under it is on screen and still hidden.
+  const bar = document.querySelector('.context-bar');
+  const barBottom = bar ? bar.getBoundingClientRect().bottom : viewport.top;
+  const underBar = Math.max(0, Math.round(barBottom - after.top));
+  // Released at the end of its containing block: scrolled to the end, the
+  // player never extends past its own column (so it cannot cover what follows).
+  scroller.scrollTop = scroller.scrollHeight;
+  await frame();
+  const column = player.parentElement.getBoundingClientRect();
+  const atEnd = player.getBoundingClientRect();
+  const overrun = Math.max(0, Math.round(atEnd.bottom - column.bottom));
+  scroller.scrollTop = start;
   await frame();
   const fraction = after.height > 0 ? visible / after.height : 0;
   return {
@@ -1223,6 +1236,8 @@ export async function stickyProbe() {
     topBefore: Math.round(before.top),
     topAfter: Math.round(after.top),
     visibleFraction: Math.round(fraction * 100) / 100,
+    underBar,
+    overrun,
     pinned: fraction >= 0.5,
   };
 }

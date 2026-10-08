@@ -13,7 +13,7 @@ import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRe
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { ContextBar, ReviewLayout } from '../../shared/workspace';
-import { ProvenancePanel, TrackIdentity, TrackSummary } from './TrackDetailsPanels';
+import { ProvenancePanel, TrackSummary } from './TrackDetailsPanels';
 import TrackEvidence from './TrackEvidence';
 import TrackEvidenceSet from './TrackEvidenceSet';
 import TrackAnalyticsExplanation from './TrackAnalyticsExplanation';
@@ -236,7 +236,8 @@ export default function VideoReviewPage() {
                 Identity and provenance follow and may run below the fold, which
                 Review is explicitly allowed to do.
               */}
-              <Panel title="Track summary" description="What this Track asserts, from persisted evidence.">
+              {/* F19: the panels name what they hold; no standing subtitle prose. */}
+              <Panel title="Track summary">
                 <TrackSummary detail={detail} displayTimeZoneId={displayTimeZoneId} />
               </Panel>
               {/* The analytical explanation follows the primary summary, so
@@ -246,7 +247,7 @@ export default function VideoReviewPage() {
                   assumed: a detail from a server without the analytics block
                   degrades to the Slice-3 page rather than blanking it. */}
               {detail.analytics ? (
-                <Panel title="Scene analytics" description="What the pinned scene revision says about this Track.">
+                <Panel title="Scene analytics">
                   <TrackAnalyticsExplanation
                     analytics={detail.analytics}
                     scene={scene}
@@ -258,12 +259,11 @@ export default function VideoReviewPage() {
               {/* The Evidence Set takes the Representative panel's old place,
                   after the primary summary, so section 4.5.1 is unchanged. It is
                   supporting evidence in the rail, never a second canvas under
-                  the player. Its rank 0 is the Representative crop. */}
-              <Panel title="Evidence Set" description="Accepted observations in rank order, and the stable Track identity.">
-                <div className="stack">
-                  <TrackEvidenceSet detail={detail} />
-                  <TrackIdentity detail={detail} displayTimeZoneId={displayTimeZoneId} />
-                </div>
+                  the player. Its rank 0 is the Representative crop, and the
+                  crop's caption states its frame, time and confidence. The
+                  record's identifiers are Provenance's, one disclosure away. */}
+              <Panel title="Evidence Set">
+                <TrackEvidenceSet detail={detail} />
               </Panel>
               <ProvenancePanel detail={detail} displayTimeZoneId={displayTimeZoneId} />
             </>

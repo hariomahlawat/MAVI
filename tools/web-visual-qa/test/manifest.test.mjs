@@ -56,7 +56,7 @@ describe('the assertion manifest', () => {
       'ledger.row-pitch', 'surface.one-primary', 'containment.depth', 'ledger.containment', 'state.placement',
       'a11y.skip-link', 'a11y.landmarks', 'overlay.drawer', 'overlay.dialog', 'text.overflow', 'pressed.visible',
       'tier.b-shell', 'tier.c-shell', 'tier.c-workbench-unsupported',
-      // owned by later slices, measured now
+      // owned by later slices (review.sticky-rendered: R6, now blocking at Tier A)
       'review.sticky-rendered', 'perf.cls', 'perf.long-tasks', 'typography.resolved-font',
     ];
     for (const rule of SECTION_26) {
@@ -86,10 +86,14 @@ describe('the assertion manifest', () => {
   });
 
   it('keeps the later-slice rules measured with their owners named', () => {
-    assert.match(severityOf('review.sticky-rendered', 'A').owner, /R6/);
     assert.match(severityOf('perf.cls', 'A').owner, /X3/);
     assert.match(severityOf('a11y.zoom-200', 'A').owner, /T3/);
-    assert.match(severityOf('containment.depth', 'A', 'review').owner, /R6/);
+    assert.match(severityOf('containment.depth', 'A', 'camera-analytics').owner, /M4/);
+  });
+
+  it('blocks the rendered Review pin at Tier A once R6 made it hold, and nowhere below it', () => {
+    assert.equal(severityOf('review.sticky-rendered', 'A').status, 'blocking');
+    for (const tier of ['B', 'C']) assert.equal(severityOf('review.sticky-rendered', tier).status, 'measured/pending', tier);
   });
 
   it('rejects an invalid severity', () => {
@@ -162,7 +166,7 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
   const accepted = (...names) => Object.fromEntries(Object.entries(SURFACES).map(([name, s]) => [name, { ...s, accepted: s.accepted || names.includes(name) }]));
 
   it('names the owning row of every unmigrated surface', () => {
-    const owners = { review: /R6/, 'camera-analytics': /M4/, overview: /R1/, videos: /R2/, 'processing-detail': /R3/, cameras: /M1/, 'processing-queue': /M2/, import: /M3/ };
+    const owners = { 'camera-analytics': /M4/, overview: /R1/, videos: /R2/, 'processing-detail': /R3/, cameras: /M1/, 'processing-queue': /M2/, import: /M3/ };
     for (const [surface, owner] of Object.entries(owners)) {
       const at = severityOf('containment.depth', 'A', surface);
       assert.equal(at.status, 'measured/pending', surface);
@@ -177,7 +181,7 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
       for (const tier of ['B', 'C']) assert.equal(severityOf(rule, tier, 'scene-editor').status, 'measured/pending', `${rule} @ ${tier}`);
     }
     // Its acceptance promotes nothing else.
-    assert.equal(severityOf('containment.depth', 'A', 'review').status, 'measured/pending');
+    assert.equal(severityOf('containment.depth', 'A', 'cameras').status, 'measured/pending');
     assert.equal(surfaceOf('/cameras/abc/scene'), 'scene-editor');
   });
 
@@ -188,16 +192,28 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
       for (const tier of ['B', 'C']) assert.equal(severityOf(rule, tier, 'search').status, 'measured/pending', `${rule} @ ${tier}`);
     }
     // Its acceptance promotes nothing else.
-    assert.equal(severityOf('containment.depth', 'A', 'review').status, 'measured/pending');
     assert.equal(severityOf('containment.depth', 'A', 'camera-analytics').status, 'measured/pending');
     assert.equal(surfaceOf('/search'), 'search');
   });
 
+  it('blocks the accepted Review at Tier A on its own, and nowhere below it (R6)', () => {
+    assert.equal(SURFACES.review.accepted, true);
+    for (const rule of ['containment.depth', 'text.overflow']) {
+      assert.equal(severityOf(rule, 'A', 'review').status, 'blocking', rule);
+      for (const tier of ['B', 'C']) assert.equal(severityOf(rule, tier, 'review').status, 'measured/pending', `${rule} @ ${tier}`);
+    }
+    // Its acceptance promotes nothing else: not the R1-R3 rows, whose
+    // promotion is the separate governance change recorded under R4.
+    for (const other of ['overview', 'videos', 'processing-detail', 'cameras', 'camera-analytics']) {
+      assert.equal(severityOf('containment.depth', 'A', other).status, 'measured/pending', other);
+    }
+  });
+
   it('promotes one surface at a time, never all together', () => {
-    const surfaces = accepted('review');
-    assert.equal(severityOf('containment.depth', 'A', 'review', { surfaces }).status, 'blocking');
-    assert.equal(severityOf('text.overflow', 'A', 'review', { surfaces }).status, 'blocking');
-    assert.equal(severityOf('containment.depth', 'A', 'cameras', { surfaces }).status, 'measured/pending');
+    const surfaces = accepted('cameras');
+    assert.equal(severityOf('containment.depth', 'A', 'cameras', { surfaces }).status, 'blocking');
+    assert.equal(severityOf('text.overflow', 'A', 'cameras', { surfaces }).status, 'blocking');
+    assert.equal(severityOf('containment.depth', 'A', 'import', { surfaces }).status, 'measured/pending');
     assert.equal(severityOf('containment.depth', 'A', 'camera-analytics', { surfaces }).status, 'measured/pending');
   });
 

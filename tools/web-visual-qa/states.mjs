@@ -2377,6 +2377,67 @@ const R4_CONFIRM_DISABLE = `(async () => {
 /** R4: the scene's camera (fixture), for states that vary one thing about it. */
 const R4_CAMERA = JSON.parse(readFileSync(new URL(`./fixtures/cameras_${CAM}.json`, import.meta.url), 'utf8'));
 
+/**
+ * R6: more crossings and visits than Review lists inline (§37.1 large data,
+ * N = 5), so the bounded lists and their closed "more" disclosures are
+ * captured, and the sticky player is probed across a longer rail.
+ */
+const REVIEW_DENSE_FACTS = (() => {
+  const analytics = REVIEW_MULTI_VISIT.analytics;
+  const visit = analytics.zoneVisits[0];
+  const crossing = analytics.lineCrossings[0];
+  return {
+    ...REVIEW_MULTI_VISIT,
+    analytics: {
+      ...analytics,
+      zoneSummaries: [{ ...analytics.zoneSummaries[0], visitCount: 8, totalDwellMs: 1200, loitering: false, loiteringDwellMs: 0 }],
+      zoneVisits: Array.from({ length: 8 }, (_, index) => ({
+        ...visit, visitIndex: index, entryOffsetMs: 600 + index * 300, exitOffsetMs: 750 + index * 300, dwellMs: 150,
+      })),
+      lineCrossings: Array.from({ length: 9 }, (_, index) => ({
+        ...crossing, crossingIndex: index, offsetMs: 700 + index * 300, direction: index % 2 ? 'bToA' : 'aToB',
+      })),
+    },
+  };
+})();
+
+/** R6: identities at their longest — the crumb, the subject and the rail's camera row. */
+const REVIEW_LONG_IDENTITY = {
+  ...REVIEW_MULTI_VISIT,
+  videoAssetId: LONG_VIDEO,
+  objectClass: 'Motorcycle',
+  localTrackNumber: 1248,
+  camera: { ...REVIEW_MULTI_VISIT.camera, code: 'CAM-SOUTH-DOCK-LOADING-07', name: 'South Dock loading bay, east approach (service road)' },
+};
+
+/** R6: the run attestation behind Review's provenance disclosure, at its longest values. */
+const RUN_ATTESTATION = {
+  processingRunId: 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', videoAssetId: VIDEO, completedAtUtc: '2026-09-14T03:09:40Z',
+  pipelineVersion: '1.4.0', modelId: 'rtmdet-m-coco', modelVersion: '1.2.0',
+  modelManifestSha256: 'a'.repeat(64), checkpointSha256: '3f6c0e1b9a8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a291807f6e5d4c3b2a19087',
+  resolvedConfigSha256: 'b'.repeat(64), pipelineProfileId: 'default-gpu', pipelineProfileVersion: '3', pipelineProfileSha256: 'c'.repeat(64),
+  qualificationId: null, qualificationSha256: null, verificationStatus: 'verified',
+  runtimeProfileId: 'cuda12-ort-1.19', runtimeProfileSha256: 'd'.repeat(64), runtimeVariant: 'win-x64-cuda12.4-cudnn9-onnxruntime-gpu-1.19.2',
+  platformLockSha256: null, maviBuild: '0.1.0-dev', maviCommit: 'e9276a4790e1415131ed9fe3b1812d8aa2ff8632',
+  configuredDevicePolicy: 'prefer-gpu', configuredDeviceIndex: 0, deviceResolutionReason: null, actualDevice: 'cuda:0',
+  platform: { system: 'Windows', release: '11', version: '10.0.26200', machine: 'AMD64', processor: 'Intel64 Family 6', pythonVersion: '3.12.7', pythonImplementation: 'CPython', pythonBuild: ['main', 'Oct 1 2024'] },
+  gpu: { name: 'NVIDIA RTX A4000 Laptop GPU', index: 0, vramBytes: 8589934592, driverVersion: '561.09', cudaRuntimeVersion: '12.4', uuid: 'GPU-00000000-0000-0000-0000-000000000000', pciBusId: '00000000:01:00.0', computeCapability: '8.6' },
+  dependencyVersions: {}, detectorName: 'RTMDet', detectorVersion: '1.2.0', trackerName: 'ByteTrack', trackerVersion: '0.9.1',
+  framesProcessed: 100, tracksCreated: 3, processingDurationMs: 41_000,
+};
+
+/** Open Review's two provenance disclosures, as an operator tracing the record would. */
+const OPEN_PROVENANCE = `(async () => {
+  ${UNTIL}
+  const summaries = await until(() => {
+    const found = ['Runtime attestation', 'Record detail'].map((label) => Array.from(document.querySelectorAll('summary')).find((s) => s.textContent.trim() === label));
+    return found.every(Boolean) ? found : null;
+  }, 'the provenance disclosures');
+  window.__vqa.mark('interaction-start');
+  for (const summary of summaries) summary.click();
+  return Boolean(await until(() => /Verification/.test(document.body.innerText) && document.querySelectorAll('details[open]').length >= 2, 'the attestation loaded'));
+})()`;
+
 export const STATES = [
   // --- The shell (S1d, §5). The shell is on every state below; these three
   //     put it into the conditions no surface fixture reaches on its own. ---
@@ -3689,7 +3750,9 @@ export const STATES = [
   // survive footage the product does not control (section 26).
   // UI-5: Review is on the Review archetype and uses the full width, so the
   // player takes the surplus on a wide display (section 25).
-  { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', expectText: ['North Gate', 'Track summary'] },
+  // R6 (F18, F19): the identifiers are one closed disclosure away, and the
+  // analytical identity is stated once, with no footer repeating it.
+  { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', expectText: ['North Gate', 'Track summary', 'Record detail', 'Reference point'], forbidText: [TRACK, 'bbbbbbbb-bbbb', 'reference point:', 'Local track', 'persisted evidence'] },
   // A terminal Review state keeps the video the route names: `Search › {video} › Review` (§5).
   { name: 'review-track-missing', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, api: { [`/api/tracks/${TRACK}`]: { status: 404, body: { status: 404, code: 'track_not_found', detail: 'Track was not found.' } } }, expectText: ['Track was not found.', 'north-gate-0800.mp4'], forbidText: VIDEO },
   { name: 'review-bright', tierPolicy: 'footage-variant', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'bright', prepare: SEEK, requireOverlay: true },
@@ -3714,6 +3777,62 @@ export const STATES = [
   { name: 'review-crossing-btoa', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_CROSSING_BTOA }, expectText: ['Outbound'] },
   { name: 'review-dwell-stationary', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DWELL_STATIONARY }, expectText: ['2 intervals'] },
   { name: 'review-dense-markers', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DENSE_MARKERS }, expectText: ['5 crossings'] },
+  // --- R6: Review as the reference surface. ---------------------------------
+  // More crossings and visits than the rail lists inline: five of each, the
+  // rest one closed disclosure away, and the player still pinned (§37.1, §4.5.1).
+  { name: 'review-dense-facts', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { [`/api/tracks/${TRACK}`]: REVIEW_DENSE_FACTS }, expectText: ['9 crossings', '4 more crossings', '8 visits', '3 more visits'] },
+  // The forensic tier opened: the attestation and the record's full
+  // identifiers, at their longest, inside the rail's width.
+  { name: 'review-provenance-open', interaction: 'open the runtime attestation and the record detail', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', api: { [`/api/processing/runs/bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb/attestation`]: RUN_ATTESTATION }, prepare: OPEN_PROVENANCE, expectText: ['Verification', 'win-x64-cuda12.4-cudnn9-onnxruntime-gpu-1.19.2', TRACK, 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', 'Representative quality'] },
+  // The longest identities: the video's file name in the crumb, a four-digit
+  // Track number in the subject, a long camera code and name in the summary.
+  { name: 'review-long-identity', path: `/review/video/${LONG_VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', api: { [`/api/tracks/${TRACK}`]: REVIEW_LONG_IDENTITY }, expectText: ['Motorcycle · Track 1248', 'South Dock loading bay, east approach (service road)'] },
+  // A refresh that fails with the evidence on screen: the operator went back to
+  // Search and returned after the evidence went stale. The evidence stays and
+  // says it may not be current (§14.1, degraded), with its retry.
+  {
+    name: 'review-refresh-degraded', interaction: 'return to a stale Review whose refresh fails', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review',
+    api: { [`/api/tracks/${TRACK}`]: { sequence: [JSON.parse(readFileSync(new URL(`./fixtures/tracks_${TRACK}.json`, import.meta.url), 'utf8')), 'unavailable'] } },
+    prepare: `(async () => {
+      ${UNTIL}
+      await until(() => document.querySelector('.workspace--review .evidence-player__video'), 'the Review');
+      // The Track evidence older than the queries' staleTime (5 s, app/queryClient.ts),
+      // read from its own response time, so the return refetches it.
+      await until(() => {
+        const loaded = performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/api/tracks/${TRACK}'))[0];
+        return loaded && performance.now() - loaded.responseEnd > 5100;
+      }, 'the Track evidence past its staleTime', 9000);
+      const crumb = await until(() => Array.from(document.querySelectorAll('.context-bar a')).find((a) => a.textContent.trim() === 'Search'), 'the Search crumb');
+      window.__vqa.mark('interaction-start');
+      crumb.click();
+      // Search rendered (the Review unmounted), not merely the URL changed.
+      await until(() => location.pathname === '/search' && !document.querySelector('.workspace--review') && document.querySelector('.results'), 'Search');
+      history.back();
+      return Boolean(await until(() => /refreshing failed/.test(document.body.innerText) && document.querySelector('.workspace--review'), 'the degraded notice', 10000));
+    })()`,
+    expectText: ['Showing the last known Track evidence; refreshing failed.', 'Track summary', 'Retry'],
+  },
+  // Search → Review → Search: the one way back is the Context Bar's root crumb
+  // (F4), and it restores the Investigation the Review was opened from, with
+  // the Track still selected.
+  {
+    name: 'review-return-to-search', interaction: 'open a result in Review and return to Search', path: `/search?track=${TRACK}`, fullWidth: true, archetype: 'investigation',
+    prepare: `(async () => {
+      ${UNTIL}
+      const open = await until(() => document.querySelector('aside a[href*="/review/video/"], [role="dialog"] a[href*="/review/video/"]'), 'the inspector review link');
+      if (!/[?&]from=/.test(open.getAttribute('href'))) throw new Error('the review link carries no return context');
+      open.click();
+      await until(() => document.querySelector('.workspace--review'), 'the Review');
+      const backs = Array.from(document.querySelectorAll('main a, main button')).filter((c) => /back to search|visual search/i.test(c.textContent));
+      if (backs.length) throw new Error('Review offers a second way back: ' + backs.map((c) => c.textContent.trim()).join(', '));
+      const crumb = await until(() => Array.from(document.querySelectorAll('.context-bar a')).find((a) => a.textContent.trim() === 'Search'), 'the Search crumb');
+      window.__vqa.mark('interaction-start');
+      crumb.click();
+      return Boolean(await until(() => location.pathname === '/search' && new URLSearchParams(location.search).get('track') === '${TRACK}'
+        && document.querySelector('[role="dialog"] h2, aside h2'), 'Search restored with the Track selected'));
+    })()`,
+    expectText: INSPECTOR_LOADED,
+  },
   // --- S1.3b: the Track Evidence Set in Review's evidence rail. --------------
   // The full four-role set at every acceptance width, including 1366x768 where
   // the player and the primary summary must both still be in the first viewport.

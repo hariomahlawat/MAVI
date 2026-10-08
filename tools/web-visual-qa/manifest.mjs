@@ -73,7 +73,8 @@ export const SURFACES = {
   'scene-editor': { owner: 'S3c / R4', accepted: true },
   // R5 accepted (S3d): Search's surface findings block at Tier A.
   search: { owner: 'S3d / R5', accepted: true },
-  review: { owner: 'S3e / R6', accepted: false },
+  // R6 accepted (S3e): Review's surface findings block at Tier A.
+  review: { owner: 'S3e / R6', accepted: true },
   cameras: { owner: 'S4 / M1', accepted: false },
   'processing-queue': { owner: 'S4 / M2', accepted: false },
   import: { owner: 'S4 / M3', accepted: false },
@@ -176,8 +177,9 @@ export const RULES = {
   },
   'review.sticky-rendered': {
     section: '§4.5.1, §36.3', kind: 'assertion',
-    summary: 'After the page scrolls, the Evidence Player is still in the viewport (rendered, not only declared).',
-    tiers: { A: pending('S3e / R6'), B, C },
+    summary: 'After the page scrolls, the Evidence Player is still in the viewport, clear of the Context Bar, and released at the end of its column (rendered, not only declared).',
+    // R6 (S3e) fixed the rendered pin and flipped this to blocking at Tier A.
+    tiers: { A: blocking(), B, C },
   },
   'a11y.target-size': { section: '§10.1, §23', kind: 'assertion', summary: 'Pointer targets at least 24x24 wherever practical.', tiers: { A: pending('S6 / X1'), B, C } },
   'tier.b-shell': {

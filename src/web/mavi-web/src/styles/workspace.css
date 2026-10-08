@@ -370,10 +370,16 @@
    branch wins, the rail stops growing, and every further pixel is the
    player's. A larger percentage would not do this: it would still hand the
    rail a fixed share of an arbitrarily wide display. */
+/* The columns stretch to the row (F8). With `align-items: start` the main
+   column was only as tall as the player and its body, so a sticky player had
+   no room in its own column to stay put while the longer rail scrolled past:
+   declared sticky, rendered scrolled away. Stretched, the main column is as
+   tall as the rail and the player pins inside it until the column ends. Each
+   column still starts its own content at the top (`align-content: start`). */
 .workspace__review-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, min(calc(35% - var(--s-4)), 440px));
-  gap: var(--s-4); align-items: start;
+  gap: var(--s-4);
 }
 .workspace__review-main { display: grid; gap: var(--s-3); min-width: 0; align-content: start; }
 .workspace__review-rail { display: grid; gap: var(--s-3); min-width: 0; align-content: start; }

@@ -13,7 +13,7 @@ import {
   zoneVisit,
 } from '../../test/analyticsFixtures';
 import { geometryNames } from '../../shared/evidence/analyticsLabels';
-import TrackAnalyticsExplanation, { identityFooter, referencePointLabel } from './TrackAnalyticsExplanation';
+import TrackAnalyticsExplanation, { referencePointLabel } from './TrackAnalyticsExplanation';
 import type { AnalyticsSceneState } from './useAnalyticsScene';
 
 const revision = sceneRevision({
@@ -46,12 +46,21 @@ describe('analytical identity', () => {
     expect(panel).not.toHaveTextContent('bbox-centre');
   });
 
-  it('closes with the identity that qualifies every fact above it', () => {
-    expect(identityFooter(analysedAnalytics()))
-      .toBe('Scene revision 4 · Engine v1 · reference point: Box centre');
-    expect(identityFooter(notConfiguredAnalytics())).toBeNull();
-    expect(show(analysedAnalytics()))
-      .toHaveTextContent('Scene revision 4 · Engine v1 · reference point: Box centre');
+  it('states the identity once, in its rows, on both surfaces: no footer repeats it (F18)', () => {
+    for (const compact of [false, true]) {
+      const panel = show(analysedAnalytics(), ready, compact);
+      expect(within(panel).getAllByText(/Scene revision 4/)).toHaveLength(1);
+      expect(within(panel).getAllByText('Box centre')).toHaveLength(1);
+      expect(panel).not.toHaveTextContent('reference point:');
+      cleanup();
+    }
+    expect(show(notConfiguredAnalytics())).not.toHaveTextContent('Scene revision');
+  });
+
+  it('is titled by its host in Review and names itself in the inspector', () => {
+    expect(within(show(analysedAnalytics())).queryByRole('heading', { name: 'Scene analytics' })).not.toBeInTheDocument();
+    cleanup();
+    expect(within(show(analysedAnalytics(), ready, true)).getByRole('heading', { name: 'Scene analytics' })).toBeInTheDocument();
   });
 
   it('keeps the stable revision id available without putting it in the headline', () => {
@@ -80,9 +89,9 @@ describe('analytical identity', () => {
     }));
     expect(panel).toHaveTextContent('Also analysed');
     expect(panel).toHaveTextContent('Revision 7');
-    // The selected identity still leads and still closes the panel.
+    // The selected identity still leads, and is the only one stated as the identity.
     expect(panel).toHaveTextContent('IdentityScene revision 4');
-    expect(panel).toHaveTextContent('Scene revision 4 · Engine v1 · reference point: Box centre');
+    expect(within(panel).getAllByText(/Scene revision 4/)).toHaveLength(1);
   });
 });
 
@@ -146,14 +155,14 @@ describe('facts', () => {
   it('lists each visit of a zone that was entered more than once', () => {
     // Two short visits and one long one are different behaviour with the same
     // total dwell, so the individual intervals are not collapsed.
+    // Review lists them inline, as a bounded list (nothing to open).
     const panel = show(rich);
-    const multiple = within(panel).getByText('2 visits').closest('details')!;
-    expect(multiple).toHaveAttribute('open');
-    expect(multiple).toHaveTextContent('00:11.0 to 01:21.0 · 1m 10s');
-    expect(multiple).toHaveTextContent('01:30.0 to 02:40.0');
+    for (const visit of [/00:11\.0 to 01:21\.0 · 1m 10s/, /01:30\.0 to 02:40\.0/]) {
+      expect(within(panel).getByText(visit).closest('details')).toBeNull();
+    }
     // And a visit cut short by missing samples says so rather than reading as
     // though the Track left the zone.
-    expect(multiple).toHaveTextContent('closed by a gap in the samples, not by leaving');
+    expect(panel).toHaveTextContent('closed by a gap in the samples, not by leaving');
   });
 
   it('gives every crossing its own direction and media time', () => {
@@ -163,51 +172,73 @@ describe('facts', () => {
     expect(panel).toHaveTextContent('Outbound at 00:30.0');
   });
 
-  it('in the inspector (compact), states the identity once and keeps crossing times one disclosure away; Review is unchanged (F18)', () => {
-    const inspector = show(rich, ready, true);
-    expect(within(inspector).getAllByText(/Scene revision 4 · Engine v1/)).toHaveLength(1);
-    expect(inspector).not.toHaveTextContent('reference point: Box centre');
-    // A short list is the operator's answer, inline: direction and media time.
-    expect(within(inspector).getByText(/Inbound at 00:12\.5/).closest('details')).toBeNull();
-    expect(within(inspector).getByText(/Outbound at 00:30\.0/).closest('details')).toBeNull();
-    cleanup();
-
-    // Review renders exactly as before: the footer, and the crossings listed
-    // with no disclosure around them.
-    const review = show(rich);
-    expect(review).toHaveTextContent('Scene revision 4 · Engine v1 · reference point: Box centre');
-    expect(within(review).getByText(/Inbound at 00:12\.5/).closest('details')).toBeNull();
-    expect(within(review).getByText(/Outbound at 00:30\.0/).closest('details')).toBeNull();
+  it('keeps a short list of crossings inline on both surfaces: direction and media time are the answer', () => {
+    for (const compact of [false, true]) {
+      const panel = show(rich, ready, compact);
+      expect(within(panel).getByText(/Inbound at 00:12\.5/).closest('details')).toBeNull();
+      expect(within(panel).getByText(/Outbound at 00:30\.0/).closest('details')).toBeNull();
+      cleanup();
+    }
   });
 
-  it('bounds the inspector\'s crossings at five inline, the rest behind one closed disclosure (§37.1 large data)', () => {
+  it('bounds the crossings at five inline per panel on both surfaces, the rest behind one closed disclosure (§37.1 large data)', () => {
     const many = analysedAnalytics({
       lineCrossings: Array.from({ length: 7 }, (_, index) => lineCrossing({ crossingIndex: index, offsetMs: 10_000 + index * 1_000, direction: 'aToB' })),
     });
-    const inspector = show(many, ready, true);
-    const rest = within(inspector).getByText('2 more crossings').closest('details')!;
-    expect(rest).not.toHaveAttribute('open');
-    for (const second of ['10', '11', '12', '13', '14']) {
-      expect(within(inspector).getByText(new RegExp(`at 00:${second}\\.0`)).closest('details')).toBeNull();
+    for (const compact of [false, true]) {
+      const panel = show(many, ready, compact);
+      expect(panel).toHaveTextContent('Gate line · 7 crossings');
+      const rest = within(panel).getByText('2 more crossings').closest('details')!;
+      expect(rest).not.toHaveAttribute('open');
+      for (const second of ['10', '11', '12', '13', '14']) {
+        expect(within(panel).getByText(new RegExp(`at 00:${second}\\.0`)).closest('details')).toBeNull();
+      }
+      for (const second of ['15', '16']) {
+        expect(within(panel).getByText(new RegExp(`at 00:${second}\\.0`)).closest('details')).toBe(rest);
+      }
+      cleanup();
     }
-    for (const second of ['15', '16']) {
-      expect(within(inspector).getByText(new RegExp(`at 00:${second}\\.0`)).closest('details')).toBe(rest);
-    }
-    cleanup();
-    // Review keeps all seven inline.
-    const review = show(many);
-    expect(within(review).queryByText(/more crossings/)).not.toBeInTheDocument();
   });
 
-  it('keeps the reference point the inspector would have lost with the footer, for a revision with no facts', () => {
-    const pending = analysedAnalytics({ status: 'Pending', zoneSummaries: [], zoneVisits: [], lineCrossings: [], motion: null });
-    const inspector = show(pending, ready, true);
-    expect(within(inspector).getByText('Reference point').nextElementSibling).toHaveTextContent('Box centre');
+  it('shares the five across lines, so a panel never lists more than five crossings inline', () => {
+    const twoLines = analysedAnalytics({
+      lineCrossings: [
+        ...Array.from({ length: 4 }, (_, index) => lineCrossing({ crossingIndex: index, offsetMs: 10_000 + index * 1_000 })),
+        ...Array.from({ length: 3 }, (_, index) => lineCrossing({ lineId: '018f3f5a-2f70-7a2b-8a12-2d02f4c214b0', crossingIndex: index, offsetMs: 30_000 + index * 1_000 })),
+      ],
+    });
+    const panel = show(twoLines);
+    const inline = Array.from(panel.querySelectorAll('li li')).filter((item) => /at \d\d:\d\d\.\d/.test(item.textContent ?? '') && !item.closest('details'));
+    expect(inline).toHaveLength(5);
+    expect(within(panel).getByText('2 more crossings').closest('details')).not.toHaveAttribute('open');
+  });
+
+  it('bounds Review\'s visits at five inline per panel, the rest behind one closed disclosure', () => {
+    const dense = analysedAnalytics({
+      zoneSummaries: [zoneSummary({ visitCount: 8, totalDwellMs: 16_000 })],
+      zoneVisits: Array.from({ length: 8 }, (_, index) => zoneVisit({
+        visitIndex: index, entryOffsetMs: 10_000 + index * 10_000, exitOffsetMs: 12_000 + index * 10_000, dwellMs: 2_000,
+      })),
+    });
+    const review = show(dense);
+    const rest = within(review).getByText('3 more visits').closest('details')!;
+    expect(rest).not.toHaveAttribute('open');
+    expect(within(review).getByText(/^00:10\.0 to 00:12\.0/).closest('details')).toBeNull();
+    expect(within(review).getByText(/^00:50\.0 to 00:52\.0/).closest('details')).toBeNull();
+    expect(within(review).getByText(/^01:00\.0 to 01:02\.0/).closest('details')).toBe(rest);
     cleanup();
-    // Review states it in its footer, as before, and adds no row.
-    const review = show(pending);
-    expect(within(review).queryByText('Reference point')).not.toBeInTheDocument();
-    expect(review).toHaveTextContent('reference point: Box centre');
+    // The inspector keeps every visit one disclosure away, as R5 accepted.
+    const inspector = show(dense, ready, true);
+    expect(within(inspector).getByText('8 visits').closest('details')).not.toHaveAttribute('open');
+  });
+
+  it('names the reference point of a revision with no facts as a row, on both surfaces', () => {
+    const pending = analysedAnalytics({ status: 'Pending', zoneSummaries: [], zoneVisits: [], lineCrossings: [], motion: null });
+    for (const compact of [false, true]) {
+      const panel = show(pending, ready, compact);
+      expect(within(panel).getByText('Reference point').nextElementSibling).toHaveTextContent('Box centre');
+      cleanup();
+    }
   });
 
   it('states heading as an image direction and never as a compass bearing', () => {
@@ -344,7 +375,9 @@ describe('compact mode changes density, not facts', () => {
     const { container: tight } = render(
       <TrackAnalyticsExplanation analytics={analytics} scene={ready} geometry={names} compact />,
     );
-    expect(container.querySelector('details.disclosure')).toHaveAttribute('open');
-    expect(tight.querySelector('details.disclosure')).not.toHaveAttribute('open');
+    const visit = (root: HTMLElement) => Array.from(root.querySelectorAll('li'))
+      .find((item) => item.textContent?.startsWith('00:20.0 to 00:25.0'))!;
+    expect(visit(container).closest('details')).toBeNull();
+    expect(visit(tight).closest('details')).not.toHaveAttribute('open');
   });
 });

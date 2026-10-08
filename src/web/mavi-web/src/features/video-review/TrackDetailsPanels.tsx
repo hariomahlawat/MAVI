@@ -32,25 +32,24 @@ export function TrackSummary({ detail, displayTimeZoneId }: { detail: TrackDetai
   );
 }
 
-export function TrackIdentity({ detail, displayTimeZoneId }: { detail: TrackDetail; displayTimeZoneId?: string }) {
+/**
+ * The record's forensic detail (F18): stable identifiers and how the evidence
+ * was selected and read, for an operator who needs to cite or trace it. Kept
+ * out of the operational tier — the Track number and review status are the
+ * Context Bar's, and rank 0's frame, time and confidence are the Evidence
+ * Set's caption — and one closed disclosure away.
+ */
+export function TrackRecordDetail({ detail, displayTimeZoneId }: { detail: TrackDetail; displayTimeZoneId?: string }) {
   // The Evidence Set's rank 0, the same Observation the strip and the player use.
   const representative = representativeObservation(detail);
   return (
     <KeyValue
       items={[
         { label: 'Track ID', value: detail.id, mono: true },
-        { label: 'Local track', value: detail.localTrackNumber },
-        { label: 'Review status', value: <StatusBadge status={detail.reviewStatus} /> },
-        { label: 'Video duration', value: formatDuration(detail.video.durationMs) },
-        { label: 'Resolution', value: `${detail.video.width}×${detail.video.height} · ${frameRateText(detail.video.frameRateNumerator, detail.video.frameRateDenominator)}` },
+        { label: 'Processing run', value: detail.processingRunId, mono: true },
         { label: 'Display timezone', value: displayTimeZoneId ?? 'UTC fallback', mono: true },
         ...(representative
-          ? [
-            { label: 'Source frame', value: representative.sourceFrameNumber },
-            { label: 'Video offset', value: formatOffset(representative.videoOffsetMs, 'tenths') },
-            { label: 'Representative confidence', value: formatConfidence(representative.confidence) },
-            { label: 'Quality score', value: representative.qualityScore.toFixed(3) },
-          ]
+          ? [{ label: 'Representative quality', value: representative.qualityScore.toFixed(3) }]
           : []),
       ]}
     />
@@ -58,9 +57,10 @@ export function TrackIdentity({ detail, displayTimeZoneId }: { detail: TrackDeta
 }
 
 /**
- * Processing provenance. The stable operator-facing identities show
- * immediately; the full attestation (model, runtime, device, GPU) is loaded on
- * demand behind a disclosure so it informs without dominating the review.
+ * Processing provenance. What produced the Track shows immediately; the full
+ * attestation (model, runtime, device, GPU) is loaded on demand behind a
+ * disclosure, and the record's identifiers behind another, so they inform
+ * without dominating the review (F18).
  */
 export function ProvenancePanel({ detail, displayTimeZoneId }: { detail: TrackDetail; displayTimeZoneId?: string }) {
   const [open, setOpen] = useState(false);
@@ -73,7 +73,7 @@ export function ProvenancePanel({ detail, displayTimeZoneId }: { detail: TrackDe
   });
 
   return (
-    <Panel title="Processing provenance" description="Which pipeline, model and device produced this Track">
+    <Panel title="Processing provenance">
       <div className="stack">
         <KeyValue
           items={[
@@ -81,7 +81,12 @@ export function ProvenancePanel({ detail, displayTimeZoneId }: { detail: TrackDe
             { label: 'Detector', value: `${detail.processing.detectorName ?? '—'} · ${detail.processing.detectorVersion ?? '—'}` },
             { label: 'Tracker', value: `${detail.processing.trackerName ?? '—'} · ${detail.processing.trackerVersion ?? '—'}` },
             { label: 'Completed', value: displayTimestamp(detail.processing.completedAtUtc, displayTimeZoneId) },
-            { label: 'Processing run', value: detail.processingRunId, mono: true },
+            {
+              label: 'Source video',
+              value: `${detail.video.width}×${detail.video.height}`
+                + ` · ${frameRateText(detail.video.frameRateNumerator, detail.video.frameRateDenominator)}`
+                + ` · ${formatDuration(detail.video.durationMs)}`,
+            },
           ]}
         />
 
@@ -121,6 +126,13 @@ export function ProvenancePanel({ detail, displayTimeZoneId }: { detail: TrackDe
                 )}
               </StateRegion>
             ) : null}
+          </div>
+        </details>
+
+        <details className="disclosure">
+          <summary>Record detail</summary>
+          <div className="disclosure__body">
+            <TrackRecordDetail detail={detail} displayTimeZoneId={displayTimeZoneId} />
           </div>
         </details>
       </div>
