@@ -43,7 +43,27 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
   const hung = new Set();
   /** How many times each sequenced override has answered, per scenario. */
   const sequenceCounts = new Map();
+  /**
+   * Request accounting for deterministic settling (V3): how many requests are
+   * in flight and how many have started. A request deliberately held to keep
+   * a loading state open is not "in flight" — it will never complete, by
+   * design — and media streams are not data readiness, which the overlay
+   * check settles on its own.
+   */
+  const network = { inflight: 0, started: 0 };
   const server = createServer((req, res) => {
+    const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
+    if (process.env.MAVI_VQA_TRACE && path.startsWith('/api/')) process.stderr.write(`  [trace] ${Date.now() % 100000} ${req.method} ${path}
+`);
+    if (!path.endsWith('/content') && path !== '/__blank') {
+      network.inflight += 1;
+      network.started += 1;
+      let done = false;
+      const finish = () => { if (!done) { done = true; network.inflight -= 1; } };
+      res.on('finish', finish);
+      res.on('close', finish);
+      res.__vqaFinish = finish;
+    }
     try {
       handle(req, res);
     } catch (error) {
@@ -91,7 +111,12 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
         res.end(JSON.stringify({ title: 'Service unavailable', detail: 'The upstream service did not respond.', code: 'upstream_unavailable' }));
         return;
       }
-      if (value === 'hang') { hung.add(res); res.on('close', () => hung.delete(res)); return; }
+      if (value === 'hang') {
+        hung.add(res);
+        res.on('close', () => hung.delete(res));
+        res.__vqaFinish?.();
+        return;
+      }
       // `{ sequence: [...] }` answers successive requests to the same path with
       // successive entries, the last one repeating. Cursor pagination is the
       // reason: page one has to succeed for there to be a continuation to fail,
@@ -284,6 +309,8 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
          * failing at that width and is not.
          */
         resetSequences() { sequenceCounts.clear(); },
+        /** In-flight and started request counts, for the settle loop. */
+        network: () => ({ ...network }),
         close: () => new Promise((done) => { for (const res of hung) { try { res.destroy(); } catch { /* gone */ } } server.close(done); }),
       });
     });

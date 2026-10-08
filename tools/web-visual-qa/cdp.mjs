@@ -80,13 +80,26 @@ export async function launch() {
     for (const listener of listeners) listener(message);
   });
 
+  /** No call waits forever: a hung page or a crashed browser fails the case. */
+  const CALL_TIMEOUT_MS = 30_000;
   function send(method, params = {}, sessionId) {
     const id = ++nextId;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject, method });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`${method}: no answer from Chromium within ${CALL_TIMEOUT_MS}ms`));
+      }, CALL_TIMEOUT_MS);
+      pending.set(id, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+        method,
+      });
       socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     });
   }
+  socket.addEventListener('close', () => {
+    for (const [id, entry] of pending) { pending.delete(id); entry.reject(new Error(`${entry.method}: Chromium closed the connection`)); }
+  });
 
   const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
   const { sessionId } = await send('Target.attachToTarget', { targetId, flatten: true });
@@ -95,6 +108,14 @@ export async function launch() {
   await call('Page.enable');
   await call('Runtime.enable');
   await call('Log.enable');
+  await call('DOM.enable');
+  await call('CSS.enable');
+  // Each case starts from the network as well as from a blank document: with
+  // the cache on, a request a previous case held open (a loading state) kept
+  // its cache entry locked, and the next case's request for the same URL
+  // waited behind it.
+  await call('Network.enable');
+  await call('Network.setCacheDisabled', { cacheDisabled: true });
 
   /**
    * Uncaught exceptions and console errors, kept apart. A state that induces a
@@ -105,6 +126,13 @@ export async function launch() {
   let resourceErrors = [];
   listeners.add((message) => {
     if (message.sessionId !== sessionId) return;
+    // A native dialog — the "Leave site?" a dirty editor raises once the page
+    // has had real input — would halt the page and every call after it. The
+    // harness is leaving the page when it appears, so it is accepted.
+    if (message.method === 'Page.javascriptDialogOpening') {
+      call('Page.handleJavaScriptDialog', { accept: true }).catch(() => {});
+      return;
+    }
     if (message.method === 'Runtime.exceptionThrown') {
       problems.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
     }
@@ -141,8 +169,30 @@ export async function launch() {
       return result.value;
     },
     async screenshot() {
-      const { data } = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      const { data } = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false, optimizeForSpeed: true });
       return Buffer.from(data, 'base64');
+    },
+    /** A script run in every new document before any of the page's own. */
+    async addInitScript(source) {
+      await call('Page.addScriptToEvaluateOnNewDocument', { source });
+    },
+    /**
+     * The platform fonts the browser actually used to render the text inside
+     * the first element matching `selector` (CSS.getPlatformFontsForNode):
+     * glyph-level evidence, not the declared font-family stack.
+     */
+    async platformFonts(selector) {
+      const { root } = await call('DOM.getDocument', { depth: 0 });
+      const { nodeId } = await call('DOM.querySelector', { nodeId: root.nodeId, selector });
+      if (!nodeId) return null;
+      const { fonts } = await call('CSS.getPlatformFontsForNode', { nodeId });
+      return fonts.map((font) => ({ family: font.familyName, postScriptName: font.postScriptName, glyphs: font.glyphCount, custom: font.isCustomFont }));
+    },
+    /** A real key press through the input pipeline, as an operator makes it. */
+    async press(key, code = key) {
+      const keyCode = { Escape: 27, Tab: 9, Enter: 13 }[key] ?? 0;
+      await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode });
+      await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode });
     },
     problems: () => problems.slice(),
     resourceErrors: () => resourceErrors.slice(),

@@ -8,15 +8,18 @@
  * `requireOverlay` makes a footage-condition state prove the overlay is drawn
  * over a decoded frame before its capture counts.
  *
- * `knownIssues` lists regexes for defects that exist at this baseline and
- * belong to a later UI PR (section 34.1). They are reported separately rather
- * than failing the pass, so the harness stays honest about them without
- * blocking work that does not own them. Anything not listed is a finding.
+ * A state cannot weigh a finding: what a finding at a tier weighs is the
+ * assertion manifest's to say (`manifest.mjs`). The pre-v2 `knownIssues`
+ * downgrade list is gone for that reason. `tierPolicy` says at which support
+ * tiers the state is swept, and a policy that leaves a tier out says why;
+ * `probeWidths` adds special non-anchor widths; `holds: 'loading'` marks a state
+ * whose loading presentation is the state.
  *
- * `expectText` / `forbidText` make a state prove it rendered what it claims.
- * Unavailable states need a long settle because the query client retries once
- * before failing terminally; without the assertion a slow retry would quietly
- * turn an "unavailable" check into a second loading check.
+ * `expectText` / `forbidText` make a state prove it rendered what it claims,
+ * and are part of what it settles on (V3): an unavailable state is reached when
+ * its unavailable text is shown — after the query client's one retry — not
+ * after a guessed delay, so a slow retry can never turn an "unavailable" check
+ * into a second loading check.
  *
  * `fullWidth` records which surfaces declare `page--full`. The harness asserts
  * it in both directions, so a surface cannot be widened or capped by accident.
@@ -222,6 +225,23 @@ const SEEK = `(() => {
 })()`;
 
 /**
+ * The wait a preparation uses between an action and its consequence (V3).
+ *
+ * A preparation never sleeps for a guessed duration: after each action it
+ * waits for the observable result of that action, polled once per animation
+ * frame, and fails with what it was waiting for if that never arrives. A
+ * timeout is a failure, not a settle — the harness then refuses the capture.
+ */
+const UNTIL = `const until = async (predicate, what, timeout = 8000) => {
+    const end = performance.now() + timeout;
+    while (performance.now() < end) {
+      try { const value = await predicate(); if (value) return value; } catch { /* not yet */ }
+      await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    throw new Error('preparation timed out after ' + timeout + 'ms waiting for ' + what);
+  };`;
+
+/**
  * Dirty the scene, which is what fills the Context Bar.
  *
  * A clean Scene Editor shows crumbs, three badges and two buttons. Editing adds
@@ -231,23 +251,20 @@ const SEEK = `(() => {
  * so the state is reached rather than simulated.
  */
 const DIRTY_SCENE = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   const object = document.querySelector('.scene-navigator__name');
   if (!object) return false;
   object.click();
-  await wait(300);
-  const field = Array.from(document.querySelectorAll('input')).find((i) => {
+  const field = await until(() => Array.from(document.querySelectorAll('input')).find((i) => {
     const label = i.labels && i.labels[0];
     return label && label.textContent.trim() === 'Name';
-  });
-  if (!field) return false;
+  }), 'the Name field of the selected object');
   // Through the native setter, so React sees a real change rather than a
   // value assignment it never hears about.
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
   setter.call(field, 'A considerably longer zone name');
   field.dispatchEvent(new Event('input', { bubbles: true }));
-  await wait(300);
-  return Boolean(document.querySelector('.scene-context__note input'));
+  return Boolean(await until(() => document.querySelector('.scene-context__note input'), 'the revision note field of a dirty draft'));
 })()`;
 
 /**
@@ -257,38 +274,40 @@ const DIRTY_SCENE = `(async () => {
  */
 const clickButton = (label) => `Array.from(document.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === ${JSON.stringify(label)})`;
 const DISCARD_DIALOG = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   if (!(await ${DIRTY_SCENE})) return false;
   const reset = ${clickButton('Reset')};
   if (!reset) return false;
+  // An operator's click focuses the button, which is the Dialog's invoker.
+  reset.focus();
   reset.click();
-  await wait(300);
-  return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+  return Boolean(await until(() => document.querySelector('[role="dialog"][aria-modal="true"]'), 'the discard Dialog'));
 })()`;
 const RELOAD_DIALOG = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   if (!(await ${DIRTY_SCENE})) return false;
   const save = ${clickButton('Save revision')};
   if (!save) return false;
   save.click();
-  await wait(800);
-  const reload = ${clickButton('Reload active revision')};
-  if (!reload) return false;
+  // The fixture answers the save with a 409; the conflict offers the reload.
+  const reload = await until(() => ${clickButton('Reload active revision')}, 'the Reload active revision action of the conflict');
+  reload.focus();
   reload.click();
-  await wait(300);
-  return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+  return Boolean(await until(() => document.querySelector('[role="dialog"][aria-modal="true"]'), 'the reload Dialog'));
 })()`;
 /** The Workbench inspector opened as the 1101-1149 overlay drawer (§4.3.1, §20). */
 const OPEN_WORKBENCH_DRAWER = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   const toggle = document.querySelector('.workspace__drawer-toggle');
   if (!toggle) return false;
+  toggle.focus();
   toggle.click();
-  await wait(300);
-  const drawer = document.querySelector('.workspace__inspector[role="dialog"][aria-modal="true"]');
-  return Boolean(drawer && drawer.contains(document.activeElement) && document.querySelector('.workspace__stage[inert]') && document.querySelector('.workspace__band[inert]')
-    // Every region beside the drawer, the revision footer included (Codex P2 on #184).
-    && Array.from(document.querySelectorAll('.workspace__footer, .workspace__notices')).every((region) => region.hasAttribute('inert')));
+  return Boolean(await until(() => {
+    const drawer = document.querySelector('.workspace__inspector[role="dialog"][aria-modal="true"]');
+    return drawer && drawer.contains(document.activeElement) && document.querySelector('.workspace__stage[inert]') && document.querySelector('.workspace__band[inert]')
+      // Every region beside the drawer, the revision footer included (Codex P2 on #184).
+      && Array.from(document.querySelectorAll('.workspace__footer, .workspace__notices')).every((region) => region.hasAttribute('inert'));
+  }, 'the drawer open, holding focus, over an inert workspace'));
 })()`;
 
 /**
@@ -303,7 +322,7 @@ const OPEN_WORKBENCH_DRAWER = `(async () => {
  * and the footer comes from the revision strip the operator can open.
  */
 const DENSE_WORKBENCH = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   const byName = (name) => Array.from(document.querySelectorAll('button'))
     .find((b) => new RegExp(name).test((b.textContent || '').trim()));
 
@@ -311,40 +330,37 @@ const DENSE_WORKBENCH = `(async () => {
   const revisions = byName('^Revisions$');
   if (!revisions) return false;
   revisions.click();
-  await wait(250);
 
-  // Open a past revision whose fetch is answered 503, which is the third notice.
+  await until(() => document.querySelector('.workspace__footer'), 'the open revision strip');
+  // Open a past revision whose fetch is answered 503, which is the third
+  // notice — where the fixture lists one.
   const view = byName('^View revision');
-  if (view) { view.click(); await wait(600); }
-
-  return document.querySelectorAll('.workspace__notices .alert, .workspace__notices p').length >= 2;
+  if (view) view.click();
+  return Boolean(await until(() => document.querySelectorAll('.workspace__notices .alert, .workspace__notices p').length >= 2,
+    'the unavailable past revision as a second notice'));
 })()`;
 
 
 /** Open the Ledger's create region the way an operator does. */
 const OPEN_CAMERA_FORM = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   const add = Array.from(document.querySelectorAll('button')).find((b) => /^Add camera$/.test((b.textContent || '').trim()));
   if (!add) return false;
   add.click();
-  await wait(300);
-  return Boolean(document.querySelector('form[aria-label="Add camera"]'));
+  return Boolean(await until(() => document.querySelector('form[aria-label="Add camera"]'), 'the create region'));
 })()`;
 
 /** Open it and submit nothing, which is three field-level refusals at once. */
 const INVALID_CAMERA_FORM = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   const add = Array.from(document.querySelectorAll('button')).find((b) => /^Add camera$/.test((b.textContent || '').trim()));
   if (!add) return false;
   add.click();
-  await wait(300);
-  const form = document.querySelector('form[aria-label="Add camera"]');
-  if (!form) return false;
+  const form = await until(() => document.querySelector('form[aria-label="Add camera"]'), 'the create region');
   const submit = form.querySelector('button[type="submit"]');
   if (!submit) return false;
   submit.click();
-  await wait(300);
-  return Boolean(document.querySelector('.field__error'));
+  return Boolean(await until(() => document.querySelector('.field__error'), 'the field-level refusals'));
 })()`;
 
 /**
@@ -352,34 +368,30 @@ const INVALID_CAMERA_FORM = `(async () => {
  * so the state is the one the server produces rather than a simulation of it.
  */
 const CONFLICTED_CAMERA_FORM = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
   const type = (input, value) => { setter.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); };
 
   const add = Array.from(document.querySelectorAll('button')).find((b) => /^Add camera$/.test((b.textContent || '').trim()));
   if (!add) return false;
   add.click();
-  await wait(300);
-  const form = document.querySelector('form[aria-label="Add camera"]');
-  if (!form) return false;
+  const form = await until(() => document.querySelector('form[aria-label="Add camera"]'), 'the create region');
   const inputs = Array.from(form.querySelectorAll('input'));
   if (inputs.length < 2) return false;
   type(inputs[0], 'CAM-01');
   type(inputs[1], 'Duplicate of the north gate');
-  await wait(200);
+  await until(() => inputs[0].value === 'CAM-01' && inputs[1].value === 'Duplicate of the north gate', 'the typed draft');
   form.querySelector('button[type="submit"]').click();
-  await wait(600);
-  return Boolean(document.querySelector('.field__error'));
+  return Boolean(await until(() => document.querySelector('.field__error'), 'the 409 conflict on the Code field'));
 })()`;
 
 /** Submit the import form empty: every field refuses, inline (§21). */
 const SUBMIT_EMPTY_IMPORT = `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   const submit = Array.from(document.querySelectorAll('button')).find((b) => /Import and process/.test(b.textContent || ''));
   if (!submit) return false;
   submit.click();
-  await wait(300);
-  return document.querySelectorAll('.field__error').length >= 3;
+  return Boolean(await until(() => document.querySelectorAll('.field__error').length >= 3, 'three field-level refusals'));
 })()`;
 
 /**
@@ -424,12 +436,67 @@ const DENSE_VIDEOS = Array.from({ length: 30 }, (_, index) => ({
   importedAtUtc: '2026-09-14T03:00:00Z',
 }));
 
-export const WIDTHS = [
-  { width: 1366, height: 768, label: '1366x768' },
-  { width: 1440, height: 900, label: '1440x900' },
-  { width: 1920, height: 1080, label: '1920x1080' },
-  { width: 2560, height: 1080, label: '2560x1080' },
-];
+/**
+ * The default sweep: every tier anchor of §25, exactly as frozen (§26 as
+ * amended, register V2). A state is swept at every anchor of every tier its
+ * policy applies to.
+ */
+export const ANCHORS = [
+  { width: 1366, height: 768, tier: 'A' },
+  { width: 1440, height: 900, tier: 'A' },
+  { width: 1920, height: 1080, tier: 'A' },
+  { width: 2560, height: 1080, tier: 'A' },
+  { width: 2560, height: 1440, tier: 'A' },
+  { width: 1024, height: 768, tier: 'B' },
+  { width: 768, height: 1024, tier: 'B' },
+  { width: 430, height: 932, tier: 'C' },
+  { width: 390, height: 844, tier: 'C' },
+].map((anchor) => ({ ...anchor, label: `${anchor.width}x${anchor.height}` }));
+
+/** The support tier a width falls in (§25); below 390 nothing is asserted. */
+export function tierOf(width) {
+  if (width >= 1366) return 'A';
+  if (width >= 768) return 'B';
+  if (width >= 390) return 'C';
+  return null;
+}
+
+/**
+ * Tier applicability, by policy (V2). A state applies at every tier unless it
+ * names one of these policies, and a policy that leaves a tier out says why —
+ * so a tier can be absent from a state only for a stated, reviewable reason,
+ * never because the state happens to render badly there. Applicability is
+ * not severity: what a finding at an applicable tier weighs is the manifest's
+ * to say, and no state can change it.
+ */
+export const TIER_POLICIES = {
+  'all-tiers': {
+    tiers: ['A', 'B', 'C'],
+    excluded: {},
+  },
+  'footage-variant': {
+    tiers: ['A'],
+    excluded: {
+      B: 'a footage-condition variant (§26 media conditions): it differs from the canonical review state only in the video\'s pixels, '
+        + 'so its Tier B geometry is the review state\'s, which is swept there',
+      C: 'a footage-condition variant (§26 media conditions): its Tier C geometry is the canonical review state\'s, which is swept there',
+    },
+  },
+  'breakpoint-probe': {
+    tiers: [],
+    excluded: {
+      A: 'a breakpoint probe: it exists to settle a measured transition at its own probe widths, and its anchor geometry is its base state\'s',
+      B: 'a breakpoint probe: swept only at its probe widths',
+      C: 'a breakpoint probe: swept only at its probe widths',
+    },
+  },
+};
+
+/** The keys a state may carry. Nothing here can name or change a severity. */
+export const STATE_KEYS = new Set([
+  'name', 'path', 'fullWidth', 'archetype', 'api', 'prepare', 'expectText', 'forbidText',
+  'footage', 'requireOverlay', 'holds', 'tierPolicy', 'probeWidths', 'probeOf',
+]);
 
 /**
  * The visual-QA Track's Evidence Set and its compatibility Representative, as
@@ -1883,7 +1950,7 @@ const REVIEW_MARKERS_SAME_OFFSET = {
  */
 function stepDenseEvidence(steps) {
   return `(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  ${UNTIL}
   const v = document.querySelector('.evidence-player__video');
   if (v) {
     if (v.readyState < 2) { try { v.load(); v.play().then(() => v.pause()).catch(() => {}); } catch { /* ignore */ } }
@@ -1894,16 +1961,16 @@ function stepDenseEvidence(steps) {
   const disclosure = document.querySelector('.evidence-timeline__dense');
   if (!disclosure) return false;
   disclosure.open = true;
-  await wait(120);
-  const next = Array.from(disclosure.querySelectorAll('button'))
-    .find((b) => (b.textContent || '').trim() === 'Next');
-  if (!next) return false;
+  const next = await until(() => Array.from(disclosure.querySelectorAll('button'))
+    .find((b) => (b.textContent || '').trim() === 'Next'), 'the dense-evidence navigator');
+  const status = () => (disclosure.querySelector('.evidence-timeline__navigator-status')?.textContent || '').trim();
   for (let step = 0; step < ${steps}; step += 1) {
     if (next.disabled) break;
+    const before = status();
     next.click();
-    await wait(60);
+    await until(() => status() !== before, 'the navigator to announce the next member');
   }
-  return Boolean(document.querySelector('[data-shown="true"]'));
+  return Boolean(await until(() => document.querySelector('[data-shown="true"]'), 'a singled-out overflowed visit'));
 })()`;
 }
 
@@ -2023,8 +2090,6 @@ const INSPECT_LATE_DIVERSE = `(() => {
   return true;
 })()`;
 
-/** Every §25 width plus the 1600-class one the Evidence Set is accepted at. */
-const EVIDENCE_WIDTHS = [1366, 1600, 1920, 2560];
 
 const BASE_REVISION = JSON.parse(
   readFileSync(new URL(`./fixtures/cameras_${CAM}_scene_revisions_4.json`, import.meta.url), 'utf8'),
@@ -2180,31 +2245,34 @@ export const STATES = [
   {
     // The rail collapsed by the operator: 56px, icon-only items named, the
     // 32x32 collapse control still labelled and announcing its state.
-    name: 'shell-rail-collapsed', path: '/cameras', fullWidth: true, archetype: 'ledger', settleMs: 900,
+    name: 'shell-rail-collapsed', path: '/cameras', fullWidth: true, archetype: 'ledger',
     prepare: `(async () => {
+      ${UNTIL}
       const toggle = document.querySelector('.sidebar__toggle');
       if (!toggle) return false;
       toggle.click();
-      await new Promise((r) => setTimeout(r, 300));
-      return Boolean(document.querySelector('.shell--collapsed')) && toggle.getAttribute('aria-expanded') === 'false';
+      return Boolean(await until(() => document.querySelector('.shell--collapsed') && toggle.getAttribute('aria-expanded') === 'false',
+        'the rail collapsed and announcing it'));
     })()`,
   },
   {
     // The ? shortcut sheet open over a Ledger: the shared Drawer, focus on its
     // heading, the rail and workspace inert beneath its scrim.
-    name: 'shell-shortcut-sheet', path: '/videos', fullWidth: true, archetype: 'ledger', settleMs: 900,
+    name: 'shell-shortcut-sheet', path: '/videos', fullWidth: true, archetype: 'ledger',
     prepare: `(async () => {
+      ${UNTIL}
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
-      await new Promise((r) => setTimeout(r, 400));
-      const sheet = document.querySelector('.shortcut-sheet[role="dialog"][aria-modal="true"]');
-      return Boolean(sheet && sheet.contains(document.activeElement) && document.querySelector('main[inert]'));
+      return Boolean(await until(() => {
+        const sheet = document.querySelector('.shortcut-sheet[role="dialog"][aria-modal="true"]');
+        return sheet && sheet.contains(document.activeElement) && document.querySelector('main[inert]');
+      }, 'the shortcut sheet holding focus over an inert main'));
     })()`,
     expectText: ['Keyboard shortcuts', 'Overview', 'Processing'],
   },
   {
     // §5: rendered inside the shell, with a Context Bar, and no rail item
     // highlighted.
-    name: 'not-found', path: '/no-such-page', fullWidth: false, settleMs: 700,
+    name: 'not-found', path: '/no-such-page', fullWidth: false,
     prepare: `(() => !document.querySelector('.sidebar__nav a.active') && document.title === 'Not found — MAVI')()`,
     expectText: ['Not found', 'This page does not exist.'],
   },
@@ -2217,8 +2285,7 @@ export const STATES = [
   },
   {
     // One section's request failed; the other three must still answer.
-    name: 'overview-partial-failure', path: '/', fullWidth: false, archetype: 'ledger-summary',
-    settleMs: 4000, api: { '/api/videos': 'unavailable' },
+    name: 'overview-partial-failure', path: '/', fullWidth: false, archetype: 'ledger-summary', api: { '/api/videos': 'unavailable' },
     expectText: ['video inventory is unavailable', 'its distribution cannot be shown'],
     forbidText: 'No tracks yet',
   },
@@ -2226,13 +2293,13 @@ export const STATES = [
   // --- Standard Ledgers: full width, column-capped, never stretched. --------
   { name: 'cameras', path: '/cameras', fullWidth: true, archetype: 'ledger' },
   {
-    name: 'cameras-unavailable', path: '/cameras', fullWidth: true, archetype: 'ledger', settleMs: 4000,
+    name: 'cameras-unavailable', path: '/cameras', fullWidth: true, archetype: 'ledger',
     api: { '/api/cameras': 'unavailable' },
     expectText: 'unavailable', forbidText: 'No cameras registered',
   },
   {
-    name: 'cameras-loading', path: '/cameras', fullWidth: true, archetype: 'ledger', settleMs: 500,
-    api: { '/api/cameras': 'hang' }, expectText: 'Loading cameras',
+    name: 'cameras-loading', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    holds: 'loading', api: { '/api/cameras': 'hang' }, expectText: 'Loading cameras',
   },
   {
     name: 'cameras-empty', path: '/cameras', fullWidth: true, archetype: 'ledger',
@@ -2253,7 +2320,7 @@ export const STATES = [
   {
     // A duplicate-code 409 mapped onto the Code field, other drafts intact.
     name: 'cameras-create-conflict', path: '/cameras', fullWidth: true, archetype: 'ledger',
-    prepare: CONFLICTED_CAMERA_FORM, settleMs: 900,
+    prepare: CONFLICTED_CAMERA_FORM,
     api: {
       'POST /api/cameras': {
         status: 409,
@@ -2277,23 +2344,22 @@ export const STATES = [
   {
     // S1e (D3): a loading Ledger reserves the header the table will draw, so
     // its first skeleton row sits where the first body row arrives.
-    name: 'videos-loading', path: '/videos', fullWidth: true, archetype: 'ledger', settleMs: 500,
-    api: { '/api/videos': 'hang' }, expectText: 'Loading videos',
+    name: 'videos-loading', path: '/videos', fullWidth: true, archetype: 'ledger',
+    holds: 'loading', api: { '/api/videos': 'hang' }, expectText: 'Loading videos',
   },
   {
     name: 'videos-filtered-empty', path: '/videos?q=no-such-recording', fullWidth: true, archetype: 'ledger',
     expectText: 'No videos match these filters', forbidText: 'No videos imported yet',
   },
   {
-    name: 'videos-unavailable', path: '/videos', fullWidth: true, archetype: 'ledger', settleMs: 4000,
+    name: 'videos-unavailable', path: '/videos', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': 'unavailable' },
     expectText: 'unavailable', forbidText: 'No videos imported yet',
   },
   {
     // Camera metadata gone: the list still lists, and says why the camera
     // column is thin.
-    name: 'videos-cameras-unavailable', path: '/videos', fullWidth: true, archetype: 'ledger',
-    settleMs: 4000, api: { '/api/cameras': 'unavailable' },
+    name: 'videos-cameras-unavailable', path: '/videos', fullWidth: true, archetype: 'ledger', api: { '/api/cameras': 'unavailable' },
     expectText: 'Camera metadata is unavailable',
   },
   {
@@ -2301,17 +2367,17 @@ export const STATES = [
     api: { '/api/videos': DENSE_VIDEOS },
   },
 
-  { name: 'processing-queue', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 1200 },
+  { name: 'processing-queue', path: '/processing', fullWidth: true, archetype: 'ledger' },
   {
     name: 'processing-queue-empty', path: '/processing', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': [] }, expectText: 'Nothing has been queued',
   },
   {
-    name: 'processing-queue-loading', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 500,
-    api: { '/api/videos': 'hang' }, expectText: 'Loading processing state',
+    name: 'processing-queue-loading', path: '/processing', fullWidth: true, archetype: 'ledger',
+    holds: 'loading', api: { '/api/videos': 'hang' }, expectText: 'Loading processing state',
   },
   {
-    name: 'processing-queue-unavailable', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 4000,
+    name: 'processing-queue-unavailable', path: '/processing', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': 'unavailable' },
     expectText: 'unavailable', forbidText: 'Nothing has been queued',
   },
@@ -2319,7 +2385,6 @@ export const STATES = [
     // The inventory answered and the per-row run lookups did not: each row
     // must say so and offer its retry, never sit on "Loading run…".
     name: 'processing-queue-row-unavailable', path: '/processing', fullWidth: true, archetype: 'ledger',
-    settleMs: 4000,
     api: {
       '/api/videos/22222222-2222-7222-8222-222222222222/processing': 'unavailable',
       '/api/videos/44444444-4444-7444-8444-444444444444/processing': 'unavailable',
@@ -2328,8 +2393,7 @@ export const STATES = [
     expectText: 'Run status unavailable', forbidText: 'Loading run…',
   },
   {
-    name: 'processing-queue-dense', path: '/processing', fullWidth: true, archetype: 'ledger',
-    settleMs: 1400, api: { '/api/videos': DENSE_VIDEOS },
+    name: 'processing-queue-dense', path: '/processing', fullWidth: true, archetype: 'ledger', api: { '/api/videos': DENSE_VIDEOS },
   },
 
   // --- Records: centred, the page scrolls. --------------------------------
@@ -2340,7 +2404,7 @@ export const STATES = [
     expectText: 'No active camera to import against',
   },
   {
-    name: 'import-cameras-unavailable', path: '/import', fullWidth: false, archetype: 'record', settleMs: 4000,
+    name: 'import-cameras-unavailable', path: '/import', fullWidth: false, archetype: 'record',
     api: { '/api/cameras': 'unavailable' },
     expectText: 'Camera inventory is unavailable',
     forbidText: 'No active camera to import against',
@@ -2353,16 +2417,16 @@ export const STATES = [
   {
     // A completed run: final counts, the results action, diagnostics closed.
     name: 'processing-detail-completed', path: `/processing/${VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1200, expectText: 'north-gate-0800.mp4',
+    archetype: 'record', expectText: 'north-gate-0800.mp4',
   },
   {
     // A running one: determinate progress, counts deliberately withheld.
     name: 'processing-detail-running', path: `/processing/${LONG_VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1200, expectText: 'Final count after completion',
+    archetype: 'record', expectText: 'Final count after completion',
   },
   {
     name: 'processing-detail-failed', path: `/processing/${FAILED_VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1200, expectText: 'worker_watchdog_timeout',
+    archetype: 'record', expectText: 'worker_watchdog_timeout',
   },
   {
     // S1.4 B3 F4 plan §15.3 (B5 `finalizingStateDistinct`, `noPrematureCounts`): a job the
@@ -2371,7 +2435,7 @@ export const STATES = [
     // renders only `status` it FAILS, and that failure is the truthful B5 result, not a
     // harness defect. Fixture data only: never real-video evidence.
     name: 'processing-finalizing', path: `/processing/${LONG_VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1200,
+    archetype: 'record',
     api: { [`/api/videos/${LONG_VIDEO}/processing`]: FINALIZING_STATUS },
     expectText: ['Finalizing', 'Final count after completion'],
     forbidText: 'Progress',
@@ -2380,20 +2444,20 @@ export const STATES = [
     // B5 `failedFinalizationDistinct`: a finalization failure is presented as such, never as
     // an inference failure. Expected to fail until U1, like the state above.
     name: 'processing-failed-finalization', path: `/processing/${FAILED_VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1200,
+    archetype: 'record',
     api: { [`/api/videos/${FAILED_VIDEO}/processing`]: FAILED_FINALIZATION_STATUS },
     expectText: ['vision_finalization_staging_missing', 'Finalization failed'],
   },
   {
     name: 'processing-detail-unavailable', path: `/processing/${VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 4000, api: { [`/api/videos/${VIDEO}/processing`]: 'unavailable' },
+    archetype: 'record', api: { [`/api/videos/${VIDEO}/processing`]: 'unavailable' },
     expectText: 'Processing status is unavailable.',
   },
   {
     // A valid route whose video is gone: still `Processing › {video}`, named by
     // its identifier; `Not found` is the alert's state, never the crumb (§5).
     name: 'processing-detail-not-found', path: `/processing/${VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1200,
+    archetype: 'record',
     api: { [`/api/videos/${VIDEO}`]: { status: 404, body: { status: 404, code: 'video_not_found', detail: 'Video was not found.' } } },
     expectText: ['Video was not found.', 'Video 22222222…'], forbidText: 'Not found',
   },
@@ -2402,19 +2466,18 @@ export const STATES = [
     // by its identifier, never a bare `Video` (§5, §14). The override is a
     // prefix, so the run status fails with it.
     name: 'processing-detail-video-unavailable', path: `/processing/${VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 4000, api: { [`/api/videos/${VIDEO}`]: 'unavailable' },
+    archetype: 'record', api: { [`/api/videos/${VIDEO}`]: 'unavailable' },
     expectText: ['Video 22222222…'], forbidText: ['Not found', VIDEO],
   },
 
   // --- Workbench: declares full width, and must actually use it. `archetype`
   //     additionally measures it against the frozen section 4.3 rules. ---
-  { name: 'scene-editor', path: `/cameras/${CAM}/scene`, fullWidth: true, settleMs: 1200, archetype: 'workbench' },
+  { name: 'scene-editor', path: `/cameras/${CAM}/scene`, fullWidth: true, archetype: 'workbench' },
   {
     name: 'scene-editor-unconfigured',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
-    settleMs: 1200,
     api: { [`/api/cameras/${CAM}/scene`]: { cameraId: CAM, configured: false, activeRevision: null, history: [] } },
   },
   {
@@ -2424,7 +2487,6 @@ export const STATES = [
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
-    settleMs: 1200,
     prepare: DIRTY_SCENE,
     // A placeholder is not page text, so the note field is proven by the
     // preparation's own return value instead — a failed prepare is a finding.
@@ -2438,7 +2500,6 @@ export const STATES = [
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
-    settleMs: 1200,
     prepare: DIRTY_SCENE,
     api: {
       // The scene must keep its own fixture: a broader camera override would
@@ -2464,9 +2525,7 @@ export const STATES = [
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
-    settleMs: 1200,
     prepare: DISCARD_DIALOG,
-    widths: [1366, 1920],
     expectText: ['Discard your unsaved scene changes?', 'Discard changes', 'Cancel'],
   },
   {
@@ -2476,10 +2535,7 @@ export const STATES = [
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
-    settleMs: 1200,
     prepare: RELOAD_DIALOG,
-    prepareSettleMs: 900,
-    widths: [1366, 1920],
     api: {
       [`PUT /api/cameras/${CAM}/scene`]: {
         status: 409,
@@ -2494,9 +2550,8 @@ export const STATES = [
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
-    settleMs: 1200,
     prepare: OPEN_WORKBENCH_DRAWER,
-    widths: [1120],
+    tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor', probeWidths: [1120],
   },
   {
     // The stress case for the frozen no-page-scroll rule (§4.3.2): every fixed
@@ -2505,7 +2560,6 @@ export const STATES = [
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
-    settleMs: 1400,
     prepare: DENSE_WORKBENCH,
     api: {
       // A revision the operator can ask for and the server will not give,
@@ -2534,7 +2588,6 @@ export const STATES = [
     name: 'scene-editor-unavailable',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
-    settleMs: 4000,
     api: { [`/api/cameras/${CAM}/scene`]: 'unavailable' },
     expectText: 'unavailable',
   },
@@ -2544,7 +2597,6 @@ export const STATES = [
     name: 'scene-editor-camera-unavailable',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
-    settleMs: 4000,
     api: { [`/api/cameras/${CAM}`]: 'unavailable' },
     expectText: ['Camera 11111111…', 'unavailable'], forbidText: CAM,
   },
@@ -2554,7 +2606,6 @@ export const STATES = [
     name: 'scene-editor-camera-missing',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
-    settleMs: 1200,
     api: { [`/api/cameras/${CAM}`]: { status: 404, body: { status: 404, code: 'camera_not_found', detail: 'Camera was not found.' } } },
     expectText: ['Camera 11111111…', 'Camera not found'], forbidText: CAM,
   },
@@ -2566,12 +2617,12 @@ export const STATES = [
   // states below carry their own viewports: a threshold is settled by the
   // widths either side of it and nowhere else.
   {
-    name: 'search', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    name: 'search', path: '/search', fullWidth: true, archetype: 'investigation',
     expectText: 'Newest first',
   },
   {
-    name: 'search-loading', path: '/search', fullWidth: true, settleMs: 400,
-    archetype: 'investigation', api: { '/api/tracks': 'hang' },
+    name: 'search-loading', path: '/search', fullWidth: true,
+    archetype: 'investigation', holds: 'loading', api: { '/api/tracks': 'hang' },
     expectText: 'Searching…',
   },
   {
@@ -2580,7 +2631,7 @@ export const STATES = [
     expectText: 'No Tracks matched',
   },
   {
-    name: 'search-unavailable', path: '/search', fullWidth: true, settleMs: 4000,
+    name: 'search-unavailable', path: '/search', fullWidth: true,
     archetype: 'investigation', api: { '/api/tracks': 'unavailable' },
     // §14.1: a failed first page is distinguishable from an empty one, and
     // offers the retry it did not have before UI-4.
@@ -2594,13 +2645,13 @@ export const STATES = [
     expectText: 'must occur exactly once', forbidText: 'Searching…',
   },
   {
-    name: 'search-grid', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    name: 'search-grid', path: '/search', fullWidth: true, archetype: 'investigation',
     prepare: PICK_GRID, expectText: 'Review evidence',
   },
   {
     name: 'search-filtered',
     path: `/search?cameraId=${CAM}&objectClass=Person&fromUtc=2026-09-14T02%3A00%3A00Z&toUtc=2026-09-14T04%3A00%3A00Z&minimumDurationMs=2500&minimumConfidence=0.8`,
-    fullWidth: true, settleMs: 900, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     // Every committed criterion is a chip, and each resolves to what the
     // operator calls it rather than to the identifier in the URL.
     expectText: ['CAM-01', 'Minimum confidence', '2.5 s'],
@@ -2608,7 +2659,7 @@ export const STATES = [
   {
     name: 'search-filtered-unresolved',
     path: `/search?cameraId=${CAM}&videoAssetId=${VIDEO}&processingRunId=77777777-7777-7777-8777-777777777777`,
-    fullWidth: true, settleMs: 4000, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     api: { '/api/cameras': 'unavailable', '/api/videos': 'unavailable' },
     // The metadata that names them is gone; the chips shorten the identifier
     // rather than dropping a criterion that is still in force.
@@ -2616,14 +2667,14 @@ export const STATES = [
   },
   {
     name: 'search-no-timezone', path: '/search?fromUtc=2026-09-14T02%3A30%3A00Z',
-    fullWidth: true, settleMs: 4000, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     api: { '/api/system/config': 'unavailable' },
     // ADR-004: without the configured zone the bound is stated explicitly in
     // UTC and time editing is refused rather than guessed at.
     expectText: ['Display timezone is unavailable', 'UTC'],
   },
   {
-    name: 'search-videos-unavailable', path: '/search', fullWidth: true, settleMs: 4000,
+    name: 'search-videos-unavailable', path: '/search', fullWidth: true,
     archetype: 'investigation', api: { '/api/videos': 'unavailable' },
     expectText: 'Video metadata is unavailable',
   },
@@ -2633,20 +2684,20 @@ export const STATES = [
     // rail that owns its own scroll, or whose actions are stuck to its bottom
     // edge, puts a control on top of a field — and where the containment border
     // has to stay inside the 252px column rather than widening it.
-    name: 'search-rail-overflow', path: '/search', fullWidth: true, settleMs: 4000,
-    archetype: 'investigation', widths: [1366, 1440],
+    name: 'search-rail-overflow', path: '/search', fullWidth: true,
+    archetype: 'investigation',
     api: { '/api/videos': 'unavailable' },
-    prepare: REFUSE_FIELDS, prepareSettleMs: 900,
+    prepare: REFUSE_FIELDS,
     expectText: ['Video metadata is unavailable', 'decimal places', 'Reset'],
   },
   {
-    name: 'search-field-errors', path: '/search', fullWidth: true, settleMs: 900,
+    name: 'search-field-errors', path: '/search', fullWidth: true,
     archetype: 'investigation', prepare: REFUSE_FIELDS,
     // §10: both refusals land on their own fields, at once.
     expectText: ['decimal places', 'between 0 and 100'],
   },
   {
-    name: 'search-long-names', path: `/search?cameraId=${CAM2}`, fullWidth: true, settleMs: 900,
+    name: 'search-long-names', path: `/search?cameraId=${CAM2}`, fullWidth: true,
     archetype: 'investigation',
     // The second camera exists but has no scene, which the real API answers
     // with an unconfigured scene rather than a 404. Without the stub the
@@ -2660,61 +2711,59 @@ export const STATES = [
     expectText: 'Perimeter fence',
   },
   {
-    name: 'search-paged', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    name: 'search-paged', path: '/search', fullWidth: true, archetype: 'investigation',
     api: { '/api/tracks': PAGE_ONE },
     expectText: ['Load more', 'more to load'],
   },
   {
-    name: 'search-full-page', path: '/search', fullWidth: true, settleMs: 900, archetype: 'investigation',
+    name: 'search-full-page', path: '/search', fullWidth: true, archetype: 'investigation',
     api: { '/api/tracks': FULL_PAGE },
     expectText: ['24 Tracks', 'more to load'],
   },
   {
-    name: 'search-continuation-failed', path: '/search', fullWidth: true, settleMs: 5000,
+    name: 'search-continuation-failed', path: '/search', fullWidth: true,
     archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_503 },
     // The query client retries a 5xx once before the failure is terminal.
-    prepare: LOAD_MORE, prepareSettleMs: 3000,
+    prepare: LOAD_MORE,
     // The page that failed does not take the results with it, and continuation
     // stops being automatic until the operator asks again.
     expectText: ['next page could not be loaded', 'Retry load more'],
   },
   {
-    name: 'search-snapshot-expired', path: '/search', fullWidth: true, settleMs: 5000,
+    name: 'search-snapshot-expired', path: '/search', fullWidth: true,
     archetype: 'investigation', api: { '/api/tracks': PAGE_ONE_THEN_EXPIRED }, prepare: LOAD_MORE,
     expectText: ['snapshot can no longer continue', 'Refresh results'],
   },
   {
-    name: 'search-end-of-snapshot', path: '/search', fullWidth: true, settleMs: 900,
+    name: 'search-end-of-snapshot', path: '/search', fullWidth: true,
     archetype: 'investigation', expectText: ['End of this result snapshot', 'all loaded'],
   },
   {
-    name: 'search-inspecting', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
+    name: 'search-inspecting', path: `/search?track=${TRACK}`, fullWidth: true,
     archetype: 'investigation', expectText: INSPECTOR_LOADED,
   },
   {
-    name: 'search-inspecting-grid', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
+    name: 'search-inspecting-grid', path: `/search?track=${TRACK}`, fullWidth: true,
     archetype: 'investigation', prepare: PICK_GRID, expectText: INSPECTOR_LOADED,
   },
   {
     // The narrow host. Marker separation is measured from the rendered track,
     // not assumed from Review's wider column, so dense markers have to stay
     // individually clickable in the drawer too.
-    name: 'search-inspecting-dense', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2200,
+    name: 'search-inspecting-dense', path: `/search?track=${TRACK}`, fullWidth: true,
     archetype: 'investigation',
     api: { [`/api/tracks/${TRACK}`]: REVIEW_DENSE_MARKERS },
     expectText: INSPECTOR_LOADED,
   },
   {
-    name: 'search-inspector-unavailable', path: `/search?track=${TRACK}`, fullWidth: true,
-    settleMs: 4000, archetype: 'investigation',
+    name: 'search-inspector-unavailable', path: `/search?track=${TRACK}`, fullWidth: true, archetype: 'investigation',
     api: { [`/api/tracks/${TRACK}`]: 'unavailable' },
     // The inspector states an ApiError by its detail and code; "could not be
     // loaded" is only the fallback for a failure that is not one.
     expectText: ['upstream_unavailable', 'Retry'],
   },
   {
-    name: 'search-inspector-missing', path: `/search?track=${TRACK}`, fullWidth: true,
-    settleMs: 2000, archetype: 'investigation',
+    name: 'search-inspector-missing', path: `/search?track=${TRACK}`, fullWidth: true, archetype: 'investigation',
     api: { [`/api/tracks/${TRACK}`]: { status: 404, body: { status: 404, code: 'track_not_found', detail: 'Track was not found.' } } },
     // The one failure retrying cannot mend, so it is stated without a control
     // that would only fail again.
@@ -2725,32 +2774,32 @@ export const STATES = [
     // widths either side of it: 1599 must be a drawer, 1600 an in-place column,
     // and 1500 — the frozen default UI-4 amended away — must still be a drawer
     // rather than the clipped three columns it produced before.
-    name: 'search-threshold', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
+    name: 'search-threshold', path: `/search?track=${TRACK}`, fullWidth: true,
     // The threshold is 1600, so the widths either side of it are what settle it.
-    archetype: 'investigation', widths: [1440, 1500, 1550, 1599, 1600, 1700],
+    archetype: 'investigation', tierPolicy: 'breakpoint-probe', probeOf: 'search-inspecting', probeWidths: [1440, 1500, 1550, 1599, 1600, 1700],
     expectText: INSPECTOR_LOADED,
   },
   {
     // S1.3b: the same Evidence Set component in the inspector, uncollapsed in
     // the old Representative-frame disclosure's place. At 1366 the inspector is
     // the drawer, the narrowest host the strip has.
-    name: 'search-inspecting-evidence', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2200,
-    archetype: 'investigation', widths: EVIDENCE_WIDTHS,
+    name: 'search-inspecting-evidence', path: `/search?track=${TRACK}`, fullWidth: true,
+    archetype: 'investigation', probeWidths: [1600],
     // The inspector's section title is set in capitals by CSS, so the rendered
     // text is matched through the roles rather than the title.
     expectText: [...INSPECTOR_LOADED, 'Representative', 'Near view', 'Late diverse'],
   },
   {
-    name: 'search-inspecting-evidence-unavailable', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2500,
-    archetype: 'investigation', widths: [1366, 1600],
+    name: 'search-inspecting-evidence-unavailable', path: `/search?track=${TRACK}`, fullWidth: true,
+    archetype: 'investigation', probeWidths: [1600],
     api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP },
     expectText: [...INSPECTOR_LOADED, 'No image'],
   },
   {
     // Open decision 4. At 1920 and 2560 the results stay capped and the
     // inspector takes the surplus — asserted as geometry, not by eye.
-    name: 'search-ultrawide', path: `/search?track=${TRACK}`, fullWidth: true, settleMs: 2000,
-    archetype: 'investigation', widths: [1920, 2560], expectText: INSPECTOR_LOADED,
+    name: 'search-ultrawide', path: `/search?track=${TRACK}`, fullWidth: true,
+    archetype: 'investigation', expectText: INSPECTOR_LOADED,
   },
 
   // --- Investigation: Slice 4 analytics on the UI-4 grammar. --------------
@@ -2760,7 +2809,7 @@ export const STATES = [
     // non-zero bucket, and the rows carry no second status badge.
     name: 'search-analytics',
     path: `/search?cameraId=${CAM}&zoneId=${ZONE}&zoneRelation=entered&minDwellMs=2500&loitering=true`,
-    fullWidth: true, settleMs: 1500, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE) },
     expectText: ['Entered', 'Loading bay', '2 of 5 runs analysed', 'not yet analysed', 'could not be analysed', 'Revision 4'],
     forbidText: 'No Tracks matched',
@@ -2768,7 +2817,7 @@ export const STATES = [
   {
     name: 'search-analytics-complete',
     path: `/search?cameraId=${CAM}&zoneId=${ZONE}`,
-    fullWidth: true, settleMs: 1500, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     api: { '/api/tracks': ANALYTIC_PAGE(COMPLETE_COVERAGE) },
     // "Processing" is a navigation item, so the absence asserted is the link's
     // own words in the strip, not the word itself.
@@ -2778,7 +2827,7 @@ export const STATES = [
     // Incomplete analytics never render as ordinary zero matches (§14, §17).
     name: 'search-analytics-not-analysed',
     path: `/search?cameraId=${CAM}&loitering=true`,
-    fullWidth: true, settleMs: 1500, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     api: { '/api/tracks': NOT_ANALYSED_PAGE },
     expectText: ['Not analysed yet.', '3 runs not yet analysed'], forbidText: 'No Tracks matched',
   },
@@ -2787,7 +2836,7 @@ export const STATES = [
     // force by identifier and the rail says why its choices are unavailable.
     name: 'search-analytics-scene-unavailable',
     path: `/search?cameraId=${CAM}&zoneId=${ZONE}`,
-    fullWidth: true, settleMs: 4000, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE), [`/api/cameras/${CAM}/scene`]: 'unavailable' },
     expectText: ['Scene geometry is unavailable', '77777777…'],
   },
@@ -2800,7 +2849,7 @@ export const STATES = [
     // and the refetch on return fails (after the query's one retry).
     name: 'search-analytics-scene-degraded',
     path: `/search?cameraId=${CAM}&zoneId=${ZONE}`,
-    fullWidth: true, settleMs: 2500, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     api: {
       '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE),
       [`/api/cameras/${CAM}/scene`]: {
@@ -2808,26 +2857,30 @@ export const STATES = [
       },
     },
     prepare: `(async () => {
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      ${UNTIL}
       // First read: the zone resolves to its name from the active scene.
       if (!document.body.innerText.includes('Loading bay')) return false;
-      await wait(31000);
+      // The scene must be older than its 30s stale time. Rather than sleep for
+      // it, the page's clock is moved past it: staleness is judged against
+      // Date.now(), so this is the same condition the operator reaches by
+      // waiting, without the harness spending 31 seconds per capture on it.
+      const realNow = Date.now.bind(Date);
+      Date.now = () => realNow() + 31000;
       const overview = Array.from(document.querySelectorAll('a')).find((a) => a.textContent.trim() === 'Overview');
       if (!overview) return false;
       overview.click();
-      await wait(800);
+      await until(() => location.pathname === '/', 'the Overview route');
       history.back();
-      await wait(4000);
-      return document.body.innerText.includes('Scene geometry is unavailable');
+      return Boolean(await until(() => document.body.innerText.includes('Scene geometry is unavailable'),
+        'the refetch on return to fail after its one retry', 15000));
     })()`,
-    prepareSettleMs: 800,
     expectText: ['Scene geometry is unavailable', '77777777…'],
   },
   {
     // The Analytics group with a camera chosen: zone and line choices resolved
     // from the active revision, dependents unlocked, the rail tall enough to
     // scroll at 1366 — which is what the overlap assertion is for.
-    name: 'search-analytics-rail', path: '/search', fullWidth: true, settleMs: 2500, archetype: 'investigation',
+    name: 'search-analytics-rail', path: '/search', fullWidth: true, archetype: 'investigation',
     // The group heading is uppercased on screen; its field labels are not.
     prepare: PICK_CAMERA, expectText: ['Zone relation', 'Motion direction', 'Loitering', 'Loading bay'],
     forbidText: 'Choose a camera, video or processing run',
@@ -2836,7 +2889,7 @@ export const STATES = [
     // The inspector's analytics summary against the pinned identity.
     name: 'search-analytics-inspecting',
     path: `/search?cameraId=${CAM}&zoneId=${ZONE}&track=${TRACK}`,
-    fullWidth: true, settleMs: 2500, archetype: 'investigation',
+    fullWidth: true, archetype: 'investigation',
     // The page override is a prefix match, so the Track detail beneath it is
     // re-exposed as its fixture; otherwise the inspector would be handed a page.
     api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE), [`/api/tracks/${TRACK}`]: 'fixture' },
@@ -2851,12 +2904,12 @@ export const STATES = [
     // Readiness as text in its own column; one badge per row still.
     // The column header is uppercased by the Ledger, so the readiness word the
     // completed row carries is the text that proves the column rendered.
-    name: 'processing-queue-analytics', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 1400,
+    name: 'processing-queue-analytics', path: '/processing', fullWidth: true, archetype: 'ledger',
     expectText: ['Analysed'],
   },
   {
     name: 'processing-detail-analytics-ready', path: `/processing/${VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1400,
+    archetype: 'record',
     expectText: ['Scene analytics', 'Revision 4 · scene-analytics-v1', 'Tracks unavailable'],
   },
   {
@@ -2864,7 +2917,7 @@ export const STATES = [
     // failed (the query's one retry included). The details stay, the page says
     // it has stopped checking, and Retry is offered — §37.1 degraded.
     name: 'processing-detail-analytics-degraded', path: `/processing/${VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 6000,
+    archetype: 'record',
     api: {
       [`/api/videos/${VIDEO}/processing`]: {
         videoStatus: 'Processed',
@@ -2896,7 +2949,7 @@ export const STATES = [
     // Stale: the current geometry is not applied; the camera-wide consequence is
     // stated before the action.
     name: 'processing-detail-analytics-stale', path: `/processing/${VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1400,
+    archetype: 'record',
     api: {
       [`/api/videos/${VIDEO}/processing`]: {
         videoStatus: 'Processed',
@@ -2920,7 +2973,7 @@ export const STATES = [
   },
   {
     name: 'processing-detail-analytics-failed', path: `/processing/${VIDEO}`, fullWidth: false,
-    archetype: 'record', settleMs: 1400,
+    archetype: 'record',
     api: {
       [`/api/videos/${VIDEO}/processing`]: {
         videoStatus: 'Processed',
@@ -2948,72 +3001,72 @@ export const STATES = [
   // survive footage the product does not control (section 26).
   // UI-5: Review is on the Review archetype and uses the full width, so the
   // player takes the surplus on a wide display (section 25).
-  { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, expectText: ['North Gate', 'Track summary'] },
+  { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', expectText: ['North Gate', 'Track summary'] },
   // A terminal Review state keeps the video the route names: `Search › {video} › Review` (§5).
-  { name: 'review-track-missing', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, settleMs: 2000, api: { [`/api/tracks/${TRACK}`]: { status: 404, body: { status: 404, code: 'track_not_found', detail: 'Track was not found.' } } }, expectText: ['Track was not found.', 'north-gate-0800.mp4'], forbidText: VIDEO },
-  { name: 'review-bright', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'bright', prepare: SEEK, requireOverlay: true },
-  { name: 'review-dark', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'dark', prepare: SEEK, requireOverlay: true },
-  { name: 'review-saturated', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true },
-  { name: 'review-lowcontrast', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'lowcontrast', prepare: SEEK, requireOverlay: true },
-  { name: 'review-letterbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'letterbox', prepare: SEEK, requireOverlay: true },
-  { name: 'review-pillarbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'pillarbox', prepare: SEEK, requireOverlay: true },
+  { name: 'review-track-missing', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, api: { [`/api/tracks/${TRACK}`]: { status: 404, body: { status: 404, code: 'track_not_found', detail: 'Track was not found.' } } }, expectText: ['Track was not found.', 'north-gate-0800.mp4'], forbidText: VIDEO },
+  { name: 'review-bright', tierPolicy: 'footage-variant', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'bright', prepare: SEEK, requireOverlay: true },
+  { name: 'review-dark', tierPolicy: 'footage-variant', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'dark', prepare: SEEK, requireOverlay: true },
+  { name: 'review-saturated', tierPolicy: 'footage-variant', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, requireOverlay: true },
+  { name: 'review-lowcontrast', tierPolicy: 'footage-variant', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'lowcontrast', prepare: SEEK, requireOverlay: true },
+  { name: 'review-letterbox', tierPolicy: 'footage-variant', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'letterbox', prepare: SEEK, requireOverlay: true },
+  { name: 'review-pillarbox', tierPolicy: 'footage-variant', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'pillarbox', prepare: SEEK, requireOverlay: true },
   // The custom transport and the layer toggles that replaced the native
   // controls, captured over real footage. Playback itself is not asserted here:
   // a headless browser refuses programmatic play without a user gesture, and
   // the play/pause transition is covered by the component tests.
-  { name: 'review-transport', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, expectText: ['Play', 'Start', 'Evidence', 'End', 'Speed', 'Bounding box', 'Trajectory'] },
-  { name: 'review-zone-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, expectText: ['Loading bay', 'Scene revision 4'] },
-  { name: 'review-multi-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MULTI_VISIT }, expectText: ['2 visits', '2s dwell against a 1s threshold'] },
-  { name: 'review-overlap-2', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_2 } },
-  { name: 'review-overlap-3', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_3 } },
+  { name: 'review-transport', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, expectText: ['Play', 'Start', 'Evidence', 'End', 'Speed', 'Bounding box', 'Trajectory'] },
+  { name: 'review-zone-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, requireOverlay: true, expectText: ['Loading bay', 'Scene revision 4'] },
+  { name: 'review-multi-visit', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MULTI_VISIT }, expectText: ['2 visits', '2s dwell against a 1s threshold'] },
+  { name: 'review-overlap-2', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_2 } },
+  { name: 'review-overlap-3', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_3 } },
   // More concurrent visits than the capped sub-rows, so the overflow rail
   // and its count are exercised rather than only reasoned about.
-  { name: 'review-overlap-overflow', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_5 } },
-  { name: 'review-crossing-atob', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, expectText: ['Gate A', 'Inbound'] },
-  { name: 'review-crossing-btoa', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_CROSSING_BTOA }, expectText: ['Outbound'] },
-  { name: 'review-dwell-stationary', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DWELL_STATIONARY }, expectText: ['2 intervals'] },
-  { name: 'review-dense-markers', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DENSE_MARKERS }, expectText: ['5 crossings'] },
+  { name: 'review-overlap-overflow', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERLAP_5 } },
+  { name: 'review-crossing-atob', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, requireOverlay: true, expectText: ['Gate A', 'Inbound'] },
+  { name: 'review-crossing-btoa', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_CROSSING_BTOA }, expectText: ['Outbound'] },
+  { name: 'review-dwell-stationary', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DWELL_STATIONARY }, expectText: ['2 intervals'] },
+  { name: 'review-dense-markers', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_DENSE_MARKERS }, expectText: ['5 crossings'] },
   // --- S1.3b: the Track Evidence Set in Review's evidence rail. --------------
   // The full four-role set at every acceptance width, including 1366x768 where
   // the player and the primary summary must both still be in the first viewport.
-  { name: 'review-evidence-set', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, expectText: ['Evidence Set', 'Representative', 'Near view', 'Early diverse', 'Late diverse', 'Track summary'] },
-  { name: 'review-evidence-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: INSPECT_LATE_DIVERSE, widths: EVIDENCE_WIDTHS, expectText: ['Late diverse', 'Frame 78'] },
-  { name: 'review-evidence-representative-only', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, api: { [`/api/tracks/${TRACK}`]: EVIDENCE_REPRESENTATIVE_ONLY }, expectText: ['Evidence Set', 'Representative'], forbidText: ['Near view', 'No image'] },
-  { name: 'review-evidence-crop-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, widths: EVIDENCE_WIDTHS, api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP }, expectText: ['Near view', 'No image'] },
-  { name: 'review-evidence-legacy', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', widths: [1366, 1920], api: { [`/api/tracks/${TRACK}`]: EVIDENCE_LEGACY }, expectText: ['No Evidence Set was persisted for this Track.'], forbidText: ['No image'] },
+  { name: 'review-evidence-set', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, probeWidths: [1600], expectText: ['Evidence Set', 'Representative', 'Near view', 'Early diverse', 'Late diverse', 'Track summary'] },
+  { name: 'review-evidence-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: INSPECT_LATE_DIVERSE, probeWidths: [1600], expectText: ['Late diverse', 'Frame 78'] },
+  { name: 'review-evidence-representative-only', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, probeWidths: [1600], api: { [`/api/tracks/${TRACK}`]: EVIDENCE_REPRESENTATIVE_ONLY }, expectText: ['Evidence Set', 'Representative'], forbidText: ['Near view', 'No image'] },
+  { name: 'review-evidence-crop-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, probeWidths: [1600], api: { [`/api/tracks/${TRACK}`]: EVIDENCE_CROP_UNAVAILABLE, ...UNAVAILABLE_CROP }, expectText: ['Near view', 'No image'] },
+  { name: 'review-evidence-legacy', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated',  api: { [`/api/tracks/${TRACK}`]: EVIDENCE_LEGACY }, expectText: ['No Evidence Set was persisted for this Track.'], forbidText: ['No image'] },
   // Geometry that cannot be loaded must not fall back to the active revision.
-  { name: 'review-geometry-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2500, footage: 'saturated', prepare: SEEK, api: { '/api/cameras/11111111-1111-7111-8111-111111111111/scene/revisions': 'unavailable' }, expectText: ['could not be loaded'] },
-  { name: 'review-analytics-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': SINGLE_SAMPLE_TRACK }, expectText: ['trajectory_too_short'] },
-  { name: 'review-analytics-pending', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_PENDING }, expectText: ['has not been analysed yet'] },
+  { name: 'review-geometry-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/cameras/11111111-1111-7111-8111-111111111111/scene/revisions': 'unavailable' }, expectText: ['could not be loaded'] },
+  { name: 'review-analytics-unavailable', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': SINGLE_SAMPLE_TRACK }, expectText: ['trajectory_too_short'] },
+  { name: 'review-analytics-pending', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_PENDING }, expectText: ['has not been analysed yet'] },
   // Slice 7: a historical identity, pinned by the link a historical search makes.
-  { name: 'review-historical-revision', path: `/review/video/${VIDEO}?trackId=${TRACK}&sceneRevisionId=${HISTORICAL_REVISION_ID}&analyticsAlgorithmVersion=scene-analytics-v1`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { [`/api/tracks/${TRACK}`]: HISTORICAL_TRACK_DETAIL, [`/api/cameras/${CAM}/scene/revisions/3`]: HISTORICAL_REVISION }, expectText: ['Scene revision 3'], forbidText: ['Scene revision 4 ·'] },
-  { name: 'review-analytics-stale', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_STALE }, expectText: ['earlier revision or engine'] },
+  { name: 'review-historical-revision', path: `/review/video/${VIDEO}?trackId=${TRACK}&sceneRevisionId=${HISTORICAL_REVISION_ID}&analyticsAlgorithmVersion=scene-analytics-v1`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, requireOverlay: true, api: { [`/api/tracks/${TRACK}`]: HISTORICAL_TRACK_DETAIL, [`/api/cameras/${CAM}/scene/revisions/3`]: HISTORICAL_REVISION }, expectText: ['Scene revision 3'], forbidText: ['Scene revision 4 ·'] },
+  { name: 'review-analytics-stale', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_ANALYTICS_STALE }, expectText: ['earlier revision or engine'] },
   // Two separate runs of concurrency: the rail must aggregate each span on
   // its own terms rather than stating one total for the whole timeline.
-  { name: 'review-overflow-spans', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SPANS } },
+  { name: 'review-overflow-spans', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SPANS } },
   // Nothing separates visits that begin at the same instant, so the span is
   // the only honest unit: one band, its own count, and a route to each visit.
-  { name: 'review-overflow-same-start', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
+  { name: 'review-overflow-same-start', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
   // One overflowed visit singled out through the disclosure: the recovery path
   // is captured in the state it leaves the rail in, not only asserted.
-  { name: 'review-overflow-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SHOW_OVERFLOWED, prepareSettleMs: 900, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
+  { name: 'review-overflow-selected', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SHOW_OVERFLOWED, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
   // Five crossings at one millisecond: one destination, so one control — which
   // has to carry all five names or four of them become unreachable.
-  { name: 'review-markers-same-offset', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MARKERS_SAME_OFFSET }, expectText: ['5 crossings'] },
+  { name: 'review-markers-same-offset', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_MARKERS_SAME_OFFSET }, expectText: ['5 crossings'] },
   // The directed diagonal line over letterboxed and pillarboxed footage: the
   // perpendicular is measured in projected space, where the operator sees it.
-  { name: 'review-direction-letterbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'letterbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
-  { name: 'review-direction-pillarbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'pillarbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
+  { name: 'review-direction-letterbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'letterbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
+  { name: 'review-direction-pillarbox', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'pillarbox', prepare: SEEK, requireOverlay: true, expectText: ['Inbound', 'Outbound'] },
   // Density that rises and falls inside one contiguous run: the rail has to
   // show that profile rather than one flat count for the whole run.
-  { name: 'review-overflow-bridging', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_BRIDGING } },
+  { name: 'review-overflow-bridging', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_BRIDGING } },
   // A hundred overlapping visits: bounded height, bounded controls, and the
   // navigator still names one of them exactly.
-  { name: 'review-overflow-crowd', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_CROWD } },
-  { name: 'review-overflow-crowd-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2200, footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, prepareSettleMs: 1200, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_CROWD } },
+  { name: 'review-overflow-crowd', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_CROWD } },
+  { name: 'review-overflow-crowd-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_CROWD } },
   // A member other than the first, so the captured state is not only ever
   // "1 of N" and the exact interval drawn is one from the middle of the run.
-  { name: 'review-overflow-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', settleMs: 2000, footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, prepareSettleMs: 1000, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
+  { name: 'review-overflow-stepped', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SHOW_OVERFLOWED_LATER, api: { '/api/tracks/55555550-5555-7555-8555-555555555550': REVIEW_OVERFLOW_SAME_START } },
 
   // --- Workbench: Analytics, added in Scene Analytics Slice 6. -----------
   //
@@ -3022,7 +3075,7 @@ export const STATES = [
   // because an empty chart or an empty map is itself a claim about the world.
   {
     name: 'analytics-activity', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    fullWidth: true, archetype: 'workbench',
     expectText: ['Coverage complete', 'Active Tracks'],
   },
   {
@@ -3030,30 +3083,29 @@ export const STATES = [
     // full GUID the crumb used to show (§5, §14). The override is a prefix, so
     // the camera's analytics fail with it.
     name: 'analytics-camera-unavailable', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, settleMs: 4000, api: { [`/api/cameras/${CAM}`]: 'unavailable' },
+    fullWidth: true, api: { [`/api/cameras/${CAM}`]: 'unavailable' },
     expectText: ['Camera 11111111…'], forbidText: CAM,
   },
   {
     // Occupancy: a reading taken at an instant, with its peak and the moment it
     // happened, and the "Not additive" tag that stops a reader summing it.
     name: 'analytics-occupancy', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1200,
-    prepare: OCCUPANCY_METRIC, prepareSettleMs: 400,
+    fullWidth: true, archetype: 'workbench',
+    prepare: OCCUPANCY_METRIC,
     expectText: ['Peak occupancy', 'Not additive'],
   },
   {
     // Two series in one chart: a trip line's directions, told apart by the
     // operator's own labels as well as by hue.
     name: 'analytics-line-crossings', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    fullWidth: true, archetype: 'workbench',
     prepare: LINE_METRIC,
-    prepareSettleMs: 400,
     expectText: ['Inbound', 'Outbound'],
   },
   {
     // The frozen rule, rendered: an incomplete scope draws nothing at all.
     name: 'analytics-incomplete', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: INCOMPLETE_AGGREGATES },
     expectText: ['Not every run in this window has been analysed', 'Coverage incomplete'],
   },
@@ -3061,19 +3113,19 @@ export const STATES = [
     // Its counterpart: complete, and genuinely zero. This one is an
     // observation and is drawn as one.
     name: 'analytics-complete-zero', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: ZERO_AGGREGATES },
     expectText: ['Coverage complete'],
   },
   {
     name: 'analytics-no-scene', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1200,
+    fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: NO_SCENE_AGGREGATES },
     expectText: ['No scene configured'],
   },
   {
     name: 'analytics-unavailable', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 4000,
+    fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: 'unavailable' },
     // The server's own words, and the way out beside them.
     expectText: ['did not respond', 'Retry'],
@@ -3086,16 +3138,16 @@ export const STATES = [
   // `contrast.test.ts`.
   {
     name: 'analytics-heatmap', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1400,
-    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    fullWidth: true, archetype: 'workbench',
+    prepare: HEATMAP_MODE,
     expectText: ['trajectory sample density', '64 × 36'],
   },
   {
     // The refusal that names its bound. A map is never drawn for a scope the
     // server would not open.
     name: 'analytics-heatmap-too-large', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1400,
-    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    fullWidth: true, archetype: 'workbench',
+    prepare: HEATMAP_MODE,
     api: {
       [`/api/cameras/${CAM}/analytics/heatmap`]: {
         status: 422,
@@ -3113,8 +3165,8 @@ export const STATES = [
   {
     // Evidence that could not be read: no partial map, and no storage key.
     name: 'analytics-heatmap-evidence-unreadable', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1400,
-    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    fullWidth: true, archetype: 'workbench',
+    prepare: HEATMAP_MODE,
     api: {
       [`/api/cameras/${CAM}/analytics/heatmap`]: {
         status: 503,
@@ -3130,8 +3182,8 @@ export const STATES = [
   {
     // Slice 7: the sparse end of the density scale.
     name: 'analytics-heatmap-sparse', path: `/cameras/${CAM}/analytics`,
-    fullWidth: true, archetype: 'workbench', settleMs: 1400,
-    prepare: HEATMAP_MODE, prepareSettleMs: 900,
+    fullWidth: true, archetype: 'workbench',
+    prepare: HEATMAP_MODE,
     api: { [`/api/cameras/${CAM}/analytics/heatmap`]: SPARSE_HEATMAP },
     expectText: ['11 samples from 1 Track', 'The busiest cell holds 7 samples'],
   },
