@@ -281,7 +281,9 @@
 .track-card__metrics dt { color: var(--text-muted); font-size: var(--fs-0); }
 .track-card__metrics dd { margin: var(--s-hair) 0 0; font-size: var(--fs-1); }
 .track-card__action { justify-self: start; }
-.track-card.is-selectable:hover { box-shadow: inset 0 0 0 var(--stroke-hair) var(--border-panel); }
+/* Not on the selected card: its accent ring is the selection, and hover must
+   not replace it while the operator is pointing at it. */
+.track-card.is-selectable:not(.is-selected):hover { box-shadow: inset 0 0 0 var(--stroke-hair) var(--border-panel); }
 
 /* Track inspector / review.
    Named for the surface it belongs to: `.inspector` is the shared shell in

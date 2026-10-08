@@ -3199,10 +3199,15 @@ export const STATES = [
       let scroller = to.parentElement;
       while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
       if (scroller) scroller.scrollTop = scroller.scrollHeight;
-      // Where the rail is tall enough to show To even at its foot (1920 and up),
-      // the field cannot be above the scroll position; there the state still
-      // proves focus and visibility, and 1366/1440 prove the scroll-to-invalid.
-      window.__r5Above = scroller ? to.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().top : false;
+      // The claim this state carries: at 1366 and 1440 the rail, scrolled to its
+      // foot, hides To above its scroll box, so focusing it is a scroll-to-
+      // invalid and not the focusing of a field already in view. There the
+      // precondition must hold, or the state is not reached. Where the rail is
+      // tall enough to show To at its foot (1920 and up, 768), the field cannot
+      // start above it and the state proves focus and visibility only.
+      const claimed = ['1366x768', '1440x900'].includes(window.innerWidth + 'x' + window.innerHeight);
+      const above = scroller ? to.getBoundingClientRect().bottom <= scroller.getBoundingClientRect().top : false;
+      if (claimed && !above) return false;
       const search = Array.from(document.querySelectorAll('button[type="submit"]')).find((el) => el.textContent.includes('Search'));
       search.focus();
       window.__vqa.mark('interaction-start');
