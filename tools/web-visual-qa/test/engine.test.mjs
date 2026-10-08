@@ -179,6 +179,15 @@ describe('surface-scoped findings in the ledger', () => {
     assert.match(surface.owner, /R5/);
     assert.equal(ledger.record(on('search', 'C'), 'containment.depth', 'x', 'foundation').severity, 'measured/pending');
   });
+  it('records a surface finding on the accepted Scene Editor as blocking, and as evaluated (R4)', () => {
+    const ledger = createLedger();
+    const finding = ledger.record(on('scene-editor'), 'text.overflow', 'x');
+    assert.equal(finding.severity, 'blocking');
+    assert.equal(finding.surface, 'scene-editor');
+    assert.equal(ledger.record(on('scene-editor', 'B'), 'text.overflow', 'x').severity, 'measured/pending');
+    ledger.markEvaluated(on('scene-editor'), ['containment.depth']);
+    assert.ok(!ledger.vacuous().includes('containment.depth @ Tier A'));
+  });
   it('does not count a blocking rule as evaluated where it was only ever pending', () => {
     const ledger = createLedger();
     ledger.markEvaluated(on('search'), ['containment.depth']);

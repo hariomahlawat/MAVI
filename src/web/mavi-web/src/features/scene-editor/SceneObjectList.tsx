@@ -8,11 +8,15 @@ type Props = {
   draft: SceneDraft;
   selection: Selection;
   readOnly: boolean;
+  /** A past revision is shown (rather than the active scene of an inactive camera). */
+  historical: boolean;
+  /** What to say while a past revision cannot be listed — loading or unavailable: its geometry is unknown, not absent. */
+  pending?: string | null;
+  /** The pending revision is loading (said in the shared loading grammar), rather than unavailable. */
+  pendingLoading?: boolean;
   invalidKeys: ReadonlySet<string>;
   onSelect: (selection: Selection) => void;
   onDelete: (key: string) => void;
-  onAddZone: () => void;
-  onAddLine: () => void;
 };
 
 /**
@@ -26,7 +30,8 @@ type Props = {
  *
  * Its height follows the size of the scene, not the size of the selection: the
  * selected object's coordinates live in the inspector below, so selecting
- * something never pushes the rest of the scene out of view.
+ * something never pushes the rest of the scene out of view. It creates nothing:
+ * drawing starts in the mode strip, the one place that arms a tool (§4.3).
  *
  * It is a list of buttons rather than a listbox on purpose. A listbox option
  * may not contain focusable children, and each row here carries its own name
@@ -39,30 +44,29 @@ export default function SceneObjectList({
   draft,
   selection,
   readOnly,
+  historical,
+  pending = null,
+  pendingLoading = false,
   invalidKeys,
   onSelect,
   onDelete,
-  onAddZone,
-  onAddLine,
 }: Props) {
   const empty = draft.zones.length === 0 && draft.tripLines.length === 0;
 
   return (
-    <Inspector
-      label="Scene objects"
-      title="Scene objects"
-      actions={readOnly ? null : (
-        <>
-          <Button size="sm" variant="ghost" onClick={onAddZone}>+ Zone</Button>
-          <Button size="sm" variant="ghost" onClick={onAddLine}>+ Line</Button>
-        </>
-      )}
-    >
-      {empty ? (
+    <Inspector label="Scene objects" title="Scene objects">
+      {pending ? (
+        // Not "no geometry": a revision loading or unavailable has geometry
+        // nobody has read, so the list says which, the loading in the shared
+        // grammar; the stage carries the failure's alert and retry.
         <p className="scene-navigator__empty">
-          {readOnly
+          {pendingLoading ? <span className="state-row state-row--loading">{pending}</span> : pending}
+        </p>
+      ) : empty ? (
+        <p className="scene-navigator__empty">
+          {historical
             ? 'This revision has no geometry, so analytics were disabled while it was active.'
-            : 'Nothing drawn yet. Choose Zone or Trip line above, or draw on the frame.'}
+            : 'No zones or trip lines yet.'}
         </p>
       ) : null}
 

@@ -9,10 +9,15 @@ type Props = {
   cameraName: string;
   revisionNumber: number;
   saveState: SaveState;
-  analyticsEnabled: boolean;
+  /** Null while the revision shown is not known (a past revision loading or unavailable): nothing is claimed. */
+  analyticsEnabled: boolean | null;
   note: string;
   canSave: boolean;
   blockedReason: string | null;
+  /** The camera is inactive: Save is refused for that reason, stated in the mode strip. */
+  inactive: boolean;
+  /** A revision note is typed though the scene is back at its baseline: still the operator's input. */
+  noteRetained: boolean;
   confirmingDisable: boolean;
   onNoteChange: (note: string) => void;
   onReset: () => void;
@@ -59,6 +64,8 @@ export default function SceneContextBar({
   note,
   canSave,
   blockedReason,
+  inactive,
+  noteRetained,
   confirmingDisable,
   onNoteChange,
   onReset,
@@ -67,6 +74,13 @@ export default function SceneContextBar({
   onReturnToActive,
 }: Props) {
   const readOnly = saveState === 'readonly';
+  // Reset returns the draft — and its note — to the active revision; with no
+  // changes and no note it has nothing to do, so it is not offered as if it
+  // did (§12, F7). A note left behind when the geometry returns to its
+  // baseline keeps its field and its Reset: it is never hidden input that a
+  // later, unrelated save would carry.
+  const nothingToReset = (saveState === 'clean' || saveState === 'saved') && !noteRetained;
+  const showNote = saveState === 'dirty' || saveState === 'saving' || noteRetained;
 
   return (
     <ContextBar
@@ -97,9 +111,11 @@ export default function SceneContextBar({
             ) : null}
           </span>
 
-          <span className={`scene-context__analytics${analyticsEnabled ? '' : ' is-off'}`}>
-            {analyticsEnabled ? 'Analytics on' : 'Analytics off'}
-          </span>
+          {analyticsEnabled === null ? null : (
+            <span className={`scene-context__analytics${analyticsEnabled ? '' : ' is-off'}`}>
+              {analyticsEnabled ? 'Analytics on' : 'Analytics off'}
+            </span>
+          )}
         </>
       )}
       actions={readOnly ? (
@@ -108,7 +124,7 @@ export default function SceneContextBar({
         </Button>
       ) : (
         <>
-          {saveState === 'dirty' || saveState === 'saving' ? (
+          {showNote ? (
             <label className="scene-context__note">
               <span className="visually-hidden">Revision note (optional)</span>
               <input
@@ -122,7 +138,7 @@ export default function SceneContextBar({
           ) : null}
           <Button
             variant="ghost"
-            disabled={saveState === 'saving'}
+            disabled={saveState === 'saving' || (!confirmingDisable && nothingToReset)}
             onClick={confirmingDisable ? onCancelDisable : onReset}
           >
             {confirmingDisable ? 'Cancel' : 'Reset'}
@@ -134,7 +150,9 @@ export default function SceneContextBar({
             variant="primary"
             disabled={!canSave}
             aria-describedby={
-              confirmingDisable ? 'scene-disable-confirm' : blockedReason ? 'scene-save-blocked' : undefined
+              confirmingDisable
+                ? 'scene-disable-confirm'
+                : inactive ? 'scene-inactive-reason' : blockedReason ? 'scene-save-blocked' : undefined
             }
             onClick={onSave}
           >

@@ -13,6 +13,7 @@ import {
 } from '../../api/scene';
 import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
+import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import SceneEditorPage, { sceneQueryKeys } from './SceneEditorPage';
 
@@ -144,6 +145,13 @@ function render() {
   });
 }
 
+/** Whether the leave guard is holding the page: a reload would be refused. */
+function unloadBlocked(): boolean {
+  const event = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
 /** The canvas reports its measured content rectangle for tests to click through. */
 function frameRect(): { x: number; y: number; width: number; height: number } {
   const canvas = screen.getByTestId('scene-canvas');
@@ -227,7 +235,27 @@ describe('scene editor', () => {
     render();
 
     expect(await screen.findByText('No scene configured')).toBeInTheDocument();
-    expect(screen.getByText(/Nothing drawn yet/)).toBeInTheDocument();
+    expect(screen.getByText('No zones or trip lines yet.')).toBeInTheDocument();
+  });
+
+  it('has one drawing entry: the mode strip, with one invitation to the first zone that arms the same tool (R4)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+    render();
+    await screen.findByText('No scene configured');
+
+    // The navigator creates nothing; the empty stage invites once.
+    expect(screen.queryByRole('button', { name: /^\+ ?(Zone|Line)$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draw a trip line' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Draw a zone' })).toHaveLength(1);
+    // Trip lines stay one press away, in the mode strip.
+    expect(toolButton('Trip line')).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: 'Draw a zone' }));
+    expect(toolButton('Zone')).toHaveAttribute('aria-pressed', 'true');
+    // Accepted: the invitation gets out of the way of the frame being drawn on.
+    expect(screen.queryByText('No scene configured')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Draw a zone' })).not.toBeInTheDocument();
   });
 
   describe('identity in every state (§5, §14)', () => {
@@ -260,7 +288,7 @@ describe('scene editor', () => {
     it('keeps the camera named while it is unavailable, the state said by the region', async () => {
       vi.mocked(getCamera).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
       renderInShell();
-      expect(await screen.findByText('Camera store unavailable. (api_error)')).toBeInTheDocument();
+      expect(await screen.findByText('The camera could not be loaded. Camera store unavailable. (api_error)')).toBeInTheDocument();
       await expectCameraIdentity(fallback);
     });
 
@@ -268,7 +296,7 @@ describe('scene editor', () => {
       vi.mocked(getCamera).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));
       vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));
       renderInShell();
-      expect(await screen.findByRole('heading', { name: 'Camera not found' })).toBeInTheDocument();
+      expect(await screen.findByText('This camera does not exist.')).toBeInTheDocument();
       await expectCameraIdentity(fallback);
       expect(document.title).not.toBe('Not found — MAVI');
       // One page heading: the bar's; the state is the region's.
@@ -278,7 +306,7 @@ describe('scene editor', () => {
     it('names the camera it resolved when only its scene is missing', async () => {
       vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));
       renderInShell();
-      expect(await screen.findByRole('heading', { name: 'Camera not found' })).toBeInTheDocument();
+      expect(await screen.findByText('This camera does not exist.')).toBeInTheDocument();
       await expectCameraIdentity('CAM-01 · North Gate');
     });
 
@@ -294,7 +322,8 @@ describe('scene editor', () => {
     vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 404, code: 'camera_not_found', detail: 'x' }));
     render();
 
-    expect(await screen.findByRole('heading', { name: 'Camera not found' })).toBeInTheDocument();
+    expect(await screen.findByText('This camera does not exist.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to Cameras' })).toHaveAttribute('href', '/cameras');
   });
 
   it('never presents an unavailable scene API as an empty scene', async () => {
@@ -304,7 +333,8 @@ describe('scene editor', () => {
     render();
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Scene store is down.');
+    // The subject first, then the server's detail and code.
+    expect(alert).toHaveTextContent('The scene could not be loaded. Scene store is down. (api_error)');
     // One alert, its retry trailing inside it, and the Context Bar still
     // naming the surface (§37.1, page).
     expect(screen.getAllByRole('alert')).toHaveLength(1);
@@ -313,7 +343,7 @@ describe('scene editor', () => {
     // No editor, and above all no empty geometry presented as the truth.
     expect(screen.queryByRole('button', { name: 'Save revision' })).not.toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Zones' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Nothing drawn yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText('No zones or trip lines yet.')).not.toBeInTheDocument();
   });
 
   it('offers a neutral frame when the camera has no videos', async () => {
@@ -324,12 +354,272 @@ describe('scene editor', () => {
     expect(toolButton('Zone')).toBeEnabled();
   });
 
-  it('refuses changes on an inactive camera', async () => {
+  it('withholds editing on an inactive camera, saying why once, where the tools would be (R4)', async () => {
+    const user = userEvent.setup();
     vi.mocked(getCamera).mockResolvedValue({ ...camera, isActive: false });
     render();
 
-    expect(await screen.findByText(/This camera is inactive/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+    // The server refuses every change (`scene_camera_inactive`), so the tools
+    // are removed rather than offered and refused at Save.
+    const reason = await screen.findByText('This camera is inactive, so its scene cannot be changed.');
+    expect(screen.getAllByText(/This camera is inactive/)).toHaveLength(1);
+    expect(screen.queryByRole('group', { name: 'Drawing tools' })).not.toBeInTheDocument();
+    const save = screen.getByRole('button', { name: 'Save revision' });
+    expect(save).toBeDisabled();
+    expect(save).toHaveAttribute('aria-describedby', reason.id);
+
+    // Still readable and selectable; not editable, not deletable.
+    await user.click(await screen.findByRole('button', { name: /^Gate/ }));
+    expect(screen.getByLabelText('Name')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^Delete / })).not.toBeInTheDocument();
+    await user.keyboard('{Delete}');
+    expect(screen.getByRole('button', { name: /^Gate/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();
+  });
+
+  it('keeps an inactive camera stated while a past revision is open on it', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getCamera).mockResolvedValue({ ...camera, isActive: false });
+    vi.mocked(getCameraSceneRevision).mockResolvedValue(revision({ revisionNumber: 1, tripLines: [] }));
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await user.click(screen.getByRole('button', { name: /View revision 1/ }));
+    expect(await screen.findByText(/Drawing tools are unavailable while a past revision is open/)).toBeInTheDocument();
+    // One reason does not hide the other.
+    expect(screen.getByText('This camera is inactive, so its scene cannot be changed.')).toBeInTheDocument();
+  });
+
+  describe('Codex P2 corrections on PR #192', () => {
+    it('keeps a past revision named and read only when its refresh fails, says so with Retry, and recovers', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraSceneRevision).mockResolvedValue(revision({ revisionNumber: 1, tripLines: [] }));
+      const { queryClient } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await user.click(screen.getByRole('button', { name: /View revision 1/ }));
+      expect(await screen.findByText('Viewing revision 1 — read only')).toBeInTheDocument();
+
+      // The background refetch fails; the revision already read is retained.
+      vi.mocked(getCameraSceneRevision).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'down' }));
+      await act(async () => { await queryClient.refetchQueries({ queryKey: sceneQueryKeys.revision(cameraId, 1) }); });
+
+      const warning = await screen.findByText('Revision 1 could not be refreshed. It is shown as last loaded.');
+      // Still the same revision, named and read only, its geometry still shown —
+      // never the first-load "unavailable" state over evidence that is there.
+      expect(screen.getByText('Viewing revision 1 — read only')).toBeInTheDocument();
+      expect(objectButton('Gate')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Return to active revision' })).toBeInTheDocument();
+      expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
+      expect(screen.queryByText('Revision 1 is unavailable.')).not.toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Drawing tools' })).not.toBeInTheDocument();
+
+      vi.mocked(getCameraSceneRevision).mockResolvedValue(revision({ revisionNumber: 1, tripLines: [] }));
+      await user.click(within(warning.closest('.alert') as HTMLElement).getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(screen.queryByText(/could not be refreshed/)).not.toBeInTheDocument());
+      expect(screen.getByText('Viewing revision 1 — read only')).toBeInTheDocument();
+      expect(objectButton('Gate')).toBeInTheDocument();
+    });
+
+    it('keeps a note left behind by a reverted edit visible, guarded and resettable, so it never rides a later save', async () => {
+      const user = userEvent.setup();
+      const { router } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+
+      await selectObject(user, 'Gate');
+      const name = screen.getByLabelText('Name');
+      await user.type(name, 'x');
+      await user.type(screen.getByLabelText('Revision note (optional)'), 'Moved the gate');
+      // The geometry and fields return to their baseline; the note does not.
+      await user.clear(name);
+      await user.type(name, 'Gate');
+
+      expect(screen.getByLabelText('Revision note (optional)')).toHaveValue('Moved the gate');
+      expect(screen.getByRole('button', { name: 'Reset' })).toBeEnabled();
+      // A note alone is not a revision.
+      expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+      // It is the operator's input, so leaving asks.
+      expect(unloadBlocked()).toBe(true);
+      act(() => { void router.navigate('/cameras'); });
+      const leave = await screen.findByRole('dialog', { name: 'Leave with unsaved changes?' });
+      await user.click(within(leave).getByRole('button', { name: 'Stay on this page' }));
+
+      // Reset confirms, then clears the note with the draft.
+      await user.click(screen.getByRole('button', { name: 'Reset' }));
+      const discard = await screen.findByRole('dialog', { name: 'Discard your unsaved scene changes?' });
+      await user.click(within(discard).getByRole('button', { name: 'Discard changes' }));
+      await waitFor(() => expect(screen.queryByLabelText('Revision note (optional)')).not.toBeInTheDocument());
+      expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();
+      expect(unloadBlocked()).toBe(false);
+
+      // A later, unrelated edit is saved without the old note.
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      expect(screen.getByLabelText('Revision note (optional)')).toHaveValue('');
+      await user.click(screen.getByRole('button', { name: 'Save revision' }));
+      await waitFor(() => expect(saveCameraScene).toHaveBeenCalledTimes(1));
+      expect((vi.mocked(saveCameraScene).mock.calls[0][1] as SaveSceneRequest).note).toBeNull();
+    });
+
+    it.each(['Zone', 'Trip line'] as const)(
+      'abandons an unfinished %s when the camera becomes inactive, releases the guard, and does not re-arm on reactivation',
+      async (tool) => {
+        const user = userEvent.setup();
+        const { queryClient } = render();
+        await screen.findByRole('button', { name: /^Gate/ });
+
+        await user.click(toolButton(tool));
+        await clickFrame(user, 0.6, 0.6);
+        expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+        expect(unloadBlocked()).toBe(true);
+
+        vi.mocked(getCamera).mockResolvedValue({ ...camera, isActive: false });
+        await act(async () => { await queryClient.refetchQueries({ queryKey: queryKeys.camera(cameraId) }); });
+        expect(await screen.findByText('This camera is inactive, so its scene cannot be changed.')).toBeInTheDocument();
+        // No hidden gesture holding the page, nothing to cancel that cannot be seen.
+        expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+        expect(unloadBlocked()).toBe(false);
+
+        vi.mocked(getCamera).mockResolvedValue(camera);
+        await act(async () => { await queryClient.refetchQueries({ queryKey: queryKeys.camera(cameraId) }); });
+        await waitFor(() => expect(toolButton('Select')).toHaveAttribute('aria-pressed', 'true'));
+        expect(screen.queryByRole('button', { name: /^(Finish zone|Cancel)$/ })).not.toBeInTheDocument();
+        expect(unloadBlocked()).toBe(false);
+      },
+    );
+
+    it('keeps completed unsaved changes, and their guard, when the camera becomes inactive', async () => {
+      const user = userEvent.setup();
+      const { queryClient } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+
+      vi.mocked(getCamera).mockResolvedValue({ ...camera, isActive: false });
+      await act(async () => { await queryClient.refetchQueries({ queryKey: queryKeys.camera(cameraId) }); });
+      await screen.findByText('This camera is inactive, so its scene cannot be changed.');
+
+      expect(screen.getByLabelText('Name')).toHaveValue('Gate east');
+      expect(unloadBlocked()).toBe(true);
+      expect(screen.getByRole('button', { name: 'Reset' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+    });
+  });
+
+  describe('cold-review corrections on PR #192', () => {
+    it('names the scene, not the camera, when only a cached camera refresh failed beside a scene that never loaded', async () => {
+      vi.mocked(getCamera).mockResolvedValueOnce(camera).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store down.' }));
+      vi.mocked(getCameraScene).mockRejectedValue(new ApiError({ status: 500, code: 'api_error', detail: 'Scene store is down.' }));
+      const { queryClient } = render();
+      await screen.findByText('The scene could not be loaded. Scene store is down. (api_error)');
+
+      // The camera already read now fails its refresh; Retry re-renders the
+      // page with the camera in error but still holding its data.
+      await act(async () => { await queryClient.refetchQueries({ queryKey: queryKeys.camera(cameraId) }); });
+      await userEvent.setup().click(within(screen.getByRole('alert')).getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(vi.mocked(getCameraScene).mock.calls.length).toBeGreaterThan(1));
+      expect(await screen.findByRole('alert')).toHaveTextContent('The scene could not be loaded. Scene store is down. (api_error)');
+      expect(screen.queryByText(/The camera could not be loaded/)).not.toBeInTheDocument();
+    });
+
+    it('asks before Reload active revision discards a retained note', async () => {
+      const user = userEvent.setup();
+      vi.mocked(saveCameraScene).mockRejectedValue(new ApiError({ status: 409, code: 'scene_revision_conflict', detail: 'stale' }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      const name = screen.getByLabelText('Name');
+      await user.type(name, 'x');
+      await user.type(screen.getByLabelText('Revision note (optional)'), 'Moved the gate');
+      await user.click(screen.getByRole('button', { name: 'Save revision' }));
+      await screen.findByText(/This scene changed since you started editing/);
+      // The edit is reverted; the note is not.
+      await user.clear(name);
+      await user.type(name, 'Gate');
+
+      await user.click(screen.getByRole('button', { name: 'Reload active revision' }));
+      expect(await screen.findByRole('dialog', { name: 'Discard your changes and load the saved revision?' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Revision note (optional)')).toHaveValue('Moved the gate');
+    });
+
+    it('returns focus to the armed tool when the last object is deleted from a focused vertex', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(configured({ activeRevision: revision({ tripLines: [] }) }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.click(screen.getByText(/^Vertices · \d+$/));
+      await user.tab();
+      await user.keyboard('{Enter}{Delete}');
+
+      expect(queryObjectButton('Gate')).toBeNull();
+      await waitFor(() => expect(toolButton('Select')).toHaveFocus());
+    });
+
+    it('lets Enter act on a focused vertex while a zone is being drawn, and Escape keep focus on the page', async () => {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.click(screen.getByText(/^Vertices · \d+$/));
+      await user.click(toolButton('Zone'));
+      await clickFrame(user, 0.6, 0.6);
+
+      const vertex = screen.getByRole('button', { name: /^Vertex 2: / });
+      vertex.focus();
+      await user.keyboard('{Enter}');
+      // The vertex is selected; the unfinished polygon is still unfinished.
+      expect(vertex).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('button', { name: 'Finish zone' })).toBeInTheDocument();
+
+      await user.click(toolButton('Select'));
+      screen.getByRole('button', { name: /^Vertex 2: / }).focus();
+      await user.keyboard('{Escape}');
+      // The selection clears and its inspector controls go; focus does not fall to the page.
+      await waitFor(() => expect(objectButton('Gate')).toHaveFocus());
+    });
+
+    it('locks editing while a save is in flight, so nothing typed then is lost to the response', async () => {
+      const user = userEvent.setup();
+      let resolve: (value: SceneRevision) => void = () => {};
+      vi.mocked(saveCameraScene).mockReturnValue(new Promise((done) => { resolve = done; }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      await user.click(screen.getByRole('button', { name: 'Save revision' }));
+
+      expect(await screen.findByRole('button', { name: 'Saving…' })).toBeDisabled();
+      expect(screen.getByLabelText('Name')).toBeDisabled();
+      expect(screen.queryByRole('button', { name: /^Delete / })).not.toBeInTheDocument();
+      await act(async () => { resolve(revision({ revisionNumber: 3 })); });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Save revision' })).toBeInTheDocument());
+    });
+
+    it('does not adopt a newer revision over an unfinished polygon; it says so and keeps the drawing', async () => {
+      const user = userEvent.setup();
+      const { queryClient } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await user.click(toolButton('Zone'));
+      await clickFrame(user, 0.6, 0.6);
+
+      vi.mocked(getCameraScene).mockResolvedValue(configured({ activeRevision: revision({ revisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c219ff', revisionNumber: 5 }) }));
+      await act(async () => { await queryClient.refetchQueries({ queryKey: sceneQueryKeys.scene(cameraId) }); });
+
+      expect(await screen.findByText(/Somebody saved revision 5 while you were editing/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(true);
+    });
+  });
+
+  it('offers Reset only when there is something to reset', async () => {
+    const user = userEvent.setup();
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();
+
+    await selectObject(user, 'Gate');
+    await user.type(screen.getByLabelText('Name'), 'x');
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeEnabled();
   });
 
   // Drawing
@@ -470,6 +760,69 @@ describe('scene editor', () => {
     await user.keyboard('{ArrowRight}');
 
     expect(await screen.findByRole('button', { name: /Vertex 1: x 0.201000, y 0.200000/ })).toBeInTheDocument();
+  });
+
+  describe('forensic geometry behind a disclosure, still a keyboard path (R4, F18, §37.2)', () => {
+    const geometry = () => screen.getByText(/^Vertices · \d+$/).closest('details') as HTMLDetailsElement;
+
+    it('keeps exact coordinates and identity closed by default, below the controls that change the object', async () => {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+
+      const details = geometry();
+      expect(details).not.toHaveAttribute('open');
+      expect(within(details).getByText('Identity')).toBeInTheDocument();
+      // Operational controls come first; the forensic tier is last.
+      const name = screen.getByLabelText('Name');
+      expect(name.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The coordinates are the object's own values at domain precision.
+      expect(within(details).getByRole('button', { name: 'Vertex 1: x 0.200000, y 0.200000' })).toBeInTheDocument();
+    });
+
+    it('lets a keyboard operator open it, select a vertex, nudge it and read the exact result, keeping focus', async () => {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+
+      // Discoverable: the next Tab stop after the last operational field.
+      screen.getByLabelText('Loitering').focus();
+      await user.tab();
+      const summary = screen.getByText(/^Vertices · \d+$/);
+      expect(summary).toHaveFocus();
+      // A browser toggles a focused <summary> on Enter or Space natively;
+      // jsdom does not implement that activation, so it is opened by click here.
+      await user.click(summary);
+      expect(geometry()).toHaveAttribute('open');
+
+      await user.tab();
+      const vertex = screen.getByRole('button', { name: 'Vertex 1: x 0.200000, y 0.200000' });
+      expect(vertex).toHaveFocus();
+      await user.keyboard('{Enter}');
+      expect(vertex).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByText(/vertex 1 selected/)).toBeInTheDocument();
+
+      await user.keyboard('{ArrowRight}');
+      const moved = await screen.findByRole('button', { name: 'Vertex 1: x 0.201000, y 0.200000' });
+      // The same control, still focused, in a disclosure that stayed open.
+      expect(moved).toHaveFocus();
+      expect(geometry()).toHaveAttribute('open');
+    });
+
+    it('returns focus to the navigator when the object a focused vertex belonged to is deleted', async () => {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.click(screen.getByText(/^Vertices · \d+$/));
+      await user.tab();
+      await user.keyboard('{Enter}{Delete}');
+
+      expect(queryObjectButton('Gate')).toBeNull();
+      await waitFor(() => expect(objectButton('Kerb')).toHaveFocus());
+    });
   });
 
   it('does not delete the object while its name is being edited', async () => {
@@ -668,8 +1021,11 @@ describe('scene editor', () => {
     await user.type(screen.getByLabelText('Name'), 'Forecourt');
     await user.click(screen.getByRole('button', { name: 'Save revision' }));
 
-    expect(await screen.findByText(/This scene changed since you started editing/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Reload active revision' })).toBeInTheDocument();
+    const conflictText = await screen.findByText(/This scene changed since you started editing/);
+    // One alert, its recovery trailing inside it (§14.1), saying what it does.
+    const alert = conflictText.closest('.alert') as HTMLElement;
+    expect(within(alert).getByRole('button', { name: 'Reload active revision' })).toBeInTheDocument();
+    expect(alert).toHaveTextContent('Reloading discards them');
     // The unsaved draft survives until the operator decides.
     expect(screen.getByLabelText('Name')).toHaveValue('Forecourt');
     expect(saveCameraScene).toHaveBeenCalledTimes(1);
@@ -757,7 +1113,9 @@ describe('scene editor', () => {
     const video = screen.getByLabelText('Reference frame video') as HTMLVideoElement;
     video.dispatchEvent(new Event('error'));
 
-    expect(await screen.findByText(/reference video could not be loaded/i)).toBeInTheDocument();
+    // Said on the stage it affects (§37.1, media), not as a page alert.
+    expect(await screen.findByText(/Reference video unavailable/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Gate/ })).toBeInTheDocument();
   });
 
@@ -847,10 +1205,18 @@ describe('scene editor', () => {
 
     await user.click(screen.getByRole('button', { name: /View revision 1/ }));
 
-    // The banner already names revision 1, so the active scene must not be
-    // what is underneath it while the revision is still on its way.
-    expect(await screen.findByText(/Viewing revision 1 — read only/)).toBeInTheDocument();
-    expect(screen.getByText(/Loading revision 1/)).toBeInTheDocument();
+    // The stage already names revision 1 — loading — so the active scene must
+    // not be what is underneath it while the revision is still on its way. The
+    // loading line is the stage's own banner, so nothing above the workspace
+    // appears and then disappears (§36.3).
+    // Each region says it is loading (§37.1) — the stage banner, the navigator
+    // and the inspector — and none says what an unread revision contains:
+    // no "no geometry", no zero counts, no analytics state (§14).
+    expect(await screen.findAllByText('Loading revision 1…')).toHaveLength(3);
+    expect(screen.queryByText(/This revision has no geometry/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 \(0 enabled\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Analytics (on|off)$/i)).not.toBeInTheDocument();
+    expect(document.querySelector('.workspace__notices')?.textContent ?? '').not.toMatch(/revision 1/);
     expect(queryObjectButton('Gate')).toBeNull();
     expect(queryObjectButton('Kerb')).toBeNull();
 
@@ -859,6 +1225,7 @@ describe('scene editor', () => {
     );
 
     expect(await screen.findByRole('button', { name: /^Gate/ })).toBeInTheDocument();
+    expect(screen.getByText('Viewing revision 1 — read only')).toBeInTheDocument();
   });
 
   it('abandons an unfinished polygon rather than carrying it into a past revision', async () => {
@@ -944,7 +1311,20 @@ describe('scene editor', () => {
 
     await user.click(screen.getByRole('button', { name: /View revision 1/ }));
 
-    expect(await screen.findByText('That revision does not exist for this camera.')).toBeInTheDocument();
+    // Said on the stage it would have filled, with its retry — not above the
+    // workspace, and never with the active geometry under the revision's name.
+    const message = await screen.findByText('That revision does not exist for this camera.');
+    const stageState = message.closest('.scene-stage__state') as HTMLElement;
+    expect(stageState).not.toBeNull();
+    expect(within(stageState).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByText(/Viewing revision 1/)).not.toBeInTheDocument();
+    expect(queryObjectButton('Gate')).toBeNull();
+    expect(document.querySelector('.workspace__notices')?.textContent ?? '').not.toMatch(/revision/);
+    // The other regions say it is unavailable — never that it is empty.
+    expect(screen.getAllByText('Revision 1 is unavailable.')).toHaveLength(2);
+    expect(screen.queryByText(/This revision has no geometry/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 \(0 enabled\)/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Analytics (on|off)$/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Return to active revision' }));
     expect(await screen.findByRole('button', { name: /^Gate/ })).toBeInTheDocument();
   });

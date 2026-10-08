@@ -1,4 +1,5 @@
 import { ApiError } from '../../api/client';
+import { describeError } from '../../shared/async/fromQuery';
 
 /**
  * Operator-facing messages for the failure codes the scene API returns.
@@ -40,10 +41,14 @@ const messages: Record<string, string> = {
   camera_not_found: 'Camera was not found.',
 };
 
-/** The message for a failure, falling back to the server's own detail. */
+/**
+ * The message for a failure. A code this surface knows has a complete operator
+ * sentence; any other says what failed — the caller's sentence — and then the
+ * server's own detail and code (shared `describeError`), never the detail alone.
+ */
 export function sceneErrorMessage(error: unknown, fallback: string): string {
-  if (!(error instanceof ApiError)) return fallback;
-  return messages[error.code] ?? `${error.detail} (${error.code})`;
+  if (error instanceof ApiError && messages[error.code]) return messages[error.code];
+  return describeError(error, fallback);
 }
 
 /** True when a save failed because someone else saved first. */
