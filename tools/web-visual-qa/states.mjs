@@ -515,7 +515,8 @@ export const TIER_POLICIES = {
  * and active ones), its processing status. Overrides match by path prefix, so
  * each looked-up video's `/processing` path must be answered here, or the
  * inventory's own override would answer it with the list. An entry may give
- * its own `lookup` (`'unavailable'`, a status), its run `phase` and `progress`.
+ * its own `lookup` (`'unavailable'`, a status), its run `phase` and `progress`,
+ * and a `refresh` answer for every request after the first.
  */
 const OVERVIEW_VIDEO = JSON.parse(readFileSync(new URL('./fixtures/videos.json', import.meta.url), 'utf8'))[0];
 const OVERVIEW_CAM_2 = '33333333-3333-7333-8333-333333333333';
@@ -531,7 +532,7 @@ function inventoryFixture(entries) {
     if (entry.status !== 'NotQueued') {
       const failed = entry.status === 'Failed';
       const active = entry.status === 'Queued' || entry.status === 'Processing';
-      api[`/api/videos/${id}/processing`] = entry.lookup ?? {
+      const lookup = entry.lookup ?? {
         videoStatus: entry.status,
         latestRun: {
           processingRunId: id.replace(/^0/, 'a'), status: failed ? 'Failed' : active ? (entry.status === 'Queued' ? 'Queued' : 'Running') : 'Completed',
@@ -543,6 +544,9 @@ function inventoryFixture(entries) {
           phase: entry.phase ?? (failed ? 'failed' : active ? (entry.status === 'Queued' ? 'queued' : 'processing') : 'completed'),
         },
       };
+      // `refresh`: what every later request answers — a refresh that fails
+      // after the first answer leaves the row with retained, degraded detail.
+      api[`/api/videos/${id}/processing`] = entry.refresh ? { sequence: [lookup, entry.refresh] } : lookup;
     }
   });
   return api;
@@ -2538,6 +2542,37 @@ export const STATES = [
     expectText: 'Processing could not be queued for yard-sweep-0615.mp4. The processing queue did not respond. (queue_unavailable)',
   },
   {
+    // R2 (Codex P2): a row whose details loaded and whose refresh then failed
+    // keeps them and appends the degraded note with its retry. In the capped
+    // status cell the retry must stay whole after the widest retained details
+    // — a failure code and a finalization failure. The failed row's own Retry
+    // is answered `processing_already_active` (reconciled, no alert), whose
+    // refresh of the row's detail fails; the active row's poll fails alike.
+    name: 'videos-row-degraded', interaction: 'retry a failed video whose detail refresh then fails', path: '/videos', fullWidth: true, archetype: 'ledger',
+    api: {
+      ...inventoryFixture([
+        { name: 'south-dock-2200.mp4', status: 'Failed', code: 'vision_finalization_exhausted', refresh: 'unavailable' },
+        { name: 'north-gate-0900-very-long-original-file-name.mp4', status: 'Processing', progress: 40, refresh: 'unavailable', camera: OVERVIEW_CAM_2 },
+        { name: 'north-gate-0800.mp4', status: 'Processed' },
+      ]),
+      'POST /api/videos/00000001-0000-7000-8000-000000000001/process': {
+        status: 409, body: { title: 'Processing already active', detail: 'Processing is already active for this video.', code: 'processing_already_active' },
+      },
+    },
+    prepare: `(async () => {
+      ${UNTIL}
+      const row = await until(() => Array.from(document.querySelectorAll('tr')).find((r) => r.textContent.includes('south-dock-2200.mp4') && r.textContent.includes('vision_finalization_exhausted')), 'the failed row with its detail');
+      const retry = Array.from(row.querySelectorAll('button')).find((b) => b.textContent.trim() === 'Retry');
+      if (!retry) return false;
+      retry.focus();
+      window.__vqa.mark('interaction-start');
+      retry.click();
+      return Boolean(await until(() => document.body.innerText.includes('Failure detail may be out of date') && document.body.innerText.includes('Live status may be out of date'), 'both degraded rows', 15000));
+    })()`,
+    expectText: ['Failure detail may be out of date', 'Live status may be out of date', 'vision_finalization_exhausted'],
+    forbidText: 'Processing could not be queued',
+  },
+  {
     name: 'videos-dense', path: '/videos', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': DENSE_VIDEOS },
   },
@@ -2566,6 +2601,18 @@ export const STATES = [
       '/api/videos/55555555-5555-7555-8555-555555555555/processing': 'unavailable',
     },
     expectText: 'Run status unavailable', forbidText: 'Loading run…',
+  },
+  {
+    // R2 (Codex P2): the shared run cell after a failed refresh — an active
+    // run whose poll fails keeps its badge and progress, appends the degraded
+    // note and its Retry, and the Retry stays whole inside the cell's cap.
+    name: 'processing-queue-row-degraded', path: '/processing', fullWidth: true, archetype: 'ledger',
+    api: inventoryFixture([
+      { name: 'north-gate-0900-very-long-original-file-name.mp4', status: 'Processing', progress: 40, refresh: 'unavailable' },
+      { name: 'south-dock-2200.mp4', status: 'Failed', code: 'vision_finalization_exhausted' },
+      { name: 'north-gate-0800.mp4', status: 'Processed' },
+    ]),
+    expectText: ['Run status may be out of date', 'vision_finalization_exhausted'],
   },
   {
     name: 'processing-queue-dense', path: '/processing', fullWidth: true, archetype: 'ledger', api: { '/api/videos': DENSE_VIDEOS },
