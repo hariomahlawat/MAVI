@@ -192,6 +192,40 @@ describe('VideoImportPage', () => {
     }
   });
 
+  it('takes a refused file field to the real file control, visibly (§12, §27 FileInput)', async () => {
+    const user = userEvent.setup();
+    const scrolled: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) { scrolled.push(this); };
+    try {
+      renderWithApp(<VideoImportPage />);
+      await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+      await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+      await user.type(screen.getByLabelText('Recording local date/time'), '2026-09-14T08:30');
+      await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+      // The file field is the first refused one: focus lands on the native
+      // input itself, the control Enter and Space operate, not on a proxy.
+      const chooser = screen.getByLabelText('MP4 file');
+      await waitFor(() => expect(chooser).toHaveFocus());
+      expect(chooser).toHaveAttribute('type', 'file');
+      expect(chooser).toHaveAttribute('accept', '.mp4,video/mp4');
+      expect(scrolled.at(-1)).toBe(chooser);
+      // The frame it lies over is the one that draws the ring and the error.
+      const frame = chooser.closest('.file-input') as HTMLElement;
+      expect(frame).toHaveAttribute('data-invalid', 'true');
+      expect(frame.matches(':focus-within')).toBe(true);
+      expect(frame).toHaveTextContent('No file selected');
+
+      // Choosing a file names it on screen and clears the refusal.
+      await user.upload(chooser, new File(['video'], 'north-gate-0800.mp4', { type: 'video/mp4' }));
+      expect(frame).toHaveTextContent('north-gate-0800.mp4');
+      expect(screen.queryByText('An MP4 file is required.')).not.toBeInTheDocument();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it('blocks the import when there is no active camera, and offers the way out', async () => {
     vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }]);
     renderWithApp(<VideoImportPage />);

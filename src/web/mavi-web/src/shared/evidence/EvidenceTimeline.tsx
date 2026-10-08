@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Button from '../components/Button';
 import { formatOffset } from '../format/format';
 import {
   MARKER_TARGET_PX,
@@ -542,21 +543,15 @@ export default function EvidenceTimeline({
                 ? `Step through ${dense.length} ${dense.length === 1 ? 'item' : 'items'} one at a time.`
                 : `${at! + 1} of ${dense.length} — ${describeMember(current)}`}
             </p>
+            {/* The shared Button, so an exhausted direction takes the one
+                disabled treatment every button in the product has (§12). */}
             <div className="evidence-timeline__navigator-controls">
-              <button
-                type="button"
-                onClick={() => step(-1)}
-                disabled={at !== null && at === 0}
-              >
+              <Button size="sm" onClick={() => step(-1)} disabled={at !== null && at === 0}>
                 Previous
-              </button>
-              <button
-                type="button"
-                onClick={() => step(1)}
-                disabled={at !== null && at === dense.length - 1}
-              >
+              </Button>
+              <Button size="sm" onClick={() => step(1)} disabled={at !== null && at === dense.length - 1}>
                 Next
-              </button>
+              </Button>
             </div>
           </div>
         </details>

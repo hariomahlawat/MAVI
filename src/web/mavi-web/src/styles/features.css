@@ -365,18 +365,6 @@
   margin: 0; font-size: var(--fs-0); color: var(--text-secondary);
 }
 .evidence-timeline__navigator-controls { display: flex; gap: var(--s-1); }
-.evidence-timeline__navigator-controls button {
-  min-height: var(--control-h-sm); min-width: var(--control-h-sm);
-  background: none; border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-1);
-  color: var(--text-secondary); font-size: var(--fs-0); cursor: pointer;
-  padding-block: var(--s-1); padding-inline: var(--s-2);
-}
-.evidence-timeline__navigator-controls button:focus-visible {
-  outline: var(--focus-ring); outline-offset: var(--focus-ring-inner);
-}
-.evidence-timeline__navigator-controls button:disabled {
-  color: var(--text-muted); cursor: not-allowed;
-}
 
 /* A lane whose presentation is not yet decided is named but not drawn.
 
@@ -506,8 +494,6 @@
 .evidence-layers { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; color: var(--text-muted); }
 .evidence-layers__item { display: inline-flex; align-items: center; gap: var(--s-2); }
 .evidence-layers__reason { color: var(--text-muted); font-size: var(--fs-0); }
-/* Section 12: a control with aria-pressed and no pressed style is a defect. */
-.evidence-layers .btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--text-primary); border-color: var(--accent); }
 
 /* --- Track Evidence Set (S1.3b) -------------------------------------------
    Secondary evidence beside the player: one inspected crop, and beside it the

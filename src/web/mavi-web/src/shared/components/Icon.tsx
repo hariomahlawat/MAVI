@@ -2,7 +2,9 @@ import type { SVGProps } from 'react';
 
 // A deliberately small, consistent line-icon set. All icons share one viewBox
 // and stroke treatment so they read as a family at 14–20px.
-const paths: Record<string, string> = {
+// `satisfies` rather than an annotation: an annotation would widen the keys
+// to `string`, and `IconName` below would accept any name at all (§27).
+const paths = {
   overview: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
   camera: 'M3 8a2 2 0 0 1 2-2h2l2-3h6l2 3h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
   video: 'M3 7a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM16 10l5-3v10l-5-3',
@@ -38,8 +40,9 @@ const paths: Record<string, string> = {
   layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5',
   box: 'M4 6h16v12H4z',
   path: 'M4 18c4 0 4-12 8-12s4 12 8 12',
-};
+} satisfies Record<string, string>;
 
+/** The shipped icons, and only those: a name that is not drawn here does not typecheck. */
 export type IconName = keyof typeof paths;
 
 type IconProps = SVGProps<SVGSVGElement> & {

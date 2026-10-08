@@ -357,6 +357,11 @@ describe('CamerasPage', () => {
       expect(await screen.findByRole('status')).toBeInTheDocument();
       expect(loading.container.querySelector('.ledger-table')).toBeNull();
       expect(loading.container.querySelector('.workspace__body--ledger > .state-region .skeleton')).not.toBeNull();
+      // S1e (D3, §38): the skeleton reserves the table header, and the band
+      // the count will occupy is already there, so the rows do not move when
+      // the inventory arrives.
+      expect(loading.container.querySelectorAll('.workspace__body--ledger .skeleton__head')).toHaveLength(1);
+      expect(loading.container.querySelector('.toolbar-band__hint')).toHaveTextContent('Loading cameras…');
     });
 
     it('gives each row one secondary text action and one named icon action (§16)', async () => {

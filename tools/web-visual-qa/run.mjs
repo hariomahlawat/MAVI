@@ -72,6 +72,14 @@ const browser = await launch();
 const findings = [];
 const knownSeen = [];
 const focusTotals = { discovered: 0, checked: 0, skipped: {} };
+// S1e (D3, section 38): the first Ledger row's position per state and width,
+// so a loading Ledger can be compared with the table that replaces it.
+const firstRows = new Map();
+const LOADING_PAIRS = [
+  ['cameras-loading', 'cameras'],
+  ['videos-loading', 'videos'],
+  ['processing-queue-loading', 'processing-queue'],
+];
 let checks = 0;
 
 try {
@@ -252,6 +260,9 @@ try {
         focusTotals.skipped[reason] = (focusTotals.skipped[reason] ?? 0) + count;
       }
       writeFileSync(join(OUT, `${state.name}--${viewport.label}.json`), JSON.stringify(summary, null, 2));
+      if (typeof workspace?.measured?.firstRowTop === 'number') {
+        firstRows.set(`${state.name}@${viewport.label}`, workspace.measured.firstRowTop);
+      }
 
       // Let go of anything this state deliberately left hanging before the
       // next one needs the connection.
@@ -263,6 +274,24 @@ try {
 } finally {
   await browser.close();
   await close();
+}
+
+// A loading Ledger's first skeleton row must be where the first table row
+// arrives (section 36.3, section 38): half a pixel covers sub-pixel rounding.
+for (const [loading, ready] of LOADING_PAIRS) {
+  for (const key of firstRows.keys()) {
+    if (!key.startsWith(loading + '@')) continue;
+    const width = key.slice(loading.length + 1);
+    const readyTop = firstRows.get(`${ready}@${width}`);
+    if (readyTop === undefined) continue;
+    const loadingTop = firstRows.get(key);
+    if (Math.abs(loadingTop - readyTop) > 0.5) {
+      findings.push(`${loading} @ ${width}: first skeleton row at ${loadingTop}px, first ${ready} row at ${readyTop}px; `
+        + 'the rows move when the table arrives');
+    } else {
+      process.stdout.write(`  ok   ${loading} -> ${ready} @ ${width}: first row ${loadingTop}px / ${readyTop}px\n`);
+    }
+  }
 }
 
 process.stdout.write(`\n${checks} state/viewport combinations checked; captures in ${OUT}\n`);

@@ -140,6 +140,16 @@ describe('Analytics identity (§5, §14)', () => {
 });
 
 describe('Analytics Workbench', () => {
+  it('is one `.page` Workbench surface like every routed surface (S1e, D9)', async () => {
+    const { container } = render();
+    await screen.findByRole('link', { name: 'CAM-01 · North Gate' });
+    const page = container.querySelector('section.page');
+    expect(page).not.toBeNull();
+    expect(page).toHaveClass('page--full', 'page--workspace');
+    expect(container.querySelectorAll('section.page')).toHaveLength(1);
+    expect(page?.querySelector('.workspace--workbench')).not.toBeNull();
+  });
+
   it('names the camera and its analytics surface, and offers the way back to the scene', async () => {
     render();
 

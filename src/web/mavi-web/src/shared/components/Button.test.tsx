@@ -48,7 +48,7 @@ describe('Button', () => {
   });
 
   it('names an icon-only button for assistive technology', () => {
-    render(<Button icon="close" iconOnly>Close</Button>);
+    render(<Button icon="x" iconOnly>Close</Button>);
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 

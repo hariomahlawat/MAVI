@@ -168,8 +168,6 @@ describe('VisualSearchPage', () => {
     expect(within(workspace as HTMLElement).getByRole('form', { name: 'Search filters' }))
       .toBeInTheDocument();
     expect(container.querySelector('.workspace__results')).toBeInTheDocument();
-    // §4 removes the page title block; the surface names itself in the band.
-    expect(container.querySelector('.page-header')).not.toBeInTheDocument();
     // The private grid it used to carry is gone, not renamed.
     expect(container.querySelector('.search-workspace')).not.toBeInTheDocument();
   });

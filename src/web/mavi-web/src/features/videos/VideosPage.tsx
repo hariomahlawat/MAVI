@@ -20,7 +20,7 @@ import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/fo
 import { FINALIZATION_FAILED_LABEL, isActiveStatus, VIDEO_STATUSES } from '../../shared/status/status';
 import { SortableColumn, sortRows, useLedgerSort } from '../../shared/table';
 import TruncatedText from '../../shared/overlay/Truncated';
-import { ContextBar, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
+import { ContextBar, LEDGER_SKELETON, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from './useVideoProcessing';
 import { compareVideoRows, filterVideoRows, joinVideoRows, parseStatusFilter, type VideoColumn, type VideoRow } from './videoRows';
 
@@ -186,7 +186,7 @@ export default function VideosPage() {
           kind="column"
           state={fromQuery(videos)}
           label="videos"
-          skeleton={{ rows: 'default' }}
+          skeleton={LEDGER_SKELETON}
           isEmpty={(all) => all.length === 0}
           empty={{
             icon: 'video',

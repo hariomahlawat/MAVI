@@ -14,7 +14,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/format/format';
 import { FINALIZATION_FAILED_LABEL, isActiveStatus } from '../../shared/status/status';
 import TruncatedText from '../../shared/overlay/Truncated';
-import { ContextBar, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
+import { ContextBar, LEDGER_SKELETON, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from '../videos/useVideoProcessing';
 import { joinVideoRows, sortVideoRows, type VideoRow } from '../videos/videoRows';
 import { analyticsReadinessText } from './analyticsReadiness';
@@ -141,7 +141,7 @@ export default function ProcessingQueuePage() {
           state={fromQuery(videos)}
           label="processing state"
           loadingLabel="Loading processing state…"
-          skeleton={{ rows: 'default' }}
+          skeleton={LEDGER_SKELETON}
           isEmpty={() => rows.length === 0}
           empty={{
             icon: 'activity',

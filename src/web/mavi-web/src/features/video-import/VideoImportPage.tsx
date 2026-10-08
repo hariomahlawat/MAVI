@@ -17,6 +17,7 @@ import Alert from '../../shared/components/Alert';
 import { useFocusFirstInvalid } from '../../shared/forms/useFocusFirstInvalid';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
+import FileInput from '../../shared/components/FileInput';
 import KeyValue from '../../shared/components/KeyValue';
 import Panel from '../../shared/components/Panel';
 import StatusBadge from '../../shared/components/StatusBadge';
@@ -293,12 +294,7 @@ export default function VideoImportPage() {
                 help={`One MP4 per import, up to ${formatBytes(MAXIMUM_VIDEO_FILE_SIZE_BYTES)}. Backend media validation remains authoritative.`}
               >
                 {(control) => (
-                  <input
-                    {...control}
-                    type="file"
-                    accept=".mp4,video/mp4"
-                    onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                  />
+                  <FileInput {...control} accept=".mp4,video/mp4" file={file} onChange={setFile} />
                 )}
               </Field>
 

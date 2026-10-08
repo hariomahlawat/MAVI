@@ -347,6 +347,23 @@ describe('Evidence Player layers', () => {
     expect(screen.getByText('No trajectory was persisted.')).toBeInTheDocument();
   });
 
+  it('offers every layer as the shared ToggleChip, the unavailable one disabled with its bound reason (§12, §27)', () => {
+    renderPlayer({ layers });
+    const chips = Array.from(document.querySelectorAll('.evidence-layers button'));
+    expect(chips.length).toBeGreaterThan(0);
+    for (const chip of chips) {
+      expect(chip).toHaveClass('toggle-chip');
+      expect(chip.getAttribute('aria-pressed')).toMatch(/^(true|false)$/);
+    }
+    const available = screen.getByRole('button', { name: 'Bounding box', pressed: true });
+    expect(available.querySelector('.toggle-chip__mark svg')).not.toBeNull();
+    const unavailable = screen.getByRole('button', { name: 'Trajectory' });
+    expect(unavailable).toHaveClass('toggle-chip');
+    expect(unavailable).toBeDisabled();
+    expect(descriptionOf('Trajectory').map((element) => element.textContent)).toContain('No trajectory was persisted.');
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
   it('toggles a layer, marks the control pressed and remembers the choice', async () => {
     const user = userEvent.setup();
     const view = renderPlayer({ layers });

@@ -2275,6 +2275,12 @@ export const STATES = [
     api: { '/api/videos': [] }, expectText: 'No videos imported yet',
   },
   {
+    // S1e (D3): a loading Ledger reserves the header the table will draw, so
+    // its first skeleton row sits where the first body row arrives.
+    name: 'videos-loading', path: '/videos', fullWidth: true, archetype: 'ledger', settleMs: 500,
+    api: { '/api/videos': 'hang' }, expectText: 'Loading videos',
+  },
+  {
     name: 'videos-filtered-empty', path: '/videos?q=no-such-recording', fullWidth: true, archetype: 'ledger',
     expectText: 'No videos match these filters', forbidText: 'No videos imported yet',
   },
@@ -2299,6 +2305,10 @@ export const STATES = [
   {
     name: 'processing-queue-empty', path: '/processing', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': [] }, expectText: 'Nothing has been queued',
+  },
+  {
+    name: 'processing-queue-loading', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 500,
+    api: { '/api/videos': 'hang' }, expectText: 'Loading processing state',
   },
   {
     name: 'processing-queue-unavailable', path: '/processing', fullWidth: true, archetype: 'ledger', settleMs: 4000,

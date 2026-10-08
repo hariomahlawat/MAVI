@@ -18,10 +18,7 @@ import StateRegion from '../../shared/async/StateRegion';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
 import StatusBadge from '../../shared/components/StatusBadge';
-import Segmented from '../../shared/workspace/Segmented';
-import ContextBar from '../../shared/workspace/ContextBar';
-import Inspector from '../../shared/workspace/Inspector';
-import { WorkbenchLayout } from '../../shared/workspace';
+import { ContextBar, Inspector, Segmented, WorkbenchLayout } from '../../shared/workspace';
 import ActivityChart from './ActivityChart';
 import ActivityInspector from './ActivityInspector';
 import AnalyticsControls from './AnalyticsControls';
@@ -164,7 +161,10 @@ export default function AnalyticsPage() {
 
 
   return (
-    <>
+    // One `.page` surface like every routed surface (§4, D9): full width, and a
+    // workspace column so the Workbench below owns the height and the page
+    // does not scroll (§4.3.2) — the wrapper the Scene Editor Workbench uses.
+    <section className="page page--full page--workspace">
       <ContextBar
         surface="analytics"
         // The camera this route names (§5: `Cameras › {camera} › Analytics`):
@@ -304,7 +304,7 @@ export default function AnalyticsPage() {
           </Inspector>
         )}
       />
-    </>
+    </section>
   );
 }
 

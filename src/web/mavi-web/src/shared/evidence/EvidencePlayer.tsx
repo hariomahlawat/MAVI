@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Alert from '../components/Alert';
 import Button from '../components/Button';
 import Icon from '../components/Icon';
+import ToggleChip from '../components/ToggleChip';
 import { formatOffset } from '../format/format';
 import EvidenceTimeline from './EvidenceTimeline';
 import {
@@ -401,10 +402,8 @@ export default function EvidencePlayer({
             // a list is not phrasing content. `display: inline-flex` is on the
             // class, so the row itself is unchanged.
             <div key={layer.id} className="evidence-layers__item">
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-pressed={state === 'enabled'}
+              <ToggleChip
+                pressed={state === 'enabled'}
                 disabled={!layer.available}
                 // Section 12: a disabled control states its reason adjacently,
                 // and the two are bound so the reason is announced with it
@@ -414,7 +413,7 @@ export default function EvidencePlayer({
                 onClick={() => toggleLayer(layer.id, state !== 'enabled')}
               >
                 {layer.label}
-              </Button>
+              </ToggleChip>
               {showReason ? (
                 <span className="evidence-layers__reason" id={reasonId}>{layer.unavailableReason}</span>
               ) : null}
