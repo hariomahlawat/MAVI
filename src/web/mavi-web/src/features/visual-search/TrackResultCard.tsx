@@ -84,7 +84,9 @@ export default function TrackResultCard({
 
         <dl className="track-card__metrics">
           <div><dt>Duration</dt><dd>{formatDuration(track.durationMs)}</dd></div>
-          <div><dt>Mean confidence</dt><dd>{formatConfidence(track.meanConfidence, 'list')}</dd></div>
+          {/* The row's words ("91% mean"): a three-column card has no room for
+              "Mean confidence" on one line, and one vocabulary is two fewer to learn. */}
+          <div><dt>Confidence</dt><dd>{formatConfidence(track.meanConfidence, 'list')} mean</dd></div>
           <div><dt>Detections</dt><dd>{track.detectionCount}</dd></div>
         </dl>
 

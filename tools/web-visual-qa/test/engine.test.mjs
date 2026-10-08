@@ -171,14 +171,24 @@ describe('surface-scoped findings in the ledger', () => {
   const on = (surface, tier = 'A') => ({ state: { name: 's' }, viewport: { tier, label: tier === 'A' ? '1366x768' : '390x844', kind: 'anchor' }, surface });
   it('weighs a finding by where it was found: an S1 region blocks, an unmigrated surface is pending on its row', () => {
     const ledger = createLedger();
-    const foundation = ledger.record(on('search'), 'containment.depth', 'x', 'foundation');
+    const foundation = ledger.record(on('review'), 'containment.depth', 'x', 'foundation');
     assert.equal(foundation.severity, 'blocking');
     assert.equal(foundation.surface, 'foundation');
-    const surface = ledger.record(on('search'), 'containment.depth', 'x');
+    const surface = ledger.record(on('review'), 'containment.depth', 'x');
     assert.equal(surface.severity, 'measured/pending');
-    assert.match(surface.owner, /R5/);
-    assert.equal(ledger.record(on('search', 'C'), 'containment.depth', 'x', 'foundation').severity, 'measured/pending');
+    assert.match(surface.owner, /R6/);
+    assert.equal(ledger.record(on('review', 'C'), 'containment.depth', 'x', 'foundation').severity, 'measured/pending');
   });
+  it('records a surface finding on the accepted Search as blocking, and as evaluated (R5)', () => {
+    const ledger = createLedger();
+    const finding = ledger.record(on('search'), 'containment.depth', 'x');
+    assert.equal(finding.severity, 'blocking');
+    assert.equal(finding.surface, 'search');
+    assert.equal(ledger.record(on('search', 'B'), 'containment.depth', 'x').severity, 'measured/pending');
+    ledger.markEvaluated(on('search'), ['text.overflow']);
+    assert.ok(!ledger.vacuous().includes('text.overflow @ Tier A'));
+  });
+
   it('records a surface finding on the accepted Scene Editor as blocking, and as evaluated (R4)', () => {
     const ledger = createLedger();
     const finding = ledger.record(on('scene-editor'), 'text.overflow', 'x');
@@ -190,9 +200,9 @@ describe('surface-scoped findings in the ledger', () => {
   });
   it('does not count a blocking rule as evaluated where it was only ever pending', () => {
     const ledger = createLedger();
-    ledger.markEvaluated(on('search'), ['containment.depth']);
+    ledger.markEvaluated(on('review'), ['containment.depth']);
     assert.ok(ledger.vacuous().includes('containment.depth @ Tier A'));
-    ledger.markEvaluated(on('search'), ['containment.depth'], 'foundation');
+    ledger.markEvaluated(on('review'), ['containment.depth'], 'foundation');
     assert.ok(!ledger.vacuous().includes('containment.depth @ Tier A'));
   });
 });

@@ -271,9 +271,11 @@ describe('Slice 4 Investigation analytics', () => {
       sceneRevisionId: revisionId, analyticsAlgorithmVersion: 'scene-analytics-v1',
     }));
     const summary = await screen.findByRole('region', { name: 'Scene analytics' });
-    expect(summary).toHaveTextContent('Scene revision 4 · Engine v1');
-    // The pinned identity qualifies every fact above it, so it closes the panel.
-    expect(summary).toHaveTextContent('Scene revision 4 · Engine v1 · reference point: Box centre');
+    // The pinned identity and its reference point are stated once each, in their
+    // rows — not again in a footer that restates them (F18, §37.2).
+    expect(within(summary).getAllByText('Scene revision 4 · Engine v1')).toHaveLength(1);
+    expect(summary).toHaveTextContent('Box centre');
+    expect(summary).not.toHaveTextContent('reference point: Box centre');
     expect(summary).toHaveTextContent('Forecourt · 2 visits · dwell');
     expect(summary).toHaveTextContent('Loitering');
     // Every crossing, with its own media time: the Slice-4 summary named only

@@ -555,7 +555,62 @@ describe('VisualSearchPage', () => {
     expect(vi.mocked(searchTracks).mock.calls[1][0].fromUtc).toBeUndefined();
   });
 
+  it('answers why this set without standing chrome: no keyboard legend, no per-row ordinal (§17, F13)', async () => {
+    renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+    const list = await screen.findByRole('list', { name: 'Track results' });
+    const results = list.closest('.results') as HTMLElement;
+    expect(within(results).queryByText('j', { selector: 'kbd' })).not.toBeInTheDocument();
+    expect(results.textContent).not.toMatch(/#\d/);
+    expect(within(results).getByText(/^Newest first/)).toBeInTheDocument();
+  });
+
+  it('says confidence in the grid as the list says it, on one line', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+    await screen.findByRole('list', { name: 'Track results' });
+    await user.click(screen.getByRole('button', { name: 'Grid view' }));
+    const card = (await screen.findAllByRole('article'))[0];
+    expect(within(card).getByText('Confidence')).toBeInTheDocument();
+    expect(within(card).getByText(/% mean$/)).toBeInTheDocument();
+    expect(within(card).queryByText('Mean confidence')).not.toBeInTheDocument();
+  });
+
   describe('field-level validation (§10)', () => {
+    it('brings a refused field above the rail\'s scroll position into view, focuses it, and commits nothing (F13)', async () => {
+      const user = userEvent.setup();
+      const scrollIntoView = vi.fn();
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = scrollIntoView;
+      try {
+        renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+        await screen.findByRole('link', { name: 'Review evidence' });
+
+        // An inverted time range is refused on To, which sits above the
+        // thresholds the operator has scrolled down to; a valid threshold below
+        // is kept in the draft.
+        fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-14T10:00:00' } });
+        fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-09-14T09:00:00' } });
+        await user.type(screen.getByLabelText('Minimum confidence (%)'), '80');
+        screen.getByLabelText('Minimum confidence (%)').focus();
+        await user.click(screen.getByRole('button', { name: 'Search' }));
+
+        const to = screen.getByLabelText('To');
+        await waitFor(() => expect(to).toHaveFocus());
+        expect(scrollIntoView.mock.contexts).toContain(to);
+        expect(to).toHaveAttribute('aria-invalid', 'true');
+        expect(document.getElementById(to.getAttribute('aria-describedby')!.split(' ')[0])).toHaveTextContent(/To time must be later/i);
+        expect(screen.getByLabelText('Minimum confidence (%)')).toHaveValue('80');
+        expect(searchTracks).toHaveBeenCalledTimes(1);
+
+        // Corrected, it commits.
+        fireEvent.change(to, { target: { value: '2026-09-14T11:00:00' } });
+        await user.click(screen.getByRole('button', { name: 'Search' }));
+        await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
+    });
+
     it('reports every refused field on the field itself, not once at page level', async () => {
       const user = userEvent.setup();
       renderWithApp(<SearchHistoryHarness />, { route: '/search' });
@@ -603,14 +658,23 @@ describe('VisualSearchPage', () => {
       expect(screen.getByLabelText('To')).not.toHaveAttribute('aria-invalid');
     });
 
-    it('keeps malformed committed URL state at page level rather than on a field', async () => {
+    it('states a malformed search link in the results column with its recovery, never on a field', async () => {
+      const user = userEvent.setup();
       renderWithApp(<VisualSearchPage />, { route: '/search?objectClass=Person&objectClass=Vehicle' });
 
-      const notice = await screen.findByText(/must occur exactly once/i);
-      // §10: the URL is not a field, so its refusal is not a field error.
-      expect(notice.closest('.workspace__notices')).not.toBeNull();
+      const notice = await screen.findByText(/This search link cannot be used\. .*must occur exactly once/i);
+      // §10: the URL is not a field, so its refusal is not a field error. F3,
+      // §37.1: it is the results column's state — the region it would have
+      // filled — with the action that answers it, not a page alert above an
+      // empty frame.
+      expect(notice.closest('.results')).not.toBeNull();
+      expect(document.querySelector('.workspace__notices')).toBeNull();
       expect(document.querySelector('[aria-invalid="true"]')).toBeNull();
       expect(searchTracks).not.toHaveBeenCalled();
+
+      await user.click(within(notice.closest('.alert') as HTMLElement).getByRole('button', { name: 'Reset search' }));
+      await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText(/This search link cannot be used/)).not.toBeInTheDocument();
     });
   });
 
@@ -1110,6 +1174,19 @@ describe('VisualSearchPage', () => {
       await user.keyboard('{Escape}');
       await waitFor(() => expect(screen.queryByRole('heading', { name: 'Person · Track 7' })).not.toBeInTheDocument());
       expect(screen.getByLabelText('Current search location')).toHaveTextContent('/search');
+    });
+
+    it('keeps the operational tier free of identifiers: the Track number is the heading, its id is one disclosure away (F18)', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+      const rows = within(await screen.findByRole('list', { name: 'Track results' })).getAllByRole('listitem');
+      await user.click(within(rows[0]).getByRole('button', { name: /^Select / }));
+      const inspector = (await screen.findByRole('heading', { name: 'Person · Track 7' })).closest('aside') as HTMLElement;
+
+      expect(inspector).not.toHaveTextContent(/Local track/);
+      const identifiers = within(inspector).getByText('Identifiers').closest('details')!;
+      expect(identifiers).not.toHaveAttribute('open');
+      expect(within(identifiers).getByText(first.id)).toBeInTheDocument();
     });
 
     it('steps through results with the keyboard and opens the full review on Enter', async () => {

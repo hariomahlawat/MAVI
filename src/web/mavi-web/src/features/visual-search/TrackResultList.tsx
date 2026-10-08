@@ -49,7 +49,6 @@ export function reviewPath(
  */
 function ResultRow({
   track,
-  index,
   selected,
   displayTimeZoneId,
   searchContext,
@@ -57,7 +56,6 @@ function ResultRow({
   onSelect,
 }: {
   track: TrackSearchItem;
-  index: number;
   selected: boolean;
   displayTimeZoneId?: string;
   searchContext?: string;
@@ -106,7 +104,6 @@ function ResultRow({
             <span className="visually-hidden">Review evidence</span>
           </Link>
         </span>
-        <span className="result-row__index" aria-hidden="true">#{index + 1}</span>
       </div>
     </li>
   );
@@ -129,11 +126,10 @@ export default function TrackResultList({
 }) {
   return (
     <ul className="results__list" aria-label="Track results">
-      {items.map((track, index) => (
+      {items.map((track) => (
         <ResultRow
           key={track.id}
           track={track}
-          index={index}
           selected={selectedId !== null && track.id.toLowerCase() === selectedId}
           displayTimeZoneId={displayTimeZoneId}
           searchContext={searchContext}

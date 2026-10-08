@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { TrackDetailAnalytics } from '../../api/tracks';
 import {
@@ -161,6 +161,23 @@ describe('facts', () => {
     expect(panel).toHaveTextContent('Gate line · 2 crossings');
     expect(panel).toHaveTextContent('Inbound at 00:12.5');
     expect(panel).toHaveTextContent('Outbound at 00:30.0');
+  });
+
+  it('in the inspector (compact), states the identity once and keeps crossing times one disclosure away; Review is unchanged (F18)', () => {
+    const inspector = show(rich, ready, true);
+    expect(within(inspector).getAllByText(/Scene revision 4 · Engine v1/)).toHaveLength(1);
+    expect(inspector).not.toHaveTextContent('reference point: Box centre');
+    const crossings = within(inspector).getByText('2 crossings').closest('details')!;
+    expect(crossings).not.toHaveAttribute('open');
+    expect(crossings).toHaveTextContent('Inbound at 00:12.5');
+    cleanup();
+
+    // Review renders exactly as before: the footer, and the crossings listed
+    // with no disclosure around them.
+    const review = show(rich);
+    expect(review).toHaveTextContent('Scene revision 4 · Engine v1 · reference point: Box centre');
+    expect(review).toHaveTextContent('Inbound at 00:12.5');
+    expect(within(review).queryByText('2 crossings', { selector: 'summary' })).not.toBeInTheDocument();
   });
 
   it('states heading as an image direction and never as a compass bearing', () => {

@@ -71,7 +71,8 @@ export const SURFACES = {
   'processing-detail': { owner: 'S3b / R3', accepted: false },
   // R4 accepted (S3c): the Scene Editor's surface findings block at Tier A.
   'scene-editor': { owner: 'S3c / R4', accepted: true },
-  search: { owner: 'S3d / R5', accepted: false },
+  // R5 accepted (S3d): Search's surface findings block at Tier A.
+  search: { owner: 'S3d / R5', accepted: true },
   review: { owner: 'S3e / R6', accepted: false },
   cameras: { owner: 'S4 / M1', accepted: false },
   'processing-queue': { owner: 'S4 / M2', accepted: false },

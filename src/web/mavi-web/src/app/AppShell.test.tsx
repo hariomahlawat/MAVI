@@ -1,3 +1,4 @@
+import { SEARCH_SHORTCUTS } from '../features/visual-search/searchShortcuts';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -271,6 +272,26 @@ describe('global keys (§5, §22)', () => {
     expect(screen.queryByRole('dialog', { name: 'Keyboard shortcuts' })).not.toBeInTheDocument();
     expect(invoker).toHaveFocus();
     expect(screen.getByRole('main')).not.toHaveAttribute('inert');
+  });
+
+  it("lists the open surface's own keys in the sheet — Search's legend lives here, not in its header (§17)", async () => {
+    const user = userEvent.setup();
+    const first = renderAt('/search');
+    await screen.findByRole('heading', { name: 'Search route' });
+    await user.keyboard('?');
+    const sheet = await screen.findByRole('dialog', { name: 'Keyboard shortcuts' });
+    expect(within(sheet).getByRole('heading', { name: 'Search results' })).toBeInTheDocument();
+    for (const shortcut of SEARCH_SHORTCUTS) {
+      const row = within(sheet).getByText(shortcut.description).closest('.shortcut-list__row') as HTMLElement;
+      for (const key of shortcut.keys) expect(within(row).getByText(key, { selector: 'kbd' })).toBeInTheDocument();
+    }
+    first.unmount();
+
+    renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    await user.keyboard('?');
+    const elsewhere = await screen.findByRole('dialog', { name: 'Keyboard shortcuts' });
+    expect(within(elsewhere).queryByRole('heading', { name: 'Search results' })).not.toBeInTheDocument();
   });
 
   it('keeps focus inside the sheet, and lets no surface shortcut act behind it', async () => {

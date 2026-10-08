@@ -166,6 +166,13 @@ export default function TrackAnalyticsExplanation({
         ),
     });
 
+    const crossingItems = (lineId: string, crossings: typeof analytics.lineCrossings) => crossings.map((crossing) => (
+      <li key={crossing.crossingIndex}>
+        {crossingDirectionLabel(crossing.direction, geometry?.lines.get(lineId.toLowerCase()))}
+        {' at '}{formatOffset(crossing.offsetMs, 'tenths')}
+        {' · '}{displayTimestamp(crossing.timestampUtc, displayTimeZoneId)}
+      </li>
+    ));
     const byLine = new Map<string, typeof analytics.lineCrossings>();
     for (const crossing of analytics.lineCrossings) {
       byLine.set(crossing.lineId, [...(byLine.get(crossing.lineId) ?? []), crossing]);
@@ -180,15 +187,18 @@ export default function TrackAnalyticsExplanation({
               <li key={lineId}>
                 <strong>{lineLabel(lineId, geometry)}</strong>
                 {' · '}{crossings.length} {crossings.length === 1 ? 'crossing' : 'crossings'}
-                <ul className="analytics-list">
-                  {crossings.map((crossing) => (
-                    <li key={crossing.crossingIndex}>
-                      {crossingDirectionLabel(crossing.direction, geometry?.lines.get(lineId.toLowerCase()))}
-                      {' at '}{formatOffset(crossing.offsetMs, 'tenths')}
-                      {' · '}{displayTimestamp(crossing.timestampUtc, displayTimeZoneId)}
-                    </li>
-                  ))}
-                </ul>
+                {/* Each crossing's time is detail: in the inspector it is one
+                    disclosure away, as a zone's visits are (§37.1 large data,
+                    F18). Review lists them as it always has — its rendering is
+                    R6's to decide, so nothing about it changes here. */}
+                {compact ? (
+                  <details className="disclosure">
+                    <summary>{crossings.length === 1 ? 'Crossing' : `${crossings.length} crossings`}</summary>
+                    <ul className="analytics-list disclosure__body">{crossingItems(lineId, crossings)}</ul>
+                  </details>
+                ) : (
+                  <ul className="analytics-list">{crossingItems(lineId, crossings)}</ul>
+                )}
               </li>
             ))}
           </ul>
@@ -298,7 +308,9 @@ export default function TrackAnalyticsExplanation({
         </details>
       ) : null}
 
-      {footer ? <p className="analytics-summary__footer">{footer}</p> : null}
+      {/* The footer restates the Identity and Reference point rows above; the
+          inspector shows them once (F18). Review keeps it until R6 decides. */}
+      {footer && !compact ? <p className="analytics-summary__footer">{footer}</p> : null}
     </section>
   );
 }

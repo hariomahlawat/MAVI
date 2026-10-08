@@ -1,7 +1,13 @@
 import { useEffect, type RefObject } from 'react';
 import Button from '../shared/components/Button';
 import Drawer from '../shared/overlay/Drawer';
-import { DESTINATIONS } from '../shared/workspace';
+import { DESTINATIONS, type SurfaceId } from '../shared/workspace';
+import { SEARCH_SHORTCUTS } from '../features/visual-search/searchShortcuts';
+
+/** Keys a surface implements itself, listed while that surface is open (§17, §22). */
+const SURFACE_SHORTCUTS: Partial<Record<SurfaceId, { title: string; keys: typeof SEARCH_SHORTCUTS }>> = {
+  search: { title: 'Search results', keys: SEARCH_SHORTCUTS },
+};
 
 /**
  * The `?` shortcut sheet (§5, §22).
@@ -12,16 +18,20 @@ import { DESTINATIONS } from '../shared/workspace';
  * Escape, makes what it covers inert and gives focus back. It is deliberately
  * not the Dialog, whose semantics (§15) are a consequence to decide.
  *
- * It names only the keys the shell implements, and reads the destination
- * letters from the IA map, so the sheet cannot advertise a key that does
- * nothing. Keys that belong to one surface (Search's `j`/`k`, the player's) are
- * that surface's to describe and are not listed here.
+ * It names the keys the shell implements, reading the destination letters from
+ * the IA map, and — while a surface that has its own keys is open — that
+ * surface's keys, from the list the surface itself owns (Search's `j`/`k`,
+ * §17: the legend lives here, not in standing header chrome). So the sheet
+ * cannot advertise a key that does nothing where it is opened.
  */
 export default function ShortcutSheet({
   onClose,
   covers,
+  surface,
 }: {
   onClose: () => void;
+  /** The surface the sheet was opened over, whose own keys it lists. */
+  surface?: SurfaceId;
   /** The rail and the workspace: inert while the sheet is open. */
   covers: readonly RefObject<HTMLElement | null>[];
 }) {
@@ -45,6 +55,23 @@ export default function ShortcutSheet({
           <Button size="sm" variant="ghost" icon="x" iconOnly onClick={onClose}>Close keyboard shortcuts</Button>
         </div>
         <p className="shortcut-sheet__note">Shortcuts do nothing while you are typing in a field.</p>
+        {surface && SURFACE_SHORTCUTS[surface] ? (
+          <>
+            <h3>{SURFACE_SHORTCUTS[surface]!.title}</h3>
+            <dl className="shortcut-list">
+              {SURFACE_SHORTCUTS[surface]!.keys.map((shortcut) => (
+                <div className="shortcut-list__row" key={shortcut.description}>
+                  <dt>
+                    {shortcut.keys.map((key, index) => (
+                      <span key={key}>{index > 0 ? ' or ' : null}<kbd>{key}</kbd></span>
+                    ))}
+                  </dt>
+                  <dd>{shortcut.description}</dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        ) : null}
         <h3>Go to</h3>
         <dl className="shortcut-list">
           {DESTINATIONS.map((destination) => (

@@ -202,7 +202,7 @@ export default function AppShell() {
       </SurfaceSlotProvider>
 
       {sheetOpen ? (
-        <ShortcutSheet onClose={() => setSheetOpen(false)} covers={[railRef, mainRef]} />
+        <ShortcutSheet onClose={() => setSheetOpen(false)} covers={[railRef, mainRef]} surface={surface} />
       ) : null}
     </div>
   );
