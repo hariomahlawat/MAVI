@@ -2,8 +2,12 @@
  * Severity routing, exit status and deterministic settling (register V1, V3).
  */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { after, before, describe, it } from 'node:test';
-import { createLedger, exitStatus, HarnessError, settle } from '../engine.mjs';
+import { createLedger, exitStatus, HarnessError, settle, unreachedFaults } from '../engine.mjs';
 import { RULES } from '../manifest.mjs';
 import { openBrowser } from './browser.mjs';
 
@@ -110,5 +114,31 @@ describe('deterministic settling', () => {
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.ok(result.ms >= 400, `settled after ${result.ms}ms, before the 600ms transition ended`);
     assert.equal(await lane.browser.evaluate("document.getElementById('box').getBoundingClientRect().width"), 300);
+  });
+});
+
+describe('harness faults', () => {
+  it('makes an unreached state a fault at every tier, whatever the severity there', () => {
+    const results = [
+      { state: 'a', viewport: '1366x768', tier: 'A', reached: true, findings: [] },
+      { state: 'b', viewport: '390x844', tier: 'C', reached: false, findings: [{ rule: 'harness.state-reached', message: 'preparation failed: no control' }] },
+      { state: 'c', viewport: '1024x768', tier: 'B', reached: false, findings: [] },
+    ];
+    const faults = unreachedFaults(results);
+    assert.equal(faults.length, 2);
+    assert.match(faults[0], /^b @ 390x844 \(Tier C\): the declared state was not reached: preparation failed/);
+    assert.match(faults[1], /^c @ 1024x768 \(Tier B\)/);
+    assert.equal(exitStatus({ harnessErrors: faults, blocking: [] }), 2);
+  });
+
+  it('exits 2 promptly, without hanging on an open server, when a lane cannot start its browser', () => {
+    const run = spawnSync(process.execPath, [fileURLToPath(new URL('../run.mjs', import.meta.url)), '--states', 'search', '--widths', '1366'], {
+      env: { ...process.env, MAVI_CHROMIUM: join(tmpdir(), 'mavi-vqa-no-such-browser') },
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    assert.equal(run.error, undefined, 'the run hung');
+    assert.equal(run.status, 2, run.stdout + run.stderr);
+    assert.match(run.stdout + run.stderr, /MAVI_CHROMIUM is set to .* which does not exist|ffmpeg/);
   });
 });

@@ -107,6 +107,22 @@ export function createLedger(rules = RULES) {
 }
 
 /** The run's exit status: 2 for a harness fault, 1 for a blocking finding, else 0. */
+/**
+ * A case whose declared state was not reached is a harness fault at every
+ * tier: whatever it measured is not the state it claims to be evidence of.
+ * Tier severity applies to what a reached state shows, never to whether the
+ * harness reached it.
+ *
+ * @param {Array<{ state: string, viewport: string, tier: string, reached: boolean, findings: Array<{ rule: string, message: string }> }>} results
+ * @returns {string[]}
+ */
+export function unreachedFaults(results) {
+  return results.filter((r) => !r.reached).map((r) => {
+    const why = r.findings.filter((f) => f.rule === 'harness.state-reached').map((f) => f.message);
+    return `${r.state} @ ${r.viewport} (Tier ${r.tier}): the declared state was not reached${why.length ? ': ' + why.join('; ') : ''}`;
+  });
+}
+
 export function exitStatus({ harnessErrors, blocking, keep = false }) {
   if (harnessErrors.length) return 2;
   if (blocking.length && !keep) return 1;

@@ -24,6 +24,13 @@ const CANDIDATES = [
 ].filter(Boolean);
 
 function findChromium() {
+  // An explicit override is used or refused, never silently replaced by
+  // whichever browser happens to be installed.
+  const override = process.env.MAVI_CHROMIUM;
+  if (override) {
+    if (!existsSync(override)) throw new Error(`MAVI_CHROMIUM is set to ${override}, which does not exist.`);
+    return override;
+  }
   const found = CANDIDATES.find((p) => existsSync(p));
   if (!found) {
     throw new Error(

@@ -81,7 +81,7 @@ export const RULES = {
   'harness.focus-coverage': { section: '§26', kind: 'assertion', summary: 'Every discovered control is focus-checked or skipped for a named reason.', tiers: s1() },
   'harness.state-reached': {
     section: '§26 (method)', kind: 'assertion',
-    summary: 'The capture is of the declared state: preparation ran, the state settled, expected text present, forbidden text absent, overlay drawn.',
+    summary: 'The capture is of the declared state: preparation ran, the state settled, expected text present, forbidden text absent, overlay drawn. An unreached state is also a harness fault (exit 2) at every tier, whatever its severity here.',
     tiers: s1(),
   },
 

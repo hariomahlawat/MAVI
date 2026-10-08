@@ -28,7 +28,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { focusAssertions, overlayExitProbe, overlayOpened, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions } from './assertions.mjs';
 import { launch } from './cdp.mjs';
-import { createLedger, exitStatus, HarnessError, planCases, settle } from './engine.mjs';
+import { createLedger, exitStatus, HarnessError, planCases, settle, unreachedFaults } from './engine.mjs';
 import { CONDITIONS, ensureFootage } from './footage.mjs';
 import { manifestSummary, RULES, TIERS, validateManifest } from './manifest.mjs';
 import { startServer } from './server.mjs';
@@ -119,8 +119,16 @@ async function openLane(index) {
     scenario: () => lane.scenario,
     footage: () => ensureFootage(MEDIA, lane.footage),
   });
-  lane.browser = await launch();
-  await lane.browser.addInitScript(OBSERVERS);
+  // A lane that fails part-way closes what it opened: a listening server left
+  // behind would keep the process alive past the harness fault it reports.
+  try {
+    lane.browser = await launch();
+    await lane.browser.addInitScript(OBSERVERS);
+  } catch (error) {
+    await lane.browser?.close().catch(() => {});
+    await lane.server.close().catch(() => {});
+    throw error;
+  }
   return lane;
 }
 
@@ -387,6 +395,7 @@ if (repeat > 1) {
 }
 
 // Non-vacuity: on the full sweep every blocking assertion must have run.
+harnessErrors.push(...unreachedFaults(results));
 const vacuous = fullSweep && !harnessErrors.length ? ledger.vacuous() : [];
 if (vacuous.length) harnessErrors.push('blocking rules the full sweep never evaluated: ' + vacuous.join(', '));
 // §15/§20 restoration is part of each overlay rule: a full sweep must have
