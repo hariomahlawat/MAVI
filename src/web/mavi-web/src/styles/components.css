@@ -269,7 +269,7 @@ table.table--ledger { width: 100%; max-width: max-content; }
    the tallest cell content — a small button, a 20px badge — inside the pitch;
    border-box makes the 40px the row's whole height, its divider included. The
    Ledger skeleton's rows share the pitch, below a reserved header region (see
-   .skeleton--ledger), so its first row sits where the first body row will. */
+   .skeleton__head), so its first row sits where the first body row will. */
 .table--ledger tbody td {
   box-sizing: border-box; height: var(--table-row-h);
   padding-top: var(--s-1); padding-bottom: var(--s-1);

@@ -362,23 +362,62 @@ describe('control states are painted by tokens, not by opacity (section 12)', ()
     // navigator did exactly that until S1e. Every rule that selects a disabled
     // button by any route is one of two: the shared contract above, or the
     // base sheet's reset, which sets only the cursor for unstyled buttons.
+    //
+    // "By any route" means: the disabled state written as `:disabled`,
+    // `[disabled]`, `aria-disabled` or `:not(:enabled)`; the button reached as
+    // `button`, `.btn`, a `[type=button|submit]` or a class that is only ever
+    // a button (`.toggle-chip`); and the state anywhere in the selector, not
+    // only on its last compound — `.btn:disabled .icon` dims a disabled
+    // button's content just as surely as a rule on the button itself.
+    // Inside the shared sheet, a rule is part of the contract only if every
+    // value it sets is one of the three disabled tokens, `currentColor` or the
+    // cursor (the ToggleChip mark of a pressed, disabled chip is such a rule).
+    const DISABLED = /:disabled|\[disabled\]|aria-disabled|:not\(:enabled\)/;
+    const BUTTON = /(^|[^a-z-])button\b|\.btn\b|\.toggle-chip(?![a-z_-])|\[type="?(button|submit)"?\]/;
+    const CONTRACT_VALUE = /^(var\(--control-disabled-bg\)|var\(--control-disabled-border\)|var\(--text-disabled\)|currentColor|not-allowed)$/;
     const offenders: string[] = [];
     for (const file of featureCss) {
       for (const match of withoutComments(read(file)).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const declarations = match[2].split(';').map((d) => d.trim()).filter(Boolean);
         for (const raw of match[1].split(',')) {
-          const selector = raw.trim().replace(/:not\([^)]*\)/g, '').replace(/\s+/g, ' ');
-          if (!/:disabled|aria-disabled/.test(selector)) continue;
-          const subject = selector.split(/[\s>+~]+/).pop() ?? '';
-          const isButton = /^button\b|\.btn\b|\[type="?(button|submit)"?\]/.test(subject);
-          if (!isButton) continue;
-          const canonical = file === 'components.css' && subject.startsWith('.btn') && selector === subject;
+          const selector = raw.trim().replace(/\s+/g, ' ');
+          // A `:not(...)` that only excludes the disabled state (a hover rule)
+          // is not a disabled rule; `:not(:enabled)` is one.
+          const stated = selector.replace(/:not\((?!:enabled\))[^)]*\)/g, '');
+          const compounds = stated.split(/\s*[\s>+~]\s*/).filter(Boolean);
+          if (!compounds.some((compound) => DISABLED.test(compound) && BUTTON.test(compound))) continue;
           const reset = file === 'base.css' && selector === 'button:disabled'
-            && match[2].split(';').map((d) => d.trim()).filter(Boolean).join(';') === 'cursor: not-allowed';
-          if (!canonical && !reset) offenders.push(`${file}: ${selector}`);
+            && declarations.join(';') === 'cursor: not-allowed';
+          const contract = file === 'components.css' && declarations.every((declaration) => {
+            const value = declaration.slice(declaration.indexOf(':') + 1).trim();
+            return CONTRACT_VALUE.test(value);
+          });
+          if (!reset && !contract) offenders.push(`${file}: ${selector}`);
         }
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('would catch each route a disabled-button exception has been written by', () => {
+    // The guard above, applied to the forms that once escaped narrower ones.
+    const DISABLED = /:disabled|\[disabled\]|aria-disabled|:not\(:enabled\)/;
+    const BUTTON = /(^|[^a-z-])button\b|\.btn\b|\.toggle-chip(?![a-z_-])|\[type="?(button|submit)"?\]/;
+    const caught = (selector: string) => selector.replace(/:not\((?!:enabled\))[^)]*\)/g, '')
+      .split(/\s*[\s>+~]\s*/).filter(Boolean)
+      .some((compound) => DISABLED.test(compound) && BUTTON.test(compound));
+    for (const selector of [
+      '.evidence-timeline__navigator-controls button:disabled',
+      '.evidence-layers button[disabled]',
+      '.foo > button[disabled]',
+      '.toggle-chip:disabled',
+      '.foo button:not(:enabled)',
+      '.btn:disabled .icon',
+      '.foo .btn[aria-disabled="true"]',
+    ]) expect(caught(selector), selector).toBe(true);
+    for (const selector of ['.btn:hover:not(:disabled)', 'input:disabled', '.toggle-chip__mark']) {
+      expect(caught(selector), selector).toBe(false);
+    }
   });
 
   it('paints a pressed-and-disabled button as disabled, not as pressed', () => {

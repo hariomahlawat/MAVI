@@ -58,7 +58,9 @@ describe('S1 foundation retirements (D9)', () => {
 
   it('references no retired class name from a component either', () => {
     for (const [path, source] of sources) {
-      expect(source, path).not.toMatch(/['" ](table--compact|table--dense|page-header|rail-layout|field--inline|field-help|panel--form|search-filter-grid)['" ]/);
+      expect(source, path).not.toMatch(
+        /[\s'"`](table--compact|table--dense|page-header|rail-layout|field--inline|field-help|panel--form|search-filter-grid)(?=[\s'"`]|__)/,
+      );
     }
   });
 });
@@ -82,7 +84,9 @@ describe('the shared workspace is reached through its barrel', () => {
   it('imports no workspace internal from outside the workspace', () => {
     for (const [path, source] of sources) {
       if (path.startsWith('/src/shared/workspace/')) continue;
-      expect(source, path).not.toMatch(/from ['"][./]*shared\/workspace\/[A-Za-z]/);
+      // Any spelling of the path: `../../shared/workspace/X` from a feature,
+      // `../workspace/X` from a sibling under shared.
+      expect(source, path).not.toMatch(/from ['"][^'"]*\/workspace\/[A-Za-z]/);
     }
   });
 });

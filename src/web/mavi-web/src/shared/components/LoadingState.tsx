@@ -20,7 +20,7 @@ export const DEFAULT_SKELETON_ROWS = 8;
 
 const SKELETON_CLASS = {
   table: 'skeleton',
-  ledger: 'skeleton skeleton--ledger',
+  ledger: 'skeleton',
   list: 'skeleton skeleton--list',
   compactList: 'skeleton skeleton--compact-list',
   keyValue: 'skeleton skeleton--kv',

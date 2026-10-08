@@ -76,6 +76,10 @@ export default function FileInput({
         disabled={disabled}
         aria-invalid={invalid || undefined}
         aria-describedby={[ariaDescribedBy, nameId].filter(Boolean).join(' ')}
+        // The platform's own hover hint ("No file chosen") would float over
+        // the whole frame in words that differ from the visible statement; an
+        // empty title suppresses it, and the name is always on screen anyway.
+        title=""
         onChange={(event) => onChange(event.target.files?.[0] ?? null)}
       />
       <span className="file-input__choose" aria-hidden="true">
