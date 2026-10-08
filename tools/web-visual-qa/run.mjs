@@ -89,9 +89,16 @@ const LOADING_PAIRS = [['cameras-loading', 'cameras'], ['videos-loading', 'video
 const onlyStates = list('states');
 const onlyTiers = list('tiers');
 const onlyWidths = list('widths')?.map(Number) ?? null;
-const repeat = Math.max(1, Number(arg('repeat', 1)));
+// A count that is not a positive integer is refused: NaN would plan cases and
+// run none of them.
+const positiveInt = (name, fallback) => {
+  const raw = arg(name, String(fallback));
+  if (!/^[1-9][0-9]*$/.test(String(raw))) fatal(`--${name} must be a positive integer, not "${raw}"`);
+  return Number(raw);
+};
+const repeat = positiveInt('repeat', 1);
 const fullSweep = !onlyStates && !onlyTiers && !onlyWidths && repeat === 1 && !STATES_MODULE;
-const workers = Math.max(1, Number(arg('workers', Math.min(4, Math.max(1, cpus().length - 1)))));
+const workers = positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
 
 const manifestProblems = validateManifest();
 if (manifestProblems.length) {
@@ -468,6 +475,11 @@ if (fullSweep) {
 
 // Non-vacuity: on the full sweep every blocking assertion must have run.
 harnessErrors.push(...unreachedFaults(results));
+// Every scheduled case produced a result or a recorded error: a case the run
+// never reached is not a passed one.
+if (results.length + errored.length !== cases.length) {
+  harnessErrors.push(`${cases.length - results.length - errored.length} of ${cases.length} scheduled case(s) never ran`);
+}
 const vacuous = fullSweep && !harnessErrors.length ? ledger.vacuous() : [];
 if (vacuous.length) harnessErrors.push('blocking rules the full sweep never evaluated: ' + vacuous.join(', '));
 // §15/§20 restoration is part of each overlay rule: a full sweep must have

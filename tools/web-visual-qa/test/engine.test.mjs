@@ -132,6 +132,16 @@ describe('harness faults', () => {
     assert.equal(exitStatus({ harnessErrors: faults, blocking: [] }), 2);
   });
 
+  it('refuses a worker or repeat count that is not a positive integer, before running anything', () => {
+    for (const args of [['--workers', 'abc'], ['--workers', '0'], ['--repeat', '1.5']]) {
+      const run = spawnSync(process.execPath, [fileURLToPath(new URL('../run.mjs', import.meta.url)), '--states', 'search', ...args], {
+        env: { ...process.env, MAVI_VQA_OUT: mkdtempSync(join(tmpdir(), 'mavi-vqa-count-')) }, encoding: 'utf8', timeout: 60_000,
+      });
+      assert.equal(run.status, 2, args.join(' ') + ': ' + run.stdout + run.stderr);
+      assert.match(run.stderr, /must be a positive integer/);
+    }
+  });
+
   it('exits 2 promptly when the browser process starts but never offers DevTools, leaving no process behind', () => {
     // Node standing in for a browser: it starts, rejects Chromium's flags and
     // exits without an endpoint — launch() must clean up after itself.

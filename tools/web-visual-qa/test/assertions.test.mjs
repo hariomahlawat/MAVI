@@ -407,3 +407,11 @@ describe('the focus pass', () => {
     assert.equal(await lane.browser.evaluate('document.activeElement.id'), 'inside');
   });
 });
+
+describe('native dialogs', () => {
+  it('dismisses a native confirm, never answering yes, and reports it as a page problem', async () => {
+    await lane.page('<main><p id="out">pending</p></main><script>document.getElementById("out").textContent = String(window.confirm("Discard your changes?"));</script>');
+    assert.equal(await lane.browser.evaluate('document.getElementById("out").textContent'), 'false');
+    assert.ok(lane.browser.problems().some((p) => /native confirm dialog opened \("Discard your changes\?"\)/.test(p)), JSON.stringify(lane.browser.problems()));
+  });
+});

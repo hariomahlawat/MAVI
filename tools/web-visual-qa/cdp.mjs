@@ -159,11 +159,16 @@ async function connect(child, profile) {
   let resourceErrors = [];
   listeners.add((message) => {
     if (message.sessionId !== sessionId) return;
-    // A native dialog — the "Leave site?" a dirty editor raises once the page
-    // has had real input — would halt the page and every call after it. The
-    // harness is leaving the page when it appears, so it is accepted.
+    // A native dialog would halt the page and every call after it, so none is
+    // left open. Only `beforeunload` — the "Leave site?" a dirty editor raises
+    // as the harness leaves the page — is accepted. Any other (`alert`,
+    // `confirm`, `prompt`) is a native dialog §15 forbids: it is dismissed —
+    // never answered yes on the operator's behalf — and reported as a page
+    // problem, so the regression fails the state instead of passing it.
     if (message.method === 'Page.javascriptDialogOpening') {
-      call('Page.handleJavaScriptDialog', { accept: true }).catch(() => {});
+      const { type, message: text } = message.params;
+      if (type !== 'beforeunload') problems.push(`a native ${type} dialog opened ("${String(text ?? '').slice(0, 80)}"): §15 forbids native dialogs`);
+      call('Page.handleJavaScriptDialog', { accept: type === 'beforeunload' }).catch(() => {});
       return;
     }
     if (message.method === 'Runtime.exceptionThrown') {
