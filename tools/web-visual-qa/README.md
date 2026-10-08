@@ -122,8 +122,9 @@ between the two is in neither, and a transition that did not happen is
 `not-applicable`, never 0. Long tasks during the state's first operator
 interaction (`perf.longTasks`): only where the state names one (`interaction` in
 `states.mjs` — a click, a submit, a key press), from the action until the settle probe
-that confirmed its outcome, with the observers flushed (a long task that ran one of the harness's
-settle probes is excluded and counted as `excludedAsHarness`); a preparation
+that confirmed its outcome, with the observers flushed (a settle probe's own
+work inside a task is subtracted; what remains still counts if it is 50ms or
+more, else the task is counted as `excludedAsHarness`); a preparation
 of several steps marks `interaction-start` immediately before the one action it
 names; a preparation that is fixture setup or a
 condition check (a programmatic seek, a page-clock advance, scripted field

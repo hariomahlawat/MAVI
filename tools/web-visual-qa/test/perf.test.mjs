@@ -142,6 +142,25 @@ describe('first-interaction long tasks', () => {
     assert.ok(perf.longTasks.count >= 1 && perf.longTasks.maxMs >= 100, JSON.stringify(perf.longTasks));
   });
 
+  it('keeps the product work in a long task that also ran a settle probe, and drops only the probe-only ones', async () => {
+    await lane.page('<main><p>Ready</p></main>');
+    const perf = await lane.browser.evaluate(`(() => {
+      const vqa = window.__vqa;
+      vqa.supports.longTask = true;
+      vqa.observers = [];
+      vqa.marks = {};
+      // A 130ms frame whose 10ms probe ran inside it, and a 60ms one that was
+      // 15ms of probe: 120ms of product work counts, 45ms does not.
+      vqa.longTasks = [{ startTime: 1000, duration: 130 }, { startTime: 2000, duration: 60 }];
+      vqa.probeSpans = [[1100, 1110], [2010, 2025]];
+      return ${toExpression(perfCollect, { holds: null, settledAt: 0, prepareStart: 900, preparedAt: 3000, confirmedAt: 3000, interaction: 'draw' })};
+    })()`);
+    assert.equal(perf.longTasks.count, 1, JSON.stringify(perf.longTasks));
+    assert.equal(perf.longTasks.maxMs, 120);
+    assert.equal(perf.longTasks.excludedAsHarness, 1);
+    assert.equal(perf.longTasks.harnessMsSubtracted, 25);
+  });
+
   it('does not measure a preparation that is fixture setup as an interaction', async () => {
     const perf = await sequence({ interaction: null, busyMs: 120 });
     assert.equal(perf.longTasks.status, 'not-applicable');

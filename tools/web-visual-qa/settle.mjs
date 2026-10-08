@@ -220,13 +220,24 @@ export function perfCollect(input) {
     // performs the marked action began before the mark set inside it, and is
     // the one the action's own synchronous handlers run in.
     const inWindow = vqa.longTasks.filter((task) => task.startTime + task.duration >= from && task.startTime <= input.confirmedAt);
-    // A long task that ran a settle probe is the harness's work, not the action's.
-    const harness = (task) => (vqa.probeSpans || []).some(([a, b]) => task.startTime <= b && task.startTime + task.duration >= a);
-    const tasks = inWindow.filter((task) => !harness(task));
+    // A settle probe runs inside a rendering update — the same task the
+    // product's own frame work can run in — so only the probe's share is the
+    // harness's: its synchronous span inside the task is subtracted, and what
+    // remains is the product's work, still a long task if it is 50ms or more.
+    const LONG_TASK_MS = 50;
+    const probeShare = (task) => (vqa.probeSpans || []).reduce((sum, [a, b]) => {
+      const overlap = Math.min(b, task.startTime + task.duration) - Math.max(a, task.startTime);
+      return sum + Math.max(0, overlap);
+    }, 0);
+    const shares = inWindow.map((task) => ({ task, harnessMs: probeShare(task) }));
+    const tasks = shares
+      .filter(({ task, harnessMs }) => task.duration - harnessMs >= LONG_TASK_MS)
+      .map(({ task, harnessMs }) => ({ startTime: task.startTime, duration: task.duration - harnessMs }));
     longTasks = {
       status: 'measured',
       interaction: input.interaction,
       excludedAsHarness: inWindow.length - tasks.length,
+      harnessMsSubtracted: Math.round(shares.reduce((sum, { harnessMs }) => sum + harnessMs, 0)),
       startsAt: from === input.prepareStart ? 'preparation start (a single-action preparation)' : 'the marked action',
       count: tasks.length,
       totalMs: Math.round(tasks.reduce((sum, task) => sum + task.duration, 0)),
