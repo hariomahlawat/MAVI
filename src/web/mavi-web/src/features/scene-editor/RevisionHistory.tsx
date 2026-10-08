@@ -1,5 +1,4 @@
 import type { SceneRevisionSummary } from '../../api/scene';
-import Button from '../../shared/components/Button';
 import { formatDateTime } from '../../shared/time/time';
 
 type Props = {
@@ -86,11 +85,9 @@ export default function RevisionHistory({
         })}
       </ul>
 
-      {viewingRevisionNumber !== null ? (
-        <Button size="sm" variant="ghost" icon="chevronLeft" onClick={onReturnToActive}>
-          Back to active
-        </Button>
-      ) : null}
+      {/* Returning to the active revision is the Context Bar's primary while a
+          past one is open, and pressing the viewed chip again does the same;
+          a third control for it here was one too many. */}
     </div>
   );
 }

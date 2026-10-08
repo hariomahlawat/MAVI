@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { SCENE_LIMITS, SCENE_ZONE_KINDS, type SceneZoneKind } from '../../api/scene';
 import { Inspector } from '../../shared/workspace';
 import { findLine, findZone, type Selection } from './editorState';
@@ -7,6 +8,8 @@ import type { SceneIssue } from './sceneValidation';
 type Props = {
   draft: SceneDraft;
   selection: Selection;
+  /** A past revision that cannot be shown (loading or unavailable): its counts are unknown, not zero. */
+  pending?: string | null;
   readOnly: boolean;
   issues: Map<string, SceneIssue[]>;
   onUpdateZone: (key: string, changes: Partial<Omit<DraftZone, 'key' | 'zoneId' | 'vertices'>>) => void;
@@ -22,16 +25,19 @@ function coordinate(value: number): string {
  * The inspector: everything about the selected object that is not its shape.
  *
  * Geometry belongs on the canvas, but a name, a kind or a label should never
- * require pointing at a picture, and nothing here opens a dialog. The selected
- * object's own coordinates are here too: they are what it is, they are the only
- * way to reach a vertex without a pointer, and keeping them out of the
- * navigator keeps the navigator the size of the scene. When nothing is selected
- * the panel reports the scene instead of going blank, because an empty panel
- * wastes the space and answers nothing.
+ * require pointing at a picture, and nothing here opens a dialog. It is tiered
+ * (§37.2): the object's name, kind and the controls that change it first; what
+ * is wrong with it and what its direction means next; and its exact
+ * coordinates and identity last, behind one disclosure (F18). The coordinates
+ * are still the way to reach a vertex without a pointer — open the disclosure,
+ * press a vertex, then nudge it with the arrow keys — so they are one keyboard
+ * step away rather than gone. When nothing is selected the panel reports the
+ * scene instead of going blank, because an empty panel answers nothing.
  */
 export default function ScenePropertiesPanel({
   draft,
   selection,
+  pending = null,
   readOnly,
   issues,
   onUpdateZone,
@@ -50,7 +56,7 @@ export default function ScenePropertiesPanel({
       label="Properties"
       title="Properties"
       isEmpty={nothingSelected}
-      summary={<SceneSummary draft={draft} />}
+      summary={pending ? <p className="scene-inspector__hint">{pending}</p> : <SceneSummary draft={draft} />}
     >
       {zone ? (
         <ZoneProperties
@@ -94,6 +100,27 @@ function SceneSummary({ draft }: { draft: SceneDraft }) {
       </dl>
       <p className="scene-inspector__hint">Select an object on the frame or in the list to edit it.</p>
     </div>
+  );
+}
+
+/**
+ * The forensic tier (§37.2): an object's exact coordinates and its identity, in
+ * the shared disclosure, closed until asked for. The coordinates are the
+ * object's own values at the domain's precision — never rounded for display —
+ * and each is the control that selects that vertex or endpoint.
+ */
+function Geometry({ summary, identity, children }: { summary: string; identity: string | null; children: ReactNode }) {
+  return (
+    <details className="disclosure scene-inspector__geometry">
+      <summary>{summary}</summary>
+      <div className="disclosure__body">
+        <div className="scene-inspector__points">{children}</div>
+        <dl className="scene-readout">
+          <dt>Identity</dt>
+          <dd className="scene-readout__id">{identity ?? 'issued on save'}</dd>
+        </dl>
+      </div>
+    </details>
   );
 }
 
@@ -191,8 +218,7 @@ function ZoneProperties({
         </div>
       </div>
 
-      <section className="scene-inspector__points">
-        <h4>Vertices<span>{zone.vertices.length}</span></h4>
+      <Geometry summary={`Vertices · ${zone.vertices.length}`} identity={zone.zoneId}>
         <ul aria-label={`Vertices of ${zone.name || 'Unnamed zone'}`}>
           {zone.vertices.map((vertex, index) => (
             <li key={`${zone.key}-vertex-${index}`}>
@@ -207,12 +233,7 @@ function ZoneProperties({
             </li>
           ))}
         </ul>
-      </section>
-
-      <dl className="scene-readout">
-        <dt>Identity</dt>
-        <dd className="scene-readout__id">{zone.zoneId ?? 'issued on save'}</dd>
-      </dl>
+      </Geometry>
     </div>
   );
 }
@@ -305,8 +326,7 @@ function LineProperties({
         The arrows across the line show which way a Track must travel to count as each direction.
       </p>
 
-      <section className="scene-inspector__points">
-        <h4>Endpoints<span>2</span></h4>
+      <Geometry summary="Endpoints · 2" identity={line.lineId}>
         <ul aria-label={`Endpoints of ${line.name || 'Unnamed trip line'}`}>
           {(['a', 'b'] as const).map((which) => (
             <li key={which}>
@@ -321,12 +341,7 @@ function LineProperties({
             </li>
           ))}
         </ul>
-      </section>
-
-      <dl className="scene-readout">
-        <dt>Identity</dt>
-        <dd className="scene-readout__id">{line.lineId ?? 'issued on save'}</dd>
-      </dl>
+      </Geometry>
     </div>
   );
 }

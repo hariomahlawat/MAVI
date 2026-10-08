@@ -162,12 +162,23 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
   const accepted = (...names) => Object.fromEntries(Object.entries(SURFACES).map(([name, s]) => [name, { ...s, accepted: s.accepted || names.includes(name) }]));
 
   it('names the owning row of every unmigrated surface', () => {
-    const owners = { search: /R5/, review: /R6/, 'camera-analytics': /M4/, overview: /R1/, videos: /R2/, 'processing-detail': /R3/, 'scene-editor': /R4/, cameras: /M1/, 'processing-queue': /M2/, import: /M3/ };
+    const owners = { search: /R5/, review: /R6/, 'camera-analytics': /M4/, overview: /R1/, videos: /R2/, 'processing-detail': /R3/, cameras: /M1/, 'processing-queue': /M2/, import: /M3/ };
     for (const [surface, owner] of Object.entries(owners)) {
       const at = severityOf('containment.depth', 'A', surface);
       assert.equal(at.status, 'measured/pending', surface);
       assert.match(at.owner, owner, surface);
     }
+  });
+
+  it('blocks the accepted Scene Editor at Tier A on its own, and nowhere below it (R4)', () => {
+    assert.equal(SURFACES['scene-editor'].accepted, true);
+    for (const rule of ['containment.depth', 'text.overflow']) {
+      assert.equal(severityOf(rule, 'A', 'scene-editor').status, 'blocking', rule);
+      for (const tier of ['B', 'C']) assert.equal(severityOf(rule, tier, 'scene-editor').status, 'measured/pending', `${rule} @ ${tier}`);
+    }
+    // Its acceptance promotes nothing else.
+    assert.equal(severityOf('containment.depth', 'A', 'search').status, 'measured/pending');
+    assert.equal(surfaceOf('/cameras/abc/scene'), 'scene-editor');
   });
 
   it('promotes one surface at a time, never all together', () => {

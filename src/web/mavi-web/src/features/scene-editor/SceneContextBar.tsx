@@ -9,10 +9,13 @@ type Props = {
   cameraName: string;
   revisionNumber: number;
   saveState: SaveState;
-  analyticsEnabled: boolean;
+  /** Null while the revision shown is not known (a past revision loading or unavailable): nothing is claimed. */
+  analyticsEnabled: boolean | null;
   note: string;
   canSave: boolean;
   blockedReason: string | null;
+  /** The camera is inactive: Save is refused for that reason, stated in the mode strip. */
+  inactive: boolean;
   confirmingDisable: boolean;
   onNoteChange: (note: string) => void;
   onReset: () => void;
@@ -59,6 +62,7 @@ export default function SceneContextBar({
   note,
   canSave,
   blockedReason,
+  inactive,
   confirmingDisable,
   onNoteChange,
   onReset,
@@ -67,6 +71,9 @@ export default function SceneContextBar({
   onReturnToActive,
 }: Props) {
   const readOnly = saveState === 'readonly';
+  // Reset returns the draft to the active revision; with no draft changes it
+  // has nothing to do, so it is not offered as if it did (§12, F7).
+  const nothingToReset = saveState === 'clean' || saveState === 'saved';
 
   return (
     <ContextBar
@@ -97,9 +104,11 @@ export default function SceneContextBar({
             ) : null}
           </span>
 
-          <span className={`scene-context__analytics${analyticsEnabled ? '' : ' is-off'}`}>
-            {analyticsEnabled ? 'Analytics on' : 'Analytics off'}
-          </span>
+          {analyticsEnabled === null ? null : (
+            <span className={`scene-context__analytics${analyticsEnabled ? '' : ' is-off'}`}>
+              {analyticsEnabled ? 'Analytics on' : 'Analytics off'}
+            </span>
+          )}
         </>
       )}
       actions={readOnly ? (
@@ -122,7 +131,7 @@ export default function SceneContextBar({
           ) : null}
           <Button
             variant="ghost"
-            disabled={saveState === 'saving'}
+            disabled={saveState === 'saving' || (!confirmingDisable && nothingToReset)}
             onClick={confirmingDisable ? onCancelDisable : onReset}
           >
             {confirmingDisable ? 'Cancel' : 'Reset'}
@@ -134,7 +143,9 @@ export default function SceneContextBar({
             variant="primary"
             disabled={!canSave}
             aria-describedby={
-              confirmingDisable ? 'scene-disable-confirm' : blockedReason ? 'scene-save-blocked' : undefined
+              confirmingDisable
+                ? 'scene-disable-confirm'
+                : inactive ? 'scene-inactive-reason' : blockedReason ? 'scene-save-blocked' : undefined
             }
             onClick={onSave}
           >

@@ -5,7 +5,8 @@ import type { Drawing, EditorTool } from './editorState';
 type Props = {
   tool: EditorTool;
   drawing: Drawing;
-  readOnly: boolean;
+  /** Why the drawing tools are withheld: a past revision is open, the camera is inactive, or both. */
+  withheld: { revision: boolean; inactive: boolean };
   historyOpen: boolean;
   drawingError: string | null;
   onToolChange: (tool: EditorTool) => void;
@@ -44,7 +45,7 @@ const TOOLS = [
 export default function SceneToolbar({
   tool,
   drawing,
-  readOnly,
+  withheld,
   historyOpen,
   drawingError,
   onToolChange,
@@ -52,7 +53,8 @@ export default function SceneToolbar({
   onCancelDrawing,
   onToggleHistory,
 }: Props) {
-  const hint = readOnly ? null : hints[tool];
+  const isWithheld = withheld.revision || withheld.inactive;
+  const hint = isWithheld ? null : hints[tool];
 
   return (
     <Toolbar
@@ -73,8 +75,17 @@ export default function SceneToolbar({
         </Button>
       )}
     >
-      {readOnly ? (
-        <p className="scene-toolbar__readonly">Drawing tools are unavailable while a past revision is open.</p>
+      {/* Withheld tools are removed, not greyed (§4.3), and the reason takes
+          their place — the one statement of it on the page, which Save also
+          points at when it is the reason Save is refused. */}
+      {isWithheld ? (
+        // Both reasons when both hold: a past revision open on an inactive
+        // camera must not hide that the camera is inactive.
+        <p className="scene-toolbar__readonly">
+          {withheld.revision ? 'Drawing tools are unavailable while a past revision is open.' : null}
+          {withheld.revision && withheld.inactive ? ' ' : null}
+          {withheld.inactive ? <span id="scene-inactive-reason">This camera is inactive, so its scene cannot be changed.</span> : null}
+        </p>
       ) : (
         <Segmented
           label="Drawing tools"

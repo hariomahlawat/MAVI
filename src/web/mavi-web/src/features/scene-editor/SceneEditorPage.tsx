@@ -149,6 +149,12 @@ export default function SceneEditorPage() {
   });
 
   const readOnly = viewingRevisionNumber !== null;
+  // The server refuses every scene change on an inactive camera
+  // (`scene_camera_inactive`), so its editing tools are withheld rather than
+  // offered and then refused at Save: a scene that cannot be changed is shown
+  // the way a past revision is — readable, selectable, not editable.
+  const cameraActive = camera.data?.isActive ?? false;
+  const editable = !readOnly && cameraActive;
 
   // The two drafts mint their own local keys, so a selection made in one names
   // nothing in the other. Crossing between them without clearing it leaves the
@@ -170,9 +176,30 @@ export default function SceneEditorPage() {
   // the active scene under a banner naming a past revision, which is the one
   // confusion this mode exists to prevent.
   const historicalMissing = readOnly && historicalDraft === null;
+  // What the panels say in place of a revision they cannot show yet — or at
+  // all: its geometry is unknown, never absent (§14: unavailable is not empty).
+  const historicalPending = historicalMissing
+    ? historicalRevision.isError
+      ? `Revision ${viewingRevisionNumber} is unavailable.`
+      : `Loading revision ${viewingRevisionNumber}…`
+    : null;
   const blankDraft = useMemo(() => emptyDraft(), []);
   const shownDraft = readOnly ? (historicalDraft ?? blankDraft) : state.draft;
   const shownSelection: Selection = state.selection;
+
+  // A control that belonged to a deleted object — its delete button, one of its
+  // vertices in the inspector — leaves the page with it, and focus would fall
+  // to the document body. Once the deletion has rendered, focus is returned to
+  // the navigator, where the rest of the scene is still listed, so a keyboard
+  // operator keeps their place.
+  const recoverFocusRef = useRef(false);
+  useEffect(() => {
+    if (!recoverFocusRef.current) return;
+    recoverFocusRef.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    document.querySelector<HTMLElement>('[aria-label="Scene objects"] .scene-navigator__name')?.focus();
+  }, [state.draft]);
 
   const issues = useMemo(() => (readOnly ? [] : validateDraft(state.draft)), [readOnly, state.draft]);
   const issuesForKey = useMemo(() => issuesByKey(issues), [issues]);
@@ -243,7 +270,7 @@ export default function SceneEditorPage() {
   // Editor shortcuts must never fire while the operator is typing: Delete has
   // to delete a character in a name field, not the zone being named.
   useEffect(() => {
-    if (readOnly) return;
+    if (!editable) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTextEntry(event.target as HTMLElement | null)) return;
 
@@ -264,6 +291,7 @@ export default function SceneEditorPage() {
         if (state.selection.kind === 'none') return;
         event.preventDefault();
         dispatch({ type: 'deleteSelected' });
+        recoverFocusRef.current = true;
         return;
       }
       const nudge = nudgeFor(event.key);
@@ -276,13 +304,12 @@ export default function SceneEditorPage() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [readOnly, state.drawing.kind, state.selection]);
+  }, [editable, state.drawing.kind, state.selection]);
 
   const analyticsEnabled = draftAnalyticsEnabled(state.draft);
-  const cameraActive = camera.data?.isActive ?? false;
   // Stated beside Save only when Save is the place to say it: an inactive
-  // camera already has its own notice above, and "nothing has changed" is what
-  // a disabled Save says by itself.
+  // camera says why in place of the tools it withholds, and "nothing has
+  // changed" is what a disabled Save says by itself.
   const blockedReason = cameraActive && issues.length > 0
     ? 'Fix the highlighted problems before saving.'
     : null;
@@ -401,7 +428,7 @@ export default function SceneEditorPage() {
           loadingLabel="Loading scene…"
           unavailableMessage={(error) => sceneErrorMessage(
             error,
-            camera.isError ? 'Camera is unavailable.' : 'Scene configuration is unavailable.',
+            camera.isError ? 'The camera could not be loaded.' : 'The scene could not be loaded.',
           )}
           onRetry={() => {
             if (camera.isError) void camera.refetch();
@@ -427,52 +454,37 @@ export default function SceneEditorPage() {
 
   const notices = (
     <>
-      {!cameraActive ? (
-        <Alert tone="warning">This camera is inactive, so its scene cannot be changed.</Alert>
-      ) : null}
+      {/* An inactive camera is said once, in place of the tools it withholds
+          (the mode strip), not again here. */}
       {conflict ? (
-        <Alert tone="error">
+        <Alert
+          tone="error"
+          actions={<Button size="sm" icon="refresh" onClick={reloadActive}>Reload active revision</Button>}
+        >
           This scene changed since you started editing. Your edits are still here and have not been sent.
-          Reload the active revision to start again from what is now saved.
-          <div className="row">
-            <Button size="sm" icon="refresh" onClick={reloadActive}>Reload active revision</Button>
-          </div>
+          Reloading discards them and loads what is now saved.
         </Alert>
       ) : null}
       {supersededRevision !== null && !conflict ? (
-        <Alert tone="warning">
-          Somebody saved revision {supersededRevision} while you were editing. Your unsaved changes are untouched, but
-          saving them now will be refused as a conflict.
-          <div className="row">
+        <Alert
+          tone="warning"
+          actions={(
             <Button size="sm" icon="refresh" onClick={adoptActiveRevision}>
               Discard my changes and load revision {supersededRevision}
             </Button>
-          </div>
+          )}
+        >
+          Somebody saved revision {supersededRevision} while you were editing. Your unsaved changes are untouched, but
+          saving them now will be refused as a conflict.
         </Alert>
       ) : null}
       {saveMutation.isError && !conflict ? (
         <Alert tone="error">{sceneErrorMessage(saveMutation.error, 'The scene could not be saved.')}</Alert>
       ) : null}
-      {mediaFailed ? (
-        <Alert tone="warning">
-          The reference video could not be loaded. The scene and its reference metadata are unchanged.
-        </Alert>
-      ) : null}
-      {/* A historical revision is the canvas's content while it is viewed: a
-          page-scope region of its own, loading or unavailable in one place
-          with its retry trailing (§37.1). */}
-      {historicalRevision.isError || historicalMissing ? (
-        <StateRegion
-          kind="page"
-          state={fromQuery(historicalRevision)}
-          label={`revision ${viewingRevisionNumber}`}
-          loadingLabel={`Loading revision ${viewingRevisionNumber}…`}
-          unavailableMessage={(error) => sceneErrorMessage(error, 'That revision could not be loaded.')}
-          onRetry={() => historicalRevision.refetch()}
-        >
-          {() => null}
-        </StateRegion>
-      ) : null}
+      {/* The reference video and a historical revision are the stage's own
+          content, so their failures are said on the stage (§37.1: in the
+          region they affect), not stacked above the workspace — and a revision
+          loading there moves nothing (§36.3). */}
       {/* The camera and scene already on screen keep the editor working when a
           refresh fails; it says so rather than going quiet (§14.1, degraded). */}
       <SupportingRequestNotice
@@ -515,10 +527,11 @@ export default function SceneEditorPage() {
         cameraName={camera.data.name}
         revisionNumber={readOnly ? (viewingRevisionNumber as number) : state.draft.baseRevisionNumber}
         saveState={saveState}
-        analyticsEnabled={readOnly ? (historicalRevision.data?.analyticsEnabled ?? false) : analyticsEnabled}
+        analyticsEnabled={readOnly ? (historicalRevision.data?.analyticsEnabled ?? null) : analyticsEnabled}
         note={state.draft.note}
         canSave={canSave}
         blockedReason={blockedReason}
+        inactive={!cameraActive}
         confirmingDisable={confirmingDisable}
         onNoteChange={(note) => dispatch({ type: 'setNote', note })}
         onReset={reset}
@@ -533,8 +546,8 @@ export default function SceneEditorPage() {
         modes={(
           <SceneToolbar
             tool={state.tool}
-            drawing={readOnly ? { kind: 'none' } : state.drawing}
-            readOnly={readOnly}
+            drawing={editable ? state.drawing : { kind: 'none' }}
+            withheld={{ revision: readOnly, inactive: !cameraActive }}
             historyOpen={historyExpanded}
             drawingError={state.drawingError}
             onToolChange={(tool) => dispatch({ type: 'setTool', tool })}
@@ -547,10 +560,10 @@ export default function SceneEditorPage() {
           <>
             <SceneCanvas
               draft={shownDraft}
-              tool={readOnly ? 'select' : state.tool}
+              tool={editable ? state.tool : 'select'}
               selection={shownSelection}
-              drawing={readOnly ? { kind: 'none' } : state.drawing}
-              readOnly={readOnly}
+              drawing={editable ? state.drawing : { kind: 'none' }}
+              readOnly={!editable}
               videoSrc={canvasVideoId ? videoContentUrl(canvasVideoId) : null}
               videoRef={videoRef}
               frameWidth={canvasVideo?.width ?? NEUTRAL_FRAME.width}
@@ -563,34 +576,56 @@ export default function SceneEditorPage() {
                       one that appears already populated is routinely not
                       announced — and entering read-only is exactly the mode
                       change a screen-reader user must not miss. */}
-                  <div className={`scene-stage__banner${readOnly ? '' : ' is-idle'}`} role="status">
-                    {readOnly ? `Viewing revision ${viewingRevisionNumber} — read only` : ''}
+                  <div className={`scene-stage__banner${readOnly && !historicalRevision.isError ? '' : ' is-idle'}`} role="status">
+                    {/* The revision's own request, in the shared loading grammar
+                        (§37.1, row): loading said in place, then its name. */}
+                    {readOnly && !historicalRevision.isError ? (
+                      <StateRegion
+                        kind="row"
+                        state={fromQuery(historicalRevision)}
+                        label={`revision ${viewingRevisionNumber}`}
+                        loadingLabel={`Loading revision ${viewingRevisionNumber}…`}
+                      >
+                        {() => `Viewing revision ${viewingRevisionNumber} — read only`}
+                      </StateRegion>
+                    ) : null}
                   </div>
+                  {/* A past revision that will not load leaves nothing to show:
+                      the stage says so, with its retry, instead of drawing the
+                      active geometry (or nothing) under the revision's name. */}
+                  {readOnly && historicalRevision.isError ? (
+                    <div className="scene-stage__state">
+                      <Alert
+                        tone="error"
+                        actions={<Button size="sm" onClick={() => void historicalRevision.refetch()}>Retry</Button>}
+                      >
+                        {sceneErrorMessage(historicalRevision.error, `Revision ${viewingRevisionNumber} could not be loaded.`)}
+                      </Alert>
+                    </div>
+                  ) : null}
+                  {mediaFailed && !historicalRevision.isError ? (
+                    <p className="scene-stage__media-note" role="status">
+                      Reference video unavailable · geometry is shown on a blank frame and is unchanged
+                    </p>
+                  ) : null}
                   {/* The empty state invites the first object; once a tool is armed the
                       operator has accepted the invitation, so it gets out of the way of
                       the surface they are drawing on. */}
-                  {!readOnly && !configured && state.tool === 'select'
+                  {/* The mode strip is the drawing control (§4.3). An empty scene
+                      adds one invitation to it — the first zone, through the
+                      same tool — and steps aside once a tool is armed. */}
+                  {editable && !configured && state.tool === 'select'
                     && shownDraft.zones.length === 0 && shownDraft.tripLines.length === 0 ? (
                     <div className={`scene-stage__intro${canvasVideoId ? '' : ' is-empty'}`}>
                       <strong>No scene configured</strong>
                       <span>
                         {cameraVideos.length > 0
-                          ? 'Choose a reference video below, scrub to a clear frame, then draw zones and trip lines.'
-                          : 'No imported video is available for this camera. You can still configure geometry on the '
-                            + 'normalised frame.'}
+                          ? 'Choose a reference video below and scrub to a clear frame. Zones and trip lines are drawn with the tools above.'
+                          : 'No imported video is available for this camera, so geometry is drawn on the normalised frame with the tools above.'}
                       </span>
-                      <div className="row">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => dispatch({ type: 'setTool', tool: 'zone' })}
-                        >
-                          Draw a zone
-                        </Button>
-                        <Button size="sm" onClick={() => dispatch({ type: 'setTool', tool: 'line' })}>
-                          Draw a trip line
-                        </Button>
-                      </div>
+                      <Button variant="primary" size="sm" onClick={() => dispatch({ type: 'setTool', tool: 'zone' })}>
+                        Draw a zone
+                      </Button>
                     </div>
                   ) : null}
                 </>
@@ -626,7 +661,7 @@ export default function SceneEditorPage() {
                   savedOffsetMs={readOnly
                     ? historicalRevision.data?.referenceFrameOffsetMs ?? null
                     : state.draft.referenceFrameOffsetMs}
-                  readOnly={readOnly}
+                  readOnly={!editable}
                   onPreviewVideo={setPreviewVideoId}
                   onUseCurrentFrame={(offsetMs) => {
                     if (!previewVideoId) return;
@@ -648,17 +683,22 @@ export default function SceneEditorPage() {
             <SceneObjectList
               draft={shownDraft}
               selection={shownSelection}
-              readOnly={readOnly}
+              readOnly={!editable}
+              historical={readOnly}
+              pending={historicalPending}
+              pendingLoading={historicalMissing && !historicalRevision.isError}
               invalidKeys={invalidKeys}
               onSelect={(selection) => dispatch({ type: 'select', selection })}
-              onDelete={(key) => dispatch({ type: 'deleteObject', key })}
-              onAddZone={() => dispatch({ type: 'setTool', tool: 'zone' })}
-              onAddLine={() => dispatch({ type: 'setTool', tool: 'line' })}
+              onDelete={(key) => {
+                dispatch({ type: 'deleteObject', key });
+                recoverFocusRef.current = true;
+              }}
             />
             <ScenePropertiesPanel
               draft={shownDraft}
               selection={shownSelection}
-              readOnly={readOnly}
+              pending={historicalPending}
+              readOnly={!editable}
               issues={issuesForKey}
               onUpdateZone={(key, changes) => dispatch({ type: 'updateZone', key, changes })}
               onUpdateLine={(key, changes) => dispatch({ type: 'updateLine', key, changes })}
@@ -694,17 +734,16 @@ function cameraIdentity(cameraId: string, camera: { code: string; name: string }
 /**
  * A missing camera. Still the Scene surface under Cameras (§5) — not the global
  * Not found — so it keeps its Context Bar and the camera the route names; the
- * bar carries the page's h1, and the state is this region's heading.
+ * bar carries the page's h1, and the state is said once, in the shell's own
+ * not-found grammar.
  */
 function NotFound({ camera }: { camera?: string }) {
   return (
     <section className="page page--full">
       <ContextBar surface="scene" object={camera ? { label: camera } : undefined} />
-      <h2>Camera not found</h2>
-      <EmptyState
-        title="The requested camera does not exist."
-        actions={<ButtonLink to="/cameras">Go to Cameras</ButtonLink>}
-      />
+      <EmptyState title="This camera does not exist." actions={<ButtonLink to="/cameras">Go to Cameras</ButtonLink>}>
+        The address may be mistyped. Choose the camera from the list instead.
+      </EmptyState>
     </section>
   );
 }

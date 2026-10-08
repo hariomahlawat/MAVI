@@ -347,12 +347,15 @@ const DENSE_WORKBENCH = `(async () => {
   revisions.click();
 
   await until(() => document.querySelector('.workspace__footer'), 'the open revision strip');
-  // Open a past revision whose fetch is answered 503, which is the third
-  // notice — where the fixture lists one.
-  const view = byName('^View revision');
-  if (view) view.click();
-  return Boolean(await until(() => document.querySelectorAll('.workspace__notices .alert, .workspace__notices p').length >= 2,
-    'the unavailable past revision as a second notice'));
+  // Open a past revision whose fetch is answered 503. R4: its failure is said
+  // on the stage it would have filled, with its retry, not as a third notice
+  // stacked above the workspace.
+  // (Until R4 this looked for a button whose text began "View revision", which
+  // no chip's does — its number leads — so no past revision was ever opened.)
+  const view = await until(() => document.querySelector('.scene-revisions__chip:not(.is-active)'), 'a past revision in the open strip');
+  view.click();
+  return Boolean(await until(() => document.querySelector('.scene-stage__state .alert button'),
+    'the unavailable past revision, with its retry, on the stage'));
 })()`;
 
 
@@ -2337,6 +2340,9 @@ const R3_LONG_IDENTITY = {
   [`/api/cameras/${CAM}`]: { ...R3_CAMERA, name: 'North Gate perimeter fence south-east approach (vehicle lane 2)' },
 };
 
+/** R4: the scene's camera (fixture), for states that vary one thing about it. */
+const R4_CAMERA = JSON.parse(readFileSync(new URL(`./fixtures/cameras_${CAM}.json`, import.meta.url), 'utf8'));
+
 export const STATES = [
   // --- The shell (S1d, §5). The shell is on every state below; these three
   //     put it into the conditions no surface fixture reaches on its own. ---
@@ -2742,6 +2748,9 @@ export const STATES = [
     fullWidth: true,
     archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/scene`]: { cameraId: CAM, configured: false, activeRevision: null, history: [] } },
+    // R4: one drawing entry — the mode strip — and one invitation on the stage.
+    expectText: ['No scene configured', 'Draw a zone', 'Trip line', 'No zones or trip lines yet.'],
+    forbidText: ['Draw a trip line', '+ Zone', '+ Line'],
   },
   {
     // The bar at its fullest: identity, three badges, the note field, Reset and
@@ -2851,11 +2860,121 @@ export const STATES = [
       const object = document.querySelector('.scene-navigator__name');
       if (!object) return false;
       object.click();
-      const point = await until(() => document.querySelector('.scene-inspector__point'), 'the vertices of the selected zone');
+      // R4 (F18): the coordinates are the forensic tier, closed until asked for.
+      const geometry = await until(() => document.querySelector('.scene-inspector__geometry'), 'the geometry disclosure of the selected zone');
+      if (geometry.open) return false;
+      geometry.querySelector('summary').click();
+      const point = await until(() => geometry.open && geometry.querySelector('.scene-inspector__point'), 'the vertices of the selected zone');
+      point.focus();
       window.__vqa.mark('interaction-start');
       point.click();
-      return Boolean(await until(() => document.querySelector('.scene-inspector__point[aria-pressed="true"]'), 'the selected vertex'));
+      return Boolean(await until(() => document.querySelector('.scene-inspector__point[aria-pressed="true"]') === document.activeElement, 'the selected vertex, still focused'));
     })()`,
+    expectText: ['Vertex 1: x', 'Identity'],
+  },
+  {
+    // R4 (F18): the selected zone with its forensic tier closed — name, type,
+    // state and loitering first; the coordinates one disclosure away.
+    name: 'scene-editor-object-selected', interaction: 'select a zone in the navigator',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    prepare: `(async () => {
+      ${UNTIL}
+      const object = await until(() => document.querySelector('.scene-navigator__name'), 'the first scene object');
+      window.__vqa.mark('interaction-start');
+      object.click();
+      const geometry = await until(() => document.querySelector('.scene-inspector__geometry'), 'the selected zone in the inspector');
+      return !geometry.open;
+    })()`,
+    expectText: ['Evaluate this zone', 'Loitering', 'Vertices · '],
+  },
+  {
+    // R4: a zone being drawn — the armed tool, its instruction, Finish and
+    // Cancel in the mode strip — placed through the canvas's own projection.
+    name: 'scene-editor-drawing', interaction: 'place two vertices of a new zone',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    prepare: `(async () => {
+      ${UNTIL}
+      const zone = await until(() => Array.from(document.querySelectorAll('[aria-label="Drawing tools"] button')).find((b) => b.textContent.trim() === 'Zone'), 'the Zone tool');
+      zone.click();
+      const surface = await until(() => document.querySelector('.scene-stage__surface.tool-zone'), 'the armed drawing surface');
+      const rect = surface.getBoundingClientRect();
+      const at = (fx, fy) => ({ clientX: rect.left + rect.width * fx, clientY: rect.top + rect.height * fy, bubbles: true, pointerId: 1, isPrimary: true });
+      // In the frame's vertical middle: a portrait stage letterboxes the frame,
+      // and a click on a letterbox bar is (rightly) not a vertex.
+      window.__vqa.mark('interaction-start');
+      surface.dispatchEvent(new PointerEvent('pointerdown', at(0.55, 0.44)));
+      surface.dispatchEvent(new PointerEvent('pointerup', at(0.55, 0.44)));
+      surface.dispatchEvent(new PointerEvent('pointerdown', at(0.8, 0.52)));
+      surface.dispatchEvent(new PointerEvent('pointerup', at(0.8, 0.52)));
+      return Boolean(await until(() => Array.from(document.querySelectorAll('button')).some((b) => b.textContent.trim() === 'Finish zone'), 'Finish zone in the mode strip'));
+    })()`,
+    expectText: ['Finish zone', 'Cancel', 'Click to add a vertex'],
+  },
+  {
+    // R4: an inactive camera, alone. The server refuses its changes, so the
+    // tools are withheld and the reason stands where they would be — once.
+    name: 'scene-editor-inactive',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    api: {
+      [`/api/cameras/${CAM}/scene`]: 'fixture',
+      [`/api/cameras/${CAM}`]: { ...R4_CAMERA, isActive: false },
+    },
+    prepare: `(async () => {
+      ${UNTIL}
+      await until(() => document.querySelector('.scene-toolbar__readonly'), 'the inactive camera reason in the mode strip');
+      return !document.querySelector('[aria-label="Drawing tools"]') && document.querySelectorAll('.workspace__notices .alert').length === 0;
+    })()`,
+    expectText: 'This camera is inactive, so its scene cannot be changed.',
+    forbidText: 'Draw a zone',
+  },
+  {
+    // R4: the reference video fails while its list answers — said on the stage
+    // it would have filled (§37.1, media), not as a page alert.
+    name: 'scene-editor-media-unavailable',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    api: { [`/api/videos/${VIDEO}/content`]: 'unavailable' },
+    prepare: `(async () => {
+      ${UNTIL}
+      await until(() => document.querySelector('.scene-stage__media-note'), 'the reference video failure on the stage');
+      return document.querySelectorAll('.workspace__notices .alert').length === 0;
+    })()`,
+    expectText: 'Reference video unavailable',
+  },
+  {
+    // R4: a save the server refuses for a reason other than a conflict — one
+    // alert naming what failed, the draft kept, Save offered again.
+    name: 'scene-editor-save-error', interaction: 'save a renamed object that the API refuses',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    api: {
+      [`PUT /api/cameras/${CAM}/scene`]: {
+        status: 503, body: { title: 'Unavailable', code: 'upstream_unavailable', detail: 'The upstream service did not respond.' },
+      },
+    },
+    prepare: `(async () => {
+      ${UNTIL}
+      const object = await until(() => document.querySelector('.scene-navigator__name'), 'the first scene object');
+      object.click();
+      const field = await until(() => Array.from(document.querySelectorAll('input')).find((i) => i.labels && i.labels[0] && i.labels[0].textContent.trim() === 'Name'), 'the Name field');
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(field, 'Loading bay east');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      const save = await until(() => Array.from(document.querySelectorAll('button')).find((b) => b.textContent.trim() === 'Save revision' && !b.disabled), 'an enabled Save revision');
+      save.focus();
+      window.__vqa.mark('interaction-start');
+      save.click();
+      return Boolean(await until(() => document.body.innerText.includes('The scene could not be saved.') && !save.disabled, 'the refused save'));
+    })()`,
+    expectText: ['The scene could not be saved. The upstream service did not respond. (upstream_unavailable)', 'Unsaved changes'],
   },
   {
     // The stress case for the frozen no-page-scroll rule (§4.3.2): every fixed
@@ -2886,14 +3005,16 @@ export const STATES = [
       // retry control.
       '/api/videos': 'unavailable',
     },
-    expectText: ['This camera is inactive', 'video list is unavailable'],
+    expectText: ['This camera is inactive', 'video list is unavailable', 'Revision 3 could not be loaded.', 'Revision 3 is unavailable.'],
+    // An unavailable revision is never presented as an empty one (§14).
+    forbidText: ['This revision has no geometry', '0 (0 enabled)', 'ANALYTICS OFF'],
   },
   {
     name: 'scene-editor-unavailable',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     api: { [`/api/cameras/${CAM}/scene`]: 'unavailable' },
-    expectText: 'unavailable',
+    expectText: 'The scene could not be loaded. The upstream service did not respond. (upstream_unavailable)',
   },
   {
     // The camera itself unreadable: `Cameras › Camera 11111111… › Scene` (§5),
@@ -2902,7 +3023,7 @@ export const STATES = [
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     api: { [`/api/cameras/${CAM}`]: 'unavailable' },
-    expectText: ['Camera 11111111…', 'unavailable'], forbidText: CAM,
+    expectText: ['Camera 11111111…', 'The camera could not be loaded.'], forbidText: CAM,
   },
   {
     // A missing camera stays the Scene surface under Cameras, not the global
@@ -2911,7 +3032,7 @@ export const STATES = [
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     api: { [`/api/cameras/${CAM}`]: { status: 404, body: { status: 404, code: 'camera_not_found', detail: 'Camera was not found.' } } },
-    expectText: ['Camera 11111111…', 'Camera not found'], forbidText: CAM,
+    expectText: ['Camera 11111111…', 'This camera does not exist.', 'Go to Cameras'], forbidText: CAM,
   },
 
   // --- Investigation: Search, migrated in UI-4. -------------------------
