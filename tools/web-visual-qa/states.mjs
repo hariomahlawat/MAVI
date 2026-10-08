@@ -510,15 +510,16 @@ export const TIER_POLICIES = {
 };
 
 /**
- * An Overview inventory (R1): the video list and, for every video the
- * attention region looks up (failed and processed ones), its processing
- * status. Overrides match by path prefix, so each looked-up video's
- * `/processing` path must be answered here, or the inventory's own override
- * would answer it with the list.
+ * A video inventory for the Overview (R1) and the Videos Ledger (R2): the
+ * video list and, for every video either surface looks up (failed, processed
+ * and active ones), its processing status. Overrides match by path prefix, so
+ * each looked-up video's `/processing` path must be answered here, or the
+ * inventory's own override would answer it with the list. An entry may give
+ * its own `lookup` (`'unavailable'`, a status), its run `phase` and `progress`.
  */
 const OVERVIEW_VIDEO = JSON.parse(readFileSync(new URL('./fixtures/videos.json', import.meta.url), 'utf8'))[0];
 const OVERVIEW_CAM_2 = '33333333-3333-7333-8333-333333333333';
-function overviewInventory(entries) {
+function inventoryFixture(entries) {
   const api = { '/api/videos': [] };
   entries.forEach((entry, index) => {
     const id = `0${(index + 1).toString(16).padStart(7, '0')}-0000-7000-8000-${String(index + 1).padStart(12, '0')}`;
@@ -527,16 +528,19 @@ function overviewInventory(entries) {
       ...OVERVIEW_VIDEO, id, originalFileName: entry.name, cameraId: entry.camera ?? OVERVIEW_VIDEO.cameraId,
       processingStatus: entry.status, importedAtUtc,
     });
-    if (entry.status === 'Failed' || entry.status === 'Processed') {
+    if (entry.status !== 'NotQueued') {
       const failed = entry.status === 'Failed';
+      const active = entry.status === 'Queued' || entry.status === 'Processing';
       api[`/api/videos/${id}/processing`] = entry.lookup ?? {
         videoStatus: entry.status,
         latestRun: {
-          processingRunId: id.replace(/^0/, 'a'), status: failed ? 'Failed' : 'Completed', pipeline: 'deepstream-yolo-bytetrack',
-          pipelineVersion: '1.0.0', workerId: 'worker-01', queuedAtUtc: importedAtUtc, startedAtUtc: importedAtUtc, completedAtUtc: importedAtUtc,
-          progressPercent: failed ? 42 : 100, attemptCount: failed ? 3 : 1, failureCode: failed ? (entry.code ?? 'vision_job_attempts_exhausted') : null,
-          framesProcessed: 15000, tracksCreated: failed ? 0 : 6, analyticsReadiness: entry.readiness ?? (failed ? 'NotConfigured' : 'Ready'),
-          phase: failed ? 'failed' : 'completed',
+          processingRunId: id.replace(/^0/, 'a'), status: failed ? 'Failed' : active ? (entry.status === 'Queued' ? 'Queued' : 'Running') : 'Completed',
+          pipeline: 'deepstream-yolo-bytetrack', pipelineVersion: '1.0.0', workerId: entry.status === 'Queued' ? null : 'worker-01',
+          queuedAtUtc: importedAtUtc, startedAtUtc: entry.status === 'Queued' ? null : importedAtUtc, completedAtUtc: active ? null : importedAtUtc,
+          progressPercent: entry.progress ?? (failed ? 42 : active ? 0 : 100), attemptCount: failed ? 3 : 1,
+          failureCode: failed ? (entry.code ?? 'vision_job_attempts_exhausted') : null,
+          framesProcessed: 15000, tracksCreated: failed || active ? 0 : 6, analyticsReadiness: entry.readiness ?? (failed ? 'NotConfigured' : 'Ready'),
+          phase: entry.phase ?? (failed ? 'failed' : active ? (entry.status === 'Queued' ? 'queued' : 'processing') : 'completed'),
         },
       };
     }
@@ -2340,7 +2344,7 @@ export const STATES = [
   {
     // Every check answered and nothing needs attention: one line, no frame.
     name: 'overview-clear', path: '/', fullWidth: false, archetype: 'ledger-summary',
-    api: overviewInventory([
+    api: inventoryFixture([
       { name: 'north-gate-0800.mp4', status: 'Processed' },
       { name: 'north-gate-0900.mp4', status: 'Processed' },
       { name: 'south-dock-2200.mp4', status: 'Processed', readiness: 'Disabled' },
@@ -2351,7 +2355,7 @@ export const STATES = [
   {
     // Only media waiting to be processed: one aggregate row.
     name: 'overview-awaiting', path: '/', fullWidth: false, archetype: 'ledger-summary',
-    api: overviewInventory([
+    api: inventoryFixture([
       { name: 'north-gate-0800.mp4', status: 'Processed' },
       { name: 'yard-sweep-0615.mp4', status: 'NotQueued' },
       { name: 'yard-sweep-0700.mp4', status: 'NotQueued' },
@@ -2363,7 +2367,7 @@ export const STATES = [
     // Scene analytics of completed runs: failed and stale need attention;
     // pending and the operator's scene choices do not.
     name: 'overview-analytics', path: '/', fullWidth: false, archetype: 'ledger-summary',
-    api: overviewInventory([
+    api: inventoryFixture([
       { name: 'north-gate-0800.mp4', status: 'Processed', readiness: 'Failed' },
       { name: 'north-gate-0900.mp4', status: 'Processed', readiness: 'Stale' },
       { name: 'south-dock-2200.mp4', status: 'Processed', readiness: 'Pending' },
@@ -2375,7 +2379,7 @@ export const STATES = [
     // Many items at once, with the longest identities the fixtures carry:
     // concise ordering, a bounded list and its disclosure.
     name: 'overview-attention-many', path: '/', fullWidth: false, archetype: 'ledger-summary',
-    api: overviewInventory([
+    api: inventoryFixture([
       { name: 'north-gate-0900-very-long-original-file-name-for-truncation-of-the-identity.mp4', status: 'Failed', camera: OVERVIEW_CAM_2 },
       { name: 'south-dock-2200.mp4', status: 'Failed', code: 'vision_finalization_exhausted' },
       { name: 'south-dock-2300.mp4', status: 'Failed' },
@@ -2393,7 +2397,7 @@ export const STATES = [
     // A failed video whose status lookup failed: it stays an item, from the
     // inventory, and the region says its detail could not be read.
     name: 'overview-lookup-unavailable', path: '/', fullWidth: false, archetype: 'ledger-summary',
-    api: overviewInventory([
+    api: inventoryFixture([
       { name: 'south-dock-2200.mp4', status: 'Failed', lookup: 'unavailable' },
       { name: 'north-gate-0800.mp4', status: 'Processed' },
     ]),
@@ -2490,6 +2494,50 @@ export const STATES = [
     expectText: 'Camera metadata is unavailable',
   },
   {
+    // R2: every run state a row can show, with the identities that stress it —
+    // inference progress, a finalizing run (no bar), a finalization failure,
+    // an ordinary failure with its code, a live status and a failure detail
+    // that could not be read, a long camera name and a non-ASCII file name.
+    name: 'videos-run-states', path: '/videos', fullWidth: true, archetype: 'ledger',
+    api: inventoryFixture([
+      { name: 'north-gate-0900.mp4', status: 'Processing', progress: 62 },
+      { name: 'north-gate-1000.mp4', status: 'Processing', progress: 100, phase: 'finalizing' },
+      { name: 'perimeter-0100.mp4', status: 'Processing', lookup: 'unavailable', camera: OVERVIEW_CAM_2 },
+      { name: 'south-dock-2200.mp4', status: 'Failed', code: 'vision_finalization_exhausted' },
+      { name: 'south-dock-2300.mp4', status: 'Failed' },
+      { name: 'yard-sweep-0615.mp4', status: 'Failed', lookup: 'unavailable' },
+      { name: 'überwachung-nordtor-kamera-02-aufzeichnung-2026-09-14-nacht.mp4', status: 'Processed', camera: OVERVIEW_CAM_2 },
+      { name: 'yard-sweep-0700.mp4', status: 'Queued' },
+      { name: 'yard-sweep-0745.mp4', status: 'NotQueued' },
+    ]),
+    expectText: ['Run: Finalizing', 'Run: Finalization failed', 'Live status unavailable', 'Failure detail unavailable', 'vision_job_attempts_exhausted'],
+  },
+  {
+    // R2: the three committed filters at once, restored from the URL.
+    name: 'videos-filtered', path: `/videos?q=gate&cameraId=${CAM}&status=Processed`, fullWidth: true, archetype: 'ledger',
+    expectText: ['1 of 4 videos match the filters', 'north-gate-0800.mp4'],
+  },
+  {
+    // R2: queueing that the API refuses — one alert that names the video.
+    name: 'videos-queue-error', interaction: 'queue a video for processing', path: '/videos', fullWidth: true, archetype: 'ledger',
+    api: {
+      'POST /api/videos/66666666-6666-7666-8666-666666666666/process': {
+        status: 500, body: { title: 'Queue unavailable', detail: 'The processing queue did not respond.', code: 'queue_unavailable' },
+      },
+    },
+    prepare: `(async () => {
+      ${UNTIL}
+      const row = await until(() => Array.from(document.querySelectorAll('tr')).find((r) => r.textContent.includes('yard-sweep-0615.mp4')), 'the not-queued row');
+      const process = Array.from(row.querySelectorAll('button')).find((b) => b.textContent.trim() === 'Process');
+      if (!process) return false;
+      process.focus();
+      window.__vqa.mark('interaction-start');
+      process.click();
+      return Boolean(await until(() => document.body.innerText.includes('Processing could not be queued for yard-sweep-0615.mp4'), 'the queue failure alert'));
+    })()`,
+    expectText: 'Processing could not be queued for yard-sweep-0615.mp4. The processing queue did not respond. (queue_unavailable)',
+  },
+  {
     name: 'videos-dense', path: '/videos', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': DENSE_VIDEOS },
   },
@@ -2553,7 +2601,7 @@ export const STATES = [
   },
   {
     name: 'processing-detail-failed', path: `/processing/${FAILED_VIDEO}`, fullWidth: false,
-    archetype: 'record', expectText: 'worker_watchdog_timeout',
+    archetype: 'record', expectText: 'vision_job_attempts_exhausted',
   },
   {
     // S1.4 B3 F4 plan §15.3 (B5 `finalizingStateDistinct`, `noPrematureCounts`): a job the

@@ -73,10 +73,21 @@
    status ride the status line after the badge instead of opening a second
    line; the badge keeps its width and the trailing facts give way with an
    ellipsis. Nothing is dropped: the full run state is on the Record. */
-.table--ledger .run-cell { display: flex; align-items: center; gap: var(--s-2); flex-wrap: nowrap; overflow: hidden; }
+/* The cell is capped (the column's own budget, the `cap-lg` step), or a row
+   carrying a phase, a code and a lookup note grows the column past the
+   frame at 1366 and the row actions scroll out of reach. Inside the cap the
+   message truncates and a row's retry control never does. */
+.table--ledger .run-cell { display: flex; align-items: center; gap: var(--s-2); flex-wrap: nowrap; overflow: hidden; max-width: 260px; }
+.table--ledger .run-cell .state-row { display: flex; align-items: center; gap: var(--s-1); min-width: 0; max-width: 100%; }
+.table--ledger .run-cell .state-row > :not(.btn) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table--ledger .run-cell .state-row > .btn { flex-shrink: 0; }
 .table--ledger .run-cell__line { flex: 0 1 auto; min-width: 0; white-space: nowrap; }
 .table--ledger .run-cell__line:first-child { flex-shrink: 0; }
 .table--ledger .run-cell__line + .run-cell__line { overflow: hidden; text-overflow: ellipsis; }
+/* A phase line's text is a TruncatedText, whose tooltip anchor is itself a
+   flex item: left at its automatic minimum (the whole unwrapped text) it never
+   shrinks, and the cap clips the text with no ellipsis (§36.2). */
+.table--ledger .run-cell__line > .tooltip-anchor { min-width: 0; max-width: 100%; }
 /* Analytics readiness as text (UI/UX §16, §29): never a second badge in the
    row. The non-colour treatments of the state taxonomy carry the meaning —
    a dashed underline for stale, a hatched underline for a run whose scene is

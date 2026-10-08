@@ -49,9 +49,12 @@ export function fromInfiniteQuery<TPage, TItem, E = unknown>(
 }
 
 /**
- * The operator sentence for a failure (§14): the API's own detail and code
- * where the failure carries them, otherwise the caller's fallback.
+ * The operator sentence for a failure (§14): what failed — the caller's
+ * sentence, which names the subject — and then the API's own detail with its
+ * code last, where the failure carries them. The API detail alone ("The
+ * upstream service did not respond.") never says what it was the operator
+ * could not load.
  */
 export function describeError(error: unknown, fallback: string): string {
-  return error instanceof ApiError ? `${error.detail} (${error.code})` : fallback;
+  return error instanceof ApiError ? `${fallback} ${error.detail} (${error.code})` : fallback;
 }

@@ -83,9 +83,13 @@
    row become a stack. */
 /* A select sizes itself to its widest option, and a camera name is not a
    width budget: the control is capped and the option truncates inside it. */
-.toolbar-band input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.toolbar-band input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not(.search-input),
 .toolbar-band select { width: auto; min-width: 140px; max-width: 240px; }
-.toolbar-band .search-input { min-width: 200px; }
+/* The search box is wide enough for its own placeholder. It is excluded from
+   the rule above rather than overriding it: that rule's :not() chain outranks
+   any single-class selector, so a plain `.search-input` here never applied and
+   the box rendered at its intrinsic ~20ch, clipping "Filter by file or camera". */
+.toolbar-band .search-input { width: auto; min-width: 200px; max-width: 280px; }
 .toolbar-band__spacer { flex: 1 1 auto; min-width: 0; }
 .toolbar-band__actions { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
 

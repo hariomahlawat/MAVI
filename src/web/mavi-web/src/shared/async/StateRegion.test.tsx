@@ -193,6 +193,34 @@ describe('row (§37.1)', () => {
     await userEvent.click(within(row).getByRole('button', { name: 'Retry' }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['unavailable', { kind: 'unavailable', error: new Error('x') } as AsyncState<null>],
+    ['degraded', { kind: 'ready', data: null, degraded: { error: new Error('x') } } as AsyncState<null>],
+  ])('in a dense cell retries %s with a 26×26 icon control named for what it reloads', async (_name, state) => {
+    const onRetry = vi.fn();
+    render(
+      <StateRegion
+        kind="row"
+        state={state}
+        label="failure detail"
+        unavailableMessage={() => 'Failure detail unavailable'}
+        degradedMessage="Failure detail may be out of date"
+        onRetry={onRetry}
+        retryLabel="Reload failure detail for clip-0001.mp4"
+        compactRetry
+      >
+        {() => null}
+      </StateRegion>,
+    );
+    const retry = screen.getByRole('button', { name: 'Reload failure detail for clip-0001.mp4' });
+    // Icon-only (§36.3): the name is carried, not drawn, and the pointer gets it as a tooltip.
+    expect(retry).toHaveClass('btn--icon');
+    expect(retry).toHaveAttribute('title', 'Reload failure detail for clip-0001.mp4');
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    await userEvent.click(retry);
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
 });
 
 describe('media (§37.1)', () => {
