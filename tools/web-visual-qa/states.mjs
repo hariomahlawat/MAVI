@@ -3349,6 +3349,16 @@ export const STATES = [
     forbidText: 'Processing status is unavailable.',
   },
   {
+    // Codex P2 on PR #191: with the video record unavailable the camera is
+    // unknown, so a readiness that points at the Scene Editor offers no link —
+    // never the camera ledger in its place. Its recovered form (the link to
+    // this camera's editor) is `processing-detail-analytics-not-configured`.
+    name: 'processing-detail-metadata-unavailable-unconfigured', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    api: { ...r3Analytics('NotConfigured', null, []), [`/api/videos/${VIDEO}`]: 'unavailable' },
+    expectText: ['Video metadata is unavailable.', 'No scene configured', 'no scene configuration yet'],
+    forbidText: ['Open Scene Editor', 'Re-analyse camera', 'Processing status is unavailable.'],
+  },
+  {
     // Long identities beside a failure and its primary action: the crumb gives
     // way, the badge and `Retry processing` never do (F16, §37.1 long names).
     name: 'processing-detail-long-identity', path: `/processing/${FAILED_VIDEO}`, fullWidth: false, archetype: 'record',

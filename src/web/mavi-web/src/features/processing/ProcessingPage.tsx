@@ -526,7 +526,11 @@ function SceneAnalyticsPanel({
   const effective = analytics?.readiness ?? readiness;
   const unit = analytics ? currentUnit(analytics) : undefined;
   const previous = analytics ? latestFactBearingUnit(analytics) : undefined;
-  const sceneLink = isGuid(cameraId) ? `/cameras/${cameraId.toLowerCase()}/scene` : '/cameras';
+  // The Scene Editor is per camera, and the camera is the video record's. While
+  // that record is unavailable there is no editor to open — the camera ledger
+  // is not this camera's editor — so the action waits for the facts rail's
+  // retry, as the camera-wide re-analysis does.
+  const sceneLink = isGuid(cameraId) ? `/cameras/${cameraId.toLowerCase()}/scene` : undefined;
 
   return (
     <div className="stack">
@@ -611,13 +615,13 @@ function SceneAnalyticsPanel({
       {effective === 'Disabled' ? (
         <div className="inline-alert-actions">
           <Alert tone="info">The active scene revision enables no zone or trip line, so analytics are switched off for this camera on purpose.</Alert>
-          <ButtonLink size="sm" to={sceneLink}>Open Scene Editor</ButtonLink>
+          {sceneLink ? <ButtonLink size="sm" to={sceneLink}>Open Scene Editor</ButtonLink> : null}
         </div>
       ) : null}
       {effective === 'NotConfigured' ? (
         <div className="inline-alert-actions">
           <Alert tone="info">This camera has no scene configuration yet, so there is nothing to analyse against.</Alert>
-          <ButtonLink size="sm" to={sceneLink}>Open Scene Editor</ButtonLink>
+          {sceneLink ? <ButtonLink size="sm" to={sceneLink}>Open Scene Editor</ButtonLink> : null}
         </div>
       ) : null}
     </div>

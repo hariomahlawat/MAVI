@@ -31,12 +31,7 @@
    32-character code, so on a narrow workspace the crumbs either truncate or
    push the state badges and actions off the end — and the second is what a
    44px bar looks like when it breaks. Which crumb gives way is set below. */
-/* Shrink is shared in proportion to width, so a trail and a status group that
-   both shrink at 1 give way together: the long identity keeps most of its
-   width while the timezone beside it is cut (F16, R3). The trail's weight
-   makes it absorb the shortfall first; the status group gives way only once
-   the identity has reached its minimum. */
-.context-bar__crumbs { min-width: 0; flex: 0 1000 auto; }
+.context-bar__crumbs { min-width: 0; flex: 0 1 auto; }
 .context-bar__crumbs ol { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
 .context-bar__crumbs li { display: flex; align-items: center; gap: var(--s-2); min-width: 0; flex: 0 1 auto; font-size: var(--fs-2); }
 /* The object's identity — a camera, a file name — is the crumb that gives

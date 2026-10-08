@@ -313,7 +313,33 @@ describe('ProcessingPage', () => {
       const unconfigured = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
       expect(within(unconfigured).getByText('No scene configured')).toBeInTheDocument();
       expect(within(unconfigured).getByText(/no scene configuration yet/)).toBeInTheDocument();
+      expect(within(unconfigured).getByRole('link', { name: 'Open Scene Editor' })).toHaveAttribute('href', `/cameras/${cameraId}/scene`);
       expect(within(unconfigured).queryByRole('button')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['Disabled', 'Disabled by scene'],
+      ['NotConfigured', 'No scene configured'],
+    ] as const)('offers no Scene Editor while the camera is unknown (%s), and the camera editor once the video record recovers', async (readiness, text) => {
+      const user = userEvent.setup();
+      arrange(readiness, [], readiness === 'NotConfigured' ? null : activeRevision);
+      const record = await getVideo(videoId);
+      vi.mocked(getVideo).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Video store unavailable.' }));
+      render();
+
+      // The run and its analytics do not depend on the video record, so both stay.
+      const panel = (await screen.findByText('Scene analytics', {}, { timeout: 4000 })).closest('.panel') as HTMLElement;
+      expect(within(panel).getByText(text)).toBeInTheDocument();
+      expect(within(await runPanel()).getByText('Completed', { selector: 'dt' })).toBeInTheDocument();
+      const unavailable = await screen.findByText('Video metadata is unavailable.', {}, { timeout: 4000 });
+      // The Scene Editor is this camera's, and the camera is unknown: no link —
+      // least of all one to the camera ledger dressed as the editor.
+      expect(within(panel).queryByRole('link', { name: 'Open Scene Editor' })).not.toBeInTheDocument();
+      expect(document.querySelector('a[href="/cameras"]')).toBeNull();
+
+      vi.mocked(getVideo).mockResolvedValue(record);
+      await user.click(within(unavailable.closest('.alert') as HTMLElement).getByRole('button', { name: 'Retry' }));
+      expect(await within(panel).findByRole('link', { name: 'Open Scene Editor' })).toHaveAttribute('href', `/cameras/${cameraId}/scene`);
     });
 
     it('says a pending run is still on its way and shows the unit progress', async () => {
