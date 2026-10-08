@@ -26,7 +26,7 @@ import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { focusAssertions, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions } from './assertions.mjs';
+import { focusAssertions, overlayExitProbe, overlayOpened, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions } from './assertions.mjs';
 import { launch } from './cdp.mjs';
 import { createLedger, exitStatus, HarnessError, planCases, settle } from './engine.mjs';
 import { CONDITIONS, ensureFootage } from './footage.mjs';
@@ -156,6 +156,9 @@ async function runCase(lane, c) {
   // V3: the state is reached when the page and the server say so.
   const loaded = await settle(lane, state, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: Boolean(state.prepare) });
   const settledAt = await browser.evaluate('performance.now()');
+  // An overlay already open when the page settles was opened by its URL, not
+  // by an action: §20 restoration to an invoking control does not apply to it.
+  const openOnLoad = await browser.evaluate(`Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))`);
   let reached = loaded.ok;
   if (!loaded.ok) add('harness.state-reached', `did not settle within ${SETTLE_TIMEOUT_MS}ms: ${loaded.why.join('; ')}`);
 
@@ -276,29 +279,26 @@ async function runCase(lane, c) {
   }
   let overlayExit = null;
   if (reached && page?.shell?.modals) {
-    // §15, §20: Escape leaves the overlay and focus goes back somewhere real.
-    overlayExit = await browser.evaluate(`(() => {
-      const modal = document.querySelector('[role="dialog"][aria-modal="true"]');
-      window.__vqaModal = modal; return modal ? (modal.classList.contains('dialog') ? 'overlay.dialog' : 'overlay.drawer') : null;
-    })()`);
+    // §15, §20: Escape leaves the overlay and focus goes back to the control
+    // that opened it — the invoker the observers recorded as focus entered it.
+    overlayExit = await browser.evaluate(toExpression(overlayOpened));
     if (overlayExit) {
       await browser.press('Escape');
-      const exit = await browser.evaluate(`(async () => {
-        const end = performance.now() + 3000;
-        const open = () => document.querySelector('[role="dialog"][aria-modal="true"]');
-        while (open() && performance.now() < end) await new Promise((r) => requestAnimationFrame(r));
-        const active = document.activeElement;
-        return {
-          closed: !open(),
-          focus: active ? active.tagName.toLowerCase() + (active.className && typeof active.className === 'string' ? '.' + active.className.trim().split(/\\s+/)[0] : '') : null,
-          restored: Boolean(active && active !== document.body && active.isConnected && !(window.__vqaModal && window.__vqaModal.contains(active))),
-          inertLeft: document.querySelectorAll('[inert]').length,
-        };
-      })()`);
+      const exit = await browser.evaluate(toExpression(overlayExitProbe));
       if (!exit.closed) add(overlayExit, 'Escape did not close the open overlay');
-      else if (!exit.restored) add(overlayExit, `focus was not restored after Escape (it is on ${exit.focus ?? 'nothing'})`);
       else if (exit.inertLeft) add(overlayExit, `${exit.inertLeft} region(s) left inert after the overlay closed`);
-      overlayExit = { rule: overlayExit, ...exit };
+      // Restoration (§20) is owed to the control that opened the overlay. One
+      // the URL opened has none; one an action opened must have been recorded.
+      let restoration;
+      if (openOnLoad && !exit.invoker) restoration = 'not-applicable (opened by its URL)';
+      else if (!exit.invoker) {
+        restoration = 'unverifiable';
+        add(overlayExit, 'no focused invoker was recorded before the overlay took focus, so restoration to it cannot be shown');
+      } else if (!exit.restored) {
+        restoration = 'failed';
+        if (exit.closed) add(overlayExit, `focus was not restored to the invoker ${exit.invoker} after Escape (it is on ${exit.focus ?? 'nothing'})`);
+      } else restoration = 'restored';
+      overlayExit = { rule: overlayExit, openOnLoad, restoration, ...exit };
     }
   }
 
@@ -389,6 +389,15 @@ if (repeat > 1) {
 // Non-vacuity: on the full sweep every blocking assertion must have run.
 const vacuous = fullSweep && !harnessErrors.length ? ledger.vacuous() : [];
 if (vacuous.length) harnessErrors.push('blocking rules the full sweep never evaluated: ' + vacuous.join(', '));
+// §15/§20 restoration is part of each overlay rule: a full sweep must have
+// judged it at Tier A for an overlay an action opened, not only for ones the
+// URL opened.
+if (fullSweep && !harnessErrors.length) {
+  for (const rule of ['overlay.dialog', 'overlay.drawer']) {
+    const judged = results.some((r) => r.tier === 'A' && r.overlayExit?.rule === rule && ['restored', 'failed', 'unverifiable'].includes(r.overlayExit.restoration));
+    if (!judged) harnessErrors.push(`${rule}: the full sweep never judged focus restoration at Tier A for an overlay an action opened`);
+  }
+}
 
 // --- Report -----------------------------------------------------------------------
 

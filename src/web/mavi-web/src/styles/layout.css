@@ -88,7 +88,10 @@
 .status-dot--error { background: var(--status-err); }
 .status-dot--pending { background: var(--status-warn); }
 
-.content { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+/* The column is minmax(0, 1fr), not the implicit `auto`: an auto track grows
+   to the Context Bar's min-content — the full untruncated trail — so a wider
+   platform font pushed the page past the viewport instead of truncating. */
+.content { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
 /* The workspace is the `main` landmark and the skip link's target. Focused by
    script, its ring is drawn inside its own edge so it is visible rather than
    clipped by the viewport. */

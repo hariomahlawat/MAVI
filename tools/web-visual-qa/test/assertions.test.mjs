@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { pageAssertions, toExpression, workspaceAssertions } from '../assertions.mjs';
+import { focusAssertions, overlayExitProbe, overlayOpened, pageAssertions, toExpression, workspaceAssertions } from '../assertions.mjs';
 import { openBrowser } from './browser.mjs';
 
 const TOKENS = '<style>:root{--accent-strong:#2563eb;--accent-hover:#1d4ed8} body{margin:0;font:14px sans-serif}</style>';
@@ -171,6 +171,26 @@ describe('containment.depth and state.placement', () => {
     const result = await page('<main><div style="height:600px;display:flex;flex-direction:column"><div class="state-region" style="flex:1;display:flex;flex-direction:column"><div class="empty-state" style="flex:1;border:1px dashed #555"><p>Nothing here yet.</p></div></div></div></main>');
     assert.match(fired(result, 'state.placement')[0].message, /fills its region/);
   });
+  it('fires on a presentation pushed down its region, whether or not it is the first child', async () => {
+    const centred = (before) => `<main><div style="height:600px;display:flex;flex-direction:column;justify-content:center;gap:8px">${before}<div class="state-region"><div class="alert" style="border:1px solid red">Nothing here yet.</div></div></div></main>`;
+    assert.match(fired(await page(centred('')), 'state.placement')[0].message, /below the top of the region it replaces/);
+    const apart = '<main><div style="height:600px;display:flex;flex-direction:column;justify-content:space-between;gap:8px"><div style="height:40px">Filters</div><div class="state-region"><div class="alert" style="border:1px solid red">None match.</div></div></div></main>';
+    assert.match(fired(await page(apart), 'state.placement')[0].message, /below the content above it/);
+  });
+  it('fires on a presentation centred inside a stretched transparent region', async () => {
+    const result = await page('<main><div style="height:600px;display:flex;flex-direction:column"><div class="state-region" style="flex:1;display:flex;flex-direction:column;justify-content:center"><div class="alert" style="border:1px solid red">Nothing here yet.</div></div></div></main>');
+    assert.match(fired(result, 'state.placement')[0].message, /below the top of its own region/);
+  });
+  it('passes a presentation that follows the content above it at the layout gap', async () => {
+    const result = await page('<main><div style="height:600px;display:flex;flex-direction:column;gap:12px"><div style="height:40px">Filters</div><div class="state-region"><div class="alert" style="border:1px solid red;margin-top:4px">None match.</div></div></div></main>');
+    assert.deepEqual(fired(result, 'state.placement'), []);
+    const block = await page('<main><div><h2 style="margin:0 0 16px">Results</h2><div class="state-region" style="margin-top:8px"><div class="alert" style="border:1px solid red">None match.</div></div></div></main>');
+    assert.deepEqual(fired(block, 'state.placement'), []);
+  });
+  it('measures a presentation beside its sibling from the top of the region', async () => {
+    const result = await page('<main><div style="display:flex;align-items:flex-end;height:300px"><div style="width:200px;height:300px">Rail</div><div class="state-region"><div class="alert" style="border:1px solid red">Nothing selected.</div></div></div></main>');
+    assert.match(fired(result, 'state.placement')[0].message, /below the top of the region it replaces/);
+  });
   it('passes a transparent container a layout stretched around a content-sized presentation', async () => {
     const result = await page('<main><div style="height:600px;display:flex;flex-direction:column"><div class="state-region" style="flex:1"><div class="alert" style="border:1px solid red">Camera is unavailable.</div></div></div></main>');
     assert.deepEqual(fired(result, 'state.placement'), []);
@@ -229,5 +249,62 @@ describe('tier composition rules', () => {
     const atC = await page('<main><p>x</p></main>', { ...PAGE_INPUT, tier: 'C', width: 390 });
     assert.ok(atC.evaluated.includes('tier.c-shell'));
     assert.ok(!atC.evaluated.includes('shell.rail'), 'the Tier A rail rule is not applicable at Tier C');
+  });
+});
+
+describe('overlay exit (Escape)', () => {
+  // A Dialog opened from a button; on Escape it closes and sends focus to
+  // `restoreTo` (the invoker when correct).
+  const DIALOG = (restoreTo) => `<main><button id="open">Discard changes</button><button id="other">Elsewhere</button></main>
+    <script>
+      const open = document.getElementById('open');
+      open.addEventListener('click', () => {
+        const d = document.createElement('div');
+        d.className = 'dialog'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-label', 'Discard');
+        d.innerHTML = '<button>Keep editing</button>';
+        document.body.appendChild(d);
+        d.querySelector('button').focus();
+        document.addEventListener('keydown', function esc(e) {
+          if (e.key !== 'Escape') return;
+          document.removeEventListener('keydown', esc); d.remove();
+          document.getElementById('${restoreTo}').focus();
+        });
+      });
+    </script>`;
+  const exitAfter = async (html, { focusInvoker = true } = {}) => {
+    await lane.page(html);
+    await lane.browser.evaluate(`(() => { const b = document.getElementById('open'); ${focusInvoker ? 'b.focus();' : ''} b.click(); })()`);
+    const rule = await lane.browser.evaluate(toExpression(overlayOpened));
+    await lane.browser.press('Escape');
+    return { rule, ...(await lane.browser.evaluate(toExpression(overlayExitProbe))) };
+  };
+  it('passes focus restored to the invoker', async () => {
+    const exit = await exitAfter(DIALOG('open'));
+    assert.equal(exit.rule, 'overlay.dialog');
+    assert.equal(exit.closed, true);
+    assert.match(exit.invoker, /Discard changes/);
+    assert.equal(exit.restored, true);
+  });
+  it('fails focus sent to an unrelated control, connected and outside the overlay though it is', async () => {
+    const exit = await exitAfter(DIALOG('other'));
+    assert.equal(exit.closed, true);
+    assert.equal(exit.restored, false);
+    assert.match(exit.focus, /Elsewhere/);
+  });
+  it('records no invoker when nothing outside had focus, so restoration cannot pass', async () => {
+    const exit = await exitAfter(DIALOG('open'), { focusInvoker: false });
+    assert.equal(exit.invoker, null);
+    assert.equal(exit.restored, false);
+  });
+});
+
+describe('the focus pass', () => {
+  it('leaves focus where the state put it, inside an open overlay', async () => {
+    await lane.page(`<a class="skip-link" href="#main">Skip to workspace</a><main id="main"><button>Behind</button></main>
+      <div role="dialog" aria-modal="true" aria-label="Sheet"><button id="inside">Close</button></div>`);
+    await lane.browser.evaluate('document.getElementById("inside").focus()');
+    const result = await lane.browser.evaluate(toExpression(focusAssertions));
+    assert.ok(result.checked >= 3, 'the pass walked the page');
+    assert.equal(await lane.browser.evaluate('document.activeElement.id'), 'inside');
   });
 });

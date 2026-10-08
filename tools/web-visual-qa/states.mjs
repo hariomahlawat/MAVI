@@ -2261,7 +2261,11 @@ export const STATES = [
     name: 'shell-shortcut-sheet', path: '/videos', fullWidth: true, archetype: 'ledger',
     prepare: `(async () => {
       ${UNTIL}
-      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+      // From a focused control, as an operator would press it: the sheet must
+      // give focus back to that control when it closes (§20).
+      const from = document.querySelector('nav[aria-label="Primary"] a');
+      from.focus();
+      from.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
       return Boolean(await until(() => {
         const sheet = document.querySelector('.shortcut-sheet[role="dialog"][aria-modal="true"]');
         return sheet && sheet.contains(document.activeElement) && document.querySelector('main[inert]');
@@ -2741,6 +2745,23 @@ export const STATES = [
   {
     name: 'search-inspecting', path: `/search?track=${TRACK}`, fullWidth: true,
     archetype: 'investigation', expectText: INSPECTOR_LOADED,
+  },
+  {
+    // The inspector opened by an action rather than by the URL: below 1600px
+    // its drawer must return focus to the selecting control on Escape (§20).
+    name: 'search-inspector-opened', path: '/search', fullWidth: true, archetype: 'investigation',
+    prepare: `(async () => {
+      ${UNTIL}
+      const select = await until(() => document.querySelector('.result-row__select'), 'a result selection control');
+      select.focus();
+      select.click();
+      return Boolean(await until(() => {
+        if (!new URLSearchParams(location.search).get('track')) return false;
+        const drawer = document.querySelector('[role="dialog"][aria-modal="true"]');
+        return !drawer || drawer.contains(document.activeElement);
+      }, 'the inspector open, holding focus when it is a drawer'));
+    })()`,
+    expectText: INSPECTOR_LOADED,
   },
   {
     name: 'search-inspecting-grid', path: `/search?track=${TRACK}`, fullWidth: true,

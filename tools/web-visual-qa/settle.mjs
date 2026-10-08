@@ -78,6 +78,17 @@ function installObservers(transient) {
     }).observe({ type: 'longtask', buffered: true });
   }
   vqa.mark = (name) => { vqa.marks[name] = performance.now(); return vqa.marks[name]; };
+  // The overlay's invoker (§15, §20): the last element focused outside any
+  // modal before focus first enters that modal. Later focus moves — the focus
+  // pass walking the page while a drawer is open — never replace it.
+  vqa.lastOutsideFocus = null;
+  vqa.invoker = null;
+  vqa.invokerFor = null;
+  document.addEventListener('focusin', (event) => {
+    const modal = event.target && event.target.closest ? event.target.closest('[role="dialog"][aria-modal="true"]') : null;
+    if (!modal) { vqa.lastOutsideFocus = event.target; return; }
+    if (vqa.invokerFor !== modal) { vqa.invokerFor = modal; vqa.invoker = vqa.lastOutsideFocus; }
+  }, true);
 }
 
 export const OBSERVERS = `(${installObservers.toString()})(${JSON.stringify(TRANSIENT)});`;

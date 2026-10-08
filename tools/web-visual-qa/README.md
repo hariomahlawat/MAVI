@@ -94,7 +94,20 @@ the glyphs (`CSS.getPlatformFontsForNode`). Each measurement is `measured`,
 `not-applicable`, `unsupported` or `failed`, with the reason.
 
 **No pixel baselines** (V5): screenshots are diagnostic artefacts for the
-human pass, never compared.
+human pass, never compared. The resolved font matters to the assertions too:
+the Ubuntu CI runner resolves the stack to DejaVu Sans, wider than the Segoe UI
+Variable of a Windows host, and so exercises the truncation and overflow rules
+with metrics a Windows sweep does not.
+
+**Overlay exit** (§15, §20): after the capture, Escape must close an open
+Dialog or Drawer, leave nothing inert and return focus to its invoker — the
+last element focused outside any modal before focus first entered that overlay,
+recorded by the page observers. An overlay already open when the page settled
+was opened by its URL and has no invoker; for it restoration is reported
+`not-applicable` and only the close and inert checks apply. A full sweep in
+which no Tier A Dialog or Drawer opened by an action had its restoration judged
+is a harness fault. The focus pass that precedes it puts back both the scroll
+positions and the focus it found.
 
 **CI** (V4): the `visual QA` job of the MAVI Quality Gate builds the production
 bundle, runs `node --test 'tools/web-visual-qa/test/*.test.mjs'`, sweeps with three lanes and

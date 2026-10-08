@@ -460,12 +460,47 @@ export function pageAssertions(input) {
         break;
       }
     }
+    // Where the region it replaces begins: directly after the in-flow content
+    // above it (with the layout's own gap and margins), or at the parent's
+    // content top when nothing precedes it or what precedes it sits beside it.
     const parent = region.parentElement;
-    if (parent && parent.firstElementChild === region) {
+    if (parent) {
       const ps = getComputedStyle(parent);
-      const contentTop = parent.getBoundingClientRect().top + parseFloat(ps.borderTopWidth) + parseFloat(ps.paddingTop);
-      if (box.top - contentTop > 1.5) {
-        fail('state.placement', 'a state presentation starts ' + round(box.top - contentTop) + 'px below the top of the region it replaces');
+      const rs = getComputedStyle(region);
+      const inFlow = (el) => {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return cs.position !== 'absolute' && cs.position !== 'fixed' && cs.display !== 'none' && cs.display !== 'contents' && r.height > 1;
+      };
+      let prev = region.previousElementSibling;
+      while (prev && !inFlow(prev)) prev = prev.previousElementSibling;
+      const above = prev && prev.getBoundingClientRect().bottom <= box.top + 1 ? prev : null;
+      let start;
+      let where;
+      if (above) {
+        const qs = getComputedStyle(above);
+        const laidOut = /flex|grid/.test(ps.display);
+        const gap = laidOut ? (parseFloat(ps.rowGap) || 0) : 0;
+        const margins = laidOut
+          ? Math.max(0, parseFloat(qs.marginBottom)) + Math.max(0, parseFloat(rs.marginTop))
+          : Math.max(0, parseFloat(qs.marginBottom), parseFloat(rs.marginTop));
+        start = above.getBoundingClientRect().bottom + gap + margins;
+        where = 'the content above it';
+      } else {
+        start = parent.getBoundingClientRect().top + parseFloat(ps.borderTopWidth) + parseFloat(ps.paddingTop);
+        where = 'the top of the region it replaces';
+      }
+      if (box.top - start > 1.5) {
+        fail('state.placement', 'a state presentation starts ' + round(box.top - start) + 'px below ' + where);
+      }
+      // ...and the presentation itself starts at the top of its own region:
+      // a stretched transparent region must not centre it.
+      let first = region.firstElementChild;
+      while (first && !inFlow(first)) first = first.nextElementSibling;
+      if (first) {
+        const inner = box.top + parseFloat(rs.borderTopWidth) + parseFloat(rs.paddingTop) + Math.max(0, parseFloat(getComputedStyle(first).marginTop));
+        const offset = first.getBoundingClientRect().top - inner;
+        if (offset > 1.5) fail('state.placement', 'a state presentation sits ' + round(offset) + 'px below the top of its own region');
       }
     }
   }
@@ -1007,8 +1042,11 @@ export function focusAssertions() {
   const scrolled = [document.scrollingElement, ...document.querySelectorAll('*')]
     .filter((el) => el && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth))
     .map((el) => [el, el.scrollTop, el.scrollLeft]);
+  // Focus too is put back: the state as reached may hold it inside an open
+  // overlay, and leaving it on the pass's first control — the skip link,
+  // outside every overlay — would change what Escape and the capture see.
+  const before = document.activeElement;
   let checked = 0;
-  let first = null;
   for (const el of candidates) {
     if (el.disabled || el.getAttribute('aria-disabled') === 'true') { skip('disabled'); continue; }
     if (el.closest('[inert]')) { skip('inside an inert subtree'); continue; }
@@ -1020,7 +1058,6 @@ export function focusAssertions() {
     el.focus();
     if (document.activeElement !== el) { skip('refused focus'); continue; }
     checked += 1;
-    if (!first) first = el;
     const focused = getComputedStyle(el);
     const ring = focused.outlineStyle !== 'none' && parseFloat(focused.outlineWidth) > 0;
     const shadow = focused.boxShadow && focused.boxShadow !== 'none';
@@ -1032,7 +1069,7 @@ export function focusAssertions() {
       });
     }
   }
-  if (first) first.focus({ preventScroll: true });
+  if (before instanceof HTMLElement && before !== document.body && before.isConnected) before.focus({ preventScroll: true });
   else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   for (const [el, top, left] of scrolled) { el.scrollTop = top; el.scrollLeft = left; }
   return { findings, evaluated: checked ? ['a11y.focus-visible'] : [], discovered: candidates.length, checked, skipped };
@@ -1087,4 +1124,41 @@ export function overlayReady() {
   const filter = overlay ? getComputedStyle(overlay).filter : 'none';
   if (!filter || filter === 'none') return { ok: false, why: 'overlay layer carries no halo' };
   return { ok: true, why: '', drawn: drawn.length };
+}
+
+/**
+ * The open modal overlay the Escape probe will close, remembered on the page,
+ * and the rule its exit is judged under; null when none is open.
+ */
+export function overlayOpened() {
+  const modal = document.querySelector('[role="dialog"][aria-modal="true"]');
+  window.__vqaModal = modal;
+  return modal ? (modal.classList.contains('dialog') ? 'overlay.dialog' : 'overlay.drawer') : null;
+}
+
+/**
+ * After Escape (§15, §20): did the overlay close, and did focus go back to the
+ * control that opened it — the invoker the observers recorded as focus first
+ * entered this overlay — with nothing left inert?
+ */
+export async function overlayExitProbe() {
+  const end = performance.now() + 3000;
+  const open = () => document.querySelector('[role="dialog"][aria-modal="true"]');
+  while (open() && performance.now() < end) await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  const name = (el) => {
+    if (!el || !el.tagName) return null;
+    const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
+    const label = (el.getAttribute('aria-label') || el.textContent || '').trim();
+    return el.tagName.toLowerCase() + cls + (label ? ' "' + label.slice(0, 40) + '"' : '');
+  };
+  const vqa = window.__vqa;
+  const invoker = vqa && window.__vqaModal && vqa.invokerFor === window.__vqaModal ? vqa.invoker : null;
+  const active = document.activeElement;
+  return {
+    closed: !open(),
+    focus: name(active),
+    invoker: name(invoker),
+    restored: Boolean(invoker && invoker.isConnected && active === invoker),
+    inertLeft: document.querySelectorAll('[inert]').length,
+  };
 }
