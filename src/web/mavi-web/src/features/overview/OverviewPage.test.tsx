@@ -303,6 +303,24 @@ describe('OverviewPage', () => {
       expect(await screen.findByText('No items need attention.')).toBeInTheDocument();
     });
 
+    it('never declares clear on a cached status whose refresh failed, and retries it', async () => {
+      const user = userEvent.setup();
+      vi.mocked(listVideos).mockResolvedValue([video('a', 'Processed')]);
+      const { queryClient } = renderWithApp(<OverviewPage />, { route: '/' });
+      expect(await screen.findByText('No items need attention.')).toBeInTheDocument();
+
+      // The refresh fails over the cached Ready status.
+      vi.mocked(getProcessingStatus).mockRejectedValue(new Error('down'));
+      await queryClient.invalidateQueries({ queryKey: ['video-processing'] });
+      expect(await screen.findByText('Showing the last known status of 1 video; refreshing it failed.', undefined, { timeout: 5000 })).toBeInTheDocument();
+      expect(screen.getByText('Nothing found in the last known status.')).toBeInTheDocument();
+      expect(screen.queryByText('No items need attention.')).not.toBeInTheDocument();
+
+      vi.mocked(getProcessingStatus).mockResolvedValue(statusOf('Processed', 'Completed'));
+      await user.click(screen.getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText('No items need attention.', undefined, { timeout: 5000 })).toBeInTheDocument();
+    });
+
     it('says it cannot be evaluated while the video inventory is unavailable, never that nothing needs attention', async () => {
       vi.mocked(listVideos).mockRejectedValue(new Error('down'));
       renderWithApp(<OverviewPage />, { route: '/' });

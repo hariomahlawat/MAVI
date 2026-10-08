@@ -64,7 +64,7 @@ export default function AttentionRegion({
     );
   }
 
-  const { items, analyticsScope, pendingLookups, unavailableLookups, unavailableDetails, unknownAnalytics } = evaluation;
+  const { items, analyticsScope, pendingLookups, unavailableLookups, unavailableDetails, unknownAnalytics, staleLookups } = evaluation;
   const scopeNote = analyticsScope.checked < analyticsScope.total
     ? `Analytics checked for the ${formatCount(analyticsScope.checked)} most recently imported processed videos of ${formatCount(analyticsScope.total)}.`
     : null;
@@ -72,6 +72,15 @@ export default function AttentionRegion({
   // missing; a processed video whose lookup failed is the one whose need for
   // attention is not known.
   const videosText = (count: number) => (count === 1 ? '1 video' : `${formatCount(count)} videos`);
+  // A refresh that failed over a cached status: its classification stands on
+  // the last known answer, which is said, with the same retry (§14.1, degraded).
+  const retry = <Button size="sm" variant="ghost" icon="refresh" onClick={onRetryLookups}>Retry</Button>;
+  const staleNote = staleLookups.length > 0 ? (
+    <span className="attention-note">
+      {`Showing the last known status of ${videosText(staleLookups.length)}; refreshing it failed.`}
+      {unavailableLookups.length === 0 ? retry : null}
+    </span>
+  ) : null;
   const unavailableNote = unavailableLookups.length > 0 ? (
     <span className="attention-note">
       {unknownAnalytics > 0
@@ -79,7 +88,7 @@ export default function AttentionRegion({
         : null}
       {unknownAnalytics > 0 && unavailableDetails > 0 ? ' ' : null}
       {unavailableDetails > 0 ? `The failure detail of ${videosText(unavailableDetails)} could not be read.` : null}
-      <Button size="sm" variant="ghost" icon="refresh" onClick={onRetryLookups}>Retry</Button>
+      {retry}
     </span>
   ) : null;
 
@@ -92,12 +101,13 @@ export default function AttentionRegion({
         </p>
       );
     }
-    if (unavailableNote) {
+    if (unavailableNote || staleNote) {
       return (
         <p className="attention-line">
           <Icon name="alert" size="sm" />
-          <span>Nothing found in the checks that answered.</span>
+          <span>{unavailableNote ? 'Nothing found in the checks that answered.' : 'Nothing found in the last known status.'}</span>
           {unavailableNote}
+          {staleNote}
         </p>
       );
     }
@@ -140,7 +150,7 @@ export default function AttentionRegion({
           </li>
         ))}
       </ul>
-      {hidden > 0 || unavailableNote || scopeNote ? (
+      {hidden > 0 || unavailableNote || staleNote || scopeNote ? (
         <div className="attention-foot">
           {hidden > 0 ? (
             <Button size="sm" variant="ghost" aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded((value) => !value)}>
@@ -148,6 +158,7 @@ export default function AttentionRegion({
             </Button>
           ) : null}
           {unavailableNote}
+          {staleNote}
           {scopeNote ? <span className="attention-note">{scopeNote}</span> : null}
         </div>
       ) : null}

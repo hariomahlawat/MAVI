@@ -55,6 +55,12 @@ export type AttentionEvaluation = {
   readonly unavailableDetails: number;
   /** Of those, processed videos: whether they need attention is not known. */
   readonly unknownAnalytics: number;
+  /**
+   * Videos classified from a cached status whose refresh failed: their items
+   * stand on the last known answer, which is no longer known to be current, so
+   * nothing may be declared clear while there are any.
+   */
+  readonly staleLookups: readonly string[];
 };
 
 /** Status lookups per kind of video. Bounded, so the page never fans out over a whole inventory. */
@@ -115,6 +121,7 @@ export function evaluateAttention({
   const unavailableLookups: string[] = [];
   let unavailableDetails = 0;
   let unknownAnalytics = 0;
+  const staleLookups: string[] = [];
   const read = (video: VideoAsset): ProcessingStatus | null => {
     const state = lookup(video.id);
     if (!state) return null;
@@ -124,6 +131,7 @@ export function evaluateAttention({
       if (video.processingStatus === 'Failed') unavailableDetails += 1; else unknownAnalytics += 1;
       return null;
     }
+    if (state.degraded) staleLookups.push(video.id);
     return state.data;
   };
 
@@ -204,5 +212,6 @@ export function evaluateAttention({
     unavailableLookups,
     unavailableDetails,
     unknownAnalytics,
+    staleLookups,
   };
 }

@@ -52,6 +52,14 @@ describe('evaluateAttention', () => {
     expect(result.unknownAnalytics).toBe(0);
   });
 
+  it('keeps a cached classification after a failed refresh but marks it as not current', () => {
+    const degraded: AsyncState<ProcessingStatus> = { kind: 'ready', data: { videoStatus: 'Processed', latestRun: run('Completed', { analyticsReadiness: 'Stale' }) }, degraded: { error: new Error('503') } };
+    const result = evaluate([video('a', 'Processed'), video('b', 'Processed')], { a: degraded, b: completed('Ready') });
+    expect(result.items.map((item) => item.key)).toEqual(['analytics-stale:a']);
+    expect(result.staleLookups).toEqual(['a']);
+    expect(result.unavailableLookups).toEqual([]);
+  });
+
   it('counts a processed video whose lookup failed as one whose need for attention is unknown', () => {
     const result = evaluate([video('a', 'Processed')], { a: { kind: 'unavailable', error: new Error('503') } });
     expect(result.items).toEqual([]);
