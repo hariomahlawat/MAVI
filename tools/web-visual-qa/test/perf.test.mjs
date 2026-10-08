@@ -161,6 +161,26 @@ describe('first-interaction long tasks', () => {
     assert.equal(perf.longTasks.harnessMsSubtracted, 25);
   });
 
+  it('clips a task to the window, so setup before the mark in the same task is not the action', async () => {
+    await lane.page('<main><p>Ready</p></main>');
+    const perf = await lane.browser.evaluate(`(() => {
+      const vqa = window.__vqa;
+      vqa.supports.longTask = true; vqa.observers = []; vqa.probeSpans = [];
+      // One 100ms task: 90ms of setup, the mark, 10ms of action; and one
+      // 140ms task with the mark 20ms in — 120ms of action.
+      vqa.longTasks = [{ startTime: 1000, duration: 100 }];
+      vqa.marks = { 'interaction-start': 1090 };
+      const short = ${toExpression(perfCollect, { holds: null, settledAt: 0, prepareStart: 900, preparedAt: 3000, confirmedAt: 3000, interaction: 'x' })};
+      vqa.longTasks = [{ startTime: 2000, duration: 140 }];
+      vqa.marks = { 'interaction-start': 2020 };
+      const long = ${toExpression(perfCollect, { holds: null, settledAt: 0, prepareStart: 900, preparedAt: 3000, confirmedAt: 3000, interaction: 'x' })};
+      return { short: short.longTasks, long: long.longTasks };
+    })()`);
+    assert.equal(perf.short.count, 0, JSON.stringify(perf.short));
+    assert.equal(perf.long.count, 1);
+    assert.equal(perf.long.maxMs, 120);
+  });
+
   it('does not measure a preparation that is fixture setup as an interaction', async () => {
     const perf = await sequence({ interaction: null, busyMs: 120 });
     assert.equal(perf.longTasks.status, 'not-applicable');

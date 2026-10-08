@@ -120,6 +120,18 @@ describe('text.overflow', () => {
     const result = await page('<div class="workspace--ledger"><div style="width:80px;white-space:nowrap;overflow:hidden">averyveryveryverylongidentifier</div></div>');
     assert.match(fired(result, 'text.overflow')[0].message, /without an ellipsis/);
   });
+  it('fires on text that wrapped past a fixed-height box, clipped or spilling', async () => {
+    const clipped = await page('<div class="context-bar"><button style="width:90px;height:24px;overflow:hidden;white-space:normal;font:14px/20px sans-serif">Save the active revision</button></div>');
+    assert.match(fired(clipped, 'text.overflow')[0].message, /cut off below/);
+    const spill = await page('<main><div style="width:90px;height:20px;font:14px/20px sans-serif">Save the active revision now</div></main>');
+    assert.match(fired(spill, 'text.overflow')[0].message, /spills below/);
+  });
+  it('passes a line clamp and a vertical scroll region', async () => {
+    const result = await page(`<main>
+      <p style="width:90px;font:14px/20px sans-serif;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden">A long description that is clamped to two lines with an ellipsis</p>
+      <div style="width:90px;height:40px;overflow-y:auto;font:14px/20px sans-serif">A long description that scrolls inside its own region</div></main>`);
+    assert.deepEqual(fired(result, 'text.overflow'), []);
+  });
   it('passes the sanctioned truncation, a scroll region and visually hidden text', async () => {
     const result = await page(`<main>
       <div style="width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">averyveryveryverylongidentifier</div>

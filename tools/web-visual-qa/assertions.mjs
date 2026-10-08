@@ -339,13 +339,26 @@ export function pageAssertions(input) {
   // Blocking in an S1 region; on a surface, as the manifest says for it.
   for (const el of textBlocks) (scopeOf(el) ? foundationEvaluated : evaluated).add('text.overflow');
   for (const el of textBlocks) {
-    if (el.scrollWidth <= el.clientWidth + 1) continue;
     const style = getComputedStyle(el);
-    if (/(auto|scroll)/.test(style.overflowX)) continue;
-    const clipped = style.overflowX !== 'visible';
-    if (clipped && style.textOverflow === 'ellipsis') continue;
-    fail('text.overflow', (clipped ? 'text is cut off without an ellipsis in ' : 'text spills out of ') + describe(el)
-      + ' (' + el.scrollWidth + 'px of text in a ' + el.clientWidth + 'px box)', scopeOf(el));
+    // Across: a single line wider than its box.
+    if (el.scrollWidth > el.clientWidth + 1 && !/(auto|scroll)/.test(style.overflowX)) {
+      const clipped = style.overflowX !== 'visible';
+      if (!(clipped && style.textOverflow === 'ellipsis')) {
+        fail('text.overflow', (clipped ? 'text is cut off without an ellipsis in ' : 'text spills out of ') + describe(el)
+          + ' (' + el.scrollWidth + 'px of text in a ' + el.clientWidth + 'px box)', scopeOf(el));
+        continue;
+      }
+    }
+    // Down: text that wrapped past a box of fixed height — a control or row
+    // that took a second line under a wider font. A line clamp (its ellipsis
+    // is the sanctioned truncation) and a scroll region are not overflow.
+    if (el.scrollHeight > el.clientHeight + 2 && !/(auto|scroll)/.test(style.overflowY)) {
+      const clamped = style.webkitLineClamp && style.webkitLineClamp !== 'none';
+      if (clamped) continue;
+      const clipped = style.overflowY !== 'visible';
+      fail('text.overflow', (clipped ? 'text is cut off below in ' : 'text spills below ') + describe(el)
+        + ' (' + el.scrollHeight + 'px of text in a ' + el.clientHeight + 'px box)', scopeOf(el));
+    }
   }
 
   // 10. aria-pressed has a visible pressed treatment (§12). The proof is the

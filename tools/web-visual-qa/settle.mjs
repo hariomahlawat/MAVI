@@ -224,15 +224,15 @@ export function perfCollect(input) {
     // product's own frame work can run in — so only the probe's share is the
     // harness's: its synchronous span inside the task is subtracted, and what
     // remains is the product's work, still a long task if it is 50ms or more.
+    // Each task is first clipped to the window, so synchronous setup that ran
+    // in the same task before the marked action is not the action's.
     const LONG_TASK_MS = 50;
-    const probeShare = (task) => (vqa.probeSpans || []).reduce((sum, [a, b]) => {
-      const overlap = Math.min(b, task.startTime + task.duration) - Math.max(a, task.startTime);
-      return sum + Math.max(0, overlap);
-    }, 0);
-    const shares = inWindow.map((task) => ({ task, harnessMs: probeShare(task) }));
+    const clip = (task) => ({ start: Math.max(task.startTime, from), end: Math.min(task.startTime + task.duration, input.confirmedAt) });
+    const probeShare = ({ start, end }) => (vqa.probeSpans || []).reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, end) - Math.max(a, start)), 0);
+    const shares = inWindow.map((task) => { const part = clip(task); return { part, harnessMs: probeShare(part) }; });
     const tasks = shares
-      .filter(({ task, harnessMs }) => task.duration - harnessMs >= LONG_TASK_MS)
-      .map(({ task, harnessMs }) => ({ startTime: task.startTime, duration: task.duration - harnessMs }));
+      .map(({ part, harnessMs }) => ({ startTime: part.start, duration: part.end - part.start - harnessMs }))
+      .filter((task) => task.duration >= LONG_TASK_MS);
     longTasks = {
       status: 'measured',
       interaction: input.interaction,
