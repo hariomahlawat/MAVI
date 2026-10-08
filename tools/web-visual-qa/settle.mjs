@@ -70,20 +70,27 @@ function installObservers(transient) {
     const cls = typeof node.className === 'string' && node.className.trim() ? '.' + node.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
     return node.tagName.toLowerCase() + cls;
   };
+  // Observers deliver asynchronously; perfCollect flushes them (takeRecords)
+  // so an entry not yet delivered is not missing from a measurement.
+  vqa.observers = [];
   if (vqa.supports.layoutShift) {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
+    const handle = (entries) => {
+      for (const entry of entries) {
         vqa.shifts.push({
           value: entry.value, startTime: entry.startTime, hadRecentInput: entry.hadRecentInput,
           sources: (entry.sources || []).slice(0, 3).map((source) => describe(source.node)),
         });
       }
-    }).observe({ type: 'layout-shift', buffered: true });
+    };
+    const observer = new PerformanceObserver((list) => handle(list.getEntries()));
+    observer.observe({ type: 'layout-shift', buffered: true });
+    vqa.observers.push({ observer, handle });
   }
   if (vqa.supports.longTask) {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) vqa.longTasks.push({ startTime: entry.startTime, duration: entry.duration });
-    }).observe({ type: 'longtask', buffered: true });
+    const handle = (entries) => { for (const entry of entries) vqa.longTasks.push({ startTime: entry.startTime, duration: entry.duration }); };
+    const observer = new PerformanceObserver((list) => handle(list.getEntries()));
+    observer.observe({ type: 'longtask', buffered: true });
+    vqa.observers.push({ observer, handle });
   }
   vqa.mark = (name) => { vqa.marks[name] = performance.now(); return vqa.marks[name]; };
   // The overlay's invoker (§15, §20): the last element focused outside any
@@ -154,12 +161,13 @@ export async function settleProbe(input) {
  * it was measured, not applicable, unsupported or failed — a missing number
  * is never reported as zero.
  *
- * @param {{ holds: string|null, settledAt: number, prepareStart: number|null, preparedAt: number|null, quietAt: number|null, interaction: string|null }} input
+ * @param {{ holds: string|null, settledAt: number, prepareStart: number|null, preparedAt: number|null, confirmedAt: number|null, interaction: string|null }} input
  */
 export function perfCollect(input) {
   const vqa = window.__vqa;
   const missing = { status: 'failed', why: 'observers were not installed' };
   if (!vqa) return { cls: missing, clsPreparation: missing, longTasks: missing };
+  for (const { observer, handle } of vqa.observers || []) handle(observer.takeRecords());
   const r4 = (n) => Math.round(n * 10000) / 10000;
 
   // CLS over one loading-to-content transition: from the first loading
@@ -202,13 +210,13 @@ export function perfCollect(input) {
   if (!vqa.supports.longTask) longTasks = { status: 'unsupported', why: 'the browser does not report longtask entries' };
   else if (!input.interaction) {
     longTasks = { status: 'not-applicable', why: input.prepareStart === null ? 'the state has no interaction: it is a rendered state' : 'its preparation is fixture setup or verification, not an operator interaction' };
-  } else if (input.prepareStart === null || input.quietAt === null) longTasks = { status: 'failed', why: 'the interaction did not complete' };
+  } else if (input.prepareStart === null || input.confirmedAt === null) longTasks = { status: 'failed', why: 'the interaction did not complete' };
   else {
     // From the named action when the preparation marked it, else from the
     // preparation's start (a preparation that is that one action).
     const marked = vqa.marks['interaction-start'];
-    const from = typeof marked === 'number' && marked >= input.prepareStart && marked <= input.quietAt ? marked : input.prepareStart;
-    const inWindow = vqa.longTasks.filter((task) => task.startTime >= from && task.startTime <= input.quietAt);
+    const from = typeof marked === 'number' && marked >= input.prepareStart && marked <= input.confirmedAt ? marked : input.prepareStart;
+    const inWindow = vqa.longTasks.filter((task) => task.startTime >= from && task.startTime <= input.confirmedAt);
     // A long task that ran a settle probe is the harness's work, not the action's.
     const harness = (task) => (vqa.probeSpans || []).some(([a, b]) => task.startTime <= b && task.startTime + task.duration >= a);
     const tasks = inWindow.filter((task) => !harness(task));
@@ -220,7 +228,7 @@ export function perfCollect(input) {
       count: tasks.length,
       totalMs: Math.round(tasks.reduce((sum, task) => sum + task.duration, 0)),
       maxMs: Math.round(tasks.reduce((max, task) => Math.max(max, task.duration), 0)),
-      window: { from: Math.round(from), to: Math.round(input.quietAt) },
+      window: { from: Math.round(from), to: Math.round(input.confirmedAt) },
     };
   }
 

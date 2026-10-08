@@ -224,8 +224,8 @@ async function runCase(lane, c) {
     let prepared = false;
     try {
       // An interaction's long tasks are read from the action (its
-      // `interaction-start` mark, else here) until the page went quiet after
-      // it; a long task that ran one of the settle probes is the harness's and
+      // `interaction-start` mark, else here) until the settle probe that
+      // confirmed its outcome; a long task that ran one of the settle probes is the harness's and
       // is excluded (settle.mjs, perfCollect).
       prepared = Boolean(await browser.evaluate(`(async () => await ${state.prepare})()`));
     } catch (error) {
@@ -291,7 +291,7 @@ async function runCase(lane, c) {
   const perf = reached
     ? await browser.evaluate(toExpression(perfCollect, {
       holds: state.holds ?? null, settledAt, prepareStart, preparedAt,
-      quietAt: afterPrepare?.quietAt ?? null, interaction: state.interaction ?? null,
+      confirmedAt: afterPrepare?.confirmedAt ?? null, interaction: state.interaction ?? null,
     }))
     : { cls: notReached, clsPreparation: notReached, longTasks: notReached };
   // The platform fonts are read per text-bearing element: Chromium reports the

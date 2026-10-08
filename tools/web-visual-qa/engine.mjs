@@ -181,9 +181,7 @@ export async function settle(lane, state, { timeoutMs = 20_000, stable = 2, befo
   let run = 0;
   let probes = 0;
   let last = [];
-  // The page clock at the probe that began the final quiet run: by then the
-  // outcome being waited for had rendered and nothing changed after it.
-  let quietAt = null;
+
   // Before a preparation the page has only to finish loading: the state's
   // expected and forbidden text describe what the preparation produces.
   const input = {
@@ -200,10 +198,10 @@ export async function settle(lane, state, { timeoutMs = 20_000, stable = 2, befo
     if (previous && net.started !== previous.started) why.push('new requests started');
     if (previous && probe.mutations !== previous.mutations) why.push('the DOM is still changing');
     run = previous && why.length === 0 ? run + 1 : 0;
-    // The quiet run begins at the first probe that found nothing pending.
-    if (run === 0) quietAt = why.length === 0 ? probe.at ?? null : null;
-    else if (quietAt === null) quietAt = probe.at ?? null;
-    if (run >= stable) return { ok: true, ms: Date.now() - started, probes, quietAt };
+    // `confirmedAt`: the page clock at the probe that confirmed the state —
+    // the end of everything the page did to reach it, work that changes no DOM
+    // (a canvas drawn, a deferred computation) included.
+    if (run >= stable) return { ok: true, ms: Date.now() - started, probes, confirmedAt: probe.at ?? null };
     previous = { started: net.started, mutations: probe.mutations };
     last = why;
   }

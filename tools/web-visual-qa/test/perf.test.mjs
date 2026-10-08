@@ -55,7 +55,7 @@ async function sequence({ interaction = null, busyMs = 0, reloadInPreparation = 
   const prepared = await settle(lane, { expectText: 'Ready' }, { timeoutMs: 8000 });
   assert.equal(prepared.ok, true, JSON.stringify(prepared));
   const preparedAt = await lane.browser.evaluate('performance.now()');
-  return lane.browser.evaluate(toExpression(perfCollect, { holds: null, settledAt, prepareStart, preparedAt, quietAt: prepared.quietAt, interaction }));
+  return lane.browser.evaluate(toExpression(perfCollect, { holds: null, settledAt, prepareStart, preparedAt, confirmedAt: prepared.confirmedAt, interaction }));
 }
 
 describe('CLS boundaries', () => {
@@ -89,7 +89,7 @@ describe('CLS boundaries', () => {
     await settle(lane, { expectText: 'Ready' }, { timeoutMs: 8000 });
     const perf = await lane.browser.evaluate(`(() => {
       window.__vqa.supports.layoutShift = false; window.__vqa.supports.longTask = false;
-      return ${toExpression(perfCollect, { holds: null, settledAt: 1e9, prepareStart: 0, preparedAt: 1e9, quietAt: 1e9, interaction: 'x' })};
+      return ${toExpression(perfCollect, { holds: null, settledAt: 1e9, prepareStart: 0, preparedAt: 1e9, confirmedAt: 1e9, interaction: 'x' })};
     })()`);
     assert.equal(perf.cls.status, 'unsupported');
     assert.equal(perf.clsPreparation.status, 'unsupported');
@@ -112,6 +112,21 @@ describe('first-interaction long tasks', () => {
     assert.equal(perf.longTasks.status, 'measured');
     assert.equal(perf.longTasks.startsAt, 'the marked action');
     assert.equal(perf.longTasks.count, 0, JSON.stringify(perf.longTasks));
+  });
+
+  it('counts work the interaction causes after its last DOM change, up to the probe that confirmed settling', async () => {
+    // A canvas-like long task with no DOM mutation and no request, a frame
+    // after the action: settling cannot see it, the measurement must.
+    await lane.page(PAGE, { api: { '/api/thing': { label: 'Ready', height: 200 } } });
+    await settle(lane, { expectText: 'Ready' }, { timeoutMs: 8000 });
+    const settledAt = await lane.browser.evaluate('performance.now()');
+    const prepareStart = await lane.browser.evaluate('window.__vqa.mark("prepare-start")');
+    await lane.browser.evaluate(`(() => { requestAnimationFrame(() => { const end = performance.now() + 120; while (performance.now() < end) { /* draw */ } }); return true; })()`);
+    const prepared = await settle(lane, { expectText: 'Ready' }, { timeoutMs: 8000 });
+    const preparedAt = await lane.browser.evaluate('performance.now()');
+    const perf = await lane.browser.evaluate(toExpression(perfCollect, { holds: null, settledAt, prepareStart, preparedAt, confirmedAt: prepared.confirmedAt, interaction: 'draw' }));
+    assert.equal(perf.longTasks.status, 'measured');
+    assert.ok(perf.longTasks.count >= 1 && perf.longTasks.maxMs >= 100, JSON.stringify(perf.longTasks));
   });
 
   it('does not measure a preparation that is fixture setup as an interaction', async () => {

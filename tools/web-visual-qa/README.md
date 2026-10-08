@@ -121,8 +121,8 @@ labelled with the interaction or `fixture preparation`); harness activity
 between the two is in neither, and a transition that did not happen is
 `not-applicable`, never 0. Long tasks during the state's first operator
 interaction (`perf.longTasks`): only where the state names one (`interaction` in
-`states.mjs` — a click, a submit, a key press), from the action until the page
-went quiet with its outcome shown (a long task that ran one of the harness's
+`states.mjs` — a click, a submit, a key press), from the action until the settle probe
+that confirmed its outcome, with the observers flushed (a long task that ran one of the harness's
 settle probes is excluded and counted as `excludedAsHarness`); a preparation
 of several steps marks `interaction-start` immediately before the one action it
 names; a preparation that is fixture setup or a
