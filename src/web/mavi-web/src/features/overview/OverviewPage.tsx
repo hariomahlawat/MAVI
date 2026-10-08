@@ -6,7 +6,7 @@ import { searchTracks } from '../../api/tracks';
 import { listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { fromQuery } from '../../shared/async/fromQuery';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { hasFailure } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
@@ -20,7 +20,10 @@ import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatCount } from '../../shared/format/format';
 import { VIDEO_STATUSES } from '../../shared/status/status';
 import { ContextBar, LedgerSummaryLayout } from '../../shared/workspace';
+import { useVideoProcessing } from '../videos/useVideoProcessing';
 import { countByStatus } from '../videos/videoRows';
+import { attentionLookupIds, evaluateAttention } from './attention';
+import AttentionRegion from './AttentionRegion';
 
 const RECENT_LIMIT = 8;
 
@@ -28,8 +31,12 @@ const RECENT_LIMIT = 8;
  * Overview — the §4.1.1 Ledger-summary variant, and the only Ledger permitted
  * to stay centred at `--content-max`.
  *
- * It is a summary and attention surface: what the deployment currently holds,
- * and what was found most recently. The four readouts are deliberately not
+ * It is attention-first (§4.1.1, amended in v2.0): the first region is what
+ * needs the operator's attention — failed processing, failed or stale scene
+ * analytics, media awaiting processing — each row linking to the surface that
+ * acts on it (`attention.ts` says what each condition rests on, and what is
+ * deliberately not claimed). The status readouts and the recent Tracks follow.
+ * The three readouts are deliberately not
  * cards. §11 is explicit that a summary or stat readout is neither a scroll
  * boundary nor an editable region, so it earns no border — and §30 lists
  * dashboard-card proliferation among the things the product must not drift
@@ -55,6 +62,23 @@ export default function OverviewPage() {
   // A supporting request with no region of its own (§37.1): timestamps fall
   // back to explicit UTC, and the page says so once, with its own Retry.
   const zoneState = fromQuery(systemConfig);
+
+  // The bounded status lookups the attention region reads, through the
+  // per-video cache the Videos and Processing ledgers share.
+  const lookupIds = useMemo(() => (videos.data ? attentionLookupIds(videos.data) : []), [videos.data]);
+  const processing = useVideoProcessing(lookupIds);
+  const evaluation = useMemo(() => {
+    if (!videos.data) return null;
+    const looked = new Set(lookupIds);
+    return evaluateAttention({
+      videos: videos.data,
+      cameraCodes: cameras.data ? new Map(cameras.data.map((camera) => [camera.id, camera.code])) : null,
+      lookup: (id) => (looked.has(id) ? processing.stateOf(id) : undefined),
+    });
+  }, [videos.data, cameras.data, lookupIds, processing]);
+
+  /** Whether the attention region shows its final content: the inventory and its lookups have answered. */
+  const attentionSettled = videos.isError || (evaluation !== null && evaluation.pendingLookups === 0);
 
   const counts = videos.data ? countByStatus(videos.data) : null;
   const total = videos.data?.length ?? 0;
@@ -150,105 +174,119 @@ export default function OverviewPage() {
           </>
         ) : null}
       >
-        <div className="summary-band">
-          <Link to="/cameras" className="summary-band__item">
-            <span className="summary-band__label">Cameras</span>
-            <span className="summary-band__value">{cameras.data ? formatCount(cameras.data.length) : '—'}</span>
-            <span className="summary-band__meta">{cameraMeta}</span>
-          </Link>
-          <Link to="/videos" className="summary-band__item">
-            <span className="summary-band__label">Videos</span>
-            <span className="summary-band__value">{videos.data ? formatCount(total) : '—'}</span>
-            <span className="summary-band__meta">{videoMeta}</span>
-          </Link>
-          <Link to="/processing" className="summary-band__item">
-            <span className="summary-band__label">Processing</span>
-            <span className="summary-band__value">{counts ? formatCount(counts.Queued + counts.Processing) : '—'}</span>
-            <span className="summary-band__meta">{counts ? `${formatCount(counts.Failed)} failed` : videoMeta}</span>
-          </Link>
-          <Link to="/videos?status=NotQueued" className="summary-band__item">
-            <span className="summary-band__label">Not queued</span>
-            <span className="summary-band__value">{counts ? formatCount(counts.NotQueued) : '—'}</span>
-            <span className="summary-band__meta">awaiting processing</span>
-          </Link>
-        </div>
+        <AttentionRegion
+          videos={videosState}
+          evaluation={attentionSettled ? evaluation : null}
+          onRetryLookups={() => processing.errors.forEach((_, id) => processing.retry(id))}
+        />
 
-        <div className="overview-grid">
-          <Panel
-            body="flush"
-            title="Recent tracks"
-            actions={<ButtonLink size="sm" to="/search">All results</ButtonLink>}
-          >
-            <StateRegion
-              kind="column"
-              state={fromQuery(recent)}
-              label="recent tracks"
-              skeleton={{ rows: RECENT_LIMIT, pitch: 'compactList' }}
-              isEmpty={(page) => page.items.length === 0}
-              empty={{ icon: 'search', title: 'No tracks yet', body: 'Process a video to populate search results.' }}
-              unavailableMessage={() => 'Recent tracks are unavailable.'}
-              degradedMessage="Showing the last known recent tracks; refreshing failed."
-              onRetry={() => recent.refetch()}
-            >
-              {(page) => (
-              <div className="overview-recent">
-                {page.items.map((track) => (
-                  <Link
-                    key={track.id}
-                    className="overview-recent__row"
-                    to={`/search?videoAssetId=${track.videoAssetId.toLowerCase()}&track=${track.id.toLowerCase()}`}
-                  >
-                    <span className="thumb-frame thumb-frame--sm">
-                      <RecentThumbnail url={track.thumbnailContentUrl} />
-                    </span>
-                    <span className="video-title">
-                      <span className="overview-recent__title">
-                        <Icon name={track.objectClass === 'Vehicle' ? 'vehicle' : 'person'} size="sm" />
-                        {track.objectClass}
-                        <span className="faint small">{track.cameraCode} · {track.cameraName}</span>
-                      </span>
-                      <span className="overview-recent__meta">
-                        {displayTimestamp(track.startTimestampUtc, displayZone)} · {formatDuration(track.durationMs)} · {formatConfidence(track.meanConfidence, 'list')}
-                      </span>
-                    </span>
-                    <StatusBadge status={track.reviewStatus} />
-                  </Link>
-                ))}
-              </div>
-              )}
-            </StateRegion>
-          </Panel>
+        {/* Content arrival moves nothing (§36.3, §38): the attention region is
+            first, and its height is known only once the video inventory and
+            its bounded status lookups have answered — so the regions below it
+            render then, rather than being pushed down when it grows. A failed
+            inventory or lookup has answered too, so a failure never holds the
+            rest of the page; on first load, recent Tracks wait for that answer. */}
+        {attentionSettled ? (
+          <>
 
-          <Panel title="Media by status">
-            {/* The same request as the band's video figures; its one alert is
-                the band's notice above, so this region says only that it
-                cannot be drawn (§14.1: one cause, one alert). */}
-            <StateRegion
-              kind="panel"
-              state={fromQuery(videos)}
-              label="media status"
-              causeAnnouncedElsewhere
-              unavailableMessage={() => 'The video inventory could not be read, so its distribution cannot be shown.'}
+          {/* The readouts summarise; what needs acting on — failures, media not
+              yet queued — is the attention region's, and is stated there once. */}
+          <div className="summary-band">
+            <Link to="/cameras" className="summary-band__item">
+              <span className="summary-band__label">Cameras</span>
+              <span className="summary-band__value">{cameras.data ? formatCount(cameras.data.length) : '—'}</span>
+              <span className="summary-band__meta">{cameraMeta}</span>
+            </Link>
+            <Link to="/videos" className="summary-band__item">
+              <span className="summary-band__label">Videos</span>
+              <span className="summary-band__value">{videos.data ? formatCount(total) : '—'}</span>
+              <span className="summary-band__meta">{videoMeta}</span>
+            </Link>
+            <Link to="/processing" className="summary-band__item">
+              <span className="summary-band__label">Processing</span>
+              <span className="summary-band__value">{counts ? formatCount(counts.Queued + counts.Processing) : '—'}</span>
+              <span className="summary-band__meta">{counts ? 'queued or running' : videoMeta}</span>
+            </Link>
+          </div>
+
+          <div className="overview-grid">
+            <Panel
+              body="flush"
+              title="Recent tracks"
+              actions={<ButtonLink size="sm" to="/search">All results</ButtonLink>}
             >
-              {(all) => {
-                const byStatus = countByStatus(all);
-                return (
-              <div className="status-breakdown">
-                {VIDEO_STATUSES.map((status) => (
-                  <div key={status} className="status-breakdown__row">
-                    <Link to={`/videos?status=${status}`}><StatusBadge status={status} /></Link>
-                    <span className="num">{formatCount(byStatus[status])}</span>
-                    <div className="status-breakdown__bar">
-                      <div className="status-breakdown__fill" style={{ width: all.length ? `${(byStatus[status] / all.length) * 100}%` : '0%' }} />
+              <StateRegion
+                kind="column"
+                state={fromQuery(recent)}
+                label="recent tracks"
+                skeleton={{ rows: RECENT_LIMIT, pitch: 'compactList' }}
+                isEmpty={(page) => page.items.length === 0}
+                empty={{ icon: 'search', title: 'No tracks yet', body: 'Process a video to populate search results.' }}
+                unavailableMessage={() => 'Recent tracks are unavailable.'}
+                degradedMessage="Showing the last known recent tracks; refreshing failed."
+                onRetry={() => recent.refetch()}
+              >
+                {(page) => (
+                <div className="overview-recent">
+                  {page.items.map((track) => (
+                    <Link
+                      key={track.id}
+                      className="overview-recent__row"
+                      to={`/search?videoAssetId=${track.videoAssetId.toLowerCase()}&track=${track.id.toLowerCase()}`}
+                    >
+                      <span className="thumb-frame thumb-frame--sm">
+                        <RecentThumbnail url={track.thumbnailContentUrl} />
+                      </span>
+                      <span className="video-title">
+                        <span className="overview-recent__title">
+                          <Icon name={track.objectClass === 'Vehicle' ? 'vehicle' : 'person'} size="sm" />
+                          {track.objectClass}
+                          <span className="faint small">{track.cameraCode} · {track.cameraName}</span>
+                        </span>
+                        <span className="overview-recent__meta">
+                          {displayTimestamp(track.startTimestampUtc, displayZone)} · {formatDuration(track.durationMs)} · {formatConfidence(track.meanConfidence, 'list')}
+                        </span>
+                      </span>
+                      <StatusBadge status={track.reviewStatus} />
+                    </Link>
+                  ))}
+                </div>
+                )}
+              </StateRegion>
+            </Panel>
+
+            <Panel title="Media by status">
+              {/* The same request as the band's video figures; its one alert is
+                  the band's notice above, so this region says only that it
+                  cannot be drawn (§14.1: one cause, one alert). */}
+              <StateRegion
+                kind="panel"
+                state={fromQuery(videos)}
+                label="media status"
+                causeAnnouncedElsewhere
+                unavailableMessage={() => 'The video inventory could not be read, so its distribution cannot be shown.'}
+              >
+                {(all) => {
+                  const byStatus = countByStatus(all);
+                  return (
+                <div className="status-breakdown">
+                  {VIDEO_STATUSES.map((status) => (
+                    <div key={status} className="status-breakdown__row">
+                      <Link to={`/videos?status=${status}`}><StatusBadge status={status} /></Link>
+                      <span className="num">{formatCount(byStatus[status])}</span>
+                      <div className="status-breakdown__bar">
+                        <div className="status-breakdown__fill" style={{ width: all.length ? `${(byStatus[status] / all.length) * 100}%` : '0%' }} />
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-                );
-              }}
-            </StateRegion>
-          </Panel>
-        </div>
+                  ))}
+                </div>
+                  );
+                }}
+              </StateRegion>
+            </Panel>
+          </div>
+          </>
+        ) : null}
       </LedgerSummaryLayout>
     </section>
   );
