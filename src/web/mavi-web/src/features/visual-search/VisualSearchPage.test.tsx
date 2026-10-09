@@ -1281,6 +1281,47 @@ describe('VisualSearchPage', () => {
     });
   });
 
+  describe('inspector as a viewport drawer, stacked (§25 Tier B, 768 to 1100px)', () => {
+    const first = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451');
+    let restoreMatchMedia: () => void = () => {};
+
+    beforeEach(() => {
+      restoreMatchMedia = stubMatchMedia((query) => query === OVERLAY_QUERIES.investigation || query === OVERLAY_QUERIES.investigationStacked);
+      vi.mocked(searchTracks).mockResolvedValue({ items: [first], nextCursor: null });
+      vi.mocked(getTrack).mockImplementation(async () => detail(first, 7));
+    });
+    afterEach(() => restoreMatchMedia());
+
+    async function open() {
+      const user = userEvent.setup();
+      renderWithApp(<VisualSearchPage />, { route: '/search' });
+      const results = await screen.findByRole('list', { name: 'Track results' });
+      const control = within(within(results).getAllByRole('listitem')[0]).getByRole('button', { name: /^Select / });
+      await user.click(control);
+      await screen.findByRole('dialog', { name: /Track/ });
+      return { user, control };
+    }
+
+    it('closes on Escape, frees everything it covered, and returns focus to the result it was opened from', async () => {
+      const { user, control } = await open();
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      await waitFor(() => expect(control).toHaveFocus());
+      expect(document.querySelector('[inert]')).toBeNull();
+    });
+
+    it('lets J and K step nothing behind the filters drawer', async () => {
+      const user = userEvent.setup();
+      const { router } = renderWithApp(<VisualSearchPage />, { route: '/search', dataRouter: true, routePath: '/search' } as never) as never as { router: { state: { location: { search: string } } } };
+      await screen.findByRole('list', { name: 'Track results' });
+      await user.click(screen.getByRole('button', { name: 'Filters' }));
+      await screen.findByRole('dialog', { name: 'Filters' });
+      await user.keyboard('j');
+      expect(router.state.location.search).not.toMatch(/track=/);
+      expect(screen.queryByRole('dialog', { name: /Track/ })).not.toBeInTheDocument();
+    });
+  });
+
   describe('inspector as an overlay drawer (1101 to 1599px)', () => {
     const first = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21451');
     const second = track('018f3f5a-2f70-7a2b-8a12-2d02f4c21452', { objectClass: 'Vehicle', cameraName: 'East Gate' });

@@ -25,9 +25,12 @@
  *                 tiers are `measured/pending` against that owner. It becomes
  *                 an `assertion` in the slice that implements it.
  *
- * Tier policy (§26, §34.2): until S5 flips them, every rule evaluated at a
- * Tier B or C anchor is `measured/pending` — generic or tier-specific — so S2
- * never blocks on S5 behaviour. `validateManifest` enforces that.
+ * Tier policy (§26, §34.2): S5 flips the tiers below A as it implements them.
+ * T1 (Tier B compositions) made every rule that judges a Tier B composition
+ * `blocking` at Tier B; a rule owned by a later slice (S6's target size and
+ * measurements, T3's zoom) stays measured against that owner. Until T2, every
+ * rule evaluated at a Tier C anchor is `measured/pending`, so nothing blocks on
+ * T2 behaviour. `validateManifest` enforces that.
  *
  * Surface scope (§34.2 staged conformance). A rule with `scope: 'surface'` is
  * `blocking` at Tier A, and a finding of it carries where it was found: in a
@@ -51,11 +54,11 @@ const blocking = () => ({ status: 'blocking' });
 const pending = (owner) => ({ status: 'measured/pending', owner });
 const na = (reason) => ({ status: 'not-applicable', reason });
 
-/** Tier B and C stay non-blocking until S5 (T1, T2) flips them. */
-const B = pending('S5 / T1 (Tier B compositions)');
+/** T1 (S5) promoted Tier B; Tier C stays non-blocking until T2 flips it. */
+const B = blocking();
 const C = pending('S5 / T2 (Tier C degradation)');
 
-/** An S1-implemented rule: blocking at the accepted tier, pending below it. */
+/** An S1-implemented rule: blocking at the accepted tiers (A, and B from T1), pending at C. */
 const s1 = () => ({ A: blocking(), B, C });
 
 /**
@@ -66,9 +69,14 @@ const s1 = () => ({ A: blocking(), B, C });
 export const SURFACES = {
   foundation: { owner: 'S1 foundation (D1-D9)', accepted: true },
   'not-found': { owner: 'S1d shell (D4)', accepted: true },
-  overview: { owner: 'S3a / R1', accepted: false },
-  videos: { owner: 'S3a / R2', accepted: false },
-  'processing-detail': { owner: 'S3b / R3', accepted: false },
+  // R1-R3 accepted (retrospective correction, S5 preliminary): the register
+  // recorded R1 (PR #189), R2 (PR #190) and R3 (PR #191) PASS, but their flags
+  // stayed false, so their surface findings were measured, never blocking.
+  // Corrected on its own, before any Tier B promotion, so no accepted surface
+  // is exempt from surface-scoped enforcement.
+  overview: { owner: 'S3a / R1', accepted: true },
+  videos: { owner: 'S3a / R2', accepted: true },
+  'processing-detail': { owner: 'S3b / R3', accepted: true },
   // R4 accepted (S3c): the Scene Editor's surface findings block at Tier A.
   'scene-editor': { owner: 'S3c / R4', accepted: true },
   // R5 accepted (S3d): Search's surface findings block at Tier A.
@@ -83,8 +91,8 @@ export const SURFACES = {
   // M3 accepted (S4): Import's surface findings block at Tier A.
   import: { owner: 'S4 / M3', accepted: true },
   // M4 accepted (S4): Camera Analytics' surface findings block at Tier A. With
-  // it every S4 surface migration is accepted; only the R1-R3 rows, whose
-  // promotion is the separate governance change, remain measured.
+  // it, and the R1-R3 correction above, every reference and migrated surface is
+  // accepted.
   'camera-analytics': { owner: 'S4 / M4', accepted: true },
 };
 
@@ -207,9 +215,31 @@ export const RULES = {
     // R6 (S3e) fixed the rendered pin and flipped this to blocking at Tier A.
     tiers: { A: blocking(), B, C },
   },
-  'a11y.target-size': { section: '§10.1, §23', kind: 'assertion', summary: 'Pointer targets at least 24x24 wherever practical.', tiers: { A: pending('S6 / X1'), B, C } },
+  // Owned by S6/X1 at every tier, as at Tier A: a canvas handle and a dense
+  // checkbox are legitimately small until S6 settles the exceptions.
+  'a11y.target-size': { section: '§10.1, §23', kind: 'assertion', summary: 'Pointer targets at least 24x24 wherever practical.', tiers: { A: pending('S6 / X1'), B: pending('S6 / X1'), C } },
   'tier.b-shell': {
-    section: '§25 (Tier B shell)', kind: 'assertion', summary: 'At Tier B the rail is collapsed by default and its control stays visible and labelled.',
+    section: '§25 (Tier B shell)', kind: 'assertion',
+    summary: 'At Tier B the rail never takes the workspace\'s width (collapsed by default, expanded only as the modal overlay), its control stays visible and labelled, and the Context Bar\'s actions stay inside it with the primary keeping its label.',
+    tiers: { A: na('a Tier B composition rule'), B, C: na('a Tier B composition rule') },
+  },
+  // T1: the §25 Tier B transitions themselves, judged from where the regions
+  // render — Workbench stacked at 768-1100 and side by side above it;
+  // Investigation rail a drawer opened from the results header at 768-1100 and
+  // in place above it; Record facts below the primary at 768-1100 and beside it
+  // (280px minimum) above it; Review rail below the player at 768-1100 and
+  // beside it above it.
+  // T1 (Codex P1 on #199): the Ledger fold, stated per Ledger and judged from
+  // the rendered table. Tier A blocks too (§4.1: every column at 1366);
+  // Tier C is T2's.
+  'ledger.column-fold': {
+    section: '§25 (Tier B Ledger), §4.1', kind: 'assertion',
+    summary: 'Each operational Ledger folds exactly its stated columns at its stated width (and back where its table fits), into each row’s primary cell with their names, keeping identity, status, analytics and the action, with a Sort select for a folded sort key; nothing folds at Tier A.',
+    tiers: { A: blocking(), B, C },
+  },
+  'tier.b-composition': {
+    section: '§25 (Tier B compositions), §4.3.1, §4.4', kind: 'assertion',
+    summary: 'At Tier B each archetype renders its designed composition on each side of the stacking threshold.',
     tiers: { A: na('a Tier B composition rule'), B, C: na('a Tier B composition rule') },
   },
   'tier.c-shell': {
@@ -296,8 +326,8 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
       if (!STATUSES.includes(at.status)) problems.push(`${id} @ ${tier}: invalid status "${at.status}"`);
       if (at.status === 'measured/pending' && !at.owner) problems.push(`${id} @ ${tier}: measured/pending without an owning slice`);
       if (at.status === 'not-applicable' && !at.reason) problems.push(`${id} @ ${tier}: not-applicable without a reason`);
-      // §26 / §34.2: nothing below Tier A blocks until S5 flips it.
-      if (tier !== 'A' && at.status === 'blocking') problems.push(`${id} @ ${tier}: blocking below Tier A before S5`);
+      // §26 / §34.2: Tier C blocks nothing until T2 flips it (T1 flipped B).
+      if (tier === 'C' && at.status === 'blocking') problems.push(`${id} @ ${tier}: blocking at Tier C before T2`);
     }
     if (entry.kind !== 'assertion' && Object.values(entry.tiers ?? {}).some((at) => at.status === 'blocking')) {
       problems.push(`${id}: a ${entry.kind} rule cannot block`);

@@ -149,6 +149,12 @@ async function connect(child, profile) {
   // waited behind it.
   await call('Network.enable');
   await call('Network.setCacheDisabled', { cacheDisabled: true });
+  // The page keeps the input focus whatever a key does (as Playwright does
+  // for every headless page): Shift+Tab off the start of a document moves
+  // focus into the browser's own UI, and an unfocused window would then
+  // judge the lane's later cases without :focus-visible or a focus invoker.
+  // Focus still leaves the element — document.activeElement shows where.
+  await call('Emulation.setFocusEmulationEnabled', { enabled: true });
 
   /**
    * Uncaught exceptions and console errors, kept apart. A state that induces a
@@ -226,11 +232,21 @@ async function connect(child, profile) {
       const { fonts } = await call('CSS.getPlatformFontsForNode', { nodeId });
       return fonts.map((font) => ({ family: font.familyName, postScriptName: font.postScriptName, glyphs: font.glyphCount, custom: font.isCustomFont }));
     },
-    /** A real key press through the input pipeline, as an operator makes it. */
-    async press(key, code = key) {
+    /**
+     * A real key press through the input pipeline, as an operator makes it.
+     * `shift` holds Shift for the press (Shift+Tab: the browser's own reverse
+     * focus navigation, which a synthetic event cannot cause).
+     */
+    async press(key, code = key, { shift = false } = {}) {
       const keyCode = { Escape: 27, Tab: 9, Enter: 13 }[key] ?? 0;
-      await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode });
-      await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode });
+      const modifiers = shift ? 8 : 0;
+      // Enter activates a focused button through the keypress its text makes;
+      // a key event without text never reaches it.
+      const text = key === 'Enter' ? '\r' : undefined;
+      if (shift) await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16, modifiers });
+      await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode, modifiers, ...(text ? { text, unmodifiedText: text } : {}) });
+      await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode, modifiers });
+      if (shift) await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16, modifiers: 0 });
     },
     problems: () => problems.slice(),
     resourceErrors: () => resourceErrors.slice(),

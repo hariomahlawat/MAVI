@@ -19,6 +19,7 @@ export { default as Segmented, type SegmentedOption } from './Segmented';
 export { default as Toolbar } from './Toolbar';
 export {
   InvestigationLayout,
+  InvestigationRailToggle,
   LEDGER_SKELETON,
   LedgerLayout,
   LedgerTable,
@@ -36,3 +37,4 @@ export {
   type ShellSurface,
   type SurfaceOwner,
 } from './surfaceSlot';
+export { LedgerFoldedValue, LedgerPrimary } from './LedgerFold';

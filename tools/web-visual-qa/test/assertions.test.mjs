@@ -27,7 +27,7 @@ async function workspace(html, input = { tier: 'A', width: 1366, archetype: 'led
 const fired = (result, rule) => result.findings.filter((f) => f.rule === rule);
 
 const LEDGER = (body, frameStyle = '') => `
-  <main class="main" data-scroll="contain" style="height:700px;overflow:hidden">
+  <main class="main" data-scroll="body" style="height:700px;overflow:hidden">
     <section class="workspace workspace--ledger" style="height:100%">
       <div class="workspace__body workspace__body--ledger">
         ${body.includes('<table') ? `<div class="ledger-table" style="border:1px solid #444;overflow:auto;width:max-content;max-height:600px;${frameStyle}">${body}</div>` : body}
@@ -66,7 +66,7 @@ describe('Ledger row actions: reachable everywhere, in view on Cameras (M1)', ()
       : '<td><a href="#x">Scene</a></td>';
     const code = `<td><div style="width:${codeWidth}px">CAM</div></td>`;
     return `
-    <main class="main" data-scroll="contain" style="height:700px;overflow:hidden">
+    <main class="main" data-scroll="body" style="height:700px;overflow:hidden">
       <section class="workspace workspace--ledger" style="height:100%">
         <div class="workspace__body workspace__body--ledger">
           <div class="ledger-table" style="border:1px solid #444;overflow-x:${frameOverflow};overflow-y:auto;max-width:${frameWidth}px;max-height:600px">
@@ -542,5 +542,183 @@ describe('the rendered Review pin (review.sticky-rendered, R6)', () => {
   it('does not evaluate the stacked Review, which releases the pin at 1100', async () => {
     const result = await probe(REVIEW(), 1100);
     assert.equal(result.evaluated, false);
+  });
+});
+
+describe('Tier B (T1): rules that reject the pre-T1 compositions and pass the designed ones', () => {
+  const render = async (html, width, fn, input) => {
+    await lane.page(TOKENS + html, { width, height: 768 });
+    return lane.browser.evaluate(toExpression(fn, input));
+  };
+  const pageAt = (html, width) => render(html, width, pageAssertions, { tier: 'B', width, fullWidth: null, archetype: null, holds: null });
+  const workspaceAt = (html, width, archetype) => render(html, width, workspaceAssertions, { tier: 'B', width, archetype });
+  const SHELL = ({ rail = 56, overlay = false, main = 56 } = {}) => `
+    <div class="sidebar" ${overlay ? 'role="dialog" aria-modal="true"' : ''} style="position:${overlay ? 'fixed' : 'absolute'};left:0;top:0;bottom:0;width:${rail}px">
+      <button class="sidebar__toggle" aria-expanded="${overlay}" aria-label="Open navigation" style="width:32px;height:32px">N</button>
+    </div>
+    <main id="main" style="position:absolute;left:${main}px;right:0;top:0;bottom:0"><p>workspace</p></main>`;
+
+  it('tier.b-shell: fires on the pre-T1 expanded rail column; passes the collapsed rail and its modal overlay', async () => {
+    const before = await pageAt(SHELL({ rail: 216, main: 216 }), 1024);
+    assert.ok(before.evaluated.includes('tier.b-shell'));
+    const messages = fired(before, 'tier.b-shell').map((f) => f.message).join('\n');
+    assert.match(messages, /takes 216px of width beside the workspace/);
+    assert.match(messages, /drawn expanded \(216px\) without being the modal overlay/);
+    assert.deepEqual(fired(await pageAt(SHELL(), 1024), 'tier.b-shell'), []);
+    assert.deepEqual(fired(await pageAt(SHELL({ rail: 216, overlay: true }), 1024), 'tier.b-shell'), []);
+  });
+
+  it('tier.b-shell: fires when a Context Bar action is pushed past the bar or its primary loses its label', async () => {
+    const bar = (actions) => SHELL() + `<div class="context-bar" style="position:absolute;left:56px;top:0;width:600px;height:44px;display:flex">
+      <div class="context-bar__actions" style="display:flex;flex:none">${actions}</div></div>`;
+    const pushed = await pageAt(bar('<button class="btn btn--primary" style="margin-left:560px;width:120px">Save revision</button>'), 1024);
+    assert.match(fired(pushed, 'tier.b-shell')[0].message, /extends past the bar/);
+    const iconOnly = await pageAt(bar('<button class="btn btn--primary"><svg width="16" height="16"></svg><span class="visually-hidden">Save revision</span></button>'), 1024);
+    assert.match(fired(iconOnly, 'tier.b-shell')[0].message, /has lost its visible label/);
+    assert.deepEqual(fired(await pageAt(bar('<button class="btn btn--primary"><svg width="16" height="16"></svg>Save revision</button>'), 1024), 'tier.b-shell'), []);
+  });
+
+  const WORKBENCH = (columns) => `<div class="main" data-scroll="contain" style="overflow:auto;height:760px">
+    <section class="workspace workspace--workbench" style="display:grid;grid-template-columns:${columns};gap:12px">
+      <div class="workspace__stage" style="height:240px"></div><div class="workspace__inspector" style="height:200px"></div>
+    </section></div>`;
+  it('tier.b-composition: fires on a side-by-side Workbench at 1024 (stacked by §25) and on a stacked one at 1200', async () => {
+    const compressed = await workspaceAt(WORKBENCH('1fr 300px'), 1024, 'workbench');
+    assert.ok(compressed.evaluated.includes('tier.b-composition'));
+    assert.match(fired(compressed, 'tier.b-composition')[0].message, /not stacked at 1024px/);
+    assert.deepEqual(fired(await workspaceAt(WORKBENCH('1fr'), 1024, 'workbench'), 'tier.b-composition'), []);
+    assert.match(fired(await workspaceAt(WORKBENCH('1fr'), 1200, 'workbench'), 'tier.b-composition')[0].message, /not beside the stage at 1200px/);
+    assert.deepEqual(fired(await workspaceAt(WORKBENCH('1fr 300px'), 1200, 'workbench'), 'tier.b-composition'), []);
+  });
+
+  // The frozen 1101-1149 drawer band (§4.3.1, §25 Tier B): a shut drawer with
+  // its toggle and the stage at full width, or not.
+  const BAND = ({ drawer, toggle = true, stage = '1fr', inspectorShown = false }) => `<div class="main" data-scroll="contain" style="overflow:hidden;height:760px">
+    <section class="workspace workspace--workbench${drawer ? ' is-drawer' : ''}">
+      <div class="workspace__band">${toggle ? '<button class="workspace__drawer-toggle">Scene inspector</button>' : ''}</div>
+      <div style="display:grid;grid-template-columns:${stage};gap:12px">
+        <div class="workspace__stage" style="height:240px"></div>
+        <div class="workspace__inspector" style="height:200px;${inspectorShown ? '' : 'display:none'}"></div>
+      </div>
+    </section></div>`;
+  it('workbench.geometry and tier.b-composition: hold the frozen 1101-1149 drawer band and side by side from 1150, from rendered geometry', async () => {
+    // Pre-remediation T1: side by side at 1120, where §25 freezes a drawer.
+    const beside = await workspaceAt(BAND({ drawer: false, toggle: false, stage: '1fr 300px', inspectorShown: true }), 1120, 'workbench');
+    assert.match(fired(beside, 'workbench.geometry')[0].message, /side by side at 1120px .* the frozen 1101-1149 band makes it a drawer/);
+    assert.match(fired(beside, 'tier.b-composition')[0].message, /column beside the stage at 1120px, inside the frozen 1101-1149 drawer band/);
+    // The class alone is not the composition: a drawer whose inspector is
+    // still a column, and a shut drawer nobody can open.
+    const parked = await workspaceAt(BAND({ drawer: true, stage: '1fr 300px', inspectorShown: true }), 1120, 'workbench');
+    assert.match(fired(parked, 'workbench.geometry').map((f) => f.message).join('\n'), /neither shut nor the open modal drawer/);
+    const noToggle = await workspaceAt(BAND({ drawer: true, toggle: false }), 1101, 'workbench');
+    assert.match(fired(noToggle, 'workbench.geometry')[0].message, /no visible control to open it/);
+    // The designed band at both edges, and side by side above it.
+    for (const width of [1101, 1149]) {
+      const designed = await workspaceAt(BAND({ drawer: true }), width, 'workbench');
+      assert.deepEqual(fired(designed, 'workbench.geometry'), [], String(width));
+      assert.deepEqual(fired(designed, 'tier.b-composition'), [], String(width));
+    }
+    assert.match(fired(await workspaceAt(BAND({ drawer: true }), 1150, 'workbench'), 'workbench.geometry')[0].message, /a drawer at 1150px/);
+    assert.deepEqual(fired(await workspaceAt(BAND({ drawer: false, toggle: false, stage: '1fr 300px', inspectorShown: true }), 1150, 'workbench'), 'workbench.geometry'), []);
+  });
+
+  const INVESTIGATION = ({ railShown, toggle }) => `<div class="main" data-scroll="contain" style="overflow:auto;height:760px">
+    <section class="workspace workspace--investigation">
+      <div class="workspace__investigation-grid" style="display:grid;grid-template-columns:${railShown ? '252px 1fr' : '1fr'}">
+        <div class="workspace__rail" style="${railShown ? '' : 'display:none'}">filters</div>
+        <div class="workspace__results">${toggle ? '<button class="workspace__rail-toggle">Filters</button>' : ''}<div class="results__list" style="overflow:auto">results</div></div>
+      </div></section></div>`;
+  it('tier.b-composition: fires on the pre-T1 in-flow filter rail at 1024 and on a drawer with no way to open it', async () => {
+    const inFlow = await workspaceAt(INVESTIGATION({ railShown: true, toggle: false }), 1024, 'investigation');
+    assert.match(fired(inFlow, 'tier.b-composition').map((f) => f.message).join('\n'), /filter rail is in flow at 1024px/);
+    const noToggle = await workspaceAt(INVESTIGATION({ railShown: false, toggle: false }), 1024, 'investigation');
+    assert.match(fired(noToggle, 'tier.b-composition')[0].message, /no control in the results header/);
+    assert.deepEqual(fired(await workspaceAt(INVESTIGATION({ railShown: false, toggle: true }), 1024, 'investigation'), 'tier.b-composition'), []);
+  });
+
+  // The Videos Ledger as the harness sees it: its stated columns, a region of
+  // `region` px holding a `table` px table, folded or not, with the folded
+  // values carried (and named), the Sort select, and the measured-fold mark.
+  const FOLDING_LEDGER = ({ region, table, folded = false, carried = true, named = true, statusHidden = false, sort = true, mark = false }) => {
+    // A measured fold (`mark`) hides the columns through the stylesheet, as
+    // the product does, so setting the mark aside really unfolds them.
+    const hide = (on) => (on && !mark ? 'display:none' : '');
+    const value = (name, v) => `<span class="ledger-folded__value">${named ? `<span class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">${name} </span>` : ''}${v}</span>`;
+    return `<style>.workspace--ledger[data-fold] .ledger-fold { display: none; }</style><div class="main" data-scroll="body" style="overflow:hidden;height:760px">
+    <section class="workspace workspace--ledger"${mark ? ' data-fold="overflow"' : ''} style="width:${region}px">
+      <div class="workspace__band"><div class="toolbar-band">${sort ? `<label class="ledger-sort" style="${hide(!folded)}">Sort <select><option>Recorded, newest first</option><option>Duration, longest first</option><option>File, A to Z</option></select></label>` : ''}</div></div>
+      <div class="workspace__body workspace__body--ledger">
+      <div class="ledger-table" style="overflow:auto;max-width:100%"><table style="width:${table}px;border-collapse:collapse">
+        <thead><tr><th aria-sort="none">File</th><th aria-sort="none">Camera</th><th class="ledger-fold" aria-sort="descending" style="${hide(folded)}">Recorded<span aria-hidden="true">▼</span></th>
+          <th class="ledger-fold" aria-sort="none" style="${hide(folded)}">Duration<span aria-hidden="true">↕</span></th><th style="${hide(statusHidden)}">Status</th><th><span class="visually-hidden">Actions</span><span>Actions</span></th></tr></thead>
+        <tbody><tr>
+          <td><div class="ledger-primary">clip.mp4<span class="ledger-folded" style="${hide(!folded)}">${carried ? value('Recorded', '14 Sept') : ''}${value('Duration', '10m')}</span></div></td>
+          <td>GATE-4</td><td class="ledger-fold" style="${hide(folded)}">14 Sept</td><td class="ledger-fold" style="${hide(folded)}">10m</td>
+          <td style="${hide(statusHidden)}">Ready</td><td><button>Review</button></td>
+        </tr></tbody>
+      </table></div></div></section></div>`;
+  };
+  const ledgerAt = (html, width, tier = 'B') => render(html, width, workspaceAssertions, { tier, width, archetype: 'ledger', surface: 'videos' });
+  it('ledger.column-fold: blocks each Ledger fold defect and passes the designed compositions', async () => {
+    const messages = (result) => fired(result, 'ledger.column-fold').map((f) => f.message).join('\n');
+    // Folding disabled: at a region under Videos' stated 969px, and scrolling sideways.
+    const unfolded = await ledgerAt(FOLDING_LEDGER({ region: 900, table: 1200 }), 1024);
+    assert.ok(unfolded.evaluated.includes('ledger.column-fold'));
+    assert.match(messages(unfolded), /at or under its stated 969px, and Recorded, Duration have not folded/);
+    assert.match(messages(unfolded), /scrolls sideways .* while its stated fold column\(s\) Recorded, Duration are still shown/);
+    // A transferred value removed.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, carried: false }), 1024)),
+      /\(Recorded\) are hidden with their column but not shown in the row's primary cell/);
+    // A transferred value without its header name: nothing to match it by.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, named: false }), 1024)),
+      /\(Recorded, Duration\) are hidden with their column/);
+    // A required column folded.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, statusHidden: true }), 1024)),
+      /hides Status, which never fold/);
+    // The replacement sort control removed.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, sort: false }), 1024)),
+      /folded sort key\(s\) Recorded, Duration have no visible, enabled Sort select/);
+    // The columns not returning where the unfolded table fits (the measured
+    // mark left behind), and any fold at Tier A.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 1200, table: 1000, folded: true, mark: true }), 1365)),
+      /keeps Recorded, Duration folded in a 1200px region where its unfolded table fits/);
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 1200, table: 1000, folded: true }), 1366, 'A')), /folds Recorded, Duration at Tier A/);
+    // An unstated Ledger is not silently passed.
+    const unstated = await render(FOLDING_LEDGER({ region: 900, table: 800 }), 1024, workspaceAssertions, { tier: 'B', width: 1024, archetype: 'ledger', surface: 'import' });
+    assert.match(messages(unstated), /no stated fold priority/);
+    // The designed compositions: folded under the stated width, every value
+    // carried and named, the Sort select offered; unfolded where the table
+    // fits; and every column at Tier A.
+    assert.deepEqual(fired(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true }), 1024), 'ledger.column-fold'), []);
+    assert.deepEqual(fired(await ledgerAt(FOLDING_LEDGER({ region: 1200, table: 1000 }), 1365), 'ledger.column-fold'), []);
+    assert.deepEqual(fired(await ledgerAt(FOLDING_LEDGER({ region: 1200, table: 1000 }), 1366, 'A'), 'ledger.column-fold'), []);
+  });
+
+  const RECORD = (columns) => `<div class="main" data-scroll="page"><section class="workspace workspace--record">
+    <div class="workspace__record-grid" style="display:grid;grid-template-columns:${columns};gap:16px;align-items:start">
+      <div class="workspace__record-primary" style="height:300px"></div><div class="workspace__record-facts" style="height:200px"></div>
+    </div></section></div>`;
+  it('tier.b-composition: holds the Record facts rail beside the primary at 1101-1365 at 280px or more, and below it at 1100', async () => {
+    assert.match(fired(await workspaceAt(RECORD('1fr 250px'), 1200, 'record'), 'tier.b-composition')[0].message, /below its 280px minimum/);
+    assert.deepEqual(fired(await workspaceAt(RECORD('7fr 3fr'), 1200, 'record'), 'tier.b-composition'), []);
+    assert.match(fired(await workspaceAt(RECORD('7fr 3fr'), 1024, 'record'), 'tier.b-composition')[0].message, /not stacked below the primary column/);
+    assert.deepEqual(fired(await workspaceAt(RECORD('1fr'), 1024, 'record'), 'tier.b-composition'), []);
+  });
+
+  it('archetype.contained-clipping judges the column the stylesheet renders, not the policy it declared', async () => {
+    const tall = (overflow) => `<div class="main" data-scroll="contain" style="height:400px;overflow:${overflow}">
+      <section class="workspace workspace--workbench" style="display:grid"><div class="workspace__stage" style="height:900px"></div><div class="workspace__inspector" style="height:100px"></div></section></div>`;
+    // Lifted at 1100 and below (§25): the column scrolls, so the content is reachable.
+    assert.deepEqual(fired(await workspaceAt(tall('auto'), 1024, 'workbench'), 'archetype.contained-clipping'), []);
+    // Contained, the same content is unreachable.
+    assert.match(fired(await workspaceAt(tall('hidden'), 1024, 'workbench'), 'archetype.contained-clipping')[0].message, /cannot be reached/);
+  });
+
+  it('ledger.scroll-ownership requires the Ledger body to own the scroll at every width (pre-T1 lifted it at 1100)', async () => {
+    const ledger = (policy) => LEDGER(TABLE('<tr style="height:40px"><td>one</td></tr>')).replace('data-scroll="body"', `data-scroll="${policy}"`);
+    const lifted = await render(ledger('contain'), 1024, workspaceAssertions, { tier: 'B', width: 1024, archetype: 'ledger' });
+    assert.match(fired(lifted, 'ledger.scroll-ownership')[0].message, /did not declare its body the scroll owner/);
+    const owned = await render(ledger('body'), 1024, workspaceAssertions, { tier: 'B', width: 1024, archetype: 'ledger' });
+    assert.deepEqual(fired(owned, 'ledger.scroll-ownership'), []);
   });
 });

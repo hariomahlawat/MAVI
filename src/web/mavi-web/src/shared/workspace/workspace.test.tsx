@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState, type ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { stubMatchMedia } from '../../test/matchMedia';
+import { stubElementWidth } from '../../test/resizeObserver';
 import { OVERLAY_QUERIES } from '../overlay/useMediaQuery';
 import { describe, expect, it, vi } from 'vitest';
 import ContextBar, { barClass, Breadcrumbs } from './ContextBar';
@@ -10,7 +11,14 @@ import Inspector from './Inspector';
 import Segmented from './Segmented';
 import { SurfaceSlotProvider } from './surfaceSlot';
 import Toolbar from './Toolbar';
-import { LedgerLayout, WorkbenchLayout } from './layouts';
+import {
+  LedgerLayout,
+  WORKBENCH_GAP,
+  WORKBENCH_INSPECTOR_MIN,
+  WORKBENCH_SIDE_BY_SIDE_MIN,
+  WORKBENCH_STAGE_FLOOR,
+  WorkbenchLayout,
+} from './layouts';
 
 /**
  * The workspace grammar's own tests.
@@ -231,7 +239,9 @@ describe('archetypes', () => {
     const user = userEvent.setup();
     const onEscape = vi.fn();
     // The drawer is an overlay only in the 1101–1149 band (§4.3.1).
-    const restore = stubMatchMedia((query) => query === OVERLAY_QUERIES.workbench);
+    // A working width below the floor's side-by-side minimum, above the stacking
+    // threshold (no media query matches): the inspector is a drawer.
+    const restore = stubElementWidth(850);
     window.addEventListener('keydown', onEscape);
     try {
       const { container } = render(<WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />);
@@ -258,7 +268,9 @@ describe('archetypes', () => {
 
   it('makes everything beside the open overlay drawer inert, the revision footer included', async () => {
     const user = userEvent.setup();
-    const restore = stubMatchMedia((query) => query === OVERLAY_QUERIES.workbench);
+    // A working width below the floor's side-by-side minimum, above the stacking
+    // threshold (no media query matches): the inspector is a drawer.
+    const restore = stubElementWidth(850);
     try {
       const { container } = render(
         <WorkbenchLayout
@@ -372,18 +384,26 @@ describe('the archetype set is closed', () => {
     expect(importers.filter((path) => !path.includes('/features/overview/'))).toEqual([]);
   });
 
-  it('releases every contained archetype where the layout stacks', () => {
-    // §4's shared rule: below 1100 all archetypes stack to a single column and
-    // the page scrolls. The shell lifts its containment there, and each
-    // archetype has to let go of the height and internal overflow that held it
-    // — including the Overview summary variant, which is contained above that
-    // width like every other Ledger.
-    const css = SHEETS['/src/styles/workspace.css'];
-    const stacking = css.slice(css.indexOf('@media (max-width: 1100px)'));
-    for (const archetype of ['workspace--ledger', 'workspace--ledger-summary', 'workspace--workbench', 'workspace--investigation']) {
-      expect(stacking).toContain(archetype);
+  it('releases the stacking archetypes where they stack, and keeps the Ledger body scroll at every width', () => {
+    // §4's shared rule: below 1100 the Workbench and the Investigation stack to
+    // a single column and the page scrolls, so each lets go of the height that
+    // held it. §25 v2.0 (Tier B): a Ledger "still scrolls its body at every
+    // Tier B width (a Ledger is one column and has nothing to stack)", and the
+    // Overview keeps the Ledger's grammar — so neither is released.
+    const css = withoutComments(SHEETS['/src/styles/workspace.css']);
+    // The ≤1100 block itself: Tier C's pre-T2 rules (≤760) follow it.
+    const start = css.indexOf('@media (max-width: 1100px)');
+    const rules = css.slice(start, css.indexOf('@media', start + 1));
+    for (const archetype of ['workspace--workbench', 'workspace--investigation']) {
+      expect(rules).toContain(archetype);
     }
-    expect(stacking).toContain('.workspace--ledger-summary .workspace__body--scroll');
+    for (const archetype of ['workspace--ledger,', 'workspace--ledger-summary', '.ledger-table', '.workspace__body--scroll']) {
+      expect(rules).not.toContain(archetype);
+    }
+    const shell = withoutComments(SHEETS['/src/styles/layout.css']);
+    const lift = shell.slice(shell.indexOf('@media (max-width: 1100px)'));
+    expect(lift).toContain('.main[data-scroll="contain"] { overflow: auto; }');
+    expect(lift.slice(0, lift.indexOf('}') + 1)).not.toContain('body');
   });
 
   it('lets only the archetypes declare how a surface scrolls', () => {
@@ -463,15 +483,26 @@ describe('the archetype set is closed', () => {
       const rest = css.slice(start + 1);
       return rest.slice(0, rest.indexOf('@media'));
     };
-    // Workbench: the stylesheet floats the inspector in exactly this band.
-    expect(block(OVERLAY_QUERIES.workbench))
-      .toMatch(/\.workspace--workbench \.workspace__inspector\s*\{[^}]*position:\s*absolute/);
-    // Investigation: floated below the in-place threshold, stacked at or below
-    // the stacking threshold; the script's band is what lies between.
+    // Workbench: the stylesheet floats the inspector exactly where the layout
+    // states the drawer (`is-drawer`), and the layout's derived minimum uses
+    // the stylesheet's own inspector minimum and gutter.
+    expect(css).toMatch(/\.workspace--workbench\.is-drawer \.workspace__inspector\s*\{[^}]*position:\s*absolute/);
+    expect(css).toContain(`grid-template-columns: minmax(0, 1fr) clamp(${WORKBENCH_INSPECTOR_MIN}px,`);
+    expect(SHEETS['/src/styles/tokens.css']).toContain(`--s-3: ${WORKBENCH_GAP}px;`);
+    expect(css).toMatch(/\.workspace__stage-grid \{[^}]*gap: var\(--s-3\)/);
+    expect(WORKBENCH_SIDE_BY_SIDE_MIN).toBeCloseTo((WORKBENCH_INSPECTOR_MIN + WORKBENCH_GAP) / (1 - WORKBENCH_STAGE_FLOOR));
+    expect(OVERLAY_QUERIES.workbenchStacked).toBe('(max-width: 1100px)');
+    // Investigation: a drawer at every width below the in-place threshold
+    // (§25 Tier B names it a drawer in both the 1101-1365 and the 768-1100
+    // compositions) — over the grid where the page does not scroll, over the
+    // viewport where the stacked page does.
     expect(block('(max-width: 1599px)')).toMatch(/\.workspace--investigation\.has-inspector \.workspace__inspector\s*\{[^}]*position:\s*absolute/);
+    expect(block('(max-width: 1100px)')).toMatch(/\.workspace--investigation\.has-inspector \.workspace__inspector\s*\{[^}]*position:\s*fixed/);
     expect(css).toContain('@media (min-width: 1600px)');
-    expect(css).toContain('@media (max-width: 1100px)');
-    expect(OVERLAY_QUERIES.investigation).toBe('(min-width: 1101px) and (max-width: 1599px)');
+    expect(OVERLAY_QUERIES.investigation).toBe('(max-width: 1599px)');
+    // And the filter rail is a drawer exactly where the composition stacks.
+    expect(OVERLAY_QUERIES.investigationStacked).toBe('(max-width: 1100px)');
+    expect(block(OVERLAY_QUERIES.investigationStacked)).toMatch(/\.workspace--investigation\.has-open-rail \.workspace__rail\s*\{[^}]*position:\s*fixed/);
   });
 
   it('gives the in-place Investigation inspector a floor the results yield to', () => {

@@ -1,4 +1,5 @@
 export { default as SortableColumn } from './SortableColumn';
+export { default as LedgerSortSelect, type SortOption } from './LedgerSortSelect';
 export {
   sortRows,
   useLedgerSort,

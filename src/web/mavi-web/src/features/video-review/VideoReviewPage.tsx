@@ -12,6 +12,7 @@ import { describeError, fromQuery } from '../../shared/async/fromQuery';
 import { hasFailure } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Panel from '../../shared/components/Panel';
+import TruncatedText from '../../shared/overlay/Truncated';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { ContextBar, ReviewLayout } from '../../shared/workspace';
 import { ProvenancePanel, TrackSummary } from './TrackDetailsPanels';
@@ -209,7 +210,10 @@ export default function VideoReviewPage() {
         object={{ label: videoLabel }}
         status={detail ? (
           <>
-            <span className="context-bar__subject">{`${detail.objectClass} · Track ${detail.localTrackNumber}`}</span>
+            {/* The Track is an identity: it gives way with the file name on a
+                narrow bar (§37.1 long names, §25 Tier B), its full text on
+                hover and focus while cut off. */}
+            <TruncatedText className="context-bar__subject" text={`${detail.objectClass} · Track ${detail.localTrackNumber}`} />
             <StatusBadge status={detail.reviewStatus} />
             {/* §24: the zone every absolute time below is shown in, stated
                 once, here. Only a configured zone: until the configuration

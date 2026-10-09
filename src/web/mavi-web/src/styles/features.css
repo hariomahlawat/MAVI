@@ -299,7 +299,7 @@
 /* The frame is where the keyboard grammar acts, so its focus has to be as
    visible as any control's. */
 .evidence-player__frame:focus-visible { outline: var(--stroke-2) solid var(--focus-ring); outline-offset: var(--stroke-2); }
-.evidence-player__video { display: block; width: 100%; max-height: 62vh; background: var(--evidence-matte); }
+.evidence-player__video { display: block; width: 100%; height: auto; max-height: 62vh; background: var(--evidence-matte); }
 .evidence-player--compact .evidence-player__video { max-height: 40vh; }
 
 /* Every overlay layer carries the halo (section 8.3). A violet box over bright
@@ -627,18 +627,27 @@
    this surface's status group keeps its width rather than sharing the
    shortfall and wrapping its chips ("Revision / 4", "Analytics / on") inside
    the band, which a long camera identity did at 1366 (R4).
-   Scoped to the Workbench's own measured threshold (§4.3.1, the ~1150px at
-   which its full composition begins), not to a tier boundary (§25): the bar's
-   minimum — the trail at its minimum, these chips and a dirty draft's actions,
-   ~770px — is met there with the rail expanded. Below it the trail could no
-   longer absorb the shortfall without collapsing past its own minimum (as the
-   withdrawn R3 shrink weight showed), so the band keeps its shared behaviour
-   for the Tier B/C composition S5 owns. */
-@media (min-width: 1150px) {
+   Scoped to where the bar can hold its own minimum, not to a tier boundary
+   (§25). R4 placed it at 1150 with the Tier B rail expanded (216px); T1
+   collapses that rail to 56px below 1366, so the bar's content is the viewport
+   less 96px (rail and the bar's padding), and T1 measured its densest case —
+   a 32-character camera code with the disable confirmation open
+   (scene-editor-confirm-disable) — overlapping at 920px and clear from 940px:
+   about 844px of content. Below it the trail could no longer absorb the
+   shortfall without collapsing past its own minimum (as the withdrawn R3
+   shrink weight showed), so the band keeps its shared behaviour there. */
+@media (min-width: 940px) {
   .scene-context__revision, .scene-context__analytics { white-space: nowrap; }
   .context-bar__status:has(> .scene-context__revision) { flex-shrink: 0; }
 }
-.scene-context__note input { width: 220px; height: var(--control-h); }
+/* The revision note is optional and is what gives way on a full bar: the
+   actions group may shrink by it, down to a still-usable 120px, before the
+   state chips are pushed back over the trail (§25 Tier B; measured under a
+   wide CI-like font at 768 and 1024, where the rigid 220px field made the
+   chips paint over the "Scene" crumb). The buttons keep their labels. */
+.context-bar__actions:has(.scene-context__note) { flex-shrink: 1; }
+.scene-context__note { flex: 0 1 220px; min-width: 120px; }
+.scene-context__note input { width: 100%; height: var(--control-h); }
 
 /* An explanation of a Context Bar control, stated in the notices region. */
 .scene-notice { color: var(--text-muted); font-size: var(--fs-1); max-width: 72ch; }
@@ -1106,4 +1115,43 @@
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--fs-2);
+}
+
+/* ------------------------------------------------------------------ *
+ * Ledger column fold priorities (§25 Tier B: "columns collapse by stated
+ * priority into the primary cell"). Each Ledger folds where its own
+ * container is narrower than its unfolded table — the base inventory's
+ * measured natural width plus the frame's 2px border (T1, measured at 1366
+ * with every column visible) — so the fold is derived from the composition
+ * it separates, never from a viewport figure, and holds at any rail state.
+ * Tier A's narrowest working width (1366 with the rail expanded) is 1110px,
+ * above every threshold here, so nothing folds there (§4.1). These widths
+ * are the floor, folding from the first frame (loading included); where the
+ * rendered table is wider than the base inventory's — a longer name, a wider
+ * font — the Ledger folds on measurement as well (`useOverflowFold`). Below
+ * the folded table's own width the body scrolls sideways, which §4.1 permits.
+ * ------------------------------------------------------------------ */
+/* Videos: 968px unfolded. Recorded and Duration fold into the File cell; the
+   sort they carried moves to the toolbar's select. */
+@container ledger (max-width: 969px) {
+  .table--fold-videos .ledger-fold { display: none; }
+  .table--fold-videos .ledger-folded { display: inline-flex; }
+  /* Only Videos carries a sort select: its folded columns are sort keys. */
+  .ledger-sort { display: inline-flex; }
+  /* With the select in the band, the count takes the band's second row at
+     every moment — loading ("Loading videos…") and loaded alike — so the
+     filters widening as the cameras arrive moves nothing down the page
+     (§25 Tier B: the band wraps to two rows at most; §38: no layout shift). */
+  .toolbar-band:has(.ledger-sort) .toolbar-band__hint { flex-basis: 100%; }
+}
+/* Processing queue: 1011px unfolded. Queued, Attempt and Tracks fold into the
+   Video cell. */
+@container ledger (max-width: 1012px) {
+  .table--fold-processing-queue .ledger-fold { display: none; }
+  .table--fold-processing-queue .ledger-folded { display: inline-flex; }
+}
+/* Cameras: 685px unfolded. Timezone folds into the Name cell. */
+@container ledger (max-width: 686px) {
+  .table--fold-cameras .ledger-fold { display: none; }
+  .table--fold-cameras .ledger-folded { display: inline-flex; }
 }

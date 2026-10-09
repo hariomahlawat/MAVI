@@ -261,6 +261,12 @@ export default function EvidencePlayer({
           key={sourceUrl}
           ref={transport.videoRef}
           className="evidence-player__video"
+          // The source's declared frame, so the player reserves its aspect
+          // ratio before the metadata arrives: without it the element is the
+          // browser's 300x150 default until then, and everything below a
+          // stacked player (§25 Tier B) jumps down when the frame appears.
+          width={declaredWidth > 0 ? declaredWidth : undefined}
+          height={declaredHeight > 0 ? declaredHeight : undefined}
           src={sourceUrl}
           poster={representative?.posterUrl}
           preload="metadata"

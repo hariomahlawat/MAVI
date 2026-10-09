@@ -38,6 +38,7 @@ import ScenePropertiesPanel from './ScenePropertiesPanel';
 import SceneToolbar from './SceneToolbar';
 import { issuesByKey, validateDraft } from './sceneValidation';
 import Dialog from '../../shared/overlay/Dialog';
+import { keyboardHeldElsewhere } from '../../shared/overlay/focus';
 import { useUnsavedChangesGuard } from './useUnsavedChangesGuard';
 
 /** The frame the stage falls back to when no reference video is loaded. */
@@ -298,6 +299,9 @@ export default function SceneEditorPage() {
     if (!editable) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTextEntry(event.target as HTMLElement | null)) return;
+      // Behind the navigation overlay or a Dialog the scene is covered: its
+      // Delete, Enter and nudges are not the operator's keys there (§20).
+      if (keyboardHeldElsewhere('.workspace__inspector')) return;
 
       if (event.key === 'Escape') {
         if (state.drawing.kind !== 'none') dispatch({ type: 'cancelDrawing' });

@@ -55,7 +55,7 @@ try {
   fatal(`HARNESS ERROR: a harness module did not load: ${error.stack || error}\n`);
 }
 const [
-  { focusAssertions, overlayExitProbe, overlayOpened, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions },
+  { focusAssertions, overlayExitProbe, overlayFocusProbe, overlayOpened, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions },
   { launch },
   { createLedger, exitStatus, HarnessError, planCases, settle, unprovenPressedKinds, unreachedFaults },
   { CONDITIONS, ensureFootage },
@@ -352,6 +352,26 @@ async function runCase(lane, c) {
     // that opened it — the invoker the observers recorded as focus entered it.
     overlayExit = await browser.evaluate(toExpression(overlayOpened));
     if (overlayExit) {
+      // §20, §23: the keyboard stays inside the open overlay. With real keys,
+      // from the focus the overlay itself established (its heading, as a rule):
+      // Shift+Tab, then Tab, each must leave focus inside the topmost modal —
+      // a reverse step from a heading before the first control is where a trap
+      // that only watches its first and last controls lets focus out.
+      const start = await browser.evaluate(toExpression(overlayFocusProbe));
+      if (start.inside) {
+        let escaped = null;
+        let from = start.focus;
+        for (const [label, shift] of [['Shift+Tab', true], ['Tab', false]]) {
+          await browser.press('Tab', 'Tab', { shift });
+          const after = await browser.evaluate(toExpression(overlayFocusProbe));
+          if (!after.inside && !escaped) {
+            escaped = `${label} from ${from} left the open overlay: focus is on ${after.focus ?? 'nothing'}`
+              + (after.documentFocused ? '' : ' and the document has lost focus');
+          }
+          from = after.focus;
+        }
+        if (escaped) add(overlayExit, escaped);
+      }
       await browser.press('Escape');
       const exit = await browser.evaluate(toExpression(overlayExitProbe));
       if (!exit.closed) add(overlayExit, 'Escape did not close the open overlay');

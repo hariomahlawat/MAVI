@@ -9,7 +9,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, describe, it } from 'node:test';
 import { createLedger, exitStatus, HarnessError, settle, unprovenPressedKinds, unreachedFaults } from '../engine.mjs';
-import { RULES } from '../manifest.mjs';
+import { RULES, SURFACES } from '../manifest.mjs';
+
+/** The real surfaces with the named ones not accepted — every real one now is. */
+const notAccepted = (...names) => Object.fromEntries(Object.entries(SURFACES).map(([name, s]) => [name, { ...s, accepted: names.includes(name) ? false : s.accepted }]));
 import { openBrowser } from './browser.mjs';
 
 const at = (tier, width = 1366) => ({ state: { name: 's' }, viewport: { tier, label: `${width}`, kind: 'anchor' } });
@@ -18,11 +21,14 @@ describe('severity routing', () => {
   it('resolves a finding from the manifest at the tier it was found at', () => {
     const ledger = createLedger();
     assert.equal(ledger.record(at('A'), 'ledger.row-pitch', 'x').severity, 'blocking');
-    assert.equal(ledger.record(at('B', 1024), 'ledger.row-pitch', 'x').severity, 'measured/pending');
+    // T1 promoted Tier B; Tier C is T2's.
+    assert.equal(ledger.record(at('B', 1024), 'ledger.row-pitch', 'x').severity, 'blocking');
+    assert.equal(ledger.record(at('C', 390), 'ledger.row-pitch', 'x').severity, 'measured/pending');
     assert.equal(ledger.record(at('C', 390), 'page.horizontal-overflow', 'x').severity, 'measured/pending');
-    // R6 fixed the rendered pin and made it blocking at Tier A; Tier B is still S5's.
+    // R6 fixed the rendered pin and made it blocking at Tier A; T1 at Tier B.
     assert.equal(ledger.record(at('A'), 'review.sticky-rendered', 'x').severity, 'blocking');
-    assert.equal(ledger.record(at('B', 1024), 'review.sticky-rendered', 'x').severity, 'measured/pending');
+    assert.equal(ledger.record(at('B', 1024), 'review.sticky-rendered', 'x').severity, 'blocking');
+    assert.equal(ledger.record(at('C', 390), 'review.sticky-rendered', 'x').severity, 'measured/pending');
   });
 
   it('refuses an unregistered rule rather than reporting it', () => {
@@ -38,8 +44,8 @@ describe('severity routing', () => {
   });
 
   it('fails the run on a blocking finding and never on a measured/pending one', () => {
-    const ledger = createLedger();
-    ledger.record(at('B', 1024), 'page.horizontal-overflow', 'x');
+    const ledger = createLedger(RULES, notAccepted('overview'));
+    ledger.record(at('C', 390), 'page.horizontal-overflow', 'x');
     ledger.record({ ...at('A'), surface: 'overview' }, 'containment.depth', 'x');
     assert.equal(exitStatus({ harnessErrors: [], blocking: ledger.blocking() }), 0);
     assert.equal(ledger.pending().length, 2);
@@ -171,7 +177,7 @@ describe('harness faults', () => {
 describe('surface-scoped findings in the ledger', () => {
   const on = (surface, tier = 'A') => ({ state: { name: 's' }, viewport: { tier, label: tier === 'A' ? '1366x768' : '390x844', kind: 'anchor' }, surface });
   it('weighs a finding by where it was found: an S1 region blocks, an unmigrated surface is pending on its row', () => {
-    const ledger = createLedger();
+    const ledger = createLedger(RULES, notAccepted('overview'));
     const foundation = ledger.record(on('overview'), 'containment.depth', 'x', 'foundation');
     assert.equal(foundation.severity, 'blocking');
     assert.equal(foundation.surface, 'foundation');
@@ -180,12 +186,27 @@ describe('surface-scoped findings in the ledger', () => {
     assert.match(surface.owner, /R1/);
     assert.equal(ledger.record(on('overview', 'C'), 'containment.depth', 'x', 'foundation').severity, 'measured/pending');
   });
+  it('records surface findings on the accepted R1-R3 surfaces as blocking, and as evaluated (retrospective correction)', () => {
+    for (const surface of ['overview', 'videos', 'processing-detail']) {
+      const ledger = createLedger();
+      for (const rule of ['text.overflow', 'containment.depth']) {
+        const finding = ledger.record(on(surface), rule, 'injected');
+        assert.equal(finding.severity, 'blocking', `${rule} on ${surface}`);
+        assert.equal(finding.surface, surface);
+      }
+      assert.equal(exitStatus({ harnessErrors: [], blocking: ledger.blocking() }), 1, surface);
+      ledger.markEvaluated(on(surface), ['text.overflow', 'containment.depth']);
+      assert.ok(!ledger.vacuous().includes('text.overflow @ Tier A'), surface);
+      assert.ok(!ledger.vacuous().includes('containment.depth @ Tier A'), surface);
+    }
+  });
   it('records a surface finding on the accepted Camera Analytics as blocking, and as evaluated (M4)', () => {
     const ledger = createLedger();
     const finding = ledger.record(on('camera-analytics'), 'containment.depth', 'x');
     assert.equal(finding.severity, 'blocking');
     assert.equal(finding.surface, 'camera-analytics');
-    assert.equal(ledger.record(on('camera-analytics', 'B'), 'containment.depth', 'x').severity, 'measured/pending');
+    assert.equal(ledger.record(on('camera-analytics', 'B'), 'containment.depth', 'x').severity, 'blocking');
+    assert.equal(ledger.record(on('camera-analytics', 'C'), 'containment.depth', 'x').severity, 'measured/pending');
     ledger.markEvaluated(on('camera-analytics'), ['text.overflow']);
     assert.ok(!ledger.vacuous().includes('text.overflow @ Tier A'));
   });
@@ -194,7 +215,8 @@ describe('surface-scoped findings in the ledger', () => {
     const finding = ledger.record(on('review'), 'containment.depth', 'x');
     assert.equal(finding.severity, 'blocking');
     assert.equal(finding.surface, 'review');
-    assert.equal(ledger.record(on('review', 'B'), 'containment.depth', 'x').severity, 'measured/pending');
+    assert.equal(ledger.record(on('review', 'B'), 'containment.depth', 'x').severity, 'blocking');
+    assert.equal(ledger.record(on('review', 'C'), 'containment.depth', 'x').severity, 'measured/pending');
     ledger.markEvaluated(on('review'), ['text.overflow']);
     assert.ok(!ledger.vacuous().includes('text.overflow @ Tier A'));
   });
@@ -203,7 +225,8 @@ describe('surface-scoped findings in the ledger', () => {
     const finding = ledger.record(on('search'), 'containment.depth', 'x');
     assert.equal(finding.severity, 'blocking');
     assert.equal(finding.surface, 'search');
-    assert.equal(ledger.record(on('search', 'B'), 'containment.depth', 'x').severity, 'measured/pending');
+    assert.equal(ledger.record(on('search', 'B'), 'containment.depth', 'x').severity, 'blocking');
+    assert.equal(ledger.record(on('search', 'C'), 'containment.depth', 'x').severity, 'measured/pending');
     ledger.markEvaluated(on('search'), ['text.overflow']);
     assert.ok(!ledger.vacuous().includes('text.overflow @ Tier A'));
   });
@@ -213,12 +236,13 @@ describe('surface-scoped findings in the ledger', () => {
     const finding = ledger.record(on('scene-editor'), 'text.overflow', 'x');
     assert.equal(finding.severity, 'blocking');
     assert.equal(finding.surface, 'scene-editor');
-    assert.equal(ledger.record(on('scene-editor', 'B'), 'text.overflow', 'x').severity, 'measured/pending');
+    assert.equal(ledger.record(on('scene-editor', 'B'), 'text.overflow', 'x').severity, 'blocking');
+    assert.equal(ledger.record(on('scene-editor', 'C'), 'text.overflow', 'x').severity, 'measured/pending');
     ledger.markEvaluated(on('scene-editor'), ['containment.depth']);
     assert.ok(!ledger.vacuous().includes('containment.depth @ Tier A'));
   });
   it('does not count a blocking rule as evaluated where it was only ever pending', () => {
-    const ledger = createLedger();
+    const ledger = createLedger(RULES, notAccepted('overview'));
     ledger.markEvaluated(on('overview'), ['containment.depth']);
     assert.ok(ledger.vacuous().includes('containment.depth @ Tier A'));
     ledger.markEvaluated(on('overview'), ['containment.depth'], 'foundation');

@@ -8,6 +8,7 @@ import { getProcessingStatus, listVideos, queueProcessing, type ProcessingRunSta
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import VideosPage from './VideosPage';
+import { cellText } from '../../test/ledgerCell';
 
 vi.mock('../../api/cameras', () => ({ listCameras: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
@@ -67,7 +68,7 @@ describe('VideosPage', () => {
     renderWithApp(<VideosPage />, { route: '/videos' });
     const table = await screen.findByRole('table');
     const rows = within(table).getAllByRole('row').slice(1);
-    expect(rows.map((row) => within(row).getAllByRole('cell')[0].textContent)).toEqual([
+    expect(rows.map((row) => cellText(within(row).getAllByRole('cell')[0]))).toEqual([
       expect.stringContaining(processed.originalFileName),
       expect.stringContaining('dock-night.mp4'),
       expect.stringContaining('yard.mp4'),
@@ -132,7 +133,7 @@ describe('VideosPage', () => {
     const files = async () => {
       const table = await screen.findByRole('table');
       return within(table).getAllByRole('row').slice(1)
-        .map((row) => within(row).getAllByRole('cell')[0].textContent);
+        .map((row) => cellText(within(row).getAllByRole('cell')[0]));
     };
 
     // The page opens on Recorded descending, exactly as before UI-3.
@@ -170,7 +171,7 @@ describe('VideosPage', () => {
     vi.mocked(listVideos).mockResolvedValue(tied);
     const first = renderWithApp(<VideosPage />, { route: '/videos' });
     const order = within(await screen.findByRole('table')).getAllByRole('row').slice(1)
-      .map((row) => within(row).getAllByRole('cell')[0].textContent);
+      .map((row) => cellText(within(row).getAllByRole('cell')[0]));
     // Same recording start: the later import leads, as it always has.
     expect(order).toEqual(['a.mp4', 'b.mp4']);
     first.unmount();
@@ -178,7 +179,7 @@ describe('VideosPage', () => {
     vi.mocked(listVideos).mockResolvedValue([...tied].reverse());
     renderWithApp(<VideosPage />, { route: '/videos' });
     const again = within(await screen.findByRole('table')).getAllByRole('row').slice(1)
-      .map((row) => within(row).getAllByRole('cell')[0].textContent);
+      .map((row) => cellText(within(row).getAllByRole('cell')[0]));
     expect(again).toEqual(order);
   });
 

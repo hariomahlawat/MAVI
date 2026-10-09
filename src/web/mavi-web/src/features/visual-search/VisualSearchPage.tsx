@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
@@ -18,12 +18,13 @@ import Icon from '../../shared/components/Icon';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { configuredUtcToWallTimeText } from '../../shared/time/wallTime';
-import { ContextBar, InvestigationLayout, Segmented } from '../../shared/workspace';
+import { ContextBar, InvestigationLayout, InvestigationRailToggle, Segmented } from '../../shared/workspace';
 import { isDismissTarget, isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
 import { findSelectControl, isSelectedResultControl } from './resultSelection';
 import type { AnalyticsCoverage, TrackAnalyticsIdentity } from '../../api/tracks';
 import CommittedFilterChips from './CommittedFilterChips';
 import CoverageStrip from '../../shared/evidence/CoverageStrip';
+import { keyboardHeldElsewhere } from '../../shared/overlay/focus';
 import SearchFilterRail, { ANALYTICS_DRAFT_FIELDS, emptyDraft, type DisplayZoneState, type SearchDraft } from './SearchFilterRail';
 import TrackInspector from './TrackInspector';
 import TrackResultCard from './TrackResultCard';
@@ -380,11 +381,14 @@ export default function VisualSearchPage() {
     selectTrack(null);
   }, [selectedId, selectTrack]);
 
-  // Focus moves once the selection has actually cleared — after the commit
-  // that removes the inspector and, below 1600px, after its drawer has given
-  // the results back. A microtask ran before the router committed the change,
-  // while the results were still inert, and the focus was silently refused.
-  useEffect(() => {
+  // Focus moves once the selection has actually cleared — in the commit that
+  // removes the inspector, after its drawer has given the results back (the
+  // drawer releases its inert set in its own layout cleanup, which precedes
+  // this). A microtask ran before the router committed the change, while the
+  // results were still inert, and the focus was silently refused; a passive
+  // effect ran a frame late, leaving focus on the document in between — which
+  // the stacked drawer (§25 Tier B), drawn over the whole viewport, exposed.
+  useLayoutEffect(() => {
     if (selectedId !== null) return;
     const target = pendingFocusRef.current;
     pendingFocusRef.current = null;
@@ -455,6 +459,10 @@ export default function VisualSearchPage() {
     if (items.length === 0) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      // Behind the navigation overlay, the filters drawer (§25 Tier B) or a
+      // Dialog the results are covered; only the inspector drawer is Search's
+      // own, where J and K step the Tracks as they always have (§20).
+      if (keyboardHeldElsewhere('.workspace__inspector')) return;
       // Escape is decided before the navigation gate: it closes the inspector
       // from the Evidence Player and the Evidence Set as well, which bind no
       // Escape of their own. J, K, the arrows and Enter stay refused there.
@@ -725,6 +733,9 @@ export default function VisualSearchPage() {
                   : 'Newest first'}
               </span>
             </div>
+            {/* §25 Tier B (768-1100): the filters are a drawer opened from
+                here, the results header; nothing where the rail is in place. */}
+            <InvestigationRailToggle />
             {/* §17 (v2.0): the keys are in the `?` shortcut sheet, not standing
                 header chrome. */}
             {/* §14 of the brief: the List/Grid choice is a property of the

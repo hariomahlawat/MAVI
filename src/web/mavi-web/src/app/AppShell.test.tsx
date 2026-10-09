@@ -6,7 +6,9 @@ import { useEffect, useState } from 'react';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPlatformHealth } from '../api/platform';
+import { SHELL_QUERIES } from '../shared/overlay/useMediaQuery';
 import { DESTINATIONS, ownerOf, type SurfaceId } from '../shared/workspace';
+import { stubMatchMedia } from '../test/matchMedia';
 import { createMaviQueryClient } from './queryClient';
 import { appRoutes } from './router';
 import { CHORD_TIMEOUT_MS } from './useGlobalShortcuts';
@@ -181,6 +183,88 @@ describe('rail collapse control (§5)', () => {
     renderAt('/');
     await screen.findByRole('heading', { name: 'Overview route' });
     expect(screen.getByRole('button', { name: 'Expand navigation' })).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+describe('Tier B rail (§25: collapsed by default, an overlay when opened)', () => {
+  let unstub: () => void = () => {};
+  beforeEach(() => {
+    // Compact width: only the shell's Tier B query matches.
+    unstub = stubMatchMedia((query) => query === SHELL_QUERIES.compact);
+  });
+  afterEach(() => unstub());
+
+  it('is collapsed by default whatever the workstation preference, and keeps that preference', async () => {
+    window.localStorage.setItem('mavi.sidebar.collapsed', '0');
+    renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+
+    const toggle = screen.getByRole('button', { name: 'Open navigation' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', rail().id);
+    expect(document.querySelector('.shell')).toHaveClass('shell--compact', 'shell--collapsed');
+    // The operator's Tier A choice is not overwritten by the compact default.
+    expect(window.localStorage.getItem('mavi.sidebar.collapsed')).toBe('0');
+  });
+
+  it('opens as a named modal overlay over an inert workspace, contains Tab, and closes on Escape with focus restored', async () => {
+    const user = userEvent.setup();
+    renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    const toggle = screen.getByRole('button', { name: 'Open navigation' });
+
+    await user.click(toggle);
+    const overlay = screen.getByRole('dialog', { name: 'Navigation' });
+    expect(overlay).toHaveAttribute('aria-modal', 'true');
+    expect(overlay).toContainElement(rail());
+    expect(document.activeElement).toHaveTextContent('Navigation');
+    expect(document.getElementById('main')).toHaveAttribute('inert');
+    expect(screen.getByRole('button', { name: 'Close navigation' })).toHaveAttribute('aria-expanded', 'true');
+
+    // Tab cycles inside the overlay only.
+    for (let step = 0; step < 16; step += 1) {
+      await user.tab();
+      expect(overlay).toContainElement(document.activeElement as HTMLElement);
+    }
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument();
+    expect(document.getElementById('main')).not.toHaveAttribute('inert');
+    expect(screen.getByRole('button', { name: 'Open navigation' })).toHaveFocus();
+  });
+
+  it('lets no global shortcut act behind the open overlay', async () => {
+    const user = userEvent.setup();
+    const { router } = renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+
+    await user.keyboard('gc');
+    expect(router.state.location.pathname).toBe('/');
+    expect(screen.getByRole('dialog', { name: 'Navigation' })).toBeInTheDocument();
+  });
+
+  it('closes when a destination is chosen from it', async () => {
+    const user = userEvent.setup();
+    const { router } = renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+
+    await user.click(within(rail()).getByRole('link', { name: 'Cameras' }));
+    await screen.findByRole('heading', { name: 'Cameras route' });
+    expect(router.state.location.pathname).toBe('/cameras');
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument();
+    expect(document.getElementById('main')).not.toHaveAttribute('inert');
+  });
+
+  it('never writes the workstation preference from the compact toggle', async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem('mavi.sidebar.collapsed', '1');
+    renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    await user.keyboard('{Escape}');
+    expect(window.localStorage.getItem('mavi.sidebar.collapsed')).toBe('1');
   });
 });
 

@@ -64,6 +64,12 @@ export type LedgerSort<Column extends string> = {
    * operator wanted (§7 of the UI-3 brief, §16 of the specification).
    */
   readonly activate: (column: Column, firstDirection: SortDirection) => void;
+  /**
+   * Set the order outright — the sort select that stands in for the headers of
+   * columns folded into the primary cell (§25 Tier B), where no header is left
+   * to activate.
+   */
+  readonly set: (state: SortState<Column>) => void;
 };
 
 export function useLedgerSort<Column extends string>(initial: SortState<Column>): LedgerSort<Column> {
@@ -77,5 +83,7 @@ export function useLedgerSort<Column extends string>(initial: SortState<Column>)
     ));
   }, []);
 
-  return { state, activate };
+  const set = useCallback((next: SortState<Column>) => setState(next), []);
+
+  return { state, activate, set };
 }

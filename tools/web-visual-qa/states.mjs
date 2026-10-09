@@ -162,7 +162,26 @@ const NOT_ANALYSED_PAGE = {
 };
 
 /** Pick the fixture camera in the rail so the Analytics group resolves its scene. */
-const PICK_CAMERA = `(() => {
+/**
+ * T1 (§25 Tier B, 768-1100): the Investigation's filter rail is a drawer the
+ * results header opens. A preparation that works in the rail opens it first;
+ * where the rail is in place (no toggle) this is nothing. Waits on the drawer's
+ * own modal state, never on a guessed duration (V3).
+ */
+const OPEN_FILTERS = `(async () => {
+  const toggle = document.querySelector('.workspace__rail-toggle');
+  if (!toggle || toggle.getAttribute('aria-expanded') === 'true') return true;
+  toggle.focus();
+  toggle.click();
+  const end = performance.now() + 8000;
+  while (performance.now() < end) {
+    if (document.querySelector('.workspace__rail[role="dialog"][aria-modal="true"]')) return true;
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+  throw new Error('preparation timed out after 8000ms waiting for the filters drawer to open');
+})()`;
+
+const PICK_CAMERA_IN_RAIL = `(() => {
   const select = Array.from(document.querySelectorAll('select'))
     .find((element) => element.labels?.[0]?.textContent.trim() === 'Camera');
   if (!select || !Array.from(select.options).some((option) => option.value === '${CAM}')) return false;
@@ -171,6 +190,7 @@ const PICK_CAMERA = `(() => {
   select.dispatchEvent(new Event('change', { bubbles: true }));
   return true;
 })()`;
+const PICK_CAMERA = `(async () => { await ${OPEN_FILTERS}; return ${PICK_CAMERA_IN_RAIL}; })()`;
 
 /** Switch the results column to the Grid; the choice is a stored preference. */
 const PICK_GRID = `(() => {
@@ -197,7 +217,7 @@ const LOAD_MORE = `(() => {
  * next render; the native setter plus a bubbled `input` event is what the
  * product's own change handler actually sees.
  */
-const REFUSE_FIELDS = `(() => {
+const REFUSE_FIELDS_IN_RAIL = `(() => {
   const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
   const type = (label, value) => {
     const field = Array.from(document.querySelectorAll('.field'))
@@ -216,6 +236,7 @@ const REFUSE_FIELDS = `(() => {
   search.click();
   return true;
 })()`;
+const REFUSE_FIELDS = `(async () => { await ${OPEN_FILTERS}; return ${REFUSE_FIELDS_IN_RAIL}; })()`;
 
 /**
  * Drive the player to the representative frame using the product's own
@@ -310,6 +331,7 @@ const RELOAD_DIALOG = `(async () => {
   reload.click();
   return Boolean(await until(() => document.querySelector('[role="dialog"][aria-modal="true"]'), 'the reload Dialog'));
 })()`;
+
 /** The Workbench inspector opened as the 1101-1149 overlay drawer (§4.3.1, §20). */
 const OPEN_WORKBENCH_DRAWER = `(async () => {
   ${UNTIL}
@@ -585,6 +607,13 @@ export const TIER_POLICIES = {
         + 'from rendered widths and refuses to fake; at Tier B the same element has the room (the bucket table heading: 76px of text '
         + 'in 199px and 122px), and its Tier B geometry is its base state\'s, which is swept there',
       C: 'a typography variant: its Tier C geometry is its base state\'s, which is swept there',
+    },
+  },
+  'workstation-interaction': {
+    tiers: ['A'],
+    excluded: {
+      B: 'a workstation interaction: the rail\'s collapse choice exists at Tier A only — at Tier B (§25) the rail is collapsed by default and the same control opens it as an overlay, which shell-rail-overlay probes',
+      C: 'a workstation interaction: at Tier C the rail is the §25 top-of-page menu (S5 / T2)',
     },
   },
   'breakpoint-probe': {
@@ -2665,6 +2694,7 @@ export const STATES = [
     // The rail collapsed by the operator: 56px, icon-only items named, the
     // 32x32 collapse control still labelled and announcing its state.
     name: 'shell-rail-collapsed', interaction: 'collapse the navigation rail', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    tierPolicy: 'workstation-interaction',
     prepare: `(async () => {
       ${UNTIL}
       const toggle = document.querySelector('.sidebar__toggle');
@@ -2672,6 +2702,27 @@ export const STATES = [
       toggle.click();
       return Boolean(await until(() => document.querySelector('.shell--collapsed') && toggle.getAttribute('aria-expanded') === 'false',
         'the rail collapsed and announcing it'));
+    })()`,
+  },
+  {
+    // T1 (§25 Tier B shell): the rail, collapsed by default, opened as an
+    // overlay — the shared Drawer over the whole viewport: focus on its
+    // heading, the workspace and Context Bar inert beneath its scrim. Probed at
+    // the Tier B edges and the anchor between them.
+    name: 'shell-rail-overlay', interaction: 'open the navigation overlay', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    tierPolicy: 'breakpoint-probe', probeOf: 'shell-rail-collapsed', probeWidths: [768, 1024, 1365],
+    prepare: `(async () => {
+      ${UNTIL}
+      const toggle = await until(() => document.querySelector('.shell--compact .sidebar__toggle'), 'the compact rail toggle');
+      if (toggle.getAttribute('aria-expanded') !== 'false') return false;
+      toggle.focus();
+      window.__vqa.mark('interaction-start');
+      toggle.click();
+      return Boolean(await until(() => {
+        const overlay = document.querySelector('.sidebar[role="dialog"][aria-modal="true"]');
+        return overlay && overlay.contains(document.activeElement) && document.getElementById('main')?.hasAttribute('inert')
+          && overlay.getBoundingClientRect().width >= 200;
+      }, 'the rail open as a modal overlay over an inert workspace'));
     })()`,
   },
   {
@@ -2888,6 +2939,41 @@ export const STATES = [
   },
 
   { name: 'videos', path: '/videos', fullWidth: true, archetype: 'ledger' },
+  {
+    // T1 (§25 Tier B, Codex P1 on #199): with Recorded and Duration folded
+    // into the File cell, their sort is still the operator's — through the
+    // Sort select that stands in for the headers. Reached only if choosing
+    // "Duration, longest first" there actually re-sorts the rows: the folded
+    // Duration header reports the order, and the durations the rows carry in
+    // their primary cells read longest first.
+    name: 'videos-sort-folded', interaction: 'sort by duration from the folded Sort select',
+    path: '/videos', fullWidth: true, archetype: 'ledger',
+    prepare: `(async () => {
+      ${UNTIL}
+      const select = await until(() => {
+        const s = document.querySelector('.ledger-sort select');
+        return s && s.getBoundingClientRect().width > 0 && document.querySelector('tbody .ledger-primary') ? s : null;
+      }, 'the folded Sort select beside a loaded Ledger');
+      if (!select) return false;
+      const seconds = (text) => {
+        const part = (unit) => Number((text.match(new RegExp('(\\\\d+)' + unit)) || [0, 0])[1]);
+        return part('h') * 3600 + part('m') * 60 + part('s');
+      };
+      const durations = () => Array.from(document.querySelectorAll('tbody tr .ledger-folded__value'))
+        .filter((v) => /^Duration\\b/.test(v.textContent.trim()))
+        .map((v) => seconds(v.textContent.replace(/^Duration/, '')));
+      const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      set.call(select, 'duration:desc');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return Boolean(await until(() => {
+        const head = Array.from(document.querySelectorAll('thead th')).find((th) => th.textContent.trim().startsWith('Duration'));
+        const values = durations();
+        return head && head.getAttribute('aria-sort') === 'descending' && select.value === 'duration:desc'
+          && values.length > 1 && values.every((v, i) => i === 0 || values[i - 1] >= v) && new Set(values).size > 1;
+      }, 'the rows sorted by duration, longest first'));
+    })()`,
+    tierPolicy: 'breakpoint-probe', probeOf: 'videos', probeWidths: [768, 1024],
+  },
   {
     name: 'videos-empty', path: '/videos', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': [] }, expectText: 'No videos imported yet',
@@ -3283,13 +3369,27 @@ export const STATES = [
     expectText: ['Discard your changes and load the saved revision?', 'Discard and load revision'],
   },
   {
-    // S1c: the only width band where the Workbench inspector is an overlay.
+    // §4.3.1 / §25 Tier B: the frozen Workbench progression at its boundaries
+    // — stacked at 1100; the overlay-drawer band 1101-1149 (shut, its toggle
+    // shown, the stage at full working width); side by side from 1150, through
+    // the Tier B top edge (1365) into Tier A (1366). workbench.geometry and
+    // tier.b-composition judge each from rendered geometry.
+    name: 'scene-editor-drawer-boundaries',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor', probeWidths: [1100, 1101, 1120, 1149, 1150, 1200, 1365, 1366],
+  },
+  {
+    // The drawer band with the drawer open: modal over an inert workspace,
+    // focus inside; the harness's overlay exit then proves Escape closes it,
+    // the inert regions are released and focus returns to the toggle.
     name: 'scene-editor-drawer', interaction: 'open the inspector drawer',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
     prepare: OPEN_WORKBENCH_DRAWER,
-    tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor', probeWidths: [1120],
+    tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor', probeWidths: [1101, 1120, 1149],
   },
   {
     // A past revision open for reading: its chip pressed (`is-viewing`) and
@@ -3622,6 +3722,7 @@ export const STATES = [
     archetype: 'investigation',
     prepare: `(async () => {
       ${UNTIL}
+      await ${OPEN_FILTERS};
       const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
       const field = (label) => Array.from(document.querySelectorAll('.field')).find((el) => el.querySelector('label')?.textContent.trim() === label)?.querySelector('input');
       const from = await until(() => field('From'), 'the From field');
@@ -3729,8 +3830,11 @@ export const STATES = [
       select.click();
       return Boolean(await until(() => {
         if (!new URLSearchParams(location.search).get('track')) return false;
-        const drawer = document.querySelector('[role="dialog"][aria-modal="true"]');
-        return !drawer || drawer.contains(document.activeElement);
+        // The inspector itself, not only the URL: a drawer not yet mounted
+        // must not pass for an in-place inspector (T1, stacked drawer).
+        const inspector = document.querySelector('.workspace__inspector');
+        if (!inspector) return false;
+        return inspector.getAttribute('role') !== 'dialog' || inspector.contains(document.activeElement);
       }, 'the inspector open, holding focus when it is a drawer'));
     })()`,
     expectText: INSPECTOR_LOADED,
@@ -3831,6 +3935,8 @@ export const STATES = [
     path: `/search?cameraId=${CAM}&zoneId=${ZONE}`,
     fullWidth: true, archetype: 'investigation',
     api: { '/api/tracks': ANALYTIC_PAGE(PARTIAL_COVERAGE), [`/api/cameras/${CAM}/scene`]: 'unavailable' },
+    // The statement is in the rail, which is a drawer at 768-1100 (§25).
+    prepare: OPEN_FILTERS,
     expectText: ['Scene geometry is unavailable', '77777777…'],
   },
   {
@@ -3851,6 +3957,7 @@ export const STATES = [
     },
     prepare: `(async () => {
       ${UNTIL}
+      await ${OPEN_FILTERS};
       // First read: the zone resolves to its name from the active scene.
       if (!document.body.innerText.includes('Loading bay')) return false;
       // The scene must be older than its 30s stale time. Rather than sleep for
@@ -3859,8 +3966,15 @@ export const STATES = [
       // waiting, without the harness spending 31 seconds per capture on it.
       const realNow = Date.now.bind(Date);
       Date.now = () => realNow() + 31000;
+      // An open filters drawer (768-1100) makes the shell inert: close it, as
+      // the operator would, before leaving by the rail.
+      const closeFilters = Array.from(document.querySelectorAll('.workspace__rail-head button')).find((b) => /Close filters/.test(b.textContent));
+      if (closeFilters) {
+        closeFilters.click();
+        await until(() => !document.querySelector('.workspace__rail[role="dialog"]') && !document.querySelector('#main[inert]'), 'the filters drawer closed');
+      }
       const overview = Array.from(document.querySelectorAll('a')).find((a) => a.textContent.trim() === 'Overview');
-      if (!overview) return false;
+      if (!overview || overview.closest('[inert]')) return false;
       overview.click();
       // The Overview page rendered and Search gone, not only the URL changed:
       // going back while the route is still loading keeps Search mounted, and
@@ -3868,6 +3982,9 @@ export const STATES = [
       await until(() => location.pathname === '/' && !document.querySelector('.workspace--investigation')
         && document.body.innerText.includes('Recent tracks'), 'the Overview page to replace Search');
       history.back();
+      // Search remounts on return, its rail drawer (768-1100) shut again.
+      await until(() => document.querySelector('.workspace--investigation'), 'Search to render again');
+      await ${OPEN_FILTERS};
       return Boolean(await until(() => document.body.innerText.includes('Scene geometry is unavailable'),
         'the refetch on return to fail after its one retry', 15000));
     })()`,
@@ -4507,3 +4624,22 @@ export const STATES = [
     forbidText: ['Coverage complete', 'No samples fell inside this window'],
   },
 ];
+
+/**
+ * T1 (§25 Tier B, 1101-1365): the band between the stacking threshold and the
+ * workstation, which neither Tier B anchor (1024, 768) reaches. Each surface's
+ * representative states are probed at its lower edge, the 1200 spot check the
+ * register names, and its upper edge, so the side-by-side half of every Tier B
+ * rule — the Investigation rail in place, the Record facts rail at 280px or
+ * more, the Review rail beside a 65% player and its pin — is evaluated, not
+ * passed for want of a width. (The Scene Editor has its own threshold probes.)
+ */
+const COMPACT_PROBE_BASES = [
+  'overview', 'videos', 'cameras', 'processing-queue', 'import', 'processing-detail-completed',
+  'processing-detail-long-identity', 'analytics-activity', 'search', 'search-inspecting', 'review', 'review-long-identity',
+];
+for (const name of COMPACT_PROBE_BASES) {
+  const base = STATES.find((state) => state.name === name);
+  if (!base) throw new Error(`compact probe of an unknown state ${name}`);
+  STATES.push({ ...base, name: `${name}-compact-band`, tierPolicy: 'breakpoint-probe', probeOf: name, probeWidths: [1101, 1200, 1365] });
+}
