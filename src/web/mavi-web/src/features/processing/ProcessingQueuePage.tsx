@@ -104,13 +104,19 @@ export default function ProcessingQueuePage() {
                 Latest run per video — earlier runs are not listed here.
                 {videos.data ? (
                   <>
-                    {' · '}
+                    <span className="queue-counts__sep">{' · '}</span>
                     <span className="queue-counts">
                       <span>{formatCount(counts.active)} active</span>
                       <span>{formatCount(counts.failed)} failed</span>
                       <span>{formatCount(counts.completed)} completed</span>
                     </span>
                   </>
+                ) : videos.isPending ? (
+                  // At Tier C the counts are the band's own second line, so
+                  // the line is there while they load: the list arriving below
+                  // it moves nothing (§36.3). Above Tier C it is not drawn,
+                  // and a failed inventory claims no counting at all.
+                  <span className="queue-counts queue-counts--pending">Counting runs…</span>
                 ) : null}
               </>
             )}
@@ -261,7 +267,9 @@ export default function ProcessingQueuePage() {
                       </td>
                       <td className="num ledger-fold">{run ? formatCount(run.attemptCount) : '—'}</td>
                       <td className="num ledger-fold">{run && run.status === 'Completed' ? formatCount(run.tracksCreated) : '—'}</td>
-                      <td>
+                      {/* No readiness yet is no value: a Tier C list item has no
+                          column for a bare dash to stand in (§25). */}
+                      <td className={run && run.status === 'Completed' ? undefined : 'ledger-cell--absent'}>
                         {run && run.status === 'Completed' ? (
                           <span className="analytics-state" data-readiness={run.analyticsReadiness}>
                             {analyticsReadinessText(run.analyticsReadiness)}

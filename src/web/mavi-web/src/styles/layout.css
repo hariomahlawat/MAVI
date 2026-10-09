@@ -190,15 +190,28 @@
 .row--nowrap { flex-wrap: nowrap; }
 .grow { flex: 1; min-width: 0; }
 
-@media (max-width: 760px) {
-  /* Below the narrow shell's existing threshold the Ledger and the Overview
-     keep the page scroll they had before T1: their Tier C composition (a
-     single-column list) is T2's, and a 200px body scroller on a phone is
-     worse than the page (§25: Tier C must not get worse here). */
+/* §25 Tier C (390px ≤ width < 768px): the rail takes no column. The
+   workspace has the viewport; the navigation is the shell's overlay, opened
+   from the top-of-page menu control (AppShell), and absent until then. */
+.shell--narrow, .shell--narrow.shell--collapsed { grid-template-columns: minmax(0, 1fr); }
+.shell--narrow > .content { grid-column: 1; }
+.shell--narrow:not(.shell--rail-open) > .sidebar { display: none; }
+.shell--narrow.shell--rail-open > .sidebar { width: min(var(--sidebar-w), 100%); }
+/* The menu control: the §5 rail control's metric (32px, a visible icon,
+   named and announcing the navigation's state), first in the band. */
+.shell__menu {
+  order: -1; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: var(--control-h); height: var(--control-h); padding: 0; margin-left: calc(-1 * var(--s-1));
+  border: var(--stroke-hair) solid transparent; border-radius: var(--r-2);
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+}
+.shell__menu:hover { background: var(--surface-raised); }
+.context-bar > .tooltip-anchor:has(> .shell__menu) { order: -1; flex: none; }
+
+@media (width < 768px) {
+  /* A Tier C Ledger and the Overview are single-column reading lists: the
+     page scrolls them, not a short body scroller inside a phone screen. */
   .main[data-scroll="body"] { overflow: auto; }
-  .shell, .shell--collapsed { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr); }
-  .sidebar__brand div, .sidebar__nav a span, .sidebar__section, .api-health__text, .sidebar__toggle { display: none; }
-  .sidebar__nav a { justify-content: center; padding: 0; }
   .page { padding: var(--s-3); }
   .context-bar { padding: 0 var(--s-3); }
 }

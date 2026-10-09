@@ -30,8 +30,12 @@ export function useMediaQuery(query: string): boolean {
  */
 export const SHELL_QUERIES = {
   compact: '(width < 1366px)',
-  /** The pre-T2 narrow shell (layout.css, ≤760): the rail hides its control and labels. */
-  narrow: '(max-width: 760px)',
+  /**
+   * Tier C (§25: 390px ≤ width < 768px): the rail is a top-of-page menu
+   * control opening the navigation as an overlay. The tier's own boundary —
+   * the legacy 760px narrow shell is gone, so 761-767 is Tier C like the rest.
+   */
+  narrow: '(width < 768px)',
 } as const;
 
 /** The widths at which an inspector is drawn over the workspace (workspace.css, §25). */

@@ -1,5 +1,6 @@
 import { SCENE_LIMITS } from '../../api/scene';
 import Button from '../../shared/components/Button';
+import { SHELL_QUERIES, useMediaQuery } from '../../shared/overlay/useMediaQuery';
 import { ContextBar } from '../../shared/workspace';
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'saved' | 'readonly';
@@ -74,6 +75,7 @@ export default function SceneContextBar({
   onReturnToActive,
 }: Props) {
   const readOnly = saveState === 'readonly';
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
   // Reset returns the draft — and its note — to the active revision; with no
   // changes and no note it has nothing to do, so it is not offered as if it
   // did (§12, F7). A note left behind when the geometry returns to its
@@ -118,7 +120,10 @@ export default function SceneContextBar({
           )}
         </>
       )}
-      actions={readOnly ? (
+      // §25 Tier C: the editor is not drawn, so neither are its editing
+      // actions — a Save of a draft the operator cannot see is not offered.
+      // Returning from a past revision is a view change and stays.
+      actions={narrow && !readOnly ? null : readOnly ? (
         <Button variant="primary" icon="chevronLeft" onClick={onReturnToActive}>
           Return to active revision
         </Button>

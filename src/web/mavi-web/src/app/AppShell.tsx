@@ -72,19 +72,62 @@ export default function AppShell() {
   // written here: it is a preference for the workstation, and a compact window
   // keeps it for when the window is wide again.
   const compact = useMediaQuery(SHELL_QUERIES.compact);
+  // §25 Tier C: the rail takes no column at all; a top-of-page menu control
+  // opens the same navigation as the same overlay.
   const narrow = useMediaQuery(SHELL_QUERIES.narrow);
   const [railOpen, setRailOpen] = useState(false);
   // Leaving the compact range closes the overlay, so it is never found open —
-  // and modal — when the window comes back; so does entering the narrow shell,
-  // whose rail hides its control and its labels (Tier C, S5/T2), where an open
-  // overlay would be a modal of unnamed icons.
+  // and modal — when the window comes back.
   useEffect(() => {
-    if (!compact || narrow) setRailOpen(false);
-  }, [compact, narrow]);
+    if (!compact) setRailOpen(false);
+  }, [compact]);
   const railCollapsed = compact ? !railOpen : collapsed;
   const railRef = useRef<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
+  const menuRef = useRef<HTMLButtonElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
   const navId = useId();
+
+  // Crossing the Tier B/C boundary (768px) changes which control opens the
+  // navigation: the rail's own toggle at Tier B, the top-of-page menu control
+  // at Tier C, and the other one is not rendered. An overlay open across the
+  // crossing closes — its invoker is the control that just disappeared — and
+  // focus that was on the navigation goes, before paint, to the control the
+  // new tier offers, never left on a hidden element (the T1 carry-over: the
+  // overlay closing at the old 760px threshold left focus on its hidden
+  // heading).
+  const crossedOpenRef = useRef(false);
+  const firstNarrowRef = useRef(true);
+  // Whether the menu control holds focus. Recorded as it happens: widening
+  // past 768px unmounts the menu in the same commit, so by the time the
+  // effect below runs focus is already on the document and cannot say where
+  // it was.
+  const menuFocusedRef = useRef(false);
+  useLayoutEffect(() => {
+    if (firstNarrowRef.current) {
+      firstNarrowRef.current = false;
+      return;
+    }
+    const active = document.activeElement;
+    const lostFromMenu = menuFocusedRef.current && (!active || active === document.body);
+    menuFocusedRef.current = false;
+    const onNavigation = lostFromMenu || Boolean(active && (railRef.current?.contains(active) || active === menuRef.current));
+    if (railOpen) {
+      crossedOpenRef.current = true;
+      setRailOpen(false);
+    } else if (onNavigation) {
+      (narrow ? menuRef : toggleRef).current?.focus();
+    }
+    // Only the crossing itself: `railOpen` is read, not watched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [narrow]);
+  // After the overlay has closed and the Drawer has tried its own restoration
+  // (to an invoker that no longer renders), focus goes to this tier's control.
+  useEffect(() => {
+    if (railOpen || !crossedOpenRef.current) return;
+    crossedOpenRef.current = false;
+    (narrow ? menuRef : toggleRef).current?.focus();
+  }, [railOpen, narrow]);
 
   // The operator's choice, kept across sessions and never changed by the shell
   // at Tier A (§5): there is no width at which this effect is written by
@@ -130,7 +173,7 @@ export default function AppShell() {
     ? (railOpen ? 'Close navigation' : 'Open navigation')
     : (collapsed ? 'Expand navigation' : 'Collapse navigation');
 
-  const shellClass = ['shell', railCollapsed ? 'shell--collapsed' : '', compact ? 'shell--compact' : '', railOpen ? 'shell--rail-open' : '']
+  const shellClass = ['shell', railCollapsed ? 'shell--collapsed' : '', compact ? 'shell--compact' : '', narrow ? 'shell--narrow' : '', railOpen ? 'shell--rail-open' : '']
     .filter(Boolean).join(' ');
 
   return (
@@ -205,6 +248,7 @@ export default function AppShell() {
               the same words are a hint on hover and focus (§27 Tooltip). */}
           <Tooltip content={collapseLabel} enabled={railCollapsed}>
             <button
+              ref={toggleRef}
               type="button"
               className="sidebar__toggle"
               onClick={() => (compact ? setRailOpen((open) => !open) : setCollapsed((value) => !value))}
@@ -228,6 +272,25 @@ export default function AppShell() {
                 nothing — a terminal state rendered without one — shows its
                 place in the IA map rather than a bare product name. */}
             <div className={barClass(tone)} ref={attachContextBar}>
+              {/* §25 Tier C: the navigation's top-of-page control, leading the
+                  band (`order` keeps it first beside the surface's portal). */}
+              {narrow ? (
+                <Tooltip content={railOpen ? 'Close navigation' : 'Open navigation'}>
+                  <button
+                    ref={menuRef}
+                    type="button"
+                    className="shell__menu"
+                    onClick={() => setRailOpen((open) => !open)}
+                    onFocus={() => { menuFocusedRef.current = true; }}
+                    onBlur={() => { menuFocusedRef.current = false; }}
+                    aria-expanded={railOpen}
+                    aria-controls={navId}
+                    aria-label={railOpen ? 'Close navigation' : 'Open navigation'}
+                  >
+                    <Icon name="menu" />
+                  </button>
+                </Tooltip>
+              ) : null}
               {claimed ? null : <Breadcrumbs crumbs={crumbsFor(surface)} />}
             </div>
             {/* The archetype mounted below says whether this column may scroll

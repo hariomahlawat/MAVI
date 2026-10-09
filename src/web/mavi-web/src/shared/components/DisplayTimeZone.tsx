@@ -1,3 +1,4 @@
+import { SHELL_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
 import Icon from './Icon';
 
 /**
@@ -15,14 +16,17 @@ import Icon from './Icon';
  * the zone is for.
  */
 export default function DisplayTimeZone({ timeZoneId }: { timeZoneId: string | null | undefined }) {
+  // §25 Tier C: the band has room for the clock, not the zone's name. The
+  // zone is still the note's text — read, its tooltip — only not drawn.
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
   // Before the configuration arrives there is no zone to disclose, and a
   // placeholder in a 44px band would be chrome claiming to be information.
   if (!timeZoneId) return null;
   return (
-    <span className="zone-note">
+    <span className="zone-note" title={`Times shown in ${timeZoneId}`}>
       <Icon name="clock" size="sm" />
       <span className="visually-hidden">Times shown in</span>
-      <code>{timeZoneId}</code>
+      <code className={narrow ? 'visually-hidden' : undefined}>{timeZoneId}</code>
     </span>
   );
 }

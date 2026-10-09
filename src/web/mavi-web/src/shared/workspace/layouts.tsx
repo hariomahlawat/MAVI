@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import Button from '../components/Button';
+import Icon from '../components/Icon';
 import Drawer from '../overlay/Drawer';
 import { OVERLAY_QUERIES, SHELL_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
 import { useScrollPolicy } from './surfaceSlot';
@@ -242,21 +243,35 @@ export function RecordLayout({
   notices,
   children,
   facts,
+  factsCarryIdentity = false,
 }: {
   notices?: ReactNode;
   /** The primary column, roughly 70%. */
   children: ReactNode;
   /** The facts rail, roughly 30%. Stacks below the primary at ≤1100 (§4.2). */
   facts?: ReactNode;
+  /**
+   * Whether the facts rail carries the record's identity — the file, camera
+   * and recorded time a Processing run is of. At Tier C (§4.2, §25) such a
+   * rail stacks *above* the primary column: on a narrow display the operator
+   * reads what this is before what happened to it. A rail of anything else
+   * (Import's format notes) stays below.
+   */
+  factsCarryIdentity?: boolean;
 }) {
   // §4.2: the page is the scroll owner on a Record.
   useScrollPolicy('page');
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
+  // Reordered in the document, not only on screen, so reading and focus order
+  // are the order shown; keyed, so a resize across Tier C moves the regions
+  // rather than remounting them (a form's draft is kept).
+  const primary = <div key="primary" className="workspace__record-primary">{children}</div>;
+  const rail = facts ? <div key="facts" className="workspace__record-facts">{facts}</div> : null;
   return (
     <section className="workspace workspace--record">
       {notices ? <div className="workspace__notices">{notices}</div> : null}
       <div className="workspace__record-grid">
-        <div className="workspace__record-primary">{children}</div>
-        {facts ? <div className="workspace__record-facts">{facts}</div> : null}
+        {narrow && factsCarryIdentity ? [rail, primary] : [primary, rail]}
       </div>
     </section>
   );
@@ -298,6 +313,7 @@ export function WorkbenchLayout({
   inspector,
   inspectorLabel = 'Inspector',
   footer,
+  unsupported,
 }: {
   /** The mode strip: which tool is armed. */
   modes?: ReactNode;
@@ -310,7 +326,19 @@ export function WorkbenchLayout({
   inspectorLabel?: string;
   /** Optional strip below the stage, such as revision history. */
   footer?: ReactNode;
+  /**
+   * The §25 Tier C composition (below 768px): an explicit unsupported state.
+   * The surface's Context Bar stays; in place of the mode strip, stage,
+   * inspector and footer — none of which is rendered, so no canvas runs and
+   * no editing control exists to be reached — the Workbench states, once,
+   * that the operation needs a wider display (`statement`), and shows a
+   * read-only summary of what it is about (`summary`). The surface's state is
+   * its own (the Scene Editor's draft is the page's), so crossing 768px in
+   * either direction neither saves nor discards anything.
+   */
+  unsupported: { statement: ReactNode; summary: ReactNode };
 }) {
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
   // §4.3.2, the one archetype with a hard no-page-scroll rule: a scrolled
   // canvas is a broken canvas, so the shell's content column must not be able
   // to scroll this surface at desktop widths either.
@@ -368,6 +396,21 @@ export function WorkbenchLayout({
       {inspectorLabel}
     </Button>
   );
+
+  if (narrow) {
+    return (
+      <section className="workspace workspace--workbench workspace--unsupported">
+        {notices ? <div className="workspace__notices">{notices}</div> : null}
+        <div className="workspace__unsupported">
+          <p className="workspace__unsupported-statement">
+            <Icon name="info" size="sm" />
+            <span>{unsupported.statement}</span>
+          </p>
+          {unsupported.summary}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -487,9 +530,20 @@ export function InvestigationLayout({
   // away as a closed drawer. Focus inside it would fall to the document with
   // it, so it goes, before paint, to the results header's Filters control
   // that opens it again (as the Workbench does entering its drawer band).
+  // And the other way: widening past 1100 unmounts the Filters control in
+  // the results header; focus that was on it goes to the rail it opened, now
+  // in place. Recorded as it happens — the control is gone by the effect.
+  const toggleFocusedRef = useRef(false);
   useLayoutEffect(() => {
     const rail = railRef.current;
-    if (!stacked || !rail || !rail.contains(document.activeElement)) return;
+    if (!stacked) {
+      if (toggleFocusedRef.current && rail && (document.activeElement === document.body || !document.activeElement)) {
+        rail.querySelector<HTMLElement>('input, select, textarea, button')?.focus();
+      }
+      toggleFocusedRef.current = false;
+      return;
+    }
+    if (!rail || !rail.contains(document.activeElement)) return;
     rail.closest('.workspace')?.querySelector<HTMLElement>('.workspace__rail-toggle')?.focus();
   }, [stacked]);
   const railToggle = stacked ? (
@@ -501,6 +555,8 @@ export function InvestigationLayout({
       aria-expanded={railOpen}
       aria-controls={railId}
       onClick={() => setRailOpen(true)}
+      onFocus={() => { toggleFocusedRef.current = true; }}
+      onBlur={() => { toggleFocusedRef.current = false; }}
     >
       {railLabel}
     </Button>

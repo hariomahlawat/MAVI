@@ -16,6 +16,8 @@ import { listVideos, type VideoAsset } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import SceneEditorPage, { sceneQueryKeys } from './SceneEditorPage';
+import { SHELL_QUERIES } from '../../shared/overlay/useMediaQuery';
+import { stubMatchMediaLive } from '../../test/matchMedia';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
@@ -1549,6 +1551,97 @@ describe('scene editor', () => {
     expect(screen.queryByText(/analysed runs/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/readiness/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/crossing count/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('scene editor across the Tier C boundary (§25: below 768px it is the unsupported state)', () => {
+  const tierC = (query: string) => query === SHELL_QUERIES.narrow || query === SHELL_QUERIES.compact;
+  const tierB = (query: string) => query === SHELL_QUERIES.compact;
+
+  it('keeps a dirty draft, its leave guard and its edits across 768px both ways — neither saved nor discarded', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      expect(unloadBlocked()).toBe(true);
+
+      live.set(tierC);
+      // The editor is not drawn: no canvas, no Save, no editing control.
+      expect(screen.queryByTestId('scene-canvas')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Save revision' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+      expect(screen.getByText(/Editing a scene needs a display at least 768px wide/)).toBeInTheDocument();
+      // The summary says what the draft holds and that it is unsaved, and the
+      // guard still holds it: nothing was sent and nothing was dropped.
+      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      expect(screen.getByText(/Gate east/)).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(true);
+      expect(saveCameraScene).not.toHaveBeenCalled();
+
+      live.set(tierB);
+      await selectObject(user, 'Gate east');
+      expect(screen.getByLabelText('Name')).toHaveValue('Gate east');
+      expect(screen.getByRole('button', { name: 'Save revision' })).toBeEnabled();
+      expect(unloadBlocked()).toBe(true);
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('still asks before leaving a dirty draft carried into Tier C — the leave guard Dialog works where the editor is not drawn', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      const { router } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      live.set(tierC);
+      act(() => { void router.navigate('/cameras'); });
+      const leave = await screen.findByRole('dialog', { name: 'Leave with unsaved changes?' });
+      expect(leave).toHaveAttribute('aria-modal', 'true');
+      await user.click(within(leave).getByRole('button', { name: 'Stay on this page' }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(true);
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('shows a clean scene as its read-only summary, with no unsaved-changes notice and no guard', async () => {
+    const live = stubMatchMediaLive(tierC);
+    try {
+      render();
+      expect(await screen.findByText(/Editing a scene needs a display at least 768px wide/)).toBeInTheDocument();
+      expect(screen.queryByText(/This scene has unsaved changes/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('scene-canvas')).not.toBeInTheDocument();
+      expect(unloadBlocked()).toBe(false);
+      live.set(tierB);
+      expect(await screen.findByTestId('scene-canvas')).toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('lets no editing key act on the draft while the editor is not drawn', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      live.set(tierC);
+      await user.keyboard('{Delete}');
+      live.set(tierB);
+      expect(screen.getByRole('button', { name: /^Gate/ })).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(false);
+    } finally {
+      live.restore();
+    }
   });
 });
 

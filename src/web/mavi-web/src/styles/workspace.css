@@ -42,6 +42,25 @@
    the crumb while it is cut off. */
 .context-bar__crumbs li.context-bar__crumb { flex-shrink: 0; }
 .context-bar__crumbs li.context-bar__crumb--object { flex-shrink: 1; min-width: 4ch; }
+/* §25 Tier C: "wraps its identity to one truncated line". The trail at
+   Tier C is the one crumb that identifies this page — the object (a camera,
+   a file) where it has one, otherwise the place — and the rest of the trail,
+   the navigation's one control away, stays the bar's heading and the
+   document title. The crumb takes only the room the state and the actions
+   leave, down to a definite 4ch; the status group, whose subject truncates,
+   gives way after it. (A trail sized to its content pushed every long
+   identity's chips and actions off the band.) */
+.shell--narrow .context-bar__crumbs { flex: 1 1 0; min-width: 4ch; }
+.shell--narrow .context-bar__crumbs li { display: none; }
+.shell--narrow .context-bar__crumbs li.context-bar__crumb--object,
+.shell--narrow .context-bar__crumbs ol:not(:has(> .context-bar__crumb--object)) > li:last-child {
+  display: flex; flex: 0 1 auto; min-width: 0;
+}
+.shell--narrow .context-bar__crumbs li::before { content: none; }
+/* The time zone the surface states (§24) is its clock: the zone stays its
+   accessible name ("Times shown in …") and its tooltip, read, not drawn
+   (DisplayTimeZone hides its name at Tier C). */
+.shell--narrow .context-bar__status > .zone-note { flex: none; }
 .context-bar__crumbs .tooltip-anchor { min-width: 0; max-width: 100%; }
 .context-bar__crumbs li a, .context-bar__crumbs li span:not(.tooltip-anchor):not(.tooltip) {
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
@@ -481,13 +500,93 @@
      its own scroll; only an in-flow inspector hands it to the page. */
   .workspace--investigation .inspector__body { overflow-y: auto; }
 }
-/* Tier C (pre-T2, as before T1): the Ledger and the Overview hand the scroll
-   to the page with the shell (layout.css). */
-@media (max-width: 760px) {
+/* ------------------------------------------------------------------ *
+ * §25 Tier C (390px ≤ width < 768px). A Ledger and the Overview hand the
+ * scroll to the page with the shell (layout.css): one reading column, no
+ * scroller inside a phone screen.
+ *
+ * The Ledger is "a single-column list of the primary cell plus status; the
+ * row's action is reachable". It is the same table — the same rows, cells and
+ * header association, not a second list beside a hidden one, so nothing is
+ * read or reached twice — composed as a list: each row one item, its cells
+ * stacked in reading order (identity with its folded values, then the
+ * remaining values as bounded secondary lines, then the status) beside the
+ * row's action, which is the row's last cell in every Ledger. The header row
+ * is still the cells' column names for assistive technology, only not drawn.
+ * ------------------------------------------------------------------ */
+@media (width < 768px) {
   .workspace--ledger, .workspace--ledger-summary { height: auto; }
   .workspace--ledger .workspace__body--ledger > .ledger-table,
   .workspace--ledger-summary .workspace__body--scroll { overflow: visible; }
+  .workspace--ledger .workspace__body--ledger > .ledger-table { width: auto; }
+  /* The list draws no column header, so its loading skeleton reserves none —
+     only the frame's top edge — and the first item arrives where the first
+     skeleton row was (§36.3). */
+  .workspace--ledger .skeleton__head { height: var(--stroke-hair); border-bottom: 0; }
+
+  table.table--ledger, .table--ledger tbody { display: block; width: 100%; max-width: none; }
+  .table--ledger thead {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  .table--ledger tbody tr {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s-3);
+    padding: var(--s-2) var(--s-3);
+    border-bottom: var(--stroke-hair) solid var(--border-subtle);
+  }
+  .table--ledger tbody tr:last-child { border-bottom: 0; }
+  .table--ledger tbody td {
+    display: block; grid-column: 1; height: auto; min-width: 0;
+    padding: 0; border: 0; white-space: nowrap;
+  }
+  .table--ledger tbody td + td { margin-top: var(--s-1); }
+  /* The row's action: beside the item, centred on it, at its full size. */
+  .table--ledger tbody td:last-child { grid-column: 2; grid-row: 1 / span 6; align-self: center; margin-top: 0; }
+  /* Folded columns stay folded: their values ride the identity line; a cell
+     with no value is not a line of its own. */
+  .table--ledger tbody td:is(.ledger-fold, .ledger-cell--absent) { display: none; }
+  /* The identity keeps its width first: folded values that do not fit beside
+     it move to the next line rather than cutting it to a few letters. */
+  .table--ledger .ledger-primary { flex-wrap: wrap; row-gap: 0; }
+  /* A value in a list item may wrap where it has no truncation of its own. */
+  .table--ledger tbody td { overflow-wrap: anywhere; }
+  /* A secondary value is a line of the item, as wide as the item: the
+     column caps give way to the item's width, which the tooltip anchor —
+     content-sized otherwise — is bounded by, so the value still truncates. */
+  .table--ledger td .tooltip-anchor { max-width: 100%; }
+  .table--ledger td .truncate, .table--ledger td :is(.cap-sm, .cap-md, .cap-lg) { max-width: 100%; }
+  .table--ledger .run-cell { max-width: 100%; }
+
+  /* The filter controls' drawer (Toolbar `drawer`): full width at Tier C
+     (§20), opened from the band, which keeps its count. */
+  .toolbar-band__controls--drawer:not([role="dialog"]) { display: none; }
+  .toolbar-band__controls--drawer[role="dialog"] {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 100%; z-index: var(--z-drawer);
+    display: grid; align-content: start; gap: var(--s-3);
+    padding: var(--c-inspector-pad); overflow-y: auto;
+    background: var(--surface-base); box-shadow: var(--elevation-floating);
+  }
+  .toolbar-band__row > .drawer-scrim { position: fixed; inset: 0; }
+  .toolbar-band .toolbar-band__controls--drawer input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  .toolbar-band .toolbar-band__controls--drawer select { width: 100%; min-width: 0; max-width: none; }
+  .toolbar-band .toolbar-band__controls--drawer .ledger-sort { display: grid; gap: var(--s-1); }
+
+  /* Investigation: the filters and the inspector are full-width drawers (§20,
+     §25 Tier C); the results take the width beneath them. */
+  .workspace--investigation.has-open-rail .workspace__rail,
+  .workspace--investigation .workspace__inspector[role="dialog"] { width: 100%; }
 }
+/* §25 Tier C Workbench: the explicit unsupported state. One statement, then
+   a read-only summary; the page scrolls it like a Record. */
+.workspace--unsupported { height: auto; }
+.workspace__unsupported { display: grid; gap: var(--s-3); align-content: start; max-width: var(--content-max); }
+.workspace__unsupported-statement {
+  display: flex; align-items: flex-start; gap: var(--s-2);
+  margin: 0; color: var(--text-secondary); font-size: var(--fs-2);
+}
+.workspace__unsupported-statement .icon { flex: none; margin-top: var(--s-hair); color: var(--status-info); }
+/* Above Tier C the drawer's panel is not a box: its controls lay out in the
+   band exactly as they did before it existed. */
+.toolbar-band__controls { display: contents; }
 /* The rail drawer's head: its name and its close control, where it is one. */
 .workspace__rail-head {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-2);

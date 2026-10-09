@@ -11,8 +11,8 @@ import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import { notConfiguredAnalytics } from '../../test/analyticsFixtures';
 import { evidenceSet, FULL_EVIDENCE_SET_ROLES, trackEvidence } from '../../test/trackEvidenceFixtures';
-import { stubMatchMedia } from '../../test/matchMedia';
-import { OVERLAY_QUERIES } from '../../shared/overlay/useMediaQuery';
+import { stubMatchMedia, stubMatchMediaLive } from '../../test/matchMedia';
+import { OVERLAY_QUERIES, SHELL_QUERIES } from '../../shared/overlay/useMediaQuery';
 import { SEARCH_SHORTCUTS } from './searchShortcuts';
 import VisualSearchPage from './VisualSearchPage';
 
@@ -1278,6 +1278,26 @@ describe('VisualSearchPage', () => {
       await waitFor(() => expect(searchTracks).toHaveBeenCalledTimes(2));
       expect(vi.mocked(searchTracks).mock.calls[1][0]).toEqual(expect.objectContaining({ cursor: 'page-two' }));
       expect(await screen.findByText(/3 \/ 3/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Tier C (§25: list only, full-width drawers)', () => {
+    it('offers no grid and shows the list where the operator stored the grid, leaving the stored choice for a wider window', async () => {
+      window.localStorage.setItem('mavi.search.view', 'grid');
+      const live = stubMatchMediaLive((query) => query === SHELL_QUERIES.narrow || query === OVERLAY_QUERIES.investigation || query === OVERLAY_QUERIES.investigationStacked);
+      try {
+        renderWithApp(<SearchHistoryHarness />, { route: '/search' });
+        expect(await screen.findByRole('list', { name: 'Track results' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Grid view' })).not.toBeInTheDocument();
+        expect(screen.queryAllByRole('article')).toHaveLength(0);
+        expect(window.localStorage.getItem('mavi.search.view')).toBe('grid');
+        // Wider again: the operator's grid is back.
+        live.set((query) => query === OVERLAY_QUERIES.investigation);
+        expect(await screen.findAllByRole('article')).not.toHaveLength(0);
+        expect(screen.getByRole('button', { name: 'Grid view' })).toBeInTheDocument();
+      } finally {
+        live.restore();
+      }
     });
   });
 
