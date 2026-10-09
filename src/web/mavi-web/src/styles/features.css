@@ -627,14 +627,16 @@
    this surface's status group keeps its width rather than sharing the
    shortfall and wrapping its chips ("Revision / 4", "Analytics / on") inside
    the band, which a long camera identity did at 1366 (R4).
-   Scoped to the Workbench's own measured threshold (§4.3.1, the ~1150px at
-   which its full composition begins), not to a tier boundary (§25): the bar's
-   minimum — the trail at its minimum, these chips and a dirty draft's actions,
-   ~770px — is met there with the rail expanded. Below it the trail could no
-   longer absorb the shortfall without collapsing past its own minimum (as the
-   withdrawn R3 shrink weight showed), so the band keeps its shared behaviour
-   for the Tier B/C composition S5 owns. */
-@media (min-width: 1150px) {
+   Scoped to where the bar can hold its own minimum, not to a tier boundary
+   (§25). R4 placed it at 1150 with the Tier B rail expanded (216px); T1
+   collapses that rail to 56px below 1366, so the bar's content is the viewport
+   less 96px (rail and the bar's padding), and T1 measured its densest case —
+   a 32-character camera code with the disable confirmation open
+   (scene-editor-confirm-disable) — overlapping at 920px and clear from 940px:
+   about 844px of content. Below it the trail could no longer absorb the
+   shortfall without collapsing past its own minimum (as the withdrawn R3
+   shrink weight showed), so the band keeps its shared behaviour there. */
+@media (min-width: 940px) {
   .scene-context__revision, .scene-context__analytics { white-space: nowrap; }
   .context-bar__status:has(> .scene-context__revision) { flex-shrink: 0; }
 }

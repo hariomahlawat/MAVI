@@ -390,9 +390,10 @@ describe('the archetype set is closed', () => {
     // held it. §25 v2.0 (Tier B): a Ledger "still scrolls its body at every
     // Tier B width (a Ledger is one column and has nothing to stack)", and the
     // Overview keeps the Ledger's grammar — so neither is released.
-    const css = SHEETS['/src/styles/workspace.css'];
-    const stacking = css.slice(css.indexOf('@media (max-width: 1100px)'));
-    const rules = withoutComments(stacking);
+    const css = withoutComments(SHEETS['/src/styles/workspace.css']);
+    // The ≤1100 block itself: Tier C's pre-T2 rules (≤760) follow it.
+    const start = css.indexOf('@media (max-width: 1100px)');
+    const rules = css.slice(start, css.indexOf('@media', start + 1));
     for (const archetype of ['workspace--workbench', 'workspace--investigation']) {
       expect(rules).toContain(archetype);
     }

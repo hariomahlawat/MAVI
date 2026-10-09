@@ -29,7 +29,9 @@ export function useMediaQuery(query: string): boolean {
  * the boundary is the frozen row's own, not a layout breakpoint (layout.css).
  */
 export const SHELL_QUERIES = {
-  compact: '(max-width: 1365px)',
+  compact: '(width < 1366px)',
+  /** The pre-T2 narrow shell (layout.css, ≤760): the rail hides its control and labels. */
+  narrow: '(max-width: 760px)',
 } as const;
 
 /** The widths at which an inspector is drawn over the workspace (workspace.css, §25). */

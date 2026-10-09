@@ -3772,8 +3772,11 @@ export const STATES = [
       select.click();
       return Boolean(await until(() => {
         if (!new URLSearchParams(location.search).get('track')) return false;
-        const drawer = document.querySelector('[role="dialog"][aria-modal="true"]');
-        return !drawer || drawer.contains(document.activeElement);
+        // The inspector itself, not only the URL: a drawer not yet mounted
+        // must not pass for an in-place inspector (T1, stacked drawer).
+        const inspector = document.querySelector('.workspace__inspector');
+        if (!inspector) return false;
+        return inspector.getAttribute('role') !== 'dialog' || inspector.contains(document.activeElement);
       }, 'the inspector open, holding focus when it is a drawer'));
     })()`,
     expectText: INSPECTOR_LOADED,
@@ -3905,8 +3908,15 @@ export const STATES = [
       // waiting, without the harness spending 31 seconds per capture on it.
       const realNow = Date.now.bind(Date);
       Date.now = () => realNow() + 31000;
+      // An open filters drawer (768-1100) makes the shell inert: close it, as
+      // the operator would, before leaving by the rail.
+      const closeFilters = Array.from(document.querySelectorAll('.workspace__rail-head button')).find((b) => /Close filters/.test(b.textContent));
+      if (closeFilters) {
+        closeFilters.click();
+        await until(() => !document.querySelector('.workspace__rail[role="dialog"]') && !document.querySelector('#main[inert]'), 'the filters drawer closed');
+      }
       const overview = Array.from(document.querySelectorAll('a')).find((a) => a.textContent.trim() === 'Overview');
-      if (!overview) return false;
+      if (!overview || overview.closest('[inert]')) return false;
       overview.click();
       // The Overview page rendered and Search gone, not only the URL changed:
       // going back while the route is still loading keeps Search mounted, and
@@ -4556,3 +4566,23 @@ export const STATES = [
     forbidText: ['Coverage complete', 'No samples fell inside this window'],
   },
 ];
+
+/**
+ * T1 (§25 Tier B, 1101-1365): the band between the stacking threshold and the
+ * workstation, which neither Tier B anchor (1024, 768) reaches. Each surface's
+ * representative states are probed at its lower edge, the 1200 spot check the
+ * register names, and its upper edge, so the side-by-side half of every Tier B
+ * rule — the Investigation rail in place, the Record facts rail at 280px or
+ * more, the Review rail beside a 65% player and its pin — is evaluated, not
+ * passed for want of a width. (The Scene Editor has its own threshold probes.)
+ */
+const COMPACT_PROBE_BASES = [
+  'overview', 'videos', 'cameras', 'processing-queue', 'import', 'processing-detail-completed',
+  'processing-detail-long-identity', 'analytics-activity', 'search', 'search-inspecting', 'review', 'review-long-identity',
+];
+for (const name of COMPACT_PROBE_BASES) {
+  const base = STATES.find((state) => state.name === name);
+  if (!base) throw new Error(`compact probe of an unknown state ${name}`);
+  STATES.push({ ...base, name: `${name}-compact-band`, tierPolicy: 'breakpoint-probe', probeOf: name, probeWidths: [1101, 1200, 1365] });
+}
+

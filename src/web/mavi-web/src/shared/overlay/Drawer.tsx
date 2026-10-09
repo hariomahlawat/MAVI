@@ -64,18 +64,37 @@ export default function Drawer({
   onCloseRef.current = onClose;
   /** Every inert this drawer applied while open, released together on close. */
   const releasesRef = useRef<Array<() => void>>([]);
+  /** Whether this opening has taken its invoker and moved focus yet. */
+  const openedRef = useRef(false);
   const modal = open && overlay;
+  useEffect(() => {
+    if (!modal) openedRef.current = false;
+  }, [modal]);
 
   // Before paint, so the first frame of the drawer is already the modal one.
   useLayoutEffect(() => {
     if (!modal) return undefined;
     const panel = panelRef.current;
     if (!panel) return undefined;
-    invokerRef.current = document.activeElement;
+    // Re-run when the drawer changes anchoring under an open panel (a window
+    // resized across the stacking threshold): the inert set and the name are
+    // re-derived, but the invoker and focus are taken once per opening — the
+    // operator's place in the panel survives the resize.
+    if (!openedRef.current) {
+      openedRef.current = true;
+      invokerRef.current = document.activeElement;
+      focusHeading(panel, headingFallbackId);
+    } else {
+      nameByHeading(panel, headingFallbackId);
+    }
     releasesRef.current = [makeInert(coversViewport ? outsideOf(panel) : covers.map((ref) => ref.current))];
-    focusHeading(panel, headingFallbackId);
 
     const onKeyDown = (event: KeyboardEvent) => {
+      // Only the topmost modal answers: a drawer another modal has made inert
+      // (the navigation overlay opened over an inspector drawer) holds
+      // nothing — its Tab trap would find no focusable and its Escape would
+      // close it behind the one the operator is in.
+      if (panel.closest('[inert]')) return;
       // A dialog opened over the drawer owns the keyboard until it closes:
       // its Escape cancels the dialog, never the drawer beneath it.
       if (document.querySelector('.dialog-host')) return;
@@ -102,7 +121,7 @@ export default function Drawer({
     // `covers` is read when the drawer opens; a new array identity per render
     // must not re-run the trap. Regions that appear later are caught below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modal, headingFallbackId]);
+  }, [modal, headingFallbackId, coversViewport]);
 
   // A covered region can mount while the drawer is open — a notice that
   // appears when a supporting request fails behind it. It is made inert (and
@@ -191,14 +210,21 @@ function outsideOf(panel: HTMLElement): HTMLElement[] {
  * joining the Tab sequence.
  */
 function focusHeading(panel: HTMLElement, fallbackId: string): void {
-  const heading = panel.querySelector<HTMLElement>('h1, h2, h3');
+  const heading = nameByHeading(panel, fallbackId);
   if (!heading) {
     panel.setAttribute('tabindex', '-1');
     panel.focus();
     return;
   }
+  heading.focus();
+}
+
+/** Name the drawer by its first heading; the heading, or null when it has none. */
+function nameByHeading(panel: HTMLElement, fallbackId: string): HTMLElement | null {
+  const heading = panel.querySelector<HTMLElement>('h1, h2, h3');
+  if (!heading) return null;
   if (!heading.id) heading.id = fallbackId;
   if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
   panel.setAttribute('aria-labelledby', heading.id);
-  heading.focus();
+  return heading;
 }

@@ -191,6 +191,11 @@
 .grow { flex: 1; min-width: 0; }
 
 @media (max-width: 760px) {
+  /* Below the narrow shell's existing threshold the Ledger and the Overview
+     keep the page scroll they had before T1: their Tier C composition (a
+     single-column list) is T2's, and a 200px body scroller on a phone is
+     worse than the page (§25: Tier C must not get worse here). */
+  .main[data-scroll="body"] { overflow: auto; }
   .shell, .shell--collapsed { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr); }
   .sidebar__brand div, .sidebar__nav a span, .sidebar__section, .api-health__text, .sidebar__toggle { display: none; }
   .sidebar__nav a { justify-content: center; padding: 0; }

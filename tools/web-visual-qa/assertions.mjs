@@ -732,6 +732,14 @@ export function workspaceAssertions(input) {
   // archetype at ≤1100, §25 Tier B) leaves a column that scrolls, and content
   // it can scroll to is reachable.
   measured.columnOverflowStyle = column ? getComputedStyle(column).overflowY : null;
+  // A column that scrolls (a stacked archetype at ≤1100) still must not
+  // scroll sideways: the page's own scroller is the content column, not the
+  // document, so page.horizontal-overflow alone cannot see it.
+  if (column && !/^(hidden|clip)$/.test(measured.columnOverflowStyle) && column.scrollWidth > column.clientWidth + 1) {
+    evaluated.add('archetype.contained-clipping');
+    fail('archetype.contained-clipping', 'the content column scrolls sideways: ' + column.scrollWidth + 'px of content in '
+      + column.clientWidth + 'px, a horizontal page scroll to the operator');
+  }
   if (column && /^(hidden|clip)$/.test(measured.columnOverflowStyle)) {
     evaluated.add('archetype.contained-clipping');
     measured.columnOverflow = round(column.scrollHeight - column.clientHeight);
@@ -1061,6 +1069,18 @@ export function workspaceAssertions(input) {
     // from a viewport figure, so a drawer band that moves with the shell is
     // measured where it actually is.
     measured.workbenchDrawer = workspace.classList.contains('is-drawer');
+    // The drawer is the §4.3.1 floor's, derived here from the specification's
+    // own figures and the measured working width — not taken from the
+    // product's class — so a wrong class is a finding, not a silenced rule.
+    const expectDrawer = doc.clientWidth > 1100 && working < (300 + 12) / (1 - 0.65);
+    measured.expectedWorkbenchDrawer = expectDrawer;
+    if (doc.clientWidth > 1100) {
+      evaluated.add('workbench.geometry');
+      if (expectDrawer !== measured.workbenchDrawer) {
+        fail('workbench.geometry', 'the Workbench is ' + (measured.workbenchDrawer ? 'a drawer' : 'side by side') + ' at a working width of '
+          + round(working) + 'px, where the 65% floor beside a 300px inspector makes it ' + (expectDrawer ? 'a drawer' : 'side by side'));
+      }
+    }
     const sideBySide = doc.clientWidth > 1100 && !measured.workbenchDrawer;
     if (sideBySide) {
       evaluated.add('workbench.geometry');

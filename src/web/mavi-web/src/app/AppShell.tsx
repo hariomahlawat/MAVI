@@ -72,12 +72,15 @@ export default function AppShell() {
   // written here: it is a preference for the workstation, and a compact window
   // keeps it for when the window is wide again.
   const compact = useMediaQuery(SHELL_QUERIES.compact);
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
   const [railOpen, setRailOpen] = useState(false);
   // Leaving the compact range closes the overlay, so it is never found open —
-  // and modal — when the window comes back.
+  // and modal — when the window comes back; so does entering the narrow shell,
+  // whose rail hides its control and its labels (Tier C, S5/T2), where an open
+  // overlay would be a modal of unnamed icons.
   useEffect(() => {
-    if (!compact) setRailOpen(false);
-  }, [compact]);
+    if (!compact || narrow) setRailOpen(false);
+  }, [compact, narrow]);
   const railCollapsed = compact ? !railOpen : collapsed;
   const railRef = useRef<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);

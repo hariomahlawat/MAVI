@@ -256,8 +256,10 @@
 
 /* --- Record: centred reading surface; the page scrolls. -------------- */
 .workspace--record { width: 100%; max-width: var(--content-max); margin: 0 auto; }
+/* §25 Tier B: between 1101 and 1365 the primary column shrinks and the facts
+   rail holds its 280px minimum; at Tier A widths 3fr is already wider. */
 .workspace__record-grid {
-  display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+  display: grid; grid-template-columns: minmax(0, 7fr) minmax(280px, 3fr);
   gap: var(--s-4); align-items: start;
 }
 .workspace__record-primary, .workspace__record-facts { display: grid; gap: var(--s-3); align-content: start; min-width: 0; }
@@ -473,6 +475,13 @@
   /* The Investigation's inspector is a drawer here (above), whose body keeps
      its own scroll; only an in-flow inspector hands it to the page. */
   .workspace--investigation .inspector__body { overflow-y: auto; }
+}
+/* Tier C (pre-T2, as before T1): the Ledger and the Overview hand the scroll
+   to the page with the shell (layout.css). */
+@media (max-width: 760px) {
+  .workspace--ledger, .workspace--ledger-summary { height: auto; }
+  .workspace--ledger .workspace__body--ledger > .ledger-table,
+  .workspace--ledger-summary .workspace__body--scroll { overflow: visible; }
 }
 /* The rail drawer's head: its name and its close control, where it is one. */
 .workspace__rail-head {
