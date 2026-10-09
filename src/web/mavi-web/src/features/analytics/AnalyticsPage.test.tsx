@@ -227,6 +227,104 @@ describe('Analytics Workbench', () => {
     expect(screen.getByRole('link', { name: /Configure the scene/i })).toBeInTheDocument();
   });
 
+  it('calls a camera with no scene not configured, never coverage incomplete (F25)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer({
+      sceneRevisionId: null,
+      sceneRevisionNumber: null,
+      coverage: { ...completeCoverage, sceneRevisionId: null, evaluatedRuns: 0, notConfiguredRuns: 3, complete: false },
+      zones: [],
+      lines: [],
+      classes: [],
+    }));
+    render();
+
+    const stage = (await screen.findByText('No scene configured', { selector: '.empty strong' })).closest('.empty');
+    expect(stage).toHaveClass('empty--hatched');
+    // The Context Bar names the condition rather than a shortfall Processing could fix.
+    expect(screen.getByText('No scene configured', { selector: '.badge, .badge *' })).toBeInTheDocument();
+    expect(screen.queryByText('Coverage incomplete')).not.toBeInTheDocument();
+    const strip = screen.getByRole('region', { name: 'Analytics coverage' });
+    expect(within(strip).queryByRole('link', { name: 'Processing' })).not.toBeInTheDocument();
+  });
+
+  it('calls a scope analysed against an earlier revision stale, and still offers Processing (F25)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer({
+      coverage: { ...completeCoverage, staleRuns: 1, complete: false },
+    }));
+    render();
+
+    expect(await screen.findByText('Coverage stale')).toBeInTheDocument();
+    const strip = screen.getByRole('region', { name: 'Analytics coverage' });
+    expect(within(strip).getByRole('link', { name: 'Processing' })).toHaveAttribute('href', '/processing');
+  });
+
+  it('states the display timezone once, in the Context Bar (§24)', async () => {
+    render();
+    await screen.findByRole('table');
+
+    const zones = screen.getAllByText('Asia/Kolkata');
+    expect(zones).toHaveLength(1);
+    expect(zones[0].closest('.context-bar')).not.toBeNull();
+  });
+
+  it('asks the question in one band and sets the window in another (F22)', async () => {
+    render();
+    await screen.findByRole('table');
+
+    const question = screen.getByRole('group', { name: 'Analytics question' });
+    expect(within(question).getByRole('group', { name: 'Analytics mode' })).toBeInTheDocument();
+    expect(within(question).getByLabelText('Metric')).toBeInTheDocument();
+    expect(within(question).getByRole('button', { name: /Refresh/i })).toBeInTheDocument();
+
+    const window = screen.getByRole('group', { name: 'Analytics window' });
+    expect(within(window).getByRole('group', { name: 'Window presets' })).toBeInTheDocument();
+    expect(within(window).getByLabelText('From')).toBeInTheDocument();
+    expect(within(window).getByLabelText('To')).toBeInTheDocument();
+    expect(within(window).getByLabelText('Interval')).toBeInTheDocument();
+    expect(within(window).getByLabelText('Object class')).toBeInTheDocument();
+  });
+
+  it('marks the field that repairs a refused window, and says why Refresh is unavailable (F22)', async () => {
+    render();
+    await screen.findByRole('table');
+
+    await userEvent.selectOptions(screen.getByLabelText('Interval'), '60');
+    await userEvent.clear(screen.getByLabelText('From'));
+    await userEvent.type(screen.getByLabelText('From'), '2026-08-01T00:00');
+    await screen.findByText(/Adjust the window/i);
+
+    const interval = screen.getByLabelText('Interval');
+    expect(interval).toHaveAttribute('aria-invalid', 'true');
+    expect(interval).toHaveAccessibleDescription(/the most that can be shown is 512/i);
+    expect(screen.getByLabelText('From')).not.toHaveAttribute('aria-invalid');
+    const refresh = screen.getByRole('button', { name: /Refresh/i });
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveAttribute('title', 'Adjust the window before refreshing.');
+  });
+
+  it('keeps the figures and Not additive in view, and the definition and provenance one step away (F23)', async () => {
+    render();
+    const inspector = await screen.findByRole('complementary', { name: 'Analytics inspector' });
+    await within(inspector).findByRole('table');
+
+    expect(within(inspector).getByText('Not additive')).toBeVisible();
+    const disclosures = [...inspector.querySelectorAll('details')];
+    expect(disclosures.map((d) => d.querySelector('summary')?.textContent)).toEqual(['How this is counted', 'Provenance']);
+    expect(disclosures.every((d) => !d.open)).toBe(true);
+    expect(within(disclosures[1]).getByText('Scene revision')).toBeInTheDocument();
+    // Sections inside the one inspector, not panels inside it (§11).
+    expect(inspector.querySelector('.panel, .card')).toBeNull();
+  });
+
+  it('labels each bucket with a compact time, without seconds (F24)', async () => {
+    render();
+    const table = await screen.findByRole('table');
+
+    const rowHeaders = within(table).getAllByRole('rowheader');
+    expect(rowHeaders).toHaveLength(2);
+    for (const header of rowHeaders) expect(header.textContent).not.toMatch(/:\d{2}:\d{2}/);
+  });
+
   it('says a camera is missing rather than showing an empty surface', async () => {
     vi.mocked(getAnalyticsAggregates).mockRejectedValue(
       new ApiError({ status: 404, code: 'camera_not_found', detail: 'Camera was not found.' }),

@@ -82,7 +82,10 @@ export const SURFACES = {
   'processing-queue': { owner: 'S4 / M2', accepted: true },
   // M3 accepted (S4): Import's surface findings block at Tier A.
   import: { owner: 'S4 / M3', accepted: true },
-  'camera-analytics': { owner: 'S4 / M4', accepted: false },
+  // M4 accepted (S4): Camera Analytics' surface findings block at Tier A. With
+  // it every S4 surface migration is accepted; only the R1-R3 rows, whose
+  // promotion is the separate governance change, remain measured.
+  'camera-analytics': { owner: 'S4 / M4', accepted: true },
 };
 
 /** Route to surface. A route no entry owns is refused, never defaulted. */

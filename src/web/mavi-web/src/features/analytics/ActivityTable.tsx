@@ -1,5 +1,4 @@
-import { formatCount } from '../../shared/format/format';
-import { formatDateTime } from '../../shared/time/time';
+import { compactTimestamp, formatCount } from '../../shared/format/format';
 import { METRICS, type ActivityReading } from './analyticsState';
 
 /**
@@ -37,7 +36,10 @@ export default function ActivityTable({
       <tbody>
         {rows.map((point, index) => (
           <tr key={point.startUtc}>
-            <th scope="row">{formatDateTime(point.startUtc, displayTimeZoneId)}</th>
+            {/* The compact table form of §24: every bucket starts on a whole
+                minute, so the seconds say nothing, and the current year is the
+                least informative part of a column of today's buckets. */}
+            <th scope="row">{compactTimestamp(point.startUtc, displayTimeZoneId)}</th>
             {reading.series.map((series) => (
               <td key={series.label} className="num">{formatCount(series.points[index]?.value ?? 0)}</td>
             ))}

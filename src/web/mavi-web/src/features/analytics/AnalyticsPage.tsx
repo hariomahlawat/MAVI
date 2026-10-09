@@ -16,15 +16,18 @@ import { queryKeys } from '../../app/queryClient';
 import { fromQuery } from '../../shared/async/fromQuery';
 import StateRegion from '../../shared/async/StateRegion';
 import Button, { ButtonLink } from '../../shared/components/Button';
+import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import EmptyState from '../../shared/components/EmptyState';
 import StatusBadge from '../../shared/components/StatusBadge';
-import { ContextBar, Inspector, Segmented, WorkbenchLayout } from '../../shared/workspace';
+import { ContextBar, Inspector, Segmented, Toolbar, WorkbenchLayout } from '../../shared/workspace';
 import ActivityChart from './ActivityChart';
 import ActivityInspector from './ActivityInspector';
 import AnalyticsControls from './AnalyticsControls';
 import HeatmapInspector from './HeatmapInspector';
 import HeatmapStage from './HeatmapStage';
 import {
+  ACTIVITY_METRICS,
+  coverageStatus,
   initialQueryState,
   METRICS,
   presetWindow,
@@ -35,8 +38,10 @@ import {
   windowProblem,
   scopePresence,
   subjectsFor,
+  type ActivityMetric,
   type AnalyticsMode,
   type AnalyticsQueryState,
+  type CoverageStatus,
   type WindowPresetId,
 } from './analyticsState';
 
@@ -174,16 +179,44 @@ export default function AnalyticsPage() {
           ? { label: camera.data ? `${camera.data.code} · ${camera.data.name}` : `Camera ${cameraId.toLowerCase().slice(0, 8)}…`, to: `/cameras/${cameraId}/scene` }
           : undefined}
         status={(() => {
-          const coverage = state.mode === 'heatmap' ? heatmap.data?.coverage : response?.coverage;
-          return coverage ? <CoverageChip complete={coverage.complete} /> : null;
+          const answer = state.mode === 'heatmap' ? heatmap.data : response;
+          return (
+            <>
+              {answer ? <CoverageChip status={coverageStatus(answer.sceneRevisionId, answer.coverage)} /> : null}
+              {/* §24: the zone every time on this surface is read in, once. */}
+              <DisplayTimeZone timeZoneId={displayTimeZoneId} />
+            </>
+          );
         })()}
         actions={<ButtonLink size="sm" variant="ghost" to={`/cameras/${cameraId}/scene`}>Scene configuration</ButtonLink>}
       />
 
       <WorkbenchLayout
         inspectorLabel="Analytics inspector"
+        // F22: two 32px bands, each with one job — what is asked (mode,
+        // metric, subject; Refresh asks it again) and over what (the window
+        // and its filters) — instead of a form of labelled fields above the
+        // chart. The question band is the Workbench's mode strip (§4.3).
         modes={(
-          <div className="analytics-modes">
+          <Toolbar
+            label="Analytics question"
+            actions={(
+              // Disabled while the query is refused, rather than left enabled
+              // over a callback that silently declines: the reason is stated
+              // in the window band on the field that repairs it, and `title`
+              // carries it to anyone who reaches the button first.
+              <Button
+                size="sm"
+                variant="ghost"
+                icon="refresh"
+                onClick={refresh}
+                disabled={active.isFetching || !canRunQuery}
+                title={canRunQuery ? undefined : 'Adjust the window before refreshing.'}
+              >
+                {active.isFetching ? 'Refreshing…' : 'Refresh'}
+              </Button>
+            )}
+          >
             <Segmented<AnalyticsMode>
               label="Analytics mode"
               value={state.mode}
@@ -193,12 +226,27 @@ export default function AnalyticsPage() {
               ]}
               onChange={(mode) => update({ mode })}
             />
-            {state.mode === 'activity' && subjects.length > 0 ? (
-              <label className="analytics-modes__subject">
-                <span className="visually-hidden">
-                  {METRICS[state.metric].subject === 'zone' ? 'Zone' : 'Trip line'}
-                </span>
+            {state.mode === 'activity' ? (
+              <>
+                <label className="visually-hidden" htmlFor="analytics-metric">Metric</label>
                 <select
+                  id="analytics-metric"
+                  value={state.metric}
+                  onChange={(event) => update({ metric: event.target.value as ActivityMetric })}
+                >
+                  {ACTIVITY_METRICS.map((metric) => (
+                    <option key={metric} value={metric}>{METRICS[metric].label}</option>
+                  ))}
+                </select>
+              </>
+            ) : null}
+            {state.mode === 'activity' && subjects.length > 0 ? (
+              <>
+                <label className="visually-hidden" htmlFor="analytics-subject">
+                  {METRICS[state.metric].subject === 'zone' ? 'Zone' : 'Trip line'}
+                </label>
+                <select
+                  id="analytics-subject"
                   value={subjectId ?? ''}
                   onChange={(event) => update({ subjectId: event.target.value })}
                 >
@@ -206,23 +254,19 @@ export default function AnalyticsPage() {
                     <option key={subject.id} value={subject.id}>{subject.label}</option>
                   ))}
                 </select>
-              </label>
+              </>
             ) : null}
-          </div>
+          </Toolbar>
         )}
         notices={(
-          <>
-            <AnalyticsControls
-              state={state}
-              displayTimeZoneId={displayTimeZoneId}
-              problem={windowProblem(state) ?? bucketRefusal}
-              refreshing={active.isFetching}
-              canRefresh={canRunQuery}
-              onChange={update}
-              onPreset={applyPreset}
-              onRefresh={refresh}
-            />
-          </>
+          <AnalyticsControls
+            state={state}
+            displayTimeZoneId={displayTimeZoneId}
+            windowProblem={windowProblem(state)}
+            bucketProblem={bucketRefusal}
+            onChange={update}
+            onPreset={applyPreset}
+          />
         )}
         stage={(
           <div className="analytics-stage">
@@ -257,6 +301,7 @@ export default function AnalyticsPage() {
                 {(config) => state.mode === 'heatmap' ? (
                   <HeatmapPane
                     query={heatmap}
+                    cameraId={cameraId}
                     opacity={opacity}
                     onOpacityChange={setOpacity}
                     onNarrow={() => applyPreset('lastHour')}
@@ -318,12 +363,14 @@ export default function AnalyticsPage() {
  */
 function HeatmapPane({
   query,
+  cameraId,
   opacity,
   onOpacityChange,
   onNarrow,
   onRetry,
 }: {
   query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof getAnalyticsHeatmap>>>>;
+  cameraId: string;
   opacity: number;
   onOpacityChange: (value: number) => void;
   onNarrow: () => void;
@@ -364,7 +411,20 @@ function HeatmapPane({
       degradedMessage="This map is the last one that was built. A refresh since then has failed, so it may no longer be current."
       onRetry={onRetry}
     >
-      {(map) => scopePresence(map.coverage) === 'incomplete' ? (
+      {(map) => coverageStatus(map.sceneRevisionId, map.coverage) === 'not-configured' ? (
+        <EmptyState
+          icon="layers"
+          title="No scene configured"
+          hatched
+          actions={<ButtonLink to={`/cameras/${cameraId}/scene`}>Configure the scene</ButtonLink>}
+        >
+          There is no scene to read trajectories against, so there is no map to draw.
+        </EmptyState>
+      ) : coverageStatus(map.sceneRevisionId, map.coverage) === 'disabled' ? (
+        <EmptyState icon="layers" title="Analytics disabled by the scene" hatched>
+          The scene revision in force has no enabled geometry, so no run in this window was analysed.
+        </EmptyState>
+      ) : scopePresence(map.coverage) === 'incomplete' ? (
         <EmptyState
           icon="clock"
           title="Not every run in this window has been analysed"
@@ -380,14 +440,24 @@ function HeatmapPane({
   );
 }
 
-function CoverageChip({ complete }: { complete: boolean }) {
-  // Persistent text, never colour alone: coverage is the difference between an
-  // observation and an absence of one, and it has to survive a greyscale print.
-  return (
-    <StatusBadge tone={complete ? 'ok' : 'warn'}>
-      {complete ? 'Coverage complete' : 'Coverage incomplete'}
-    </StatusBadge>
-  );
+/**
+ * The scope's condition, named (F25). Persistent text, never colour alone:
+ * coverage is the difference between an observation and an absence of one, and
+ * it has to survive a greyscale print. A camera with no scene is not configured
+ * — not "coverage incomplete", which would send the operator to Processing for
+ * runs that have nothing to be analysed against.
+ */
+const COVERAGE_CHIP: Record<CoverageStatus, { tone: 'ok' | 'warn' | 'neutral'; text: string }> = {
+  complete: { tone: 'ok', text: 'Coverage complete' },
+  incomplete: { tone: 'warn', text: 'Coverage incomplete' },
+  stale: { tone: 'warn', text: 'Coverage stale' },
+  disabled: { tone: 'neutral', text: 'Analytics disabled' },
+  'not-configured': { tone: 'neutral', text: 'No scene configured' },
+};
+
+function CoverageChip({ status }: { status: CoverageStatus }) {
+  const { tone, text } = COVERAGE_CHIP[status];
+  return <StatusBadge tone={tone}>{text}</StatusBadge>;
 }
 
 /**
@@ -409,14 +479,26 @@ function ActivityStage({
   displayTimeZoneId: string;
   cameraId: string;
 }) {
-  if (response.sceneRevisionId === null) {
+  const status = coverageStatus(response.sceneRevisionId, response.coverage);
+  // Not configured and disabled are domain states, hatched (§14), never
+  // partial coverage: there was nothing to analyse against, not something left.
+  if (status === 'not-configured') {
     return (
       <EmptyState
         icon="layers"
         title="No scene configured"
+        hatched
         actions={<ButtonLink to={`/cameras/${cameraId}/scene`}>Configure the scene</ButtonLink>}
       >
         Zones and trip lines have to exist before there is anything to count.
+      </EmptyState>
+    );
+  }
+
+  if (status === 'disabled') {
+    return (
+      <EmptyState icon="layers" title="Analytics disabled by the scene" hatched>
+        The scene revision in force has no enabled geometry, so no run in this window was analysed.
       </EmptyState>
     );
   }

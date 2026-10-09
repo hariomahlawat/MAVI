@@ -884,23 +884,23 @@
 
 /* --- Analytics Workbench (Scene Analytics Slice 6) ----------------------- */
 
-.analytics-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--s-3);
-}
+/* The window band (F22): a toolbar row of 32px controls. Its labels sit
+   beside their fields; the presets are one group; a refusal is the band's
+   one-line hint, described by the field that repairs it. */
+.analytics-window__presets { display: flex; gap: var(--s-1); }
+.analytics-window__label { color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
+.toolbar-band .analytics-window__problem { color: var(--status-err); }
+.toolbar-band input[type="datetime-local"] { min-width: 0; }
 
-.analytics-controls__presets {
-  display: flex;
-  gap: var(--s-1);
+/* The inspector's sections (F23): one contained surface — the inspector — with
+   unbordered sections in it, as the Scene Editor's (§11). */
+.analytics-inspector { display: grid; gap: var(--s-3); align-content: start; }
+.analytics-section { display: grid; gap: var(--s-2); align-content: start; }
+.analytics-section__title {
+  margin: 0; display: flex; align-items: baseline; gap: var(--s-2); flex-wrap: wrap;
+  font-size: var(--fs-1); font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: var(--label-tracking);
 }
-
-.analytics-modes {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-}
+.analytics-section__subject { color: var(--text-primary); text-transform: none; letter-spacing: normal; font-weight: 500; }
 
 /*
  * The stage is the Workbench canvas: it grows and never scrolls, so the one
@@ -993,9 +993,13 @@
   overflow-wrap: anywhere;
 }
 
+/* The bucket start is a compact timestamp (no seconds — buckets are whole
+   minutes — and no current year), so it fits on one line in this share, and
+   each series column keeps room for its own heading. */
 .analytics-table th:first-child {
-  width: 44%;
+  width: 40%;
 }
+.analytics-table tbody th { white-space: nowrap; }
 
 /* The shared table keeps headers on one line; here there is not the width for
    it, and a clipped column heading is a column the reader cannot name. */

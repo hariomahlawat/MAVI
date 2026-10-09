@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AnalyticsAggregateResponse } from '../../api/analytics';
 import type { AnalyticsCoverage } from '../../api/tracks';
 import {
+  coverageStatus,
   METRICS,
   presetWindow,
   queryProblem,
@@ -133,6 +134,36 @@ describe('scopePresence', () => {
   it('never lets an incomplete scope be drawn as an observation', () => {
     expect(scopePresence({ ...coverage, pendingRuns: 1, complete: false })).toBe('incomplete');
     expect(scopePresence({ ...coverage, staleRuns: 1, complete: false })).toBe('incomplete');
+  });
+});
+
+describe('coverageStatus (F25)', () => {
+  it('calls a scope with no scene not configured, never incomplete', () => {
+    // The wire reports no scene as incomplete coverage with not-configured
+    // runs; read that way it sends the operator to Processing for runs that
+    // have nothing to be analysed against.
+    const none = { ...coverage, sceneRevisionId: null, notConfiguredRuns: 2, evaluatedRuns: 0, complete: false };
+    expect(coverageStatus(null, none)).toBe('not-configured');
+    expect(coverageStatus('r-1', none)).toBe('not-configured');
+  });
+
+  it('calls a scope whose only shortfall is disabled analytics disabled', () => {
+    expect(coverageStatus('r-1', { ...coverage, disabledRuns: 2, complete: false })).toBe('disabled');
+  });
+
+  it('calls a scope analysed only against an earlier revision stale', () => {
+    expect(coverageStatus('r-1', { ...coverage, staleRuns: 1, complete: false })).toBe('stale');
+  });
+
+  it('keeps anything Processing still owes incomplete, whatever else is true', () => {
+    expect(coverageStatus('r-1', { ...coverage, pendingRuns: 1, complete: false })).toBe('incomplete');
+    expect(coverageStatus('r-1', { ...coverage, failedRuns: 1, disabledRuns: 1, complete: false })).toBe('incomplete');
+    expect(coverageStatus('r-1', { ...coverage, pendingRuns: 1, staleRuns: 1, complete: false })).toBe('incomplete');
+  });
+
+  it('calls a complete scope complete, including a complete zero', () => {
+    expect(coverageStatus('r-1', coverage)).toBe('complete');
+    expect(coverageStatus('r-1', { ...coverage, analysedTracks: 0 })).toBe('complete');
   });
 });
 

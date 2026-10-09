@@ -2310,9 +2310,91 @@ const NO_SCENE_AGGREGATES = {
   classes: [],
 };
 
+/** M4 (F25): every run's analytics disabled by the scene revision in force. */
+const DISABLED_AGGREGATES = {
+  ...BASE_AGGREGATES,
+  coverage: { ...BASE_AGGREGATES.coverage, evaluatedRuns: 0, disabledRuns: 6, analysedTracks: 0, complete: false },
+  zones: [],
+  lines: [],
+  classes: [],
+};
+
+/** M4 (F25): the heatmap's answer for a camera with no scene. */
+const NO_SCENE_HEATMAP = {
+  ...BASE_HEATMAP,
+  sceneRevisionId: null,
+  sceneRevisionNumber: null,
+  coverage: {
+    ...BASE_HEATMAP.coverage, sceneRevisionId: null, evaluatedRuns: 0, notConfiguredRuns: 6, analysedTracks: 0, complete: false,
+  },
+  sampleCount: 0,
+  trackCount: 0,
+  maxCellValue: 0,
+  values: BASE_HEATMAP.values.map(() => 0),
+};
+
+/**
+ * M4 (F24): the bucket table scrolled under its own header, and the geometry
+ * that says it is read correctly there — measured, not inferred from a
+ * declared `position`.
+ *
+ * The 96 buckets of the served day are scrolled until a dozen rows have
+ * passed under the header. Then every body row's header must sit on its own
+ * row (a row label pinned to the top of the scroller names a different row
+ * from the figures beside it), and the hit test at the column header's centre
+ * and at the first row clear of it must land on that header and on that row's
+ * own label — nothing painted over either.
+ */
+const SCROLL_BUCKET_TABLE = `(async () => {
+  ${UNTIL}
+  const table = await until(() => document.querySelector('.analytics-table'), 'the bucket table');
+  const rows = Array.from(table.querySelectorAll('tbody tr'));
+  if (rows.length < 40) return false;
+  let scroller = table.parentElement;
+  while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+  scroller = scroller || document.scrollingElement;
+  const top = () => (scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top);
+  scroller.scrollTop += rows[12].getBoundingClientRect().top - top();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (rows[0].getBoundingClientRect().bottom > top()) return false;
+  for (const row of rows) {
+    const label = row.querySelector('th').getBoundingClientRect();
+    const figure = row.querySelector('td').getBoundingClientRect();
+    if (Math.abs(label.top - figure.top) > 1) return false;
+  }
+  const head = table.querySelector('thead th').getBoundingClientRect();
+  const atHead = document.elementFromPoint(head.left + head.width / 2, head.top + head.height / 2);
+  if (!atHead || atHead.closest('thead') !== table.tHead) return false;
+  const clear = rows.find((row) => row.getBoundingClientRect().top >= head.bottom);
+  if (!clear) return false;
+  const label = clear.querySelector('th');
+  const box = label.getBoundingClientRect();
+  const atRow = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+  return Boolean(atRow && label.contains(atRow));
+})()`;
+
+/**
+ * M4 (F22): a one-minute interval over the served day — 1,440 buckets against
+ * a bound of 512. The refusal must be on the Interval field (invalid, and
+ * described by the message), and Refresh disabled with its reason.
+ */
+const REFUSE_WINDOW = `(async () => {
+  ${UNTIL}
+  const select = await until(() => Array.from(document.querySelectorAll('select'))
+    .find((candidate) => Array.from(candidate.options).some((option) => option.value === '60')), 'the interval field');
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+  setter.call(select, '60');
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await until(() => select.getAttribute('aria-invalid') === 'true', 'the interval marked invalid');
+  const described = document.getElementById(select.getAttribute('aria-describedby') || '');
+  if (!described || !/the most that can be shown is 512/.test(described.textContent)) return false;
+  const refresh = Array.from(document.querySelectorAll('button')).find((button) => /Refresh/.test(button.textContent));
+  return Boolean(refresh && refresh.disabled && refresh.title);
+})()`;
+
 /** Arms the Heatmap mode, which is a click rather than a route. */
 const HEATMAP_MODE = `(() => {
-  const strip = document.querySelector('.analytics-modes');
+  const strip = document.querySelector('[aria-label="Analytics mode"]');
   const button = strip && Array.from(strip.querySelectorAll('button'))
     .find((candidate) => candidate.textContent.trim() === 'Heatmap');
   if (!button) return false;
@@ -4158,7 +4240,31 @@ export const STATES = [
     name: 'analytics-no-scene', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: NO_SCENE_AGGREGATES },
-    expectText: ['No scene configured'],
+    // F25: not configured is its own condition, never partial coverage.
+    expectText: ['No scene configured', 'Configure the scene'],
+    forbidText: 'Coverage incomplete',
+  },
+  {
+    // F25: analytics disabled by the scene — a domain state, not a shortfall.
+    name: 'analytics-disabled', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    api: { [`/api/cameras/${CAM}/analytics/aggregates`]: DISABLED_AGGREGATES },
+    expectText: ['Analytics disabled by the scene', 'Analytics disabled'],
+    forbidText: 'Coverage incomplete',
+  },
+  {
+    // F24: the bucket table scrolled under its header, judged by geometry.
+    name: 'analytics-bucket-table-scrolled', interaction: 'scroll the bucket table', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: SCROLL_BUCKET_TABLE,
+    expectText: ['Coverage complete', 'Active Tracks'],
+  },
+  {
+    // F22: a refused window, stated on the field that repairs it.
+    name: 'analytics-window-refused', interaction: 'choose a one-minute interval over a day', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: REFUSE_WINDOW,
+    expectText: ['the most that can be shown is 512'],
   },
   {
     name: 'analytics-unavailable', path: `/cameras/${CAM}/analytics`,
@@ -4177,7 +4283,7 @@ export const STATES = [
     name: 'analytics-heatmap', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
-    expectText: ['trajectory sample density', '64 × 36'],
+    expectText: ['Trajectory sample density — not people density, and not a probability or a prediction.', '64 × 36'],
   },
   {
     // The refusal that names its bound. A map is never drawn for a scope the
@@ -4223,5 +4329,14 @@ export const STATES = [
     prepare: HEATMAP_MODE,
     api: { [`/api/cameras/${CAM}/analytics/heatmap`]: SPARSE_HEATMAP },
     expectText: ['11 samples from 1 Track', 'The busiest cell holds 7 samples'],
+  },
+  {
+    // F25: the map's no-scene state in the same vocabulary as Activity's.
+    name: 'analytics-heatmap-no-scene', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: HEATMAP_MODE,
+    api: { [`/api/cameras/${CAM}/analytics/heatmap`]: NO_SCENE_HEATMAP },
+    expectText: ['No scene configured', 'Configure the scene'],
+    forbidText: ['Coverage incomplete', 'Not every run in this window has been analysed'],
   },
 ];

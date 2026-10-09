@@ -218,6 +218,28 @@ export function scopePresence(coverage: AnalyticsCoverage): ScopePresence {
   return coverage.complete ? 'observed' : 'incomplete';
 }
 
+/**
+ * What the analytical scope *is*, in the §14 vocabulary — the answer the
+ * Context Bar names and each mode's stage acts on (F25).
+ *
+ * `coverage.complete` alone cannot say it: a camera with no scene configured is
+ * not a camera whose footage is partly analysed, and a scene whose revision
+ * switched analytics off is neither. Both are read from what the response
+ * already carries — no scene revision at all, or runs that are only disabled —
+ * before incompleteness is considered, and stale coverage (runs answered under
+ * an earlier revision or engine) is named as stale rather than as missing.
+ */
+export type CoverageStatus = 'not-configured' | 'disabled' | 'incomplete' | 'stale' | 'complete';
+
+export function coverageStatus(sceneRevisionId: string | null, coverage: AnalyticsCoverage): CoverageStatus {
+  if (sceneRevisionId === null || coverage.sceneRevisionId === null) return 'not-configured';
+  if (coverage.complete) return 'complete';
+  const outstanding = coverage.pendingRuns + coverage.failedRuns + coverage.notConfiguredRuns;
+  if (outstanding === 0 && coverage.staleRuns === 0 && coverage.disabledRuns > 0) return 'disabled';
+  if (outstanding === 0 && coverage.staleRuns > 0) return 'stale';
+  return 'incomplete';
+}
+
 export type SeriesPoint = {
   startUtc: string;
   endUtc: string;

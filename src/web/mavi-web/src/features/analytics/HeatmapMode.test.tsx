@@ -223,6 +223,59 @@ describe('Heatmap mode', () => {
     expect(screen.queryByRole('region', { name: 'Heatmap summary' })).not.toBeInTheDocument();
   });
 
+  it('says a camera with no scene is not configured, not that coverage is incomplete (F25)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map({
+      sceneRevisionId: null,
+      sceneRevisionNumber: null,
+      coverage: { ...coverage, sceneRevisionId: null, evaluatedRuns: 0, notConfiguredRuns: 2, complete: false },
+      values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
+    }));
+    await openHeatmap();
+
+    const stage = (await screen.findByText('No scene configured', { selector: '.empty strong' })).closest('.empty') as HTMLElement;
+    expect(stage).toHaveClass('empty--hatched');
+    expect(within(stage).getByRole('link', { name: /Configure the scene/i })).toHaveAttribute(
+      'href', `/cameras/${cameraId}/scene`);
+    expect(screen.queryByText(/Not every run in this window has been analysed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Coverage incomplete')).not.toBeInTheDocument();
+    // Processing cannot analyse a run against a scene that does not exist.
+    const strip = screen.getByRole('region', { name: 'Analytics coverage' });
+    expect(within(strip).queryByRole('link', { name: 'Processing' })).not.toBeInTheDocument();
+  });
+
+  it('says analytics are disabled by the scene rather than incomplete (F25)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map({
+      coverage: { ...coverage, evaluatedRuns: 0, disabledRuns: 2, complete: false },
+      values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
+    }));
+    await openHeatmap();
+
+    const stage = (await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).closest('.empty');
+    expect(stage).toHaveClass('empty--hatched');
+    expect(screen.getByText('Analytics disabled')).toBeInTheDocument();
+    expect(screen.queryByText('Coverage incomplete')).not.toBeInTheDocument();
+  });
+
+  it('offers no interval, which a map has no use for (F22)', async () => {
+    await openHeatmap();
+    await screen.findByRole('region', { name: 'Heatmap summary' });
+
+    expect(screen.queryByLabelText('Interval')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Metric')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Object class')).toBeInTheDocument();
+  });
+
+  it('keeps what the map is not in view, and how it is counted and where it came from one step away (F23)', async () => {
+    await openHeatmap();
+    const inspector = await screen.findByRole('complementary', { name: 'Analytics inspector' });
+
+    expect(within(inspector).getByText(/not people density, and not a probability/i)).toBeVisible();
+    const disclosures = [...inspector.querySelectorAll('details')];
+    expect(disclosures.map((d) => d.querySelector('summary')?.textContent)).toEqual(['How this is counted', 'Provenance']);
+    expect(disclosures.every((d) => !d.open)).toBe(true);
+    expect(within(disclosures[1]).getByText('Engine')).toBeInTheDocument();
+  });
+
   it('reports a complete window that simply held nothing as exactly that', async () => {
     vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map({
       values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
