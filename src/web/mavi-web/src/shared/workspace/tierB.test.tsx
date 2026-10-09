@@ -31,6 +31,32 @@ function Search() {
 }
 
 describe('Investigation stacked (§25 Tier B, 768-1100)', () => {
+  it('moves focus from the in-place rail to the Filters control when the window narrows into the stacked composition', () => {
+    // A matchMedia stand-in whose answer the test changes, notifying listeners
+    // as a resized window does.
+    const original = window.matchMedia;
+    let stacked = false;
+    const listeners = new Set<() => void>();
+    window.matchMedia = ((query: string) => ({
+      get matches() { return stacked && (query === OVERLAY_QUERIES.investigationStacked || query === OVERLAY_QUERIES.investigation); },
+      media: query, onchange: null,
+      addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+      addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      render(<Search />);
+      screen.getByRole('combobox', { name: 'Camera' }).focus();
+      act(() => {
+        stacked = true;
+        for (const listener of Array.from(listeners)) listener();
+      });
+      expect(screen.getByRole('button', { name: 'Filters' })).toHaveFocus();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it('puts the filters behind a control in the results header, opens them as a named modal drawer, and returns focus on Escape', async () => {
     unstub = stubMatchMedia((query) => query === OVERLAY_QUERIES.investigationStacked || query === OVERLAY_QUERIES.investigation);
     const user = userEvent.setup();

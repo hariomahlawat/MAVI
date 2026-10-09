@@ -483,6 +483,15 @@ export function InvestigationLayout({
   const noticesRef = useRef<HTMLDivElement | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
   const resultsRef = useRef<HTMLDivElement | null>(null);
+  // Narrowing into the stacked composition (≤1100) shuts the in-place rail
+  // away as a closed drawer. Focus inside it would fall to the document with
+  // it, so it goes, before paint, to the results header's Filters control
+  // that opens it again (as the Workbench does entering its drawer band).
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!stacked || !rail || !rail.contains(document.activeElement)) return;
+    rail.closest('.workspace')?.querySelector<HTMLElement>('.workspace__rail-toggle')?.focus();
+  }, [stacked]);
   const railToggle = stacked ? (
     <Button
       size="sm"
