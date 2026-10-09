@@ -111,6 +111,34 @@ describe('Drawer', () => {
     expect(screen.getByRole('button', { name: 'Zone A' })).toHaveFocus();
   });
 
+  it('keeps focus in a panel that stays in place when the window leaves the overlay range and takes the invoker with it', async () => {
+    // The Investigation filters at ≤1100: the invoker lives in the results
+    // header only while the rail is a drawer, and the drawer's head (its
+    // heading, which holds focus on opening) only while it is one.
+    const user = userEvent.setup();
+    let widen: () => void = () => {};
+    function Filters() {
+      const [stacked, setStacked] = useState(true);
+      const [open, setOpen] = useState(false);
+      widen = () => setStacked(false);
+      const resultsRef = useRef<HTMLDivElement | null>(null);
+      return (
+        <div>
+          <div ref={resultsRef}>{stacked ? <button type="button" onClick={() => setOpen(true)}>Filters</button> : null}</div>
+          <Drawer open={open || !stacked} overlay={stacked} onClose={() => setOpen(false)} covers={[resultsRef]} className="rail">
+            {stacked ? <h2>Filters</h2> : null}
+            <label>Camera<select><option>Any camera</option></select></label>
+          </Drawer>
+        </div>
+      );
+    }
+    render(<Filters />);
+    await user.click(screen.getByRole('button', { name: 'Filters' }));
+    expect(screen.getByRole('heading', { name: 'Filters' })).toHaveFocus();
+    act(() => widen());
+    expect(screen.getByRole('combobox', { name: 'Camera' })).toHaveFocus();
+  });
+
   it('closes on Escape and returns focus to the invoker', async () => {
     const { user, invoker } = await openDrawer();
     await user.keyboard('{Escape}');

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -226,6 +226,31 @@ describe('the Workbench drawer: the frozen 1101-1149 band and the §4.3.1 floor,
     expect(drawerAt(892)).toBe(false);
     expect(drawerAt(891)).toBe(true);
     expect(drawerAt(850)).toBe(true);
+  });
+
+  it('moves focus from the in-flow inspector to the drawer toggle when the window enters the drawer composition', () => {
+    // A ResizeObserver stand-in the test drives: the working width shrinks
+    // under the floor while focus is in the side-by-side inspector.
+    const original = globalThis.ResizeObserver;
+    let resize: (width: number) => void = () => {};
+    globalThis.ResizeObserver = class {
+      private readonly callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) { this.callback = callback; }
+      observe(target: Element) {
+        resize = (width) => this.callback([{ target, contentRect: { width } as DOMRectReadOnly } as ResizeObserverEntry], this as unknown as ResizeObserver);
+        resize(1005);
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      render(<WorkbenchLayout stage={<canvas />} inspector={<button type="button">Loading bay</button>} inspectorLabel="Scene inspector" />);
+      screen.getByRole('button', { name: 'Loading bay' }).focus();
+      act(() => resize(850));
+      expect(screen.getByRole('button', { name: 'Scene inspector' })).toHaveFocus();
+    } finally {
+      globalThis.ResizeObserver = original;
+    }
   });
 
   it('is a drawer throughout the frozen 1101-1149 band even where the floor alone would allow side by side (§25 Tier B)', () => {

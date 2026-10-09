@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
-import { containTab, makeInert, restoreFocus } from './focus';
+import { containTab, focusableWithin, makeInert, restoreFocus } from './focus';
 
 /**
  * An inspector that is, at the current width, an overlay (specification §20).
@@ -148,6 +148,11 @@ export default function Drawer({
       // moved it somewhere real, that choice stands.
       if (!active || active === document.body || (panel?.contains(active) ?? false)) {
         restoreFocus(invoker);
+        // The window crossed out of the overlay range and took the invoker
+        // with it (the Investigation filters' header control), while the
+        // panel stays, in place: keep focus in the panel, not on the document.
+        const now = document.activeElement;
+        if ((!now || now === document.body) && panel?.isConnected) focusableWithin(panel)[0]?.focus();
       }
     };
   }, [modal, restoreFocusOnClose]);

@@ -344,6 +344,17 @@ export function WorkbenchLayout({
   useEffect(() => {
     if (!overlay) setDrawerOpen(false);
   }, [overlay]);
+  // Entering the drawer composition (a window resized into the 1101-1149
+  // band) shuts the in-flow inspector away. Focus inside it would fall to the
+  // document with it, so it goes, before paint, to the control that opens the
+  // drawer again — the operator's way back to what they were in.
+  useLayoutEffect(() => {
+    const section = sectionRef.current;
+    if (!overlay || !section) return;
+    if (section.querySelector('.workspace__inspector')?.contains(document.activeElement)) {
+      section.querySelector<HTMLElement>('.workspace__drawer-toggle')?.focus();
+    }
+  }, [overlay]);
 
   const toggle = (
     <Button
