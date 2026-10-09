@@ -636,28 +636,62 @@ describe('Tier B (T1): rules that reject the pre-T1 compositions and pass the de
     assert.deepEqual(fired(await workspaceAt(INVESTIGATION({ railShown: false, toggle: true }), 1024, 'investigation'), 'tier.b-composition'), []);
   });
 
-  const FOLDING_LEDGER = ({ table, folded = false, carried = false, statusHidden = false }) => `<div class="main" data-scroll="body" style="overflow:hidden;height:760px">
-    <section class="workspace workspace--ledger"><div class="workspace__body workspace__body--ledger">
+  // The Videos Ledger as the harness sees it: its stated columns, a region of
+  // `region` px holding a `table` px table, folded or not, with the folded
+  // values carried (and named), the Sort select, and the measured-fold mark.
+  const FOLDING_LEDGER = ({ region, table, folded = false, carried = true, named = true, statusHidden = false, sort = true, mark = false }) => {
+    // A measured fold (`mark`) hides the columns through the stylesheet, as
+    // the product does, so setting the mark aside really unfolds them.
+    const hide = (on) => (on && !mark ? 'display:none' : '');
+    const value = (name, v) => `<span class="ledger-folded__value">${named ? `<span class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">${name} </span>` : ''}${v}</span>`;
+    return `<style>.workspace--ledger[data-fold] .ledger-fold { display: none; }</style><div class="main" data-scroll="body" style="overflow:hidden;height:760px">
+    <section class="workspace workspace--ledger"${mark ? ' data-fold="overflow"' : ''} style="width:${region}px">
+      <div class="workspace__band"><div class="toolbar-band">${sort ? `<label class="ledger-sort" style="${hide(!folded)}">Sort <select><option>Recorded, newest first</option><option>Duration, longest first</option><option>File, A to Z</option></select></label>` : ''}</div></div>
+      <div class="workspace__body workspace__body--ledger">
       <div class="ledger-table" style="overflow:auto;max-width:100%"><table style="width:${table}px;border-collapse:collapse">
-        <thead><tr><th>File</th><th class="ledger-fold" style="${folded ? 'display:none' : ''}">Recorded</th><th class="ledger-fold" style="${folded ? 'display:none' : ''}">Attempt</th><th style="${statusHidden ? 'display:none' : ''}">Status</th></tr></thead>
+        <thead><tr><th aria-sort="none">File</th><th aria-sort="none">Camera</th><th class="ledger-fold" aria-sort="descending" style="${hide(folded)}">Recorded<span aria-hidden="true">▼</span></th>
+          <th class="ledger-fold" aria-sort="none" style="${hide(folded)}">Duration<span aria-hidden="true">↕</span></th><th style="${hide(statusHidden)}">Status</th><th><span class="visually-hidden">Actions</span><span>Actions</span></th></tr></thead>
         <tbody><tr>
-          <td><div class="ledger-primary">clip.mp4<span class="ledger-folded">${carried ? '<span class="ledger-folded__value"><span class="visually-hidden">Recorded </span>14 Sept</span>' : ''}</span></div></td>
-          <td class="ledger-fold" style="${folded ? 'display:none' : ''}">14 Sept</td><td class="ledger-fold" style="${folded ? 'display:none' : ''}">—</td>
-          <td style="${statusHidden ? 'display:none' : ''}">Ready</td>
+          <td><div class="ledger-primary">clip.mp4<span class="ledger-folded" style="${hide(!folded)}">${carried ? value('Recorded', '14 Sept') : ''}${value('Duration', '10m')}</span></div></td>
+          <td>GATE-4</td><td class="ledger-fold" style="${hide(folded)}">14 Sept</td><td class="ledger-fold" style="${hide(folded)}">10m</td>
+          <td style="${hide(statusHidden)}">Ready</td><td><button>Review</button></td>
         </tr></tbody>
       </table></div></div></section></div>`;
-  it('tier.b-composition: fires on a Ledger scrolling sideways with its fold columns shown, a lost folded value, and a folded non-fold column', async () => {
-    const unfolded = await workspaceAt(FOLDING_LEDGER({ table: 1400 }), 1024, 'ledger');
-    assert.ok(unfolded.evaluated.includes('tier.b-composition'));
-    assert.match(fired(unfolded, 'tier.b-composition')[0].message, /scrolls sideways .* while 2 stated fold column\(s\) are still shown/);
-    const lost = await workspaceAt(FOLDING_LEDGER({ table: 800, folded: true }), 1024, 'ledger');
-    assert.match(fired(lost, 'tier.b-composition')[0].message, /\(Recorded\) are hidden with their column but not shown in the row's primary cell/);
-    const status = await workspaceAt(FOLDING_LEDGER({ table: 800, folded: true, carried: true, statusHidden: true }), 1024, 'ledger');
-    assert.match(fired(status, 'tier.b-composition')[0].message, /hides "Status", which is not a stated fold column/);
-    // The designed compositions: folded with every value carried (an empty
-    // "—" cell carries nothing), and unfolded where the table fits.
-    assert.deepEqual(fired(await workspaceAt(FOLDING_LEDGER({ table: 800, folded: true, carried: true }), 1024, 'ledger'), 'tier.b-composition'), []);
-    assert.deepEqual(fired(await workspaceAt(FOLDING_LEDGER({ table: 800 }), 1024, 'ledger'), 'tier.b-composition'), []);
+  };
+  const ledgerAt = (html, width, tier = 'B') => render(html, width, workspaceAssertions, { tier, width, archetype: 'ledger', surface: 'videos' });
+  it('ledger.column-fold: blocks each Ledger fold defect and passes the designed compositions', async () => {
+    const messages = (result) => fired(result, 'ledger.column-fold').map((f) => f.message).join('\n');
+    // Folding disabled: at a region under Videos' stated 969px, and scrolling sideways.
+    const unfolded = await ledgerAt(FOLDING_LEDGER({ region: 900, table: 1200 }), 1024);
+    assert.ok(unfolded.evaluated.includes('ledger.column-fold'));
+    assert.match(messages(unfolded), /at or under its stated 969px, and Recorded, Duration have not folded/);
+    assert.match(messages(unfolded), /scrolls sideways .* while its stated fold column\(s\) Recorded, Duration are still shown/);
+    // A transferred value removed.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, carried: false }), 1024)),
+      /\(Recorded\) are hidden with their column but not shown in the row's primary cell/);
+    // A transferred value without its header name: nothing to match it by.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, named: false }), 1024)),
+      /\(Recorded, Duration\) are hidden with their column/);
+    // A required column folded.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, statusHidden: true }), 1024)),
+      /hides Status, which never fold/);
+    // The replacement sort control removed.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, sort: false }), 1024)),
+      /folded sort key\(s\) Recorded, Duration have no visible, enabled Sort select/);
+    // The columns not returning where the unfolded table fits (the measured
+    // mark left behind), and any fold at Tier A.
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 1200, table: 1000, folded: true, mark: true }), 1365)),
+      /keeps Recorded, Duration folded in a 1200px region where its unfolded table fits/);
+    assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 1200, table: 1000, folded: true }), 1366, 'A')), /folds Recorded, Duration at Tier A/);
+    // An unstated Ledger is not silently passed.
+    const unstated = await render(FOLDING_LEDGER({ region: 900, table: 800 }), 1024, workspaceAssertions, { tier: 'B', width: 1024, archetype: 'ledger', surface: 'import' });
+    assert.match(messages(unstated), /no stated fold priority/);
+    // The designed compositions: folded under the stated width, every value
+    // carried and named, the Sort select offered; unfolded where the table
+    // fits; and every column at Tier A.
+    assert.deepEqual(fired(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true }), 1024), 'ledger.column-fold'), []);
+    assert.deepEqual(fired(await ledgerAt(FOLDING_LEDGER({ region: 1200, table: 1000 }), 1365), 'ledger.column-fold'), []);
+    assert.deepEqual(fired(await ledgerAt(FOLDING_LEDGER({ region: 1200, table: 1000 }), 1366, 'A'), 'ledger.column-fold'), []);
   });
 
   const RECORD = (columns) => `<div class="main" data-scroll="page"><section class="workspace workspace--record">

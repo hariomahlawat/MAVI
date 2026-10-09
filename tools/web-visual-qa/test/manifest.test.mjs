@@ -109,6 +109,11 @@ describe('the assertion manifest', () => {
       assert.equal(RULES[rule].tiers.B.status, 'blocking', rule);
       for (const tier of ['A', 'C']) assert.equal(RULES[rule].tiers[tier].status, 'not-applicable', `${rule} @ ${tier}`);
     }
+    // The Ledger fold (Codex P1 on #199): blocks at A (nothing folds) and B,
+    // measured at C for T2.
+    assert.equal(RULES['ledger.column-fold'].tiers.A.status, 'blocking');
+    assert.equal(RULES['ledger.column-fold'].tiers.B.status, 'blocking');
+    assert.equal(RULES['ledger.column-fold'].tiers.C.status, 'measured/pending');
   });
 
   it('keeps the later-slice rules measured with their owners named', () => {

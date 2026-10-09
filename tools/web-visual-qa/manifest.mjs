@@ -229,9 +229,17 @@ export const RULES = {
   // in place above it; Record facts below the primary at 768-1100 and beside it
   // (280px minimum) above it; Review rail below the player at 768-1100 and
   // beside it above it.
+  // T1 (Codex P1 on #199): the Ledger fold, stated per Ledger and judged from
+  // the rendered table. Tier A blocks too (§4.1: every column at 1366);
+  // Tier C is T2's.
+  'ledger.column-fold': {
+    section: '§25 (Tier B Ledger), §4.1', kind: 'assertion',
+    summary: 'Each operational Ledger folds exactly its stated columns at its stated width (and back where its table fits), into each row’s primary cell with their names, keeping identity, status, analytics and the action, with a Sort select for a folded sort key; nothing folds at Tier A.',
+    tiers: { A: blocking(), B, C },
+  },
   'tier.b-composition': {
     section: '§25 (Tier B compositions), §4.3.1, §4.4', kind: 'assertion',
-    summary: 'At Tier B each archetype renders its designed composition on each side of the stacking threshold, and a Ledger folds only its stated columns, into each row’s primary cell, before its body scrolls sideways.',
+    summary: 'At Tier B each archetype renders its designed composition on each side of the stacking threshold.',
     tiers: { A: na('a Tier B composition rule'), B, C: na('a Tier B composition rule') },
   },
   'tier.c-shell': {

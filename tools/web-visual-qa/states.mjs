@@ -2940,6 +2940,41 @@ export const STATES = [
 
   { name: 'videos', path: '/videos', fullWidth: true, archetype: 'ledger' },
   {
+    // T1 (§25 Tier B, Codex P1 on #199): with Recorded and Duration folded
+    // into the File cell, their sort is still the operator's — through the
+    // Sort select that stands in for the headers. Reached only if choosing
+    // "Duration, longest first" there actually re-sorts the rows: the folded
+    // Duration header reports the order, and the durations the rows carry in
+    // their primary cells read longest first.
+    name: 'videos-sort-folded', interaction: 'sort by duration from the folded Sort select',
+    path: '/videos', fullWidth: true, archetype: 'ledger',
+    prepare: `(async () => {
+      ${UNTIL}
+      const select = await until(() => {
+        const s = document.querySelector('.ledger-sort select');
+        return s && s.getBoundingClientRect().width > 0 && document.querySelector('tbody .ledger-primary') ? s : null;
+      }, 'the folded Sort select beside a loaded Ledger');
+      if (!select) return false;
+      const seconds = (text) => {
+        const part = (unit) => Number((text.match(new RegExp('(\\\\d+)' + unit)) || [0, 0])[1]);
+        return part('h') * 3600 + part('m') * 60 + part('s');
+      };
+      const durations = () => Array.from(document.querySelectorAll('tbody tr .ledger-folded__value'))
+        .filter((v) => /^Duration\\b/.test(v.textContent.trim()))
+        .map((v) => seconds(v.textContent.replace(/^Duration/, '')));
+      const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+      set.call(select, 'duration:desc');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return Boolean(await until(() => {
+        const head = Array.from(document.querySelectorAll('thead th')).find((th) => th.textContent.trim().startsWith('Duration'));
+        const values = durations();
+        return head && head.getAttribute('aria-sort') === 'descending' && select.value === 'duration:desc'
+          && values.length > 1 && values.every((v, i) => i === 0 || values[i - 1] >= v) && new Set(values).size > 1;
+      }, 'the rows sorted by duration, longest first'));
+    })()`,
+    tierPolicy: 'breakpoint-probe', probeOf: 'videos', probeWidths: [768, 1024],
+  },
+  {
     name: 'videos-empty', path: '/videos', fullWidth: true, archetype: 'ledger',
     api: { '/api/videos': [] }, expectText: 'No videos imported yet',
   },
