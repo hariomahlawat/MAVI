@@ -3,7 +3,9 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } 
 import { Link, Outlet, useMatches, useNavigate } from 'react-router-dom';
 import { getPlatformHealth } from '../api/platform';
 import Icon from '../shared/components/Icon';
+import Drawer from '../shared/overlay/Drawer';
 import Tooltip from '../shared/overlay/Tooltip';
+import { SHELL_QUERIES, useMediaQuery } from '../shared/overlay/useMediaQuery';
 import {
   barClass,
   Breadcrumbs,
@@ -63,6 +65,20 @@ export default function AppShell() {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [sheetOpen, setSheetOpen] = useState(false);
+  // §25 Tier B: below the workstation width the rail is collapsed by default
+  // and the toggle opens it as an overlay — the shared Drawer, so focus moves
+  // in, the workspace is inert, Escape and the scrim close it and focus goes
+  // back to the toggle. The operator's Tier A choice is neither read nor
+  // written here: it is a preference for the workstation, and a compact window
+  // keeps it for when the window is wide again.
+  const compact = useMediaQuery(SHELL_QUERIES.compact);
+  const [railOpen, setRailOpen] = useState(false);
+  // Leaving the compact range closes the overlay, so it is never found open —
+  // and modal — when the window comes back.
+  useEffect(() => {
+    if (!compact) setRailOpen(false);
+  }, [compact]);
+  const railCollapsed = compact ? !railOpen : collapsed;
   const railRef = useRef<HTMLDivElement | null>(null);
   const mainRef = useRef<HTMLElement | null>(null);
   const navId = useId();
@@ -79,7 +95,8 @@ export default function AppShell() {
   }, [collapsed]);
 
   useGlobalShortcuts({
-    enabled: !sheetOpen,
+    // Nothing behind an open overlay answers the keyboard (§20).
+    enabled: !sheetOpen && !railOpen,
     onNavigate: (to) => navigate(to),
     onOpenSheet: () => setSheetOpen(true),
   });
@@ -106,13 +123,30 @@ export default function AppShell() {
     mainRef.current?.focus();
   }
 
-  const collapseLabel = collapsed ? 'Expand navigation' : 'Collapse navigation';
+  const collapseLabel = compact
+    ? (railOpen ? 'Close navigation' : 'Open navigation')
+    : (collapsed ? 'Expand navigation' : 'Collapse navigation');
+
+  const shellClass = ['shell', railCollapsed ? 'shell--collapsed' : '', compact ? 'shell--compact' : '', railOpen ? 'shell--rail-open' : '']
+    .filter(Boolean).join(' ');
 
   return (
-    <div className={collapsed ? 'shell shell--collapsed' : 'shell'}>
+    <div className={shellClass}>
       <a className="skip-link" href="#main" onClick={skipToWorkspace}>Skip to workspace</a>
 
-      <div className="sidebar" ref={railRef}>
+      <Drawer
+        open={railOpen}
+        overlay={compact}
+        onClose={() => setRailOpen(false)}
+        covers={[mainRef]}
+        coversViewport
+        className="sidebar"
+        panelRef={railRef}
+      >
+        {/* The overlay's name (§20: an overlay is named by its heading). Only
+            where the rail can be an overlay, so the workstation's outline is
+            unchanged. */}
+        {compact ? <h2 className="visually-hidden">Navigation</h2> : null}
         {/* The rail head is the page's banner (§5). */}
         <header className="sidebar__brand">
           <span className="brand-mark" aria-hidden="true">M</span>
@@ -140,7 +174,9 @@ export default function AppShell() {
                     className={active ? 'active' : undefined}
                     aria-current={current}
                     // §5: the one sanctioned use of `title` — a collapsed rail item.
-                    title={collapsed ? item.label : undefined}
+                    title={railCollapsed ? item.label : undefined}
+                    // A destination chosen from the overlay closes it.
+                    onClick={railOpen ? () => setRailOpen(false) : undefined}
                   >
                     <Icon name={item.icon} />
                     <span>{item.label}</span>
@@ -164,21 +200,21 @@ export default function AppShell() {
               whose name is its visible text when there is room for text. */}
           {/* Collapsed, the control is icon-only: its name is `aria-label`, and
               the same words are a hint on hover and focus (§27 Tooltip). */}
-          <Tooltip content={collapseLabel} enabled={collapsed}>
+          <Tooltip content={collapseLabel} enabled={railCollapsed}>
             <button
               type="button"
               className="sidebar__toggle"
-              onClick={() => setCollapsed((value) => !value)}
-              aria-expanded={!collapsed}
+              onClick={() => (compact ? setRailOpen((open) => !open) : setCollapsed((value) => !value))}
+              aria-expanded={!railCollapsed}
               aria-controls={navId}
-              aria-label={collapsed ? collapseLabel : undefined}
+              aria-label={railCollapsed ? collapseLabel : undefined}
             >
               <Icon name="sidebar" />
-              {collapsed ? null : <span>{collapseLabel}</span>}
+              {railCollapsed ? null : <span>{collapseLabel}</span>}
             </button>
           </Tooltip>
         </div>
-      </div>
+      </Drawer>
 
       <SurfaceSlotProvider>
         {({ attachContextBar, claimed, tone, title, scroll }) => (

@@ -254,7 +254,8 @@ describe('shell scroll policy', () => {
 
   it('contains Ledger and Investigation, whose own regions scroll', () => {
     renderShell(<LedgerLayout><table><tbody /></table></LedgerLayout>);
-    expect(policy()).toBe('contain');
+    // At every width (§25 Tier B: a Ledger has nothing to stack).
+    expect(policy()).toBe('body');
 
     renderShell(<InvestigationLayout rail={<p>rail</p>}><p>results</p></InvestigationLayout>);
     expect(screen.getAllByTestId('main').at(-1)).toHaveAttribute('data-scroll', 'contain');
@@ -266,7 +267,8 @@ describe('shell scroll policy', () => {
     // page must not scroll, and the variant's own body is what does — the
     // centred width is the exception, not the scrolling.
     const { container } = render(<Shell><LedgerSummaryLayout><p>summary</p></LedgerSummaryLayout></Shell>);
-    expect(policy()).toBe('contain');
+    // Its body, at every width, as the Ledger's (§25 Tier B).
+    expect(policy()).toBe('body');
     const summary = container.querySelector('.workspace--ledger-summary');
     expect(summary?.querySelector('.workspace__body--scroll')).toBeInTheDocument();
     // The width exception survives the correction.

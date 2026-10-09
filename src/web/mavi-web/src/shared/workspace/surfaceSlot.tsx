@@ -53,7 +53,13 @@ export type ContextTone = 'caution';
  *
  * `page` — the shell's content column scrolls, as it always has.
  * `contain` — it must not: this archetype names its own scroll owner, and the
- * page scrolling would break the grammar rather than extend it.
+ * page scrolling would break the grammar rather than extend it. That holds at
+ * the workstation; where §4's shared rule stacks the archetype (≤1100, §25
+ * Tier B) the stacked column is the page's again.
+ * `body` — it must not at any width: the archetype's own body is the scroll
+ * owner at every tier. §25 Tier B: a Ledger "still scrolls its body at every
+ * Tier B width (a Ledger is one column and has nothing to stack)", and the
+ * Overview keeps the Ledger's grammar (§4.1.1 is a width exception only).
  *
  * This exists because the shell's `.main` is `overflow: auto` for every
  * surface, which left the Workbench's frozen no-page-scroll rule (§4.3.2)
@@ -62,7 +68,7 @@ export type ContextTone = 'caution';
  * a page cannot reach it — the declaration is made by the layout component,
  * not by anything the page passes in.
  */
-export type ScrollPolicy = 'page' | 'contain';
+export type ScrollPolicy = 'page' | 'contain' | 'body';
 
 /** What a surface that owns the Context Bar publishes about itself. */
 export type SurfaceOwner = {

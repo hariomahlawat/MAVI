@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import Button from '../components/Button';
 import Drawer from '../overlay/Drawer';
 import { OVERLAY_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
 import { useScrollPolicy } from './surfaceSlot';
+import { useElementWidth } from './useElementWidth';
 
 /**
  * The five workspace archetypes of §4, with exactly one implementation each.
@@ -63,8 +64,9 @@ export function LedgerLayout({
    */
   children: ReactNode;
 }) {
-  // §4.1: "The table body. The page does not scroll."
-  useScrollPolicy('contain');
+  // §4.1: "The table body. The page does not scroll." — at every width: §25
+  // Tier B keeps the body the scroll owner, as a Ledger has nothing to stack.
+  useScrollPolicy('body');
   return (
     <section className="workspace workspace--ledger">
       {toolbar ? <div className="workspace__band">{toolbar}</div> : null}
@@ -107,16 +109,24 @@ export const LEDGER_SKELETON = { rows: 'default', pitch: 'ledger' } as const;
  */
 export function LedgerTable({
   caption,
+  fold,
   children,
 }: {
   /** The table's accessible name; the visible statement lives in the toolbar. */
   caption: string;
+  /**
+   * Which Ledger's column-fold priority applies (§25 Tier B: "columns collapse
+   * by stated priority into the primary cell"). The priority itself — which
+   * columns fold, and at the container width where the unfolded table stops
+   * fitting — is that Ledger's, stated in features.css.
+   */
+  fold?: 'videos' | 'processing-queue' | 'cameras';
   /** `<thead>` and `<tbody>`. */
   children: ReactNode;
 }) {
   return (
     <div className="ledger-table">
-      <table className="table table--ledger">
+      <table className={`table table--ledger${fold ? ` table--fold-${fold}` : ''}`}>
         <caption className="visually-hidden">{caption}</caption>
         {children}
       </table>
@@ -145,8 +155,10 @@ export function LedgerSummaryLayout({
   // Ledger's grammar holds here: this body owns vertical scroll and the page
   // does not. An earlier version declared `page` because this layout had no
   // scrolling region to be the owner, which was a gap in the layout rather
-  // than an allowance in the specification; the region is the fix.
-  useScrollPolicy('contain');
+  // than an allowance in the specification; the region is the fix. Tier B
+  // (§25: "regions stack in attention order") stacks inside this body, which
+  // stays the scroll owner, as the Ledger's does.
+  useScrollPolicy('body');
   return (
     <section className="workspace workspace--ledger-summary">
       {notices ? <div className="workspace__notices">{notices}</div> : null}
@@ -186,6 +198,27 @@ export function RecordLayout({
 }
 
 /**
+ * The Workbench's side-by-side minimum (§4.3.1), derived rather than chosen:
+ * the stage takes the residual width after the fixed inspector and the gutter
+ * and must keep at least 65% of the working width, so the two fit side by side
+ * while `working - inspector - gap >= 0.65 * working`, i.e. while the working
+ * width is at least `(inspector + gap) / 0.35`. The inspector's minimum and the
+ * gutter are workspace.css's (`clamp(300px, …)`, `var(--s-3)`), and
+ * workspace.test.tsx holds the two in step. Below it, and above the shared
+ * stacking threshold, the inspector is an overlay drawer.
+ *
+ * T1 measured where this lands under the Tier B shell (rail collapsed to 56px):
+ * the working width at 1101px is 1005px, above the 891px minimum, so the floor
+ * holds at every width above the stacking threshold and the drawer band is
+ * empty — the ~1150 figure of §4.3.1 is its outcome with the rail expanded.
+ * The rule, not the figure, is what is implemented.
+ */
+export const WORKBENCH_INSPECTOR_MIN = 300;
+export const WORKBENCH_GAP = 12;
+export const WORKBENCH_STAGE_FLOOR = 0.65;
+export const WORKBENCH_SIDE_BY_SIDE_MIN = (WORKBENCH_INSPECTOR_MIN + WORKBENCH_GAP) / (1 - WORKBENCH_STAGE_FLOOR);
+
+/**
  * **Workbench** — direct manipulation of spatial content.
  *
  * The one archetype with a hard no-page-scroll rule (§4.3.2): a scrolled canvas
@@ -218,15 +251,20 @@ export function WorkbenchLayout({
   // to scroll this surface at desktop widths either.
   useScrollPolicy('contain');
 
-  // Between 1101 and 1149 the inspector is a drawer over the stage (§4.3.1):
-  // the stage keeps the full working width instead of being compressed below
-  // its floor. A drawer that cannot be shut is not a drawer — it is a panel
-  // parked on top of the canvas — so it starts closed and has a way out.
+  // Where the stage cannot keep its floor beside the inspector, and the
+  // workspace has not yet stacked, the inspector is a drawer over the stage
+  // (§4.3.1): the stage keeps the full working width instead of being
+  // compressed below its floor. A drawer that cannot be shut is not a drawer —
+  // it is a panel parked on top of the canvas — so it starts closed and has a
+  // way out.
   //
   // At every other width the inspector is in flow. Leaving the band closes the
-  // drawer, so a drawer opened at 1120 is never found open — and modal — when
+  // drawer, so a drawer opened there is never found open — and modal — when
   // the window comes back into the band later.
-  const overlay = useMediaQuery(OVERLAY_QUERIES.workbench);
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const working = useElementWidth(sectionRef);
+  const stacked = useMediaQuery(OVERLAY_QUERIES.workbenchStacked);
+  const overlay = !stacked && working !== null && working < WORKBENCH_SIDE_BY_SIDE_MIN;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const inspectorId = useId();
   // Everything in the workspace beside the drawer: inert while it is open as
@@ -254,7 +292,10 @@ export function WorkbenchLayout({
   );
 
   return (
-    <section className={`workspace workspace--workbench${drawerOpen ? ' has-open-drawer' : ''}`}>
+    <section
+      ref={sectionRef}
+      className={`workspace workspace--workbench${overlay ? ' is-drawer' : ''}${drawerOpen ? ' has-open-drawer' : ''}`}
+    >
       {modes ? (
         <div className="workspace__band" ref={bandRef}>{modes}{toggle}</div>
       ) : (
@@ -292,6 +333,18 @@ export function WorkbenchLayout({
 }
 
 /**
+ * The control that opens the Investigation's filter rail where it is a drawer
+ * (§25 Tier B, 768-1100: "rail as a drawer opened from the results header").
+ * The archetype owns the drawer and the control; the page places the control
+ * in its results header, the one place §25 names. Renders nothing where the
+ * rail is in place.
+ */
+const RailToggleContext = createContext<ReactNode>(null);
+export function InvestigationRailToggle() {
+  return <>{useContext(RailToggleContext)}</>;
+}
+
+/**
  * **Investigation** — form a query, scan candidates, inspect one without losing
  * the set. The results list and the inspector body scroll independently; the
  * page does not.
@@ -309,6 +362,7 @@ export function WorkbenchLayout({
  */
 export function InvestigationLayout({
   rail,
+  railLabel = 'Filters',
   notices,
   children,
   inspector,
@@ -316,6 +370,8 @@ export function InvestigationLayout({
 }: {
   /** The filter rail, 252px (§4.4). */
   rail: ReactNode;
+  /** Names the rail's drawer, and its toggle, where it is one (§25 Tier B). */
+  railLabel?: string;
   notices?: ReactNode;
   /** The results column. Owns its own scroll. */
   children: ReactNode;
@@ -336,21 +392,68 @@ export function InvestigationLayout({
   // technology but not to the pointer. At 1600px and above it is an in-place
   // column and claims none of that.
   const overlay = useMediaQuery(OVERLAY_QUERIES.investigation);
+  // §25 Tier B, 768-1100: stacked, the results take the width and the filter
+  // rail is a drawer the results header opens. Shut by default, so the results
+  // are what the operator sees; leaving the band closes it, so it is never
+  // found open — and modal — when the window comes back.
+  const stacked = useMediaQuery(OVERLAY_QUERIES.investigationStacked);
+  const [railOpen, setRailOpen] = useState(false);
+  useEffect(() => {
+    if (!stacked) setRailOpen(false);
+  }, [stacked]);
+  const railId = useId();
   const noticesRef = useRef<HTMLDivElement | null>(null);
   const railRef = useRef<HTMLDivElement | null>(null);
   const resultsRef = useRef<HTMLDivElement | null>(null);
+  const railToggle = stacked ? (
+    <Button
+      size="sm"
+      variant="secondary"
+      icon="filter"
+      className="workspace__rail-toggle"
+      aria-expanded={railOpen}
+      aria-controls={railId}
+      onClick={() => setRailOpen(true)}
+    >
+      {railLabel}
+    </Button>
+  ) : null;
   return (
-    <section className={`workspace workspace--investigation${inspector ? ' has-inspector' : ''}`}>
+    <section className={`workspace workspace--investigation${inspector ? ' has-inspector' : ''}${stacked ? ' is-stacked' : ''}${railOpen ? ' has-open-rail' : ''}`}>
       {notices ? <div className="workspace__notices" ref={noticesRef}>{notices}</div> : null}
       <div className="workspace__investigation-grid">
-        <div className="workspace__rail" ref={railRef}>{rail}</div>
-        <div className="workspace__results" ref={resultsRef}>{children}</div>
+        <Drawer
+          open={railOpen}
+          overlay={stacked}
+          onClose={() => setRailOpen(false)}
+          covers={[noticesRef, resultsRef]}
+          coversViewport={stacked}
+          className="workspace__rail"
+          id={railId}
+          panelRef={railRef}
+        >
+          {/* The drawer's name and its way out, only where it is a drawer. */}
+          {stacked ? (
+            <div className="workspace__rail-head">
+              <h2>{railLabel}</h2>
+              <Button size="sm" variant="ghost" icon="x" iconOnly onClick={() => setRailOpen(false)}>
+                {`Close ${railLabel.toLowerCase()}`}
+              </Button>
+            </div>
+          ) : null}
+          {rail}
+        </Drawer>
+        <div className="workspace__results" ref={resultsRef}>
+          <RailToggleContext.Provider value={railToggle}>{children}</RailToggleContext.Provider>
+        </div>
         {inspector ? (
           <Drawer
             open
             overlay={overlay}
             onClose={() => onCloseInspector?.()}
             covers={[noticesRef, railRef, resultsRef]}
+            // Stacked (≤1100) it is drawn over the viewport, shell included.
+            coversViewport={stacked}
             restoreFocusOnClose={false}
             className="workspace__inspector"
           >

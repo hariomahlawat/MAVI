@@ -30,6 +30,8 @@ export default function Drawer({
   restoreFocusOnClose = true,
   id,
   className,
+  panelRef: externalPanelRef,
+  coversViewport = false,
   children,
 }: {
   /** Whether the inspector is showing. */
@@ -39,13 +41,23 @@ export default function Drawer({
   onClose: () => void;
   /** The regions behind the drawer; inert while it is open as an overlay. */
   covers: readonly RefObject<HTMLElement | null>[];
+  /**
+   * The drawer is drawn over the whole viewport (§25 Tier B: the shell rail's
+   * overlay, a stacked Investigation's drawers), so everything outside it is
+   * covered — the shell rail and the Context Bar included — and inert, not
+   * only the named regions. Its own scrim stays live: it is how a click closes it.
+   */
+  coversViewport?: boolean;
   /** False where the surface returns focus itself. */
   restoreFocusOnClose?: boolean;
   id?: string;
   className: string;
+  /** The panel element, for an owner that names it as a region elsewhere. */
+  panelRef?: RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
-  const panelRef = useRef<HTMLDivElement | null>(null);
+  const ownPanelRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = externalPanelRef ?? ownPanelRef;
   const invokerRef = useRef<Element | null>(null);
   const headingFallbackId = useId();
   const onCloseRef = useRef(onClose);
@@ -60,7 +72,7 @@ export default function Drawer({
     const panel = panelRef.current;
     if (!panel) return undefined;
     invokerRef.current = document.activeElement;
-    releasesRef.current = [makeInert(covers.map((ref) => ref.current))];
+    releasesRef.current = [makeInert(coversViewport ? outsideOf(panel) : covers.map((ref) => ref.current))];
     focusHeading(panel, headingFallbackId);
 
     const onKeyDown = (event: KeyboardEvent) => {
@@ -153,6 +165,24 @@ export default function Drawer({
       </div>
     </>
   );
+}
+
+/**
+ * Everything outside the panel, by the siblings of each of its ancestors up to
+ * the document body — except the drawer's own scrim, which must stay live for
+ * a click on it to close the drawer.
+ */
+function outsideOf(panel: HTMLElement): HTMLElement[] {
+  const outside: HTMLElement[] = [];
+  for (let node: HTMLElement | null = panel; node && node !== document.body; node = node.parentElement) {
+    const parent: HTMLElement | null = node.parentElement;
+    if (!parent) break;
+    for (const sibling of Array.from(parent.children) as Element[]) {
+      if (sibling === node || !(sibling instanceof HTMLElement) || sibling.classList.contains('drawer-scrim')) continue;
+      outside.push(sibling);
+    }
+  }
+  return outside;
 }
 
 /**

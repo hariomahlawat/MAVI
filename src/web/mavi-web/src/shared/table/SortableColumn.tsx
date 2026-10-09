@@ -20,6 +20,7 @@ export default function SortableColumn<Column extends string>({
   column,
   firstDirection = 'asc',
   numeric = false,
+  className,
   children,
 }: {
   sort: LedgerSort<Column>;
@@ -28,6 +29,8 @@ export default function SortableColumn<Column extends string>({
   firstDirection?: SortDirection;
   /** Right-aligns the header to sit over a numeric column (§16). */
   numeric?: boolean;
+  /** A Ledger's own column class (a column that folds at Tier B, §25). */
+  className?: string;
   children: ReactNode;
 }) {
   const active = sort.state.column === column;
@@ -36,7 +39,7 @@ export default function SortableColumn<Column extends string>({
   return (
     <th
       scope="col"
-      className={`is-sortable${numeric ? ' num' : ''}`}
+      className={['is-sortable', numeric ? 'num' : '', className ?? ''].filter(Boolean).join(' ')}
       aria-sort={active ? (ascending ? 'ascending' : 'descending') : 'none'}
     >
       <button type="button" className="col-sort" onClick={() => sort.activate(column, firstDirection)}>
