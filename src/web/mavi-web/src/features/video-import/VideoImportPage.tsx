@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
@@ -11,7 +11,7 @@ import {
   queueProcessing,
 } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
-import { fromQuery } from '../../shared/async/fromQuery';
+import { describeError, fromQuery } from '../../shared/async/fromQuery';
 import StateRegion from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import { useFocusFirstInvalid } from '../../shared/forms/useFocusFirstInvalid';
@@ -49,7 +49,9 @@ function importError(error: unknown): string {
     video_metadata_invalid: 'The video metadata could not be validated.',
     video_duplicate_unresolved: 'A duplicate was detected but its existing video record could not be resolved.',
   };
-  return `${known[error.code] ?? error.detail} (${error.code})`;
+  return known[error.code]
+    ? `${known[error.code]} (${error.code})`
+    : describeError(error, 'The video could not be imported.');
 }
 
 export async function runImportWorkflow(input: ImportWorkflowInput): Promise<ImportWorkflowOutcome> {
@@ -158,8 +160,18 @@ export default function VideoImportPage() {
     return null;
   }
 
+  // §21: a background refetch must not leave the draft quietly wrong. A camera
+  // chosen and then deactivated (or removed) is no longer an option, so the
+  // select would show its placeholder while the draft still named it and a
+  // submit sent it anyway. The draft is kept; the field says what changed.
+  // Judged by the inventory on hand, not the request's status: a refresh that
+  // fails after one that withdrew the camera keeps the newer list (degraded,
+  // §14.1), and the camera is still gone.
+  const cameraWithdrawn = cameraId !== '' && cameras.data !== undefined && !selectedCamera;
   const errors = {
-    camera: submitted && !cameraId ? 'Select the camera this recording came from.' : null,
+    camera: cameraWithdrawn
+      ? 'The selected camera is no longer active. Select another.'
+      : submitted && !cameraId ? 'Select the camera this recording came from.' : null,
     recordingStartLocal: submitted && !recordingStartLocal ? 'Enter the recording date and time.' : null,
     file: submitted ? fileProblem() : null,
   };
@@ -168,7 +180,7 @@ export default function VideoImportPage() {
     event.preventDefault();
     setSubmitted(true);
     if (workflow.isPending) return;
-    if (!cameraId || !recordingStartLocal || !file || fileProblem()) {
+    if (!cameraId || cameraWithdrawn || !recordingStartLocal || !file || fileProblem()) {
       setRefusals((count) => count + 1);
       return;
     }
@@ -177,8 +189,10 @@ export default function VideoImportPage() {
 
   // Three different answers, and §14 refuses to let them look alike: the
   // request is in flight, the request failed, or the request succeeded and the
-  // deployment genuinely has no camera that can receive media.
-  const blocked = cameras.isSuccess && activeCameras.length === 0;
+  // deployment genuinely has no camera that can receive media — which stays
+  // true when a later refresh fails over that inventory (degraded): the block
+  // is still the region itself (§11), with the refresh failure stated above it.
+  const blocked = cameras.data !== undefined && activeCameras.length === 0;
 
   /**
    * Dirty is a comparison against what the form started as (§21), not a flag
@@ -190,17 +204,13 @@ export default function VideoImportPage() {
    */
   const dirty = cameraId !== '' || recordingStartLocal !== '' || file !== null;
 
+  // Each fact is stated once (§30). The recording timezone is the wall-time
+  // field's own help, beside the one value it interprets (§24); the rail holds
+  // what bounds the file and what happens after, and the form does not repeat it.
   const facts = (
     <Panel title="Before you import">
       <KeyValue
         items={[
-          {
-            label: 'Recording timezone',
-            value: selectedCamera
-              ? selectedCamera.timeZoneId
-              : 'Select a camera',
-            mono: Boolean(selectedCamera),
-          },
           { label: 'Accepted format', value: 'MP4 container only' },
           { label: 'Maximum size', value: formatBytes(MAXIMUM_VIDEO_FILE_SIZE_BYTES) },
           { label: 'After import', value: 'Processing is queued automatically.' },
@@ -208,6 +218,12 @@ export default function VideoImportPage() {
       />
     </Panel>
   );
+
+  // §11: one containment level. The form's panel holds the region while it
+  // loads, is unavailable or is the form; with no active camera there is no
+  // form for it to hold, and the hatched not-configured statement is the
+  // primary region itself rather than a bordered block inside an empty panel.
+  const formPanel = (region: ReactNode) => (blocked ? region : <Panel title="New import">{region}</Panel>);
 
   return (
     <section className="page">
@@ -217,10 +233,10 @@ export default function VideoImportPage() {
       />
 
       <RecordLayout facts={blocked ? undefined : facts}>
-        <Panel title="New import">
-          {/* The form is one region on the camera inventory (§37.1, panel):
-              it loads, is unavailable, is empty (no active camera — a
-              not-configured state, hatched) or is the form. */}
+        {formPanel(
+          // The form is one region on the camera inventory (§37.1, panel): it
+          // loads, is unavailable, is empty (no active camera — a
+          // not-configured state, hatched) or is the form.
           <StateRegion
             kind="panel"
             state={fromQuery(cameras)}
@@ -288,11 +304,7 @@ export default function VideoImportPage() {
                 )}
               </Field>
 
-              <Field
-                label="MP4 file"
-                error={errors.file}
-                help={`One MP4 per import, up to ${formatBytes(MAXIMUM_VIDEO_FILE_SIZE_BYTES)}. Backend media validation remains authoritative.`}
-              >
+              <Field label="MP4 file" error={errors.file}>
                 {(control) => (
                   <FileInput {...control} accept=".mp4,video/mp4" file={file} onChange={setFile} />
                 )}
@@ -305,8 +317,8 @@ export default function VideoImportPage() {
               </div>
             </form>
             )}
-          </StateRegion>
-        </Panel>
+          </StateRegion>,
+        )}
       </RecordLayout>
     </section>
   );

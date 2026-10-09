@@ -80,7 +80,8 @@ export const SURFACES = {
   // M2 accepted (S4): the Processing queue's surface findings block at Tier A,
   // ledger.actions-reachable among them.
   'processing-queue': { owner: 'S4 / M2', accepted: true },
-  import: { owner: 'S4 / M3', accepted: false },
+  // M3 accepted (S4): Import's surface findings block at Tier A.
+  import: { owner: 'S4 / M3', accepted: true },
   'camera-analytics': { owner: 'S4 / M4', accepted: false },
 };
 

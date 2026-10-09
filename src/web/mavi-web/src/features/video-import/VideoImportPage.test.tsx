@@ -1,9 +1,10 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCameras } from '../../api/cameras';
 import { ApiError } from '../../api/client';
 import { getProcessingStatus, importVideo, queueProcessing } from '../../api/videos';
+import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import VideoImportPage, { runImportWorkflow } from './VideoImportPage';
 
@@ -411,5 +412,145 @@ describe('VideoImportPage', () => {
 
     await waitFor(() => expect(getProcessingStatus).toHaveBeenCalledWith(video.id));
     expect(queueProcessing).not.toHaveBeenCalled();
+  });
+});
+
+describe('VideoImportPage — M3 Record conformance', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listCameras).mockResolvedValue([camera]);
+    vi.mocked(importVideo).mockResolvedValue(video);
+    vi.mocked(queueProcessing).mockResolvedValue({ processingRunId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21431' });
+    vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'NotQueued', latestRun: null });
+  });
+
+  /** Camera, wall time and an MP4 in the form, as an operator enters them. */
+  async function fill(user: ReturnType<typeof userEvent.setup>) {
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    await user.type(screen.getByLabelText('Recording local date/time'), '2026-09-14T08:30');
+    await user.upload(screen.getByLabelText('MP4 file'), new File(['video'], 'source.mp4', { type: 'video/mp4' }));
+  }
+
+  it('states the no-active-camera block as the primary region itself, not a card inside the form panel (§11)', async () => {
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }]);
+    const { container } = renderWithApp(<VideoImportPage />);
+    const block = (await screen.findByText('No active camera to import against')).closest('.empty--hatched') as HTMLElement;
+    expect(block).not.toBeNull();
+    // No panel round it, and no "New import" panel with nothing to hold.
+    expect(block.closest('.panel')).toBeNull();
+    expect(within(container).queryByRole('heading', { name: 'New import' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Cameras' })).toHaveAttribute('href', '/cameras');
+  });
+
+  it('keeps an unavailable or loading inventory inside the form panel it replaces (§37.1, panel)', async () => {
+    vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
+    renderWithApp(<VideoImportPage />);
+    const alert = (await screen.findByText(/Camera inventory is unavailable/)).closest('.alert') as HTMLElement;
+    expect(alert.closest('.panel')).toHaveTextContent('New import');
+  });
+
+  it('says a selected camera a refresh no longer lists is gone, keeps the draft, and imports nothing until another is chosen (§21)', async () => {
+    const user = userEvent.setup();
+    const other = { ...camera, id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21499', code: 'CAM-02', name: 'South Dock' };
+    vi.mocked(listCameras).mockResolvedValue([camera, other]);
+    const { queryClient } = renderWithApp(<VideoImportPage />);
+    await fill(user);
+
+    // A background refresh: CAM-01 has been deactivated meanwhile.
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }, other]);
+    await queryClient.refetchQueries({ queryKey: queryKeys.cameras });
+    expect(await screen.findByText('The selected camera is no longer active. Select another.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Camera')).toHaveAttribute('aria-invalid', 'true');
+    // The rest of the draft is intact, and still a draft.
+    expect(screen.getByLabelText('Recording local date/time')).toHaveValue('2026-09-14T08:30');
+    expect(screen.getByText('source.mp4')).toBeInTheDocument();
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+    expect(importVideo).not.toHaveBeenCalled();
+
+    await user.selectOptions(screen.getByLabelText('Camera'), other.id);
+    expect(screen.queryByText(/no longer active/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+    await waitFor(() => expect(importVideo).toHaveBeenCalledWith(expect.objectContaining({ cameraId: other.id })));
+  });
+
+  it('keeps a withdrawn camera refused when a later refresh fails over the newer inventory (degraded, Codex P2)', async () => {
+    const user = userEvent.setup();
+    const other = { ...camera, id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21499', code: 'CAM-02', name: 'South Dock' };
+    vi.mocked(listCameras).mockResolvedValue([camera, other]);
+    const { queryClient } = renderWithApp(<VideoImportPage />);
+    await fill(user);
+
+    // A refresh withdraws CAM-01; the next one fails, keeping that newer list.
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }, other]);
+    await queryClient.refetchQueries({ queryKey: queryKeys.cameras });
+    await screen.findByText('The selected camera is no longer active. Select another.');
+    vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
+    await queryClient.refetchQueries({ queryKey: queryKeys.cameras }).catch(() => undefined);
+    expect(await screen.findByText('Showing the last known camera inventory; refreshing failed.', {}, { timeout: 4000 })).toBeInTheDocument();
+
+    // Still withdrawn, still refused.
+    expect(screen.getByText('The selected camera is no longer active. Select another.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+    expect(importVideo).not.toHaveBeenCalled();
+  });
+
+  it('keeps the no-active-camera block at depth one when a refresh fails over it (degraded, §11)', async () => {
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }]);
+    const { queryClient } = renderWithApp(<VideoImportPage />);
+    await screen.findByText('No active camera to import against');
+    vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
+    await queryClient.refetchQueries({ queryKey: queryKeys.cameras }).catch(() => undefined);
+    expect(await screen.findByText('Showing the last known camera inventory; refreshing failed.', {}, { timeout: 4000 })).toBeInTheDocument();
+    const block = screen.getByText('No active camera to import against').closest('.empty--hatched') as HTMLElement;
+    expect(block.closest('.panel')).toBeNull();
+  });
+
+  it('states each fact once: the timezone beside its field, the file limits in the rail (§24, §30)', async () => {
+    const user = userEvent.setup();
+    renderWithApp(<VideoImportPage />);
+    await screen.findByRole('option', { name: 'CAM-01 — North Gate' });
+    await user.selectOptions(screen.getByLabelText('Camera'), camera.id);
+    // The operative zone is the wall-time field's help, and only there.
+    expect(screen.getAllByText('Asia/Kolkata')).toHaveLength(1);
+    expect(screen.queryByText('Recording timezone')).not.toBeInTheDocument();
+    // The limits are the rail's, stated once.
+    const rail = screen.getByRole('heading', { name: 'Before you import' }).closest('section') as HTMLElement;
+    expect(within(rail).getByText('Maximum size').nextElementSibling).toHaveTextContent('3.0 GiB');
+    expect(screen.getAllByText(/3\.0 GiB/)).toHaveLength(1);
+    expect(screen.queryByText(/Backend media validation/)).not.toBeInTheDocument();
+  });
+
+  it('names what failed for a refusal it has no words of its own for, once, and keeps the draft', async () => {
+    const user = userEvent.setup();
+    vi.mocked(importVideo).mockRejectedValue(new ApiError({ status: 503, code: 'media_store_unavailable', detail: 'The media store did not respond.' }));
+    renderWithApp(<VideoImportPage />);
+    await fill(user);
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    const alert = await screen.findByText('The video could not be imported. The media store did not respond. (media_store_unavailable)');
+    expect(screen.getAllByText(/media store did not respond/)).toEqual([alert]);
+    expect(screen.getByLabelText('Camera')).toHaveValue(camera.id);
+    expect(screen.getByLabelText('Recording local date/time')).toHaveValue('2026-09-14T08:30');
+    expect(screen.getByText('source.mp4')).toBeInTheDocument();
+  });
+
+  it('starts one import however often submit is pressed while it is pending', async () => {
+    const user = userEvent.setup();
+    let resolve: (value: typeof video) => void = () => {};
+    vi.mocked(importVideo).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    renderWithApp(<VideoImportPage />);
+    await fill(user);
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+
+    const pending = screen.getByRole('button', { name: 'Importing and queueing…' });
+    expect(pending).toBeDisabled();
+    // Enter in a field submits the form too; the pending import refuses it.
+    await user.type(screen.getByLabelText('Recording local date/time'), '{Enter}');
+    expect(importVideo).toHaveBeenCalledTimes(1);
+    resolve(video);
+    await waitFor(() => expect(queueProcessing).toHaveBeenCalledTimes(1));
   });
 });
