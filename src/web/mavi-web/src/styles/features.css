@@ -172,12 +172,6 @@
 .analytics-summary__title { margin: 0; font-size: var(--fs-1); font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
 /* Why the state is what it is, in operator words, above the facts. */
 .analytics-summary__state { margin: 0; color: var(--text-secondary); font-size: var(--fs-1); }
-/* The pinned analytical identity every analysed fact above was measured
-   against. It closes the panel because it qualifies everything in it. */
-.analytics-summary__footer {
-  margin: 0; padding-top: var(--s-2); border-top: 1px solid var(--border-subtle);
-  color: var(--text-muted); font-size: var(--fs-0);
-}
 .analytics-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--stroke-2); }
 
 /* The results column is a bounded, scrolling region, so it carries the border

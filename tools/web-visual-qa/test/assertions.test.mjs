@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { focusAssertions, overlayExitProbe, overlayOpened, pageAssertions, toExpression, workspaceAssertions } from '../assertions.mjs';
+import { focusAssertions, overlayExitProbe, overlayOpened, pageAssertions, stickyProbe, toExpression, workspaceAssertions } from '../assertions.mjs';
 import { openBrowser } from './browser.mjs';
 
 const TOKENS = '<style>:root{--accent-strong:#2563eb;--accent-hover:#1d4ed8} body{margin:0;font:14px sans-serif}</style>';
@@ -425,5 +425,52 @@ describe('native dialogs', () => {
     await lane.page('<main><p id="out">pending</p></main><script>document.getElementById("out").textContent = String(window.confirm("Discard your changes?"));</script>');
     assert.equal(await lane.browser.evaluate('document.getElementById("out").textContent'), 'false');
     assert.ok(lane.browser.problems().some((p) => /native confirm dialog opened \("Discard your changes\?"\)/.test(p)), JSON.stringify(lane.browser.problems()));
+  });
+});
+
+describe('the rendered Review pin (review.sticky-rendered, R6)', () => {
+  // Review's geometry in miniature: the Context Bar in the shell's band above
+  // the page scroller, and a two-column grid whose rail is far longer than the
+  // player. `barInside` puts a sticky bar in the scroller instead.
+  const REVIEW = ({ align = 'stretch', top = 12, barInside = false } = {}) => `
+    ${barInside ? '' : '<header class="context-bar" style="height:44px;background:#111">bar</header>'}
+    <main class="main" style="height:${barInside ? 768 : 724}px;overflow:auto">
+      ${barInside ? '<header class="context-bar" style="position:sticky;top:0;height:44px;background:#111;z-index:2">bar</header>' : ''}
+      <section class="workspace workspace--review" style="padding:20px">
+        <div style="display:grid;grid-template-columns:1fr 400px;gap:16px;align-items:${align}">
+          <div class="workspace__review-main" style="display:grid;align-content:start">
+            <div class="workspace__player" style="position:sticky;top:${top}px;height:420px;background:#333">player</div>
+          </div>
+          <div class="workspace__review-rail" style="height:2400px">rail</div>
+        </div>
+      </section>
+    </main>`;
+  const probe = async (html, width = 1366) => {
+    await lane.page(TOKENS + html, { width });
+    return lane.browser.evaluate(toExpression(stickyProbe));
+  };
+
+  it('fails the original layout: a column only as tall as its player has no room to pin it', async () => {
+    const result = await probe(REVIEW({ align: 'start' }));
+    assert.equal(result.evaluated, true);
+    assert.equal(result.pinned, false, JSON.stringify(result));
+  });
+
+  it('passes the stretched column: pinned clear of the Context Bar', async () => {
+    const result = await probe(REVIEW());
+    assert.equal(result.pinned, true, JSON.stringify(result));
+    assert.equal(result.underBar, 0, JSON.stringify(result));
+    assert.equal(result.topAfter, result.topBefore - 8, 'pinned at the bar plus its inset, not where it started');
+  });
+
+  it('catches a player that stays on screen only by sliding under the Context Bar', async () => {
+    const result = await probe(REVIEW({ barInside: true }));
+    assert.equal(result.pinned, true);
+    assert.ok(result.underBar > 0, JSON.stringify(result));
+  });
+
+  it('does not evaluate the stacked Review, which releases the pin at 1100', async () => {
+    const result = await probe(REVIEW(), 1100);
+    assert.equal(result.evaluated, false);
   });
 });

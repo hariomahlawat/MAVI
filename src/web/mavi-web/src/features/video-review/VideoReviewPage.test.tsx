@@ -218,20 +218,46 @@ describe('VideoReviewPage', () => {
       expect(container.querySelectorAll('video')).toHaveLength(1);
     });
 
-    it('keeps the Track identity beside it, following rank 0', async () => {
-      renderReview(detail({ ...trackEvidence(evidenceSet(FULL_EVIDENCE_SET_ROLES)), representative: DISAGREEING_REPRESENTATIVE }));
-      await screen.findByRole('region', { name: 'Evidence Set' });
+    it('keeps the record\'s identifiers out of the operational tier, one closed disclosure away (F18)', async () => {
+      const subject = detail({ ...trackEvidence(evidenceSet(FULL_EVIDENCE_SET_ROLES)), representative: DISAGREEING_REPRESENTATIVE });
+      renderReview(subject);
+      const set = await screen.findByRole('region', { name: 'Evidence Set' });
+      const rail = set.closest('.workspace__review-rail') as HTMLElement;
 
-      expect(screen.getByText('Source frame').nextElementSibling).toHaveTextContent('300');
-      expect(screen.getByText('Video offset').nextElementSibling).toHaveTextContent('00:12.0');
+      // Rank 0's frame and time are its caption; the compatibility object's are nowhere.
+      expect(within(set).getByText('Frame 300')).toBeInTheDocument();
       expect(screen.queryByText('9999')).not.toBeInTheDocument();
+      // The Track number and status are the Context Bar's, and not repeated.
+      expect(rail).not.toHaveTextContent(/Local track/);
+      expect(rail).not.toHaveTextContent(/Review status/);
+
+      // The full identifiers sit only in the closed Record detail disclosure.
+      const record = within(rail).getByText('Record detail').closest('details')!;
+      expect(record).not.toHaveAttribute('open');
+      for (const id of [subject.id, subject.processingRunId]) {
+        expect(within(record).getByText(id)).toBeInTheDocument();
+        const outside = Array.from(rail.querySelectorAll('*'))
+          .filter((element) => !record.contains(element) && element.children.length === 0)
+          .map((element) => element.textContent ?? '').join(' ');
+        expect(outside).not.toContain(id);
+      }
+    });
+
+    it('says what each rail panel holds by its title alone (F19)', async () => {
+      renderReview(detail({ ...trackEvidence(evidenceSet(FULL_EVIDENCE_SET_ROLES)) }));
+      const set = await screen.findByRole('region', { name: 'Evidence Set' });
+      const rail = set.closest('.workspace__review-rail') as HTMLElement;
+      expect(rail.querySelectorAll('.panel__title p')).toHaveLength(0);
+      for (const prose of ['persisted evidence', 'rank order, and the stable Track identity', 'Which pipeline']) {
+        expect(rail).not.toHaveTextContent(prose);
+      }
     });
 
     it('reads the legacy shape without an error', async () => {
       renderReview(detail({ representative: null, observations: [] }));
 
       expect(await screen.findByText('No Evidence Set was persisted for this Track.')).toBeInTheDocument();
-      expect(screen.queryByText('Source frame')).not.toBeInTheDocument();
+      expect(screen.queryByText('Representative quality')).not.toBeInTheDocument();
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
   });
@@ -327,10 +353,35 @@ describe('VideoReviewPage', () => {
 
     expect(await screen.findByRole('button', { name: 'Retry display config' })).toBeInTheDocument();
     expect(screen.getAllByText(/2026-09-14T02:30:00Z UTC/).length).toBeGreaterThan(0);
+    // §24: no configured zone is claimed while the configuration is unavailable;
+    // the times say UTC themselves and the notice says why.
+    await screen.findByRole('heading', { name: 'Track summary' });
+    const bar = document.querySelector('.context-bar') as HTMLElement;
+    expect(within(bar).queryByText(/Times shown in/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Asia/Kolkata')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Retry display config' }));
 
     expect(await screen.findByText(/08:00:00/)).toBeInTheDocument();
+    expect(within(bar).getByText('Asia/Kolkata')).toBeInTheDocument();
+  });
+
+  it('states the configured timezone once, in the Context Bar, and in no panel (§24)', async () => {
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+    const summary = (await screen.findByRole('heading', { name: 'Track summary' })).closest('section') as HTMLElement;
+    const bar = document.querySelector('.context-bar') as HTMLElement;
+    // Beside the Track identity and its review status.
+    await waitFor(() => expect(within(bar).getByText('Asia/Kolkata')).toBeInTheDocument());
+    expect(bar).toHaveTextContent(/Track \d+/);
+    expect(within(bar).getByText('Times shown in')).toBeInTheDocument();
+    // Once on the surface: not as a row in Record detail or any other panel.
+    expect(screen.getAllByText('Asia/Kolkata')).toHaveLength(1);
+    expect(screen.queryByText('Display timezone')).not.toBeInTheDocument();
+    // And the absolute times are read in that zone (02:30:00Z is 08:00:00 IST).
+    expect(within(summary).getByText('Track start').nextElementSibling).toHaveTextContent('14 Sept 2026, 08:00:00');
   });
 
   it('shows graceful evidence fallbacks when thumbnail or video content fails', async () => {

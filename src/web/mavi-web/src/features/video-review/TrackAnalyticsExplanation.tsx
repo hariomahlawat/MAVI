@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { TrackDetailAnalytics, TrackDetailZoneVisit } from '../../api/tracks';
 import Alert from '../../shared/components/Alert';
 import Button from '../../shared/components/Button';
@@ -58,16 +59,37 @@ export function referencePointLabel(referencePoint: string | null): string {
   return referencePoint;
 }
 
-/** `Scene revision 4 · Engine v1 · reference point: Box centre`, for the footer. */
-export function identityFooter(analytics: TrackDetailAnalytics): string | null {
-  if (analytics.sceneRevisionNumber === null) return null;
-  return `Scene revision ${analytics.sceneRevisionNumber}`
-    + ` · ${engineLabel(analytics.algorithmVersion)}`
-    + ` · reference point: ${referencePointLabel(analytics.referencePoint)}`;
-}
+/**
+ * Items of one kind (crossings, or Review's visits) shown inline per panel
+ * before the rest go behind a disclosure (§37.1 large data, N = 5).
+ */
+const INLINE_PER_PANEL = 5;
 
-/** Crossings shown inline in the inspector before the rest go behind a disclosure (§37.1, N = 5). */
-const CROSSINGS_INLINE = 5;
+/**
+ * A bounded list (§37.1, §37.2): the first items while the panel's budget
+ * lasts, inline, and the rest of this group behind one closed disclosure.
+ */
+function bounded<T>(
+  items: readonly T[],
+  budget: { left: number },
+  render: (items: readonly T[]) => ReactNode,
+  noun: [singular: string, plural: string],
+): ReactNode {
+  const inline = items.slice(0, Math.max(0, budget.left));
+  const rest = items.slice(inline.length);
+  budget.left -= inline.length;
+  return (
+    <>
+      {inline.length > 0 ? <ul className="analytics-list">{render(inline)}</ul> : null}
+      {rest.length > 0 ? (
+        <details className="disclosure">
+          <summary>{`${rest.length} more ${rest.length === 1 ? noun[0] : noun[1]}`}</summary>
+          <ul className="analytics-list disclosure__body">{render(rest)}</ul>
+        </details>
+      ) : null}
+    </>
+  );
+}
 
 function visitLine(visit: TrackDetailZoneVisit): string {
   const note = visitBoundaryNote(visit);
@@ -100,10 +122,9 @@ export default function TrackAnalyticsExplanation({
     { label: 'Identity', value: identity },
   ];
 
-  // The inspector does not repeat the footer (F18), so a reference point that
-  // only the footer stated — a revision with no facts — is a row there instead.
-  if (analytics.status === 'Analysed' || analytics.status === 'Stale'
-    || (compact && analytics.sceneRevisionNumber !== null)) {
+  // The identity is stated once, in these rows (F18): there is no footer
+  // restating it, so a revision with no facts still names its reference point.
+  if (analytics.status === 'Analysed' || analytics.status === 'Stale' || analytics.sceneRevisionNumber !== null) {
     items.push({ label: 'Reference point', value: referencePointLabel(analytics.referencePoint) });
   }
 
@@ -124,6 +145,10 @@ export default function TrackAnalyticsExplanation({
     }
 
     const visited = analytics.zoneSummaries.filter((summary) => summary.visitCount > 0);
+    const visitBudget = { left: INLINE_PER_PANEL };
+    const visitItems = (visits: readonly TrackDetailZoneVisit[]) => visits.map(
+      (visit) => <li key={visit.visitIndex}>{visitLine(visit)}</li>,
+    );
     items.push({
       label: 'Zones',
       value: visited.length === 0
@@ -154,17 +179,17 @@ export default function TrackAnalyticsExplanation({
                       </span>
                     </>
                   ) : null}
-                  {visits.length > 0 ? (
-                    // Individual visits matter when there is more than one: two
-                    // short visits and one long one are different behaviour with
-                    // the same total dwell.
-                    <details className="disclosure" open={!compact && visits.length > 1}>
+                  {/* Individual visits matter: two short visits and one long
+                      one are different behaviour with the same total dwell.
+                      Review lists them as a bounded list; the inspector keeps
+                      them one disclosure away. */}
+                  {visits.length > 0 && compact ? (
+                    <details className="disclosure">
                       <summary>{visits.length === 1 ? 'Visit' : `${visits.length} visits`}</summary>
-                      <ul className="analytics-list disclosure__body">
-                        {visits.map((visit) => <li key={visit.visitIndex}>{visitLine(visit)}</li>)}
-                      </ul>
+                      <ul className="analytics-list disclosure__body">{visitItems(visits)}</ul>
                     </details>
                   ) : null}
+                  {visits.length > 0 && !compact ? bounded(visits, visitBudget, visitItems, ['visit', 'visits']) : null}
                 </li>
               );
             })}
@@ -172,7 +197,7 @@ export default function TrackAnalyticsExplanation({
         ),
     });
 
-    const crossingItems = (lineId: string, crossings: typeof analytics.lineCrossings) => crossings.map((crossing) => (
+    const crossingItems = (lineId: string, crossings: readonly (typeof analytics.lineCrossings)[number][]) => crossings.map((crossing) => (
       <li key={crossing.crossingIndex}>
         {crossingDirectionLabel(crossing.direction, geometry?.lines.get(lineId.toLowerCase()))}
         {' at '}{formatOffset(crossing.offsetMs, 'tenths')}
@@ -183,10 +208,10 @@ export default function TrackAnalyticsExplanation({
     for (const crossing of analytics.lineCrossings) {
       byLine.set(crossing.lineId, [...(byLine.get(crossing.lineId) ?? []), crossing]);
     }
-    // §37.1 large data, §37.2: in the inspector the crossings are a bounded
+    // §37.1 large data, §37.2: on both surfaces the crossings are a bounded
     // list — the first five in the panel inline (direction and media time are
     // what an operator searched by), any after them one disclosure away.
-    let inlineBudget = CROSSINGS_INLINE;
+    const crossingBudget = { left: INLINE_PER_PANEL };
     items.push({
       label: 'Line crossings',
       value: byLine.size === 0
@@ -197,26 +222,7 @@ export default function TrackAnalyticsExplanation({
               <li key={lineId}>
                 <strong>{lineLabel(lineId, geometry)}</strong>
                 {' · '}{crossings.length} {crossings.length === 1 ? 'crossing' : 'crossings'}
-                {/* Review lists every crossing, as it always has — its rendering
-                    is R6's to decide, so nothing about it changes here. */}
-                {compact ? (() => {
-                  const inline = crossings.slice(0, Math.max(0, inlineBudget));
-                  const rest = crossings.slice(inline.length);
-                  inlineBudget -= inline.length;
-                  return (
-                    <>
-                      {inline.length > 0 ? <ul className="analytics-list">{crossingItems(lineId, inline)}</ul> : null}
-                      {rest.length > 0 ? (
-                        <details className="disclosure">
-                          <summary>{`${rest.length} more ${rest.length === 1 ? 'crossing' : 'crossings'}`}</summary>
-                          <ul className="analytics-list disclosure__body">{crossingItems(lineId, rest)}</ul>
-                        </details>
-                      ) : null}
-                    </>
-                  );
-                })() : (
-                  <ul className="analytics-list">{crossingItems(lineId, crossings)}</ul>
-                )}
+                {bounded(crossings, crossingBudget, (some) => crossingItems(lineId, some), ['crossing', 'crossings'])}
               </li>
             ))}
           </ul>
@@ -262,11 +268,11 @@ export default function TrackAnalyticsExplanation({
     });
   }
 
-  const footer = identityFooter(analytics);
-
   return (
     <section className="analytics-summary" aria-label="Scene analytics">
-      <h3 className="analytics-summary__title">Scene analytics</h3>
+      {/* Review's rail panel already carries this title; the inspector has no
+          host panel, so the summary names itself there. */}
+      {compact ? <h3 className="analytics-summary__title">Scene analytics</h3> : null}
 
       {STATUS_EXPLANATION[analytics.status] ? (
         <p className="analytics-summary__state">{STATUS_EXPLANATION[analytics.status]}</p>
@@ -326,9 +332,6 @@ export default function TrackAnalyticsExplanation({
         </details>
       ) : null}
 
-      {/* The footer restates the Identity and Reference point rows above; the
-          inspector shows them once (F18). Review keeps it until R6 decides. */}
-      {footer && !compact ? <p className="analytics-summary__footer">{footer}</p> : null}
     </section>
   );
 }

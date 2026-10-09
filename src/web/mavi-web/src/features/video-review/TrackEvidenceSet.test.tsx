@@ -10,7 +10,7 @@ import {
   FULL_EVIDENCE_SET_ROLES,
   trackDetailWithEvidence,
 } from '../../test/trackEvidenceFixtures';
-import { TrackIdentity } from './TrackDetailsPanels';
+import { TrackRecordDetail } from './TrackDetailsPanels';
 import TrackEvidence from './TrackEvidence';
 import TrackEvidenceSet from './TrackEvidenceSet';
 
@@ -25,7 +25,7 @@ function Host({ detail }: { detail: TrackDetail }) {
     <>
       <TrackEvidence detail={detail} />
       <TrackEvidenceSet detail={detail} />
-      <TrackIdentity detail={detail} />
+      <TrackRecordDetail detail={detail} />
     </>
   );
 }
@@ -406,14 +406,15 @@ describe('rank 0 is the only Representative, whatever the compatibility object s
     expect(screen.queryByTestId('bounding-box')).not.toBeInTheDocument();
   });
 
-  it('drives the Track identity Representative scalars from rank 0', () => {
+  it('drives the Representative\'s caption and record detail from rank 0', () => {
     render(<Host detail={disagreeing()} />);
 
+    // Its frame, time and confidence are the inspected crop's caption, once.
+    const caption = within(inspection()).getByText('Frame 300').closest('figcaption')!;
+    expect(caption).toHaveTextContent('00:12.0');
+    expect(caption).toHaveTextContent('96.0% confidence');
     const value = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
-    expect(value('Source frame')).toBe('300');
-    expect(value('Video offset')).toBe('00:12.0');
-    expect(value('Representative confidence')).toBe('96.0%');
-    expect(value('Quality score')).toBe('0.900');
+    expect(value('Representative quality')).toBe('0.900');
     expect(screen.queryByText('9999')).not.toBeInTheDocument();
     expect(screen.queryByText('0.222')).not.toBeInTheDocument();
   });

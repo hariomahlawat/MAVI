@@ -339,6 +339,8 @@ async function runCase(lane, c) {
       markEvaluated(c, ['review.sticky-rendered']);
       if (!sticky.pinned) {
         add('review.sticky-rendered', `after a ${sticky.scrolled}px page scroll only ${Math.round(sticky.visibleFraction * 100)}% of the Evidence Player is on screen`);
+      } else if (sticky.underBar > 0) {
+        add('review.sticky-rendered', `the pinned Evidence Player sits ${sticky.underBar}px under the Context Bar`);
       }
     }
   }

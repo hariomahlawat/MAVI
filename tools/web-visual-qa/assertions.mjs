@@ -1208,13 +1208,23 @@ export async function stickyProbe() {
   const distance = Math.min(600, scroller.scrollHeight - scroller.clientHeight);
   if (distance < 40) return { evaluated: false, why: 'the page has nothing to scroll' };
   const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const start = scroller.scrollTop;
   const before = player.getBoundingClientRect();
-  scroller.scrollTop += distance;
+  scroller.scrollTop = start + distance;
   await frame();
   const after = player.getBoundingClientRect();
   const viewport = scroller.getBoundingClientRect();
   const visible = Math.max(0, Math.min(after.bottom, viewport.bottom) - Math.max(after.top, viewport.top));
-  scroller.scrollTop -= distance;
+  // Pinned clear of the Context Bar. Review's bar is in the shell's band above
+  // the scroller, but a bar inside it would be sticky over the same pixels: a
+  // player at that position is on screen and still hidden.
+  const bar = document.querySelector('.context-bar');
+  const barBottom = bar ? bar.getBoundingClientRect().bottom : viewport.top;
+  const underBar = Math.max(0, Math.round(barBottom - after.top));
+  // Release at the end of the column is not measured here: sticky positioning
+  // cannot carry the player past its containing block, and that the player is
+  // sticky (not fixed) is review.sticky-declared's assertion.
+  scroller.scrollTop = start;
   await frame();
   const fraction = after.height > 0 ? visible / after.height : 0;
   return {
@@ -1223,6 +1233,7 @@ export async function stickyProbe() {
     topBefore: Math.round(before.top),
     topAfter: Math.round(after.top),
     visibleFraction: Math.round(fraction * 100) / 100,
+    underBar,
     pinned: fraction >= 0.5,
   };
 }

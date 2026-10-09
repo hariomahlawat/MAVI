@@ -157,7 +157,9 @@ describe('Review draws the revision the facts were measured against', () => {
     // the names the operator gave the geometry.
     await waitFor(() => expect(panel).toHaveTextContent('Forecourt · 1 visit'));
     expect(panel).toHaveTextContent('Gate line · 1 crossing');
-    expect(panel).toHaveTextContent('Scene revision 4 · Engine v1 · reference point: Box centre');
+    expect(panel).toHaveTextContent('IdentityScene revision 4 · Engine v1');
+    expect(panel).toHaveTextContent('Reference pointBox centre');
+    expect(panel).not.toHaveTextContent('reference point:');
   });
 
   it('keeps the primary Track summary ahead of the analytics panel', async () => {

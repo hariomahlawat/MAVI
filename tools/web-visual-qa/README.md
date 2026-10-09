@@ -79,8 +79,11 @@ containment level. A finding or an evaluation the manifest does not allow at tha
 tier, and a finding naming no rule, are harness faults. Until S5 flips them,
 every rule evaluated at a Tier B or C width is `measured/pending`; the manifest
 refuses anything else. Rules owned by later slices are registered now: measured
-where code exists (`review.sticky-rendered`, `containment.depth`, the §25 tier
-rules, the P1 measurements) and declared `future` with an execution policy where
+where code exists (`containment.depth`, the §25 tier rules, the P1
+measurements; `review.sticky-rendered` was too until R6 made the pin render,
+and now blocks at Tier A: the player still on screen after the page scrolls,
+and clear of the Context Bar) and declared
+`future` with an execution policy where
 it does not yet (200% zoom, reduced motion, keyboard journeys, the remaining
 §23 rows).
 
