@@ -332,6 +332,21 @@ const RELOAD_DIALOG = `(async () => {
   return Boolean(await until(() => document.querySelector('[role="dialog"][aria-modal="true"]'), 'the reload Dialog'));
 })()`;
 
+/** The Workbench inspector opened as the 1101-1149 overlay drawer (§4.3.1, §20). */
+const OPEN_WORKBENCH_DRAWER = `(async () => {
+  ${UNTIL}
+  const toggle = document.querySelector('.workspace__drawer-toggle');
+  if (!toggle) return false;
+  toggle.focus();
+  toggle.click();
+  return Boolean(await until(() => {
+    const drawer = document.querySelector('.workspace__inspector[role="dialog"][aria-modal="true"]');
+    return drawer && drawer.contains(document.activeElement) && document.querySelector('.workspace__stage[inert]') && document.querySelector('.workspace__band[inert]')
+      // Every region beside the drawer, the revision footer included (Codex P2 on #184).
+      && Array.from(document.querySelectorAll('.workspace__footer, .workspace__notices')).every((region) => region.hasAttribute('inert'));
+  }, 'the drawer open, holding focus, over an inert workspace'));
+})()`;
+
 /**
  * Drive the Scene Editor into its densest *real* fixed-chrome state.
  *
@@ -3319,18 +3334,26 @@ export const STATES = [
     expectText: ['Discard your changes and load the saved revision?', 'Discard and load revision'],
   },
   {
-    // T1 (§4.3.1, §25 Tier B): the measured Workbench threshold. Under the
-    // Tier B shell (rail collapsed to 56px) the working width at 1101px is
-    // about 1005px, above the 891px the stage's 65% floor needs beside the
-    // 300px inspector, so the Workbench is side by side down to the stacking
-    // threshold and the S1c drawer band (1101-1149, measured with the rail
-    // expanded) is empty. Probed at its old edges and its middle, where
-    // workbench.geometry now evaluates the floor; the drawer's §20 semantics
-    // stay proven by workspace.test.tsx at a working width below the minimum.
-    name: 'scene-editor-side-by-side-threshold',
+    // §4.3.1 / §25 Tier B: the frozen Workbench progression at its boundaries
+    // — stacked at 1100; the overlay-drawer band 1101-1149 (shut, its toggle
+    // shown, the stage at full working width); side by side from 1150, through
+    // the Tier B top edge (1365) into Tier A (1366). workbench.geometry and
+    // tier.b-composition judge each from rendered geometry.
+    name: 'scene-editor-drawer-boundaries',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
+    tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor', probeWidths: [1100, 1101, 1120, 1149, 1150, 1200, 1365, 1366],
+  },
+  {
+    // The drawer band with the drawer open: modal over an inert workspace,
+    // focus inside; the harness's overlay exit then proves Escape closes it,
+    // the inert regions are released and focus returns to the toggle.
+    name: 'scene-editor-drawer', interaction: 'open the inspector drawer',
+    path: `/cameras/${CAM}/scene`,
+    fullWidth: true,
+    archetype: 'workbench',
+    prepare: OPEN_WORKBENCH_DRAWER,
     tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor', probeWidths: [1101, 1120, 1149],
   },
   {

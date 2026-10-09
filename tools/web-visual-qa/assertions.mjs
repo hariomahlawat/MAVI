@@ -1063,22 +1063,36 @@ export function workspaceAssertions(input) {
     measured.stageWidth = round(stageWidth);
     measured.inspectorWidth = round(inspectorWidth);
     measured.stageShare = round(share * 100);
-    // Side by side is what the layout renders above the stacking threshold
-    // unless it states a drawer (§4.3.1: `is-drawer`, where the measured
-    // working width cannot hold the floor) — judged from the composition, not
-    // from a viewport figure, so a drawer band that moves with the shell is
-    // measured where it actually is.
+    // Above the stacking threshold the inspector is a drawer in two cases,
+    // each its own obligation: the frozen 1101-1149 band (§4.3.1, §25 Tier B:
+    // "1101px up to the measured ~1150 threshold", measured in R4), and any
+    // working width at which the stage could not keep its 65% floor beside a
+    // 300px inspector. Both are derived here from the specification's figures,
+    // the viewport and the measured working width — not from the product's
+    // class — so a wrong class is a finding, not a silenced rule.
     measured.workbenchDrawer = workspace.classList.contains('is-drawer');
-    // The drawer is the §4.3.1 floor's, derived here from the specification's
-    // own figures and the measured working width — not taken from the
-    // product's class — so a wrong class is a finding, not a silenced rule.
-    const expectDrawer = doc.clientWidth > 1100 && working < (300 + 12) / (1 - 0.65);
+    const inBand = doc.clientWidth > 1100 && doc.clientWidth < 1150;
+    const expectDrawer = doc.clientWidth > 1100 && (inBand || working < (300 + 12) / (1 - 0.65));
     measured.expectedWorkbenchDrawer = expectDrawer;
     if (doc.clientWidth > 1100) {
       evaluated.add('workbench.geometry');
       if (expectDrawer !== measured.workbenchDrawer) {
-        fail('workbench.geometry', 'the Workbench is ' + (measured.workbenchDrawer ? 'a drawer' : 'side by side') + ' at a working width of '
-          + round(working) + 'px, where the 65% floor beside a 300px inspector makes it ' + (expectDrawer ? 'a drawer' : 'side by side'));
+        fail('workbench.geometry', 'the Workbench is ' + (measured.workbenchDrawer ? 'a drawer' : 'side by side') + ' at ' + doc.clientWidth + 'px (working width '
+          + round(working) + 'px), where ' + (inBand ? 'the frozen 1101-1149 band' : 'the 65% floor beside a 300px inspector') + ' makes it ' + (expectDrawer ? 'a drawer' : 'side by side'));
+      }
+      // The drawer composition, from rendered geometry: the stage keeps the
+      // full working width, and the inspector is either shut (out of the
+      // layout, its toggle shown) or open as the modal over the stage.
+      if (expectDrawer) {
+        if (stageWidth < working - 1) {
+          fail('workbench.geometry', 'in the drawer band the stage is ' + measured.stageWidth + 'px of a ' + round(working) + 'px working width; the drawer exists so it keeps all of it');
+        }
+        const open = inspector.getAttribute('role') === 'dialog' && inspector.getAttribute('aria-modal') === 'true' && inspectorWidth > 0;
+        const shut = getComputedStyle(inspector).display === 'none';
+        const toggle = workspace.querySelector('.workspace__drawer-toggle');
+        const toggleShown = toggle && getComputedStyle(toggle).display !== 'none' && toggle.getBoundingClientRect().width > 0;
+        if (!open && !shut) fail('workbench.geometry', 'in the drawer band the inspector is neither shut nor the open modal drawer: it is ' + measured.inspectorWidth + 'px in flow');
+        if (shut && !toggleShown) fail('workbench.geometry', 'the shut inspector drawer has no visible control to open it');
       }
     }
     const sideBySide = doc.clientWidth > 1100 && !measured.workbenchDrawer;
@@ -1278,8 +1292,15 @@ export function workspaceAssertions(input) {
       if (stage && inspector) {
         evaluated.add('tier.b-composition');
         if (stacked && !below(inspector, stage)) fail('tier.b-composition', 'the Workbench is not stacked at ' + vw + 'px: §25 puts the stage first and the inspector below at 768-1100');
-        if (!stacked && !workspace.classList.contains('is-drawer') && !beside(inspector, stage)) {
-          fail('tier.b-composition', 'the Workbench inspector is not beside the stage at ' + vw + 'px, where the stage keeps its floor');
+        // 1101-1149: the frozen drawer band — never an in-flow column beside
+        // the stage. 1150-1365: side by side (the floor holds there under the
+        // Tier B shell; workbench.geometry judges the floor itself).
+        const band = !stacked && vw < 1150;
+        if (band && visible(inspector) && !modal(inspector) && beside(inspector, stage)) {
+          fail('tier.b-composition', 'the Workbench inspector is a column beside the stage at ' + vw + 'px, inside the frozen 1101-1149 drawer band (§25)');
+        }
+        if (!stacked && !band && !beside(inspector, stage)) {
+          fail('tier.b-composition', 'the Workbench inspector is not beside the stage at ' + vw + 'px (§25: side by side from 1150)');
         }
       }
     }

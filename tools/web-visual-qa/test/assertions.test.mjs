@@ -591,6 +591,37 @@ describe('Tier B (T1): rules that reject the pre-T1 compositions and pass the de
     assert.deepEqual(fired(await workspaceAt(WORKBENCH('1fr 300px'), 1200, 'workbench'), 'tier.b-composition'), []);
   });
 
+  // The frozen 1101-1149 drawer band (§4.3.1, §25 Tier B): a shut drawer with
+  // its toggle and the stage at full width, or not.
+  const BAND = ({ drawer, toggle = true, stage = '1fr', inspectorShown = false }) => `<div class="main" data-scroll="contain" style="overflow:hidden;height:760px">
+    <section class="workspace workspace--workbench${drawer ? ' is-drawer' : ''}">
+      <div class="workspace__band">${toggle ? '<button class="workspace__drawer-toggle">Scene inspector</button>' : ''}</div>
+      <div style="display:grid;grid-template-columns:${stage};gap:12px">
+        <div class="workspace__stage" style="height:240px"></div>
+        <div class="workspace__inspector" style="height:200px;${inspectorShown ? '' : 'display:none'}"></div>
+      </div>
+    </section></div>`;
+  it('workbench.geometry and tier.b-composition: hold the frozen 1101-1149 drawer band and side by side from 1150, from rendered geometry', async () => {
+    // Pre-remediation T1: side by side at 1120, where §25 freezes a drawer.
+    const beside = await workspaceAt(BAND({ drawer: false, toggle: false, stage: '1fr 300px', inspectorShown: true }), 1120, 'workbench');
+    assert.match(fired(beside, 'workbench.geometry')[0].message, /side by side at 1120px .* the frozen 1101-1149 band makes it a drawer/);
+    assert.match(fired(beside, 'tier.b-composition')[0].message, /column beside the stage at 1120px, inside the frozen 1101-1149 drawer band/);
+    // The class alone is not the composition: a drawer whose inspector is
+    // still a column, and a shut drawer nobody can open.
+    const parked = await workspaceAt(BAND({ drawer: true, stage: '1fr 300px', inspectorShown: true }), 1120, 'workbench');
+    assert.match(fired(parked, 'workbench.geometry').map((f) => f.message).join('\n'), /neither shut nor the open modal drawer/);
+    const noToggle = await workspaceAt(BAND({ drawer: true, toggle: false }), 1101, 'workbench');
+    assert.match(fired(noToggle, 'workbench.geometry')[0].message, /no visible control to open it/);
+    // The designed band at both edges, and side by side above it.
+    for (const width of [1101, 1149]) {
+      const designed = await workspaceAt(BAND({ drawer: true }), width, 'workbench');
+      assert.deepEqual(fired(designed, 'workbench.geometry'), [], String(width));
+      assert.deepEqual(fired(designed, 'tier.b-composition'), [], String(width));
+    }
+    assert.match(fired(await workspaceAt(BAND({ drawer: true }), 1150, 'workbench'), 'workbench.geometry')[0].message, /a drawer at 1150px/);
+    assert.deepEqual(fired(await workspaceAt(BAND({ drawer: false, toggle: false, stage: '1fr 300px', inspectorShown: true }), 1150, 'workbench'), 'workbench.geometry'), []);
+  });
+
   const INVESTIGATION = ({ railShown, toggle }) => `<div class="main" data-scroll="contain" style="overflow:auto;height:760px">
     <section class="workspace workspace--investigation">
       <div class="workspace__investigation-grid" style="display:grid;grid-template-columns:${railShown ? '252px 1fr' : '1fr'}">

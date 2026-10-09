@@ -112,15 +112,17 @@ describe('state applicability', () => {
       for (const tier of ['A', 'B', 'C'].filter((t) => !entry.tiers.includes(t))) assert.ok(entry.excluded[tier], `${entry.state} ${tier}`);
     }
     const probes = cases.filter((c) => c.viewport.kind === 'probe').map((c) => `${c.state.name}@${c.viewport.width}`);
-    assert.ok(probes.includes('scene-editor-side-by-side-threshold@1120'));
+    assert.ok(probes.includes('scene-editor-drawer@1120'));
+    assert.ok(probes.includes('scene-editor-drawer-boundaries@1149'));
     assert.ok(probes.includes('search-threshold@1599'));
     assert.ok(probes.includes('search-inspecting-evidence@1600'));
   });
 
   it('keeps every special-width probe the harness had before', () => {
     const probed = (name) => STATES.find((s) => s.name === name)?.probeWidths ?? [];
-    // T1: the Workbench drawer probe became the measured side-by-side threshold probe.
-    assert.deepEqual(probed('scene-editor-side-by-side-threshold'), [1101, 1120, 1149]);
+    // The Workbench drawer band (§4.3.1, §25 Tier B): opened inside it, and its boundaries.
+    assert.deepEqual(probed('scene-editor-drawer'), [1101, 1120, 1149]);
+    assert.deepEqual(probed('scene-editor-drawer-boundaries'), [1100, 1101, 1120, 1149, 1150, 1200, 1365, 1366]);
     assert.deepEqual(probed('search-threshold'), [1440, 1500, 1550, 1599, 1600, 1700]);
     for (const name of ['search-inspecting-evidence', 'search-inspecting-evidence-unavailable', 'review-evidence-set',
       'review-evidence-selected', 'review-evidence-representative-only', 'review-evidence-crop-unavailable']) {

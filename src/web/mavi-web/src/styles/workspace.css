@@ -425,12 +425,11 @@
 .workspace__drawer-toggle, .workspace__drawer-close, .workspace__band--drawer-only { display: none; }
 .workspace__drawer-toggle { flex: 0 0 auto; margin-left: auto; }
 
-/* The Workbench drawer (§4.3.1): where the measured working width cannot hold
-   the stage's 65% floor beside the fixed inspector, above the stacking
-   threshold. The workspace states it (`is-drawer`, from WorkbenchLayout's
-   `WORKBENCH_SIDE_BY_SIDE_MIN`), so the band is the rule's, not a round
-   viewport figure: under the Tier B shell (rail collapsed) it is empty, T1's
-   measurement — the floor holds at every width above 1100. */
+/* The Workbench drawer (§4.3.1, §25 Tier B): the frozen 1101-1149 band, and
+   wherever else above the stacking threshold the measured working width
+   cannot hold the stage's 65% floor beside the fixed inspector. The workspace
+   states it (`is-drawer`, WorkbenchLayout), so both obligations reach the
+   same composition. */
 .workspace--workbench.is-drawer .workspace__drawer-toggle,
 .workspace--workbench.is-drawer .workspace__drawer-close { display: inline-flex; }
 .workspace--workbench.is-drawer .workspace__band--drawer-only { display: flex; }

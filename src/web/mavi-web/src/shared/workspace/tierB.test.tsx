@@ -208,7 +208,7 @@ describe('folded Ledger columns (§25 Tier B)', () => {
   });
 });
 
-describe('the Workbench threshold, derived (§4.3.1, measured by T1)', () => {
+describe('the Workbench drawer: the frozen 1101-1149 band and the §4.3.1 floor, two obligations', () => {
   const drawerAt = (width: number) => {
     unstub = stubElementWidth(width);
     const { container, unmount } = render(<WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />);
@@ -226,5 +226,22 @@ describe('the Workbench threshold, derived (§4.3.1, measured by T1)', () => {
     expect(drawerAt(892)).toBe(false);
     expect(drawerAt(891)).toBe(true);
     expect(drawerAt(850)).toBe(true);
+  });
+
+  it('is a drawer throughout the frozen 1101-1149 band even where the floor alone would allow side by side (§25 Tier B)', () => {
+    // 1101px under the Tier B shell: about 1005px of working width.
+    const restore = stubMatchMedia((query) => query === OVERLAY_QUERIES.workbenchDrawerBand);
+    try {
+      expect(drawerAt(1005)).toBe(true);
+    } finally {
+      restore();
+    }
+    // Stacked (≤1100) wins over the band: the inspector is below the stage, not a drawer.
+    const stacked = stubMatchMedia((query) => query === OVERLAY_QUERIES.workbenchDrawerBand || query === OVERLAY_QUERIES.workbenchStacked);
+    try {
+      expect(drawerAt(1005)).toBe(false);
+    } finally {
+      stacked();
+    }
   });
 });

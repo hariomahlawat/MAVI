@@ -272,11 +272,11 @@ export function RecordLayout({
  * workspace.test.tsx holds the two in step. Below it, and above the shared
  * stacking threshold, the inspector is an overlay drawer.
  *
- * T1 measured where this lands under the Tier B shell (rail collapsed to 56px):
- * the working width at 1101px is 1005px, above the 891px minimum, so the floor
- * holds at every width above the stacking threshold and the drawer band is
- * empty — the ~1150 figure of §4.3.1 is its outcome with the rail expanded.
- * The rule, not the figure, is what is implemented.
+ * The frozen 1101-1149 drawer band (§25 Tier B, `OVERLAY_QUERIES.
+ * workbenchDrawerBand`) is a separate obligation and holds whatever this
+ * gives: under the Tier B shell (rail collapsed to 56px) the working width at
+ * 1101px is about 1005px, so the floor alone would allow side by side there —
+ * T1 records that measurement as a proposal for the owner, not as a change.
  */
 export const WORKBENCH_INSPECTOR_MIN = 300;
 export const WORKBENCH_GAP = 12;
@@ -316,10 +316,11 @@ export function WorkbenchLayout({
   // to scroll this surface at desktop widths either.
   useScrollPolicy('contain');
 
-  // Where the stage cannot keep its floor beside the inspector, and the
-  // workspace has not yet stacked, the inspector is a drawer over the stage
-  // (§4.3.1): the stage keeps the full working width instead of being
-  // compressed below its floor. A drawer that cannot be shut is not a drawer —
+  // Above the stacking threshold the inspector is a drawer over the stage in
+  // the frozen 1101-1149 band (§4.3.1, §25 Tier B), and wherever else the
+  // stage could not keep its 65% floor beside it — two obligations, either of
+  // which makes a drawer: the stage keeps the full working width instead of
+  // being compressed below its floor. A drawer that cannot be shut is not a drawer —
   // it is a panel parked on top of the canvas — so it starts closed and has a
   // way out.
   //
@@ -329,7 +330,8 @@ export function WorkbenchLayout({
   const sectionRef = useRef<HTMLElement | null>(null);
   const working = useElementWidth(sectionRef);
   const stacked = useMediaQuery(OVERLAY_QUERIES.workbenchStacked);
-  const overlay = !stacked && working !== null && working < WORKBENCH_SIDE_BY_SIDE_MIN;
+  const band = useMediaQuery(OVERLAY_QUERIES.workbenchDrawerBand);
+  const overlay = !stacked && (band || (working !== null && working < WORKBENCH_SIDE_BY_SIDE_MIN));
   const [drawerOpen, setDrawerOpen] = useState(false);
   const inspectorId = useId();
   // Everything in the workspace beside the drawer: inert while it is open as

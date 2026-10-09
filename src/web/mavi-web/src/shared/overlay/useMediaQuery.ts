@@ -50,9 +50,16 @@ export const OVERLAY_QUERIES = {
   investigationStacked: '(max-width: 1100px)',
   /**
    * Workbench, stacked (§4 shared rule, §25 Tier B 768-1100): stage first,
-   * inspector below. Whether the inspector is a drawer *above* this is not a
-   * viewport question — it is the §4.3.1 floor, decided from the measured
-   * working width (`WORKBENCH_SIDE_BY_SIDE_MIN`, layouts.tsx).
+   * inspector below.
    */
   workbenchStacked: '(max-width: 1100px)',
+  /**
+   * Workbench, the frozen drawer band (§4.3.1, §25 Tier B: "1101px up to the
+   * measured ~1150 threshold", measured in R4 as 1150): the inspector is an
+   * overlay drawer here whatever the shell's rail does. The §4.3.1 floor is a
+   * separate obligation, decided from the measured working width
+   * (`WORKBENCH_SIDE_BY_SIDE_MIN`, layouts.tsx), and also makes it a drawer
+   * wherever the stage could not keep 65% beside it.
+   */
+  workbenchDrawerBand: '(width > 1100px) and (width < 1150px)',
 } as const;
