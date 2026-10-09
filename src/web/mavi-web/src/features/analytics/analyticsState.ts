@@ -1,5 +1,6 @@
 import type { TrackObjectClass } from '../../api/tracks';
 import type { AnalyticsCoverage } from '../../api/tracks';
+import type { CameraScene } from '../../api/scene';
 import {
   bucketCount,
   DEFAULT_BUCKET_SECONDS,
@@ -229,10 +230,33 @@ export function scopePresence(coverage: AnalyticsCoverage): ScopePresence {
  * before incompleteness is considered, and stale coverage (runs answered under
  * an earlier revision or engine) is named as stale rather than as missing.
  */
+/**
+ * Whether the scene revision an answer was resolved against enables analytics,
+ * read from the camera's scene (its active revision and its history), or null
+ * when the scene is not to hand or does not list that revision. Null is "not
+ * known", never "enabled": the coverage counters still decide then.
+ */
+export function revisionAnalyticsEnabled(scene: CameraScene | undefined, revisionId: string | null): boolean | null {
+  if (!scene || revisionId === null) return null;
+  if (scene.activeRevision?.revisionId === revisionId) return scene.activeRevision.analyticsEnabled;
+  return scene.history.find((revision) => revision.revisionId === revisionId)?.analyticsEnabled ?? null;
+}
+
 export type CoverageStatus = 'not-configured' | 'disabled' | 'incomplete' | 'stale' | 'complete';
 
-export function coverageStatus(sceneRevisionId: string | null, coverage: AnalyticsCoverage): CoverageStatus {
+export function coverageStatus(
+  sceneRevisionId: string | null,
+  coverage: AnalyticsCoverage,
+  /**
+   * Whether the resolved revision enables analytics, from the scene itself;
+   * null when that is not known. The run counters cannot say it for a window
+   * with no runs: a disabled revision then reports no disabled run and the
+   * coverage reads complete, so an explicit `false` wins over them.
+   */
+  revisionAnalyticsEnabled: boolean | null = null,
+): CoverageStatus {
   if (sceneRevisionId === null || coverage.sceneRevisionId === null) return 'not-configured';
+  if (revisionAnalyticsEnabled === false) return 'disabled';
   if (coverage.complete) return 'complete';
   const outstanding = coverage.pendingRuns + coverage.failedRuns + coverage.notConfiguredRuns;
   if (outstanding === 0 && coverage.staleRuns === 0 && coverage.disabledRuns > 0) return 'disabled';

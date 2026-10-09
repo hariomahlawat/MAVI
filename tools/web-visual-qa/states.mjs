@@ -578,6 +578,15 @@ export const TIER_POLICIES = {
       C: 'a footage-condition variant (§26 media conditions): its Tier C geometry is the canonical review state\'s, which is swept there',
     },
   },
+  'typography-variant': {
+    tiers: ['A'],
+    excluded: {
+      B: 'a typography variant: it exists where a wide platform font pressures a measured Tier A width, which its preparation proves '
+        + 'from rendered widths and refuses to fake; at Tier B the same element has the room (the bucket table heading: 76px of text '
+        + 'in 199px and 122px), and its Tier B geometry is its base state\'s, which is swept there',
+      C: 'a typography variant: its Tier C geometry is its base state\'s, which is swept there',
+    },
+  },
   'breakpoint-probe': {
     tiers: [],
     excluded: {
@@ -2318,6 +2327,27 @@ const DISABLED_AGGREGATES = {
   lines: [],
   classes: [],
 };
+
+/**
+ * M4 (Codex P1): a window with no runs under a revision that disables
+ * analytics. The server then counts no disabled run and the coverage reads
+ * complete; only the scene says the revision is disabled, so the scene answer
+ * names the aggregate's resolved revision with analytics off.
+ */
+const EMPTY_WINDOW_AGGREGATES = {
+  ...ZERO_AGGREGATES,
+  coverage: { ...ZERO_AGGREGATES.coverage, evaluatedRuns: 0, pendingRuns: 0, failedRuns: 0, notConfiguredRuns: 0, disabledRuns: 0, staleRuns: 0, analysedTracks: 0, unavailableTracks: 0, complete: true },
+};
+const DISABLED_SCENE = (() => {
+  const scene = JSON.parse(readFileSync(new URL(`./fixtures/cameras_${CAM}_scene.json`, import.meta.url), 'utf8'));
+  return {
+    ...scene,
+    history: [
+      { ...scene.history[0], revisionId: BASE_AGGREGATES.sceneRevisionId, analyticsEnabled: false, zoneCount: 0, tripLineCount: 0 },
+      ...scene.history.slice(1),
+    ],
+  };
+})();
 
 /** M4 (F25): the heatmap's answer for a camera with no scene. */
 const NO_SCENE_HEATMAP = {
@@ -4222,6 +4252,43 @@ export const STATES = [
     expectText: ['Inbound', 'Outbound'],
   },
   {
+    // M4 (CI): the bucket table's series headings under wide typography. CI
+    // renders in its DejaVu fallback, where "Outbound" on one line is wider
+    // than its column at 1366 and 1440; `.table th.num` held the heading to
+    // one line, past the analytics table's own wrapping rule. The wide stack is
+    // scoped to the table (test pressure on the element under test, not
+    // product CSS), and the pressure is measured from rendered widths, never
+    // read from the declared family list: the state refuses to report itself
+    // reached where the rendered heading would fit on one line anyway.
+    // text.overflow then judges the heading.
+    name: 'analytics-line-crossings-wide-font', interaction: 'choose the line crossings report', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', tierPolicy: 'typography-variant',
+    prepare: `(async () => {
+      ${UNTIL}
+      const style = document.createElement('style');
+      style.textContent = '.analytics-table, .analytics-table * { font-family: ${QUEUE_WIDE_FONT} !important; }';
+      document.head.appendChild(style);
+      if (!(await ${LINE_METRIC})) return false;
+      const heading = await until(() => Array.from(document.querySelectorAll('.analytics-table thead th'))
+        .find((th) => th.textContent.trim() === 'Outbound'), 'the Outbound heading');
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      // The pressure, measured: the heading's text on one line, in the font
+      // actually rendered, against the room its column gives it.
+      const probe = document.createElement('span');
+      probe.style.whiteSpace = 'nowrap';
+      probe.textContent = heading.textContent;
+      heading.textContent = '';
+      heading.appendChild(probe);
+      const needed = probe.getBoundingClientRect().width;
+      heading.textContent = probe.textContent;
+      const cs = getComputedStyle(heading);
+      const room = heading.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      if (needed <= room) throw new Error('the rendered typography is not wide enough to pressure the heading (' + Math.round(needed) + 'px in ' + Math.round(room) + 'px)');
+      return true;
+    })()`,
+    expectText: ['Inbound', 'Outbound'],
+  },
+  {
     // The frozen rule, rendered: an incomplete scope draws nothing at all.
     name: 'analytics-incomplete', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
@@ -4251,6 +4318,18 @@ export const STATES = [
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: DISABLED_AGGREGATES },
     expectText: ['Analytics disabled by the scene', 'Analytics disabled'],
     forbidText: 'Coverage incomplete',
+  },
+  {
+    // Codex P1: no runs under a disabled revision is still "analytics
+    // disabled", read from the scene, never a complete zero.
+    name: 'analytics-disabled-empty-window', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    api: {
+      [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
+      [`/api/cameras/${CAM}/scene`]: DISABLED_SCENE,
+    },
+    expectText: ['Analytics disabled by the scene', 'No processing runs in this time window'],
+    forbidText: 'Coverage complete',
   },
   {
     // F24: the bucket table scrolled under its header, judged by geometry.

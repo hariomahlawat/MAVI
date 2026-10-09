@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { AnalyticsAggregateResponse } from '../../api/analytics';
 import type { AnalyticsCoverage } from '../../api/tracks';
+import type { CameraScene } from '../../api/scene';
 import {
   coverageStatus,
   METRICS,
+  revisionAnalyticsEnabled,
   presetWindow,
   queryProblem,
   readActivity,
@@ -159,6 +161,33 @@ describe('coverageStatus (F25)', () => {
     expect(coverageStatus('r-1', { ...coverage, pendingRuns: 1, complete: false })).toBe('incomplete');
     expect(coverageStatus('r-1', { ...coverage, failedRuns: 1, disabledRuns: 1, complete: false })).toBe('incomplete');
     expect(coverageStatus('r-1', { ...coverage, pendingRuns: 1, staleRuns: 1, complete: false })).toBe('incomplete');
+  });
+
+  it('calls a disabled revision disabled even where no run says so (Codex P1)', () => {
+    // A window with no runs under a disabled revision: the server reports no
+    // disabled run, so the coverage reads complete. The revision's own flag wins.
+    const empty = { ...coverage, evaluatedRuns: 0, analysedTracks: 0 };
+    expect(coverageStatus('r-1', empty, false)).toBe('disabled');
+    expect(coverageStatus('r-1', empty, null)).toBe('complete');
+    expect(coverageStatus('r-1', empty, true)).toBe('complete');
+    // Not configured still comes first.
+    expect(coverageStatus(null, { ...empty, sceneRevisionId: null }, false)).toBe('not-configured');
+  });
+
+  it('reads the resolved revision\'s flag from the scene, and says "not known" otherwise', () => {
+    const revision = (revisionId: string, analyticsEnabled: boolean) => ({
+      revisionId, revisionNumber: 1, createdAtUtc: '', createdBy: '', note: null, analyticsEnabled, zoneCount: 0, tripLineCount: 0,
+    });
+    const scene = {
+      cameraId: 'c', configured: true,
+      activeRevision: { ...revision('active', true), cameraId: 'c', referenceFrameVideoAssetId: null, referenceFrameOffsetMs: null, zones: [], tripLines: [] },
+      history: [revision('active', true), revision('old', false)],
+    } as CameraScene;
+    expect(revisionAnalyticsEnabled(scene, 'active')).toBe(true);
+    expect(revisionAnalyticsEnabled(scene, 'old')).toBe(false);
+    expect(revisionAnalyticsEnabled(scene, 'unknown')).toBeNull();
+    expect(revisionAnalyticsEnabled(undefined, 'old')).toBeNull();
+    expect(revisionAnalyticsEnabled(scene, null)).toBeNull();
   });
 
   it('calls a complete scope complete, including a complete zero', () => {

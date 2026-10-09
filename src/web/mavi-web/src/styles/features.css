@@ -1002,8 +1002,12 @@
 .analytics-table tbody th { white-space: nowrap; }
 
 /* The shared table keeps headers on one line; here there is not the width for
-   it, and a clipped column heading is a column the reader cannot name. */
-.analytics-table thead th {
+   it, and a clipped column heading is a column the reader cannot name. The
+   series headings are `.num`, and `.table th.num` holds them to one line, so
+   they are named here too: a series is the operator's own label (a trip
+   line's direction), of any length, in whatever font the platform has. */
+.analytics-table thead th,
+.analytics-table thead th.num {
   white-space: normal;
 }
 

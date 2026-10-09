@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAnalyticsAggregates, type AnalyticsAggregateResponse } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
+import { getCameraScene, type CameraScene } from '../../api/scene';
 import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import type { AnalyticsCoverage } from '../../api/tracks';
@@ -11,6 +12,10 @@ import AnalyticsPage from './AnalyticsPage';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
+vi.mock('../../api/scene', async () => {
+  const actual = await vi.importActual<typeof import('../../api/scene')>('../../api/scene');
+  return { ...actual, getCameraScene: vi.fn() };
+});
 vi.mock('../../api/analytics', async () => {
   const actual = await vi.importActual<typeof import('../../api/analytics')>('../../api/analytics');
   return { ...actual, getAnalyticsAggregates: vi.fn() };
@@ -83,6 +88,19 @@ function answer(overrides: Partial<AnalyticsAggregateResponse> = {}): AnalyticsA
   };
 }
 
+/** The camera's scene, with the answer's revision enabling analytics or not. */
+function sceneWith(revisionId: string, analyticsEnabled: boolean): CameraScene {
+  return {
+    cameraId,
+    configured: true,
+    activeRevision: null,
+    history: [{
+      revisionId, revisionNumber: 4, createdAtUtc: '2026-09-14T02:30:00Z', createdBy: 'operator', note: null,
+      analyticsEnabled, zoneCount: 0, tripLineCount: 0,
+    }],
+  };
+}
+
 function render() {
   return renderWithApp(<AnalyticsPage />, {
     route: `/cameras/${cameraId}/analytics`,
@@ -94,6 +112,7 @@ beforeEach(() => {
   vi.mocked(getCamera).mockResolvedValue(camera);
   vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' } as never);
   vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer());
+  vi.mocked(getCameraScene).mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, true));
 });
 
 describe('Analytics identity (§5, §14)', () => {
@@ -323,6 +342,49 @@ describe('Analytics Workbench', () => {
     const rowHeaders = within(table).getAllByRole('rowheader');
     expect(rowHeaders).toHaveLength(2);
     for (const header of rowHeaders) expect(header.textContent).not.toMatch(/:\d{2}:\d{2}/);
+  });
+
+  it('says analytics are disabled for a window with no runs under a disabled revision (Codex P1)', async () => {
+    // No runs: the server counts no disabled run, and the coverage reads complete.
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer({
+      coverage: { ...completeCoverage, evaluatedRuns: 0, analysedTracks: 0 },
+      zones: [],
+      lines: [],
+      classes: [{ objectClass: 'Person', counts: [0, 0], windowDistinctTrackCount: 0 }],
+    }));
+    vi.mocked(getCameraScene).mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, false));
+    render();
+
+    const stage = (await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).closest('.empty');
+    expect(stage).toHaveClass('empty--hatched');
+    expect(screen.getByText('Analytics disabled')).toBeInTheDocument();
+    expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
+    expect(screen.queryByRole('figure')).not.toBeInTheDocument();
+  });
+
+  it('still draws a complete zero when the scene cannot be read (Codex P1)', async () => {
+    // The scene decides only when it says "disabled"; unread, the counters do.
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer({
+      coverage: { ...completeCoverage, evaluatedRuns: 0, analysedTracks: 0 },
+      zones: [],
+      lines: [],
+      classes: [{ objectClass: 'Person', counts: [0, 0], windowDistinctTrackCount: 0 }],
+    }));
+    vi.mocked(getCameraScene).mockRejectedValue(new Error('scene unavailable'));
+    render();
+
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Coverage complete')).toBeInTheDocument();
+  });
+
+  it('gives each compact bucket time its full form on hover (§24, Codex P2)', async () => {
+    render();
+    const table = await screen.findByRole('table');
+
+    const first = within(table).getAllByRole('rowheader')[0].querySelector('time');
+    expect(first).toHaveAttribute('datetime', '2026-09-21T00:00:00Z');
+    // Seconds and year present in the full form.
+    expect(first?.getAttribute('title')).toMatch(/2026.*05:30:00/);
   });
 
   it('says a camera is missing rather than showing an empty surface', async () => {

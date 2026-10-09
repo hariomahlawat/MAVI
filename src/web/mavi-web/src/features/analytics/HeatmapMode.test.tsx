@@ -7,6 +7,7 @@ import {
   type AnalyticsHeatmapResponse,
 } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
+import { getCameraScene, type CameraScene } from '../../api/scene';
 import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import type { AnalyticsCoverage } from '../../api/tracks';
@@ -15,6 +16,10 @@ import AnalyticsPage from './AnalyticsPage';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
+vi.mock('../../api/scene', async () => {
+  const actual = await vi.importActual<typeof import('../../api/scene')>('../../api/scene');
+  return { ...actual, getCameraScene: vi.fn() };
+});
 vi.mock('../../api/analytics', async () => {
   const actual = await vi.importActual<typeof import('../../api/analytics')>('../../api/analytics');
   return { ...actual, getAnalyticsAggregates: vi.fn(), getAnalyticsHeatmap: vi.fn() };
@@ -68,6 +73,19 @@ function map(overrides: Partial<AnalyticsHeatmapResponse> = {}): AnalyticsHeatma
   };
 }
 
+/** The camera's scene, with the answer's revision enabling analytics or not. */
+function sceneWith(revisionId: string, analyticsEnabled: boolean): CameraScene {
+  return {
+    cameraId,
+    configured: true,
+    activeRevision: null,
+    history: [{
+      revisionId, revisionNumber: 4, createdAtUtc: '2026-09-14T02:30:00Z', createdBy: 'operator', note: null,
+      analyticsEnabled, zoneCount: 0, tripLineCount: 0,
+    }],
+  };
+}
+
 async function openHeatmap() {
   renderWithApp(<AnalyticsPage />, {
     route: `/cameras/${cameraId}/analytics`,
@@ -98,6 +116,7 @@ beforeEach(() => {
     classes: [{ objectClass: 'Person' as const, counts: [3], windowDistinctTrackCount: 3 }],
   });
   vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map());
+  vi.mocked(getCameraScene).mockResolvedValue(sceneWith(coverage.sceneRevisionId!, true));
 });
 
 describe('Heatmap mode', () => {
@@ -254,6 +273,19 @@ describe('Heatmap mode', () => {
     expect(stage).toHaveClass('empty--hatched');
     expect(screen.getByText('Analytics disabled')).toBeInTheDocument();
     expect(screen.queryByText('Coverage incomplete')).not.toBeInTheDocument();
+  });
+
+  it('says analytics are disabled for a window with no runs under a disabled revision (Codex P1)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map({
+      coverage: { ...coverage, evaluatedRuns: 0, analysedTracks: 0 },
+      values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
+    }));
+    vi.mocked(getCameraScene).mockResolvedValue(sceneWith(coverage.sceneRevisionId!, false));
+    await openHeatmap();
+
+    const stage = (await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).closest('.empty');
+    expect(stage).toHaveClass('empty--hatched');
+    expect(screen.queryByText(/No samples fell inside this window/i)).not.toBeInTheDocument();
   });
 
   it('offers no interval, which a map has no use for (F22)', async () => {

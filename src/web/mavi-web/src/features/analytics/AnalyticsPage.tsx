@@ -10,6 +10,7 @@ import {
   serializeHeatmapQuery,
 } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
+import { getCameraScene } from '../../api/scene';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
@@ -29,6 +30,7 @@ import {
   ACTIVITY_METRICS,
   coverageStatus,
   initialQueryState,
+  revisionAnalyticsEnabled,
   METRICS,
   presetWindow,
   bucketProblem,
@@ -67,6 +69,17 @@ export default function AnalyticsPage() {
     queryFn: ({ signal }) => getCamera(cameraId, signal),
     enabled: Boolean(cameraId),
   });
+
+  // The scene the Context Bar already links to. Read for one fact the answer
+  // does not carry: whether the revision it was resolved against enables
+  // analytics, which the run counters cannot say for a window with no runs
+  // (F25). Unread or failed, it decides nothing — the counters still do.
+  const scene = useQuery({
+    queryKey: queryKeys.cameraScene(cameraId),
+    queryFn: ({ signal }) => getCameraScene(cameraId, signal),
+    enabled: Boolean(cameraId),
+  });
+  const enabledFor = (revisionId: string | null) => revisionAnalyticsEnabled(scene.data, revisionId);
 
   const systemConfig = useQuery({
     queryKey: queryKeys.systemConfig,
@@ -182,7 +195,7 @@ export default function AnalyticsPage() {
           const answer = state.mode === 'heatmap' ? heatmap.data : response;
           return (
             <>
-              {answer ? <CoverageChip status={coverageStatus(answer.sceneRevisionId, answer.coverage)} /> : null}
+              {answer ? <CoverageChip status={coverageStatus(answer.sceneRevisionId, answer.coverage, enabledFor(answer.sceneRevisionId))} /> : null}
               {/* §24: the zone every time on this surface is read in, once. */}
               <DisplayTimeZone timeZoneId={displayTimeZoneId} />
             </>
@@ -302,6 +315,7 @@ export default function AnalyticsPage() {
                   <HeatmapPane
                     query={heatmap}
                     cameraId={cameraId}
+                    enabledFor={enabledFor}
                     opacity={opacity}
                     onOpacityChange={setOpacity}
                     onNarrow={() => applyPreset('lastHour')}
@@ -320,6 +334,7 @@ export default function AnalyticsPage() {
                     {(answer) => (
                       <ActivityStage
                         response={answer}
+                        analyticsEnabled={enabledFor(answer.sceneRevisionId)}
                         reading={reading}
                         displayTimeZoneId={config.displayTimeZoneId}
                         cameraId={cameraId}
@@ -364,6 +379,7 @@ export default function AnalyticsPage() {
 function HeatmapPane({
   query,
   cameraId,
+  enabledFor,
   opacity,
   onOpacityChange,
   onNarrow,
@@ -371,6 +387,7 @@ function HeatmapPane({
 }: {
   query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof getAnalyticsHeatmap>>>>;
   cameraId: string;
+  enabledFor: (revisionId: string | null) => boolean | null;
   opacity: number;
   onOpacityChange: (value: number) => void;
   onNarrow: () => void;
@@ -411,7 +428,7 @@ function HeatmapPane({
       degradedMessage="This map is the last one that was built. A refresh since then has failed, so it may no longer be current."
       onRetry={onRetry}
     >
-      {(map) => coverageStatus(map.sceneRevisionId, map.coverage) === 'not-configured' ? (
+      {(map) => coverageStatus(map.sceneRevisionId, map.coverage, enabledFor(map.sceneRevisionId)) === 'not-configured' ? (
         <EmptyState
           icon="layers"
           title="No scene configured"
@@ -420,7 +437,7 @@ function HeatmapPane({
         >
           There is no scene to read trajectories against, so there is no map to draw.
         </EmptyState>
-      ) : coverageStatus(map.sceneRevisionId, map.coverage) === 'disabled' ? (
+      ) : coverageStatus(map.sceneRevisionId, map.coverage, enabledFor(map.sceneRevisionId)) === 'disabled' ? (
         <EmptyState icon="layers" title="Analytics disabled by the scene" hatched>
           The scene revision in force has no enabled geometry, so no run in this window was analysed.
         </EmptyState>
@@ -470,16 +487,18 @@ function CoverageChip({ status }: { status: CoverageStatus }) {
  */
 function ActivityStage({
   response,
+  analyticsEnabled,
   reading,
   displayTimeZoneId,
   cameraId,
 }: {
   response: Parameters<typeof ActivityInspector>[0]['response'];
+  analyticsEnabled: boolean | null;
   reading: ReturnType<typeof readActivity>;
   displayTimeZoneId: string;
   cameraId: string;
 }) {
-  const status = coverageStatus(response.sceneRevisionId, response.coverage);
+  const status = coverageStatus(response.sceneRevisionId, response.coverage, analyticsEnabled);
   // Not configured and disabled are domain states, hatched (§14), never
   // partial coverage: there was nothing to analyse against, not something left.
   if (status === 'not-configured') {

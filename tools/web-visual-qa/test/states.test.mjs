@@ -80,6 +80,19 @@ describe('state applicability', () => {
     }
   });
 
+  it('applies the typography-variant policy only to wide-font states that measure their pressure', () => {
+    const variants = STATES.filter((s) => s.tierPolicy === 'typography-variant');
+    assert.ok(variants.length > 0);
+    for (const state of variants) {
+      assert.match(state.name, /-wide-font$/, state.name);
+      assert.match(state.prepare, /throw new Error\('the rendered typography is not wide enough/, state.name);
+      // Its base state is swept at every tier.
+      const base = STATES.find((s) => s.name === state.name.replace(/-wide-font$/, ''));
+      assert.ok(base, `${state.name} has no base state`);
+      assert.deepEqual(TIER_POLICIES[base.tierPolicy ?? 'all-tiers'].tiers, ['A', 'B', 'C'], state.name);
+    }
+  });
+
   it('pairs every held loading state with a request that never answers, and back', () => {
     for (const state of STATES) {
       const hangs = Object.values(state.api ?? {}).includes('hang');
@@ -124,6 +137,15 @@ describe('preparations', () => {
     // refuses to report the state reached when the rendered font is narrower.
     assert.match(state.prepare, /getBoundingClientRect\(\)\.width/);
     assert.match(state.prepare, /maxWidth/);
+    assert.match(state.prepare, /throw new Error\('the rendered typography is not wide enough/);
+  });
+
+  it('establish the bucket table heading pressure from rendered widths, never from the declared family list (M4, CI)', () => {
+    const state = STATES.find((s) => s.name === 'analytics-line-crossings-wide-font');
+    assert.doesNotMatch(state.prepare, /fontFamily\s*\)?\s*\.(startsWith|includes)|\/Verdana\/\.test/);
+    // Scoped to the table under test, not the page.
+    assert.match(state.prepare, /'\.analytics-table, \.analytics-table \* \{ font-family:/);
+    assert.match(state.prepare, /getBoundingClientRect\(\)\.width/);
     assert.match(state.prepare, /throw new Error\('the rendered typography is not wide enough/);
   });
 
