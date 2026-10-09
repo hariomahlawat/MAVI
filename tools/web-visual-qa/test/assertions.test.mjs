@@ -55,6 +55,34 @@ describe('ledger.row-pitch', () => {
   });
 });
 
+describe('ledger.columns-fit (M1)', () => {
+  // A frame at the width the workspace gives it, around a table whose last
+  // column holds the row's action.
+  const FRAMED = (frameWidth, codeWidth) => `
+    <main class="main" data-scroll="contain" style="height:700px;overflow:hidden">
+      <section class="workspace workspace--ledger" style="height:100%">
+        <div class="workspace__body workspace__body--ledger">
+          <div class="ledger-table" style="border:1px solid #444;overflow:auto;max-width:${frameWidth}px;max-height:600px">
+            <table style="border-collapse:separate;border-spacing:0">
+              <thead><tr><th style="position:sticky;top:0;height:32px">Code</th><th>Actions</th></tr></thead>
+              <tbody><tr style="height:40px"><td><div style="width:${codeWidth}px">CAM</div></td><td><a href="#x">Scene</a></td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>`;
+  it('passes a table that fits its frame, and reports itself evaluated', async () => {
+    const result = await workspace(FRAMED(600, 200));
+    assert.deepEqual(fired(result, 'ledger.columns-fit'), []);
+    assert.ok(result.evaluated.includes('ledger.columns-fit'));
+  });
+  it('fires on a cell that widens the table past its frame, naming the action pushed past the edge', async () => {
+    const result = await workspace(FRAMED(600, 900));
+    const [finding] = fired(result, 'ledger.columns-fit');
+    assert.match(finding.message, /scrolls sideways, and 1 row action\(s\) are past its edge/);
+  });
+});
+
 describe('ledger.containment and state.placement in a Ledger', () => {
   it('fires on a bordered frame inside the table frame', async () => {
     const result = await workspace(LEDGER(TABLE('<tr style="height:40px"><td><div style="border:1px solid #888;height:60px;width:200px">card</div></td></tr>')));

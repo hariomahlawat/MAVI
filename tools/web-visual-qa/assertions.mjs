@@ -865,6 +865,22 @@ export function workspaceAssertions(input) {
         evaluated.add('ledger.row-primary');
         const rowPrimaries = table.querySelectorAll('tbody .btn--primary');
         if (rowPrimaries.length) fail('ledger.row-primary', 'Ledger rows carry ' + rowPrimaries.length + ' accent-filled primary action(s)');
+
+        // §4.1, §16 (M1): the table fits its frame's width. A frame may scroll,
+        // so content wider than it is not a page overflow and no other rule
+        // sees it — yet every column and row action past the frame's right
+        // edge is then reachable only by scrolling the table sideways (R2's
+        // run cell, M1's camera code).
+        evaluated.add('ledger.columns-fit');
+        measured.frameScrollWidth = frame.scrollWidth;
+        measured.frameClientWidth = frame.clientWidth;
+        if (frame.scrollWidth > frame.clientWidth + 1) {
+          const edge = frameRect.left + frame.clientLeft + frame.clientWidth;
+          const hidden = Array.from(table.querySelectorAll('tbody a, tbody button'))
+            .filter((control) => control.getBoundingClientRect().right > edge + 0.5);
+          fail('ledger.columns-fit', 'the table is ' + frame.scrollWidth + 'px wide in a ' + frame.clientWidth
+            + 'px frame: it scrolls sideways' + (hidden.length ? ', and ' + hidden.length + ' row action(s) are past its edge' : ''));
+        }
       }
 
       if (!summary && doc.clientWidth >= 2400) {

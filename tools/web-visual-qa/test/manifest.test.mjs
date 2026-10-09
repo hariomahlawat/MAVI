@@ -166,7 +166,7 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
   const accepted = (...names) => Object.fromEntries(Object.entries(SURFACES).map(([name, s]) => [name, { ...s, accepted: s.accepted || names.includes(name) }]));
 
   it('names the owning row of every unmigrated surface', () => {
-    const owners = { 'camera-analytics': /M4/, overview: /R1/, videos: /R2/, 'processing-detail': /R3/, cameras: /M1/, 'processing-queue': /M2/, import: /M3/ };
+    const owners = { 'camera-analytics': /M4/, overview: /R1/, videos: /R2/, 'processing-detail': /R3/, 'processing-queue': /M2/, import: /M3/ };
     for (const [surface, owner] of Object.entries(owners)) {
       const at = severityOf('containment.depth', 'A', surface);
       assert.equal(at.status, 'measured/pending', surface);
@@ -181,7 +181,7 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
       for (const tier of ['B', 'C']) assert.equal(severityOf(rule, tier, 'scene-editor').status, 'measured/pending', `${rule} @ ${tier}`);
     }
     // Its acceptance promotes nothing else.
-    assert.equal(severityOf('containment.depth', 'A', 'cameras').status, 'measured/pending');
+    assert.equal(severityOf('containment.depth', 'A', 'processing-queue').status, 'measured/pending');
     assert.equal(surfaceOf('/cameras/abc/scene'), 'scene-editor');
   });
 
@@ -204,15 +204,36 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     }
     // Its acceptance promotes nothing else: not the R1-R3 rows, whose
     // promotion is the separate governance change recorded under R4.
-    for (const other of ['overview', 'videos', 'processing-detail', 'cameras', 'camera-analytics']) {
+    for (const other of ['overview', 'videos', 'processing-detail', 'processing-queue', 'camera-analytics']) {
       assert.equal(severityOf('containment.depth', 'A', other).status, 'measured/pending', other);
     }
   });
 
+  it('blocks the accepted Cameras Ledger at Tier A on its own, and nowhere below it (M1)', () => {
+    assert.equal(SURFACES.cameras.accepted, true);
+    for (const rule of ['containment.depth', 'text.overflow']) {
+      assert.equal(severityOf(rule, 'A', 'cameras').status, 'blocking', rule);
+      for (const tier of ['B', 'C']) assert.equal(severityOf(rule, tier, 'cameras').status, 'measured/pending', `${rule} @ ${tier}`);
+    }
+    // Its acceptance promotes nothing else: not the other S4 rows, not Camera
+    // Analytics beneath the same /cameras path, and not the R1-R3 rows, whose
+    // promotion is the separate governance change recorded under R4.
+    for (const other of ['overview', 'videos', 'processing-detail', 'processing-queue', 'import', 'camera-analytics']) {
+      assert.equal(severityOf('containment.depth', 'A', other).status, 'measured/pending', other);
+    }
+    assert.equal(surfaceOf('/cameras'), 'cameras');
+    assert.equal(surfaceOf('/cameras/abc/analytics'), 'camera-analytics');
+  });
+
+  it('blocks a Ledger table that does not fit its frame at Tier A on every Ledger, and only measures it below (M1)', () => {
+    assert.equal(severityOf('ledger.columns-fit', 'A').status, 'blocking');
+    for (const tier of ['B', 'C']) assert.match(severityOf('ledger.columns-fit', tier).owner, /S5/);
+  });
+
   it('promotes one surface at a time, never all together', () => {
-    const surfaces = accepted('cameras');
-    assert.equal(severityOf('containment.depth', 'A', 'cameras', { surfaces }).status, 'blocking');
-    assert.equal(severityOf('text.overflow', 'A', 'cameras', { surfaces }).status, 'blocking');
+    const surfaces = accepted('processing-queue');
+    assert.equal(severityOf('containment.depth', 'A', 'processing-queue', { surfaces }).status, 'blocking');
+    assert.equal(severityOf('text.overflow', 'A', 'processing-queue', { surfaces }).status, 'blocking');
     assert.equal(severityOf('containment.depth', 'A', 'import', { surfaces }).status, 'measured/pending');
     assert.equal(severityOf('containment.depth', 'A', 'camera-analytics', { surfaces }).status, 'measured/pending');
   });

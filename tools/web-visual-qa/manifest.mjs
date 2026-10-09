@@ -75,7 +75,8 @@ export const SURFACES = {
   search: { owner: 'S3d / R5', accepted: true },
   // R6 accepted (S3e): Review's surface findings block at Tier A.
   review: { owner: 'S3e / R6', accepted: true },
-  cameras: { owner: 'S4 / M1', accepted: false },
+  // M1 accepted (S4): Cameras' surface findings block at Tier A.
+  cameras: { owner: 'S4 / M1', accepted: true },
   'processing-queue': { owner: 'S4 / M2', accepted: false },
   import: { owner: 'S4 / M3', accepted: false },
   'camera-analytics': { owner: 'S4 / M4', accepted: false },
@@ -155,6 +156,10 @@ export const RULES = {
   'ledger.loading-geometry': { section: '§36.3, §38', kind: 'assertion', summary: 'A loading Ledger reserves the table header and its first skeleton row lands where the first body row arrives.', tiers: s1() },
   'ledger.row-pitch': { section: '§16, §10', kind: 'assertion', summary: 'Every visible Ledger data row measures 36-40px.', tiers: s1() },
   'ledger.row-primary': { section: '§8.1, §16', kind: 'assertion', summary: 'No Ledger row carries an accent-filled primary.', tiers: s1() },
+  // M1 (S4): R2 found by eye what no rule caught — a cell widening the table
+  // past its frame, which may legitimately scroll, so the row actions were
+  // reachable only sideways. Blocking at Tier A on every Ledger.
+  'ledger.columns-fit': { section: '§4.1, §16', kind: 'assertion', summary: 'The Ledger table fits the width of its frame: no column or row action is reachable only by scrolling the frame sideways.', tiers: { A: blocking(), B, C } },
   'ledger.ultrawide-alignment': {
     section: '§4.1, §25', kind: 'assertion', summary: 'At ultra-wide a sparse Ledger is left-aligned, not stretched.',
     tiers: { A: blocking(), B: na(TIER_A_ONLY), C: na(TIER_A_ONLY) },
