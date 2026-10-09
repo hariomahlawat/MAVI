@@ -5,7 +5,7 @@ import { createCamera, listCameras, type Camera, type CreateCameraInput } from '
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
-import StateRegion from '../../shared/async/StateRegion';
+import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import Field from '../../shared/components/Field';
@@ -229,12 +229,19 @@ export default function CamerasPage() {
           brought the very same refusal back as a page-level alert about a code
           the operator had already changed. */}
       {unattributableFailure ? (
-        <Alert tone="error">
-          {unattributableFailure instanceof ApiError
-            ? `${unattributableFailure.detail} (${unattributableFailure.code})`
-            : 'Camera could not be created.'}
-        </Alert>
+        <Alert tone="error">{describeError(unattributableFailure, 'The camera could not be created.')}</Alert>
       ) : null}
+      {/* The deployment zone is only this form's default, so its failure is
+          stated here, where it has a consequence, not across the inventory:
+          the field then starts empty, and nothing — least of all the
+          browser's zone — is put in its place. */}
+      <SupportingRequestNotice
+        state={fromQuery(systemConfig)}
+        unavailableMessage="The deployment timezone could not be read, so the camera timezone has no default. Enter the camera's IANA timezone."
+        degradedMessage="The deployment timezone could not be refreshed. The default is the last known zone."
+        onRetry={() => void systemConfig.refetch()}
+        retryLabel="Retry display config"
+      />
 
       <div className="camera-create__fields">
         <Field label="Camera code" error={errors.code}>
@@ -244,7 +251,9 @@ export default function CamerasPage() {
               ref={codeRef}
               value={draft.code}
               onChange={(event) => edit({ code: event.target.value })}
-              maxLength={64}
+              // The domain's limits (Camera.Create): code 32, name 128,
+              // timezone 64. A longer code was typeable and then refused.
+              maxLength={32}
               autoComplete="off"
               placeholder="CAM-01"
             />
@@ -265,15 +274,17 @@ export default function CamerasPage() {
         <Field
           label="Camera timezone"
           error={errors.timeZoneId}
-          help="IANA identifier, for example Asia/Kolkata. Recording local time is interpreted in this zone; the browser's timezone is never used as the authority."
+          help="IANA identifier, for example Asia/Kolkata. Recording local times are read in this zone, never the browser's."
         >
           {(control) => (
             <input
               {...control}
               value={timeZoneValue}
               onChange={(event) => edit({ timeZoneId: event.target.value })}
+              maxLength={64}
               autoComplete="off"
-              placeholder="Asia/Kolkata"
+              // No placeholder: the help gives the example, and a grey zone in
+              // an empty field reads as the default the form may not have.
             />
           )}
         </Field>
@@ -348,11 +359,15 @@ export default function CamerasPage() {
               <tbody>
                 {rows.map((camera) => (
                   <tr key={camera.id}>
-                    <td><strong>{camera.code}</strong></td>
+                    {/* Code and timezone are bounded like the name (§16): a
+                        valid 32-character code of wide glyphs widened the
+                        table until the row actions were clipped by its frame
+                        at 1366, reachable only by scrolling it sideways. */}
+                    <td><strong><TruncatedText text={camera.code} className="cap-lg" /></strong></td>
                     {/* A long name truncates rather than widening the column;
                         its full value is reachable by pointer and keyboard (§16). */}
                     <td><TruncatedText text={camera.name} className="cap-lg" /></td>
-                    <td><code>{camera.timeZoneId}</code></td>
+                    <td><code><TruncatedText text={camera.timeZoneId} className="cap-lg" /></code></td>
                     <td>
                       <StatusBadge tone={camera.isActive ? 'ok' : 'neutral'}>{stateLabel(camera)}</StatusBadge>
                     </td>

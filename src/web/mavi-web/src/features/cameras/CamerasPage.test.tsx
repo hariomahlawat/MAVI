@@ -505,4 +505,158 @@ describe('CamerasPage', () => {
       expect(button).toHaveFocus();
     });
   });
+
+  describe('M1: identities, sorting, create lifecycle and inventory states', () => {
+    // The domain's limits (Camera.Create): code 32, timezone a recognised IANA id.
+    const LONG_CODE = 'SOUTH-DOCK-LOADING-BAY-EAST-0007';
+    const LONG_ZONE = 'America/Argentina/ComodRivadavia';
+
+    it('bounds a long code and timezone with a truncation the keyboard can reach, never a wider table (§16)', async () => {
+      vi.mocked(listCameras).mockResolvedValue([{ ...camera, code: LONG_CODE, timeZoneId: LONG_ZONE }]);
+      const { container } = renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      const cells = (container.querySelector('tbody tr') as HTMLElement).querySelectorAll('td');
+      // The full value is the text; the cap is what keeps it from widening the table.
+      const code = within(cells[0]).getByText(LONG_CODE);
+      expect(code).toHaveClass('truncate', 'cap-lg');
+      const zone = within(cells[2]).getByText(LONG_ZONE);
+      expect(zone).toHaveClass('truncate', 'cap-lg');
+      // Still named for the camera it opens, whatever the code's length.
+      expect(screen.getByRole('link', { name: `Analytics for ${LONG_CODE}` })).toHaveAttribute('href', `/cameras/${camera.id}/analytics`);
+    });
+
+    it('sorts names both ways and state by its word, and the actions of every row follow their camera', async () => {
+      vi.mocked(listCameras).mockResolvedValue([
+        { ...camera, id: 'id-b', code: 'CAM-02', name: 'Bravo', isActive: false },
+        { ...camera, id: 'id-a', code: 'CAM-01', name: 'Alpha' },
+        { ...camera, id: 'id-c', code: 'CAM-03', name: 'Charlie' },
+      ]);
+      const user = userEvent.setup();
+      renderWithApp(<CamerasPage />);
+      const rows = async () => within(await screen.findByRole('table')).getAllByRole('row').slice(1);
+      const order = async () => (await rows()).map((row) => within(row).getAllByRole('cell')[1].textContent);
+      await screen.findByRole('table');
+
+      await user.click(screen.getByRole('button', { name: 'Name' }));
+      expect(await order()).toEqual(['Alpha', 'Bravo', 'Charlie']);
+      await user.click(screen.getByRole('button', { name: 'Name' }));
+      expect(await order()).toEqual(['Charlie', 'Bravo', 'Alpha']);
+      expect(screen.getByRole('columnheader', { name: /Name/ })).toHaveAttribute('aria-sort', 'descending');
+
+      // Descending state: Inactive before Active (the words, not a boolean).
+      await user.click(screen.getByRole('button', { name: 'State' }));
+      await user.click(screen.getByRole('button', { name: 'State' }));
+      expect(await order()).toEqual(['Bravo', 'Alpha', 'Charlie']);
+
+      // After re-ordering, each row's links still open that row's camera.
+      for (const row of await rows()) {
+        const id = { Alpha: 'id-a', Bravo: 'id-b', Charlie: 'id-c' }[within(row).getAllByRole('cell')[1].textContent as 'Alpha'];
+        expect(within(row).getByRole('link', { name: 'Scene' })).toHaveAttribute('href', `/cameras/${id}/scene`);
+        expect(within(row).getByRole('link', { name: /^Analytics for / })).toHaveAttribute('href', `/cameras/${id}/analytics`);
+      }
+
+      // Sorting is keyboard-operable from the header control.
+      screen.getByRole('button', { name: 'Name' }).focus();
+      await user.keyboard('{Enter}');
+      expect(screen.getByRole('columnheader', { name: /Name/ })).toHaveAttribute('aria-sort', 'ascending');
+    });
+
+    it('accepts no more than the domain does: code 32, name 128, timezone 64', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      await openCreate(user);
+      expect(screen.getByLabelText('Camera code')).toHaveAttribute('maxLength', '32');
+      expect(screen.getByLabelText('Camera name')).toHaveAttribute('maxLength', '128');
+      expect(screen.getByLabelText('Camera timezone')).toHaveAttribute('maxLength', '64');
+      await user.type(screen.getByLabelText('Camera code'), 'X'.repeat(40));
+      expect(screen.getByLabelText('Camera code')).toHaveValue('X'.repeat(32));
+    });
+
+    it('sends one create however often submit is pressed while it is pending', async () => {
+      const user = userEvent.setup();
+      let resolve: (value: unknown) => void = () => {};
+      vi.mocked(createCamera).mockImplementationOnce(() => new Promise((done) => { resolve = done; }) as never);
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      const form = await openCreate(user);
+      await user.type(screen.getByLabelText('Camera code'), 'CAM-02');
+      await user.type(screen.getByLabelText('Camera name'), 'East Gate');
+      await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+      await user.click(submit(form));
+
+      const pending = within(form).getByRole('button', { name: 'Adding…' });
+      expect(pending).toBeDisabled();
+      // Enter in a field submits the form too; the pending create refuses it.
+      await user.type(screen.getByLabelText('Camera name'), '{Enter}');
+      expect(createCamera).toHaveBeenCalledTimes(1);
+      resolve({ ...camera, id: 'new', code: 'CAM-02' });
+      await waitFor(() => expect(screen.queryByRole('form', { name: 'Add camera' })).not.toBeInTheDocument());
+    });
+
+    it('names the subject of a failure no field owns, once, and keeps the draft', async () => {
+      const user = userEvent.setup();
+      vi.mocked(createCamera).mockRejectedValueOnce(new ApiError({ status: 503, code: 'camera_store_unavailable', detail: 'The camera store is unavailable.' }));
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      const form = await openCreate(user);
+      await user.type(screen.getByLabelText('Camera code'), 'CAM-02');
+      await user.type(screen.getByLabelText('Camera name'), 'East Gate');
+      await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+      await user.click(submit(form));
+
+      const alert = await within(form).findByText('The camera could not be created. The camera store is unavailable. (camera_store_unavailable)');
+      expect(screen.getAllByText(/camera store is unavailable/)).toEqual([alert]);
+      expect(screen.getByLabelText('Camera code')).toHaveValue('CAM-02');
+      expect(screen.getByLabelText('Camera name')).toHaveValue('East Gate');
+    });
+
+    it('states an unreadable deployment timezone in the form, and puts no zone in its place (S4 carry)', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getSystemConfig).mockRejectedValue(new ApiError({ status: 503, code: 'config_unavailable', detail: 'Configuration is unavailable.' }));
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      // Nothing is said while nobody is creating: the inventory does not use it.
+      expect(screen.queryByText(/deployment timezone could not be read/)).not.toBeInTheDocument();
+
+      const form = await openCreate(user);
+      expect(await within(form).findByText(/deployment timezone could not be read/)).toBeInTheDocument();
+      expect(screen.getByLabelText('Camera timezone')).toHaveValue('');
+      // Empty and looking empty: no grey zone that reads as a default.
+      expect(screen.getByLabelText('Camera timezone')).not.toHaveAttribute('placeholder');
+      expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+      await user.type(screen.getByLabelText('Camera code'), 'CAM-02');
+      await user.type(screen.getByLabelText('Camera name'), 'East Gate');
+      await user.click(submit(form));
+      expect(await screen.findByText('An IANA timezone is required.')).toBeInTheDocument();
+      expect(createCamera).not.toHaveBeenCalled();
+
+      // Recovery: the retry reads it, and the untouched field takes the default.
+      vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
+      await user.click(within(form).getByRole('button', { name: 'Retry display config' }));
+      await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+      expect(within(form).queryByText(/deployment timezone could not be read/)).not.toBeInTheDocument();
+    });
+
+    it('keeps the last known inventory, said to be so, when the refresh after a create fails (§37.1 degraded)', async () => {
+      const user = userEvent.setup();
+      vi.mocked(listCameras)
+        .mockResolvedValueOnce([camera])
+        .mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'The upstream service did not respond.' }));
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      const form = await openCreate(user);
+      await user.type(screen.getByLabelText('Camera code'), 'CAM-02');
+      await user.type(screen.getByLabelText('Camera name'), 'East Gate');
+      await waitFor(() => expect(screen.getByLabelText('Camera timezone')).toHaveValue('Asia/Kolkata'));
+      await user.click(submit(form));
+
+      expect(await screen.findByText('Showing the last known camera inventory; refreshing failed.')).toBeInTheDocument();
+      // The rows stay, and stay usable; the recovery is the notice's retry.
+      expect(screen.getByText('North Gate')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Scene' })).toHaveAttribute('href', `/cameras/${camera.id}/scene`);
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      expect(screen.queryByText('No cameras registered')).not.toBeInTheDocument();
+    });
+  });
 });

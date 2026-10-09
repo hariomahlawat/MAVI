@@ -75,7 +75,8 @@ export const SURFACES = {
   search: { owner: 'S3d / R5', accepted: true },
   // R6 accepted (S3e): Review's surface findings block at Tier A.
   review: { owner: 'S3e / R6', accepted: true },
-  cameras: { owner: 'S4 / M1', accepted: false },
+  // M1 accepted (S4): Cameras' surface findings block at Tier A.
+  cameras: { owner: 'S4 / M1', accepted: true },
   'processing-queue': { owner: 'S4 / M2', accepted: false },
   import: { owner: 'S4 / M3', accepted: false },
   'camera-analytics': { owner: 'S4 / M4', accepted: false },
@@ -155,6 +156,24 @@ export const RULES = {
   'ledger.loading-geometry': { section: '§36.3, §38', kind: 'assertion', summary: 'A loading Ledger reserves the table header and its first skeleton row lands where the first body row arrives.', tiers: s1() },
   'ledger.row-pitch': { section: '§16, §10', kind: 'assertion', summary: 'Every visible Ledger data row measures 36-40px.', tiers: s1() },
   'ledger.row-primary': { section: '§8.1, §16', kind: 'assertion', summary: 'No Ledger row carries an accent-filled primary.', tiers: s1() },
+  // M1 (S4): §25's "no clipped or unreachable control" for Ledger rows. The
+  // body may scroll sideways (§4.1); an action is unreachable only where no
+  // scrolling reveals it. Surface-scoped: it blocks at Tier A on an accepted
+  // surface (Cameras from M1) and is measured against the owning row on one
+  // not yet migrated — under CI's wider fallback font it finds the Processing
+  // queue's degraded-row Retry clipped 6px by the run cell's cap, which is M2's.
+  'ledger.actions-reachable': {
+    section: '§25, §4.1', kind: 'assertion', scope: 'surface',
+    summary: 'No Ledger row action is clipped where no scrolling reaches it; an action reachable by the permitted sideways scroll is not a finding. Blocks on a surface once its row is accepted.',
+    tiers: { A: blocking(), B, C },
+  },
+  // M1's own acceptance (§4.1 "1366: all columns visible"): the Camera columns
+  // fit at Tier A, both row actions in view at rest. Cameras only; §25 governs
+  // the narrower tiers, where a Ledger may scroll.
+  'cameras.actions-in-view': {
+    section: '§4.1', kind: 'assertion', summary: 'On Cameras every row action is within the frame\'s visible width at rest at Tier A: its supported columns fit.',
+    tiers: { A: blocking(), B: na('Tier A only: §4.1 "1366: all columns visible"; below it §25 lets a Ledger scroll'), C: na('Tier A only: §4.1 "1366: all columns visible"; below it §25 lets a Ledger scroll') },
+  },
   'ledger.ultrawide-alignment': {
     section: '§4.1, §25', kind: 'assertion', summary: 'At ultra-wide a sparse Ledger is left-aligned, not stretched.',
     tiers: { A: blocking(), B: na(TIER_A_ONLY), C: na(TIER_A_ONLY) },

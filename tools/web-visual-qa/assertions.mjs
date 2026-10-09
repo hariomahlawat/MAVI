@@ -865,6 +865,57 @@ export function workspaceAssertions(input) {
         evaluated.add('ledger.row-primary');
         const rowPrimaries = table.querySelectorAll('tbody .btn--primary');
         if (rowPrimaries.length) fail('ledger.row-primary', 'Ledger rows carry ' + rowPrimaries.length + ' accent-filled primary action(s)');
+
+        // §25 (M1): no clipped or unreachable row action, on every Ledger. The
+        // table body MAY scroll sideways (§4.1), and below 1100 the page does
+        // instead: an action a scrolling box can bring into view is reachable,
+        // and that is not a finding. Unreachable is what no scrolling reveals
+        // — an action cut by a box that clips without scrolling (R2's retry
+        // behind a capped status line), at any level up to the document.
+        evaluated.add('ledger.actions-reachable');
+        measured.frameScrollWidth = frame.scrollWidth;
+        measured.frameClientWidth = frame.clientWidth;
+        const visibleLeft = frameRect.left + frame.clientLeft;
+        const visibleRight = visibleLeft + frame.clientWidth;
+        const actions = Array.from(table.querySelectorAll('tbody a, tbody button'))
+          .filter((control) => control.getBoundingClientRect().width > 0);
+        const outside = (r) => r.right > visibleRight + 0.5 || r.left < visibleLeft - 0.5;
+        const scrolls = (value) => value === 'auto' || value === 'scroll';
+        const unreachable = actions.filter((control) => {
+          const c = control.getBoundingClientRect();
+          let r = { left: c.left, right: c.right, top: c.top, bottom: c.bottom };
+          for (let node = control.parentElement; node; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+            const box = node.getBoundingClientRect();
+            // A scrolling box can bring the action to its own start; a box
+            // that clips without scrolling hides whatever lies outside it.
+            if (scrolls(style.overflowX)) r = { ...r, left: box.left, right: box.left + (r.right - r.left) };
+            else if (r.left < box.left - 0.5 || r.right > box.right + 0.5) return true;
+            if (scrolls(style.overflowY)) r = { ...r, top: box.top, bottom: box.top + (r.bottom - r.top) };
+            else if (r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5) return true;
+          }
+          return false;
+        });
+        if (unreachable.length) {
+          fail('ledger.actions-reachable', unreachable.length + ' row action(s) are clipped where no scrolling of the frame reaches them');
+        }
+
+        // §4.1 "1366: all columns visible" as M1 accepts it for Cameras: its
+        // supported columns fit at every Tier A anchor, so both row actions are
+        // in view at rest. Scoped to Cameras rather than every Ledger, where
+        // sideways scrolling remains permitted: an unbounded code or timezone
+        // cell that pushes the actions out is this surface's defect.
+        // Tier A only: below it the rule is not applicable (§25 lets a Ledger
+        // scroll), and the ledger refuses an evaluation there.
+        if (input.surface === 'cameras' && input.tier === 'A') {
+          evaluated.add('cameras.actions-in-view');
+          const offscreen = actions.filter((control) => outside(control.getBoundingClientRect()));
+          if (offscreen.length) {
+            fail('cameras.actions-in-view', offscreen.length + ' row action(s) lie outside the frame\'s visible width at rest (a '
+              + frame.scrollWidth + 'px table in a ' + frame.clientWidth + 'px frame): the Camera columns do not fit');
+          }
+        }
       }
 
       if (!summary && doc.clientWidth >= 2400) {

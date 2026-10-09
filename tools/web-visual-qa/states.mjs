@@ -399,7 +399,9 @@ const CONFLICTED_CAMERA_FORM = `(async () => {
   if (inputs.length < 2) return false;
   type(inputs[0], 'CAM-01');
   type(inputs[1], 'Duplicate of the north gate');
-  await until(() => inputs[0].value === 'CAM-01' && inputs[1].value === 'Duplicate of the north gate', 'the typed draft');
+  // The timezone too: it defaults from the system configuration, and a submit
+  // before that arrives is refused locally (no zone) and never reaches the 409.
+  await until(() => inputs[0].value === 'CAM-01' && inputs[1].value === 'Duplicate of the north gate' && inputs[2] && inputs[2].value, 'the typed draft and the default timezone');
   window.__vqa.mark('interaction-start');
   form.querySelector('button[type="submit"]').click();
   return Boolean(await until(() => document.querySelector('.field__error'), 'the 409 conflict on the Code field'));
@@ -431,6 +433,49 @@ const DENSE_CAMERAS = Array.from({ length: 24 }, (_, index) => ({
   createdAtUtc: '2026-09-01T04:00:00Z',
   updatedAtUtc: '2026-09-01T04:00:00Z',
 }));
+
+/**
+ * M1: Cameras at its longest *valid* identities (Camera.Create: code 32, name
+ * 128; the zone a recognised IANA id) — the widest 32-character code, a
+ * realistic one, a 128-character name in two scripts, the longest IANA zones —
+ * with a short row and an inactive one. Uncapped, the widest valid code clipped
+ * the row actions out of view at 1366 (cameras.actions-in-view).
+ */
+const camerasRow = (index, code, name, timeZoneId, isActive = true) => ({
+  id: `cccccccc-0000-7000-8000-${String(index).padStart(12, '0')}`, code, name, description: null, locationName: null,
+  timeZoneId, isActive, createdAtUtc: '2026-09-01T04:00:00Z', updatedAtUtc: '2026-09-01T04:00:00Z',
+});
+const LONG_CAMERAS = [
+  camerasRow(1, 'C1', 'Gate', 'UTC'),
+  camerasRow(2, 'W'.repeat(32), 'Widest valid code', 'Asia/Kolkata'),
+  camerasRow(5, 'SOUTH-DOCK-LOADING-BAY-EAST-0007', 'Short', 'Asia/Kolkata'),
+  camerasRow(3, 'CAM-03', 'Périmètre sud-ouest — clôture extérieure, accès véhicules et piétons, caméra thermique nº 3 près du poste de garde principal Est'.slice(0, 128), 'America/Argentina/ComodRivadavia', false),
+  camerasRow(4, 'CAM-04', '北门 车辆入口 主通道 摄像机 第四号 长名称测试 用于截断检查 北门 车辆入口 主通道', 'America/North_Dakota/New_Salem'),
+];
+const CAMERAS = JSON.parse(readFileSync(new URL('./fixtures/cameras.json', import.meta.url), 'utf8'));
+
+/**
+ * Open the Add camera form, type a code and a name, and submit — once the
+ * timezone holds its deployment default (or, with `withoutZone`, once the
+ * configuration has visibly failed), so the submit is the one the state means.
+ */
+const SUBMIT_CAMERA = (code, name, until, { withoutZone = false } = {}) => `(async () => {
+  ${UNTIL}
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  const type = (input, value) => { setter.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); };
+  const add = Array.from(document.querySelectorAll('button')).find((b) => /^Add camera$/.test((b.textContent || '').trim()));
+  if (!add) return false;
+  add.click();
+  const form = await until(() => document.querySelector('form[aria-label="Add camera"]'), 'the create region');
+  const inputs = Array.from(form.querySelectorAll('input'));
+  type(inputs[0], ${JSON.stringify(code)});
+  type(inputs[1], ${JSON.stringify(name)});
+  await until(() => inputs[0].value === ${JSON.stringify(code)} && inputs[1].value === ${JSON.stringify(name)}
+    && (${withoutZone} ? /deployment timezone could not be read/.test(form.innerText) : inputs[2].value), 'the typed draft');
+  window.__vqa.mark('interaction-start');
+  form.querySelector('button[type="submit"]').click();
+  return Boolean(await until(() => ${until}, 'the answer to the submit'));
+})()`;
 
 const DENSE_STATUSES = ['Processed', 'Processing', 'Failed', 'NotQueued', 'Queued'];
 const DENSE_VIDEOS = Array.from({ length: 30 }, (_, index) => ({
@@ -2608,6 +2653,63 @@ export const STATES = [
     // truncate rather than widen, at every width.
     name: 'cameras-dense', path: '/cameras', fullWidth: true, archetype: 'ledger',
     api: { '/api/cameras': DENSE_CAMERAS },
+    // M1: the code is the row's identity, so it takes the wide cap (cap-lg,
+    // 260px) — the NORTH-PERIMETER-GATE-CAM-000xx cameras differ only in their
+    // last digits, and the narrow one (cap-md) cut five rows to one prefix.
+    // Asserted as the cap, not as uncut text: the product ships no font
+    // (tokens.css), so whether a 30-character code is whole depends on the
+    // platform's — it is on the Windows target, not under CI's fallback.
+    prepare: `(async () => {
+      ${UNTIL}
+      const codes = await until(() => {
+        const cells = Array.from(document.querySelectorAll('tbody tr td:first-child .truncate'));
+        return cells.length === 24 ? cells : null;
+      }, 'the 24 code cells');
+      const narrow = codes.filter((cell) => parseFloat(getComputedStyle(cell).maxWidth) < 259.5);
+      if (narrow.length) throw new Error(narrow.length + ' code cells capped narrower than 260px: ' + getComputedStyle(narrow[0]).maxWidth);
+      return true;
+    })()`,
+  },
+  // --- M1: Cameras onto the R2 Ledger. -----------------------------------------
+  // The longest valid identities: every cell bounded and both row actions in
+  // view (cameras.actions-in-view) and none unreachable (ledger.actions-reachable).
+  {
+    name: 'cameras-long-identity', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    api: { '/api/cameras': LONG_CAMERAS },
+    expectText: ['5 cameras registered', 'Inactive'],
+  },
+  // A create no field owns the refusal of: one alert in the form, naming its
+  // subject, the draft kept.
+  {
+    name: 'cameras-create-error', interaction: 'submit a camera the store cannot accept', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    api: {
+      'POST /api/cameras': { status: 503, body: { title: 'Unavailable', detail: 'The camera store is unavailable.', code: 'camera_store_unavailable' } },
+    },
+    prepare: SUBMIT_CAMERA('CAM-07', 'East service gate', `/could not be created/.test(document.body.innerText)`),
+    expectText: ['The camera could not be created. The camera store is unavailable. (camera_store_unavailable)', 'Unsaved changes'],
+  },
+  // The deployment timezone unreadable: said in the form, where it is the
+  // default, the field left empty rather than filled from the browser, and a
+  // submit refused on that field.
+  {
+    name: 'cameras-config-unavailable', interaction: 'submit a camera with no deployment timezone to default to', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    api: { '/api/system/config': 'unavailable' },
+    prepare: SUBMIT_CAMERA('CAM-07', 'East service gate', `document.querySelector('.field__error')`, { withoutZone: true }),
+    expectText: ['The deployment timezone could not be read', 'An IANA timezone is required.', 'Retry display config'],
+  },
+  // A create that succeeds, whose inventory refresh then fails: the form
+  // closes, focus returns to Add camera, and the last known rows stay, said to
+  // be so, with their retry (§37.1 degraded).
+  {
+    name: 'cameras-refresh-degraded', interaction: 'add a camera whose inventory refresh fails', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    api: {
+      'POST /api/cameras': { ...CAMERAS[0], id: '33333333-3333-7333-8333-333333333399', code: 'CAM-07', name: 'East service gate' },
+      'GET /api/cameras': { sequence: [CAMERAS, 'unavailable'] },
+    },
+    prepare: SUBMIT_CAMERA('CAM-07', 'East service gate', `/last known camera inventory/.test(document.body.innerText)
+      && !document.querySelector('form[aria-label="Add camera"]') && document.activeElement && document.activeElement.textContent.trim() === 'Add camera'`),
+    expectText: ['Showing the last known camera inventory; refreshing failed.', 'North Gate', 'Retry'],
+    forbidText: ['East service gate', 'No cameras registered'],
   },
 
   { name: 'videos', path: '/videos', fullWidth: true, archetype: 'ledger' },
