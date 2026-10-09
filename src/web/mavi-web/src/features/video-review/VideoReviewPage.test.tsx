@@ -353,10 +353,35 @@ describe('VideoReviewPage', () => {
 
     expect(await screen.findByRole('button', { name: 'Retry display config' })).toBeInTheDocument();
     expect(screen.getAllByText(/2026-09-14T02:30:00Z UTC/).length).toBeGreaterThan(0);
+    // §24: no configured zone is claimed while the configuration is unavailable;
+    // the times say UTC themselves and the notice says why.
+    await screen.findByRole('heading', { name: 'Track summary' });
+    const bar = document.querySelector('.context-bar') as HTMLElement;
+    expect(within(bar).queryByText(/Times shown in/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Asia/Kolkata')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Retry display config' }));
 
     expect(await screen.findByText(/08:00:00/)).toBeInTheDocument();
+    expect(within(bar).getByText('Asia/Kolkata')).toBeInTheDocument();
+  });
+
+  it('states the configured timezone once, in the Context Bar, and in no panel (§24)', async () => {
+    renderWithApp(<VideoReviewPage />, {
+      route: '/review/video/' + videoId + '?trackId=' + trackId,
+      routePath: '/review/video/:videoAssetId',
+    });
+    const summary = (await screen.findByRole('heading', { name: 'Track summary' })).closest('section') as HTMLElement;
+    const bar = document.querySelector('.context-bar') as HTMLElement;
+    // Beside the Track identity and its review status.
+    await waitFor(() => expect(within(bar).getByText('Asia/Kolkata')).toBeInTheDocument());
+    expect(bar).toHaveTextContent(/Track \d+/);
+    expect(within(bar).getByText('Times shown in')).toBeInTheDocument();
+    // Once on the surface: not as a row in Record detail or any other panel.
+    expect(screen.getAllByText('Asia/Kolkata')).toHaveLength(1);
+    expect(screen.queryByText('Display timezone')).not.toBeInTheDocument();
+    // And the absolute times are read in that zone (02:30:00Z is 08:00:00 IST).
+    expect(within(summary).getByText('Track start').nextElementSibling).toHaveTextContent('14 Sept 2026, 08:00:00');
   });
 
   it('shows graceful evidence fallbacks when thumbnail or video content fails', async () => {

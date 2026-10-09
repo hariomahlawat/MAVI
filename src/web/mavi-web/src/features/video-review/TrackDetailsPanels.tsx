@@ -34,12 +34,13 @@ export function TrackSummary({ detail, displayTimeZoneId }: { detail: TrackDetai
 
 /**
  * The record's forensic detail (F18): stable identifiers and how the evidence
- * was selected and read, for an operator who needs to cite or trace it. Kept
+ * was selected, for an operator who needs to cite or trace it. The display
+ * timezone is the Context Bar's, stated once per surface (§24). Kept
  * out of the operational tier — the Track number and review status are the
  * Context Bar's, and rank 0's frame, time and confidence are the Evidence
  * Set's caption — and one closed disclosure away.
  */
-export function TrackRecordDetail({ detail, displayTimeZoneId }: { detail: TrackDetail; displayTimeZoneId?: string }) {
+export function TrackRecordDetail({ detail }: { detail: TrackDetail }) {
   // The Evidence Set's rank 0, the same Observation the strip and the player use.
   const representative = representativeObservation(detail);
   return (
@@ -47,7 +48,6 @@ export function TrackRecordDetail({ detail, displayTimeZoneId }: { detail: Track
       items={[
         { label: 'Track ID', value: detail.id, mono: true },
         { label: 'Processing run', value: detail.processingRunId, mono: true },
-        { label: 'Display timezone', value: displayTimeZoneId ?? 'UTC fallback', mono: true },
         ...(representative
           ? [{ label: 'Representative quality', value: representative.qualityScore.toFixed(3) }]
           : []),
@@ -132,7 +132,7 @@ export function ProvenancePanel({ detail, displayTimeZoneId }: { detail: TrackDe
         <details className="disclosure">
           <summary>Record detail</summary>
           <div className="disclosure__body">
-            <TrackRecordDetail detail={detail} displayTimeZoneId={displayTimeZoneId} />
+            <TrackRecordDetail detail={detail} />
           </div>
         </details>
       </div>

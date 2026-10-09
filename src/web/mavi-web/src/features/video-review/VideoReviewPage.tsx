@@ -7,6 +7,7 @@ import { getVideo } from '../../api/videos';
 import { ALGORITHM_VERSION_PATTERN, getTrack, type TrackAnalyticsIdentity } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Alert from '../../shared/components/Alert';
+import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
 import { hasFailure } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
@@ -210,6 +211,11 @@ export default function VideoReviewPage() {
           <>
             <span className="context-bar__subject">{`${detail.objectClass} · Track ${detail.localTrackNumber}`}</span>
             <StatusBadge status={detail.reviewStatus} />
+            {/* §24: the zone every absolute time below is shown in, stated
+                once, here. Only a configured zone: until the configuration
+                arrives, or when it cannot be read, nothing is claimed and the
+                notice above says times are shown in UTC. */}
+            <DisplayTimeZone timeZoneId={displayTimeZoneId} />
           </>
         ) : undefined}
       />

@@ -3752,7 +3752,7 @@ export const STATES = [
   // player takes the surplus on a wide display (section 25).
   // R6 (F18, F19): the identifiers are one closed disclosure away, and the
   // analytical identity is stated once, with no footer repeating it.
-  { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', expectText: ['North Gate', 'Track summary', 'Record detail', 'Reference point'], forbidText: [TRACK, 'bbbbbbbb-bbbb', 'reference point:', 'Local track', 'persisted evidence'] },
+  { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', expectText: ['North Gate', 'Track summary', 'Record detail', 'Reference point', 'Asia/Kolkata'], forbidText: [TRACK, 'bbbbbbbb-bbbb', 'reference point:', 'Local track', 'persisted evidence'] },
   // A terminal Review state keeps the video the route names: `Search › {video} › Review` (§5).
   { name: 'review-track-missing', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, api: { [`/api/tracks/${TRACK}`]: { status: 404, body: { status: 404, code: 'track_not_found', detail: 'Track was not found.' } } }, expectText: ['Track was not found.', 'north-gate-0800.mp4'], forbidText: VIDEO },
   { name: 'review-bright', tierPolicy: 'footage-variant', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'bright', prepare: SEEK, requireOverlay: true },
@@ -3783,10 +3783,10 @@ export const STATES = [
   { name: 'review-dense-facts', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', footage: 'saturated', prepare: SEEK, api: { [`/api/tracks/${TRACK}`]: REVIEW_DENSE_FACTS }, expectText: ['9 crossings', '4 more crossings', '8 visits', '3 more visits'] },
   // The forensic tier opened: the attestation and the record's full
   // identifiers, at their longest, inside the rail's width.
-  { name: 'review-provenance-open', interaction: 'open the runtime attestation and the record detail', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', api: { [`/api/processing/runs/bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb/attestation`]: RUN_ATTESTATION }, prepare: OPEN_PROVENANCE, expectText: ['Verification', 'win-x64-cuda12.4-cudnn9-onnxruntime-gpu-1.19.2', TRACK, 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', 'Representative quality'] },
+  { name: 'review-provenance-open', interaction: 'open the runtime attestation and the record detail', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', api: { [`/api/processing/runs/bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb/attestation`]: RUN_ATTESTATION }, prepare: OPEN_PROVENANCE, expectText: ['Verification', 'win-x64-cuda12.4-cudnn9-onnxruntime-gpu-1.19.2', TRACK, 'bbbbbbbb-bbbb-7bbb-8bbb-bbbbbbbbbbbb', 'Representative quality'], forbidText: ['Display timezone'] },
   // The longest identities: the video's file name in the crumb, a four-digit
   // Track number in the subject, a long camera code and name in the summary.
-  { name: 'review-long-identity', path: `/review/video/${LONG_VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', api: { [`/api/tracks/${TRACK}`]: REVIEW_LONG_IDENTITY }, expectText: ['Motorcycle · Track 1248', 'South Dock loading bay, east approach (service road)'] },
+  { name: 'review-long-identity', path: `/review/video/${LONG_VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', api: { [`/api/tracks/${TRACK}`]: REVIEW_LONG_IDENTITY }, expectText: ['Motorcycle · Track 1248', 'South Dock loading bay, east approach (service road)', 'Asia/Kolkata'] },
   // A refresh that fails with the evidence on screen: the operator went back to
   // Search and returned after the evidence went stale. The evidence stays and
   // says it may not be current (§14.1, degraded), with its retry.
