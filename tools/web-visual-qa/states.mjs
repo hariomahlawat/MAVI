@@ -439,7 +439,7 @@ const DENSE_CAMERAS = Array.from({ length: 24 }, (_, index) => ({
  * 128; the zone a recognised IANA id) — the widest 32-character code, a
  * realistic one, a 128-character name in two scripts, the longest IANA zones —
  * with a short row and an inactive one. Uncapped, the widest valid code clipped
- * the row actions at 1366 (ledger.actions-in-view).
+ * the row actions out of view at 1366 (cameras.actions-in-view).
  */
 const camerasRow = (index, code, name, timeZoneId, isActive = true) => ({
   id: `cccccccc-0000-7000-8000-${String(index).padStart(12, '0')}`, code, name, description: null, locationName: null,
@@ -2669,7 +2669,7 @@ export const STATES = [
   },
   // --- M1: Cameras onto the R2 Ledger. -----------------------------------------
   // The longest valid identities: every cell bounded and both row actions in
-  // view (ledger.actions-in-view).
+  // view (cameras.actions-in-view) and none unreachable (ledger.actions-reachable).
   {
     name: 'cameras-long-identity', path: '/cameras', fullWidth: true, archetype: 'ledger',
     api: { '/api/cameras': LONG_CAMERAS },

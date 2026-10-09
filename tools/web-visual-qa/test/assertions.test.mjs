@@ -55,38 +55,65 @@ describe('ledger.row-pitch', () => {
   });
 });
 
-describe('ledger.actions-in-view (M1)', () => {
+describe('Ledger row actions: reachable everywhere, in view on Cameras (M1)', () => {
   // A frame at the width the workspace gives it, around a table whose last
   // column holds the row's action — or, with `actionFirst`, whose first does.
-  const FRAMED = (frameWidth, codeWidth, actionFirst = false) => `
+  // `frameOverflow` sets the frame's sideways behaviour; `cellClip` wraps the
+  // action in a narrow box that clips rather than scrolls.
+  const FRAMED = (frameWidth, codeWidth, { actionFirst = false, frameOverflow = 'auto', cellClip = false } = {}) => {
+    const action = cellClip
+      ? '<td><div style="width:24px;overflow:hidden;white-space:nowrap"><a href="#x" style="display:inline-block;width:80px">Scene</a></div></td>'
+      : '<td><a href="#x">Scene</a></td>';
+    const code = `<td><div style="width:${codeWidth}px">CAM</div></td>`;
+    return `
     <main class="main" data-scroll="contain" style="height:700px;overflow:hidden">
       <section class="workspace workspace--ledger" style="height:100%">
         <div class="workspace__body workspace__body--ledger">
-          <div class="ledger-table" style="border:1px solid #444;overflow:auto;max-width:${frameWidth}px;max-height:600px">
+          <div class="ledger-table" style="border:1px solid #444;overflow-x:${frameOverflow};overflow-y:auto;max-width:${frameWidth}px;max-height:600px">
             <table style="border-collapse:separate;border-spacing:0">
               <thead><tr><th style="position:sticky;top:0;height:32px">Code</th><th>Actions</th></tr></thead>
-              <tbody><tr style="height:40px">${actionFirst
-                ? `<td><a href="#x">Scene</a></td><td><div style="width:${codeWidth}px">CAM</div></td>`
-                : `<td><div style="width:${codeWidth}px">CAM</div></td><td><a href="#x">Scene</a></td>`}</tr></tbody>
+              <tbody><tr style="height:40px">${actionFirst ? action + code : code + action}</tr></tbody>
             </table>
           </div>
         </div>
       </section>
     </main>`;
-  it('passes a table that fits its frame, and reports itself evaluated', async () => {
-    const result = await workspace(FRAMED(600, 200));
-    assert.deepEqual(fired(result, 'ledger.actions-in-view'), []);
-    assert.ok(result.evaluated.includes('ledger.actions-in-view'));
-  });
-  it('fires on a cell that widens the table until the row action is clipped by the frame', async () => {
-    const result = await workspace(FRAMED(600, 900));
-    const [finding] = fired(result, 'ledger.actions-in-view');
-    assert.match(finding.message, /^1 row action\(s\) lie outside the frame's visible width/);
-  });
-  it('allows a table body that scrolls sideways while every row action stays in view (§4.1)', async () => {
-    const result = await workspace(FRAMED(600, 900, true));
+  };
+  const ON = (surface) => ({ tier: 'A', width: 1366, archetype: 'ledger', surface });
+
+  it('accepts a compliant Ledger that scrolls sideways to its action (§4.1), and reports itself evaluated', async () => {
+    const result = await workspace(FRAMED(600, 900), ON('videos'));
     assert.ok(result.measured.frameScrollWidth > result.measured.frameClientWidth, 'the table does scroll sideways');
-    assert.deepEqual(fired(result, 'ledger.actions-in-view'), []);
+    assert.deepEqual(fired(result, 'ledger.actions-reachable'), []);
+    assert.ok(result.evaluated.includes('ledger.actions-reachable'));
+    // And the Cameras-only requirement is not applied to another Ledger.
+    assert.ok(!result.evaluated.includes('cameras.actions-in-view'));
+  });
+  it('fails an action past an edge the frame cannot scroll to', async () => {
+    const result = await workspace(FRAMED(600, 900, { frameOverflow: 'hidden' }), ON('videos'));
+    assert.match(fired(result, 'ledger.actions-reachable')[0].message, /^1 row action\(s\) are clipped where no scrolling of the frame reaches them/);
+  });
+  it('fails an action cut by a non-scrolling box inside the frame, even with the frame in view', async () => {
+    const result = await workspace(FRAMED(600, 100, { cellClip: true }), ON('videos'));
+    assert.equal(fired(result, 'ledger.actions-reachable').length, 1);
+  });
+  it('fails a Cameras layout whose identity cell pushes the actions out of view at Tier A', async () => {
+    const result = await workspace(FRAMED(600, 900), ON('cameras'));
+    // Reachable by the permitted scroll, so the generic rule is silent ...
+    assert.deepEqual(fired(result, 'ledger.actions-reachable'), []);
+    // ... but the Camera columns do not fit, which M1 accepts as a defect.
+    assert.match(fired(result, 'cameras.actions-in-view')[0].message, /^1 row action\(s\) lie outside the frame's visible width at rest/);
+  });
+  it('applies the Cameras requirement at Tier A only, where the manifest declares it', async () => {
+    const result = await workspace(FRAMED(600, 900), { tier: 'B', width: 1024, archetype: 'ledger', surface: 'cameras' });
+    assert.ok(!result.evaluated.includes('cameras.actions-in-view'));
+    assert.deepEqual(fired(result, 'cameras.actions-in-view'), []);
+  });
+  it('passes a conformant Cameras layout, its columns within the frame', async () => {
+    const result = await workspace(FRAMED(600, 200), ON('cameras'));
+    assert.ok(result.evaluated.includes('cameras.actions-in-view'));
+    assert.deepEqual(fired(result, 'cameras.actions-in-view'), []);
+    assert.deepEqual(fired(result, 'ledger.actions-reachable'), []);
   });
 });
 

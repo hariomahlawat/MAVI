@@ -261,6 +261,8 @@ async function runCase(lane, c) {
   const input = {
     tier: viewport.tier, width: viewport.width, fullWidth: state.fullWidth ?? null,
     archetype: state.archetype ?? null, holds: state.holds ?? null,
+    // For the few rules a surface's own acceptance scopes to it (cameras.*).
+    surface: c.surface ?? null,
   };
   let page = null;
   let focus = null;

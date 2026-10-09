@@ -866,23 +866,54 @@ export function workspaceAssertions(input) {
         const rowPrimaries = table.querySelectorAll('tbody .btn--primary');
         if (rowPrimaries.length) fail('ledger.row-primary', 'Ledger rows carry ' + rowPrimaries.length + ' accent-filled primary action(s)');
 
-        // §4.1, §16 (M1): a row's actions are in view. The table body MAY
-        // scroll sideways (§4.1), and that is not a finding; but a cell that
-        // widens the table until a row's actions sit past the frame's visible
-        // edge clips them, reachable only by scrolling — R2's run cell, M1's
-        // camera code — and no other rule sees it, because a frame may scroll.
-        evaluated.add('ledger.actions-in-view');
+        // §25 (M1): no clipped or unreachable row action, on every Ledger. The
+        // table body MAY scroll sideways (§4.1): an action past the frame's
+        // visible edge is reachable when the frame scrolls to it, and that is
+        // not a finding. Unreachable is what no scrolling reveals — an action
+        // cut by a non-scrolling box inside the frame (R2's retry behind a
+        // capped status line), or past an edge the frame cannot scroll.
+        evaluated.add('ledger.actions-reachable');
         measured.frameScrollWidth = frame.scrollWidth;
         measured.frameClientWidth = frame.clientWidth;
         const visibleLeft = frameRect.left + frame.clientLeft;
         const visibleRight = visibleLeft + frame.clientWidth;
-        const clipped = Array.from(table.querySelectorAll('tbody a, tbody button')).filter((control) => {
+        const frameScrollsX = ['auto', 'scroll'].includes(getComputedStyle(frame).overflowX);
+        const actions = Array.from(table.querySelectorAll('tbody a, tbody button'))
+          .filter((control) => control.getBoundingClientRect().width > 0);
+        const outside = (r) => r.right > visibleRight + 0.5 || r.left < visibleLeft - 0.5;
+        const unreachable = actions.filter((control) => {
           const r = control.getBoundingClientRect();
-          return r.width > 0 && (r.right > visibleRight + 0.5 || r.left < visibleLeft - 0.5);
+          for (let node = control.parentElement; node && node !== frame; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            if (['visible'].includes(style.overflowX) && ['visible'].includes(style.overflowY)) continue;
+            if (['auto', 'scroll'].includes(style.overflowX)) continue;
+            const box = node.getBoundingClientRect();
+            if (r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5) return true;
+          }
+          if (!outside(r)) return false;
+          if (!frameScrollsX) return true;
+          // Within the frame's scrollable extent, a scroll reveals it.
+          const contentRight = r.right - visibleLeft + frame.scrollLeft;
+          return contentRight > frame.scrollWidth + 0.5;
         });
-        if (clipped.length) {
-          fail('ledger.actions-in-view', clipped.length + ' row action(s) lie outside the frame\'s visible width, reachable only by scrolling the table sideways (a '
-            + frame.scrollWidth + 'px table in a ' + frame.clientWidth + 'px frame)');
+        if (unreachable.length) {
+          fail('ledger.actions-reachable', unreachable.length + ' row action(s) are clipped where no scrolling of the frame reaches them');
+        }
+
+        // §4.1 "1366: all columns visible" as M1 accepts it for Cameras: its
+        // supported columns fit at every Tier A anchor, so both row actions are
+        // in view at rest. Scoped to Cameras rather than every Ledger, where
+        // sideways scrolling remains permitted: an unbounded code or timezone
+        // cell that pushes the actions out is this surface's defect.
+        // Tier A only: below it the rule is not applicable (§25 lets a Ledger
+        // scroll), and the ledger refuses an evaluation there.
+        if (input.surface === 'cameras' && input.tier === 'A') {
+          evaluated.add('cameras.actions-in-view');
+          const offscreen = actions.filter((control) => outside(control.getBoundingClientRect()));
+          if (offscreen.length) {
+            fail('cameras.actions-in-view', offscreen.length + ' row action(s) lie outside the frame\'s visible width at rest (a '
+              + frame.scrollWidth + 'px table in a ' + frame.clientWidth + 'px frame): the Camera columns do not fit');
+          }
         }
       }
 

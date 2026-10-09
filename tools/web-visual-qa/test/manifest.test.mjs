@@ -225,9 +225,17 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     assert.equal(surfaceOf('/cameras/abc/analytics'), 'camera-analytics');
   });
 
-  it('blocks clipped Ledger row actions at Tier A on every Ledger, and only measures them below (M1)', () => {
-    assert.equal(severityOf('ledger.actions-in-view', 'A').status, 'blocking');
-    for (const tier of ['B', 'C']) assert.match(severityOf('ledger.actions-in-view', tier).owner, /S5/);
+  it('blocks unreachable Ledger row actions at Tier A on every Ledger, and only measures them below (M1)', () => {
+    assert.equal(severityOf('ledger.actions-reachable', 'A').status, 'blocking');
+    for (const tier of ['B', 'C']) assert.match(severityOf('ledger.actions-reachable', tier).owner, /S5/);
+  });
+
+  it('scopes "the Camera columns fit" to Cameras at Tier A, not to every Ledger (M1, §4.1)', () => {
+    assert.equal(severityOf('cameras.actions-in-view', 'A').status, 'blocking');
+    for (const tier of ['B', 'C']) assert.equal(severityOf('cameras.actions-in-view', tier).status, 'not-applicable');
+    // No rule forbids a Ledger body from scrolling sideways (§4.1).
+    assert.equal(RULES['ledger.columns-fit'], undefined);
+    assert.equal(RULES['ledger.actions-in-view'], undefined);
   });
 
   it('promotes one surface at a time, never all together', () => {

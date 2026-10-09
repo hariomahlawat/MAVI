@@ -156,11 +156,17 @@ export const RULES = {
   'ledger.loading-geometry': { section: '§36.3, §38', kind: 'assertion', summary: 'A loading Ledger reserves the table header and its first skeleton row lands where the first body row arrives.', tiers: s1() },
   'ledger.row-pitch': { section: '§16, §10', kind: 'assertion', summary: 'Every visible Ledger data row measures 36-40px.', tiers: s1() },
   'ledger.row-primary': { section: '§8.1, §16', kind: 'assertion', summary: 'No Ledger row carries an accent-filled primary.', tiers: s1() },
-  // M1 (S4): R2 found by eye what no rule caught — a cell widening the table
-  // until the row actions were clipped by its frame, reachable only sideways.
-  // The body itself may scroll sideways (§4.1); clipped actions may not.
-  // Blocking at Tier A on every Ledger.
-  'ledger.actions-in-view': { section: '§4.1, §16', kind: 'assertion', summary: 'Every row action lies within the Ledger frame\'s visible width: the table body may scroll sideways, never so that a row\'s actions are reachable only by scrolling.', tiers: { A: blocking(), B, C } },
+  // M1 (S4): §25's "no clipped or unreachable control" for Ledger rows. The
+  // body may scroll sideways (§4.1); an action is unreachable only where no
+  // scrolling reveals it. Blocking at Tier A on every Ledger.
+  'ledger.actions-reachable': { section: '§25, §4.1', kind: 'assertion', summary: 'No Ledger row action is clipped where no scrolling of the frame reaches it; an action reachable by the permitted sideways scroll is not a finding.', tiers: { A: blocking(), B, C } },
+  // M1's own acceptance (§4.1 "1366: all columns visible"): the Camera columns
+  // fit at Tier A, both row actions in view at rest. Cameras only; §25 governs
+  // the narrower tiers, where a Ledger may scroll.
+  'cameras.actions-in-view': {
+    section: '§4.1', kind: 'assertion', summary: 'On Cameras every row action is within the frame\'s visible width at rest at Tier A: its supported columns fit.',
+    tiers: { A: blocking(), B: na('Tier A only: §4.1 "1366: all columns visible"; below it §25 lets a Ledger scroll'), C: na('Tier A only: §4.1 "1366: all columns visible"; below it §25 lets a Ledger scroll') },
+  },
   'ledger.ultrawide-alignment': {
     section: '§4.1, §25', kind: 'assertion', summary: 'At ultra-wide a sparse Ledger is left-aligned, not stretched.',
     tiers: { A: blocking(), B: na(TIER_A_ONLY), C: na(TIER_A_ONLY) },
