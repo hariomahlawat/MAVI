@@ -866,20 +866,23 @@ export function workspaceAssertions(input) {
         const rowPrimaries = table.querySelectorAll('tbody .btn--primary');
         if (rowPrimaries.length) fail('ledger.row-primary', 'Ledger rows carry ' + rowPrimaries.length + ' accent-filled primary action(s)');
 
-        // §4.1, §16 (M1): the table fits its frame's width. A frame may scroll,
-        // so content wider than it is not a page overflow and no other rule
-        // sees it — yet every column and row action past the frame's right
-        // edge is then reachable only by scrolling the table sideways (R2's
-        // run cell, M1's camera code).
-        evaluated.add('ledger.columns-fit');
+        // §4.1, §16 (M1): a row's actions are in view. The table body MAY
+        // scroll sideways (§4.1), and that is not a finding; but a cell that
+        // widens the table until a row's actions sit past the frame's visible
+        // edge clips them, reachable only by scrolling — R2's run cell, M1's
+        // camera code — and no other rule sees it, because a frame may scroll.
+        evaluated.add('ledger.actions-in-view');
         measured.frameScrollWidth = frame.scrollWidth;
         measured.frameClientWidth = frame.clientWidth;
-        if (frame.scrollWidth > frame.clientWidth + 1) {
-          const edge = frameRect.left + frame.clientLeft + frame.clientWidth;
-          const hidden = Array.from(table.querySelectorAll('tbody a, tbody button'))
-            .filter((control) => control.getBoundingClientRect().right > edge + 0.5);
-          fail('ledger.columns-fit', 'the table is ' + frame.scrollWidth + 'px wide in a ' + frame.clientWidth
-            + 'px frame: it scrolls sideways' + (hidden.length ? ', and ' + hidden.length + ' row action(s) are past its edge' : ''));
+        const visibleLeft = frameRect.left + frame.clientLeft;
+        const visibleRight = visibleLeft + frame.clientWidth;
+        const clipped = Array.from(table.querySelectorAll('tbody a, tbody button')).filter((control) => {
+          const r = control.getBoundingClientRect();
+          return r.width > 0 && (r.right > visibleRight + 0.5 || r.left < visibleLeft - 0.5);
+        });
+        if (clipped.length) {
+          fail('ledger.actions-in-view', clipped.length + ' row action(s) lie outside the frame\'s visible width, reachable only by scrolling the table sideways (a '
+            + frame.scrollWidth + 'px table in a ' + frame.clientWidth + 'px frame)');
         }
       }
 

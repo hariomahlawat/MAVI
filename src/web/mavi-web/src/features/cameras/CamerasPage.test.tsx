@@ -507,7 +507,8 @@ describe('CamerasPage', () => {
   });
 
   describe('M1: identities, sorting, create lifecycle and inventory states', () => {
-    const LONG_CODE = 'SOUTH-DOCK-LOADING-BAY-EAST-APPROACH-SERVICE-ROAD-CAMERA-0000007';
+    // The domain's limits (Camera.Create): code 32, timezone a recognised IANA id.
+    const LONG_CODE = 'SOUTH-DOCK-LOADING-BAY-EAST-0007';
     const LONG_ZONE = 'America/Argentina/ComodRivadavia';
 
     it('bounds a long code and timezone with a truncation the keyboard can reach, never a wider table (§16)', async () => {
@@ -558,6 +559,18 @@ describe('CamerasPage', () => {
       screen.getByRole('button', { name: 'Name' }).focus();
       await user.keyboard('{Enter}');
       expect(screen.getByRole('columnheader', { name: /Name/ })).toHaveAttribute('aria-sort', 'ascending');
+    });
+
+    it('accepts no more than the domain does: code 32, name 128, timezone 64', async () => {
+      const user = userEvent.setup();
+      renderWithApp(<CamerasPage />);
+      await screen.findByText('North Gate');
+      await openCreate(user);
+      expect(screen.getByLabelText('Camera code')).toHaveAttribute('maxLength', '32');
+      expect(screen.getByLabelText('Camera name')).toHaveAttribute('maxLength', '128');
+      expect(screen.getByLabelText('Camera timezone')).toHaveAttribute('maxLength', '64');
+      await user.type(screen.getByLabelText('Camera code'), 'X'.repeat(40));
+      expect(screen.getByLabelText('Camera code')).toHaveValue('X'.repeat(32));
     });
 
     it('sends one create however often submit is pressed while it is pending', async () => {

@@ -157,9 +157,10 @@ export const RULES = {
   'ledger.row-pitch': { section: '§16, §10', kind: 'assertion', summary: 'Every visible Ledger data row measures 36-40px.', tiers: s1() },
   'ledger.row-primary': { section: '§8.1, §16', kind: 'assertion', summary: 'No Ledger row carries an accent-filled primary.', tiers: s1() },
   // M1 (S4): R2 found by eye what no rule caught — a cell widening the table
-  // past its frame, which may legitimately scroll, so the row actions were
-  // reachable only sideways. Blocking at Tier A on every Ledger.
-  'ledger.columns-fit': { section: '§4.1, §16', kind: 'assertion', summary: 'The Ledger table fits the width of its frame: no column or row action is reachable only by scrolling the frame sideways.', tiers: { A: blocking(), B, C } },
+  // until the row actions were clipped by its frame, reachable only sideways.
+  // The body itself may scroll sideways (§4.1); clipped actions may not.
+  // Blocking at Tier A on every Ledger.
+  'ledger.actions-in-view': { section: '§4.1, §16', kind: 'assertion', summary: 'Every row action lies within the Ledger frame\'s visible width: the table body may scroll sideways, never so that a row\'s actions are reachable only by scrolling.', tiers: { A: blocking(), B, C } },
   'ledger.ultrawide-alignment': {
     section: '§4.1, §25', kind: 'assertion', summary: 'At ultra-wide a sparse Ledger is left-aligned, not stretched.',
     tiers: { A: blocking(), B: na(TIER_A_ONLY), C: na(TIER_A_ONLY) },

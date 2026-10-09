@@ -251,7 +251,9 @@ export default function CamerasPage() {
               ref={codeRef}
               value={draft.code}
               onChange={(event) => edit({ code: event.target.value })}
-              maxLength={64}
+              // The domain's limits (Camera.Create): code 32, name 128,
+              // timezone 64. A longer code was typeable and then refused.
+              maxLength={32}
               autoComplete="off"
               placeholder="CAM-01"
             />
@@ -279,6 +281,7 @@ export default function CamerasPage() {
               {...control}
               value={timeZoneValue}
               onChange={(event) => edit({ timeZoneId: event.target.value })}
+              maxLength={64}
               autoComplete="off"
               // No placeholder: the help gives the example, and a grey zone in
               // an empty field reads as the default the form may not have.
@@ -357,9 +360,9 @@ export default function CamerasPage() {
                 {rows.map((camera) => (
                   <tr key={camera.id}>
                     {/* Code and timezone are bounded like the name (§16): a
-                        64-character code widened the table past its frame at
-                        1366, and the row actions were reachable only by
-                        scrolling it sideways. */}
+                        valid 32-character code of wide glyphs widened the
+                        table until the row actions were clipped by its frame
+                        at 1366, reachable only by scrolling it sideways. */}
                     <td><strong><TruncatedText text={camera.code} className="cap-lg" /></strong></td>
                     {/* A long name truncates rather than widening the column;
                         its full value is reachable by pointer and keyboard (§16). */}

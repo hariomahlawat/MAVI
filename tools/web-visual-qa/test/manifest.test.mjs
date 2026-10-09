@@ -225,9 +225,9 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     assert.equal(surfaceOf('/cameras/abc/analytics'), 'camera-analytics');
   });
 
-  it('blocks a Ledger table that does not fit its frame at Tier A on every Ledger, and only measures it below (M1)', () => {
-    assert.equal(severityOf('ledger.columns-fit', 'A').status, 'blocking');
-    for (const tier of ['B', 'C']) assert.match(severityOf('ledger.columns-fit', tier).owner, /S5/);
+  it('blocks clipped Ledger row actions at Tier A on every Ledger, and only measures them below (M1)', () => {
+    assert.equal(severityOf('ledger.actions-in-view', 'A').status, 'blocking');
+    for (const tier of ['B', 'C']) assert.match(severityOf('ledger.actions-in-view', tier).owner, /S5/);
   });
 
   it('promotes one surface at a time, never all together', () => {

@@ -435,10 +435,11 @@ const DENSE_CAMERAS = Array.from({ length: 24 }, (_, index) => ({
 }));
 
 /**
- * M1: Cameras at its longest identities — the 64-character code the form
- * allows, a long non-ASCII name in two scripts, the longest IANA zones — with
- * a short row and an inactive one. A cell wider than its cap would widen the
- * table past its frame and leave the row actions reachable only sideways.
+ * M1: Cameras at its longest *valid* identities (Camera.Create: code 32, name
+ * 128; the zone a recognised IANA id) — the widest 32-character code, a
+ * realistic one, a 128-character name in two scripts, the longest IANA zones —
+ * with a short row and an inactive one. Uncapped, the widest valid code clipped
+ * the row actions at 1366 (ledger.actions-in-view).
  */
 const camerasRow = (index, code, name, timeZoneId, isActive = true) => ({
   id: `cccccccc-0000-7000-8000-${String(index).padStart(12, '0')}`, code, name, description: null, locationName: null,
@@ -446,8 +447,9 @@ const camerasRow = (index, code, name, timeZoneId, isActive = true) => ({
 });
 const LONG_CAMERAS = [
   camerasRow(1, 'C1', 'Gate', 'UTC'),
-  camerasRow(2, 'SOUTH-DOCK-LOADING-BAY-EAST-APPROACH-SERVICE-ROAD-CAMERA-0000007', 'Short', 'Asia/Kolkata'),
-  camerasRow(3, 'CAM-03', 'Périmètre sud-ouest — clôture extérieure, accès véhicules et piétons, caméra thermique nº 3', 'America/Argentina/ComodRivadavia', false),
+  camerasRow(2, 'W'.repeat(32), 'Widest valid code', 'Asia/Kolkata'),
+  camerasRow(5, 'SOUTH-DOCK-LOADING-BAY-EAST-0007', 'Short', 'Asia/Kolkata'),
+  camerasRow(3, 'CAM-03', 'Périmètre sud-ouest — clôture extérieure, accès véhicules et piétons, caméra thermique nº 3 près du poste de garde principal Est'.slice(0, 128), 'America/Argentina/ComodRivadavia', false),
   camerasRow(4, 'CAM-04', '北门 车辆入口 主通道 摄像机 第四号 长名称测试 用于截断检查 北门 车辆入口 主通道', 'America/North_Dakota/New_Salem'),
 ];
 const CAMERAS = JSON.parse(readFileSync(new URL('./fixtures/cameras.json', import.meta.url), 'utf8'));
@@ -2666,12 +2668,12 @@ export const STATES = [
     })()`,
   },
   // --- M1: Cameras onto the R2 Ledger. -----------------------------------------
-  // The longest identities: every cell bounded, the table inside its frame and
-  // both row actions in view (ledger.columns-fit).
+  // The longest valid identities: every cell bounded and both row actions in
+  // view (ledger.actions-in-view).
   {
     name: 'cameras-long-identity', path: '/cameras', fullWidth: true, archetype: 'ledger',
     api: { '/api/cameras': LONG_CAMERAS },
-    expectText: ['4 cameras registered', 'Inactive'],
+    expectText: ['5 cameras registered', 'Inactive'],
   },
   // A create no field owns the refusal of: one alert in the form, naming its
   // subject, the draft kept.

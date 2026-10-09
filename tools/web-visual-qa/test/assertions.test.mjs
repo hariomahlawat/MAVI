@@ -55,17 +55,19 @@ describe('ledger.row-pitch', () => {
   });
 });
 
-describe('ledger.columns-fit (M1)', () => {
+describe('ledger.actions-in-view (M1)', () => {
   // A frame at the width the workspace gives it, around a table whose last
-  // column holds the row's action.
-  const FRAMED = (frameWidth, codeWidth) => `
+  // column holds the row's action — or, with `actionFirst`, whose first does.
+  const FRAMED = (frameWidth, codeWidth, actionFirst = false) => `
     <main class="main" data-scroll="contain" style="height:700px;overflow:hidden">
       <section class="workspace workspace--ledger" style="height:100%">
         <div class="workspace__body workspace__body--ledger">
           <div class="ledger-table" style="border:1px solid #444;overflow:auto;max-width:${frameWidth}px;max-height:600px">
             <table style="border-collapse:separate;border-spacing:0">
               <thead><tr><th style="position:sticky;top:0;height:32px">Code</th><th>Actions</th></tr></thead>
-              <tbody><tr style="height:40px"><td><div style="width:${codeWidth}px">CAM</div></td><td><a href="#x">Scene</a></td></tr></tbody>
+              <tbody><tr style="height:40px">${actionFirst
+                ? `<td><a href="#x">Scene</a></td><td><div style="width:${codeWidth}px">CAM</div></td>`
+                : `<td><div style="width:${codeWidth}px">CAM</div></td><td><a href="#x">Scene</a></td>`}</tr></tbody>
             </table>
           </div>
         </div>
@@ -73,13 +75,18 @@ describe('ledger.columns-fit (M1)', () => {
     </main>`;
   it('passes a table that fits its frame, and reports itself evaluated', async () => {
     const result = await workspace(FRAMED(600, 200));
-    assert.deepEqual(fired(result, 'ledger.columns-fit'), []);
-    assert.ok(result.evaluated.includes('ledger.columns-fit'));
+    assert.deepEqual(fired(result, 'ledger.actions-in-view'), []);
+    assert.ok(result.evaluated.includes('ledger.actions-in-view'));
   });
-  it('fires on a cell that widens the table past its frame, naming the action pushed past the edge', async () => {
+  it('fires on a cell that widens the table until the row action is clipped by the frame', async () => {
     const result = await workspace(FRAMED(600, 900));
-    const [finding] = fired(result, 'ledger.columns-fit');
-    assert.match(finding.message, /scrolls sideways, and 1 row action\(s\) are past its edge/);
+    const [finding] = fired(result, 'ledger.actions-in-view');
+    assert.match(finding.message, /^1 row action\(s\) lie outside the frame's visible width/);
+  });
+  it('allows a table body that scrolls sideways while every row action stays in view (§4.1)', async () => {
+    const result = await workspace(FRAMED(600, 900, true));
+    assert.ok(result.measured.frameScrollWidth > result.measured.frameClientWidth, 'the table does scroll sideways');
+    assert.deepEqual(fired(result, 'ledger.actions-in-view'), []);
   });
 });
 
