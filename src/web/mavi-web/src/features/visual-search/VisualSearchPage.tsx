@@ -18,7 +18,7 @@ import Icon from '../../shared/components/Icon';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { configuredUtcToWallTimeText } from '../../shared/time/wallTime';
-import { ContextBar, InvestigationLayout, Segmented } from '../../shared/workspace';
+import { ContextBar, InvestigationLayout, InvestigationRailToggle, Segmented } from '../../shared/workspace';
 import { isDismissTarget, isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
 import { findSelectControl, isSelectedResultControl } from './resultSelection';
 import type { AnalyticsCoverage, TrackAnalyticsIdentity } from '../../api/tracks';
@@ -725,6 +725,9 @@ export default function VisualSearchPage() {
                   : 'Newest first'}
               </span>
             </div>
+            {/* §25 Tier B (768-1100): the filters are a drawer opened from
+                here, the results header; nothing where the rail is in place. */}
+            <InvestigationRailToggle />
             {/* §17 (v2.0): the keys are in the `?` shortcut sheet, not standing
                 header chrome. */}
             {/* §14 of the brief: the List/Grid choice is a property of the

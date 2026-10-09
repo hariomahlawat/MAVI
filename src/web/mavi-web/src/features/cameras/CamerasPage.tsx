@@ -14,7 +14,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatCount } from '../../shared/format/format';
 import { SortableColumn, sortRows, useLedgerSort } from '../../shared/table';
 import TruncatedText from '../../shared/overlay/Truncated';
-import { ContextBar, LEDGER_SKELETON, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
+import { ContextBar, LEDGER_SKELETON, LedgerFoldedValue, LedgerLayout, LedgerPrimary, LedgerTable, Toolbar } from '../../shared/workspace';
 
 type CameraColumn = 'code' | 'name' | 'state';
 
@@ -346,12 +346,15 @@ export default function CamerasPage() {
           onRetry={() => cameras.refetch()}
         >
           {() => (
-            <LedgerTable caption="Camera inventory">
+            <LedgerTable caption="Camera inventory" fold="cameras">
               <thead>
                 <tr>
                   <SortableColumn sort={sort} column="code">Code</SortableColumn>
                   <SortableColumn sort={sort} column="name">Name</SortableColumn>
-                  <th scope="col">Timezone</th>
+                  {/* §25 Tier B fold priority: Timezone folds into the Name
+                      cell; Code and Name (identity), State and the actions
+                      never fold. Timezone is not a sort key. */}
+                  <th scope="col" className="ledger-fold">Timezone</th>
                   <SortableColumn sort={sort} column="state">State</SortableColumn>
                   <th scope="col"><span className="visually-hidden">Actions</span></th>
                 </tr>
@@ -366,8 +369,13 @@ export default function CamerasPage() {
                     <td><strong><TruncatedText text={camera.code} className="cap-lg" /></strong></td>
                     {/* A long name truncates rather than widening the column;
                         its full value is reachable by pointer and keyboard (§16). */}
-                    <td><TruncatedText text={camera.name} className="cap-lg" /></td>
-                    <td><code><TruncatedText text={camera.timeZoneId} className="cap-lg" /></code></td>
+                    <td>
+                      <LedgerPrimary
+                        identity={<TruncatedText text={camera.name} className="cap-lg" />}
+                        folded={<LedgerFoldedValue name="Timezone"><code>{camera.timeZoneId}</code></LedgerFoldedValue>}
+                      />
+                    </td>
+                    <td className="ledger-fold"><code><TruncatedText text={camera.timeZoneId} className="cap-lg" /></code></td>
                     <td>
                       <StatusBadge tone={camera.isActive ? 'ok' : 'neutral'}>{stateLabel(camera)}</StatusBadge>
                     </td>

@@ -1107,3 +1107,34 @@
   color: var(--text-secondary);
   font-size: var(--fs-2);
 }
+
+/* ------------------------------------------------------------------ *
+ * Ledger column fold priorities (§25 Tier B: "columns collapse by stated
+ * priority into the primary cell"). Each Ledger folds where its own
+ * container is narrower than its unfolded table — the base inventory's
+ * measured natural width plus the frame's 2px border (T1, measured at 1366
+ * with every column visible) — so the fold is derived from the composition
+ * it separates, never from a viewport figure, and holds at any rail state.
+ * Tier A's narrowest working width (1366 with the rail expanded) is 1110px,
+ * above every threshold here, so nothing folds there (§4.1). Below the
+ * folded table's own width the body scrolls sideways, which §4.1 permits.
+ * ------------------------------------------------------------------ */
+/* Videos: 968px unfolded. Recorded and Duration fold into the File cell; the
+   sort they carried moves to the toolbar's select. */
+@container ledger (max-width: 969px) {
+  .table--fold-videos .ledger-fold { display: none; }
+  .table--fold-videos .ledger-folded { display: inline-flex; }
+  /* Only Videos carries a sort select: its folded columns are sort keys. */
+  .ledger-sort { display: inline-flex; }
+}
+/* Processing queue: 1011px unfolded. Queued, Attempt and Tracks fold into the
+   Video cell. */
+@container ledger (max-width: 1012px) {
+  .table--fold-processing-queue .ledger-fold { display: none; }
+  .table--fold-processing-queue .ledger-folded { display: inline-flex; }
+}
+/* Cameras: 685px unfolded. Timezone folds into the Name cell. */
+@container ledger (max-width: 686px) {
+  .table--fold-cameras .ledger-fold { display: none; }
+  .table--fold-cameras .ledger-folded { display: inline-flex; }
+}

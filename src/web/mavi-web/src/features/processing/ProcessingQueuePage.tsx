@@ -14,7 +14,7 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/format/format';
 import { FINALIZATION_FAILED_LABEL, isActiveStatus } from '../../shared/status/status';
 import TruncatedText from '../../shared/overlay/Truncated';
-import { ContextBar, LEDGER_SKELETON, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
+import { ContextBar, LEDGER_SKELETON, LedgerFoldedValue, LedgerLayout, LedgerPrimary, LedgerTable, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from '../videos/useVideoProcessing';
 import { joinVideoRows, sortVideoRows, type VideoRow } from '../videos/videoRows';
 import { analyticsReadinessText } from './analyticsReadiness';
@@ -154,14 +154,18 @@ export default function ProcessingQueuePage() {
           onRetry={() => videos.refetch()}
         >
           {() => (
-            <LedgerTable caption="Latest processing run per video">
+            <LedgerTable caption="Latest processing run per video" fold="processing-queue">
               <thead>
                 <tr>
                   <th scope="col">Video</th>
                   <th scope="col">Status</th>
-                  <th scope="col" className="num">Queued</th>
-                  <th scope="col" className="num">Attempt</th>
-                  <th scope="col" className="num" title="Final count, recorded when the run completed">Tracks</th>
+                  {/* §25 Tier B fold priority: Queued, Attempt and Tracks fold
+                      into the Video cell; Video (identity), Status, Analytics
+                      and the action never fold. None is a sort key (the
+                      queue's order is its operational statement). */}
+                  <th scope="col" className="num ledger-fold">Queued</th>
+                  <th scope="col" className="num ledger-fold">Attempt</th>
+                  <th scope="col" className="num ledger-fold" title="Final count, recorded when the run completed">Tracks</th>
                   {/* Slice 4: a separate compact column, as text. The Status
                       column keeps its one badge (§16); analytics readiness is a
                       second fact about the row, not a second opinion about the
@@ -190,9 +194,24 @@ export default function ProcessingQueuePage() {
                   return (
                     <tr key={row.id}>
                       <td>
-                        <TruncatedText text={`${row.originalFileName} · ${row.cameraCode} · ${row.cameraName}`} className="cap-lg">
-                          {row.originalFileName} <span className="faint">{row.cameraCode}</span>
-                        </TruncatedText>
+                        <LedgerPrimary
+                          identity={(
+                            <TruncatedText text={`${row.originalFileName} · ${row.cameraCode} · ${row.cameraName}`} className="cap-lg">
+                              {row.originalFileName} <span className="faint">{row.cameraCode}</span>
+                            </TruncatedText>
+                          )}
+                          folded={run ? (
+                            <>
+                              <LedgerFoldedValue name="Queued" title={displayTimestamp(run.queuedAtUtc, displayZone)}>
+                                {compactTimestamp(run.queuedAtUtc, displayZone)}
+                              </LedgerFoldedValue>
+                              <LedgerFoldedValue name="Attempt">{`#${formatCount(run.attemptCount)}`}</LedgerFoldedValue>
+                              {run.status === 'Completed' ? (
+                                <LedgerFoldedValue name="Tracks">{`${formatCount(run.tracksCreated)} tracks`}</LedgerFoldedValue>
+                              ) : null}
+                            </>
+                          ) : null}
+                        />
                       </td>
                       <td>
                         <div className="run-cell">
@@ -237,11 +256,11 @@ export default function ProcessingQueuePage() {
                           ) : null}
                         </div>
                       </td>
-                      <td className="num" title={run ? displayTimestamp(run.queuedAtUtc, displayZone) : undefined}>
+                      <td className="num ledger-fold" title={run ? displayTimestamp(run.queuedAtUtc, displayZone) : undefined}>
                         {run ? compactTimestamp(run.queuedAtUtc, displayZone) : '—'}
                       </td>
-                      <td className="num">{run ? formatCount(run.attemptCount) : '—'}</td>
-                      <td className="num">{run && run.status === 'Completed' ? formatCount(run.tracksCreated) : '—'}</td>
+                      <td className="num ledger-fold">{run ? formatCount(run.attemptCount) : '—'}</td>
+                      <td className="num ledger-fold">{run && run.status === 'Completed' ? formatCount(run.tracksCreated) : '—'}</td>
                       <td>
                         {run && run.status === 'Completed' ? (
                           <span className="analytics-state" data-readiness={run.analyticsReadiness}>

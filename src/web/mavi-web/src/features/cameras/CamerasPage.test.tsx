@@ -6,6 +6,7 @@ import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { renderWithApp } from '../../test/renderWithApp';
 import CamerasPage from './CamerasPage';
+import { cellText } from '../../test/ledgerCell';
 
 vi.mock('../../api/cameras', () => ({
   listCameras: vi.fn(),
@@ -281,7 +282,7 @@ describe('CamerasPage', () => {
     const codes = async () => {
       const table = await screen.findByRole('table');
       return within(table).getAllByRole('row').slice(1)
-        .map((row) => within(row).getAllByRole('cell')[0].textContent);
+        .map((row) => cellText(within(row).getAllByRole('cell')[0]));
     };
 
     // CAM-10 after CAM-02: a numeric-aware comparison, not a string one.
@@ -534,7 +535,7 @@ describe('CamerasPage', () => {
       const user = userEvent.setup();
       renderWithApp(<CamerasPage />);
       const rows = async () => within(await screen.findByRole('table')).getAllByRole('row').slice(1);
-      const order = async () => (await rows()).map((row) => within(row).getAllByRole('cell')[1].textContent);
+      const order = async () => (await rows()).map((row) => cellText(within(row).getAllByRole('cell')[1]));
       await screen.findByRole('table');
 
       await user.click(screen.getByRole('button', { name: 'Name' }));
@@ -550,7 +551,7 @@ describe('CamerasPage', () => {
 
       // After re-ordering, each row's links still open that row's camera.
       for (const row of await rows()) {
-        const id = { Alpha: 'id-a', Bravo: 'id-b', Charlie: 'id-c' }[within(row).getAllByRole('cell')[1].textContent as 'Alpha'];
+        const id = { Alpha: 'id-a', Bravo: 'id-b', Charlie: 'id-c' }[cellText(within(row).getAllByRole('cell')[1]) as 'Alpha'];
         expect(within(row).getByRole('link', { name: 'Scene' })).toHaveAttribute('href', `/cameras/${id}/scene`);
         expect(within(row).getByRole('link', { name: /^Analytics for / })).toHaveAttribute('href', `/cameras/${id}/analytics`);
       }

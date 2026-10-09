@@ -18,9 +18,9 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { compactTimestamp, displayTimestamp, formatCount } from '../../shared/format/format';
 import { FINALIZATION_FAILED_LABEL, isActiveStatus, VIDEO_STATUSES } from '../../shared/status/status';
-import { SortableColumn, sortRows, useLedgerSort } from '../../shared/table';
+import { LedgerSortSelect, SortableColumn, sortRows, useLedgerSort, type SortOption } from '../../shared/table';
 import TruncatedText from '../../shared/overlay/Truncated';
-import { ContextBar, LEDGER_SKELETON, LedgerLayout, LedgerTable, Toolbar } from '../../shared/workspace';
+import { ContextBar, LEDGER_SKELETON, LedgerFoldedValue, LedgerLayout, LedgerPrimary, LedgerTable, Toolbar } from '../../shared/workspace';
 import { useVideoProcessing } from './useVideoProcessing';
 import { compareVideoRows, filterVideoRows, joinVideoRows, parseStatusFilter, type VideoColumn, type VideoRow } from './videoRows';
 
@@ -51,6 +51,14 @@ function needsRunStatus(status: string): boolean {
  * into the toolbar band §16 says filters live in. Sorting adds no URL state:
  * a sort is a view preference, not a shareable scope (§32 decision 5).
  */
+/** Every Videos sort key and direction, for the folded-column sort select (§25 Tier B). */
+const VIDEO_SORT_OPTIONS: readonly SortOption<VideoColumn>[] = [
+  { column: 'recorded', label: 'Recorded', ascending: 'oldest first', descending: 'newest first' },
+  { column: 'duration', label: 'Duration', ascending: 'shortest first', descending: 'longest first' },
+  { column: 'file', label: 'File', ascending: 'A to Z', descending: 'Z to A' },
+  { column: 'camera', label: 'Camera', ascending: 'A to Z', descending: 'Z to A' },
+];
+
 export default function VideosPage() {
   const [params, setParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -130,9 +138,12 @@ export default function VideosPage() {
   const toolbar = (
     <Toolbar
       label="Video filters"
+      // While the inventory loads the count's place is held by what is
+      // happening, so a band that wraps its count to a second row (Tier B,
+      // §25: two rows at most) does not move the rows when they arrive.
       hint={videos.data
         ? `${formatCount(rows.length)} of ${formatCount(total)} video${total === 1 ? '' : 's'}${filtered ? ' match the filters' : ''}`
-        : undefined}
+        : videos.isPending ? 'Loading videos…' : undefined}
     >
       <label className="visually-hidden" htmlFor="videos-text">Filter by file or camera</label>
       <input
@@ -157,6 +168,9 @@ export default function VideosPage() {
           <option key={status} value={status}>{status === 'NotQueued' ? 'Not queued' : status}</option>
         ))}
       </select>
+      {/* Drawn only while Recorded and Duration are folded (§25 Tier B): their
+          headers, and the sort they carry, are gone with them. */}
+      <LedgerSortSelect sort={sort} options={VIDEO_SORT_OPTIONS} />
     </Toolbar>
   );
 
@@ -225,13 +239,16 @@ export default function VideosPage() {
               <FilteredEmptyState subject="videos" onClear={() => setParams(new URLSearchParams(), { replace: true })} />
             </div>
           ) : (
-            <LedgerTable caption="Imported videos">
+            <LedgerTable caption="Imported videos" fold="videos">
               <thead>
                 <tr>
                   <SortableColumn sort={sort} column="file">File</SortableColumn>
                   <SortableColumn sort={sort} column="camera">Camera</SortableColumn>
-                  <SortableColumn sort={sort} column="recorded" firstDirection="desc" numeric>Recorded</SortableColumn>
-                  <SortableColumn sort={sort} column="duration" firstDirection="desc" numeric>Duration</SortableColumn>
+                  {/* §25 Tier B fold priority: Recorded and Duration fold
+                      into the File cell first; File (identity), Camera,
+                      Status and the action never fold. */}
+                  <SortableColumn sort={sort} column="recorded" firstDirection="desc" numeric className="ledger-fold">Recorded</SortableColumn>
+                  <SortableColumn sort={sort} column="duration" firstDirection="desc" numeric className="ledger-fold">Duration</SortableColumn>
                   <th scope="col">Status</th>
                   <th scope="col"><span className="visually-hidden">Actions</span></th>
                 </tr>
@@ -243,17 +260,29 @@ export default function VideosPage() {
                   const liveState = processing.stateOf(row.id);
                   return (
                     <tr key={row.id}>
-                      <td><TruncatedText text={row.originalFileName} className="cap-lg" /></td>
+                      <td>
+                        <LedgerPrimary
+                          identity={<TruncatedText text={row.originalFileName} className="cap-lg" />}
+                          folded={(
+                            <>
+                              <LedgerFoldedValue name="Recorded" title={displayTimestamp(row.recordingStartUtc, displayZone)}>
+                                {compactTimestamp(row.recordingStartUtc, displayZone)}
+                              </LedgerFoldedValue>
+                              <LedgerFoldedValue name="Duration">{formatDuration(row.durationMs)}</LedgerFoldedValue>
+                            </>
+                          )}
+                        />
+                      </td>
                       <td>
                         <TruncatedText text={`${row.cameraCode} · ${row.cameraName}`} className="cap-md">
                           <strong>{row.cameraCode}</strong> <span className="faint">{row.cameraName}</span>
                         </TruncatedText>
                       </td>
                       {/* Compact in the column, full on the cell (§24). */}
-                      <td className="num" title={displayTimestamp(row.recordingStartUtc, displayZone)}>
+                      <td className="num ledger-fold" title={displayTimestamp(row.recordingStartUtc, displayZone)}>
                         {compactTimestamp(row.recordingStartUtc, displayZone)}
                       </td>
-                      <td className="num">{formatDuration(row.durationMs)}</td>
+                      <td className="num ledger-fold">{formatDuration(row.durationMs)}</td>
                       <td>
                         {/* One badge (§16). Live progress belongs in the same
                             cell as the state it is the detail of, never as a
