@@ -630,11 +630,39 @@ export function pageAssertions(input) {
   //     one is measured/pending until S5 implements the compositions.
   if (input.tier === 'B') {
     evaluated.add('tier.b-shell');
-    if (rail && !shell.railCollapsed && shell.railWidth > 56) {
-      fail('tier.b-shell', 'the rail is expanded (' + shell.railWidth + 'px) by default at Tier B; §25 collapses it');
+    // §25 Tier B: collapsed by default, expandable as an overlay. Measured as
+    // what it means for the operator: the rail never takes width from the
+    // workspace — the workspace starts at the collapsed rail's edge — and a
+    // rail drawn expanded is the open overlay, a modal dialog, never a column.
+    const main = document.querySelector('main');
+    if (main) {
+      shell.workspaceLeft = Math.round(main.getBoundingClientRect().left);
+      if (shell.workspaceLeft > 57) {
+        fail('tier.b-shell', 'the rail takes ' + shell.workspaceLeft + 'px of width beside the workspace at Tier B; §25 collapses it by default and opens it as an overlay');
+      }
+    }
+    if (rail && shell.railWidth > 56 && !(rail.getAttribute('role') === 'dialog' && rail.getAttribute('aria-modal') === 'true')) {
+      fail('tier.b-shell', 'the rail is drawn expanded (' + shell.railWidth + 'px) without being the modal overlay §25 makes it at Tier B');
     }
     if (!toggle || !shown(toggle)) fail('tier.b-shell', 'the rail collapse control is not visible at Tier B');
     else if (!(toggle.getAttribute('aria-label') || toggle.textContent || '').trim()) fail('tier.b-shell', 'the rail collapse control is unlabelled');
+    // §25 Tier B: "Context Bar 44px; its primary action keeps its label" — and
+    // every action of the bar is inside it, none pushed off the edge.
+    const bar = document.querySelector('.context-bar');
+    if (bar) {
+      const barBox = bar.getBoundingClientRect();
+      for (const action of Array.from(bar.querySelectorAll('.context-bar__actions button, .context-bar__actions a')).filter(shown)) {
+        const box = action.getBoundingClientRect();
+        if (box.left < barBox.left - 0.5 || box.right > Math.min(barBox.right, doc.clientWidth) + 0.5) {
+          fail('tier.b-shell', 'the Context Bar action ' + describe(action) + ' extends past the bar (' + Math.round(box.right) + ' > ' + Math.round(Math.min(barBox.right, doc.clientWidth)) + ')');
+        }
+        if (action.matches('.btn--primary')) {
+          const label = Array.from(action.childNodes).some((node) => (node.nodeType === 3 && node.textContent.trim())
+            || (node.nodeType === 1 && !node.matches('svg, .icon, .visually-hidden') && node.textContent.trim() && getComputedStyle(node).display !== 'none'));
+          if (!label) fail('tier.b-shell', 'the Context Bar primary action ' + describe(action) + ' has lost its visible label at Tier B');
+        }
+      }
+    }
   }
   if (input.tier === 'C') {
     evaluated.add('tier.c-shell');
@@ -699,8 +727,12 @@ export function workspaceAssertions(input) {
   measured.shellScroll = column ? column.getAttribute('data-scroll') : null;
 
   // A contained column clips in both directions (§26): with the column set to
-  // contain, overflowing content is simply unreachable.
-  if (measured.shellScroll === 'contain' && column) {
+  // contain, overflowing content is simply unreachable. Contained is what the
+  // column *computes* — a declared policy the stylesheet lifts (a stacking
+  // archetype at ≤1100, §25 Tier B) leaves a column that scrolls, and content
+  // it can scroll to is reachable.
+  measured.columnOverflowStyle = column ? getComputedStyle(column).overflowY : null;
+  if (column && /^(hidden|clip)$/.test(measured.columnOverflowStyle)) {
     evaluated.add('archetype.contained-clipping');
     measured.columnOverflow = round(column.scrollHeight - column.clientHeight);
     measured.columnOverflowX = round(column.scrollWidth - column.clientWidth);
@@ -738,10 +770,13 @@ export function workspaceAssertions(input) {
   if (archetype === 'workspace--ledger' || archetype === 'workspace--ledger-summary') {
     const summary = archetype === 'workspace--ledger-summary';
     evaluated.add('ledger.scroll-ownership');
-    if (measured.shellScroll !== 'contain') {
-      fail('ledger.scroll-ownership', 'the Ledger did not declare no-page-scroll to the shell: the content column is "' + measured.shellScroll + '"');
+    // §4.1 and §25 Tier B: the body owns the scroll at every width — a Ledger
+    // is one column and has nothing to stack — so the shell column is `body`,
+    // never lifted, and the page never scrolls.
+    if (measured.shellScroll !== 'body') {
+      fail('ledger.scroll-ownership', 'the Ledger did not declare its body the scroll owner to the shell: the content column is "' + measured.shellScroll + '"');
     }
-    if (doc.clientWidth > 1100 && doc.scrollHeight > doc.clientHeight + 1) {
+    if (doc.scrollHeight > doc.clientHeight + 1) {
       fail('ledger.scroll-ownership', 'the Ledger page scrolls: scrollHeight ' + doc.scrollHeight + ' > clientHeight ' + doc.clientHeight);
     }
     const region = workspace.querySelector(summary ? '.workspace__body--scroll' : '.workspace__body--ledger');
@@ -1020,13 +1055,20 @@ export function workspaceAssertions(input) {
     measured.stageWidth = round(stageWidth);
     measured.inspectorWidth = round(inspectorWidth);
     measured.stageShare = round(share * 100);
-    if (doc.clientWidth >= 1150) {
+    // Side by side is what the layout renders above the stacking threshold
+    // unless it states a drawer (§4.3.1: `is-drawer`, where the measured
+    // working width cannot hold the floor) — judged from the composition, not
+    // from a viewport figure, so a drawer band that moves with the shell is
+    // measured where it actually is.
+    measured.workbenchDrawer = workspace.classList.contains('is-drawer');
+    const sideBySide = doc.clientWidth > 1100 && !measured.workbenchDrawer;
+    if (sideBySide) {
       evaluated.add('workbench.geometry');
       evaluated.add('overlay.drawer');
       if (share < 0.65) fail('workbench.geometry', 'the stage is ' + measured.stageShare + '% of the working width, below the 65% floor');
       if (inspectorWidth < 299 || inspectorWidth > 361) fail('workbench.geometry', 'the inspector is ' + measured.inspectorWidth + 'px, outside the fixed 300-360 range');
       if (inspector.getAttribute('role') === 'dialog' || inspector.hasAttribute('aria-modal') || workspace.querySelector('[inert]')) {
-        fail('overlay.drawer', 'the permanent Workbench inspector claims modality: only the 1101-1149 overlay is a drawer (§20)');
+        fail('overlay.drawer', 'the permanent Workbench inspector claims modality: only the is-drawer overlay is a drawer (§20)');
       }
     }
     const scrolledAncestors = [];
@@ -1035,7 +1077,9 @@ export function workspaceAssertions(input) {
       if (node.scrollHeight > node.clientHeight + 1) scrolledAncestors.push(named(node) + ' (' + node.scrollHeight + ' > ' + node.clientHeight + ')');
     }
     measured.scrolledAncestors = scrolledAncestors;
-    if (doc.clientWidth >= 1150) {
+    // No page scroll wherever the Workbench is not stacked (§4.3.2): side by
+    // side and drawer alike.
+    if (doc.clientWidth > 1100) {
       evaluated.add('workbench.scroll-ownership');
       if (measured.shellScroll !== 'contain') fail('workbench.scroll-ownership', 'the Workbench did not declare no-page-scroll to the shell: the content column is "' + measured.shellScroll + '"');
       if (doc.scrollHeight > doc.clientHeight + 1) fail('workbench.scroll-ownership', 'the Workbench page scrolls: scrollHeight ' + doc.scrollHeight + ' > clientHeight ' + doc.clientHeight);
@@ -1074,7 +1118,11 @@ export function workspaceAssertions(input) {
       evaluated.add('review.composition');
       const summaryBox = summary.getBoundingClientRect();
       measured.summaryTop = round(summaryBox.top);
-      if (summaryBox.top >= doc.clientHeight) fail('review.composition', 'the primary evidence summary starts at ' + measured.summaryTop + 'px, below the ' + doc.clientHeight + 'px initial viewport (§4.5.1)');
+      // §4.5.1: the player and the primary summary in the initial viewport is
+      // the side-by-side composition's rule ("at 1366x768"); stacked (≤1100)
+      // the rail goes below the player by the same section, and the summary
+      // with it. The player itself starts in the initial viewport everywhere.
+      if (doc.clientWidth > 1100 && summaryBox.top >= doc.clientHeight) fail('review.composition', 'the primary evidence summary starts at ' + measured.summaryTop + 'px, below the ' + doc.clientHeight + 'px initial viewport (§4.5.1)');
       if (playerBox.top >= doc.clientHeight) fail('review.composition', 'the Evidence Player starts below the initial viewport (§4.5.1)');
     }
     evaluated.add('review.sticky-declared');
@@ -1192,6 +1240,66 @@ export function workspaceAssertions(input) {
       }
     }
     if (workspace.querySelector('video[controls]')) fail('review.analytical-geometry', 'the Evidence Player is using native browser controls');
+  }
+
+  // --- Tier B compositions (§25): each archetype's designed transition ------
+  //     at the stacking threshold, judged from where the regions render.
+  if (input.tier === 'B') {
+    const vw = doc.clientWidth;
+    const stacked = vw <= 1100;
+    const box = (el) => el.getBoundingClientRect();
+    const below = (lower, upper) => box(lower).top >= box(upper).bottom - 1;
+    const beside = (right, left) => box(right).left >= box(left).right - 1 && Math.abs(box(right).top - box(left).top) <= 1;
+    const visible = (el) => el && getComputedStyle(el).display !== 'none' && box(el).width > 0;
+    const modal = (el) => el && el.getAttribute('role') === 'dialog' && el.getAttribute('aria-modal') === 'true';
+    if (archetype === 'workspace--workbench') {
+      const stage = workspace.querySelector('.workspace__stage');
+      const inspector = workspace.querySelector('.workspace__inspector');
+      if (stage && inspector) {
+        evaluated.add('tier.b-composition');
+        if (stacked && !below(inspector, stage)) fail('tier.b-composition', 'the Workbench is not stacked at ' + vw + 'px: §25 puts the stage first and the inspector below at 768-1100');
+        if (!stacked && !workspace.classList.contains('is-drawer') && !beside(inspector, stage)) {
+          fail('tier.b-composition', 'the Workbench inspector is not beside the stage at ' + vw + 'px, where the stage keeps its floor');
+        }
+      }
+    }
+    if (archetype === 'workspace--investigation') {
+      const rail = workspace.querySelector('.workspace__rail');
+      const results = workspace.querySelector('.workspace__results');
+      if (rail && results) {
+        evaluated.add('tier.b-composition');
+        if (stacked) {
+          // The filters are a drawer opened from the results header.
+          if (visible(rail) && !modal(rail)) fail('tier.b-composition', 'the Investigation filter rail is in flow at ' + vw + 'px; §25 makes it a drawer at 768-1100');
+          if (!visible(rail) && !results.querySelector('.workspace__rail-toggle')) fail('tier.b-composition', 'the closed filter drawer has no control in the results header to open it');
+          if (box(results).width < working - 1) fail('tier.b-composition', 'the results are ' + round(box(results).width) + 'px of a ' + round(working) + 'px working width; stacked, they take it all');
+        } else if (modal(rail) || !visible(rail)) {
+          fail('tier.b-composition', 'the Investigation filter rail is not in place at ' + vw + 'px; §25 keeps it beside the results down to 1101');
+        }
+      }
+    }
+    if (archetype === 'workspace--record') {
+      const primary = workspace.querySelector('.workspace__record-primary');
+      const facts = workspace.querySelector('.workspace__record-facts');
+      if (primary && facts) {
+        evaluated.add('tier.b-composition');
+        measured.factsWidth = round(box(facts).width);
+        if (stacked && !below(facts, primary)) fail('tier.b-composition', 'the Record facts rail is not stacked below the primary column at ' + vw + 'px (§25)');
+        if (!stacked) {
+          if (!beside(facts, primary)) fail('tier.b-composition', 'the Record facts rail is not beside the primary column at ' + vw + 'px (§25: the composition is fluid down to 1101)');
+          else if (box(facts).width < 279.5) fail('tier.b-composition', 'the Record facts rail is ' + measured.factsWidth + 'px, below its 280px minimum (§25)');
+        }
+      }
+    }
+    if (archetype === 'workspace--review') {
+      const main = workspace.querySelector('.workspace__review-main');
+      const rail = workspace.querySelector('.workspace__review-rail');
+      if (main && rail) {
+        evaluated.add('tier.b-composition');
+        if (stacked && !below(rail, main)) fail('tier.b-composition', 'the Review rail is not stacked below the player at ' + vw + 'px (§25)');
+        if (!stacked && !beside(rail, main)) fail('tier.b-composition', 'the Review rail is not beside the player at ' + vw + 'px (§25: the composition is fluid down to 1101)');
+      }
+    }
   }
 
   return { findings, evaluated: Array.from(evaluated), measured };
