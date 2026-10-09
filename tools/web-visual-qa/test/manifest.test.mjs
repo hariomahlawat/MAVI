@@ -10,6 +10,16 @@ import { manifestSummary, ROUTES, RULES, severityOf, SURFACES, surfaceOf, TIERS,
 
 const source = (file) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
 
+/** The real surfaces with the named ones not accepted: the mechanism's subject now that every real one is. */
+const notAccepted = (...names) => Object.fromEntries(Object.entries(SURFACES).map(([name, s]) => [name, { ...s, accepted: names.includes(name) ? false : s.accepted }]));
+
+/** The register rows R1-R6 and M1-M4, each by the surface it owns. */
+const ACCEPTED_ROWS = {
+  overview: /R1/, videos: /R2/, 'processing-detail': /R3/, 'scene-editor': /R4/, search: /R5/, review: /R6/,
+  cameras: /M1/, 'processing-queue': /M2/, import: /M3/, 'camera-analytics': /M4/,
+};
+
+
 /**
  * The rule ids the execution engine can produce, read from the code that
  * produces them: a finding (`fail(...)`, `add(...)`, `record(c, ...)`,
@@ -88,7 +98,7 @@ describe('the assertion manifest', () => {
   it('keeps the later-slice rules measured with their owners named', () => {
     assert.match(severityOf('perf.cls', 'A').owner, /X3/);
     assert.match(severityOf('a11y.zoom-200', 'A').owner, /T3/);
-    assert.match(severityOf('containment.depth', 'A', 'overview').owner, /R1/);
+    assert.match(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).owner, /R1/);
   });
 
   it('blocks the rendered Review pin at Tier A once R6 made it hold, and nowhere below it', () => {
@@ -165,16 +175,31 @@ describe('the assertion manifest', () => {
 describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against their own row)', () => {
   const accepted = (...names) => Object.fromEntries(Object.entries(SURFACES).map(([name, s]) => [name, { ...s, accepted: s.accepted || names.includes(name) }]));
 
-  it('names the owning row of every unmigrated surface', () => {
-    // After M4 the only unaccepted surfaces are the R1-R3 rows, whose
-    // promotion is the separate governance change recorded under R4.
-    const unaccepted = Object.entries(SURFACES).filter(([, s]) => !s.accepted).map(([name]) => name).sort();
-    assert.deepEqual(unaccepted, ['overview', 'processing-detail', 'videos']);
-    const owners = { overview: /R1/, videos: /R2/, 'processing-detail': /R3/ };
-    for (const [surface, owner] of Object.entries(owners)) {
-      const at = severityOf('containment.depth', 'A', surface);
+  it('accepts every R1-R6 and M1-M4 surface, as the register records (retrospective R1-R3 correction)', () => {
+    // The register recorded R1-R3 PASS while their flags stayed false, so their
+    // surface findings never blocked. No accepted row may be exempt.
+    for (const [surface, row] of Object.entries(ACCEPTED_ROWS)) {
+      assert.equal(SURFACES[surface].accepted, true, surface);
+      assert.match(SURFACES[surface].owner, row, surface);
+    }
+    const unaccepted = Object.entries(SURFACES).filter(([, s]) => !s.accepted).map(([name]) => name);
+    assert.deepEqual(unaccepted, []);
+  });
+
+  it('blocks every surface-scoped rule at Tier A on every accepted surface', () => {
+    const scoped = Object.keys(RULES).filter((id) => RULES[id].scope === 'surface');
+    assert.deepEqual(scoped.sort(), ['containment.depth', 'ledger.actions-reachable', 'text.overflow']);
+    for (const surface of Object.keys(ACCEPTED_ROWS)) {
+      for (const rule of scoped) assert.equal(severityOf(rule, 'A', surface).status, 'blocking', `${rule} on ${surface}`);
+    }
+  });
+
+  it('still names the owning row of a surface that is not accepted', () => {
+    // The mechanism the correction relies on, on a hypothetical unaccepted surface.
+    for (const [surface, row] of Object.entries({ overview: /R1/, videos: /R2/, 'processing-detail': /R3/ })) {
+      const at = severityOf('containment.depth', 'A', surface, { surfaces: notAccepted(surface) });
       assert.equal(at.status, 'measured/pending', surface);
-      assert.match(at.owner, owner, surface);
+      assert.match(at.owner, row, surface);
     }
   });
 
@@ -184,8 +209,8 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
       assert.equal(severityOf(rule, 'A', 'scene-editor').status, 'blocking', rule);
       for (const tier of ['B', 'C']) assert.equal(severityOf(rule, tier, 'scene-editor').status, 'measured/pending', `${rule} @ ${tier}`);
     }
-    // Its acceptance promotes nothing else.
-    assert.equal(severityOf('containment.depth', 'A', 'overview').status, 'measured/pending');
+    // A surface that is not accepted is still measured against its own row.
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).status, 'measured/pending');
     assert.equal(surfaceOf('/cameras/abc/scene'), 'scene-editor');
   });
 
@@ -195,8 +220,8 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
       assert.equal(severityOf(rule, 'A', 'search').status, 'blocking', rule);
       for (const tier of ['B', 'C']) assert.equal(severityOf(rule, tier, 'search').status, 'measured/pending', `${rule} @ ${tier}`);
     }
-    // Its acceptance promotes nothing else.
-    assert.equal(severityOf('containment.depth', 'A', 'overview').status, 'measured/pending');
+    // A surface that is not accepted is still measured against its own row.
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).status, 'measured/pending');
     assert.equal(surfaceOf('/search'), 'search');
   });
 
@@ -208,9 +233,9 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     }
     // Its acceptance promotes nothing else: not the R1-R3 rows, whose
     // promotion is the separate governance change recorded under R4.
-    for (const other of ['overview', 'videos', 'processing-detail']) {
-      assert.equal(severityOf('containment.depth', 'A', other).status, 'measured/pending', other);
-    }
+    // A surface that is not accepted is still measured against its own row.
+    const surfaces = notAccepted('overview');
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces }).status, 'measured/pending');
   });
 
   it('blocks the accepted Cameras Ledger at Tier A on its own, and nowhere below it (M1)', () => {
@@ -222,9 +247,9 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     // Its acceptance promotes nothing else: not the R1-R3 rows, whose
     // promotion is the separate governance change recorded under R4. Camera
     // Analytics beneath the same /cameras path is its own surface (M4).
-    for (const other of ['overview', 'videos', 'processing-detail']) {
-      assert.equal(severityOf('containment.depth', 'A', other).status, 'measured/pending', other);
-    }
+    // A surface that is not accepted is still measured against its own row.
+    const surfaces = notAccepted('overview');
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces }).status, 'measured/pending');
     assert.equal(surfaceOf('/cameras'), 'cameras');
     assert.equal(surfaceOf('/cameras/abc/analytics'), 'camera-analytics');
   });
@@ -232,8 +257,8 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
   it('blocks unreachable Ledger row actions on an accepted surface, and measures them against the owning row elsewhere (M1)', () => {
     assert.equal(RULES['ledger.actions-reachable'].scope, 'surface');
     assert.equal(severityOf('ledger.actions-reachable', 'A', 'cameras').status, 'blocking');
-    // A surface not yet migrated: its own row owns what the rule finds there.
-    const overview = severityOf('ledger.actions-reachable', 'A', 'overview');
+    // A surface not accepted: its own row owns what the rule finds there.
+    const overview = severityOf('ledger.actions-reachable', 'A', 'overview', { surfaces: notAccepted('overview') });
     assert.equal(overview.status, 'measured/pending');
     assert.match(overview.owner, /R1/);
     for (const tier of ['B', 'C']) assert.equal(severityOf('ledger.actions-reachable', tier, 'cameras').status, 'measured/pending');
@@ -255,9 +280,9 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     }
     // Its acceptance promotes nothing else, and adds no Queue column-fit rule:
     // the Queue fits its frame by construction, and §4.1 lets a Ledger scroll.
-    for (const other of ['overview', 'videos', 'processing-detail']) {
-      assert.equal(severityOf('containment.depth', 'A', other).status, 'measured/pending', other);
-    }
+    // A surface that is not accepted is still measured against its own row.
+    const surfaces = notAccepted('overview');
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces }).status, 'measured/pending');
     assert.equal(Object.keys(RULES).filter((id) => id.startsWith('processing-queue.')).length, 0);
     assert.equal(surfaceOf('/processing'), 'processing-queue');
   });
@@ -270,9 +295,9 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     }
     // Its acceptance promotes nothing else: not the R1–R3 rows, whose
     // promotion is the separate governance change.
-    for (const other of ['overview', 'videos', 'processing-detail']) {
-      assert.equal(severityOf('containment.depth', 'A', other).status, 'measured/pending', other);
-    }
+    // A surface that is not accepted is still measured against its own row.
+    const surfaces = notAccepted('overview');
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces }).status, 'measured/pending');
     assert.equal(surfaceOf('/import'), 'import');
   });
 
@@ -286,18 +311,20 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     for (const s4 of ['cameras', 'processing-queue', 'import', 'camera-analytics']) assert.equal(SURFACES[s4].accepted, true, s4);
     // ... and its acceptance promotes nothing else: not the R1–R3 rows, whose
     // promotion is the separate governance change.
-    for (const other of ['overview', 'videos', 'processing-detail']) {
-      assert.equal(severityOf('containment.depth', 'A', other).status, 'measured/pending', other);
-    }
+    // A surface that is not accepted is still measured against its own row.
+    const surfaces = notAccepted('overview');
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces }).status, 'measured/pending');
     assert.equal(surfaceOf('/cameras/abc/analytics'), 'camera-analytics');
   });
 
   it('promotes one surface at a time, never all together', () => {
-    const surfaces = accepted('overview');
-    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces }).status, 'blocking');
-    assert.equal(severityOf('text.overflow', 'A', 'overview', { surfaces }).status, 'blocking');
-    assert.equal(severityOf('containment.depth', 'A', 'videos', { surfaces }).status, 'measured/pending');
-    assert.equal(severityOf('containment.depth', 'A', 'processing-detail', { surfaces }).status, 'measured/pending');
+    const surfaces = notAccepted('overview', 'videos', 'processing-detail');
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces }).status, 'measured/pending');
+    const promoted = { ...surfaces, overview: { ...surfaces.overview, accepted: true } };
+    assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces: promoted }).status, 'blocking');
+    assert.equal(severityOf('text.overflow', 'A', 'overview', { surfaces: promoted }).status, 'blocking');
+    assert.equal(severityOf('containment.depth', 'A', 'videos', { surfaces: promoted }).status, 'measured/pending');
+    assert.equal(severityOf('containment.depth', 'A', 'processing-detail', { surfaces: promoted }).status, 'measured/pending');
   });
 
   it('never lets a surface status soften a finding in an S1 region, nor promote anything below Tier A', () => {

@@ -66,9 +66,14 @@ const s1 = () => ({ A: blocking(), B, C });
 export const SURFACES = {
   foundation: { owner: 'S1 foundation (D1-D9)', accepted: true },
   'not-found': { owner: 'S1d shell (D4)', accepted: true },
-  overview: { owner: 'S3a / R1', accepted: false },
-  videos: { owner: 'S3a / R2', accepted: false },
-  'processing-detail': { owner: 'S3b / R3', accepted: false },
+  // R1-R3 accepted (retrospective correction, S5 preliminary): the register
+  // recorded R1 (PR #189), R2 (PR #190) and R3 (PR #191) PASS, but their flags
+  // stayed false, so their surface findings were measured, never blocking.
+  // Corrected on its own, before any Tier B promotion, so no accepted surface
+  // is exempt from surface-scoped enforcement.
+  overview: { owner: 'S3a / R1', accepted: true },
+  videos: { owner: 'S3a / R2', accepted: true },
+  'processing-detail': { owner: 'S3b / R3', accepted: true },
   // R4 accepted (S3c): the Scene Editor's surface findings block at Tier A.
   'scene-editor': { owner: 'S3c / R4', accepted: true },
   // R5 accepted (S3d): Search's surface findings block at Tier A.
@@ -83,8 +88,8 @@ export const SURFACES = {
   // M3 accepted (S4): Import's surface findings block at Tier A.
   import: { owner: 'S4 / M3', accepted: true },
   // M4 accepted (S4): Camera Analytics' surface findings block at Tier A. With
-  // it every S4 surface migration is accepted; only the R1-R3 rows, whose
-  // promotion is the separate governance change, remain measured.
+  // it, and the R1-R3 correction above, every reference and migrated surface is
+  // accepted.
   'camera-analytics': { owner: 'S4 / M4', accepted: true },
 };
 
