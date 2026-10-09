@@ -322,6 +322,14 @@ describe('containment.depth and state.placement', () => {
     const chart = await page(outer(`<div style="border:1px solid #333;width:200px;height:120px"><svg width="180" height="100"><rect width="180" height="100"/></svg></div>`));
     assert.equal(fired(chart, 'containment.depth').length, 1);
   });
+  it('takes a FileInput frame for the control it is, however tall a wrapped file name makes it (M3)', async () => {
+    const outer = (inner) => `<main><div style="border:1px solid #444;width:400px;height:300px">${inner}</div></main>`;
+    const control = await page(outer('<div class="file-input" style="border:1px solid #333;width:300px;height:64px"><input type="file"><span>a-file-name-long-enough-to-wrap-onto-a-second-line.mp4</span></div>'));
+    assert.deepEqual(fired(control, 'containment.depth'), []);
+    // The same frame without the control's class is still a container.
+    const card = await page(outer('<div style="border:1px solid #333;width:300px;height:64px"><span>a-file-name-long-enough-to-wrap-onto-a-second-line.mp4</span></div>'));
+    assert.equal(fired(card, 'containment.depth').length, 1);
+  });
   it('scopes a nesting by the frame doing the containing: a surface panel round an S1 presentation is the surface', async () => {
     const result = await page(`<main><div style="border:1px solid #444;width:400px;height:300px">
       <div class="state-region"><div style="border:1px solid #333;width:300px;height:100px">Nothing here yet.</div></div></div></main>`);

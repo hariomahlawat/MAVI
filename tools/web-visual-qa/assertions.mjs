@@ -514,7 +514,11 @@ export function pageAssertions(input) {
   const mediaFrame = (el) => el.children.length > 0 && Array.from(el.children).every((child) => child.matches(MEDIA))
     && !Array.from(el.childNodes).some((node) => node.nodeType === 3 && node.textContent.trim());
   const framed = (el) => {
-    if (el.matches('button, a, input, select, textarea, img, video, canvas, svg, kbd, code, [role="alert"], [role="status"], .alert, .badge, .chip, .evidence-placeholder, .tooltip, .skip-link')) return false;
+    // A control's own frame is not a containment level: `.file-input` is the
+    // shared FileInput (§27) drawn like every other input, and a long file
+    // name wraps inside it (the one statement of what is imported) until it is
+    // as tall as a container — a control still (M3).
+    if (el.matches('button, a, input, select, textarea, .file-input, img, video, canvas, svg, kbd, code, [role="alert"], [role="status"], .alert, .badge, .chip, .evidence-placeholder, .tooltip, .skip-link')) return false;
     if (mediaFrame(el)) return false;
     const s = getComputedStyle(el);
     if (s.display === 'inline') return false;

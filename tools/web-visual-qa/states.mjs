@@ -477,6 +477,34 @@ const SUBMIT_CAMERA = (code, name, until, { withoutZone = false } = {}) => `(asy
   return Boolean(await until(() => ${until}, 'the answer to the submit'));
 })()`;
 
+/**
+ * M3: fill the Import form as an operator does — a camera, a wall time and an
+ * MP4 (through the native file input, by a DataTransfer) — then optionally
+ * submit, and wait for what the state names.
+ */
+const FILL_IMPORT = ({ cameraValue, fileName, submit = false, until }) => `(async () => {
+  ${UNTIL}
+  const select = await until(() => {
+    const s = document.querySelector('form select');
+    return s && s.querySelector('option[value="${cameraValue}"]') ? s : null;
+  }, 'the active camera option');
+  const set = (element, value) => {
+    const proto = Object.getPrototypeOf(element);
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
+    element.dispatchEvent(new Event(element.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  };
+  set(select, ${JSON.stringify(cameraValue)});
+  set(document.querySelector('input[type="datetime-local"]'), '2026-09-14T08:30');
+  const file = document.querySelector('input[type="file"]');
+  const transfer = new DataTransfer();
+  transfer.items.add(new File(['mp4'], ${JSON.stringify(fileName)}, { type: 'video/mp4' }));
+  file.files = transfer.files;
+  file.dispatchEvent(new Event('change', { bubbles: true }));
+  await until(() => document.querySelector('.file-input__name:not([data-empty])'), 'the chosen file named');
+  ${submit ? "window.__vqa.mark('interaction-start'); document.querySelector('form button[type=submit]').click();" : ''}
+  return Boolean(await until(() => ${until}, 'the state'));
+})()`;
+
 /** M2: the wide stack processing-queue-row-degraded-wide-font applies (test pressure, not product CSS). */
 const QUEUE_WIDE_FONT = 'Verdana, "DejaVu Sans", sans-serif';
 
@@ -2918,7 +2946,50 @@ export const STATES = [
   {
     name: 'import-no-active-cameras', path: '/import', fullWidth: false, archetype: 'record',
     api: { '/api/cameras': [{ ...DENSE_CAMERAS[0], isActive: false }] },
+    // M3 (§11): the hatched not-configured block is the primary region itself.
+    // It was a dashed-bordered block inside the bordered form panel, which
+    // containment.depth cannot see (a state presentation is a message, so it
+    // is exempt); this measures the rendered borders round it instead.
+    prepare: `(async () => {
+      ${UNTIL}
+      const block = await until(() => document.querySelector('.empty--hatched'), 'the not-configured block');
+      const bordered = (el) => {
+        const s = getComputedStyle(el);
+        return ['Top', 'Right', 'Bottom', 'Left'].every((side) => parseFloat(s['border' + side + 'Width']) >= 1
+          && s['border' + side + 'Style'] !== 'none' && !/rgba\\(.*,\\s*0\\)$/.test(s['border' + side + 'Color']));
+      };
+      const workspace = block.closest('.workspace');
+      for (let el = block.parentElement; el && el !== workspace; el = el.parentElement) {
+        if (bordered(el)) throw new Error('the not-configured block sits inside a bordered ' + (el.className || el.tagName));
+      }
+      return true;
+    })()`,
     expectText: 'No active camera to import against',
+    forbidText: 'New import',
+  },
+  // M3: the inventory in flight — the form's panel holds the loading
+  // statement, and no empty selector stands in for cameras not yet known.
+  {
+    name: 'import-loading', path: '/import', fullWidth: false, archetype: 'record',
+    holds: 'loading', api: { '/api/cameras': 'hang' }, expectText: 'Loading active cameras',
+    forbidText: 'Select active camera',
+  },
+  // M3: the longest identities in the form — a 32-character camera code with a
+  // long name in the select, and a long file name in the FileInput, which
+  // wraps rather than truncating (F17: the one statement of what is imported).
+  {
+    name: 'import-long-identity', interaction: 'fill the import form with long identities', path: '/import', fullWidth: false, archetype: 'record',
+    api: { '/api/cameras': [{ ...CAMERAS[0], id: '33333333-3333-7333-8333-333333333381', code: 'SOUTH-DOCK-LOADING-BAY-EAST-0007', name: 'South Dock loading bay, east approach (service road)', isActive: true }] },
+    prepare: FILL_IMPORT({ cameraValue: '33333333-3333-7333-8333-333333333381', fileName: 'south-dock-loading-bay-east-approach-2026-09-14T08-30-00-camera-0007-recording-segment-0001.mp4', until: `/Read as/.test(document.body.innerText)` }),
+    expectText: ['south-dock-loading-bay-east-approach-2026-09-14T08-30-00-camera-0007-recording-segment-0001.mp4', 'SOUTH-DOCK-LOADING-BAY-EAST-0007', 'Unsaved changes'],
+  },
+  // M3: a refusal the server makes — one form-level alert in operator words
+  // (§21: page-level alerts are for server errors), the draft kept.
+  {
+    name: 'import-submit-error', interaction: 'submit an import the server refuses', path: '/import', fullWidth: false, archetype: 'record',
+    api: { 'POST /api/videos/import': { status: 415, body: { title: 'Unsupported', detail: 'The container is not a supported MP4.', code: 'video_container_unsupported' } } },
+    prepare: FILL_IMPORT({ cameraValue: CAMERAS[0].id, fileName: 'north-gate-0800.mp4', submit: true, until: `document.querySelector('form .alert')` }),
+    expectText: ['The selected file is not a supported MP4 container. (video_container_unsupported)', 'north-gate-0800.mp4', 'Unsaved changes'],
   },
   {
     name: 'import-cameras-unavailable', path: '/import', fullWidth: false, archetype: 'record',
