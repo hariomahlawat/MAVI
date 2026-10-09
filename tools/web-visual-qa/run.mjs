@@ -342,9 +342,6 @@ async function runCase(lane, c) {
       } else if (sticky.underBar > 0) {
         add('review.sticky-rendered', `the pinned Evidence Player sits ${sticky.underBar}px under the Context Bar`);
       }
-      if (sticky.overrun > 0) {
-        add('review.sticky-rendered', `scrolled to the end, the Evidence Player runs ${sticky.overrun}px past its column instead of releasing`);
-      }
     }
   }
   let overlayExit = null;

@@ -82,7 +82,7 @@ refuses anything else. Rules owned by later slices are registered now: measured
 where code exists (`containment.depth`, the §25 tier rules, the P1
 measurements; `review.sticky-rendered` was too until R6 made the pin render,
 and now blocks at Tier A: the player still on screen after the page scrolls,
-clear of the Context Bar, and released at the end of its column) and declared
+and clear of the Context Bar) and declared
 `future` with an execution policy where
 it does not yet (200% zoom, reduced motion, keyboard journeys, the remaining
 §23 rows).

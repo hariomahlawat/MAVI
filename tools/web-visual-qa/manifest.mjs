@@ -177,7 +177,7 @@ export const RULES = {
   },
   'review.sticky-rendered': {
     section: '§4.5.1, §36.3', kind: 'assertion',
-    summary: 'After the page scrolls, the Evidence Player is still in the viewport, clear of the Context Bar, and released at the end of its column (rendered, not only declared).',
+    summary: 'After the page scrolls, the Evidence Player is still in the viewport and clear of the Context Bar (rendered, not only declared).',
     // R6 (S3e) fixed the rendered pin and flipped this to blocking at Tier A.
     tiers: { A: blocking(), B, C },
   },

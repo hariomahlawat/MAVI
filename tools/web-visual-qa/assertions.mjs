@@ -1215,18 +1215,15 @@ export async function stickyProbe() {
   const after = player.getBoundingClientRect();
   const viewport = scroller.getBoundingClientRect();
   const visible = Math.max(0, Math.min(after.bottom, viewport.bottom) - Math.max(after.top, viewport.top));
-  // Pinned clear of the Context Bar, which is sticky in the same scroller: a
-  // player pinned under it is on screen and still hidden.
+  // Pinned clear of the Context Bar. Review's bar is in the shell's band above
+  // the scroller, but a bar inside it would be sticky over the same pixels: a
+  // player at that position is on screen and still hidden.
   const bar = document.querySelector('.context-bar');
   const barBottom = bar ? bar.getBoundingClientRect().bottom : viewport.top;
   const underBar = Math.max(0, Math.round(barBottom - after.top));
-  // Released at the end of its containing block: scrolled to the end, the
-  // player never extends past its own column (so it cannot cover what follows).
-  scroller.scrollTop = scroller.scrollHeight;
-  await frame();
-  const column = player.parentElement.getBoundingClientRect();
-  const atEnd = player.getBoundingClientRect();
-  const overrun = Math.max(0, Math.round(atEnd.bottom - column.bottom));
+  // Release at the end of the column is not measured here: sticky positioning
+  // cannot carry the player past its containing block, and that the player is
+  // sticky (not fixed) is review.sticky-declared's assertion.
   scroller.scrollTop = start;
   await frame();
   const fraction = after.height > 0 ? visible / after.height : 0;
@@ -1237,7 +1234,6 @@ export async function stickyProbe() {
     topAfter: Math.round(after.top),
     visibleFraction: Math.round(fraction * 100) / 100,
     underBar,
-    overrun,
     pinned: fraction >= 0.5,
   };
 }

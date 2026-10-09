@@ -456,11 +456,10 @@ describe('the rendered Review pin (review.sticky-rendered, R6)', () => {
     assert.equal(result.pinned, false, JSON.stringify(result));
   });
 
-  it('passes the stretched column: pinned clear of the Context Bar, and released at the column end', async () => {
+  it('passes the stretched column: pinned clear of the Context Bar', async () => {
     const result = await probe(REVIEW());
     assert.equal(result.pinned, true, JSON.stringify(result));
     assert.equal(result.underBar, 0, JSON.stringify(result));
-    assert.equal(result.overrun, 0, JSON.stringify(result));
     assert.equal(result.topAfter, result.topBefore - 8, 'pinned at the bar plus its inset, not where it started');
   });
 

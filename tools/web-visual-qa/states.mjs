@@ -3813,10 +3813,10 @@ export const STATES = [
     expectText: ['Showing the last known Track evidence; refreshing failed.', 'Track summary', 'Retry'],
   },
   // Search → Review → Search: the one way back is the Context Bar's root crumb
-  // (F4), and it restores the Investigation the Review was opened from, with
-  // the Track still selected.
+  // (F4), and it restores the Investigation the Review was opened from — its
+  // committed filter and the Track still selected.
   {
-    name: 'review-return-to-search', interaction: 'open a result in Review and return to Search', path: `/search?track=${TRACK}`, fullWidth: true, archetype: 'investigation',
+    name: 'review-return-to-search', interaction: 'open a result in Review and return to Search', path: `/search?objectClass=Person&track=${TRACK}`, fullWidth: true, archetype: 'investigation',
     prepare: `(async () => {
       ${UNTIL}
       const open = await until(() => document.querySelector('aside a[href*="/review/video/"], [role="dialog"] a[href*="/review/video/"]'), 'the inspector review link');
@@ -3828,8 +3828,11 @@ export const STATES = [
       const crumb = await until(() => Array.from(document.querySelectorAll('.context-bar a')).find((a) => a.textContent.trim() === 'Search'), 'the Search crumb');
       window.__vqa.mark('interaction-start');
       crumb.click();
-      return Boolean(await until(() => location.pathname === '/search' && new URLSearchParams(location.search).get('track') === '${TRACK}'
-        && document.querySelector('[role="dialog"] h2, aside h2'), 'Search restored with the Track selected'));
+      return Boolean(await until(() => {
+        const params = new URLSearchParams(location.search);
+        return location.pathname === '/search' && params.get('track') === '${TRACK}' && params.get('objectClass') === 'Person'
+          && document.querySelector('[role="dialog"] h2, aside h2');
+      }, 'Search restored with its filter and the Track selected'));
     })()`,
     expectText: INSPECTOR_LOADED,
   },
