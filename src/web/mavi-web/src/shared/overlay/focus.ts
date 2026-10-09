@@ -48,7 +48,21 @@ export function containTab(event: KeyboardEvent, container: HTMLElement): boolea
     (event.shiftKey ? last : first).focus();
     return true;
   }
-  if (event.shiftKey && (active === first || active === container)) {
+  // Focus on something inside that Tab does not stop at — the container, or
+  // the heading an overlay focuses as it opens (tabIndex -1) — is where the
+  // browser's own search would start: in reverse from a heading before every
+  // control it finds nothing but inert content and leaves the document
+  // (T1, PR #199). Take the step here, by document order, wrapping at the ends.
+  if (!focusable.includes(active!)) {
+    event.preventDefault();
+    const precedes = (element: HTMLElement) => Boolean(element.compareDocumentPosition(active!) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const target = event.shiftKey
+      ? [...focusable].reverse().find(precedes) ?? last
+      : focusable.find((element) => !precedes(element)) ?? first;
+    target.focus();
+    return true;
+  }
+  if (event.shiftKey && active === first) {
     event.preventDefault();
     last.focus();
     return true;

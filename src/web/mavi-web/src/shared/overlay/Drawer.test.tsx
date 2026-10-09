@@ -75,6 +75,42 @@ describe('Drawer', () => {
     }
   });
 
+  it('keeps Shift+Tab inside from the heading it focused on opening, before any of its controls (T1, PR #199)', async () => {
+    const { user } = await openDrawer();
+    expect(screen.getByRole('heading', { name: 'Track 42' })).toHaveFocus();
+    // Reverse from the heading: no control precedes it, so the step wraps to
+    // the last control — never to "Covered action" behind the drawer.
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+  });
+
+  it('steps from a focused heading by document order, forward and back, when controls surround it', async () => {
+    const user = userEvent.setup();
+    function Surrounded() {
+      const [open, setOpen] = useState(false);
+      const coveredRef = useRef<HTMLDivElement | null>(null);
+      return (
+        <div>
+          <div ref={coveredRef}><button type="button" onClick={() => setOpen(true)}>Inspect</button></div>
+          <Drawer open={open} overlay onClose={() => setOpen(false)} covers={[coveredRef]} className="inspector">
+            <button type="button" onClick={() => setOpen(false)}>Close inspector</button>
+            <h2>Scene objects</h2>
+            <button type="button">Zone A</button>
+            <button type="button">Zone B</button>
+          </Drawer>
+        </div>
+      );
+    }
+    render(<Surrounded />);
+    await user.click(screen.getByRole('button', { name: 'Inspect' }));
+    expect(screen.getByRole('heading', { name: 'Scene objects' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Close inspector' })).toHaveFocus();
+    screen.getByRole('heading', { name: 'Scene objects' }).focus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Zone A' })).toHaveFocus();
+  });
+
   it('closes on Escape and returns focus to the invoker', async () => {
     const { user, invoker } = await openDrawer();
     await user.keyboard('{Escape}');
