@@ -517,7 +517,7 @@ describe('CamerasPage', () => {
       const cells = (container.querySelector('tbody tr') as HTMLElement).querySelectorAll('td');
       // The full value is the text; the cap is what keeps it from widening the table.
       const code = within(cells[0]).getByText(LONG_CODE);
-      expect(code).toHaveClass('truncate', 'cap-md');
+      expect(code).toHaveClass('truncate', 'cap-lg');
       const zone = within(cells[2]).getByText(LONG_ZONE);
       expect(zone).toHaveClass('truncate', 'cap-lg');
       // Still named for the camera it opens, whatever the code's length.

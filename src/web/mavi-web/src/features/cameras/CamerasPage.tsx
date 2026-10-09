@@ -360,7 +360,7 @@ export default function CamerasPage() {
                         64-character code widened the table past its frame at
                         1366, and the row actions were reachable only by
                         scrolling it sideways. */}
-                    <td><strong><TruncatedText text={camera.code} className="cap-md" /></strong></td>
+                    <td><strong><TruncatedText text={camera.code} className="cap-lg" /></strong></td>
                     {/* A long name truncates rather than widening the column;
                         its full value is reachable by pointer and keyboard (§16). */}
                     <td><TruncatedText text={camera.name} className="cap-lg" /></td>
