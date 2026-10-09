@@ -4585,4 +4585,3 @@ for (const name of COMPACT_PROBE_BASES) {
   if (!base) throw new Error(`compact probe of an unknown state ${name}`);
   STATES.push({ ...base, name: `${name}-compact-band`, tierPolicy: 'breakpoint-probe', probeOf: name, probeWidths: [1101, 1200, 1365] });
 }
-

@@ -299,7 +299,7 @@
 /* The frame is where the keyboard grammar acts, so its focus has to be as
    visible as any control's. */
 .evidence-player__frame:focus-visible { outline: var(--stroke-2) solid var(--focus-ring); outline-offset: var(--stroke-2); }
-.evidence-player__video { display: block; width: 100%; max-height: 62vh; background: var(--evidence-matte); }
+.evidence-player__video { display: block; width: 100%; height: auto; max-height: 62vh; background: var(--evidence-matte); }
 .evidence-player--compact .evidence-player__video { max-height: 40vh; }
 
 /* Every overlay layer carries the halo (section 8.3). A violet box over bright
@@ -1128,6 +1128,11 @@
   .table--fold-videos .ledger-folded { display: inline-flex; }
   /* Only Videos carries a sort select: its folded columns are sort keys. */
   .ledger-sort { display: inline-flex; }
+  /* With the select in the band, the count takes the band's second row at
+     every moment — loading ("Loading videos…") and loaded alike — so the
+     filters widening as the cameras arrive moves nothing down the page
+     (§25 Tier B: the band wraps to two rows at most; §38: no layout shift). */
+  .toolbar-band:has(.ledger-sort) .toolbar-band__hint { flex-basis: 100%; }
 }
 /* Processing queue: 1011px unfolded. Queued, Attempt and Tracks fold into the
    Video cell. */
