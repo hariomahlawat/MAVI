@@ -640,7 +640,14 @@
   .scene-context__revision, .scene-context__analytics { white-space: nowrap; }
   .context-bar__status:has(> .scene-context__revision) { flex-shrink: 0; }
 }
-.scene-context__note input { width: 220px; height: var(--control-h); }
+/* The revision note is optional and is what gives way on a full bar: the
+   actions group may shrink by it, down to a still-usable 120px, before the
+   state chips are pushed back over the trail (§25 Tier B; measured under a
+   wide CI-like font at 768 and 1024, where the rigid 220px field made the
+   chips paint over the "Scene" crumb). The buttons keep their labels. */
+.context-bar__actions:has(.scene-context__note) { flex-shrink: 1; }
+.scene-context__note { flex: 0 1 220px; min-width: 120px; }
+.scene-context__note input { width: 100%; height: var(--control-h); }
 
 /* An explanation of a Context Bar control, stated in the notices region. */
 .scene-notice { color: var(--text-muted); font-size: var(--fs-1); max-width: 72ch; }
