@@ -651,7 +651,10 @@ export function pageAssertions(input) {
     const bar = document.querySelector('.context-bar');
     if (bar) {
       const barBox = bar.getBoundingClientRect();
-      for (const action of Array.from(bar.querySelectorAll('.context-bar__actions button, .context-bar__actions a')).filter(shown)) {
+      // Rendered, not merely in view: an action pushed wholly off the page is
+      // exactly the one this is for (a viewport-clipped "shown" missed it).
+      const rendered = (el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+      for (const action of Array.from(bar.querySelectorAll('.context-bar__actions button, .context-bar__actions a')).filter(rendered)) {
         const box = action.getBoundingClientRect();
         if (box.left < barBox.left - 0.5 || box.right > Math.min(barBox.right, doc.clientWidth) + 0.5) {
           fail('tier.b-shell', 'the Context Bar action ' + describe(action) + ' extends past the bar (' + Math.round(box.right) + ' > ' + Math.round(Math.min(barBox.right, doc.clientWidth)) + ')');
@@ -666,16 +669,89 @@ export function pageAssertions(input) {
   }
   if (input.tier === 'C') {
     evaluated.add('tier.c-shell');
+    // §25 Tier C Shell row: "Rail is a top-of-page menu control opening an
+    // overlay". The workspace has the viewport — no rail column beside it.
     const main = document.querySelector('main');
     if (main && main.getBoundingClientRect().width < doc.clientWidth - 1) {
       fail('tier.c-shell', 'the content is ' + Math.round(main.getBoundingClientRect().width) + 'px beside a '
         + (rail ? shell.railWidth : 0) + 'px rail column in a ' + doc.clientWidth + 'px viewport; §25 makes the rail a top-of-page menu');
     }
+    const railModal = rail && rail.getAttribute('role') === 'dialog' && rail.getAttribute('aria-modal') === 'true';
+    if (rail && shown(rail) && !railModal) {
+      fail('tier.c-shell', 'the rail is drawn (' + shell.railWidth + 'px) without being the navigation overlay; at Tier C it exists only as the overlay the menu opens');
+    }
+    // The control: visible, named, announcing the navigation it controls, at
+    // the top of the page — found by what it controls, not by its class.
+    const nav = document.querySelector('nav[aria-label="Primary"]');
+    const controls = nav && nav.id ? Array.from(document.querySelectorAll('[aria-controls]')).filter((el) => el.getAttribute('aria-controls') === nav.id) : [];
+    const menu = controls.find((el) => shown(el) && !(rail && rail.contains(el)));
+    shell.menuControl = menu ? describe(menu) : null;
+    if (!railModal) {
+      if (!menu) fail('tier.c-shell', 'no visible control opens the navigation at Tier C (§25: a top-of-page menu control)');
+      else {
+        const box = menu.getBoundingClientRect();
+        if (!(menu.getAttribute('aria-label') || menu.textContent || '').trim()) fail('tier.c-shell', 'the navigation menu control is unnamed');
+        if (!menu.hasAttribute('aria-expanded')) fail('tier.c-shell', 'the navigation menu control does not announce whether the navigation is open');
+        if (box.top > 44) fail('tier.c-shell', 'the navigation menu control is ' + Math.round(box.top) + 'px down the page, not at its top');
+        if (box.width < 31.5 || box.height < 31.5) fail('tier.c-shell', 'the navigation menu control is ' + Math.round(box.width) + 'x' + Math.round(box.height) + ', under the 32px rail control metric (§5)');
+      }
+    } else if (rail.getBoundingClientRect().right > doc.clientWidth + 0.5) {
+      fail('tier.c-shell', 'the navigation overlay is wider than the viewport');
+    }
+    // The Context Bar at Tier C: one truncated identity line, every action in
+    // the bar, the primary with its icon and label (§25 Tier C Shell row).
+    const bar = document.querySelector('.context-bar');
+    if (bar) {
+      const barBox = bar.getBoundingClientRect();
+      const crumbs = Array.from(bar.querySelectorAll('.context-bar__crumbs li')).filter(shown);
+      if (bar.querySelector('.context-bar__crumbs') && !crumbs.some((li) => li.getBoundingClientRect().width >= 24)) {
+        fail('tier.c-shell', 'the Context Bar shows no readable identity: every crumb is under 24px');
+      }
+      for (const item of Array.from(bar.querySelectorAll('.context-bar__crumbs li, .context-bar__status > *')).filter(shown)) {
+        const box = item.getBoundingClientRect();
+        if (box.right > Math.min(barBox.right, doc.clientWidth) + 0.5) fail('tier.c-shell', 'the Context Bar item ' + describe(item) + ' extends past the bar');
+      }
+      const rendered = (el) => getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+      for (const item of Array.from(bar.querySelectorAll('.context-bar__crumbs li, .context-bar__status > *')).filter(rendered)) {
+        if (item.getBoundingClientRect().left > doc.clientWidth - 0.5) fail('tier.c-shell', 'the Context Bar item ' + describe(item) + ' is pushed off the page');
+      }
+      for (const action of Array.from(bar.querySelectorAll('.context-bar__actions button, .context-bar__actions a, .context-bar__actions input')).filter(rendered)) {
+        const box = action.getBoundingClientRect();
+        if (box.left < barBox.left - 0.5 || box.right > Math.min(barBox.right, doc.clientWidth) + 0.5) {
+          fail('tier.c-shell', 'the Context Bar action ' + describe(action) + ' extends past the bar (' + Math.round(box.right) + ' > ' + Math.round(Math.min(barBox.right, doc.clientWidth)) + ')');
+        }
+        if (action.matches('.btn--primary')) {
+          const label = Array.from(action.childNodes).some((node) => (node.nodeType === 3 && node.textContent.trim())
+            || (node.nodeType === 1 && !node.matches('svg, .icon, .visually-hidden') && node.textContent.trim() && getComputedStyle(node).display !== 'none'));
+          if (!label) fail('tier.c-shell', 'the Context Bar primary action ' + describe(action) + ' has lost its visible label at Tier C');
+        } else if (!(action.getAttribute('aria-label') || action.textContent || '').trim()) {
+          fail('tier.c-shell', 'the Context Bar action ' + describe(action) + ' is unnamed');
+        }
+      }
+    }
     if (input.archetype === 'workbench') {
       evaluated.add('tier.c-workbench-unsupported');
+      // §25 Tier C Workbench: the Context Bar, a read-only summary and one
+      // statement that the operation needs at least 768px — and no editing
+      // canvas, no stage or inspector, no mode strip, in the page at all.
       const canvas = document.querySelector('.workspace__stage canvas, .workspace__stage svg, [data-testid="scene-canvas"]');
       if (canvas && shown(canvas)) fail('tier.c-workbench-unsupported', 'the editing canvas renders at Tier C; §25 requires the unsupported-state statement instead');
-      if (!/768/.test(document.body.innerText)) fail('tier.c-workbench-unsupported', 'no statement that editing needs a display of at least 768px');
+      const regions = Array.from(document.querySelectorAll('.workspace__stage, .workspace__inspector, .workspace__band'));
+      if (regions.length) fail('tier.c-workbench-unsupported', 'the Workbench still renders ' + regions.map((el) => el.className.split(' ')[0]).join(', ') + ' at Tier C');
+      // A read-only summary offers no form control: an editing or analytical
+      // control left in the unsupported state is a question nobody can ask.
+      const workbench = document.querySelector('.workspace--workbench');
+      const controls = workbench ? Array.from(workbench.querySelectorAll('input, select, textarea')).filter(shown) : [];
+      if (controls.length) fail('tier.c-workbench-unsupported', 'the unsupported Workbench still offers ' + controls.length + ' form control(s): ' + controls.slice(0, 3).map(describe).join(', '));
+      const page = document.querySelector('main');
+      const unsupported = page && page.querySelector('.workspace__unsupported');
+      if (!/at least 768px/.test(page ? page.innerText : '')) fail('tier.c-workbench-unsupported', 'no statement that the operation needs a display of at least 768px');
+      // A Workbench whose camera or scene could not be read says so in its
+      // page state instead (§37.1), which is not an unsupported state.
+      if (!unsupported && !page.querySelector('.state-region')) fail('tier.c-workbench-unsupported', 'no read-only summary beside the statement');
+      else if (unsupported && !Array.from(unsupported.children).some((el) => !el.matches('.workspace__unsupported-statement') && shown(el))) {
+        fail('tier.c-workbench-unsupported', 'the unsupported state has its statement but no read-only summary');
+      }
     }
   }
 
@@ -735,8 +811,10 @@ export function workspaceAssertions(input) {
   // A column that scrolls (a stacked archetype at ≤1100) still must not
   // scroll sideways: the page's own scroller is the content column, not the
   // document, so page.horizontal-overflow alone cannot see it.
+  // Evaluated wherever there is such a column — a pass is recorded, not only
+  // a failure (at Tier C every archetype reads down a scrolling column).
+  if (column && !/^(hidden|clip)$/.test(measured.columnOverflowStyle)) evaluated.add('archetype.contained-clipping');
   if (column && !/^(hidden|clip)$/.test(measured.columnOverflowStyle) && column.scrollWidth > column.clientWidth + 1) {
-    evaluated.add('archetype.contained-clipping');
     fail('archetype.contained-clipping', 'the content column scrolls sideways: ' + column.scrollWidth + 'px of content in '
       + column.clientWidth + 'px, a horizontal page scroll to the operator');
   }
@@ -780,7 +858,10 @@ export function workspaceAssertions(input) {
     evaluated.add('ledger.scroll-ownership');
     // §4.1 and §25 Tier B: the body owns the scroll at every width — a Ledger
     // is one column and has nothing to stack — so the shell column is `body`,
-    // never lifted, and the page never scrolls.
+    // never lifted, and the page never scrolls. At Tier C the Ledger is the
+    // §25 single-column list, read down the page: the content column is the
+    // one scroller, and the frame must not be a second one inside it.
+    const narrowList = input.tier === 'C';
     if (measured.shellScroll !== 'body') {
       fail('ledger.scroll-ownership', 'the Ledger did not declare its body the scroll owner to the shell: the content column is "' + measured.shellScroll + '"');
     }
@@ -851,7 +932,10 @@ export function workspaceAssertions(input) {
         if (innerFrames.length) fail('ledger.containment', 'a bordered frame inside the Ledger frame: ' + innerFrames.slice(0, 3).map(named).join(', '));
       }
 
-      const th = table.querySelector('thead th');
+      if (narrowList && /(auto|scroll)/.test(getComputedStyle(frame).overflowY)) {
+        fail('ledger.scroll-ownership', 'the Ledger frame is a scroller inside the page at Tier C: a list read down the page has one scroll');
+      }
+      const th = narrowList ? null : table.querySelector('thead th');
       if (th) {
         measured.headerPosition = getComputedStyle(th).position;
         if (measured.headerPosition !== 'sticky') {
@@ -890,23 +974,26 @@ export function workspaceAssertions(input) {
         // §16 amended: every visible data row 36-40px. The rows are the body
         // rows the operator reads — not the header, not a hidden or detail row
         // — and a table with a body but no measurable row is a finding, not a
-        // pass: a selector that matches nothing has checked nothing.
-        evaluated.add('ledger.row-pitch');
-        const bodyRows = Array.from(table.querySelectorAll(':scope > tbody > tr'));
-        const rows = bodyRows.filter((row) => {
-          if (row.hidden || row.matches('[data-row="detail"], .is-detail')) return false;
-          const r = row.getBoundingClientRect();
-          return r.height > 0 && getComputedStyle(row).display !== 'none';
-        });
-        measured.rowCount = rows.length;
-        if (bodyRows.length && !rows.length) fail('ledger.row-pitch', 'the Ledger has body rows but none is visible to measure');
-        if (!bodyRows.length) fail('ledger.row-pitch', 'the Ledger table rendered with no body rows to measure');
-        if (rows.length) {
-          const pitches = rows.map((row) => row.getBoundingClientRect().height);
-          measured.rowPitchMin = round(Math.min(...pitches));
-          measured.rowPitchMax = round(Math.max(...pitches));
-          if (measured.rowPitchMin < 35.5 || measured.rowPitchMax > 40.5) {
-            fail('ledger.row-pitch', 'the Ledger row pitch is ' + measured.rowPitchMin + '-' + measured.rowPitchMax + 'px, outside 36-40px');
+        // pass: a selector that matches nothing has checked nothing. A Tier C
+        // list item is several lines by design (tier.c-composition).
+        if (!narrowList) {
+          evaluated.add('ledger.row-pitch');
+          const bodyRows = Array.from(table.querySelectorAll(':scope > tbody > tr'));
+          const rows = bodyRows.filter((row) => {
+            if (row.hidden || row.matches('[data-row="detail"], .is-detail')) return false;
+            const r = row.getBoundingClientRect();
+            return r.height > 0 && getComputedStyle(row).display !== 'none';
+          });
+          measured.rowCount = rows.length;
+          if (bodyRows.length && !rows.length) fail('ledger.row-pitch', 'the Ledger has body rows but none is visible to measure');
+          if (!bodyRows.length) fail('ledger.row-pitch', 'the Ledger table rendered with no body rows to measure');
+          if (rows.length) {
+            const pitches = rows.map((row) => row.getBoundingClientRect().height);
+            measured.rowPitchMin = round(Math.min(...pitches));
+            measured.rowPitchMax = round(Math.max(...pitches));
+            if (measured.rowPitchMin < 35.5 || measured.rowPitchMax > 40.5) {
+              fail('ledger.row-pitch', 'the Ledger row pitch is ' + measured.rowPitchMin + '-' + measured.rowPitchMax + 'px, outside 36-40px');
+            }
           }
         }
         evaluated.add('ledger.row-primary');
@@ -1053,6 +1140,11 @@ export function workspaceAssertions(input) {
   if (archetype === 'workspace--workbench') {
     const stage = workspace.querySelector('.workspace__stage');
     const inspector = workspace.querySelector('.workspace__inspector');
+    // Below 768px the Workbench is its §25 unsupported state, judged by
+    // tier.c-workbench-unsupported; its stage and inspector are not rendered.
+    if (input.tier === 'C' && workspace.classList.contains('workspace--unsupported')) {
+      return { findings, evaluated: Array.from(evaluated), measured };
+    }
     if (!stage || !inspector) {
       fail('archetype.rendered', 'the Workbench is missing its stage or inspector region');
       return { findings, evaluated: Array.from(evaluated), measured };
@@ -1378,7 +1470,12 @@ export function workspaceAssertions(input) {
           if (stated.sortable) {
             const select = workspace.querySelector('.ledger-sort select');
             const keys = folded.filter((th) => th.hasAttribute('aria-sort')).map(nameOf);
-            if (!select || !shown(select) || select.disabled) {
+            // At Tier C the select is in the filters drawer (§25): reachable
+            // when the drawer that holds it has a visible control to open it.
+            const drawer = select && select.closest('.toolbar-band__controls');
+            const behindOpener = Boolean(input.tier === 'C' && drawer && drawer.id && !shown(select)
+              && Array.from(document.querySelectorAll('[aria-controls]')).some((c) => c.getAttribute('aria-controls') === drawer.id && shown(c)));
+            if (!select || (!shown(select) && !behindOpener) || select.disabled) {
               fail('ledger.column-fold', 'the folded sort key(s) ' + keys.join(', ') + ' have no visible, enabled Sort select');
             } else {
               const options = Array.from(select.options).map(text);
@@ -1387,6 +1484,132 @@ export function workspaceAssertions(input) {
             }
           }
         }
+      }
+    }
+  }
+
+  // --- Tier C compositions (§25): each archetype's narrow composition, judged
+  //     from where its regions render.
+  if (input.tier === 'C') {
+    const box = (el) => el.getBoundingClientRect();
+    const visible = (el) => el && getComputedStyle(el).display !== 'none' && box(el).width > 0 && box(el).height > 0;
+    const modal = (el) => el && el.getAttribute('role') === 'dialog' && el.getAttribute('aria-modal') === 'true';
+    const vw = doc.clientWidth;
+    const fullWidth = (el) => box(el).left <= 0.5 && box(el).right >= vw - 0.5;
+    const opener = (el) => el && el.id && Array.from(document.querySelectorAll('[aria-controls]'))
+      .some((c) => c.getAttribute('aria-controls') === el.id && visible(c));
+    if (archetype === 'workspace--ledger') {
+      const table = workspace.querySelector('.ledger-table table');
+      if (table) {
+        evaluated.add('tier.c-composition');
+        // "A single-column list of the primary cell plus status; the row's
+        // action is reachable": no multi-column header drawn, each row one
+        // item — its cells one column, its action beside them.
+        const head = table.querySelector('thead');
+        if (head && box(head).height > 1.5 && getComputedStyle(head).clipPath === 'none') {
+          fail('tier.c-composition', 'the Ledger draws a ' + Math.round(box(head).height) + 'px column header at Tier C: it is still a multi-column table');
+        }
+        const rows = Array.from(table.querySelectorAll('tbody tr')).filter(visible).slice(0, 40);
+        measured.listRows = rows.length;
+        rows.forEach((row, index) => {
+          const cells = Array.from(row.children).filter(visible);
+          const action = row.lastElementChild && visible(row.lastElementChild) ? row.lastElementChild : null;
+          const column = cells.filter((cell) => cell !== action);
+          const where = 'row ' + (index + 1);
+          if (!column.length) return;
+          const left = box(column[0]).left;
+          for (let i = 1; i < column.length; i += 1) {
+            if (Math.abs(box(column[i]).left - left) > 1 || box(column[i]).top < box(column[i - 1]).bottom - 1) {
+              fail('tier.c-composition', 'the Ledger ' + where + ' lays its values out side by side at Tier C, not as one column');
+              break;
+            }
+          }
+          if (!column[0].textContent.trim()) fail('tier.c-composition', 'the Ledger ' + where + ' has no identity in its first line');
+          if (!Array.from(row.querySelectorAll('.badge')).some(visible)) fail('tier.c-composition', 'the Ledger ' + where + ' shows no status');
+          const controls = action ? Array.from(action.querySelectorAll('button, a[href]')).filter(visible) : [];
+          if (!controls.length) fail('tier.c-composition', 'the Ledger ' + where + ' has no reachable action');
+          for (const control of controls) {
+            if (box(control).right > vw + 0.5 || box(control).left < -0.5) fail('tier.c-composition', 'the Ledger ' + where + ' action ' + control.textContent.trim().slice(0, 20) + ' is outside the viewport');
+          }
+          if (action && column.some((cell) => box(cell).right > box(action).left + 1)) {
+            fail('tier.c-composition', 'the Ledger ' + where + ' values run under its action');
+          }
+        });
+      }
+      // "Filters move into a drawer": the band's controls are behind a
+      // visible control at Tier C, or open as the full-width modal drawer.
+      const filters = workspace.querySelector('.toolbar-band__controls');
+      if (filters && filters.querySelector('input, select')) {
+        evaluated.add('tier.c-composition');
+        if (modal(filters)) {
+          if (!fullWidth(filters)) fail('tier.c-composition', 'the open Ledger filter drawer is ' + Math.round(box(filters).width) + 'px, not the full width (§20 Tier C)');
+        } else if (visible(filters)) {
+          fail('tier.c-composition', 'the Ledger filters are in the band at Tier C; §25 moves them into a drawer');
+        } else if (!opener(filters)) {
+          fail('tier.c-composition', 'the Ledger filters are in a drawer with no visible control to open it');
+        }
+      }
+    }
+    if (archetype === 'workspace--ledger-summary') {
+      // "Attention list only, then counts."
+      evaluated.add('tier.c-composition');
+      const attention = workspace.querySelector('.attention');
+      const counts = workspace.querySelector('.summary-band');
+      const others = Array.from(workspace.querySelectorAll('.panel')).filter((panel) => visible(panel) && !panel.matches('.attention') && !(attention && attention.contains(panel)));
+      if (others.length) fail('tier.c-composition', 'the Overview draws ' + others.length + ' panel(s) besides the attention list at Tier C: ' + others.map((p) => (p.querySelector('.panel__title') || p).textContent.trim().slice(0, 24)).join(', '));
+      if (attention && counts && visible(attention) && visible(counts) && box(counts).top < box(attention).bottom - 1) {
+        fail('tier.c-composition', 'the Overview counts come before the attention list at Tier C');
+      }
+    }
+    if (archetype === 'workspace--record') {
+      const primary = workspace.querySelector('.workspace__record-primary');
+      const facts = workspace.querySelector('.workspace__record-facts');
+      if (primary && facts && visible(primary) && visible(facts)) {
+        evaluated.add('tier.c-composition');
+        // §4.2: the facts rail stacks above the primary when it carries the
+        // record's identity — stated per surface here, not read from the page.
+        const FACTS_FIRST = { 'processing-detail': true };
+        const factsFirst = Boolean(FACTS_FIRST[input.surface]);
+        const stackedBelow = box(facts).top >= box(primary).bottom - 1;
+        const stackedAbove = box(primary).top >= box(facts).bottom - 1;
+        if (!stackedBelow && !stackedAbove) fail('tier.c-composition', 'the Record facts rail is beside the primary column at Tier C, not stacked');
+        else if (factsFirst && !stackedAbove) fail('tier.c-composition', 'the Record facts rail carries the identity but is below the primary column (§4.2 Tier C: above)');
+        else if (!factsFirst && !stackedBelow) fail('tier.c-composition', 'the Record facts rail is above the primary column, though it does not carry the identity');
+        // Reading and focus order are the order shown.
+        const domFactsFirst = Boolean(facts.compareDocumentPosition(primary) & Node.DOCUMENT_POSITION_FOLLOWING);
+        if (domFactsFirst !== stackedAbove) fail('tier.c-composition', 'the Record regions are shown in a different order from the one they are read in');
+      }
+    }
+    if (archetype === 'workspace--investigation') {
+      const results = workspace.querySelector('.workspace__results');
+      if (results) {
+        evaluated.add('tier.c-composition');
+        const grid = Array.from(document.querySelectorAll('button, [role="radio"]')).find((el) => /Grid view/.test(el.getAttribute('aria-label') || el.textContent || '') && visible(el));
+        if (grid) fail('tier.c-composition', 'grid view is offered at Tier C (§25: unavailable)');
+        if (workspace.querySelector('.track-grid')) fail('tier.c-composition', 'the results are drawn as the grid at Tier C');
+        if (box(results).width < working - 1) fail('tier.c-composition', 'the results are ' + round(box(results).width) + 'px of a ' + round(working) + 'px working width at Tier C');
+        for (const [name, el] of [['filter rail', workspace.querySelector('.workspace__rail')], ['inspector', workspace.querySelector('.workspace__inspector')]]) {
+          if (!el || !visible(el)) continue;
+          if (!modal(el)) fail('tier.c-composition', 'the Investigation ' + name + ' is in flow at Tier C; §25 makes it a drawer');
+          else if (!fullWidth(el)) fail('tier.c-composition', 'the Investigation ' + name + ' drawer is ' + Math.round(box(el).width) + 'px, not the full width (§20 Tier C)');
+        }
+      }
+    }
+    if (archetype === 'workspace--review') {
+      const player = workspace.querySelector('.workspace__player');
+      if (player && visible(player)) {
+        evaluated.add('tier.c-composition');
+        // "Player full width, then the summary, then provenance; transport
+        // keeps every control at ≥24px effective target."
+        if (box(player).width < working - 1) fail('tier.c-composition', 'the Evidence Player is ' + round(box(player).width) + 'px of a ' + round(working) + 'px working width at Tier C');
+        if (getComputedStyle(player).position === 'sticky') fail('tier.c-composition', 'the Evidence Player is still sticky at Tier C');
+        const panel = (title) => Array.from(workspace.querySelectorAll('.panel')).find((p) => visible(p) && (p.querySelector('.panel__title') || {}).textContent?.trim() === title);
+        const summary = panel('Track summary');
+        const provenance = panel('Processing provenance');
+        if (summary && box(summary).top < box(player).bottom - 1) fail('tier.c-composition', 'the Track summary is not below the Evidence Player at Tier C');
+        if (summary && provenance && box(provenance).top < box(summary).bottom - 1) fail('tier.c-composition', 'provenance comes before the Track summary at Tier C');
+        const small = Array.from(player.querySelectorAll('button, select, input')).filter((el) => visible(el) && (box(el).width < 23.5 || box(el).height < 23.5));
+        if (small.length) fail('tier.c-composition', small.length + ' Evidence Player control(s) under the 24px effective target at Tier C: ' + small.slice(0, 3).map((el) => (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 16)).join(', '));
       }
     }
   }

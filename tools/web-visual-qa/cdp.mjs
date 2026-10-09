@@ -233,6 +233,19 @@ async function connect(child, profile) {
       return fonts.map((font) => ({ family: font.familyName, postScriptName: font.postScriptName, glyphs: font.glyphCount, custom: font.isCustomFont }));
     },
     /**
+     * The accessibility role Chromium exposes for the first element matching
+     * `selector` (Accessibility.getPartialAXTree) — what assistive technology
+     * is given, which CSS can change and the DOM alone cannot show.
+     */
+    async axRole(selector) {
+      const { root } = await call('DOM.getDocument', { depth: 0 });
+      const { nodeId } = await call('DOM.querySelector', { nodeId: root.nodeId, selector });
+      if (!nodeId) return null;
+      const { nodes } = await call('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+      const node = nodes.find((candidate) => !candidate.ignored) ?? nodes[0];
+      return node?.role?.value ?? null;
+    },
+    /**
      * A real key press through the input pipeline, as an operator makes it.
      * `shift` holds Shift for the press (Shift+Tab: the browser's own reverse
      * focus navigation, which a synthetic event cannot cause).

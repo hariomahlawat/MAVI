@@ -722,3 +722,183 @@ describe('Tier B (T1): rules that reject the pre-T1 compositions and pass the de
     assert.deepEqual(fired(owned, 'ledger.scroll-ownership'), []);
   });
 });
+
+describe('Tier C (T2): rules that reject the pre-T2 compositions and pass the designed ones', () => {
+  const render = async (html, width, fn, input) => {
+    await lane.page(TOKENS + html, { width, height: 844 });
+    return lane.browser.evaluate(toExpression(fn, input));
+  };
+  const pageAt = (html, archetype = null) => render(html, 390, pageAssertions, { tier: 'C', width: 390, fullWidth: null, archetype, holds: null });
+  const workspaceAt = (html, archetype, surface = null) => render(html, 390, workspaceAssertions, { tier: 'C', width: 390, archetype, surface });
+  const messages = (result, rule) => fired(result, rule).map((f) => f.message).join('\n');
+
+  // The shell: a navigation landmark inside a rail that is a column (pre-T2)
+  // or absent, and a top-of-page control naming it (T2).
+  const SHELL = ({ railColumn = false, menu = true, menuName = 'Open navigation', actions = '' } = {}) => `
+    <div class="sidebar" style="position:absolute;left:0;top:0;bottom:0;width:56px;${railColumn ? '' : 'display:none'}">
+      <nav id="primary-nav" aria-label="Primary"><a href="#">O</a></nav>
+    </div>
+    <main id="main" style="position:absolute;left:${railColumn ? 56 : 0}px;right:0;top:0;bottom:0">
+      <div class="context-bar" style="display:flex;align-items:center;gap:8px;height:44px;padding:0 12px">
+        ${menu ? `<button class="shell__menu" aria-controls="primary-nav" aria-expanded="false" ${menuName ? `aria-label="${menuName}"` : ''} style="width:32px;height:32px;flex:none"><svg width="16" height="16"></svg></button>` : ''}
+        <nav class="context-bar__crumbs" aria-label="Breadcrumb"><ol style="display:flex;margin:0;padding:0"><li style="list-style:none">Videos</li></ol></nav>
+        <div class="context-bar__actions" style="display:flex;flex:none">${actions}</div>
+      </div>
+      <p>workspace</p>
+    </main>`;
+
+  it('tier.c-shell: fires on the pre-T2 rail column, a missing or unnamed menu control, and a Context Bar action pushed off or unlabelled', async () => {
+    const pre = messages(await pageAt(SHELL({ railColumn: true, menu: false })), 'tier.c-shell');
+    assert.match(pre, /beside a \d+px rail column/);
+    assert.match(pre, /rail is drawn \(56px\) without being the navigation overlay/);
+    assert.match(pre, /no visible control opens the navigation/);
+    assert.match(messages(await pageAt(SHELL({ menuName: '' })), 'tier.c-shell'), /menu control is unnamed/);
+    assert.match(messages(await pageAt(SHELL({ actions: '<button class="btn btn--primary" style="margin-left:400px;width:120px">Import video</button>' })), 'tier.c-shell'),
+      /action <button> "Import video" extends past the bar/);
+    assert.match(messages(await pageAt(SHELL({ actions: '<button class="btn btn--primary"><svg width="16" height="16"></svg><span class="visually-hidden">Import video</span></button>' })), 'tier.c-shell'),
+      /primary action .* has lost its visible label at Tier C/);
+    // The designed bar: the menu control, the identity, the primary with its label.
+    assert.deepEqual(fired(await pageAt(SHELL({ actions: '<button class="btn btn--primary"><svg width="16" height="16"></svg>Import video</button>' })), 'tier.c-shell'), []);
+  });
+
+  const UNSUPPORTED = ({ canvas = false, statement = true, summary = true, band = false } = {}) => `<main id="main"><div class="context-bar" style="height:44px"></div>
+    <section class="workspace workspace--workbench workspace--unsupported">
+      ${band ? '<div class="workspace__notices"><label>From <input value="2026-10-09 04:45:00"></label></div>' : ''}
+      ${canvas ? '<div class="workspace__stage"><canvas width="300" height="200"></canvas></div><div class="workspace__inspector">inspector</div>' : ''}
+      <div class="workspace__unsupported">
+        ${statement ? '<p class="workspace__unsupported-statement">Editing a scene needs a display at least 768px wide.</p>' : ''}
+        ${summary ? '<div class="panel"><dl class="kv"><dt>Camera</dt><dd>CAM-01</dd></dl></div>' : ''}
+      </div>
+    </section></main>`;
+  it('tier.c-workbench-unsupported: fires on a canvas, stage or inspector, a missing statement and a missing summary', async () => {
+    const pre = messages(await pageAt(UNSUPPORTED({ canvas: true }), 'workbench'), 'tier.c-workbench-unsupported');
+    assert.match(pre, /the editing canvas renders at Tier C/);
+    assert.match(pre, /still renders workspace__stage, workspace__inspector/);
+    assert.match(messages(await pageAt(UNSUPPORTED({ statement: false }), 'workbench'), 'tier.c-workbench-unsupported'), /no statement that the operation needs a display of at least 768px/);
+    assert.match(messages(await pageAt(UNSUPPORTED({ summary: false }), 'workbench'), 'tier.c-workbench-unsupported'), /has its statement but no read-only summary/);
+    assert.match(messages(await pageAt(UNSUPPORTED({ band: true }), 'workbench'), 'tier.c-workbench-unsupported'), /still offers 1 form control\(s\)/);
+    assert.deepEqual(fired(await pageAt(UNSUPPORTED(), 'workbench'), 'tier.c-workbench-unsupported'), []);
+  });
+
+  // A Videos-like Ledger row: identity, a secondary line, status, action.
+  const LIST = ({ list = true, badge = true, action = true, filters = 'drawer', drawerWidth = '100%' } = {}) => `
+    <style>.list tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto}.list tbody td{display:block;grid-column:1}.list tbody td:last-child{grid-column:2;grid-row:1/span 4}
+      .list thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}</style>
+    <div class="main" data-scroll="body" style="height:800px;overflow:auto">
+    <section class="workspace workspace--ledger">
+      <div class="workspace__band"><div class="toolbar-band"><div class="toolbar-band__row">
+        ${filters === 'drawer' ? '<button aria-controls="filters" aria-expanded="false">Filters</button>' : ''}
+        <div id="filters" class="toolbar-band__controls"
+          ${filters === 'open' ? `role="dialog" aria-modal="true" style="position:fixed;top:0;right:0;bottom:0;width:${drawerWidth}"` : filters === 'drawer' || filters === 'orphan' ? 'style="display:none"' : ''}>
+          <input aria-label="Filter"><select aria-label="Camera"><option>All</option></select>
+        </div>
+      </div></div></div>
+      <div class="workspace__body workspace__body--ledger"><div class="ledger-table">
+        <table class="table table--ledger ${list ? 'list' : ''}" style="width:100%">
+          <thead><tr><th>File</th><th>Camera</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody><tr>
+            <td>clip.mp4</td><td>CAM-01</td><td>${badge ? '<span class="badge">Processed</span>' : 'Processed'}</td>
+            <td>${action ? '<button>Results</button>' : ''}</td>
+          </tr></tbody>
+        </table>
+      </div></div>
+    </section></div>`;
+  it('tier.c-composition (Ledger): fires on a multi-column table, a row without status or action, inline filters, an orphaned drawer and a narrow open drawer', async () => {
+    const table = messages(await workspaceAt(LIST({ list: false }), 'ledger'), 'tier.c-composition');
+    assert.match(table, /draws a \d+px column header at Tier C/);
+    assert.match(table, /row 1 lays its values out side by side/);
+    assert.match(messages(await workspaceAt(LIST({ badge: false }), 'ledger'), 'tier.c-composition'), /row 1 shows no status/);
+    assert.match(messages(await workspaceAt(LIST({ action: false }), 'ledger'), 'tier.c-composition'), /row 1 has no reachable action/);
+    assert.match(messages(await workspaceAt(LIST({ filters: 'inline' }), 'ledger'), 'tier.c-composition'), /filters are in the band at Tier C/);
+    assert.match(messages(await workspaceAt(LIST({ filters: 'orphan' }), 'ledger'), 'tier.c-composition'), /in a drawer with no visible control to open it/);
+    assert.match(messages(await workspaceAt(LIST({ filters: 'open', drawerWidth: '300px' }), 'ledger'), 'tier.c-composition'), /open Ledger filter drawer is 300px, not the full width/);
+    assert.deepEqual(fired(await workspaceAt(LIST(), 'ledger'), 'tier.c-composition'), []);
+    assert.deepEqual(fired(await workspaceAt(LIST({ filters: 'open' }), 'ledger'), 'tier.c-composition'), []);
+  });
+
+  const OVERVIEW = ({ extra = false, countsFirst = false } = {}) => {
+    const attention = '<div class="panel attention"><div class="panel__title">Needs attention</div><ul><li>south-dock</li></ul></div>';
+    const counts = '<div class="summary-band"><a href="#">Cameras 2</a></div>';
+    return `<section class="workspace workspace--ledger-summary"><div class="workspace__body workspace__body--scroll">
+      ${countsFirst ? counts + attention : attention + counts}
+      ${extra ? '<div class="panel"><div class="panel__title">Recent tracks</div><p>rows</p></div>' : ''}
+    </div></section>`;
+  };
+  it('tier.c-composition (Overview): fires on a secondary panel and on counts before the attention list', async () => {
+    assert.match(messages(await workspaceAt(OVERVIEW({ extra: true }), 'ledger-summary'), 'tier.c-composition'), /draws 1 panel\(s\) besides the attention list at Tier C: Recent tracks/);
+    assert.match(messages(await workspaceAt(OVERVIEW({ countsFirst: true }), 'ledger-summary'), 'tier.c-composition'), /counts come before the attention list/);
+    assert.deepEqual(fired(await workspaceAt(OVERVIEW(), 'ledger-summary'), 'tier.c-composition'), []);
+  });
+
+  const RECORD = ({ order = 'primary-first', beside = false, visual = null } = {}) => {
+    const primary = '<div class="workspace__record-primary" style="height:200px">run</div>';
+    const facts = '<div class="workspace__record-facts" style="height:120px">video</div>';
+    const grid = beside ? 'display:grid;grid-template-columns:1fr 1fr' : 'display:grid;grid-template-columns:1fr';
+    // `visual` draws the regions in an order other than the document's.
+    const style = visual ? '<style>.workspace__record-facts{order:' + (visual === 'facts-first' ? -1 : 1) + '}</style>' : '';
+    return style + `<div class="main" data-scroll="page"><section class="workspace workspace--record"><div class="workspace__record-grid" style="${grid}">
+      ${order === 'facts-first' ? facts + primary : primary + facts}</div></section></div>`;
+  };
+  it('tier.c-composition (Record): fires on a rail beside the primary, the stated order not kept, and a visual order unlike the reading order', async () => {
+    assert.match(messages(await workspaceAt(RECORD({ beside: true }), 'record', 'import'), 'tier.c-composition'), /beside the primary column at Tier C/);
+    assert.match(messages(await workspaceAt(RECORD(), 'record', 'processing-detail'), 'tier.c-composition'), /carries the identity but is below the primary column/);
+    assert.match(messages(await workspaceAt(RECORD({ order: 'facts-first' }), 'record', 'import'), 'tier.c-composition'), /above the primary column, though it does not carry the identity/);
+    assert.match(messages(await workspaceAt(RECORD({ visual: 'facts-first' }), 'record', 'processing-detail'), 'tier.c-composition'), /shown in a different order from the one they are read in/);
+    assert.deepEqual(fired(await workspaceAt(RECORD({ order: 'facts-first' }), 'record', 'processing-detail'), 'tier.c-composition'), []);
+    assert.deepEqual(fired(await workspaceAt(RECORD(), 'record', 'import'), 'tier.c-composition'), []);
+  });
+
+  const SEARCH = ({ grid = false, rail = 'shut', inspectorWidth = null, results = '100%' } = {}) => `<div class="main" data-scroll="contain" style="height:800px;overflow:auto">
+    <section class="workspace workspace--investigation is-stacked">
+      <div class="workspace__investigation-grid" style="display:grid;grid-template-columns:${rail === 'flow' ? '252px 1fr' : '1fr'}">
+        <div class="workspace__rail" ${rail === 'flow' ? '' : 'style="display:none"'}>filters</div>
+        <div class="workspace__results" style="width:${results}">
+          ${grid ? '<button aria-label="Grid view">G</button><div class="track-grid">cards</div>' : '<ul><li>Track 1</li></ul>'}
+        </div>
+        ${inspectorWidth ? `<div class="workspace__inspector" role="dialog" aria-modal="true" style="position:fixed;top:0;right:0;bottom:0;width:${inspectorWidth}">inspector</div>` : ''}
+      </div></section></div>`;
+  it('tier.c-composition (Investigation): fires on grid view, partial-width results, an in-flow rail and a narrow inspector drawer', async () => {
+    const grid = messages(await workspaceAt(SEARCH({ grid: true }), 'investigation'), 'tier.c-composition');
+    assert.match(grid, /grid view is offered at Tier C/);
+    assert.match(grid, /drawn as the grid at Tier C/);
+    assert.match(messages(await workspaceAt(SEARCH({ results: '60%' }), 'investigation'), 'tier.c-composition'), /the results are \d+(\.\d)?px of a \d+(\.\d)?px working width/);
+    assert.match(messages(await workspaceAt(SEARCH({ rail: 'flow' }), 'investigation'), 'tier.c-composition'), /filter rail is in flow at Tier C/);
+    assert.match(messages(await workspaceAt(SEARCH({ inspectorWidth: '300px' }), 'investigation'), 'tier.c-composition'), /inspector drawer is 300px, not the full width/);
+    assert.deepEqual(fired(await workspaceAt(SEARCH({ inspectorWidth: '100%' }), 'investigation'), 'tier.c-composition'), []);
+  });
+
+  const REVIEW = ({ player = '100%', sticky = false, order = ['player', 'summary', 'provenance'], control = 32 } = {}) => {
+    const parts = {
+      player: `<div class="workspace__player" style="width:${player};position:${sticky ? 'sticky' : 'static'};top:0"><div style="height:200px">video</div><button style="width:${control}px;height:${control}px">Play</button></div>`,
+      summary: '<div class="panel"><div class="panel__title">Track summary</div><p>Person</p></div>',
+      provenance: '<div class="panel"><div class="panel__title">Processing provenance</div><p>run</p></div>',
+    };
+    return `<div class="main" data-scroll="page"><section class="workspace workspace--review"><div class="workspace__review-grid" style="display:grid;grid-template-columns:1fr">
+      ${order.map((part) => parts[part]).join('')}</div></section></div>`;
+  };
+  it('tier.c-composition (Review): fires on a narrow or sticky player, summary or provenance out of order, and an undersized transport control', async () => {
+    assert.match(messages(await workspaceAt(REVIEW({ player: '70%' }), 'review'), 'tier.c-composition'), /Evidence Player is \d+(\.\d)?px of a \d+(\.\d)?px working width/);
+    assert.match(messages(await workspaceAt(REVIEW({ sticky: true }), 'review'), 'tier.c-composition'), /still sticky at Tier C/);
+    assert.match(messages(await workspaceAt(REVIEW({ order: ['summary', 'player', 'provenance'] }), 'review'), 'tier.c-composition'), /Track summary is not below the Evidence Player/);
+    assert.match(messages(await workspaceAt(REVIEW({ order: ['player', 'provenance', 'summary'] }), 'review'), 'tier.c-composition'), /provenance comes before the Track summary/);
+    assert.match(messages(await workspaceAt(REVIEW({ control: 18 }), 'review'), 'tier.c-composition'), /1 Evidence Player control\(s\) under the 24px effective target/);
+    assert.deepEqual(fired(await workspaceAt(REVIEW(), 'review'), 'tier.c-composition'), []);
+  });
+});
+
+describe('Tier C Ledger semantics (T2): the list composition is still a table to assistive technology', () => {
+  it('passes a table composed as a list by CSS, and fires when the composition strips its table roles', async () => {
+    const { tierCLedgerSemantics } = await import('../semantics.mjs');
+    const table = (attrs) => `<style>.l tbody tr{display:grid}.l tbody td{display:block}.l thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}</style>
+      <table class="table table--ledger l" ${attrs}><caption>Videos</caption><thead><tr><th>File</th><th>Status</th></tr></thead>
+      <tbody><tr><td>clip.mp4</td><td>Processed</td></tr></tbody></table>`;
+    await lane.page(TOKENS + table(''), { width: 390, height: 844 });
+    const kept = await tierCLedgerSemantics(lane.browser);
+    assert.deepEqual(kept.findings, [], JSON.stringify(kept.roles));
+    await lane.page(TOKENS + table('role="presentation"'), { width: 390, height: 844 });
+    const stripped = await tierCLedgerSemantics(lane.browser);
+    assert.ok(stripped.findings.some((f) => /exposes its table as/.test(f)), JSON.stringify(stripped.roles));
+    await lane.page(TOKENS + '<p>no ledger</p>', { width: 390, height: 844 });
+    assert.equal(await tierCLedgerSemantics(lane.browser), null);
+  });
+});

@@ -27,10 +27,11 @@
  *
  * Tier policy (§26, §34.2): S5 flips the tiers below A as it implements them.
  * T1 (Tier B compositions) made every rule that judges a Tier B composition
- * `blocking` at Tier B; a rule owned by a later slice (S6's target size and
- * measurements, T3's zoom) stays measured against that owner. Until T2, every
- * rule evaluated at a Tier C anchor is `measured/pending`, so nothing blocks on
- * T2 behaviour. `validateManifest` enforces that.
+ * `blocking` at Tier B, and T2 (Tier C degradation) every rule that judges a
+ * Tier C composition `blocking` at Tier C; a rule owned by a later slice
+ * (S6's target size, journeys, motion and measurements, T3's zoom) stays
+ * measured against that owner. `validateManifest` refuses a Tier C entry still
+ * owned by T2: T2 is done or it is not.
  *
  * Surface scope (§34.2 staged conformance). A rule with `scope: 'surface'` is
  * `blocking` at Tier A, and a finding of it carries where it was found: in a
@@ -54,9 +55,9 @@ const blocking = () => ({ status: 'blocking' });
 const pending = (owner) => ({ status: 'measured/pending', owner });
 const na = (reason) => ({ status: 'not-applicable', reason });
 
-/** T1 (S5) promoted Tier B; Tier C stays non-blocking until T2 flips it. */
+/** T1 (S5) promoted Tier B; T2 (S5) promoted Tier C. */
 const B = blocking();
-const C = pending('S5 / T2 (Tier C degradation)');
+const C = blocking();
 
 /** An S1-implemented rule: blocking at the accepted tiers (A, and B from T1), pending at C. */
 const s1 = () => ({ A: blocking(), B, C });
@@ -145,7 +146,7 @@ export const RULES = {
   'shell.context-bar': { section: '§5', kind: 'assertion', summary: 'Exactly one Context Bar, 44px tall.', tiers: s1() },
   'shell.rail': {
     section: '§5, §25', kind: 'assertion', summary: 'Rail 216/56px with a 32px labelled collapse control announcing its state.',
-    tiers: { A: blocking(), B, C: na('below 760px the rail is the §25 Tier C top-of-page menu, measured by tier.c-shell (S5 / T2)') },
+    tiers: { A: blocking(), B, C: na('below 768px the rail is the §25 Tier C top-of-page menu, judged by tier.c-shell') },
   },
   'a11y.skip-link': { section: '§5, §23', kind: 'assertion', summary: 'The skip link is the first focusable element outside a modal, and its target resolves to the main landmark.', tiers: s1() },
   'a11y.landmarks': { section: '§5, §23', kind: 'assertion', summary: 'Exactly one main and one banner landmark; a named primary navigation.', tiers: s1() },
@@ -154,7 +155,7 @@ export const RULES = {
   'harness.focus-coverage': { section: '§26', kind: 'assertion', summary: 'Every discovered control is focus-checked or skipped for a named reason.', tiers: s1() },
 
   // --- Overlays (S1c, §15, §20) ------------------------------------------------
-  'overlay.dialog': { section: '§15, §23', kind: 'assertion', summary: 'An open Dialog is a named modal dialog holding focus, with everything else inert and nothing outside it focusable.', tiers: s1() },
+  'overlay.dialog': { section: '§15, §23', kind: 'assertion', summary: 'An open Dialog is a named modal dialog holding focus, with everything else inert and nothing outside it focusable.', tiers: { A: blocking(), B, C: na("no capture can reach a Dialog at Tier C: the product's Dialogs are the Scene Editor's, whose editor is the unsupported state there, and its leave guard is reached only by carrying a dirty draft across 768px, which SceneEditorPage.test.tsx proves instead") } },
   'overlay.drawer': { section: '§20, §23', kind: 'assertion', summary: 'An overlay drawer is a named modal dialog holding focus over an inert workspace; an in-place inspector claims no modality.', tiers: s1() },
 
   // --- Archetypes (§4; UI-2..UI-5 and S1d) -----------------------------------
@@ -168,7 +169,10 @@ export const RULES = {
     tiers: s1(),
   },
   'ledger.loading-geometry': { section: '§36.3, §38', kind: 'assertion', summary: 'A loading Ledger reserves the table header and its first skeleton row lands where the first body row arrives.', tiers: s1() },
-  'ledger.row-pitch': { section: '§16, §10', kind: 'assertion', summary: 'Every visible Ledger data row measures 36-40px.', tiers: s1() },
+  'ledger.row-pitch': {
+    section: '§16, §10', kind: 'assertion', summary: 'Every visible Ledger data row measures 36-40px.',
+    tiers: { A: blocking(), B, C: na('a Tier C Ledger is the §25 single-column list, whose item is several lines by design; tier.c-composition judges it') },
+  },
   'ledger.row-primary': { section: '§8.1, §16', kind: 'assertion', summary: 'No Ledger row carries an accent-filled primary.', tiers: s1() },
   // M1 (S4): §25's "no clipped or unreachable control" for Ledger rows. The
   // body may scroll sideways (§4.1); an action is unreachable only where no
@@ -194,11 +198,17 @@ export const RULES = {
     tiers: { A: blocking(), B: na(TIER_A_ONLY), C: na(TIER_A_ONLY) },
   },
   'record.scroll-ownership': { section: '§4.2', kind: 'assertion', summary: 'A Record gives the page the scroll and has its primary/facts grid.', tiers: s1() },
-  'investigation.geometry': { section: '§4.4', kind: 'assertion', summary: 'Rail 252px, results 560-900px, inspector in place or drawer as the layout declares.', tiers: s1() },
+  'investigation.geometry': { section: '§4.4', kind: 'assertion', summary: 'Rail 252px, results 560-900px, inspector in place or drawer as the layout declares.', tiers: { A: blocking(), B, C: na('the 252px rail beside the results is the composition above 1100px; at Tier C tier.c-composition judges the full-width list and its full-width drawers') } },
   'investigation.scroll-ownership': { section: '§4.4', kind: 'assertion', summary: 'Rail and results scroll independently; the page does not.', tiers: s1() },
-  'workbench.geometry': { section: '§4.3.1', kind: 'assertion', summary: 'Stage at least 65% of the working width; inspector 300-360px.', tiers: s1() },
-  'workbench.scroll-ownership': { section: '§4.3.2', kind: 'assertion', summary: 'No page scroll; only the inspector body scrolls.', tiers: s1() },
-  'review.composition': { section: '§4.5, §25', kind: 'assertion', summary: 'Player at least 65% (70% ultra-wide) and the player and summary start in the initial viewport.', tiers: s1() },
+  'workbench.geometry': {
+    section: '§4.3.1', kind: 'assertion', summary: 'Stage at least 65% of the working width; inspector 300-360px.',
+    tiers: { A: blocking(), B, C: na('below 768px the Workbench renders no stage or inspector (§25), which tier.c-workbench-unsupported judges') },
+  },
+  'workbench.scroll-ownership': {
+    section: '§4.3.2', kind: 'assertion', summary: 'No page scroll; only the inspector body scrolls.',
+    tiers: { A: blocking(), B, C: na('below 768px the Workbench is its unsupported state, read down the page like a Record (§25)') },
+  },
+  'review.composition': { section: '§4.5, §25', kind: 'assertion', summary: 'Player at least 65% (70% ultra-wide) and the player and summary start in the initial viewport.', tiers: { A: blocking(), B, C: na('the player share and the summary in view are the side-by-side composition above 1100px (§4.5.1); at Tier C tier.c-composition judges the full-width player, then the summary, then provenance') } },
   'review.sticky-declared': { section: '§4.5.1', kind: 'assertion', summary: 'The player column is declared sticky side by side and released when stacked.', tiers: s1() },
   'review.timeline': { section: '§18', kind: 'assertion', summary: 'One timeline; its evidence visible to assistive technology; zone and overflow lanes within their caps; fixed dense controls; usable, non-overlapping markers.', tiers: s1() },
   'review.analytical-geometry': { section: '§18', kind: 'assertion', summary: 'Analytical shapes inside the content rectangle; direction cues perpendicular, arrowed and labelled; no native controls.', tiers: s1() },
@@ -213,11 +223,11 @@ export const RULES = {
     section: '§4.5.1, §36.3', kind: 'assertion',
     summary: 'After the page scrolls, the Evidence Player is still in the viewport and clear of the Context Bar (rendered, not only declared).',
     // R6 (S3e) fixed the rendered pin and flipped this to blocking at Tier A.
-    tiers: { A: blocking(), B, C },
+    tiers: { A: blocking(), B, C: na('the pin is released at 1100px and below (§4.5.1); at Tier C tier.c-composition asserts the player is not sticky') },
   },
   // Owned by S6/X1 at every tier, as at Tier A: a canvas handle and a dense
   // checkbox are legitimately small until S6 settles the exceptions.
-  'a11y.target-size': { section: '§10.1, §23', kind: 'assertion', summary: 'Pointer targets at least 24x24 wherever practical.', tiers: { A: pending('S6 / X1'), B: pending('S6 / X1'), C } },
+  'a11y.target-size': { section: '§10.1, §23', kind: 'assertion', summary: 'Pointer targets at least 24x24 wherever practical.', tiers: { A: pending('S6 / X1'), B: pending('S6 / X1'), C: pending('S6 / X1') } },
   'tier.b-shell': {
     section: '§25 (Tier B shell)', kind: 'assertion',
     summary: 'At Tier B the rail never takes the workspace\'s width (collapsed by default, expanded only as the modal overlay), its control stays visible and labelled, and the Context Bar\'s actions stay inside it with the primary keeping its label.',
@@ -243,12 +253,18 @@ export const RULES = {
     tiers: { A: na('a Tier B composition rule'), B, C: na('a Tier B composition rule') },
   },
   'tier.c-shell': {
-    section: '§25 (Tier C shell)', kind: 'assertion', summary: 'At Tier C the rail is not a column beside the content: the content takes the viewport width.',
+    section: '§25 (Tier C shell), §5', kind: 'assertion',
+    summary: 'At Tier C the content takes the viewport width, the rail exists only as the overlay, a visible, named 32px control at the top of the page opens the navigation, and the Context Bar keeps a readable identity and every action inside it with the primary labelled.',
+    tiers: { A: na('a Tier C composition rule'), B: na('a Tier C composition rule'), C },
+  },
+  'tier.c-composition': {
+    section: '§25 (Tier C compositions), §4.2, §20', kind: 'assertion',
+    summary: 'At Tier C each archetype renders its narrow composition: a Ledger is a single-column list with identity, status and a reachable action, its filters in a drawer; the Overview is attention then counts; a Record stacks its facts in the stated order; Search is the full-width list with full-width drawers and no grid; Review is the full-width player, then the summary, then provenance, its transport at 24px.',
     tiers: { A: na('a Tier C composition rule'), B: na('a Tier C composition rule'), C },
   },
   'tier.c-workbench-unsupported': {
     section: '§25 (Tier C Workbench)', kind: 'assertion',
-    summary: 'At Tier C a Workbench renders no editing canvas and states that editing needs at least 768px.',
+    summary: 'At Tier C a Workbench renders no canvas, stage, inspector or mode strip, states that it needs at least 768px, and shows a read-only summary.',
     tiers: { A: na('a Tier C composition rule'), B: na('a Tier C composition rule'), C },
   },
 
@@ -327,7 +343,8 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
       if (at.status === 'measured/pending' && !at.owner) problems.push(`${id} @ ${tier}: measured/pending without an owning slice`);
       if (at.status === 'not-applicable' && !at.reason) problems.push(`${id} @ ${tier}: not-applicable without a reason`);
       // §26 / §34.2: Tier C blocks nothing until T2 flips it (T1 flipped B).
-      if (tier === 'C' && at.status === 'blocking') problems.push(`${id} @ ${tier}: blocking at Tier C before T2`);
+      // T2 merged: no Tier C entry may still wait on it.
+      if (tier === 'C' && at.status === 'measured/pending' && /T2/.test(at.owner ?? '')) problems.push(`${id} @ ${tier}: still owned by T2 after T2`);
     }
     if (entry.kind !== 'assertion' && Object.values(entry.tiers ?? {}).some((at) => at.status === 'blocking')) {
       problems.push(`${id}: a ${entry.kind} rule cannot block`);

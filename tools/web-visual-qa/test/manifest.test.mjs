@@ -85,9 +85,10 @@ describe('the assertion manifest', () => {
     for (const rule of ['text.overflow', 'containment.depth']) assert.equal(severityOf(rule, 'A', 'foundation').status, 'blocking', rule);
   });
 
-  it('blocks Tier B from T1, nothing at Tier C before T2, and names the owner of what it measures', () => {
-    // T1 (S5) promoted every rule that judges a Tier B composition; a rule a
-    // later slice owns at Tier A stays measured against that owner at Tier B.
+  it('blocks Tier B from T1 and Tier C from T2, and names the owner of what it measures', () => {
+    // T1 (S5) promoted every rule that judges a Tier B composition, and T2 every
+    // rule that judges a Tier C one; a rule a later slice owns at Tier A stays
+    // measured against that owner at Tiers B and C.
     const laterOwned = new Set(['a11y.target-size', 'perf.cls', 'perf.long-tasks', 'typography.resolved-font',
       'a11y.zoom-200', 'a11y.reduced-motion', 'a11y.keyboard-journeys', 'a11y.section23-remaining']);
     for (const [rule, entry] of Object.entries(RULES)) {
@@ -98,22 +99,30 @@ describe('the assertion manifest', () => {
       } else if (atB.status !== 'not-applicable') {
         assert.equal(atB.status, 'blocking', `${rule} @ B is T1's and blocks`);
       }
-      // No rule is left owned by T1: T1 is done or it is not.
-      for (const tier of ['B', 'C']) assert.doesNotMatch(entry.tiers[tier].owner ?? '', /T1/, `${rule} @ ${tier} still owned by T1`);
+      // No rule is left owned by T1 or T2: each is done or it is not.
+      for (const tier of ['B', 'C']) assert.doesNotMatch(entry.tiers[tier].owner ?? '', /T1|T2/, `${rule} @ ${tier} still owned by T1 or T2`);
       const atC = entry.tiers.C;
-      assert.notEqual(atC.status, 'blocking', `${rule} blocks at Tier C`);
-      if (atC.status === 'measured/pending') assert.match(atC.owner, /S[1-7]/, `${rule} @ C owner`);
+      if (laterOwned.has(rule)) {
+        assert.equal(atC.status, 'measured/pending', `${rule} @ C stays its owner's`);
+        assert.match(atC.owner, /S6|T3/, `${rule} @ C owner`);
+      } else if (atC.status !== 'not-applicable') {
+        assert.equal(atC.status, 'blocking', `${rule} @ C is T2's and blocks`);
+      } else {
+        assert.ok(atC.reason, `${rule} @ C not-applicable without a reason`);
+      }
     }
     // The Tier B composition rules exist, block at B and only apply there.
     for (const rule of ['tier.b-shell', 'tier.b-composition']) {
       assert.equal(RULES[rule].tiers.B.status, 'blocking', rule);
       for (const tier of ['A', 'C']) assert.equal(RULES[rule].tiers[tier].status, 'not-applicable', `${rule} @ ${tier}`);
     }
-    // The Ledger fold (Codex P1 on #199): blocks at A (nothing folds) and B,
-    // measured at C for T2.
-    assert.equal(RULES['ledger.column-fold'].tiers.A.status, 'blocking');
-    assert.equal(RULES['ledger.column-fold'].tiers.B.status, 'blocking');
-    assert.equal(RULES['ledger.column-fold'].tiers.C.status, 'measured/pending');
+    // The Tier C composition rules exist, block at C and only apply there.
+    for (const rule of ['tier.c-shell', 'tier.c-composition', 'tier.c-workbench-unsupported']) {
+      assert.equal(RULES[rule].tiers.C.status, 'blocking', rule);
+      for (const tier of ['A', 'B']) assert.equal(RULES[rule].tiers[tier].status, 'not-applicable', `${rule} @ ${tier}`);
+    }
+    // The Ledger fold (Codex P1 on #199): blocks at every tier.
+    for (const tier of ['A', 'B', 'C']) assert.equal(RULES['ledger.column-fold'].tiers[tier].status, 'blocking', tier);
   });
 
   it('keeps the later-slice rules measured with their owners named', () => {
@@ -122,10 +131,10 @@ describe('the assertion manifest', () => {
     assert.match(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).owner, /R1/);
   });
 
-  it('blocks the rendered Review pin at Tier A (R6) and Tier B (T1), not yet at Tier C', () => {
-    assert.equal(severityOf('review.sticky-rendered', 'A').status, 'blocking');
-    assert.equal(severityOf('review.sticky-rendered', 'B').status, 'blocking');
-    assert.equal(severityOf('review.sticky-rendered', 'C').status, 'measured/pending');
+  it('blocks the rendered Review pin at Tier A (R6) and Tier B (T1); at Tier C the pin is released and tier.c-composition says so', () => {
+    for (const tier of ['A', 'B']) assert.equal(severityOf('review.sticky-rendered', tier).status, 'blocking', tier);
+    assert.equal(severityOf('review.sticky-rendered', 'C').status, 'not-applicable');
+    assert.match(severityOf('review.sticky-rendered', 'C').reason, /tier\.c-composition/);
   });
 
   it('rejects an invalid severity', () => {
@@ -147,14 +156,14 @@ describe('the assertion manifest', () => {
     assert.ok(problems.some((p) => p.includes('without an owning slice')));
   });
 
-  it('rejects a blocking rule at Tier C before T2, and a measurement that blocks', () => {
+  it('rejects a Tier C entry still owned by T2, and a measurement that blocks', () => {
     const rules = clone();
-    rules['ledger.row-pitch'].tiers.C = { status: 'blocking' };
+    rules['page.text-overlap'].tiers.C = { status: 'measured/pending', owner: 'S5 / T2 (Tier C degradation)' };
     rules['perf.cls'].tiers.A = { status: 'blocking' };
     const problems = validateManifest(rules);
-    assert.ok(problems.some((p) => p.includes('ledger.row-pitch @ C: blocking at Tier C before T2')));
+    assert.ok(problems.some((p) => p.includes('page.text-overlap @ C: still owned by T2 after T2')));
     assert.ok(problems.some((p) => p.includes('perf.cls: a measurement rule cannot block')));
-    // Tier B blocking is T1's policy now, and valid.
+    // Tier B blocking (T1) and Tier C blocking (T2) are the policy now, and valid.
     assert.deepEqual(validateManifest(RULES), []);
   });
 
@@ -191,9 +200,9 @@ describe('the assertion manifest', () => {
       const total = Object.values(summary.byTier[tier]).reduce((a, b) => a + b, 0);
       assert.equal(total, summary.rules);
     }
-    // T1: Tier B blocks on every composition rule; Tier C on nothing yet.
+    // T1: Tier B blocks on every composition rule; T2: so does Tier C.
     assert.ok(summary.byTier.B.blocking >= 30, `only ${summary.byTier.B.blocking} rules block at Tier B`);
-    assert.equal(summary.byTier.C.blocking, 0);
+    assert.ok(summary.byTier.C.blocking >= 30, `only ${summary.byTier.C.blocking} rules block at Tier C`);
   });
 });
 
@@ -228,36 +237,36 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     }
   });
 
-  it('blocks the accepted Scene Editor at Tier A on its own, and at Tier B from T1, not yet at Tier C (R4)', () => {
+  it('blocks the accepted Scene Editor at Tier A on its own, and at Tier B from T1, and at Tier C from T2 (R4)', () => {
     assert.equal(SURFACES['scene-editor'].accepted, true);
     for (const rule of ['containment.depth', 'text.overflow']) {
       assert.equal(severityOf(rule, 'A', 'scene-editor').status, 'blocking', rule);
       assert.equal(severityOf(rule, 'B', 'scene-editor').status, 'blocking', `${rule} @ B (T1)`);
-      assert.equal(severityOf(rule, 'C', 'scene-editor').status, 'measured/pending', `${rule} @ C`);
+      assert.equal(severityOf(rule, 'C', 'scene-editor').status, 'blocking', `${rule} @ C`);
     }
     // A surface that is not accepted is still measured against its own row.
     assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).status, 'measured/pending');
     assert.equal(surfaceOf('/cameras/abc/scene'), 'scene-editor');
   });
 
-  it('blocks the accepted Search at Tier A on its own, and at Tier B from T1, not yet at Tier C (R5)', () => {
+  it('blocks the accepted Search at Tier A on its own, and at Tier B from T1, and at Tier C from T2 (R5)', () => {
     assert.equal(SURFACES.search.accepted, true);
     for (const rule of ['containment.depth', 'text.overflow']) {
       assert.equal(severityOf(rule, 'A', 'search').status, 'blocking', rule);
       assert.equal(severityOf(rule, 'B', 'search').status, 'blocking', `${rule} @ B (T1)`);
-      assert.equal(severityOf(rule, 'C', 'search').status, 'measured/pending', `${rule} @ C`);
+      assert.equal(severityOf(rule, 'C', 'search').status, 'blocking', `${rule} @ C`);
     }
     // A surface that is not accepted is still measured against its own row.
     assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).status, 'measured/pending');
     assert.equal(surfaceOf('/search'), 'search');
   });
 
-  it('blocks the accepted Review at Tier A on its own, and at Tier B from T1, not yet at Tier C (R6)', () => {
+  it('blocks the accepted Review at Tier A on its own, and at Tier B from T1, and at Tier C from T2 (R6)', () => {
     assert.equal(SURFACES.review.accepted, true);
     for (const rule of ['containment.depth', 'text.overflow']) {
       assert.equal(severityOf(rule, 'A', 'review').status, 'blocking', rule);
       assert.equal(severityOf(rule, 'B', 'review').status, 'blocking', `${rule} @ B (T1)`);
-      assert.equal(severityOf(rule, 'C', 'review').status, 'measured/pending', `${rule} @ C`);
+      assert.equal(severityOf(rule, 'C', 'review').status, 'blocking', `${rule} @ C`);
     }
     // Its acceptance promotes nothing else: not the R1-R3 rows, whose
     // promotion is the separate governance change recorded under R4.
@@ -266,12 +275,12 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     assert.equal(severityOf('containment.depth', 'A', 'overview', { surfaces }).status, 'measured/pending');
   });
 
-  it('blocks the accepted Cameras Ledger at Tier A on its own, and at Tier B from T1, not yet at Tier C (M1)', () => {
+  it('blocks the accepted Cameras Ledger at Tier A on its own, and at Tier B from T1, and at Tier C from T2 (M1)', () => {
     assert.equal(SURFACES.cameras.accepted, true);
     for (const rule of ['containment.depth', 'text.overflow']) {
       assert.equal(severityOf(rule, 'A', 'cameras').status, 'blocking', rule);
       assert.equal(severityOf(rule, 'B', 'cameras').status, 'blocking', `${rule} @ B (T1)`);
-      assert.equal(severityOf(rule, 'C', 'cameras').status, 'measured/pending', `${rule} @ C`);
+      assert.equal(severityOf(rule, 'C', 'cameras').status, 'blocking', `${rule} @ C`);
     }
     // Its acceptance promotes nothing else: not the R1-R3 rows, whose
     // promotion is the separate governance change recorded under R4. Camera
@@ -291,7 +300,7 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     assert.equal(overview.status, 'measured/pending');
     assert.match(overview.owner, /R1/);
     assert.equal(severityOf('ledger.actions-reachable', 'B', 'cameras').status, 'blocking');
-    assert.equal(severityOf('ledger.actions-reachable', 'C', 'cameras').status, 'measured/pending');
+    assert.equal(severityOf('ledger.actions-reachable', 'C', 'cameras').status, 'blocking');
   });
 
   it('scopes "the Camera columns fit" to Cameras at Tier A, not to every Ledger (M1, §4.1)', () => {
@@ -302,12 +311,12 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     assert.equal(RULES['ledger.actions-in-view'], undefined);
   });
 
-  it('blocks the accepted Processing queue at Tier A on its own, and at Tier B from T1, not yet at Tier C (M2)', () => {
+  it('blocks the accepted Processing queue at Tier A on its own, and at Tier B from T1, and at Tier C from T2 (M2)', () => {
     assert.equal(SURFACES['processing-queue'].accepted, true);
     for (const rule of ['containment.depth', 'text.overflow', 'ledger.actions-reachable']) {
       assert.equal(severityOf(rule, 'A', 'processing-queue').status, 'blocking', rule);
       assert.equal(severityOf(rule, 'B', 'processing-queue').status, 'blocking', `${rule} @ B (T1)`);
-      assert.match(severityOf(rule, 'C', 'processing-queue').owner, /T2/, `${rule} @ C`);
+      assert.equal(severityOf(rule, 'C', 'processing-queue').status, 'blocking', `${rule} @ C`);
     }
     // Its acceptance promotes nothing else, and adds no Queue column-fit rule:
     // the Queue fits its frame by construction, and §4.1 lets a Ledger scroll.
@@ -318,12 +327,12 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     assert.equal(surfaceOf('/processing'), 'processing-queue');
   });
 
-  it('blocks the accepted Import Record at Tier A on its own, and at Tier B from T1, not yet at Tier C (M3)', () => {
+  it('blocks the accepted Import Record at Tier A on its own, and at Tier B from T1, and at Tier C from T2 (M3)', () => {
     assert.equal(SURFACES.import.accepted, true);
     for (const rule of ['containment.depth', 'text.overflow']) {
       assert.equal(severityOf(rule, 'A', 'import').status, 'blocking', rule);
       assert.equal(severityOf(rule, 'B', 'import').status, 'blocking', `${rule} @ B (T1)`);
-      assert.match(severityOf(rule, 'C', 'import').owner, /T2/, `${rule} @ C`);
+      assert.equal(severityOf(rule, 'C', 'import').status, 'blocking', `${rule} @ C`);
     }
     // Its acceptance promotes nothing else: not the R1–R3 rows, whose
     // promotion is the separate governance change.
@@ -333,12 +342,12 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     assert.equal(surfaceOf('/import'), 'import');
   });
 
-  it('blocks the accepted Camera Analytics Workbench at Tier A on its own, and at Tier B from T1, not yet at Tier C (M4)', () => {
+  it('blocks the accepted Camera Analytics Workbench at Tier A on its own, and at Tier B from T1, and at Tier C from T2 (M4)', () => {
     assert.equal(SURFACES['camera-analytics'].accepted, true);
     for (const rule of ['containment.depth', 'text.overflow', 'ledger.actions-reachable']) {
       assert.equal(severityOf(rule, 'A', 'camera-analytics').status, 'blocking', rule);
       assert.equal(severityOf(rule, 'B', 'camera-analytics').status, 'blocking', `${rule} @ B (T1)`);
-      assert.match(severityOf(rule, 'C', 'camera-analytics').owner, /T2/, `${rule} @ C`);
+      assert.equal(severityOf(rule, 'C', 'camera-analytics').status, 'blocking', `${rule} @ C`);
     }
     // With M4 every S4 surface migration is accepted ...
     for (const s4 of ['cameras', 'processing-queue', 'import', 'camera-analytics']) assert.equal(SURFACES[s4].accepted, true, s4);
@@ -360,11 +369,13 @@ describe('surface scope (V1: S1 blocking, unmigrated surfaces measured against t
     assert.equal(severityOf('containment.depth', 'A', 'processing-detail', { surfaces: promoted }).status, 'measured/pending');
   });
 
-  it('never lets a surface status soften a finding in an S1 region, nor promote anything at Tier C', () => {
+  it('never lets a surface status soften a finding in an S1 region, and blocks at Tier C only where the surface is accepted', () => {
     for (const surfaces of [SURFACES, accepted('search', 'review')]) {
       assert.equal(severityOf('containment.depth', 'A', 'foundation', { surfaces }).status, 'blocking');
-      assert.equal(severityOf('containment.depth', 'C', 'search', { surfaces }).status, 'measured/pending');
+      assert.equal(severityOf('containment.depth', 'C', 'search', { surfaces }).status, 'blocking');
     }
+    // T2: an unaccepted surface's finding is still measured against its row at Tier C.
+    assert.equal(severityOf('containment.depth', 'C', 'search', { surfaces: notAccepted('search') }).status, 'measured/pending');
     // At Tier B a surface-scoped finding blocks on an accepted surface (T1) and
     // is still measured against its row on one that is not.
     assert.equal(severityOf('containment.depth', 'B', 'search').status, 'blocking');

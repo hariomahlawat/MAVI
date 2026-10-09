@@ -86,10 +86,14 @@ describe('state applicability', () => {
     for (const state of variants) {
       assert.match(state.name, /-wide-font$/, state.name);
       assert.match(state.prepare, /throw new Error\('the rendered typography is not wide enough/, state.name);
-      // Its base state is swept at every tier.
+      // Its base state is swept at every tier at which it can be put in that
+      // state: Tiers A and B always; Tier C unless its own policy says why
+      // not (a Workbench variant is the unsupported state there, T2).
       const base = STATES.find((s) => s.name === state.name.replace(/-wide-font$/, ''));
       assert.ok(base, `${state.name} has no base state`);
-      assert.deepEqual(TIER_POLICIES[base.tierPolicy ?? 'all-tiers'].tiers, ['A', 'B', 'C'], state.name);
+      const policy = TIER_POLICIES[base.tierPolicy ?? 'all-tiers'];
+      for (const tier of ['A', 'B']) assert.ok(policy.tiers.includes(tier), `${state.name}: base not swept at ${tier}`);
+      if (!policy.tiers.includes('C')) assert.ok(policy.excluded.C, `${state.name}: base excluded at C without a reason`);
     }
   });
 
