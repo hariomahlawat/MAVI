@@ -476,6 +476,38 @@ describe('VideoImportPage — M3 Record conformance', () => {
     await waitFor(() => expect(importVideo).toHaveBeenCalledWith(expect.objectContaining({ cameraId: other.id })));
   });
 
+  it('keeps a withdrawn camera refused when a later refresh fails over the newer inventory (degraded, Codex P2)', async () => {
+    const user = userEvent.setup();
+    const other = { ...camera, id: '018f3f5a-2f70-7a2b-8a12-2d02f4c21499', code: 'CAM-02', name: 'South Dock' };
+    vi.mocked(listCameras).mockResolvedValue([camera, other]);
+    const { queryClient } = renderWithApp(<VideoImportPage />);
+    await fill(user);
+
+    // A refresh withdraws CAM-01; the next one fails, keeping that newer list.
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }, other]);
+    await queryClient.refetchQueries({ queryKey: queryKeys.cameras });
+    await screen.findByText('The selected camera is no longer active. Select another.');
+    vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
+    await queryClient.refetchQueries({ queryKey: queryKeys.cameras }).catch(() => undefined);
+    expect(await screen.findByText('Showing the last known camera inventory; refreshing failed.', {}, { timeout: 4000 })).toBeInTheDocument();
+
+    // Still withdrawn, still refused.
+    expect(screen.getByText('The selected camera is no longer active. Select another.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Import and process' }));
+    expect(importVideo).not.toHaveBeenCalled();
+  });
+
+  it('keeps the no-active-camera block at depth one when a refresh fails over it (degraded, §11)', async () => {
+    vi.mocked(listCameras).mockResolvedValue([{ ...camera, isActive: false }]);
+    const { queryClient } = renderWithApp(<VideoImportPage />);
+    await screen.findByText('No active camera to import against');
+    vi.mocked(listCameras).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Camera store unavailable.' }));
+    await queryClient.refetchQueries({ queryKey: queryKeys.cameras }).catch(() => undefined);
+    expect(await screen.findByText('Showing the last known camera inventory; refreshing failed.', {}, { timeout: 4000 })).toBeInTheDocument();
+    const block = screen.getByText('No active camera to import against').closest('.empty--hatched') as HTMLElement;
+    expect(block.closest('.panel')).toBeNull();
+  });
+
   it('states each fact once: the timezone beside its field, the file limits in the rail (§24, §30)', async () => {
     const user = userEvent.setup();
     renderWithApp(<VideoImportPage />);

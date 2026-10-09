@@ -164,7 +164,10 @@ export default function VideoImportPage() {
   // chosen and then deactivated (or removed) is no longer an option, so the
   // select would show its placeholder while the draft still named it and a
   // submit sent it anyway. The draft is kept; the field says what changed.
-  const cameraWithdrawn = cameraId !== '' && cameras.isSuccess && !selectedCamera;
+  // Judged by the inventory on hand, not the request's status: a refresh that
+  // fails after one that withdrew the camera keeps the newer list (degraded,
+  // §14.1), and the camera is still gone.
+  const cameraWithdrawn = cameraId !== '' && cameras.data !== undefined && !selectedCamera;
   const errors = {
     camera: cameraWithdrawn
       ? 'The selected camera is no longer active. Select another.'
@@ -186,8 +189,10 @@ export default function VideoImportPage() {
 
   // Three different answers, and §14 refuses to let them look alike: the
   // request is in flight, the request failed, or the request succeeded and the
-  // deployment genuinely has no camera that can receive media.
-  const blocked = cameras.isSuccess && activeCameras.length === 0;
+  // deployment genuinely has no camera that can receive media — which stays
+  // true when a later refresh fails over that inventory (degraded): the block
+  // is still the region itself (§11), with the refresh failure stated above it.
+  const blocked = cameras.data !== undefined && activeCameras.length === 0;
 
   /**
    * Dirty is a comparison against what the form started as (§21), not a flag
