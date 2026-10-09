@@ -1,21 +1,27 @@
 import type { AnalyticsAggregateResponse } from '../../api/analytics';
 import KeyValue from '../../shared/components/KeyValue';
-import Panel from '../../shared/components/Panel';
 import { formatCount } from '../../shared/format/format';
 import { formatDateTime } from '../../shared/time/time';
 import { engineLabel, shortId } from '../../shared/evidence/analyticsLabels';
 import CoverageStrip from '../../shared/evidence/CoverageStrip';
 import ActivityTable from './ActivityTable';
+import { revisionNames } from './HeatmapInspector';
 import { METRICS, type ActivityReading } from './analyticsState';
 
 /**
- * What the selected metric means and what it totalled over the window.
+ * What the selected metric totalled over the window, how far to trust it, and
+ * where it came from — in that order (§37.2, F23).
  *
- * The counting definition is shown, not linked or hidden behind a tooltip: the
- * difference between "entries" and "distinct Tracks" changes what an operator
- * concludes, and every metric here has at least one plausible wrong reading.
- * Where a figure is not additive the inspector says so in the same breath,
- * because the next thing a reader does with a column of numbers is add it up.
+ * One inspector, sections inside it rather than panels inside it (§11): the
+ * Workbench inspector is the one contained surface, as the Scene Editor's is.
+ *
+ * Tier 1 is the figures and, beside them, the one qualification a reader acts
+ * on before anything else — "Not additive", because the next thing anyone does
+ * with a column of numbers is add it up. Tier 2 is the counting definition and
+ * the coverage: the definition one disclosure away (its sentence is the
+ * table's caption too), the coverage always in view, because it is the
+ * difference between an observation and an absence of one. Tier 3 is the
+ * provenance — revision, engine, window, bucket count — closed.
  */
 export default function ActivityInspector({
   response,
@@ -29,9 +35,13 @@ export default function ActivityInspector({
   const descriptor = reading ? METRICS[reading.metric] : null;
 
   return (
-    <>
+    <div className="analytics-inspector">
       {reading && descriptor ? (
-        <Panel title={descriptor.label} description={reading.subjectLabel ?? undefined}>
+        <section className="analytics-section" aria-label={descriptor.label}>
+          <h3 className="analytics-section__title">
+            {descriptor.label}
+            {reading.subjectLabel ? <span className="analytics-section__subject">{reading.subjectLabel}</span> : null}
+          </h3>
           <KeyValue
             items={reading.windowFigures.map((figure) => ({
               label: figure.label,
@@ -42,41 +52,44 @@ export default function ActivityInspector({
                   : formatCount(figure.value),
             }))}
           />
-          {/*
-            The tag is the cue; the definition is the reason. Repeating the
-            reason as a second paragraph would only teach a reader to skip both.
-          */}
           {!descriptor.additive ? <p className="analytics-inspector__caution">Not additive</p> : null}
-          <p className="analytics-inspector__definition">{descriptor.definition}</p>
-        </Panel>
+          <details className="disclosure">
+            <summary>How this is counted</summary>
+            <p className="analytics-inspector__definition disclosure__body">{descriptor.definition}</p>
+          </details>
+        </section>
       ) : null}
+
+      <CoverageStrip coverage={response.coverage} geometry={revisionNames(response.sceneRevisionNumber)} scopeNoun="time window" />
+
+      <details className="disclosure">
+        <summary>Provenance</summary>
+        <div className="disclosure__body">
+          <KeyValue
+            items={[
+              {
+                label: 'Scene revision',
+                value: response.sceneRevisionId === null
+                  ? 'No scene configured'
+                  : response.sceneRevisionNumber !== null
+                    ? `Revision ${response.sceneRevisionNumber}`
+                    : shortId(response.sceneRevisionId),
+              },
+              { label: 'Engine', value: engineLabel(response.algorithmVersion) },
+              { label: 'Window', value: `${formatDateTime(response.fromUtc, displayTimeZoneId)} — ${formatDateTime(response.toUtc, displayTimeZoneId)}` },
+              { label: 'Buckets', value: formatCount(response.buckets.length) },
+              ...(response.objectClass ? [{ label: 'Object class', value: response.objectClass }] : []),
+            ]}
+          />
+        </div>
+      </details>
 
       {reading ? (
-        <Panel title="By bucket" body="flush">
+        <section className="analytics-section" aria-label="By bucket">
+          <h3 className="analytics-section__title">By bucket</h3>
           <ActivityTable reading={reading} displayTimeZoneId={displayTimeZoneId} />
-        </Panel>
+        </section>
       ) : null}
-
-      <Panel title="Provenance">
-        <KeyValue
-          items={[
-            {
-              label: 'Scene revision',
-              value: response.sceneRevisionId === null
-                ? 'No scene configured'
-                : response.sceneRevisionNumber !== null
-                  ? `Revision ${response.sceneRevisionNumber}`
-                  : shortId(response.sceneRevisionId),
-            },
-            { label: 'Engine', value: engineLabel(response.algorithmVersion) },
-            { label: 'Window', value: `${formatDateTime(response.fromUtc, displayTimeZoneId)} — ${formatDateTime(response.toUtc, displayTimeZoneId)}` },
-            { label: 'Buckets', value: formatCount(response.buckets.length) },
-            ...(response.objectClass ? [{ label: 'Object class', value: response.objectClass }] : []),
-          ]}
-        />
-      </Panel>
-
-      <CoverageStrip coverage={response.coverage} scopeNoun="time window" />
-    </>
+    </div>
   );
 }

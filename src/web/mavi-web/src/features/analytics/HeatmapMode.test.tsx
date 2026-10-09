@@ -7,6 +7,7 @@ import {
   type AnalyticsHeatmapResponse,
 } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
+import { getCameraScene, type CameraScene } from '../../api/scene';
 import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import type { AnalyticsCoverage } from '../../api/tracks';
@@ -15,6 +16,10 @@ import AnalyticsPage from './AnalyticsPage';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
+vi.mock('../../api/scene', async () => {
+  const actual = await vi.importActual<typeof import('../../api/scene')>('../../api/scene');
+  return { ...actual, getCameraScene: vi.fn() };
+});
 vi.mock('../../api/analytics', async () => {
   const actual = await vi.importActual<typeof import('../../api/analytics')>('../../api/analytics');
   return { ...actual, getAnalyticsAggregates: vi.fn(), getAnalyticsHeatmap: vi.fn() };
@@ -68,6 +73,19 @@ function map(overrides: Partial<AnalyticsHeatmapResponse> = {}): AnalyticsHeatma
   };
 }
 
+/** The camera's scene, with the answer's revision enabling analytics or not. */
+function sceneWith(revisionId: string, analyticsEnabled: boolean): CameraScene {
+  return {
+    cameraId,
+    configured: true,
+    activeRevision: null,
+    history: [{
+      revisionId, revisionNumber: 4, createdAtUtc: '2026-09-14T02:30:00Z', createdBy: 'operator', note: null,
+      analyticsEnabled, zoneCount: 0, tripLineCount: 0,
+    }],
+  };
+}
+
 async function openHeatmap() {
   renderWithApp(<AnalyticsPage />, {
     route: `/cameras/${cameraId}/analytics`,
@@ -98,6 +116,7 @@ beforeEach(() => {
     classes: [{ objectClass: 'Person' as const, counts: [3], windowDistinctTrackCount: 3 }],
   });
   vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map());
+  vi.mocked(getCameraScene).mockResolvedValue(sceneWith(coverage.sceneRevisionId!, true));
 });
 
 describe('Heatmap mode', () => {
@@ -221,6 +240,112 @@ describe('Heatmap mode', () => {
 
     expect(await screen.findByText(/Not every run in this window has been analysed/i)).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Heatmap summary' })).not.toBeInTheDocument();
+  });
+
+  it('says a camera with no scene is not configured, not that coverage is incomplete (F25)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map({
+      sceneRevisionId: null,
+      sceneRevisionNumber: null,
+      coverage: { ...coverage, sceneRevisionId: null, evaluatedRuns: 0, notConfiguredRuns: 2, complete: false },
+      values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
+    }));
+    await openHeatmap();
+
+    const stage = (await screen.findByText('No scene configured', { selector: '.empty strong' })).closest('.empty') as HTMLElement;
+    expect(stage).toHaveClass('empty--hatched');
+    expect(within(stage).getByRole('link', { name: /Configure the scene/i })).toHaveAttribute(
+      'href', `/cameras/${cameraId}/scene`);
+    expect(screen.queryByText(/Not every run in this window has been analysed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Coverage incomplete')).not.toBeInTheDocument();
+    // Processing cannot analyse a run against a scene that does not exist.
+    const strip = screen.getByRole('region', { name: 'Analytics coverage' });
+    expect(within(strip).queryByRole('link', { name: 'Processing' })).not.toBeInTheDocument();
+  });
+
+  it('says analytics are disabled by the scene rather than incomplete (F25)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map({
+      coverage: { ...coverage, evaluatedRuns: 0, disabledRuns: 2, complete: false },
+      values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
+    }));
+    await openHeatmap();
+
+    const stage = (await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).closest('.empty');
+    expect(stage).toHaveClass('empty--hatched');
+    expect(screen.getByText('Analytics disabled')).toBeInTheDocument();
+    expect(screen.queryByText('Coverage incomplete')).not.toBeInTheDocument();
+  });
+
+  it('says analytics are disabled for a window with no runs under a disabled revision (Codex P1)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(map({
+      coverage: { ...coverage, evaluatedRuns: 0, analysedTracks: 0 },
+      values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
+    }));
+    vi.mocked(getCameraScene).mockResolvedValue(sceneWith(coverage.sceneRevisionId!, false));
+    await openHeatmap();
+
+    const stage = (await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).closest('.empty');
+    expect(stage).toHaveClass('empty--hatched');
+    expect(screen.queryByText(/No samples fell inside this window/i)).not.toBeInTheDocument();
+  });
+
+  const emptyMap = () => map({
+    coverage: { ...coverage, evaluatedRuns: 0, analysedTracks: 0 },
+    values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
+  });
+
+  it('draws no empty map while the scene is still being read (cold review F1)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(emptyMap());
+    vi.mocked(getCameraScene).mockReturnValue(new Promise(() => {}));
+    await openHeatmap();
+
+    expect(await screen.findByText(/Reading the camera's scene/i)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Heatmap summary' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No samples fell inside this window/i)).not.toBeInTheDocument();
+    const inspector = screen.getByRole('complementary', { name: 'Analytics inspector' });
+    expect(within(inspector).queryByText('Trajectory samples')).not.toBeInTheDocument();
+  });
+
+  it('says an empty map cannot be confirmed when the scene cannot be read, and recovers as enabled (cold review F1)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(emptyMap());
+    vi.mocked(getCameraScene)
+      .mockRejectedValueOnce(new Error('scene unavailable'))
+      .mockResolvedValue(sceneWith(coverage.sceneRevisionId!, true));
+    await openHeatmap();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/whether analytics were enabled/i);
+    expect(screen.queryByRole('region', { name: 'Heatmap summary' })).not.toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+    const summary = await screen.findByRole('region', { name: 'Heatmap summary' });
+    expect(summary).toHaveTextContent('No samples fell inside this window.');
+  });
+
+  it('keeps a fact-bearing map when the scene cannot be read (cold review F1)', async () => {
+    vi.mocked(getCameraScene).mockRejectedValue(new Error('scene unavailable'));
+    await openHeatmap();
+
+    expect(await screen.findByRole('region', { name: 'Heatmap summary' })).toHaveTextContent('8 samples from 3 Tracks');
+  });
+
+  it('offers no interval, which a map has no use for (F22)', async () => {
+    await openHeatmap();
+    await screen.findByRole('region', { name: 'Heatmap summary' });
+
+    expect(screen.queryByLabelText('Interval')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Metric')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Object class')).toBeInTheDocument();
+  });
+
+  it('keeps what the map is not in view, and how it is counted and where it came from one step away (F23)', async () => {
+    await openHeatmap();
+    const inspector = await screen.findByRole('complementary', { name: 'Analytics inspector' });
+
+    expect(within(inspector).getByText(/not people density, and not a probability/i)).toBeVisible();
+    const disclosures = [...inspector.querySelectorAll('details')];
+    expect(disclosures.map((d) => d.querySelector('summary')?.textContent)).toEqual(['How this is counted', 'Provenance']);
+    expect(disclosures.every((d) => !d.open)).toBe(true);
+    expect(within(disclosures[1]).getByText('Engine')).toBeInTheDocument();
   });
 
   it('reports a complete window that simply held nothing as exactly that', async () => {

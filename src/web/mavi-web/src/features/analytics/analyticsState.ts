@@ -1,5 +1,6 @@
 import type { TrackObjectClass } from '../../api/tracks';
 import type { AnalyticsCoverage } from '../../api/tracks';
+import type { CameraScene } from '../../api/scene';
 import {
   bucketCount,
   DEFAULT_BUCKET_SECONDS,
@@ -216,6 +217,77 @@ export type ScopePresence = 'observed' | 'incomplete';
 
 export function scopePresence(coverage: AnalyticsCoverage): ScopePresence {
   return coverage.complete ? 'observed' : 'incomplete';
+}
+
+/**
+ * What the analytical scope *is*, in the §14 vocabulary — the answer the
+ * Context Bar names and each mode's stage acts on (F25).
+ *
+ * `coverage.complete` alone cannot say it: a camera with no scene configured is
+ * not a camera whose footage is partly analysed, and a scene whose revision
+ * switched analytics off is neither. Both are read from what the response
+ * already carries — no scene revision at all, or runs that are only disabled —
+ * before incompleteness is considered, and stale coverage (runs answered under
+ * an earlier revision or engine) is named as stale rather than as missing.
+ */
+/**
+ * Whether the scene revision an answer was resolved against enables analytics,
+ * read from the camera's scene (its active revision and its history), or null
+ * when the scene is not to hand or does not list that revision. Null is "not
+ * known", never "enabled": the coverage counters still decide then.
+ */
+export function revisionAnalyticsEnabled(scene: CameraScene | undefined, revisionId: string | null): boolean | null {
+  if (!scene || revisionId === null) return null;
+  if (scene.activeRevision?.revisionId === revisionId) return scene.activeRevision.analyticsEnabled;
+  return scene.history.find((revision) => revision.revisionId === revisionId)?.analyticsEnabled ?? null;
+}
+
+export type CoverageStatus = 'not-configured' | 'disabled' | 'unconfirmed' | 'incomplete' | 'stale' | 'complete';
+
+/** Every run the scope holds, in whichever bucket coverage put it. */
+function runsInScope(coverage: AnalyticsCoverage): number {
+  return coverage.evaluatedRuns + coverage.pendingRuns + coverage.failedRuns
+    + coverage.notConfiguredRuns + coverage.disabledRuns + coverage.staleRuns;
+}
+
+/**
+ * The scope's condition (F25; cold review F1).
+ *
+ * The counters settle it whenever the scope holds a run: a disabled revision
+ * puts every run in `disabledRuns`, and an enabled one evaluates them or says
+ * why not. With no run at all every counter is zero and the coverage reads
+ * complete whether the revision enables analytics or not — so that one shape is
+ * decided by the scene, and is `unconfirmed` until the scene has said. An
+ * unconfirmed zero is never drawn as an observation. A fact-bearing answer
+ * never waits on the scene.
+ */
+export function coverageStatus(
+  sceneRevisionId: string | null,
+  coverage: AnalyticsCoverage,
+  /**
+   * Whether the resolved revision enables analytics, from the scene itself;
+   * null while that is not known (the scene loading, unreadable, or not
+   * listing the revision).
+   */
+  revisionAnalyticsEnabled: boolean | null = null,
+): CoverageStatus {
+  if (sceneRevisionId === null || coverage.sceneRevisionId === null) return 'not-configured';
+  if (revisionAnalyticsEnabled === false) return 'disabled';
+  if (runsInScope(coverage) === 0 && revisionAnalyticsEnabled !== true) return 'unconfirmed';
+  if (coverage.complete) return 'complete';
+  const outstanding = coverage.pendingRuns + coverage.failedRuns + coverage.notConfiguredRuns;
+  if (outstanding === 0 && coverage.staleRuns === 0 && coverage.disabledRuns > 0) return 'disabled';
+  if (outstanding === 0 && coverage.staleRuns > 0) return 'stale';
+  return 'incomplete';
+}
+
+/**
+ * Whether the scope's figures may be reported at all. Not configured, disabled
+ * and unconfirmed are not observations: their zeros say nothing about what
+ * happened, so no figure is shown for them, in the stage or the inspector.
+ */
+export function reportsFigures(status: CoverageStatus): boolean {
+  return status !== 'not-configured' && status !== 'disabled' && status !== 'unconfirmed';
 }
 
 export type SeriesPoint = {

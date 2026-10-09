@@ -884,23 +884,36 @@
 
 /* --- Analytics Workbench (Scene Analytics Slice 6) ----------------------- */
 
-.analytics-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--s-3);
+/* The window band (F22): a toolbar row of 32px controls. Its labels sit
+   beside their fields; the presets are one group; a refusal is the band's
+   one-line hint, described by the field that repairs it. */
+.analytics-window__presets { display: flex; gap: var(--s-1); }
+.analytics-window__label { color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
+.toolbar-band .analytics-window__problem { color: var(--status-err); }
+/* A wall time in the product's format (§24), in tabular figures. Its width is
+   the field's own `size` (19 characters of its font: the format's length),
+   which the band's `width: auto` honours. */
+.toolbar-band input.analytics-window__time { font-variant-numeric: tabular-nums; }
+/* The class filter is as wide as its own options, not the band's 140px floor:
+   its longest option is "All classes". */
+.toolbar-band select.analytics-window__class { min-width: 0; }
+/* §24: the format and the operative zone beside the From/To fields, once —
+   two short lines within the band's control height, so stating them costs the
+   band no row at 1366. */
+.analytics-window__format {
+  display: inline-grid; line-height: 1.2;
+  color: var(--text-secondary); font-size: var(--fs-0); white-space: nowrap;
 }
 
-.analytics-controls__presets {
-  display: flex;
-  gap: var(--s-1);
+/* The inspector's sections (F23): one contained surface — the inspector — with
+   unbordered sections in it, as the Scene Editor's (§11). */
+.analytics-inspector { display: grid; gap: var(--s-3); align-content: start; }
+.analytics-section { display: grid; gap: var(--s-2); align-content: start; }
+.analytics-section__title {
+  margin: 0; display: flex; align-items: baseline; gap: var(--s-2); flex-wrap: wrap;
+  font-size: var(--fs-1); font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: var(--label-tracking);
 }
-
-.analytics-modes {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-}
+.analytics-section__subject { color: var(--text-primary); text-transform: none; letter-spacing: normal; font-weight: 500; }
 
 /*
  * The stage is the Workbench canvas: it grows and never scrolls, so the one
@@ -993,13 +1006,21 @@
   overflow-wrap: anywhere;
 }
 
+/* The bucket start is a compact timestamp (no seconds — buckets are whole
+   minutes — and no current year), so it fits on one line in this share, and
+   each series column keeps room for its own heading. */
 .analytics-table th:first-child {
-  width: 44%;
+  width: 40%;
 }
+.analytics-table tbody th { white-space: nowrap; }
 
 /* The shared table keeps headers on one line; here there is not the width for
-   it, and a clipped column heading is a column the reader cannot name. */
-.analytics-table thead th {
+   it, and a clipped column heading is a column the reader cannot name. The
+   series headings are `.num`, and `.table th.num` holds them to one line, so
+   they are named here too: a series is the operator's own label (a trip
+   line's direction), of any length, in whatever font the platform has. */
+.analytics-table thead th,
+.analytics-table thead th.num {
   white-space: normal;
 }
 

@@ -290,6 +290,13 @@ table.table--ledger { width: 100%; max-width: max-content; }
   position: sticky; top: 0; z-index: var(--z-sticky); background: var(--surface-base);
   color: var(--text-muted); font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase; white-space: nowrap;
 }
+/* A row header is a data label, not a column header (F24): it does not stick —
+   every body <th> pinned at top 0 painted over the rows scrolling beneath it —
+   and it reads as data, not as an uppercase column label. */
+.table tbody th {
+  position: static; z-index: auto; background: none;
+  color: var(--text-primary); font-size: inherit; font-weight: 500; letter-spacing: normal; text-transform: none;
+}
 .table th.num, .table td.num { text-align: right; }
 .table tbody tr:hover td { background: var(--surface-raised); }
 .table tbody tr.is-selected td { background: var(--accent-soft); }

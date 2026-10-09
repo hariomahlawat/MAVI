@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { AnalyticsAggregateResponse } from '../../api/analytics';
 import type { AnalyticsCoverage } from '../../api/tracks';
+import type { CameraScene } from '../../api/scene';
 import {
+  coverageStatus,
   METRICS,
+  revisionAnalyticsEnabled,
   presetWindow,
   queryProblem,
   readActivity,
@@ -133,6 +136,77 @@ describe('scopePresence', () => {
   it('never lets an incomplete scope be drawn as an observation', () => {
     expect(scopePresence({ ...coverage, pendingRuns: 1, complete: false })).toBe('incomplete');
     expect(scopePresence({ ...coverage, staleRuns: 1, complete: false })).toBe('incomplete');
+  });
+});
+
+describe('coverageStatus (F25)', () => {
+  it('calls a scope with no scene not configured, never incomplete', () => {
+    // The wire reports no scene as incomplete coverage with not-configured
+    // runs; read that way it sends the operator to Processing for runs that
+    // have nothing to be analysed against.
+    const none = { ...coverage, sceneRevisionId: null, notConfiguredRuns: 2, evaluatedRuns: 0, complete: false };
+    expect(coverageStatus(null, none)).toBe('not-configured');
+    expect(coverageStatus('r-1', none)).toBe('not-configured');
+  });
+
+  it('calls a scope whose only shortfall is disabled analytics disabled', () => {
+    expect(coverageStatus('r-1', { ...coverage, disabledRuns: 2, complete: false })).toBe('disabled');
+  });
+
+  it('calls a scope analysed only against an earlier revision stale', () => {
+    expect(coverageStatus('r-1', { ...coverage, staleRuns: 1, complete: false })).toBe('stale');
+  });
+
+  it('keeps anything Processing still owes incomplete, whatever else is true', () => {
+    expect(coverageStatus('r-1', { ...coverage, pendingRuns: 1, complete: false })).toBe('incomplete');
+    expect(coverageStatus('r-1', { ...coverage, failedRuns: 1, disabledRuns: 1, complete: false })).toBe('incomplete');
+    expect(coverageStatus('r-1', { ...coverage, pendingRuns: 1, staleRuns: 1, complete: false })).toBe('incomplete');
+  });
+
+  it('calls a disabled revision disabled even where no run says so (Codex P1)', () => {
+    // A window with no runs under a disabled revision: the server reports no
+    // disabled run, so the coverage reads complete. The revision's own flag wins.
+    const empty = { ...coverage, evaluatedRuns: 0, analysedTracks: 0 };
+    expect(coverageStatus('r-1', empty, false)).toBe('disabled');
+    expect(coverageStatus('r-1', empty, true)).toBe('complete');
+    // Not configured still comes first.
+    expect(coverageStatus(null, { ...empty, sceneRevisionId: null }, false)).toBe('not-configured');
+  });
+
+  it('does not call an empty window complete until the revision is known to enable analytics (cold review F1)', () => {
+    const empty = { ...coverage, evaluatedRuns: 0, analysedTracks: 0 };
+    expect(coverageStatus('r-1', empty, null)).toBe('unconfirmed');
+    expect(coverageStatus('r-1', empty, true)).toBe('complete');
+    expect(coverageStatus('r-1', empty, false)).toBe('disabled');
+    // Evaluated runs settle it without the scene: a disabled revision evaluates none.
+    expect(coverageStatus('r-1', coverage, null)).toBe('complete');
+    expect(coverageStatus('r-1', { ...coverage, analysedTracks: 0 }, null)).toBe('complete');
+    // Every other condition is the counters', scene or no scene.
+    expect(coverageStatus('r-1', { ...coverage, pendingRuns: 1, complete: false }, null)).toBe('incomplete');
+    expect(coverageStatus('r-1', { ...coverage, staleRuns: 1, complete: false }, null)).toBe('stale');
+    expect(coverageStatus('r-1', { ...empty, disabledRuns: 2, complete: false }, null)).toBe('disabled');
+    expect(coverageStatus(null, { ...empty, sceneRevisionId: null, notConfiguredRuns: 1, complete: false }, null)).toBe('not-configured');
+  });
+
+  it('reads the resolved revision\'s flag from the scene, and says "not known" otherwise', () => {
+    const revision = (revisionId: string, analyticsEnabled: boolean) => ({
+      revisionId, revisionNumber: 1, createdAtUtc: '', createdBy: '', note: null, analyticsEnabled, zoneCount: 0, tripLineCount: 0,
+    });
+    const scene = {
+      cameraId: 'c', configured: true,
+      activeRevision: { ...revision('active', true), cameraId: 'c', referenceFrameVideoAssetId: null, referenceFrameOffsetMs: null, zones: [], tripLines: [] },
+      history: [revision('active', true), revision('old', false)],
+    } as CameraScene;
+    expect(revisionAnalyticsEnabled(scene, 'active')).toBe(true);
+    expect(revisionAnalyticsEnabled(scene, 'old')).toBe(false);
+    expect(revisionAnalyticsEnabled(scene, 'unknown')).toBeNull();
+    expect(revisionAnalyticsEnabled(undefined, 'old')).toBeNull();
+    expect(revisionAnalyticsEnabled(scene, null)).toBeNull();
+  });
+
+  it('calls a complete scope complete, including a complete zero', () => {
+    expect(coverageStatus('r-1', coverage)).toBe('complete');
+    expect(coverageStatus('r-1', { ...coverage, analysedTracks: 0 })).toBe('complete');
   });
 });
 

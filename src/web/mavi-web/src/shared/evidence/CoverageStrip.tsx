@@ -60,6 +60,10 @@ export default function CoverageStrip({
       ? `Revision ${geometry.revisionNumber}`
       : `Revision ${shortId(coverage.sceneRevisionId)}`;
   const sentences = coverageSentences(coverage);
+  // Processing is offered only for runs it can act on — pending, failed or
+  // analysed against an earlier revision. A run with no scene, or with
+  // analytics disabled by the scene, is repaired in the scene, not there.
+  const processingCanHelp = coverage.pendingRuns + coverage.failedRuns + coverage.staleRuns > 0;
 
   return (
     <div className={`coverage coverage--${tone}`} role="region" aria-label="Analytics coverage">
@@ -77,7 +81,7 @@ export default function CoverageStrip({
             : null}
         </span>
       </div>
-      {!coverage.complete ? (
+      {!coverage.complete && processingCanHelp ? (
         <ButtonLink size="sm" variant="ghost" to="/processing" icon="activity">Processing</ButtonLink>
       ) : null}
     </div>

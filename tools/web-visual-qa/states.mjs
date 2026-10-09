@@ -578,6 +578,15 @@ export const TIER_POLICIES = {
       C: 'a footage-condition variant (§26 media conditions): its Tier C geometry is the canonical review state\'s, which is swept there',
     },
   },
+  'typography-variant': {
+    tiers: ['A'],
+    excluded: {
+      B: 'a typography variant: it exists where a wide platform font pressures a measured Tier A width, which its preparation proves '
+        + 'from rendered widths and refuses to fake; at Tier B the same element has the room (the bucket table heading: 76px of text '
+        + 'in 199px and 122px), and its Tier B geometry is its base state\'s, which is swept there',
+      C: 'a typography variant: its Tier C geometry is its base state\'s, which is swept there',
+    },
+  },
   'breakpoint-probe': {
     tiers: [],
     excluded: {
@@ -2310,9 +2319,144 @@ const NO_SCENE_AGGREGATES = {
   classes: [],
 };
 
+/** M4 (F25): every run's analytics disabled by the scene revision in force. */
+const DISABLED_AGGREGATES = {
+  ...BASE_AGGREGATES,
+  coverage: { ...BASE_AGGREGATES.coverage, evaluatedRuns: 0, disabledRuns: 6, analysedTracks: 0, complete: false },
+  zones: [],
+  lines: [],
+  classes: [],
+};
+
+/**
+ * M4 (Codex P1): a window with no runs under a revision that disables
+ * analytics. The server then counts no disabled run and the coverage reads
+ * complete; only the scene says the revision is disabled, so the scene answer
+ * names the aggregate's resolved revision with analytics off.
+ */
+const EMPTY_WINDOW_AGGREGATES = {
+  ...ZERO_AGGREGATES,
+  coverage: { ...ZERO_AGGREGATES.coverage, evaluatedRuns: 0, pendingRuns: 0, failedRuns: 0, notConfiguredRuns: 0, disabledRuns: 0, staleRuns: 0, analysedTracks: 0, unavailableTracks: 0, complete: true },
+};
+const DISABLED_SCENE = (() => {
+  const scene = JSON.parse(readFileSync(new URL(`./fixtures/cameras_${CAM}_scene.json`, import.meta.url), 'utf8'));
+  return {
+    ...scene,
+    history: [
+      { ...scene.history[0], revisionId: BASE_AGGREGATES.sceneRevisionId, analyticsEnabled: false, zoneCount: 0, tripLineCount: 0 },
+      ...scene.history.slice(1),
+    ],
+  };
+})();
+
+/** Cold review F1: the same empty window, its revision listed as enabling analytics. */
+const ENABLED_SCENE = {
+  ...DISABLED_SCENE,
+  history: DISABLED_SCENE.history.map((revision, index) => (index === 0 ? { ...revision, analyticsEnabled: true, zoneCount: 1 } : revision)),
+};
+
+/** Cold review F1: the heatmap's empty window, whose revision only the scene can confirm. */
+const EMPTY_WINDOW_HEATMAP = {
+  ...BASE_HEATMAP,
+  sceneRevisionId: BASE_AGGREGATES.sceneRevisionId,
+  coverage: { ...BASE_HEATMAP.coverage, sceneRevisionId: BASE_AGGREGATES.sceneRevisionId, evaluatedRuns: 0, pendingRuns: 0, failedRuns: 0, notConfiguredRuns: 0, disabledRuns: 0, staleRuns: 0, analysedTracks: 0, unavailableTracks: 0, complete: true },
+  sampleCount: 0,
+  trackCount: 0,
+  maxCellValue: 0,
+  values: BASE_HEATMAP.values.map(() => 0),
+};
+
+/**
+ * Cold review F2: From emptied over a valid window. The committed window still
+ * stands behind it, and must be neither shown as the answer nor asked again.
+ */
+const EMPTY_FROM = `(async () => {
+  ${UNTIL}
+  const field = await until(() => Array.from(document.querySelectorAll('input')).find((input) => input.labels && Array.from(input.labels).some((label) => label.textContent.trim() === 'From')), 'the From field');
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(field, '');
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await until(() => field.getAttribute('aria-invalid') === 'true', 'From marked invalid');
+  const refresh = Array.from(document.querySelectorAll('button')).find((button) => /Refresh/.test(button.textContent));
+  return Boolean(refresh && refresh.disabled);
+})()`;
+
+/** M4 (F25): the heatmap's answer for a camera with no scene. */
+const NO_SCENE_HEATMAP = {
+  ...BASE_HEATMAP,
+  sceneRevisionId: null,
+  sceneRevisionNumber: null,
+  coverage: {
+    ...BASE_HEATMAP.coverage, sceneRevisionId: null, evaluatedRuns: 0, notConfiguredRuns: 6, analysedTracks: 0, complete: false,
+  },
+  sampleCount: 0,
+  trackCount: 0,
+  maxCellValue: 0,
+  values: BASE_HEATMAP.values.map(() => 0),
+};
+
+/**
+ * M4 (F24): the bucket table scrolled under its own header, and the geometry
+ * that says it is read correctly there — measured, not inferred from a
+ * declared `position`.
+ *
+ * The 96 buckets of the served day are scrolled until a dozen rows have
+ * passed under the header. Then every body row's header must sit on its own
+ * row (a row label pinned to the top of the scroller names a different row
+ * from the figures beside it), and the hit test at the column header's centre
+ * and at the first row clear of it must land on that header and on that row's
+ * own label — nothing painted over either.
+ */
+const SCROLL_BUCKET_TABLE = `(async () => {
+  ${UNTIL}
+  const table = await until(() => document.querySelector('.analytics-table'), 'the bucket table');
+  const rows = Array.from(table.querySelectorAll('tbody tr'));
+  if (rows.length < 40) return false;
+  let scroller = table.parentElement;
+  while (scroller && !(scroller.scrollHeight > scroller.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
+  scroller = scroller || document.scrollingElement;
+  const top = () => (scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top);
+  scroller.scrollTop += rows[12].getBoundingClientRect().top - top();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (rows[0].getBoundingClientRect().bottom > top()) return false;
+  for (const row of rows) {
+    const label = row.querySelector('th').getBoundingClientRect();
+    const figure = row.querySelector('td').getBoundingClientRect();
+    if (Math.abs(label.top - figure.top) > 1) return false;
+  }
+  const head = table.querySelector('thead th').getBoundingClientRect();
+  const atHead = document.elementFromPoint(head.left + head.width / 2, head.top + head.height / 2);
+  if (!atHead || atHead.closest('thead') !== table.tHead) return false;
+  const clear = rows.find((row) => row.getBoundingClientRect().top >= head.bottom);
+  if (!clear) return false;
+  const label = clear.querySelector('th');
+  const box = label.getBoundingClientRect();
+  const atRow = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+  return Boolean(atRow && label.contains(atRow));
+})()`;
+
+/**
+ * M4 (F22): a one-minute interval over the served day — 1,440 buckets against
+ * a bound of 512. The refusal must be on the Interval field (invalid, and
+ * described by the message), and Refresh disabled with its reason.
+ */
+const REFUSE_WINDOW = `(async () => {
+  ${UNTIL}
+  const select = await until(() => Array.from(document.querySelectorAll('select'))
+    .find((candidate) => Array.from(candidate.options).some((option) => option.value === '60')), 'the interval field');
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+  setter.call(select, '60');
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await until(() => select.getAttribute('aria-invalid') === 'true', 'the interval marked invalid');
+  const described = document.getElementById(select.getAttribute('aria-describedby') || '');
+  if (!described || !/the most that can be shown is 512/.test(described.textContent)) return false;
+  const refresh = Array.from(document.querySelectorAll('button')).find((button) => /Refresh/.test(button.textContent));
+  return Boolean(refresh && refresh.disabled && refresh.title);
+})()`;
+
 /** Arms the Heatmap mode, which is a click rather than a route. */
 const HEATMAP_MODE = `(() => {
-  const strip = document.querySelector('.analytics-modes');
+  const strip = document.querySelector('[aria-label="Analytics mode"]');
   const button = strip && Array.from(strip.querySelectorAll('button'))
     .find((candidate) => candidate.textContent.trim() === 'Heatmap');
   if (!button) return false;
@@ -4140,6 +4284,43 @@ export const STATES = [
     expectText: ['Inbound', 'Outbound'],
   },
   {
+    // M4 (CI): the bucket table's series headings under wide typography. CI
+    // renders in its DejaVu fallback, where "Outbound" on one line is wider
+    // than its column at 1366 and 1440; `.table th.num` held the heading to
+    // one line, past the analytics table's own wrapping rule. The wide stack is
+    // scoped to the table (test pressure on the element under test, not
+    // product CSS), and the pressure is measured from rendered widths, never
+    // read from the declared family list: the state refuses to report itself
+    // reached where the rendered heading would fit on one line anyway.
+    // text.overflow then judges the heading.
+    name: 'analytics-line-crossings-wide-font', interaction: 'choose the line crossings report', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', tierPolicy: 'typography-variant',
+    prepare: `(async () => {
+      ${UNTIL}
+      const style = document.createElement('style');
+      style.textContent = '.analytics-table, .analytics-table * { font-family: ${QUEUE_WIDE_FONT} !important; }';
+      document.head.appendChild(style);
+      if (!(await ${LINE_METRIC})) return false;
+      const heading = await until(() => Array.from(document.querySelectorAll('.analytics-table thead th'))
+        .find((th) => th.textContent.trim() === 'Outbound'), 'the Outbound heading');
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      // The pressure, measured: the heading's text on one line, in the font
+      // actually rendered, against the room its column gives it.
+      const probe = document.createElement('span');
+      probe.style.whiteSpace = 'nowrap';
+      probe.textContent = heading.textContent;
+      heading.textContent = '';
+      heading.appendChild(probe);
+      const needed = probe.getBoundingClientRect().width;
+      heading.textContent = probe.textContent;
+      const cs = getComputedStyle(heading);
+      const room = heading.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      if (needed <= room) throw new Error('the rendered typography is not wide enough to pressure the heading (' + Math.round(needed) + 'px in ' + Math.round(room) + 'px)');
+      return true;
+    })()`,
+    expectText: ['Inbound', 'Outbound'],
+  },
+  {
     // The frozen rule, rendered: an incomplete scope draws nothing at all.
     name: 'analytics-incomplete', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
@@ -4158,7 +4339,86 @@ export const STATES = [
     name: 'analytics-no-scene', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: NO_SCENE_AGGREGATES },
-    expectText: ['No scene configured'],
+    // F25: not configured is its own condition, never partial coverage.
+    expectText: ['No scene configured', 'Configure the scene'],
+    forbidText: 'Coverage incomplete',
+  },
+  {
+    // F25: analytics disabled by the scene — a domain state, not a shortfall.
+    name: 'analytics-disabled', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    api: { [`/api/cameras/${CAM}/analytics/aggregates`]: DISABLED_AGGREGATES },
+    expectText: ['Analytics disabled by the scene', 'Analytics disabled'],
+    forbidText: 'Coverage incomplete',
+  },
+  {
+    // Codex P1: no runs under a disabled revision is still "analytics
+    // disabled", read from the scene, never a complete zero.
+    name: 'analytics-disabled-empty-window', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    api: {
+      [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
+      [`/api/cameras/${CAM}/scene`]: DISABLED_SCENE,
+    },
+    expectText: ['Analytics disabled by the scene', 'No processing runs in this time window'],
+    forbidText: 'Coverage complete',
+  },
+  {
+    // Cold review F1: an empty window whose revision the scene confirms enables
+    // analytics is a real, complete zero.
+    name: 'analytics-enabled-empty-window', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    api: {
+      [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
+      [`/api/cameras/${CAM}/scene`]: ENABLED_SCENE,
+    },
+    expectText: ['Coverage complete', 'No processing runs in this time window'],
+    forbidText: 'Analytics unconfirmed',
+  },
+  {
+    // Cold review F1: the scene still being read — no zero until it has.
+    name: 'analytics-unconfirmed-scene-loading', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', holds: 'loading',
+    api: {
+      [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
+      [`/api/cameras/${CAM}/scene`]: 'hang',
+    },
+    expectText: ['Reading the camera', 'Analytics unconfirmed'],
+    forbidText: 'Coverage complete',
+  },
+  {
+    // Cold review F1: the scene unreadable — said, with its Retry, and no zero.
+    name: 'analytics-unconfirmed-scene-unavailable', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    api: {
+      [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
+      [`/api/cameras/${CAM}/scene`]: 'unavailable',
+    },
+    expectText: ['whether analytics were enabled', 'Retry', 'Analytics unconfirmed'],
+    forbidText: 'Coverage complete',
+  },
+  {
+    // Cold review F2: an emptied From refuses the query; the last answer is
+    // not presented as the answer to it.
+    name: 'analytics-window-invalid-draft', interaction: 'empty the From field', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: EMPTY_FROM,
+    expectText: ['Adjust the window'],
+    forbidText: 'Coverage complete',
+  },
+  {
+    // F24: the bucket table scrolled under its header, judged by geometry.
+    name: 'analytics-bucket-table-scrolled', interaction: 'scroll the bucket table', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: SCROLL_BUCKET_TABLE,
+    expectText: ['Coverage complete', 'Active Tracks'],
+  },
+  {
+    // F22: a refused window, stated on the field that repairs it.
+    name: 'analytics-window-refused', interaction: 'choose a one-minute interval over a day', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: REFUSE_WINDOW,
+    expectText: ['the most that can be shown is 512'],
   },
   {
     name: 'analytics-unavailable', path: `/cameras/${CAM}/analytics`,
@@ -4177,7 +4437,7 @@ export const STATES = [
     name: 'analytics-heatmap', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
-    expectText: ['trajectory sample density', '64 × 36'],
+    expectText: ['Trajectory sample density — not people density, and not a probability or a prediction.', '64 × 36'],
   },
   {
     // The refusal that names its bound. A map is never drawn for a scope the
@@ -4223,5 +4483,27 @@ export const STATES = [
     prepare: HEATMAP_MODE,
     api: { [`/api/cameras/${CAM}/analytics/heatmap`]: SPARSE_HEATMAP },
     expectText: ['11 samples from 1 Track', 'The busiest cell holds 7 samples'],
+  },
+  {
+    // F25: the map's no-scene state in the same vocabulary as Activity's.
+    name: 'analytics-heatmap-no-scene', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: HEATMAP_MODE,
+    api: { [`/api/cameras/${CAM}/analytics/heatmap`]: NO_SCENE_HEATMAP },
+    expectText: ['No scene configured', 'Configure the scene'],
+    forbidText: ['Coverage incomplete', 'Not every run in this window has been analysed'],
+  },
+  {
+    // Cold review F1, Heatmap independently: an empty map is not drawn while
+    // the scene that would confirm its revision is unreadable.
+    name: 'analytics-heatmap-unconfirmed-scene-unavailable', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: HEATMAP_MODE,
+    api: {
+      [`/api/cameras/${CAM}/analytics/heatmap`]: EMPTY_WINDOW_HEATMAP,
+      [`/api/cameras/${CAM}/scene`]: 'unavailable',
+    },
+    expectText: ['whether analytics were enabled', 'Analytics unconfirmed'],
+    forbidText: ['Coverage complete', 'No samples fell inside this window'],
   },
 ];

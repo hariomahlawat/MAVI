@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAnalyticsAggregates, type AnalyticsAggregateResponse } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
+import { getCameraScene, type CameraScene } from '../../api/scene';
 import { ApiError } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import type { AnalyticsCoverage } from '../../api/tracks';
@@ -11,6 +12,10 @@ import AnalyticsPage from './AnalyticsPage';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
+vi.mock('../../api/scene', async () => {
+  const actual = await vi.importActual<typeof import('../../api/scene')>('../../api/scene');
+  return { ...actual, getCameraScene: vi.fn() };
+});
 vi.mock('../../api/analytics', async () => {
   const actual = await vi.importActual<typeof import('../../api/analytics')>('../../api/analytics');
   return { ...actual, getAnalyticsAggregates: vi.fn() };
@@ -83,6 +88,19 @@ function answer(overrides: Partial<AnalyticsAggregateResponse> = {}): AnalyticsA
   };
 }
 
+/** The camera's scene, with the answer's revision enabling analytics or not. */
+function sceneWith(revisionId: string, analyticsEnabled: boolean): CameraScene {
+  return {
+    cameraId,
+    configured: true,
+    activeRevision: null,
+    history: [{
+      revisionId, revisionNumber: 4, createdAtUtc: '2026-09-14T02:30:00Z', createdBy: 'operator', note: null,
+      analyticsEnabled, zoneCount: 0, tripLineCount: 0,
+    }],
+  };
+}
+
 function render() {
   return renderWithApp(<AnalyticsPage />, {
     route: `/cameras/${cameraId}/analytics`,
@@ -94,6 +112,7 @@ beforeEach(() => {
   vi.mocked(getCamera).mockResolvedValue(camera);
   vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' } as never);
   vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer());
+  vi.mocked(getCameraScene).mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, true));
 });
 
 describe('Analytics identity (§5, §14)', () => {
@@ -225,6 +244,220 @@ describe('Analytics Workbench', () => {
     // told apart by where they are.
     expect(await screen.findByText('No scene configured', { selector: 'strong' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Configure the scene/i })).toBeInTheDocument();
+  });
+
+  it('calls a camera with no scene not configured, never coverage incomplete (F25)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer({
+      sceneRevisionId: null,
+      sceneRevisionNumber: null,
+      coverage: { ...completeCoverage, sceneRevisionId: null, evaluatedRuns: 0, notConfiguredRuns: 3, complete: false },
+      zones: [],
+      lines: [],
+      classes: [],
+    }));
+    render();
+
+    const stage = (await screen.findByText('No scene configured', { selector: '.empty strong' })).closest('.empty');
+    expect(stage).toHaveClass('empty--hatched');
+    // The Context Bar names the condition rather than a shortfall Processing could fix.
+    expect(screen.getByText('No scene configured', { selector: '.badge, .badge *' })).toBeInTheDocument();
+    expect(screen.queryByText('Coverage incomplete')).not.toBeInTheDocument();
+    const strip = screen.getByRole('region', { name: 'Analytics coverage' });
+    expect(within(strip).queryByRole('link', { name: 'Processing' })).not.toBeInTheDocument();
+  });
+
+  it('calls a scope analysed against an earlier revision stale, and still offers Processing (F25)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer({
+      coverage: { ...completeCoverage, staleRuns: 1, complete: false },
+    }));
+    render();
+
+    expect(await screen.findByText('Coverage stale')).toBeInTheDocument();
+    const strip = screen.getByRole('region', { name: 'Analytics coverage' });
+    expect(within(strip).getByRole('link', { name: 'Processing' })).toHaveAttribute('href', '/processing');
+  });
+
+  it('states the display timezone once in the Context Bar, and once beside the wall-time fields (§24)', async () => {
+    render();
+    await screen.findByRole('table');
+
+    // §24 asks for both: the surface's zone stated once in the Context Bar, and
+    // the operative zone next to a wall-time input. One note serves From and
+    // To together; the zone is repeated nowhere else (no key/value row).
+    const zones = screen.getAllByText('Asia/Kolkata');
+    expect(zones).toHaveLength(2);
+    expect(zones.filter((zone) => zone.closest('.context-bar'))).toHaveLength(1);
+    expect(zones.filter((zone) => zone.closest('.analytics-window__format'))).toHaveLength(1);
+  });
+
+  it('asks the question in one band and sets the window in another (F22)', async () => {
+    render();
+    await screen.findByRole('table');
+
+    const question = screen.getByRole('group', { name: 'Analytics question' });
+    expect(within(question).getByRole('group', { name: 'Analytics mode' })).toBeInTheDocument();
+    expect(within(question).getByLabelText('Metric')).toBeInTheDocument();
+    expect(within(question).getByRole('button', { name: /Refresh/i })).toBeInTheDocument();
+
+    const window = screen.getByRole('group', { name: 'Analytics window' });
+    expect(within(window).getByRole('group', { name: 'Window presets' })).toBeInTheDocument();
+    expect(within(window).getByLabelText('From')).toBeInTheDocument();
+    expect(within(window).getByLabelText('To')).toBeInTheDocument();
+    expect(within(window).getByLabelText('Interval')).toBeInTheDocument();
+    expect(within(window).getByLabelText('Object class')).toBeInTheDocument();
+  });
+
+  it('marks the field that repairs a refused window, and says why Refresh is unavailable (F22)', async () => {
+    render();
+    await screen.findByRole('table');
+
+    await userEvent.selectOptions(screen.getByLabelText('Interval'), '60');
+    await userEvent.clear(screen.getByLabelText('From'));
+    await userEvent.type(screen.getByLabelText('From'), '2026-08-01T00:00');
+    await screen.findByText(/Adjust the window/i);
+
+    const interval = screen.getByLabelText('Interval');
+    expect(interval).toHaveAttribute('aria-invalid', 'true');
+    expect(interval).toHaveAccessibleDescription(/the most that can be shown is 512/i);
+    expect(screen.getByLabelText('From')).not.toHaveAttribute('aria-invalid');
+    const refresh = screen.getByRole('button', { name: /Refresh/i });
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveAttribute('title', 'Adjust the window before refreshing.');
+  });
+
+  it('keeps the figures and Not additive in view, and the definition and provenance one step away (F23)', async () => {
+    render();
+    const inspector = await screen.findByRole('complementary', { name: 'Analytics inspector' });
+    await within(inspector).findByRole('table');
+
+    expect(within(inspector).getByText('Not additive')).toBeVisible();
+    const disclosures = [...inspector.querySelectorAll('details')];
+    expect(disclosures.map((d) => d.querySelector('summary')?.textContent)).toEqual(['How this is counted', 'Provenance']);
+    expect(disclosures.every((d) => !d.open)).toBe(true);
+    expect(within(disclosures[1]).getByText('Scene revision')).toBeInTheDocument();
+    // Sections inside the one inspector, not panels inside it (§11).
+    expect(inspector.querySelector('.panel, .card')).toBeNull();
+  });
+
+  it('labels each bucket with a compact time, without seconds (F24)', async () => {
+    render();
+    const table = await screen.findByRole('table');
+
+    const rowHeaders = within(table).getAllByRole('rowheader');
+    expect(rowHeaders).toHaveLength(2);
+    for (const header of rowHeaders) expect(header.textContent).not.toMatch(/:\d{2}:\d{2}/);
+  });
+
+  it('says analytics are disabled for a window with no runs under a disabled revision (Codex P1)', async () => {
+    // No runs: the server counts no disabled run, and the coverage reads complete.
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer({
+      coverage: { ...completeCoverage, evaluatedRuns: 0, analysedTracks: 0 },
+      zones: [],
+      lines: [],
+      classes: [{ objectClass: 'Person', counts: [0, 0], windowDistinctTrackCount: 0 }],
+    }));
+    vi.mocked(getCameraScene).mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, false));
+    render();
+
+    const stage = (await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).closest('.empty');
+    expect(stage).toHaveClass('empty--hatched');
+    expect(screen.getByText('Analytics disabled')).toBeInTheDocument();
+    expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
+    expect(screen.queryByRole('figure')).not.toBeInTheDocument();
+  });
+
+  /*
+   * Cold review F1: a window with no runs reads complete with every counter at
+   * zero whether its revision enables analytics or not, so only the scene can
+   * say which. Until it has, the zero is not an observation.
+   */
+  const emptyWindow = () => answer({
+    coverage: { ...completeCoverage, evaluatedRuns: 0, analysedTracks: 0 },
+    zones: [],
+    lines: [],
+    classes: [{ objectClass: 'Person', counts: [0, 0], windowDistinctTrackCount: 0 }],
+  });
+
+  it('draws an empty window as a real zero once the scene confirms analytics were enabled (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    render();
+
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Coverage complete')).toBeInTheDocument();
+  });
+
+  it('draws no zero for an empty window while the scene is still being read (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    vi.mocked(getCameraScene).mockReturnValue(new Promise(() => {}));
+    render();
+
+    expect(await screen.findByText(/Reading the camera's scene/i)).toBeInTheDocument();
+    expect(screen.queryByRole('figure')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
+    expect(screen.getByText('Analytics unconfirmed')).toBeInTheDocument();
+    // The inspector does not report the zero either.
+    const inspector = screen.getByRole('complementary', { name: 'Analytics inspector' });
+    expect(within(inspector).queryByText('Distinct Person Tracks')).not.toBeInTheDocument();
+  });
+
+  it('says an empty window cannot be confirmed when the scene cannot be read, and recovers as enabled (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    vi.mocked(getCameraScene)
+      .mockRejectedValueOnce(new Error('scene unavailable'))
+      .mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, true));
+    render();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/whether analytics were enabled/i);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Coverage complete')).toBeInTheDocument();
+  });
+
+  it('recovers an unconfirmed empty window as disabled when the scene says so (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    vi.mocked(getCameraScene)
+      .mockRejectedValueOnce(new Error('scene unavailable'))
+      .mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, false));
+    render();
+
+    await userEvent.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('cannot confirm an empty window whose revision the scene does not list (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    vi.mocked(getCameraScene).mockResolvedValue(sceneWith('018f3f5a-2f70-7a2b-8a12-000000000000', true));
+    render();
+
+    expect(await screen.findByText('Analytics could not be confirmed')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
+  });
+
+  it('keeps a fact-bearing complete answer when the scene cannot be read (cold review F1)', async () => {
+    // Evaluated runs settle it: a disabled revision evaluates none.
+    vi.mocked(getCameraScene).mockRejectedValue(new Error('scene unavailable'));
+    render();
+
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Coverage complete')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('gives each compact bucket time its full form on hover (§24, Codex P2)', async () => {
+    render();
+    const table = await screen.findByRole('table');
+
+    const first = within(table).getAllByRole('rowheader')[0].querySelector('time');
+    expect(first).toHaveAttribute('datetime', '2026-09-21T00:00:00Z');
+    // Seconds and year present in the full form.
+    expect(first?.getAttribute('title')).toMatch(/2026.*05:30:00/);
   });
 
   it('says a camera is missing rather than showing an empty surface', async () => {
