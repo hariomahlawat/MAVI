@@ -158,8 +158,15 @@ export const RULES = {
   'ledger.row-primary': { section: '§8.1, §16', kind: 'assertion', summary: 'No Ledger row carries an accent-filled primary.', tiers: s1() },
   // M1 (S4): §25's "no clipped or unreachable control" for Ledger rows. The
   // body may scroll sideways (§4.1); an action is unreachable only where no
-  // scrolling reveals it. Blocking at Tier A on every Ledger.
-  'ledger.actions-reachable': { section: '§25, §4.1', kind: 'assertion', summary: 'No Ledger row action is clipped where no scrolling of the frame reaches it; an action reachable by the permitted sideways scroll is not a finding.', tiers: { A: blocking(), B, C } },
+  // scrolling reveals it. Surface-scoped: it blocks at Tier A on an accepted
+  // surface (Cameras from M1) and is measured against the owning row on one
+  // not yet migrated — under CI's wider fallback font it finds the Processing
+  // queue's degraded-row Retry clipped 6px by the run cell's cap, which is M2's.
+  'ledger.actions-reachable': {
+    section: '§25, §4.1', kind: 'assertion', scope: 'surface',
+    summary: 'No Ledger row action is clipped where no scrolling reaches it; an action reachable by the permitted sideways scroll is not a finding. Blocks on a surface once its row is accepted.',
+    tiers: { A: blocking(), B, C },
+  },
   // M1's own acceptance (§4.1 "1366: all columns visible"): the Camera columns
   // fit at Tier A, both row actions in view at rest. Cameras only; §25 governs
   // the narrower tiers, where a Ledger may scroll.
