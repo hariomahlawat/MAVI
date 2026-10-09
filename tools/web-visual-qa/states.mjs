@@ -477,6 +477,9 @@ const SUBMIT_CAMERA = (code, name, until, { withoutZone = false } = {}) => `(asy
   return Boolean(await until(() => ${until}, 'the answer to the submit'));
 })()`;
 
+/** M2: the wide stack processing-queue-row-degraded-wide-font applies (test pressure, not product CSS). */
+const QUEUE_WIDE_FONT = 'Verdana, "DejaVu Sans", sans-serif';
+
 const DENSE_STATUSES = ['Processed', 'Processing', 'Failed', 'NotQueued', 'Queued'];
 const DENSE_VIDEOS = Array.from({ length: 30 }, (_, index) => ({
   id: `22222222-0000-7000-8000-${String(index).padStart(12, '0')}`,
@@ -2860,9 +2863,11 @@ export const STATES = [
     // installed, the platform's own wide fallback where it is not (DejaVu Sans
     // on CI). The product ships no font (tokens.css), and under CI's fallback
     // the full-text Retry ran 6px out of the 260px run cell, clipped where no
-    // scrolling reaches it. The preparation only reaches that condition; the
-    // promoted ledger.actions-reachable is what judges it (the control's name,
-    // keyboard operation and message are the feature tests').
+    // scrolling reaches it. The preparation only reaches that condition — and
+    // proves it from rendered widths, never from the declared family list,
+    // which names Verdana whether or not the platform has it; the promoted
+    // ledger.actions-reachable is what judges it (the control's name, keyboard
+    // operation and message are the feature tests').
     name: 'processing-queue-row-degraded-wide-font', path: '/processing', fullWidth: true, archetype: 'ledger',
     api: inventoryFixture([
       { name: 'north-gate-0900-very-long-original-file-name.mp4', status: 'Processing', progress: 40, refresh: 'unavailable' },
@@ -2872,14 +2877,35 @@ export const STATES = [
     prepare: `(async () => {
       ${UNTIL}
       const style = document.createElement('style');
-      style.textContent = ':root { --font-ui: Verdana, "DejaVu Sans", sans-serif !important; }';
+      style.textContent = ':root { --font-ui: ${QUEUE_WIDE_FONT} !important; }';
       document.head.appendChild(style);
       // The degraded row's own retry, whatever it is called.
-      await until(() => Array.from(document.querySelectorAll('.run-cell')).find((cell) => /Run status may be out of date/.test(cell.textContent) && cell.querySelector('button')), 'the degraded row and its retry');
+      const cell = await until(() => Array.from(document.querySelectorAll('.run-cell')).find((c) => /Run status may be out of date/.test(c.textContent) && c.querySelector('button')), 'the degraded row and its retry');
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      // The pressure is applied: the cell resolves the wide stack (the font
-      // itself is whichever of it the platform has).
-      return /Verdana/.test(getComputedStyle(document.querySelector('.run-cell')).fontFamily);
+      // The pressure, measured: would the original row's fixed items — badge,
+      // inference progress and the full-text Retry it carried — overrun the
+      // cell's cap in the font actually rendered? Under the Windows target
+      // they need 248px of 260 and fit; the clipping needs more than the cap.
+      const probe = cell.querySelector('button').cloneNode(true);
+      probe.classList.remove('btn--icon');
+      probe.querySelectorAll('.visually-hidden').forEach((node) => node.remove());
+      Array.from(probe.childNodes).filter((node) => node.nodeType === 3).forEach((node) => node.remove());
+      probe.append('Retry');
+      probe.removeAttribute('title');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.tabIndex = -1;
+      probe.style.cssText = 'position:absolute;visibility:hidden;left:0;top:0';
+      cell.append(probe);
+      const width = (selector) => cell.querySelector(selector).getBoundingClientRect().width;
+      const gap = parseFloat(getComputedStyle(cell).columnGap) || 0;
+      const cap = parseFloat(getComputedStyle(cell).maxWidth);
+      const needed = width('.badge') + width('.progress--inline') + probe.getBoundingClientRect().width + 3 * gap;
+      probe.remove();
+      if (!(needed > cap + 0.5)) {
+        throw new Error('the rendered typography is not wide enough to reproduce the condition: the original row would need '
+          + Math.round(needed) + 'px of its ' + cap + 'px cell (' + getComputedStyle(cell).fontFamily + ')');
+      }
+      return true;
     })()`,
     expectText: ['Run status may be out of date', 'vision_finalization_exhausted'],
   },

@@ -116,6 +116,17 @@ describe('state applicability', () => {
 });
 
 describe('preparations', () => {
+  it('establish wide-font pressure from rendered widths, never from the declared family list (M2, Codex P2)', () => {
+    const state = STATES.find((s) => s.name === 'processing-queue-row-degraded-wide-font');
+    // The serialised font-family names every family declared, installed or not.
+    assert.doesNotMatch(state.prepare, /fontFamily\s*\)?\s*\.(startsWith|includes)|\/Verdana\/\.test/);
+    // It measures what the original row needed against the cell's cap, and
+    // refuses to report the state reached when the rendered font is narrower.
+    assert.match(state.prepare, /getBoundingClientRect\(\)\.width/);
+    assert.match(state.prepare, /maxWidth/);
+    assert.match(state.prepare, /throw new Error\('the rendered typography is not wide enough/);
+  });
+
   it('never sleep for a guessed duration (V3)', () => {
     for (const state of STATES.filter((s) => s.prepare)) {
       assert.doesNotMatch(state.prepare, /setTimeout|\bwait\(/, `${state.name} sleeps`);
