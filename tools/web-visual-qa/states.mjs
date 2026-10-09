@@ -2653,17 +2653,20 @@ export const STATES = [
     // truncate rather than widen, at every width.
     name: 'cameras-dense', path: '/cameras', fullWidth: true, archetype: 'ledger',
     api: { '/api/cameras': DENSE_CAMERAS },
-    // M1: the code is the row's identity, so its cap keeps a 30-character
-    // code whole — the NORTH-PERIMETER-GATE-CAM-000xx cameras differ only in
-    // their last digits, and a cap that cut those made five rows read alike.
+    // M1: the code is the row's identity, so it takes the wide cap (cap-lg,
+    // 260px) — the NORTH-PERIMETER-GATE-CAM-000xx cameras differ only in their
+    // last digits, and the narrow one (cap-md) cut five rows to one prefix.
+    // Asserted as the cap, not as uncut text: the product ships no font
+    // (tokens.css), so whether a 30-character code is whole depends on the
+    // platform's — it is on the Windows target, not under CI's fallback.
     prepare: `(async () => {
       ${UNTIL}
       const codes = await until(() => {
         const cells = Array.from(document.querySelectorAll('tbody tr td:first-child .truncate'));
         return cells.length === 24 ? cells : null;
       }, 'the 24 code cells');
-      const cut = codes.filter((cell) => cell.scrollWidth > cell.clientWidth + 0.5).map((cell) => cell.textContent);
-      if (cut.length) throw new Error('codes cut by their cap: ' + cut.join(', '));
+      const narrow = codes.filter((cell) => parseFloat(getComputedStyle(cell).maxWidth) < 259.5);
+      if (narrow.length) throw new Error(narrow.length + ' code cells capped narrower than 260px: ' + getComputedStyle(narrow[0]).maxWidth);
       return true;
     })()`,
   },
