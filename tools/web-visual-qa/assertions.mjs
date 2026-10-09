@@ -1587,6 +1587,25 @@ export function overlayOpened() {
 }
 
 /**
+ * Where focus is after a real key press inside an open overlay (§15, §20, §23:
+ * Tab and Shift+Tab stay inside the topmost modal). Read a frame after the key,
+ * so the browser's own focus navigation has happened.
+ */
+export async function overlayFocusProbe() {
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).filter((m) => !m.closest('[inert]'));
+  const modal = modals[modals.length - 1] ?? null;
+  const active = document.activeElement;
+  const name = (el) => {
+    if (!el || !el.tagName) return null;
+    const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
+    const label = (el.getAttribute('aria-label') || el.textContent || '').trim();
+    return el.tagName.toLowerCase() + cls + (label ? ' "' + label.slice(0, 40) + '"' : '');
+  };
+  return { open: Boolean(modal), inside: Boolean(modal && active && modal.contains(active)), documentFocused: document.hasFocus(), focus: name(active) };
+}
+
+/**
  * After Escape (§15, §20): did the overlay close, and did focus go back to the
  * control that opened it — the invoker the observers recorded as focus first
  * entered this overlay — with nothing left inert?
