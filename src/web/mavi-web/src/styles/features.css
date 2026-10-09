@@ -890,7 +890,20 @@
 .analytics-window__presets { display: flex; gap: var(--s-1); }
 .analytics-window__label { color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
 .toolbar-band .analytics-window__problem { color: var(--status-err); }
-.toolbar-band input[type="datetime-local"] { min-width: 0; }
+/* A wall time in the product's format (§24), in tabular figures. Its width is
+   the field's own `size` (19 characters of its font: the format's length),
+   which the band's `width: auto` honours. */
+.toolbar-band input.analytics-window__time { font-variant-numeric: tabular-nums; }
+/* The class filter is as wide as its own options, not the band's 140px floor:
+   its longest option is "All classes". */
+.toolbar-band select.analytics-window__class { min-width: 0; }
+/* §24: the format and the operative zone beside the From/To fields, once —
+   two short lines within the band's control height, so stating them costs the
+   band no row at 1366. */
+.analytics-window__format {
+  display: inline-grid; line-height: 1.2;
+  color: var(--text-secondary); font-size: var(--fs-0); white-space: nowrap;
+}
 
 /* The inspector's sections (F23): one contained surface — the inspector — with
    unbordered sections in it, as the Scene Editor's (§11). */

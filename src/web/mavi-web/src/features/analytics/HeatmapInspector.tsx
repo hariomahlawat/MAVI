@@ -26,14 +26,17 @@ export function revisionNames(revisionNumber: number | null): GeometryNames {
  */
 export default function HeatmapInspector({
   response,
+  figures = true,
   displayTimeZoneId,
 }: {
   response: AnalyticsHeatmapResponse;
+  /** False for a scope that is not an observation: no figure, only coverage and provenance. */
+  figures?: boolean;
   displayTimeZoneId: string;
 }) {
   return (
     <div className="analytics-inspector">
-      <section className="analytics-section" aria-label="Density map">
+      {figures ? <section className="analytics-section" aria-label="Density map">
         <h3 className="analytics-section__title">Density map</h3>
         <KeyValue
           items={[
@@ -54,7 +57,7 @@ export default function HeatmapInspector({
             through, so a bright cell is where positions were recorded, not where more people were.
           </p>
         </details>
-      </section>
+      </section> : null}
 
       <CoverageStrip coverage={response.coverage} geometry={revisionNames(response.sceneRevisionNumber)} scopeNoun="time window" />
 

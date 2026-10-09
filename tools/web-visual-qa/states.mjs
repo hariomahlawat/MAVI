@@ -2349,6 +2349,38 @@ const DISABLED_SCENE = (() => {
   };
 })();
 
+/** Cold review F1: the same empty window, its revision listed as enabling analytics. */
+const ENABLED_SCENE = {
+  ...DISABLED_SCENE,
+  history: DISABLED_SCENE.history.map((revision, index) => (index === 0 ? { ...revision, analyticsEnabled: true, zoneCount: 1 } : revision)),
+};
+
+/** Cold review F1: the heatmap's empty window, whose revision only the scene can confirm. */
+const EMPTY_WINDOW_HEATMAP = {
+  ...BASE_HEATMAP,
+  sceneRevisionId: BASE_AGGREGATES.sceneRevisionId,
+  coverage: { ...BASE_HEATMAP.coverage, sceneRevisionId: BASE_AGGREGATES.sceneRevisionId, evaluatedRuns: 0, pendingRuns: 0, failedRuns: 0, notConfiguredRuns: 0, disabledRuns: 0, staleRuns: 0, analysedTracks: 0, unavailableTracks: 0, complete: true },
+  sampleCount: 0,
+  trackCount: 0,
+  maxCellValue: 0,
+  values: BASE_HEATMAP.values.map(() => 0),
+};
+
+/**
+ * Cold review F2: From emptied over a valid window. The committed window still
+ * stands behind it, and must be neither shown as the answer nor asked again.
+ */
+const EMPTY_FROM = `(async () => {
+  ${UNTIL}
+  const field = await until(() => Array.from(document.querySelectorAll('input')).find((input) => input.labels && Array.from(input.labels).some((label) => label.textContent.trim() === 'From')), 'the From field');
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(field, '');
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  await until(() => field.getAttribute('aria-invalid') === 'true', 'From marked invalid');
+  const refresh = Array.from(document.querySelectorAll('button')).find((button) => /Refresh/.test(button.textContent));
+  return Boolean(refresh && refresh.disabled);
+})()`;
+
 /** M4 (F25): the heatmap's answer for a camera with no scene. */
 const NO_SCENE_HEATMAP = {
   ...BASE_HEATMAP,
@@ -4332,6 +4364,49 @@ export const STATES = [
     forbidText: 'Coverage complete',
   },
   {
+    // Cold review F1: an empty window whose revision the scene confirms enables
+    // analytics is a real, complete zero.
+    name: 'analytics-enabled-empty-window', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    api: {
+      [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
+      [`/api/cameras/${CAM}/scene`]: ENABLED_SCENE,
+    },
+    expectText: ['Coverage complete', 'No processing runs in this time window'],
+    forbidText: 'Analytics unconfirmed',
+  },
+  {
+    // Cold review F1: the scene still being read — no zero until it has.
+    name: 'analytics-unconfirmed-scene-loading', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench', holds: 'loading',
+    api: {
+      [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
+      [`/api/cameras/${CAM}/scene`]: 'hang',
+    },
+    expectText: ['Reading the camera', 'Analytics unconfirmed'],
+    forbidText: 'Coverage complete',
+  },
+  {
+    // Cold review F1: the scene unreadable — said, with its Retry, and no zero.
+    name: 'analytics-unconfirmed-scene-unavailable', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    api: {
+      [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
+      [`/api/cameras/${CAM}/scene`]: 'unavailable',
+    },
+    expectText: ['whether analytics were enabled', 'Retry', 'Analytics unconfirmed'],
+    forbidText: 'Coverage complete',
+  },
+  {
+    // Cold review F2: an emptied From refuses the query; the last answer is
+    // not presented as the answer to it.
+    name: 'analytics-window-invalid-draft', interaction: 'empty the From field', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: EMPTY_FROM,
+    expectText: ['Adjust the window'],
+    forbidText: 'Coverage complete',
+  },
+  {
     // F24: the bucket table scrolled under its header, judged by geometry.
     name: 'analytics-bucket-table-scrolled', interaction: 'scroll the bucket table', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
@@ -4417,5 +4492,18 @@ export const STATES = [
     api: { [`/api/cameras/${CAM}/analytics/heatmap`]: NO_SCENE_HEATMAP },
     expectText: ['No scene configured', 'Configure the scene'],
     forbidText: ['Coverage incomplete', 'Not every run in this window has been analysed'],
+  },
+  {
+    // Cold review F1, Heatmap independently: an empty map is not drawn while
+    // the scene that would confirm its revision is unreadable.
+    name: 'analytics-heatmap-unconfirmed-scene-unavailable', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    fullWidth: true, archetype: 'workbench',
+    prepare: HEATMAP_MODE,
+    api: {
+      [`/api/cameras/${CAM}/analytics/heatmap`]: EMPTY_WINDOW_HEATMAP,
+      [`/api/cameras/${CAM}/scene`]: 'unavailable',
+    },
+    expectText: ['whether analytics were enabled', 'Analytics unconfirmed'],
+    forbidText: ['Coverage complete', 'No samples fell inside this window'],
   },
 ];

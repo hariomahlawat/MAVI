@@ -242,26 +242,52 @@ export function revisionAnalyticsEnabled(scene: CameraScene | undefined, revisio
   return scene.history.find((revision) => revision.revisionId === revisionId)?.analyticsEnabled ?? null;
 }
 
-export type CoverageStatus = 'not-configured' | 'disabled' | 'incomplete' | 'stale' | 'complete';
+export type CoverageStatus = 'not-configured' | 'disabled' | 'unconfirmed' | 'incomplete' | 'stale' | 'complete';
 
+/** Every run the scope holds, in whichever bucket coverage put it. */
+function runsInScope(coverage: AnalyticsCoverage): number {
+  return coverage.evaluatedRuns + coverage.pendingRuns + coverage.failedRuns
+    + coverage.notConfiguredRuns + coverage.disabledRuns + coverage.staleRuns;
+}
+
+/**
+ * The scope's condition (F25; cold review F1).
+ *
+ * The counters settle it whenever the scope holds a run: a disabled revision
+ * puts every run in `disabledRuns`, and an enabled one evaluates them or says
+ * why not. With no run at all every counter is zero and the coverage reads
+ * complete whether the revision enables analytics or not — so that one shape is
+ * decided by the scene, and is `unconfirmed` until the scene has said. An
+ * unconfirmed zero is never drawn as an observation. A fact-bearing answer
+ * never waits on the scene.
+ */
 export function coverageStatus(
   sceneRevisionId: string | null,
   coverage: AnalyticsCoverage,
   /**
    * Whether the resolved revision enables analytics, from the scene itself;
-   * null when that is not known. The run counters cannot say it for a window
-   * with no runs: a disabled revision then reports no disabled run and the
-   * coverage reads complete, so an explicit `false` wins over them.
+   * null while that is not known (the scene loading, unreadable, or not
+   * listing the revision).
    */
   revisionAnalyticsEnabled: boolean | null = null,
 ): CoverageStatus {
   if (sceneRevisionId === null || coverage.sceneRevisionId === null) return 'not-configured';
   if (revisionAnalyticsEnabled === false) return 'disabled';
+  if (runsInScope(coverage) === 0 && revisionAnalyticsEnabled !== true) return 'unconfirmed';
   if (coverage.complete) return 'complete';
   const outstanding = coverage.pendingRuns + coverage.failedRuns + coverage.notConfiguredRuns;
   if (outstanding === 0 && coverage.staleRuns === 0 && coverage.disabledRuns > 0) return 'disabled';
   if (outstanding === 0 && coverage.staleRuns > 0) return 'stale';
   return 'incomplete';
+}
+
+/**
+ * Whether the scope's figures may be reported at all. Not configured, disabled
+ * and unconfirmed are not observations: their zeros say nothing about what
+ * happened, so no figure is shown for them, in the stage or the inspector.
+ */
+export function reportsFigures(status: CoverageStatus): boolean {
+  return status !== 'not-configured' && status !== 'disabled' && status !== 'unconfirmed';
 }
 
 export type SeriesPoint = {

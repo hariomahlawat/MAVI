@@ -168,10 +168,24 @@ describe('coverageStatus (F25)', () => {
     // disabled run, so the coverage reads complete. The revision's own flag wins.
     const empty = { ...coverage, evaluatedRuns: 0, analysedTracks: 0 };
     expect(coverageStatus('r-1', empty, false)).toBe('disabled');
-    expect(coverageStatus('r-1', empty, null)).toBe('complete');
     expect(coverageStatus('r-1', empty, true)).toBe('complete');
     // Not configured still comes first.
     expect(coverageStatus(null, { ...empty, sceneRevisionId: null }, false)).toBe('not-configured');
+  });
+
+  it('does not call an empty window complete until the revision is known to enable analytics (cold review F1)', () => {
+    const empty = { ...coverage, evaluatedRuns: 0, analysedTracks: 0 };
+    expect(coverageStatus('r-1', empty, null)).toBe('unconfirmed');
+    expect(coverageStatus('r-1', empty, true)).toBe('complete');
+    expect(coverageStatus('r-1', empty, false)).toBe('disabled');
+    // Evaluated runs settle it without the scene: a disabled revision evaluates none.
+    expect(coverageStatus('r-1', coverage, null)).toBe('complete');
+    expect(coverageStatus('r-1', { ...coverage, analysedTracks: 0 }, null)).toBe('complete');
+    // Every other condition is the counters', scene or no scene.
+    expect(coverageStatus('r-1', { ...coverage, pendingRuns: 1, complete: false }, null)).toBe('incomplete');
+    expect(coverageStatus('r-1', { ...coverage, staleRuns: 1, complete: false }, null)).toBe('stale');
+    expect(coverageStatus('r-1', { ...empty, disabledRuns: 2, complete: false }, null)).toBe('disabled');
+    expect(coverageStatus(null, { ...empty, sceneRevisionId: null, notConfiguredRuns: 1, complete: false }, null)).toBe('not-configured');
   });
 
   it('reads the resolved revision\'s flag from the scene, and says "not known" otherwise', () => {

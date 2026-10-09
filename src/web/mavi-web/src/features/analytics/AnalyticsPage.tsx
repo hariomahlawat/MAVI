@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
@@ -10,7 +10,7 @@ import {
   serializeHeatmapQuery,
 } from '../../api/analytics';
 import { getCamera } from '../../api/cameras';
-import { getCameraScene } from '../../api/scene';
+import { getCameraScene, type CameraScene } from '../../api/scene';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
@@ -23,13 +23,14 @@ import StatusBadge from '../../shared/components/StatusBadge';
 import { ContextBar, Inspector, Segmented, Toolbar, WorkbenchLayout } from '../../shared/workspace';
 import ActivityChart from './ActivityChart';
 import ActivityInspector from './ActivityInspector';
-import AnalyticsControls from './AnalyticsControls';
+import AnalyticsControls, { type DraftErrors } from './AnalyticsControls';
 import HeatmapInspector from './HeatmapInspector';
 import HeatmapStage from './HeatmapStage';
 import {
   ACTIVITY_METRICS,
   coverageStatus,
   initialQueryState,
+  reportsFigures,
   revisionAnalyticsEnabled,
   METRICS,
   presetWindow,
@@ -63,6 +64,9 @@ export default function AnalyticsPage() {
   const { cameraId = '' } = useParams();
   const [state, setState] = useState<AnalyticsQueryState>(() => initialQueryState(new Date()));
   const [opacity, setOpacity] = useState(0.75);
+  // A From/To draft that is not a whole wall time. Held here, beside the query
+  // gate it feeds, rather than in the band that shows it (cold review F2).
+  const [draftErrors, setDraftErrors] = useState<DraftErrors>({ from: null, to: null });
 
   const camera = useQuery({
     queryKey: queryKeys.camera(cameraId),
@@ -95,14 +99,17 @@ export default function AnalyticsPage() {
 
   // Split, because the heatmap takes no interval: a window it would answer must
   // not be refused because Activity's leftover interval would overflow its axis.
-  const problem = queryProblem(state);
+  // A draft the operator is looking at that is not a wall time refuses the
+  // query first: the committed window behind it is no longer the question on
+  // screen, so it is not asked in its place (cold review F2).
+  const problem = draftErrors.from ?? draftErrors.to ?? queryProblem(state);
   const bucketRefusal = state.mode === 'activity' ? bucketProblem(state) : null;
 
   /**
    * Whether the mode currently in view has a question worth asking.
    *
-   * This is the *one* definition of executability on this surface, and it is
-   * already mode-aware: `queryProblem` applies Activity's bucket bound only in
+   * This is the *one* definition of executability on this surface — the
+   * visible draft included — and it is already mode-aware: `queryProblem` applies Activity's bucket bound only in
    * Activity, so a window the heatmap would answer is never refused here for an
    * interval the heatmap does not use. Every path that can start a request —
    * automatic or manual — is gated on this same value, because a second,
@@ -143,7 +150,11 @@ export default function AnalyticsPage() {
     retry: false,
   });
 
-  const response = aggregates.data;
+  // An answer is shown only for the question on screen: while the window is
+  // refused — the committed one, or a draft over it — the last answer is not
+  // presented as the answer to it.
+  const response = canRunQuery ? aggregates.data : undefined;
+  const heatmapAnswer = canRunQuery ? heatmap.data : undefined;
   const subjectId = useMemo(
     () => resolveSubject(response, state.metric, state.subjectId),
     [response, state.metric, state.subjectId],
@@ -192,7 +203,7 @@ export default function AnalyticsPage() {
           ? { label: camera.data ? `${camera.data.code} · ${camera.data.name}` : `Camera ${cameraId.toLowerCase().slice(0, 8)}…`, to: `/cameras/${cameraId}/scene` }
           : undefined}
         status={(() => {
-          const answer = state.mode === 'heatmap' ? heatmap.data : response;
+          const answer = state.mode === 'heatmap' ? heatmapAnswer : response;
           return (
             <>
               {answer ? <CoverageChip status={coverageStatus(answer.sceneRevisionId, answer.coverage, enabledFor(answer.sceneRevisionId))} /> : null}
@@ -277,6 +288,8 @@ export default function AnalyticsPage() {
             displayTimeZoneId={displayTimeZoneId}
             windowProblem={windowProblem(state)}
             bucketProblem={bucketRefusal}
+            draftErrors={draftErrors}
+            onDraftErrors={setDraftErrors}
             onChange={update}
             onPreset={applyPreset}
           />
@@ -315,6 +328,7 @@ export default function AnalyticsPage() {
                   <HeatmapPane
                     query={heatmap}
                     cameraId={cameraId}
+                    scene={scene}
                     enabledFor={enabledFor}
                     opacity={opacity}
                     onOpacityChange={setOpacity}
@@ -334,6 +348,7 @@ export default function AnalyticsPage() {
                     {(answer) => (
                       <ActivityStage
                         response={answer}
+                        scene={scene}
                         analyticsEnabled={enabledFor(answer.sceneRevisionId)}
                         reading={reading}
                         displayTimeZoneId={config.displayTimeZoneId}
@@ -353,11 +368,22 @@ export default function AnalyticsPage() {
                 Figures appear once the configured display timezone is known.
               </p>
             ) : state.mode === 'heatmap' ? (
-              heatmap.data
-                ? <HeatmapInspector response={heatmap.data} displayTimeZoneId={displayTimeZoneId} />
+              heatmapAnswer
+                ? (
+                  <HeatmapInspector
+                    response={heatmapAnswer}
+                    figures={reportsFigures(coverageStatus(heatmapAnswer.sceneRevisionId, heatmapAnswer.coverage, enabledFor(heatmapAnswer.sceneRevisionId)))}
+                    displayTimeZoneId={displayTimeZoneId}
+                  />
+                )
                 : <p className="faint">Figures appear once a density map has been built.</p>
             ) : response ? (
-              <ActivityInspector response={response} reading={reading} displayTimeZoneId={displayTimeZoneId} />
+              <ActivityInspector
+                response={response}
+                // No figure for a scope that is not an observation (F25; cold review F1).
+                reading={reportsFigures(coverageStatus(response.sceneRevisionId, response.coverage, enabledFor(response.sceneRevisionId))) ? reading : null}
+                displayTimeZoneId={displayTimeZoneId}
+              />
             ) : (
               <p className="faint">Figures appear once a window has been read.</p>
             )}
@@ -379,6 +405,7 @@ export default function AnalyticsPage() {
 function HeatmapPane({
   query,
   cameraId,
+  scene,
   enabledFor,
   opacity,
   onOpacityChange,
@@ -387,6 +414,7 @@ function HeatmapPane({
 }: {
   query: ReturnType<typeof useQuery<Awaited<ReturnType<typeof getAnalyticsHeatmap>>>>;
   cameraId: string;
+  scene: UseQueryResult<CameraScene>;
   enabledFor: (revisionId: string | null) => boolean | null;
   opacity: number;
   onOpacityChange: (value: number) => void;
@@ -441,6 +469,8 @@ function HeatmapPane({
         <EmptyState icon="layers" title="Analytics disabled by the scene" hatched>
           The scene revision in force has no enabled geometry, so no run in this window was analysed.
         </EmptyState>
+      ) : coverageStatus(map.sceneRevisionId, map.coverage, enabledFor(map.sceneRevisionId)) === 'unconfirmed' ? (
+        <UnconfirmedScope scene={scene} />
       ) : scopePresence(map.coverage) === 'incomplete' ? (
         <EmptyState
           icon="clock"
@@ -469,8 +499,43 @@ const COVERAGE_CHIP: Record<CoverageStatus, { tone: 'ok' | 'warn' | 'neutral'; t
   incomplete: { tone: 'warn', text: 'Coverage incomplete' },
   stale: { tone: 'warn', text: 'Coverage stale' },
   disabled: { tone: 'neutral', text: 'Analytics disabled' },
+  unconfirmed: { tone: 'neutral', text: 'Analytics unconfirmed' },
   'not-configured': { tone: 'neutral', text: 'No scene configured' },
 };
+
+/**
+ * A window with no runs whose revision the scene has not yet confirmed enables
+ * analytics (cold review F1). Its coverage reads complete either way, so its
+ * zero is withheld until the scene says which: the scene's own region state —
+ * reading, unavailable with Retry, or degraded over the last scene read — and,
+ * where the scene was read but does not list the revision, a statement that it
+ * cannot be confirmed.
+ */
+function UnconfirmedScope({ scene }: { scene: UseQueryResult<CameraScene> }) {
+  return (
+    <StateRegion
+      kind="column"
+      state={fromQuery(scene)}
+      label="the camera's scene"
+      loadingLabel="Reading the camera's scene…"
+      unavailableMessage={() => 'The camera’s scene could not be read. This window holds no processing runs, so only the scene '
+        + 'can say whether analytics were enabled for it, and no figure is shown until it can.'}
+      degradedMessage="This is the last scene that was read; refreshing it failed."
+      onRetry={() => void scene.refetch()}
+    >
+      {() => (
+        <EmptyState
+          icon="info"
+          title="Analytics could not be confirmed"
+          actions={<Button onClick={() => void scene.refetch()}>Retry</Button>}
+        >
+          This window holds no processing runs, and the camera&apos;s scene does not list the revision it was read
+          against, so whether analytics were enabled for it cannot be confirmed.
+        </EmptyState>
+      )}
+    </StateRegion>
+  );
+}
 
 function CoverageChip({ status }: { status: CoverageStatus }) {
   const { tone, text } = COVERAGE_CHIP[status];
@@ -487,12 +552,14 @@ function CoverageChip({ status }: { status: CoverageStatus }) {
  */
 function ActivityStage({
   response,
+  scene,
   analyticsEnabled,
   reading,
   displayTimeZoneId,
   cameraId,
 }: {
   response: Parameters<typeof ActivityInspector>[0]['response'];
+  scene: UseQueryResult<CameraScene>;
   analyticsEnabled: boolean | null;
   reading: ReturnType<typeof readActivity>;
   displayTimeZoneId: string;
@@ -521,6 +588,8 @@ function ActivityStage({
       </EmptyState>
     );
   }
+
+  if (status === 'unconfirmed') return <UnconfirmedScope scene={scene} />;
 
   if (scopePresence(response.coverage) === 'incomplete') {
     return (

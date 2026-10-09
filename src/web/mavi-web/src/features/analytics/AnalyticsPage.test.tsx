@@ -277,13 +277,17 @@ describe('Analytics Workbench', () => {
     expect(within(strip).getByRole('link', { name: 'Processing' })).toHaveAttribute('href', '/processing');
   });
 
-  it('states the display timezone once, in the Context Bar (§24)', async () => {
+  it('states the display timezone once in the Context Bar, and once beside the wall-time fields (§24)', async () => {
     render();
     await screen.findByRole('table');
 
+    // §24 asks for both: the surface's zone stated once in the Context Bar, and
+    // the operative zone next to a wall-time input. One note serves From and
+    // To together; the zone is repeated nowhere else (no key/value row).
     const zones = screen.getAllByText('Asia/Kolkata');
-    expect(zones).toHaveLength(1);
-    expect(zones[0].closest('.context-bar')).not.toBeNull();
+    expect(zones).toHaveLength(2);
+    expect(zones.filter((zone) => zone.closest('.context-bar'))).toHaveLength(1);
+    expect(zones.filter((zone) => zone.closest('.analytics-window__format'))).toHaveLength(1);
   });
 
   it('asks the question in one band and sets the window in another (F22)', async () => {
@@ -362,19 +366,88 @@ describe('Analytics Workbench', () => {
     expect(screen.queryByRole('figure')).not.toBeInTheDocument();
   });
 
-  it('still draws a complete zero when the scene cannot be read (Codex P1)', async () => {
-    // The scene decides only when it says "disabled"; unread, the counters do.
-    vi.mocked(getAnalyticsAggregates).mockResolvedValue(answer({
-      coverage: { ...completeCoverage, evaluatedRuns: 0, analysedTracks: 0 },
-      zones: [],
-      lines: [],
-      classes: [{ objectClass: 'Person', counts: [0, 0], windowDistinctTrackCount: 0 }],
-    }));
+  /*
+   * Cold review F1: a window with no runs reads complete with every counter at
+   * zero whether its revision enables analytics or not, so only the scene can
+   * say which. Until it has, the zero is not an observation.
+   */
+  const emptyWindow = () => answer({
+    coverage: { ...completeCoverage, evaluatedRuns: 0, analysedTracks: 0 },
+    zones: [],
+    lines: [],
+    classes: [{ objectClass: 'Person', counts: [0, 0], windowDistinctTrackCount: 0 }],
+  });
+
+  it('draws an empty window as a real zero once the scene confirms analytics were enabled (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    render();
+
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Coverage complete')).toBeInTheDocument();
+  });
+
+  it('draws no zero for an empty window while the scene is still being read (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    vi.mocked(getCameraScene).mockReturnValue(new Promise(() => {}));
+    render();
+
+    expect(await screen.findByText(/Reading the camera's scene/i)).toBeInTheDocument();
+    expect(screen.queryByRole('figure')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
+    expect(screen.getByText('Analytics unconfirmed')).toBeInTheDocument();
+    // The inspector does not report the zero either.
+    const inspector = screen.getByRole('complementary', { name: 'Analytics inspector' });
+    expect(within(inspector).queryByText('Distinct Person Tracks')).not.toBeInTheDocument();
+  });
+
+  it('says an empty window cannot be confirmed when the scene cannot be read, and recovers as enabled (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    vi.mocked(getCameraScene)
+      .mockRejectedValueOnce(new Error('scene unavailable'))
+      .mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, true));
+    render();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/whether analytics were enabled/i);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Coverage complete')).toBeInTheDocument();
+  });
+
+  it('recovers an unconfirmed empty window as disabled when the scene says so (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    vi.mocked(getCameraScene)
+      .mockRejectedValueOnce(new Error('scene unavailable'))
+      .mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, false));
+    render();
+
+    await userEvent.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it('cannot confirm an empty window whose revision the scene does not list (cold review F1)', async () => {
+    vi.mocked(getAnalyticsAggregates).mockResolvedValue(emptyWindow());
+    vi.mocked(getCameraScene).mockResolvedValue(sceneWith('018f3f5a-2f70-7a2b-8a12-000000000000', true));
+    render();
+
+    expect(await screen.findByText('Analytics could not be confirmed')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
+  });
+
+  it('keeps a fact-bearing complete answer when the scene cannot be read (cold review F1)', async () => {
+    // Evaluated runs settle it: a disabled revision evaluates none.
     vi.mocked(getCameraScene).mockRejectedValue(new Error('scene unavailable'));
     render();
 
     expect(await screen.findByRole('table')).toBeInTheDocument();
     expect(screen.getByText('Coverage complete')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('gives each compact bucket time its full form on hover (§24, Codex P2)', async () => {

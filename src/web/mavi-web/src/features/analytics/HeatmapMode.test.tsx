@@ -288,6 +288,46 @@ describe('Heatmap mode', () => {
     expect(screen.queryByText(/No samples fell inside this window/i)).not.toBeInTheDocument();
   });
 
+  const emptyMap = () => map({
+    coverage: { ...coverage, evaluatedRuns: 0, analysedTracks: 0 },
+    values: new Array(12).fill(0), sampleCount: 0, trackCount: 0, maxCellValue: 0,
+  });
+
+  it('draws no empty map while the scene is still being read (cold review F1)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(emptyMap());
+    vi.mocked(getCameraScene).mockReturnValue(new Promise(() => {}));
+    await openHeatmap();
+
+    expect(await screen.findByText(/Reading the camera's scene/i)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Heatmap summary' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No samples fell inside this window/i)).not.toBeInTheDocument();
+    const inspector = screen.getByRole('complementary', { name: 'Analytics inspector' });
+    expect(within(inspector).queryByText('Trajectory samples')).not.toBeInTheDocument();
+  });
+
+  it('says an empty map cannot be confirmed when the scene cannot be read, and recovers as enabled (cold review F1)', async () => {
+    vi.mocked(getAnalyticsHeatmap).mockResolvedValue(emptyMap());
+    vi.mocked(getCameraScene)
+      .mockRejectedValueOnce(new Error('scene unavailable'))
+      .mockResolvedValue(sceneWith(coverage.sceneRevisionId!, true));
+    await openHeatmap();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/whether analytics were enabled/i);
+    expect(screen.queryByRole('region', { name: 'Heatmap summary' })).not.toBeInTheDocument();
+
+    await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }));
+    const summary = await screen.findByRole('region', { name: 'Heatmap summary' });
+    expect(summary).toHaveTextContent('No samples fell inside this window.');
+  });
+
+  it('keeps a fact-bearing map when the scene cannot be read (cold review F1)', async () => {
+    vi.mocked(getCameraScene).mockRejectedValue(new Error('scene unavailable'));
+    await openHeatmap();
+
+    expect(await screen.findByRole('region', { name: 'Heatmap summary' })).toHaveTextContent('8 samples from 3 Tracks');
+  });
+
   it('offers no interval, which a map has no use for (F22)', async () => {
     await openHeatmap();
     await screen.findByRole('region', { name: 'Heatmap summary' });
