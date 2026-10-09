@@ -1283,6 +1283,53 @@ export function workspaceAssertions(input) {
         }
       }
     }
+    if (archetype === 'workspace--ledger') {
+      // §25: a Ledger's columns collapse by stated priority into the primary
+      // cell. The stated priority is the markup's (`.ledger-fold` columns);
+      // the rendering is judged: only those columns ever fold, a folded
+      // column's value rides every row's primary cell, and the body does not
+      // scroll sideways while a column that could fold is still shown.
+      const scroller = workspace.querySelector('.ledger-table');
+      const table = scroller && scroller.querySelector('table');
+      const heads = table ? Array.from(table.querySelectorAll('thead th')) : [];
+      const shown = (el) => getComputedStyle(el).display !== 'none';
+      if (table && heads.length > 0) {
+        evaluated.add('tier.b-composition');
+        const hiddenFixed = heads.filter((th) => !th.classList.contains('ledger-fold') && !shown(th));
+        if (hiddenFixed.length > 0) {
+          fail('tier.b-composition', 'the Ledger hides ' + hiddenFixed.map((th) => '"' + th.textContent.trim() + '"').join(', ')
+            + ', which is not a stated fold column (identity, status and the row action never fold)');
+        }
+        const foldable = heads.filter((th) => th.classList.contains('ledger-fold'));
+        const folded = foldable.filter((th) => !shown(th));
+        measured.ledgerFolded = folded.length + '/' + foldable.length;
+        // Every value a folded column holds in a row (an empty or "—" cell
+        // holds none) is shown in that row's primary cell, named by its header.
+        const lost = [];
+        for (const th of folded) {
+          const index = heads.indexOf(th);
+          const header = th.textContent.trim();
+          for (const tr of Array.from(table.querySelectorAll('tbody tr'))) {
+            const cell = tr.children[index];
+            const value = cell ? cell.textContent.trim() : '';
+            if (value === '' || value === '—') continue;
+            const carried = Array.from(tr.querySelectorAll('.ledger-primary .ledger-folded__value')).some((v) => {
+              const name = v.querySelector('.visually-hidden');
+              return name && name.textContent.trim() !== '' && header.startsWith(name.textContent.trim()) && shown(v) && v.getBoundingClientRect().width > 0;
+            });
+            if (!carried) lost.push(header);
+          }
+        }
+        if (lost.length > 0) {
+          fail('tier.b-composition', lost.length + ' folded value(s) (' + Array.from(new Set(lost)).join(', ')
+            + ') are hidden with their column but not shown in the row\'s primary cell');
+        }
+        if (folded.length < foldable.length && scroller.scrollWidth > scroller.clientWidth + 1) {
+          fail('tier.b-composition', 'the Ledger body scrolls sideways (' + scroller.scrollWidth + 'px in ' + scroller.clientWidth
+            + 'px) while ' + (foldable.length - folded.length) + ' stated fold column(s) are still shown');
+        }
+      }
+    }
     if (archetype === 'workspace--investigation') {
       const rail = workspace.querySelector('.workspace__rail');
       const results = workspace.querySelector('.workspace__results');

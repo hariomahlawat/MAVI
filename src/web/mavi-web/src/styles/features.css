@@ -1125,8 +1125,11 @@
  * with every column visible) — so the fold is derived from the composition
  * it separates, never from a viewport figure, and holds at any rail state.
  * Tier A's narrowest working width (1366 with the rail expanded) is 1110px,
- * above every threshold here, so nothing folds there (§4.1). Below the
- * folded table's own width the body scrolls sideways, which §4.1 permits.
+ * above every threshold here, so nothing folds there (§4.1). These widths
+ * are the floor, folding from the first frame (loading included); where the
+ * rendered table is wider than the base inventory's — a longer name, a wider
+ * font — the Ledger folds on measurement as well (`useOverflowFold`). Below
+ * the folded table's own width the body scrolls sideways, which §4.1 permits.
  * ------------------------------------------------------------------ */
 /* Videos: 968px unfolded. Recorded and Duration fold into the File cell; the
    sort they carried moves to the toolbar's select. */

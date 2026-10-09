@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import Drawer from '../overlay/Drawer';
-import { OVERLAY_QUERIES } from '../overlay/useMediaQuery';
+import { OVERLAY_QUERIES, SHELL_QUERIES } from '../overlay/useMediaQuery';
 import { LedgerSortSelect, useLedgerSort } from '../table';
 import { stubMatchMedia } from '../../test/matchMedia';
 import { stubElementWidth } from '../../test/resizeObserver';
-import { InvestigationLayout, InvestigationRailToggle, WORKBENCH_SIDE_BY_SIDE_MIN, WorkbenchLayout } from './layouts';
+import { InvestigationLayout, InvestigationRailToggle, LedgerLayout, LedgerTable, WORKBENCH_SIDE_BY_SIDE_MIN, WorkbenchLayout } from './layouts';
 import { LedgerFoldedValue, LedgerPrimary } from './LedgerFold';
 
 /*
@@ -149,6 +149,62 @@ describe('folded Ledger columns (§25 Tier B)', () => {
       </td></tr></tbody></table>,
     );
     expect(screen.getByRole('cell')).toHaveTextContent('clip.mp4Recorded 14 Sept, 08:35Duration 10m 00s');
+  });
+
+  // jsdom lays nothing out, so the table's rendered width is stated: the
+  // frame holds `frame` pixels of a table `table` pixels wide.
+  function measuredLedger(frame: number, table: number) {
+    const own = (name: 'scrollWidth' | 'clientWidth', value: number) =>
+      Object.getOwnPropertyDescriptor(HTMLElement.prototype, name) ?? { configurable: true, get: () => value };
+    const restore = [own('scrollWidth', 0), own('clientWidth', 0)];
+    Object.defineProperty(HTMLElement.prototype, 'scrollWidth', { configurable: true, get() { return this.classList.contains('ledger-table') ? table : 0; } });
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get() { return this.classList.contains('ledger-table') ? frame : 0; } });
+    return () => {
+      Object.defineProperty(HTMLElement.prototype, 'scrollWidth', restore[0]);
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', restore[1]);
+    };
+  }
+  const Cameras = () => (
+    <main>
+      <LedgerLayout>
+        <LedgerTable caption="Cameras" fold="cameras">
+          <thead><tr><th>Name</th><th className="ledger-fold">Timezone</th></tr></thead>
+          <tbody><tr><td>Gate 4 - a long camera name</td><td className="ledger-fold">Asia/Kolkata</td></tr></tbody>
+        </LedgerTable>
+      </LedgerLayout>
+    </main>
+  );
+
+  it('fold wherever the rendered table does not fit its frame in the compact shell, not only below the base inventory width', () => {
+    const unmeasure = measuredLedger(926, 1010);
+    unstub = stubMatchMedia((query) => query === SHELL_QUERIES.compact);
+    try {
+      const { container } = render(<Cameras />);
+      expect(container.querySelector('.workspace--ledger')).toHaveAttribute('data-fold', 'overflow');
+    } finally {
+      unmeasure();
+    }
+  });
+
+  it('stay unfolded where the table fits, and at Tier A, where every column shows and the body scrolls (§4.1)', () => {
+    let unmeasure = measuredLedger(926, 900);
+    unstub = stubMatchMedia((query) => query === SHELL_QUERIES.compact);
+    try {
+      const { container, unmount } = render(<Cameras />);
+      expect(container.querySelector('.workspace--ledger')).not.toHaveAttribute('data-fold');
+      unmount();
+    } finally {
+      unmeasure();
+      unstub();
+    }
+    unmeasure = measuredLedger(926, 1010);
+    unstub = stubMatchMedia(() => false);
+    try {
+      const { container } = render(<Cameras />);
+      expect(container.querySelector('.workspace--ledger')).not.toHaveAttribute('data-fold');
+    } finally {
+      unmeasure();
+    }
   });
 });
 

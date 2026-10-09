@@ -177,6 +177,12 @@
 .ledger-folded__value + .ledger-folded__value::before { content: "·"; margin-right: var(--s-2); color: var(--text-muted); }
 .ledger-sort { align-items: center; gap: var(--s-2); }
 .ledger-sort__label { color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
+/* Where the rendered table does not fit even so (a longer name, a wider font,
+   a denser row than the base inventory), the Ledger folds on measurement
+   (`useOverflowFold`, layouts.tsx) exactly as it does by container width. */
+.workspace--ledger[data-fold] .ledger-fold { display: none; }
+.workspace--ledger[data-fold] .ledger-folded, .workspace--ledger[data-fold] .ledger-sort { display: inline-flex; }
+.workspace--ledger[data-fold] .toolbar-band:has(.ledger-sort) .toolbar-band__hint { flex-basis: 100%; }
 /* The region below the bands. It takes the remaining height so a long table
    has somewhere to grow, and is neither bordered nor a scroller itself: what it
    holds is either the table's own frame or an uncontained state presentation

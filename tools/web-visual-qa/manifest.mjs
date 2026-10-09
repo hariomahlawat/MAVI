@@ -231,7 +231,7 @@ export const RULES = {
   // beside it above it.
   'tier.b-composition': {
     section: '§25 (Tier B compositions), §4.3.1, §4.4', kind: 'assertion',
-    summary: 'At Tier B each archetype renders its designed composition on each side of the stacking threshold.',
+    summary: 'At Tier B each archetype renders its designed composition on each side of the stacking threshold, and a Ledger folds only its stated columns, into each row’s primary cell, before its body scrolls sideways.',
     tiers: { A: na('a Tier B composition rule'), B, C: na('a Tier B composition rule') },
   },
   'tier.c-shell': {

@@ -605,6 +605,30 @@ describe('Tier B (T1): rules that reject the pre-T1 compositions and pass the de
     assert.deepEqual(fired(await workspaceAt(INVESTIGATION({ railShown: false, toggle: true }), 1024, 'investigation'), 'tier.b-composition'), []);
   });
 
+  const FOLDING_LEDGER = ({ table, folded = false, carried = false, statusHidden = false }) => `<div class="main" data-scroll="body" style="overflow:hidden;height:760px">
+    <section class="workspace workspace--ledger"><div class="workspace__body workspace__body--ledger">
+      <div class="ledger-table" style="overflow:auto;max-width:100%"><table style="width:${table}px;border-collapse:collapse">
+        <thead><tr><th>File</th><th class="ledger-fold" style="${folded ? 'display:none' : ''}">Recorded</th><th class="ledger-fold" style="${folded ? 'display:none' : ''}">Attempt</th><th style="${statusHidden ? 'display:none' : ''}">Status</th></tr></thead>
+        <tbody><tr>
+          <td><div class="ledger-primary">clip.mp4<span class="ledger-folded">${carried ? '<span class="ledger-folded__value"><span class="visually-hidden">Recorded </span>14 Sept</span>' : ''}</span></div></td>
+          <td class="ledger-fold" style="${folded ? 'display:none' : ''}">14 Sept</td><td class="ledger-fold" style="${folded ? 'display:none' : ''}">—</td>
+          <td style="${statusHidden ? 'display:none' : ''}">Ready</td>
+        </tr></tbody>
+      </table></div></div></section></div>`;
+  it('tier.b-composition: fires on a Ledger scrolling sideways with its fold columns shown, a lost folded value, and a folded non-fold column', async () => {
+    const unfolded = await workspaceAt(FOLDING_LEDGER({ table: 1400 }), 1024, 'ledger');
+    assert.ok(unfolded.evaluated.includes('tier.b-composition'));
+    assert.match(fired(unfolded, 'tier.b-composition')[0].message, /scrolls sideways .* while 2 stated fold column\(s\) are still shown/);
+    const lost = await workspaceAt(FOLDING_LEDGER({ table: 800, folded: true }), 1024, 'ledger');
+    assert.match(fired(lost, 'tier.b-composition')[0].message, /\(Recorded\) are hidden with their column but not shown in the row's primary cell/);
+    const status = await workspaceAt(FOLDING_LEDGER({ table: 800, folded: true, carried: true, statusHidden: true }), 1024, 'ledger');
+    assert.match(fired(status, 'tier.b-composition')[0].message, /hides "Status", which is not a stated fold column/);
+    // The designed compositions: folded with every value carried (an empty
+    // "—" cell carries nothing), and unfolded where the table fits.
+    assert.deepEqual(fired(await workspaceAt(FOLDING_LEDGER({ table: 800, folded: true, carried: true }), 1024, 'ledger'), 'tier.b-composition'), []);
+    assert.deepEqual(fired(await workspaceAt(FOLDING_LEDGER({ table: 800 }), 1024, 'ledger'), 'tier.b-composition'), []);
+  });
+
   const RECORD = (columns) => `<div class="main" data-scroll="page"><section class="workspace workspace--record">
     <div class="workspace__record-grid" style="display:grid;grid-template-columns:${columns};gap:16px;align-items:start">
       <div class="workspace__record-primary" style="height:300px"></div><div class="workspace__record-facts" style="height:200px"></div>

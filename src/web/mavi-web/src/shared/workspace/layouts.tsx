@@ -1,7 +1,7 @@
-import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import Button from '../components/Button';
 import Drawer from '../overlay/Drawer';
-import { OVERLAY_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
+import { OVERLAY_QUERIES, SHELL_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
 import { useScrollPolicy } from './surfaceSlot';
 import { useElementWidth } from './useElementWidth';
 
@@ -117,21 +117,86 @@ export function LedgerTable({
   /**
    * Which Ledger's column-fold priority applies (§25 Tier B: "columns collapse
    * by stated priority into the primary cell"). The priority itself — which
-   * columns fold, and at the container width where the unfolded table stops
-   * fitting — is that Ledger's, stated in features.css.
+   * columns fold, and the container width where the base inventory's unfolded
+   * table stops fitting — is that Ledger's, stated in features.css; beyond it,
+   * `useOverflowFold` folds wherever the rendered table does not fit.
    */
   fold?: 'videos' | 'processing-queue' | 'cameras';
   /** `<thead>` and `<tbody>`. */
   children: ReactNode;
 }) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const compact = useMediaQuery(SHELL_QUERIES.compact);
+  useOverflowFold(scrollerRef, Boolean(fold) && compact);
   return (
-    <div className="ledger-table">
+    <div className="ledger-table" ref={scrollerRef}>
       <table className={`table table--ledger${fold ? ` table--fold-${fold}` : ''}`}>
         <caption className="visually-hidden">{caption}</caption>
         {children}
       </table>
     </div>
   );
+}
+
+/**
+ * Folds a Ledger's stated columns wherever its *rendered* table does not fit
+ * (§25 Tier B), not only below the width measured on the base inventory: a
+ * longer camera name, a wider font or a denser row widens the table past any
+ * fixed threshold, and §25 folds the stated columns before the body scrolls
+ * sideways. The container-query fold of features.css stays the floor, so a
+ * Ledger whose region is narrower than its base table is folded from its
+ * first frame, loading included, and nothing moves when the rows arrive.
+ *
+ * The decision measures the table with only the container-query fold
+ * applied — the attribute is cleared, the layout read and the attribute set
+ * again in one synchronous pass, before paint — so it is exact and cannot
+ * oscillate. It is repeated before paint when the content column changes
+ * size (a ResizeObserver on `main`, whose box the fold cannot change) and when
+ * the rows change (a MutationObserver). A table that widens by itself — a
+ * font arriving late — is caught by a second ResizeObserver on the table,
+ * which decides one frame later: deciding inside that callback would resize
+ * the very element it observes.
+ * It applies in the compact shell only: §4.1 shows every column at Tier A,
+ * where the body scrolls instead.
+ */
+function useOverflowFold(scrollerRef: RefObject<HTMLDivElement | null>, enabled: boolean) {
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return undefined;
+    const host = scroller.closest<HTMLElement>('.workspace--ledger') ?? scroller;
+    const decide = () => {
+      host.removeAttribute('data-fold');
+      if (!enabled) return;
+      const unfolded = Array.from(scroller.querySelectorAll('thead .ledger-fold')).some((th) => getComputedStyle(th).display !== 'none');
+      if (unfolded && scroller.scrollWidth > scroller.clientWidth + 1) host.setAttribute('data-fold', 'overflow');
+    };
+    decide();
+    if (!enabled) return undefined;
+    const rows = new MutationObserver(decide);
+    rows.observe(scroller, { childList: true, subtree: true, characterData: true });
+    if (typeof ResizeObserver === 'undefined') {
+      return () => {
+        rows.disconnect();
+        host.removeAttribute('data-fold');
+      };
+    }
+    const column = new ResizeObserver(decide);
+    column.observe(scroller.closest('main') ?? host);
+    let frame = 0;
+    const table = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(decide);
+    });
+    const element = scroller.querySelector('table');
+    if (element) table.observe(element);
+    return () => {
+      rows.disconnect();
+      column.disconnect();
+      table.disconnect();
+      cancelAnimationFrame(frame);
+      host.removeAttribute('data-fold');
+    };
+  }, [scrollerRef, enabled]);
 }
 
 /**
