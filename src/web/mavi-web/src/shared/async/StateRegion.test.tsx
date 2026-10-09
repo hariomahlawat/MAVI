@@ -221,6 +221,29 @@ describe('row (§37.1)', () => {
     await userEvent.click(retry);
     expect(onRetry).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['unavailable', { kind: 'unavailable', error: new Error('x') } as AsyncState<null>, 'Run status unavailable'],
+    ['degraded', { kind: 'ready', data: null, degraded: { error: new Error('x') } } as AsyncState<null>, 'Run status may be out of date'],
+  ])('states its %s message as truncatable text, so a capped cell gives it an ellipsis and keeps the full sentence reachable (M2, §16)', (_name, state, message) => {
+    render(
+      <StateRegion
+        kind="row"
+        state={state}
+        label="run status"
+        unavailableMessage={() => 'Run status unavailable'}
+        degradedMessage="Run status may be out of date"
+        onRetry={() => undefined}
+        retryLabel="Retry run status for clip-0001.mp4"
+        compactRetry
+      >
+        {() => null}
+      </StateRegion>,
+    );
+    // The shared TruncatedText: an ellipsis where the cell squeezes it, and —
+    // only then — a tab stop with the full sentence as its tooltip.
+    expect(screen.getByText(message)).toHaveClass('truncate');
+  });
 });
 
 describe('media (§37.1)', () => {

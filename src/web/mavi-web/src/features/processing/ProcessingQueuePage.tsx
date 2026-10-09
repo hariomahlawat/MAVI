@@ -222,6 +222,14 @@ export default function ProcessingQueuePage() {
                                 unavailableMessage={() => 'Run status unavailable'}
                                 degradedMessage="Run status may be out of date"
                                 onRetry={() => processing.retry(row.id)}
+                                // R2's dense-cell retry (M2): a 26×26 icon named
+                                // for its request and video. The full-text
+                                // "Retry" kept its width while the status line
+                                // ran out of the 260px cap, and was clipped by
+                                // it under a wider font; a row's controls must
+                                // all be distinguishable by name.
+                                retryLabel={`Retry run status for ${row.originalFileName}`}
+                                compactRetry
                               >
                                 {() => null}
                               </StateRegion>

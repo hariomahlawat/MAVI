@@ -5,6 +5,7 @@ import { listCameras } from '../../api/cameras';
 import { getSystemConfig } from '../../api/system';
 import { ApiError } from '../../api/client';
 import { getProcessingStatus, listVideos, type ProcessingRunStatus, type VideoAsset } from '../../api/videos';
+import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import ProcessingQueuePage, { bucketFor, orderForQueue } from './ProcessingQueuePage';
 import { joinVideoRows } from '../videos/videoRows';
@@ -286,6 +287,59 @@ describe('ProcessingQueuePage', () => {
     vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: run('Failed', { failureCode: 'worker_watchdog_timeout' }) });
     await user.click(within(rows[1]).getByRole('button', { name: /retry/i }));
     expect(await within(rows[1]).findByText('worker_watchdog_timeout')).toBeInTheDocument();
+  });
+
+  describe('M2: the run-status retry in the capped status cell', () => {
+    it('retries a failed lookup with a compact control named for its video, by keyboard, for that video only', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getProcessingStatus).mockImplementation(async (id) => {
+        if (id === failed.id) throw new ApiError({ status: 503, code: 'status_unavailable', detail: 'Status store unavailable.' });
+        return { videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) };
+      });
+      renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+      const table = await screen.findByRole('table');
+      const row = within(table).getAllByRole('row')[2];
+      expect(await within(row).findByText('Run status unavailable')).toBeInTheDocument();
+
+      // Named for its request and video, icon-only (R2's dense-cell retry),
+      // and never one of several controls called just "Retry".
+      const retry = within(row).getByRole('button', { name: `Retry run status for ${failed.originalFileName}` });
+      expect(retry).toHaveClass('btn--icon');
+      expect(within(table).queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+
+      vi.mocked(getProcessingStatus).mockClear();
+      vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: run('Failed', { failureCode: 'vision_job_attempts_exhausted' }) });
+      retry.focus();
+      await user.keyboard('{Enter}');
+      expect(await within(row).findByText('vision_job_attempts_exhausted')).toBeInTheDocument();
+      expect(vi.mocked(getProcessingStatus).mock.calls.map(([id]) => id)).toEqual([failed.id]);
+      expect(within(row).queryByText('Run status unavailable')).not.toBeInTheDocument();
+    });
+
+    it('keeps the last known run said to be out of date when its refresh fails, and recovers through the same control', async () => {
+      const user = userEvent.setup();
+      vi.mocked(listVideos).mockResolvedValue([running]);
+      vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Processing', latestRun: run('Running', { progressPercent: 40 }) });
+      const { queryClient } = renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+      const table = await screen.findByRole('table');
+      const row = within(table).getAllByRole('row')[1];
+      await within(row).findByRole('progressbar');
+
+      vi.mocked(getProcessingStatus).mockRejectedValue(new ApiError({ status: 503, code: 'status_unavailable', detail: 'Status store unavailable.' }));
+      await queryClient.refetchQueries({ queryKey: queryKeys.videoProcessing(running.id) }).catch(() => undefined);
+
+      // The last known run stays — its badge and inference progress — and the
+      // cell says, in words, that it may not be current (§14.1 degraded).
+      expect(await within(row).findByText('Run status may be out of date', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(within(row).getByRole('progressbar')).toBeInTheDocument();
+      expect(within(row).getAllByText('Processing').length).toBeGreaterThan(0);
+
+      vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Processing', latestRun: run('Running', { progressPercent: 55 }) });
+      const retry = within(row).getByRole('button', { name: `Retry run status for ${running.originalFileName}` });
+      retry.focus();
+      await user.keyboard('{Enter}');
+      await waitFor(() => expect(within(row).queryByText('Run status may be out of date')).not.toBeInTheDocument());
+    });
   });
 
   it('does not claim to be loading or show zero counts when the inventory request failed', async () => {

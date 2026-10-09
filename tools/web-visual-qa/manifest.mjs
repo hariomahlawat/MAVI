@@ -77,7 +77,9 @@ export const SURFACES = {
   review: { owner: 'S3e / R6', accepted: true },
   // M1 accepted (S4): Cameras' surface findings block at Tier A.
   cameras: { owner: 'S4 / M1', accepted: true },
-  'processing-queue': { owner: 'S4 / M2', accepted: false },
+  // M2 accepted (S4): the Processing queue's surface findings block at Tier A,
+  // ledger.actions-reachable among them.
+  'processing-queue': { owner: 'S4 / M2', accepted: true },
   import: { owner: 'S4 / M3', accepted: false },
   'camera-analytics': { owner: 'S4 / M4', accepted: false },
 };
@@ -159,9 +161,10 @@ export const RULES = {
   // M1 (S4): §25's "no clipped or unreachable control" for Ledger rows. The
   // body may scroll sideways (§4.1); an action is unreachable only where no
   // scrolling reveals it. Surface-scoped: it blocks at Tier A on an accepted
-  // surface (Cameras from M1) and is measured against the owning row on one
-  // not yet migrated — under CI's wider fallback font it finds the Processing
-  // queue's degraded-row Retry clipped 6px by the run cell's cap, which is M2's.
+  // surface (Cameras from M1, the Processing queue from M2) and is measured
+  // against the owning row on one not yet migrated. Under CI's wider fallback
+  // font it found the queue's degraded-row Retry clipped 6px by the run cell's
+  // cap; M2 corrected that (processing-queue-row-degraded-wide-font).
   'ledger.actions-reachable': {
     section: '§25, §4.1', kind: 'assertion', scope: 'surface',
     summary: 'No Ledger row action is clipped where no scrolling reaches it; an action reachable by the permitted sideways scroll is not a finding. Blocks on a surface once its row is accepted.',

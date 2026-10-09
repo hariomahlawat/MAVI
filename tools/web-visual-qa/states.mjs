@@ -2856,6 +2856,34 @@ export const STATES = [
     expectText: ['Run status may be out of date', 'vision_finalization_exhausted'],
   },
   {
+    // M2: the same degraded row under wide-font pressure — Verdana where it is
+    // installed, the platform's own wide fallback where it is not (DejaVu Sans
+    // on CI). The product ships no font (tokens.css), and under CI's fallback
+    // the full-text Retry ran 6px out of the 260px run cell, clipped where no
+    // scrolling reaches it. The preparation only reaches that condition; the
+    // promoted ledger.actions-reachable is what judges it (the control's name,
+    // keyboard operation and message are the feature tests').
+    name: 'processing-queue-row-degraded-wide-font', path: '/processing', fullWidth: true, archetype: 'ledger',
+    api: inventoryFixture([
+      { name: 'north-gate-0900-very-long-original-file-name.mp4', status: 'Processing', progress: 40, refresh: 'unavailable' },
+      { name: 'south-dock-2200.mp4', status: 'Failed', code: 'vision_finalization_exhausted' },
+      { name: 'north-gate-0800.mp4', status: 'Processed' },
+    ]),
+    prepare: `(async () => {
+      ${UNTIL}
+      const style = document.createElement('style');
+      style.textContent = ':root { --font-ui: Verdana, "DejaVu Sans", sans-serif !important; }';
+      document.head.appendChild(style);
+      // The degraded row's own retry, whatever it is called.
+      await until(() => Array.from(document.querySelectorAll('.run-cell')).find((cell) => /Run status may be out of date/.test(cell.textContent) && cell.querySelector('button')), 'the degraded row and its retry');
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      // The pressure is applied: the cell resolves the wide stack (the font
+      // itself is whichever of it the platform has).
+      return /Verdana/.test(getComputedStyle(document.querySelector('.run-cell')).fontFamily);
+    })()`,
+    expectText: ['Run status may be out of date', 'vision_finalization_exhausted'],
+  },
+  {
     name: 'processing-queue-dense', path: '/processing', fullWidth: true, archetype: 'ledger', api: { '/api/videos': DENSE_VIDEOS },
   },
 

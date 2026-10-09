@@ -5,6 +5,7 @@ import EmptyState from '../components/EmptyState';
 import type { IconName } from '../components/Icon';
 import LoadingState from '../components/LoadingState';
 import EvidencePlaceholder from '../evidence/EvidencePlaceholder';
+import TruncatedText from '../overlay/Truncated';
 import type { AsyncState } from './asyncState';
 
 /**
@@ -172,7 +173,9 @@ export default function StateRegion<T>({
       // Row identity is the caller's cells; this is the one cell's content.
       return (
         <span className="state-row">
-          <span className="text-err">{message}</span>
+          {/* In a capped cell the message is what gives way, so it truncates
+              with its full sentence reachable by pointer and keyboard (§16). */}
+          <span className="text-err"><TruncatedText text={message} /></span>
           {canRetry && onRetry ? rowRetry(onRetry) : null}
         </span>
       );
@@ -211,7 +214,7 @@ export default function StateRegion<T>({
         <>
           {body}
           <span className="state-row state-row--degraded">
-            <span className="faint">{message}</span>
+            <span className="faint"><TruncatedText text={message} /></span>
             {canRetry && onRetry ? rowRetry(onRetry) : null}
           </span>
         </>
