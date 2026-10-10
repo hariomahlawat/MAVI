@@ -331,6 +331,12 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.match(messages(await at200('<div style="clip-path:inset(0 0 0 15%)"><button style="width:200px">Retry processing</button></div>')), /"Retry processing" is cut off even when focused \(\d+px of its width/);
     assert.match(messages(await at200('<div style="clip-path:circle(40%)"><button style="width:200px">Retry processing</button></div>')), /clipped by <div> .*clip-path circle\(40%\), which the harness cannot measure/);
     assert.equal(messages(await at200('<div style="clip-path:inset(0)"><button style="width:200px">Retry processing</button></div>')), '');
+    // An inset() component the harness cannot resolve is unmeasured, never a
+    // zero inset (Codex P1): a calc() of mixed units survives into the
+    // computed value, where an em or a viewport unit resolves to px.
+    assert.match(messages(await at200('<div style="clip-path:inset(0 0 0 calc(10% + 10px))"><button style="width:200px">Retry processing</button></div>')), /clipped by <div> .*clip-path inset\(0px 0px 0px calc\(10% \+ 10px\)\), which the harness cannot measure/);
+    assert.match(messages(await at200('<div style="clip-path:inset(0 0 0 2em)"><button style="width:200px">Retry processing</button></div>')), /"Retry processing" is cut off even when focused \(28px of its width/);
+    assert.match(messages(await at200('<div style="clip-path:inset(0 0 0 30px round 4px)"><button style="width:200px">Retry processing</button></div>')), /"Retry processing" is cut off even when focused \(30px of its width/);
   });
 
   it('clips a fixed control by the ancestors that form its containing block, and no others (Codex P1, containing blocks)', async () => {
@@ -502,6 +508,10 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     assert.ok(kept.compared >= 2);
     assert.deepEqual(kept.changed, []);
     assert.equal(kept.minRatio, 1);
+    // A composition may draw its text larger in a live change too (Codex P1).
+    const grown = await change(SHRINKS('16px'));
+    assert.deepEqual(grown.changed, []);
+    assert.equal(grown.minRatio, 1);
     // Text the new composition mounts in place of another is held to the same
     // words before, else to the page's smallest text.
     const REPLACED = (size) => `<style>body{margin:0;font:14px sans-serif} .summary{display:none;font-size:${size}} @media (width < 768px) { .editor { display: none } .summary { display: block } }</style>
@@ -552,6 +562,10 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     const COVERED = `<style>body{margin:0;font:14px sans-serif} .cover{position:absolute;left:0;right:0;top:30px;height:30px;background:#000} .narrow{display:none;font-size:11px} @media (width < 768px) { .narrow { display: block } .cover { display: none } }</style>
       <main id="main" style="position:relative"><p style="margin:0;height:30px">Videos</p><p style="margin:0;height:30px;font-size:11px">4 of 4 videos</p><div class="cover"></div></main><p class="narrow">Shown only on a narrow display</p>`;
     assert.match((await change(COVERED)).changed.join('\n'), /"Shown only on a narrow display" is drawn at 11px at 200%, below the 14px smallest text at 100%/);
+    // ...while the covered words themselves keep the size they are drawn at:
+    // the same "4 of 4 videos" at 11px, uncovered at 200%, is no shrink (CI).
+    const SAME_WORDS = COVERED.replace('<p class="narrow">Shown only on a narrow display</p>', '<p class="narrow">4 of 4 videos</p>');
+    assert.deepEqual((await change(SAME_WORDS)).changed, []);
     // A size is the drawn size: text scaled down by a transform or the CSS
     // zoom of an ancestor at the narrow tier is drawn smaller, whatever its
     // font-size says (cold review 2).
@@ -616,6 +630,16 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     const FADED = `<style>body{margin:0} @media (width < 768px) { .fades { opacity: 0 } }</style>
       <main id="main"><button class="fades">Detail</button></main>`;
     assert.match(messages(await across(FADED, '(() => { document.querySelector(".fades").focus(); return true; })()')), /focus is left on <button.fades> "Detail", which the zoom change has left transparent/);
+  });
+
+  it('judges the main region a Dialog falls back to like any control (Codex P1)', async () => {
+    const MAIN = (rule) => `<style>body{margin:0} @media (width < 768px) { main { ${rule} } }</style>
+      <main id="main" tabindex="-1"><button>Detail</button></main>`;
+    const ON_MAIN = '(() => { document.getElementById("main").focus(); return true; })()';
+    assert.equal(messages(await across(MAIN(''), ON_MAIN)), '');
+    assert.match(messages(await across(MAIN('opacity: 0'), ON_MAIN)), /focus is left on <main> "Detail", which the zoom change has left transparent/);
+    assert.match(messages(await across(MAIN('position: absolute; left: -9999px'), ON_MAIN)), /focus is left on <main> "Detail", (out of view|which the zoom change has left .*)/);
+    assert.match(messages(await across(MAIN('clip-path: circle(40%)'), ON_MAIN)), /focus is left on <main> "Detail", clipped by <main> .*which the harness cannot measure/);
   });
 
   it('fails an overlay left open with focus outside it, and a region left inert with no overlay open', async () => {
@@ -717,6 +741,19 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.equal(status, 1, output);
     zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@200%');
     assert.ok(zoom.some((f) => /"Shown only on a narrow display" .*7px at 200%, below the 1[0-9]px smallest text at 100%/.test(f.message)), JSON.stringify(zoom));
+  });
+
+  it('holds words a layer covers at 100% to the size they are drawn: the 11px badges under a sheet are not a shrink beside the 13px rail link (CI, DejaVu Sans)', () => {
+    // A black panel over the ledger at 100% only: the badges' words stay in
+    // the baseline at 11px, so the same badges drawn at 11px at 200%,
+    // uncovered, are no shrink against the rail's 13px "Processing".
+    const PANEL = `(() => { const s = document.createElement('style'); s.textContent = '.vqa-panel{position:fixed;left:240px;top:0;right:0;bottom:0;background:#000} @media (width < 768px) { .vqa-panel { display: none } }'; document.head.appendChild(s); const d = document.createElement('div'); d.className = 'vqa-panel'; document.body.appendChild(d); return true; })()`;
+    const { status, output, results } = run('covered-baseline', `${VIDEOS.replace('=> s)', '=> ({ ...s, prepare: ' + JSON.stringify(PANEL) + ' }))')}`, ['--states', 'videos']);
+    assert.equal(status, 0, output);
+    const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200');
+    assert.deepEqual(zoom, [], JSON.stringify(zoom));
+    const text = results.cases.find((c) => c.state === 'videos' && c.viewport === '1366x768@200%').zoom.text;
+    assert.ok(text.matched > 0 && text.physical === 2, JSON.stringify(text));
   });
 
   it('does not fault a page whose only controls are disabled or behind an open overlay, and faults one that offers controls none of which could be judged (cold review 3)', () => {

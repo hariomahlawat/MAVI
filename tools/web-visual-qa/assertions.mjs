@@ -2008,9 +2008,10 @@ export function zoomClipChain(el) {
 /**
  * The part of a box on screen now (T3): its rectangle cut to the viewport and
  * to each clipping ancestor of its chain — an overflow box's padding box
- * (the root's is the viewport itself), an inset() clip-path's inset — with
- * the first ancestor that cut something named. A clip-path of any other
- * shape, a legacy clip or a mask is a loss the harness cannot measure, and
+ * (the root's is the viewport itself), an inset() clip-path of plain px or
+ * % lengths — with the first ancestor that cut something named. A clip-path
+ * of any other shape, an inset() with a component the harness cannot
+ * resolve, a legacy clip or a mask is a loss the harness cannot measure, and
  * is named as such rather than passed.
  */
 export function zoomVisibleRect(rect, chain, vw, vh) {
@@ -2028,12 +2029,16 @@ export function zoomVisibleRect(rect, chain, vw, vh) {
     const box = c.el.getBoundingClientRect();
     if (c.overflow && !c.root) cut(box.left + c.el.clientLeft, box.top + c.el.clientTop, box.left + c.el.clientLeft + c.el.clientWidth, box.top + c.el.clientTop + c.el.clientHeight, c.el);
     if (c.clipPath) {
+      // Only an inset() of one to four plain px or % lengths is measured; a
+      // component the harness cannot resolve (a calc(), an em, a viewport
+      // unit) makes the clip unmeasured, never a zero inset (Codex P1).
       const m = /^inset\(([^)]*?)(?:\s+round\s[^)]*)?\)$/.exec(c.clipPath.trim());
-      if (!m) { unmeasured = unmeasured ?? { el: c.el, what: 'clip-path ' + c.clipPath }; continue; }
-      const v = m[1].trim().split(/\s+/);
+      const v = m ? m[1].trim().split(/\s+/) : [];
+      const len = (value, size) => (/^-?\d*\.?\d+%$/.test(value) ? parseFloat(value) / 100 * size : /^-?\d*\.?\d+(px)?$/.test(value) ? parseFloat(value) : null);
       const [t1, r1, b1, l1] = [v[0], v[1] ?? v[0], v[2] ?? v[0], v[3] ?? v[1] ?? v[0]];
-      const len = (value, size) => (value.endsWith('%') ? parseFloat(value) / 100 * size : parseFloat(value) || 0);
-      cut(box.left + len(l1, box.width), box.top + len(t1, box.height), box.right - len(r1, box.width), box.bottom - len(b1, box.height), c.el);
+      const edges = v.length >= 1 && v.length <= 4 ? [len(t1, box.height), len(r1, box.width), len(b1, box.height), len(l1, box.width)] : [null];
+      if (edges.some((edge) => edge === null)) unmeasured = unmeasured ?? { el: c.el, what: 'clip-path ' + c.clipPath };
+      else cut(box.left + edges[3], box.top + edges[0], box.right - edges[1], box.bottom - edges[2], c.el);
     }
     if (c.clip) unmeasured = unmeasured ?? { el: c.el, what: 'clip ' + c.clip };
     if (c.mask) unmeasured = unmeasured ?? { el: c.el, what: 'a mask' };
@@ -2468,12 +2473,17 @@ zoomAssertions.helpers = [zoomDescribe, zoomOwn, zoomClipChain, zoomVisibleRect,
  * clipped region is not; a clip the harness cannot measure counts as not
  * shown), and not hidden at its middle under anything that paints opaquely
  * there (zoomPaintsAt at 0.95 — an ancestor by its pseudo-elements alone)
- * but its own content. Text
- * behind an open overlay (inert, under a translucent scrim) is still drawn
- * and read, so it counts. Hidden or unreachable text is neither a baseline
- * nor a subject of 1.4.4, which is about text the operator reads.
+ * but its own content. Text behind an open overlay (inert, under a
+ * translucent scrim) is still drawn and read, so it counts. Hidden or
+ * unreachable text is neither a baseline nor a subject of 1.4.4, which is
+ * about text the operator reads. Text under a covering layer is not shown
+ * either, but it is drawn at its size: given a `covered` array it is
+ * collected there, for the baseline to hold its words to (the ledger's 11px
+ * badges under the shortcut sheet at 100%, which the 200% sheet leaves
+ * uncovered, are no shrink against the rail's 13px "Processing").
  */
-export function zoomTextHolders() {
+export function zoomTextHolders(input) {
+  const covered = input && input.covered;
   const reveal = document.createElement('style');
   reveal.textContent = '*, *::before, *::after { pointer-events: auto !important; }';
   const holders = Array.from(document.body.querySelectorAll('*'))
@@ -2485,15 +2495,15 @@ export function zoomTextHolders() {
       const v = zoomVisibility(el);
       if (v.hidden || !v.reachable) continue;
       if (v.seen.unmeasured) continue;
-      let covered = false;
+      let hidden = false;
       if (v.seen.width >= 1 && v.seen.height >= 1) {
         const x = (v.seen.left + v.seen.right) / 2; const y = (v.seen.top + v.seen.bottom) / 2;
         for (const node of document.elementsFromPoint(x, y)) {
           if (node === el || el.contains(node)) break;
-          if (zoomPaintsAt(node, x, y, { opaque: 0.95, pseudoOnly: node.contains(el) })) { covered = true; break; }
+          if (zoomPaintsAt(node, x, y, { opaque: 0.95, pseudoOnly: node.contains(el) })) { hidden = true; break; }
         }
       }
-      if (!covered) seen.push(el);
+      if (!hidden) seen.push(el); else if (covered) covered.push(el);
     }
   } finally { reveal.remove(); }
   return seen;
@@ -2513,14 +2523,18 @@ export function zoomTextOf(el) {
 
 /**
  * The text a page draws, as the baseline a 200% capture is compared with
- * (T3, WCAG 1.4.4): every rendered element holding a text node, by its words
- * — the largest CSS size those words are drawn at — and the smallest text on
- * the page. Taken from the same state at 100% (a load) or at the step before
- * a live zoom change. The live elements are kept on the page as well, so a
- * change in the same document can also be judged element by element.
+ * (T3, WCAG 1.4.4): every element holding a text node the page shows, by
+ * its words — the smallest CSS size those words are drawn at — and the
+ * smallest text on the page; text a layer covers keeps its words in the
+ * baseline (it is drawn at that size, covered or not) but does not set the
+ * page's floor, which is of text shown. Taken from the same state at 100% (a
+ * load) or at the step before a live zoom change. The live elements are kept
+ * on the page as well, so a change in the same document can also be judged
+ * element by element.
  */
 export function zoomTextBaseline() {
-  const holders = zoomTextHolders();
+  const covered = [];
+  const holders = zoomTextHolders({ covered });
   // The smallest size each set of words is drawn at, and the page's
   // smallest text: what a drawing of those words, or of any words, at the
   // other zoom is held to. A size is the drawn size: the CSS font size as
@@ -2533,6 +2547,12 @@ export function zoomTextBaseline() {
     const key = (zoomTextOf(el) || el.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase();
     if (key) words[key] = Math.min(words[key] ?? Infinity, size);
     floor = floor === null ? size : Math.min(floor, size);
+    live.set(el, size);
+  }
+  for (const el of covered) {
+    const size = parseFloat(getComputedStyle(el).fontSize) * zoomVisibility(el).scale;
+    const key = (zoomTextOf(el) || el.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    if (key) words[key] = Math.min(words[key] ?? Infinity, size);
     live.set(el, size);
   }
   window.__vqaZoomTextLive = live;
@@ -2559,8 +2579,9 @@ zoomTextBaseline.helpers = [zoomClipChain, zoomVisibleRect, zoomPaintsAt, zoomVi
  * the matched text is returned, for the run to
  * turn into a physical size against the browser's zoom factors. In the same
  * document (a live change, `live`) an element that was there before is its
- * own counterpart, judged by its own size. With no baseline, or no text,
- * nothing is compared: a fault, never a pass.
+ * own counterpart, judged by its own size — smaller is a finding, larger is
+ * the composition's right here too. With no baseline, or no text, nothing is
+ * compared: a fault, never a pass.
  */
 export function zoomTextCompare(input) {
   const { baseline, from, to, live } = input;
@@ -2580,7 +2601,7 @@ export function zoomTextCompare(input) {
       matched += 1;
       const was = liveMap.get(el);
       minRatio = Math.min(minRatio, now / was);
-      if (Math.abs(now - was) > 0.01) { changed.push(quote(el) + ' changed from ' + was + 'px to ' + now + 'px with the zoom change'); flagged.add(el); }
+      if (now < was - 0.01) { changed.push(quote(el) + ' changed from ' + was + 'px to ' + now + 'px with the zoom change'); flagged.add(el); }
       continue;
     }
     const key = (zoomTextOf(el) || el.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -2609,8 +2630,9 @@ export function zoomBeforeChange() {
 
 /**
  * After a live zoom change (T3, §20, §23): focus is not lost to the document
- * and not left on anything hidden or inert; an overlay still open holds it;
- * and nothing is left inert with no overlay open.
+ * and not left on anything hidden or inert — the main region a Dialog falls
+ * back to judged like any control; an overlay still open holds it; and
+ * nothing is left inert with no overlay open.
  */
 export async function zoomTransitionProbe() {
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -2622,9 +2644,10 @@ export async function zoomTransitionProbe() {
   const lost = !active || active === document.body || active === document.documentElement;
   if (lost && before && before !== document.body && before !== document.documentElement) {
     fail('focus fell to the document when the zoom changed (it was on ' + describe(before) + ')');
-  } else if (!lost && active !== document.querySelector('main')) {
+  } else if (!lost) {
     // Judged by the one account of what is seen (zoomVisibility): the
-    // focused control is where the operator can see it after the reflow.
+    // focused element — a control, or the main region a Dialog falls back
+    // to — is where the operator can see it after the reflow (Codex P1).
     const v = zoomVisibility(active);
     if (!active.isConnected || v.hidden === 'not rendered') fail('focus is left on ' + describe(active) + ', which the new composition does not show');
     else if (v.inert) fail('focus is left on ' + describe(active) + ', inside an inert region');
