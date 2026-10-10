@@ -374,6 +374,13 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     const kept = await change(SHRINKS('14px'));
     assert.ok(kept.compared >= 2);
     assert.deepEqual(kept.changed, []);
+    // Text the new tier mounts in place of another composition has no
+    // counterpart: it may not be smaller than the smallest text before (Codex P1).
+    const REPLACED = (size) => `<style>body{margin:0;font:14px sans-serif} .summary{display:none;font-size:${size}} @media (width < 768px) { .editor { display: none } .summary { display: block } }</style>
+      <main id="main"><div class="editor"><span style="font-size:12px">Zone A</span></div><div class="summary">Editing a scene needs a display at least 768px wide.</div></main>`;
+    const tiny = await change(REPLACED('7px'));
+    assert.match(tiny.changed.join('\n'), /"Editing a scene needs a displa" \(newly drawn at 7px, below the 12px smallest text before the change\)/);
+    assert.deepEqual((await change(REPLACED('14px'))).changed, []);
   });
 
   it('fails focus the zoom change leaves on a transparent control (Codex P1)', async () => {
@@ -457,6 +464,16 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.equal(status, 1, output);
     const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@200%-100%');
     assert.ok(zoom.some((f) => /^at the start \(200%\): .* does not fit the 683x384 viewport/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
+  });
+
+  it('judges every step a transition passes through, as a load (Codex P1)', () => {
+    // A band drawn only at 200%, letting the pointer through: it hides the
+    // focused row action there, and is gone again by the 100% capture.
+    const BAND = `(() => { const s = document.createElement('style'); s.textContent = '@media (width < 768px) { body::after { content: ""; position: fixed; inset: 0; background: #000; pointer-events: none; z-index: 9 } }'; document.head.appendChild(s); const a = document.querySelector('main tbody tr a[href], main tbody tr button'); a.focus(); return document.activeElement === a; })()`;
+    const { status, output, results } = run('step', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, zoomTransitions: [{ path: [1, 2, 1], before: ${JSON.stringify(BAND)} }] }));`, ['--states', 'videos']);
+    assert.equal(status, 1, output);
+    const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@100%-200%-100%');
+    assert.ok(zoom.some((f) => /^at 200%: .*(hidden under|covered by)/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
   });
 
   it('is a harness fault when a required zoom state is never reached', () => {

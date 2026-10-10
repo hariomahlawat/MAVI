@@ -2268,15 +2268,21 @@ export function zoomAssertions(input) {
  * CSS length by the same factor, so text that grows with it keeps its CSS
  * font size; text whose CSS size changes across the change — a breakpoint
  * that shrinks a label below 768px — is drawn at less than the zoom asks.
- * The first call records the computed size of every element that holds text;
- * each later call names those, still rendered, whose size has changed.
+ * The first call records the computed size of every element that holds text,
+ * and the smallest of them; each later call names those, still rendered,
+ * whose size has changed — and text the change mounted (a composition the
+ * new tier draws in place of another: the Workbench's unsupported summary)
+ * drawn smaller than the smallest text the page drew before, which has no
+ * counterpart of its own to be compared with.
  */
 export function zoomTextSizes() {
   const holders = () => Array.from(document.body.querySelectorAll('*'))
     .filter((el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getClientRects().length);
+  const quote = (el) => '"' + (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 30) + '"';
   if (!window.__vqaZoomTextSizes) {
     window.__vqaZoomTextSizes = new Map(holders().map((el) => [el, getComputedStyle(el).fontSize]));
-    return { recorded: window.__vqaZoomTextSizes.size, changed: [] };
+    window.__vqaZoomTextFloor = Math.min(...Array.from(window.__vqaZoomTextSizes.values()).map(parseFloat).filter((v) => v > 0));
+    return { recorded: window.__vqaZoomTextSizes.size, floor: window.__vqaZoomTextFloor, changed: [] };
   }
   const changed = [];
   let compared = 0;
@@ -2284,9 +2290,16 @@ export function zoomTextSizes() {
     if (!el.isConnected || !el.getClientRects().length) continue;
     compared += 1;
     const now = getComputedStyle(el).fontSize;
-    if (now !== size) changed.push('"' + (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 30) + '" (' + size + ' -> ' + now + ')');
+    if (now !== size) changed.push(quote(el) + ' (' + size + ' -> ' + now + ')');
   }
-  return { compared, changed };
+  let mounted = 0;
+  for (const el of holders()) {
+    if (window.__vqaZoomTextSizes.has(el)) continue;
+    mounted += 1;
+    const now = parseFloat(getComputedStyle(el).fontSize);
+    if (now < window.__vqaZoomTextFloor - 0.01) changed.push(quote(el) + ' (newly drawn at ' + now + 'px, below the ' + window.__vqaZoomTextFloor + 'px smallest text before the change)');
+  }
+  return { compared, mounted, changed };
 }
 
 /** Before a live zoom change: remember where focus is (T3). */

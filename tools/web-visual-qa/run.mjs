@@ -378,6 +378,13 @@ async function runCase(lane, c) {
       const sizes = await browser.evaluate(toExpression(zoomTextSizes));
       if (sizes.changed.length) zoomFail(`at ${factor * 100}%: ${sizes.changed.length} piece(s) of text changed their CSS size with the zoom, so they did not grow by it: ${sizes.changed.slice(0, 4).join(', ')}`);
       if (!last) for (const problem of environment.problems) zoomFail(`at ${factor * 100}%: ${problem}`);
+      // A step the transition passes through is judged as a load would be —
+      // every zoom check at the composition it shows — before it leaves it;
+      // the last step is judged below, with the rest of the capture.
+      if (!last) {
+        const atStep = await browser.evaluate(toExpression(zoomAssertions, { tier: tierOf(ZOOM_CONDITION.width / factor) }));
+        for (const finding of atStep.findings) zoomFail(`at ${factor * 100}%: ${finding.message}`);
+      }
       zoom.steps.push({ factor, focus: { before: focusBefore, after: probe.focus }, modals: probe.modals, environment });
       previous = environment;
     }
