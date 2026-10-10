@@ -245,6 +245,12 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
       <button>Top left</button><button>Bottom left</button><button>Top right</button><button>Bottom right</button></div>`))), '');
   });
 
+  it('measures a clip-path: an inset() like a box, any other shape as an unmeasured loss (Codex P1)', async () => {
+    assert.match(messages(await at200('<div style="clip-path:inset(0 0 0 15%)"><button style="width:200px">Retry processing</button></div>')), /"Retry processing" is cut off even when focused \(\d+px of its width/);
+    assert.match(messages(await at200('<div style="clip-path:circle(40%)"><button style="width:200px">Retry processing</button></div>')), /clipped by <div> .*clip-path circle\(40%\), which the harness cannot measure/);
+    assert.equal(messages(await at200('<div style="clip-path:inset(0)"><button style="width:200px">Retry processing</button></div>')), '');
+  });
+
   it('fails a control only focus can scroll into a box that clips', async () => {
     const BOX = (overflow) => `<div style="height:120px;overflow:${overflow}"><div style="height:200px">facts</div><button>Retry</button></div>`;
     assert.match(messages(await at200(BOX('hidden'))), /"Retry" is shown only by focus scrolling .*which clips without scrolling/);
@@ -267,6 +273,9 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
       <article style="position:relative;width:300px;height:160px"><button aria-label="Select Person" style="position:absolute;inset:0;background:transparent;border:0"></button>
         <span style="position:relative;display:block;height:120px;background:#333;pointer-events:none">No image</span></article>
       <span style="position:absolute;left:0;top:0;width:300px;height:160px;background:#900;pointer-events:none">alert band</span></div>`)), /"Select Person" is hidden under <span> "alert band"/);
+    // A pass-through layer placed by a negative margin covers it too (Codex P1).
+    assert.match(messages(await at200(`<button style="display:block;width:200px;height:40px">Retry</button>
+      <span style="position:relative;z-index:2;display:block;margin-top:-40px;width:200px;height:40px;background:#000;pointer-events:none">shade</span>`)), /"Retry" is hidden under <span> "shade"/);
     // An absolutely placed pass-through layer over an ordinary control covers it (Codex P1).
     assert.match(messages(await at200(`<div style="position:relative;width:300px;height:120px"><button style="width:200px;height:40px">Retry</button>
       <span style="position:absolute;inset:0;background:#000;pointer-events:none">badge</span></div>`)), /"Retry" is hidden under <span> "badge"/);
@@ -393,6 +402,10 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     const tiny = await change(REPLACED('7px'));
     assert.match(tiny.changed.join('\n'), /"Editing a scene needs a displa" \(newly drawn at 7px, below the 12px smallest text before the change\)/);
     assert.deepEqual((await change(REPLACED('14px'))).changed, []);
+    // Replacement text with words drawn before is held to their size, not the page's floor (Codex P1).
+    const RELABEL = `<style>body{margin:0;font:14px sans-serif} .tiny{font-size:10px} .narrow{display:none;font-size:10px} @media (width < 768px) { .wide { display: none } .narrow { display: block } }</style>
+      <main id="main"><small class="tiny">caption</small><h2 class="wide" style="font-size:16px">North Gate</h2><p class="narrow">North Gate</p></main>`;
+    assert.match((await change(RELABEL)).changed.join('\n'), /"North Gate" \(newly drawn at 10px, where the same text was 16px before the change\)/);
   });
 
   it('fails focus the zoom change leaves on a transparent control (Codex P1)', async () => {

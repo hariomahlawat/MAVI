@@ -2068,11 +2068,13 @@ export function zoomAssertions(input) {
     // that clip it, with where each stood before focus moved it.
     const boxes = [];
     let hiddenIn = null;
-    for (let a = face.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+    const clipPaths = [];
+    for (let a = face; a && a !== document.documentElement; a = a.parentElement) {
       const s = getComputedStyle(a);
-      if (clips(s)) boxes.push({ el: a, user: scrollsByUser(s), top: a.scrollTop, left: a.scrollLeft });
+      if (a !== face && clips(s)) boxes.push({ el: a, user: scrollsByUser(s), top: a.scrollTop, left: a.scrollLeft });
       const ar = a.getBoundingClientRect();
-      if (!hiddenIn && (clips(s) || s.clipPath !== 'none') && ar.width <= 1 && ar.height <= 1) hiddenIn = a;
+      if (a !== face && !hiddenIn && (clips(s) || s.clipPath !== 'none') && ar.width <= 1 && ar.height <= 1) hiddenIn = a;
+      else if (s.clipPath && s.clipPath !== 'none') clipPaths.push({ el: a, path: s.clipPath });
       if (s.position === 'fixed') break;
     }
     // A control inside a visually-hidden region is offered only if the
@@ -2101,6 +2103,22 @@ export function zoomAssertions(input) {
       if (!clipper && Math.max(0, nr - nl) * Math.max(0, nb - nt) < Math.max(0, right - left) * Math.max(0, bottom - top) - 1) clipper = b.el;
       left = nl; top = nt; right = nr; bottom = nb;
     }
+    // A clip-path clips as well: an inset() is measured like a box; any other
+    // shape is a loss the harness cannot measure, and is reported as one.
+    let unmeasured = null;
+    for (const { el: a, path } of clipPaths) {
+      const m = /^inset\(([^)]*?)(?:\s+round\s[^)]*)?\)$/.exec(path.trim());
+      if (!m) { unmeasured = unmeasured ?? { el: a, path }; continue; }
+      const c = a.getBoundingClientRect();
+      const v = m[1].trim().split(/\s+/);
+      const [t1, r1, b1, l1] = [v[0], v[1] ?? v[0], v[2] ?? v[0], v[3] ?? v[1] ?? v[0]];
+      const len = (value, size) => (value.endsWith('%') ? parseFloat(value) / 100 * size : parseFloat(value) || 0);
+      const nl = Math.max(left, c.left + len(l1, c.width)); const nt = Math.max(top, c.top + len(t1, c.height));
+      const nr = Math.min(right, c.right - len(r1, c.width)); const nb = Math.min(bottom, c.bottom - len(b1, c.height));
+      if (!clipper && Math.max(0, nr - nl) * Math.max(0, nb - nt) < Math.max(0, right - left) * Math.max(0, bottom - top) - 1) clipper = a;
+      left = nl; top = nt; right = nr; bottom = nb;
+    }
+    if (unmeasured) fail(describe(el) + ' is clipped by ' + describe(unmeasured.el) + ' with clip-path ' + unmeasured.path + ', which the harness cannot measure: count it as lost');
     const shown = Math.max(0, right - left) * Math.max(0, bottom - top);
 
     if (shown < 1) {
@@ -2151,17 +2169,17 @@ export function zoomAssertions(input) {
       const s = getComputedStyle(node, pseudo);
       return s.content !== 'none' && s.content !== 'normal' && /^(absolute|fixed)$/.test(s.position);
     });
-    // A control stretched over its own composition (absolute, filling its
-    // parent: a grid card's select button) has that composition drawn over
-    // it as its face; over any other control an absolutely placed layer
-    // that paints is a cover too.
-    const parentBox = face.parentElement?.getBoundingClientRect();
-    const stretched = getComputedStyle(face).position === 'absolute' && parentBox
-      && r.width >= parentBox.width - 2 && r.height >= parentBox.height - 2;
-    // ...and only over its own composition: an absolute layer elsewhere — a
-    // sibling of the card, a badge from another region — still covers it.
-    const composition = stretched ? face.parentElement : null;
-    const placedOver = (node) => !node.contains(el) && !(composition && composition.contains(node)) && getComputedStyle(node).position === 'absolute';
+    // A control that is only a hit area — empty, painting nothing of its own
+    // (a grid card's select button, under the card's evidence and facts) —
+    // has its composition drawn over it as its face; that composition, and
+    // nothing else (a sibling of the card, a badge from another region), may
+    // lie over it.
+    const faceStyle = getComputedStyle(face);
+    const hitArea = !face.textContent.trim() && !face.children.length && !opaque(faceStyle.backgroundColor) && faceStyle.backgroundImage === 'none';
+    const composition = hitArea ? face.parentElement : null;
+    // Above the control in the stack and painting, wherever and however it
+    // is placed (absolute, relative with a negative margin, transformed).
+    const placedOver = (node) => !node.contains(el) && !(composition && composition.contains(node));
     document.head.appendChild(reveal);
     const layer = points.map(([x, y]) => document.elementsFromPoint(x, y).find((node) => own(node) || ((floats(node) || pseudoLayer(node) || placedOver(node)) && paints(node))))
       .find((node) => node && !own(node));
@@ -2297,6 +2315,13 @@ export function zoomTextSizes() {
   if (!window.__vqaZoomTextSizes) {
     window.__vqaZoomTextSizes = new Map(holders().map((el) => [el, getComputedStyle(el).fontSize]));
     window.__vqaZoomTextFloor = Math.min(...Array.from(window.__vqaZoomTextSizes.values()).map(parseFloat).filter((v) => v > 0));
+    // The same words drawn before, at their largest: what replacement text
+    // with those words is held to.
+    window.__vqaZoomTextBySense = new Map();
+    for (const [el, size] of window.__vqaZoomTextSizes) {
+      const key = (el.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      if (key) window.__vqaZoomTextBySense.set(key, Math.max(window.__vqaZoomTextBySense.get(key) ?? 0, parseFloat(size)));
+    }
     return { recorded: window.__vqaZoomTextSizes.size, floor: window.__vqaZoomTextFloor, changed: [] };
   }
   const changed = [];
@@ -2312,7 +2337,9 @@ export function zoomTextSizes() {
     if (window.__vqaZoomTextSizes.has(el)) continue;
     mounted += 1;
     const now = parseFloat(getComputedStyle(el).fontSize);
-    if (now < window.__vqaZoomTextFloor - 0.01) changed.push(quote(el) + ' (newly drawn at ' + now + 'px, below the ' + window.__vqaZoomTextFloor + 'px smallest text before the change)');
+    const same = window.__vqaZoomTextBySense.get((el.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase());
+    if (same && now < same - 0.01) changed.push(quote(el) + ' (newly drawn at ' + now + 'px, where the same text was ' + same + 'px before the change)');
+    else if (now < window.__vqaZoomTextFloor - 0.01) changed.push(quote(el) + ' (newly drawn at ' + now + 'px, below the ' + window.__vqaZoomTextFloor + 'px smallest text before the change)');
   }
   return { compared, mounted, changed };
 }

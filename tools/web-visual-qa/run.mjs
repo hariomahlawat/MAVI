@@ -365,17 +365,20 @@ async function runCase(lane, c) {
         if (!verdict?.ok) zoomFail(`at ${factor * 100}%: ${verdict?.why ?? 'its check failed'}`);
       }
       const environment = await qualify(factor);
-      // Text grows with the zoom (WCAG 1.4.4): drawn at the factor's size,
-      // the page's text and the Context Bar's, and every piece of text keeps
-      // its CSS size across the change (zoomTextSizes).
-      for (const key of ['bodyFontPx', 'barTextPx']) {
+      // Text grows with the zoom (WCAG 1.4.4): on a step that zooms in, drawn
+      // at the factor's size, the page's text and the Context Bar's, and every
+      // piece of text keeps its CSS size across the change (zoomTextSizes). A
+      // step back out to 100% returns to the desktop composition and its own
+      // type scale, which 1.4.4 does not judge.
+      const growing = factor > previous.factor;
+      for (const key of growing ? ['bodyFontPx', 'barTextPx'] : []) {
         const a = previous.page[key] * previous.metrics.pageZoom;
         const b = environment.page[key] * environment.metrics.pageZoom;
         if (a > 0 && b > 0 && Math.abs(b / a - factor / previous.factor) > 0.02) {
           zoomFail(`at ${factor * 100}%: ${key === 'bodyFontPx' ? 'the page text' : 'the Context Bar text'} is drawn ${Math.round(b * 10) / 10}px against ${Math.round(a * 10) / 10}px at ${previous.factor * 100}%: it did not scale with the zoom`);
         }
       }
-      const sizes = await browser.evaluate(toExpression(zoomTextSizes));
+      const sizes = growing ? await browser.evaluate(toExpression(zoomTextSizes)) : { changed: [] };
       if (sizes.changed.length) zoomFail(`at ${factor * 100}%: ${sizes.changed.length} piece(s) of text changed their CSS size with the zoom, so they did not grow by it: ${sizes.changed.slice(0, 4).join(', ')}`);
       if (!last) for (const problem of environment.problems) zoomFail(`at ${factor * 100}%: ${problem}`);
       // A step the transition passes through is judged as a load would be —
