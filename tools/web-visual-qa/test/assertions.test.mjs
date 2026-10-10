@@ -904,6 +904,19 @@ describe('Tier C Ledger semantics (T2): the list composition is still a table to
     await lane.page(TOKENS + table('role="presentation"'), { width: 390, height: 844 });
     const stripped = await tierCLedgerSemantics(lane.browser);
     assert.ok(stripped.findings.some((f) => /exposes its table as/.test(f)), JSON.stringify(stripped.roles));
+    // Chromium reports a table removed from the tree as "none" (here, by
+    // aria-hidden): a finding.
+    await lane.page(TOKENS + table('aria-hidden="true"'), { width: 390, height: 844 });
+    const hidden = await tierCLedgerSemantics(lane.browser);
+    assert.ok(hidden && hidden.findings.length > 0, JSON.stringify(hidden));
+    // A table in the document for which the tree gives no role at all is a
+    // finding too, never "no Ledger" (Codex P2 on #200). Markup cannot make
+    // Chromium answer null, so the browser's answers are stated.
+    const noRoles = { evaluate: async () => ({ table: true, inert: false }), axRole: async () => null };
+    const lost = await tierCLedgerSemantics(noRoles);
+    assert.ok(lost && lost.findings.length === 4, JSON.stringify(lost));
+    const noTable = { evaluate: async () => ({ table: false, inert: false }), axRole: async () => null };
+    assert.equal(await tierCLedgerSemantics(noTable), null);
     await lane.page(TOKENS + '<p>no ledger</p>', { width: 390, height: 844 });
     assert.equal(await tierCLedgerSemantics(lane.browser), null);
   });

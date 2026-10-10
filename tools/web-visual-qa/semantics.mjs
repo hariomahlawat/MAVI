@@ -14,15 +14,17 @@
 export async function tierCLedgerSemantics(browser) {
   // Behind an open modal the Ledger is inert by design (§20), and inert
   // content is withheld from assistive technology: nothing to judge there.
-  const inert = await browser.evaluate(`Boolean(document.querySelector('table.table--ledger')?.closest('[inert]'))`);
-  if (inert) return null;
+  // Whether there is a Ledger is the document's to say, never the
+  // accessibility tree's: a table the tree has lost entirely is the very
+  // failure this exists for (Codex P2 on #200).
+  const dom = await browser.evaluate(`(() => { const t = document.querySelector('table.table--ledger'); return { table: Boolean(t), inert: Boolean(t && t.closest('[inert]')) }; })()`);
+  if (!dom.table || dom.inert) return null;
   const roles = {
     table: await browser.axRole('table.table--ledger'),
     row: await browser.axRole('table.table--ledger tbody tr'),
     cell: await browser.axRole('table.table--ledger tbody td'),
     header: await browser.axRole('table.table--ledger thead th'),
   };
-  if (roles.table === null && roles.row === null) return null;
   const findings = [];
   const expect = { table: 'table', row: 'row', cell: 'cell', header: 'columnheader' };
   for (const [part, role] of Object.entries(expect)) {
