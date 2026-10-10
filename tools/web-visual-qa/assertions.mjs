@@ -2383,8 +2383,14 @@ export function zoomAssertions(input) {
       // data (a timeline marker, absolutely positioned by time) follows the
       // data's order, so only a step back up the same column is a finding.
       const sameColumn = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left) > Math.min(a.r.width, b.r.width) / 2;
+      // Placed by its data: an inline left/top/right/bottom/inset on the
+      // control or an absolutely positioned ancestor of it (a timeline
+      // marker's item, at its offset) — never a stylesheet's absolute
+      // position, which composes, and composes in reading order (Codex P1).
       const placed = (el) => {
-        for (let n = el; n && n !== scope; n = n.parentElement) if (getComputedStyle(n).position === 'absolute') return true;
+        for (let n = el; n && n !== scope; n = n.parentElement) {
+          if (getComputedStyle(n).position === 'absolute' && Array.from(n.style).some((property) => /^(left|top|right|bottom|inset)/.test(property))) return true;
+        }
         return false;
       };
       if (column && !sameLine && sameColumn && b.r.bottom <= a.r.top + 1 && !placed(a.el) && !placed(b.el)) {

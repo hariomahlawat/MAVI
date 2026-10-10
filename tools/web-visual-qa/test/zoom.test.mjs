@@ -325,6 +325,12 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     // identity, then the action column beside it) — the composition's order.
     assert.equal(messages(await at200(PAGE(`<div style="display:grid;grid-template-columns:1fr 1fr;grid-auto-flow:column;grid-template-rows:auto auto">
       <button>Top left</button><button>Bottom left</button><button>Top right</button><button>Bottom right</button></div>`))), '');
+    // Two buttons a stylesheet positions absolutely, reversed down a column,
+    // are a finding; controls placed by their data — an inline top on their
+    // absolutely positioned item, a timeline marker's — follow the data (Codex P1).
+    assert.match(messages(await at200(PAGE('<style>.r{position:relative;height:120px} .r .a{position:absolute;left:0;top:60px} .r .b{position:absolute;left:0;top:0}</style><div class="r"><button class="a">Second</button><button class="b">First</button></div>'))),
+      /the keyboard reaches <button.b> "First" after <button.a> "Second", but it is drawn above it in the same column/);
+    assert.equal(messages(await at200(PAGE('<div style="position:relative;height:120px"><div style="position:absolute;left:0;top:60px"><button>Second</button></div><div style="position:absolute;left:0;top:0"><button>First</button></div></div>'))), '');
   });
 
   it('measures a clip-path: an inset() like a box, any other shape as an unmeasured loss (Codex P1)', async () => {
@@ -777,6 +783,14 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     // A valid zoom capture with no text comparison is a fault on the full sweep.
     assert.match(zoomCoverageFaults([{ valid: true, kind: 'zoom', surface: 'videos', state: 'videos', viewport: '1366x768@200%', zoom: { evaluated: true, text: null } }], ['videos']).join('\n'),
       /a11y.zoom-200: videos @ 1366x768@200% never compared its text with a 100% baseline/);
+  });
+
+  it('settles every step a transition passes through on the state declared at that tier (Codex P1)', () => {
+    // The videos state forbids, at Tier C only, text the page shows there:
+    // the 200% step of a 100%→200%→100% path is not the declared state.
+    const { status, output, results } = run('step-declared', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, atTier: { C: { forbidText: '4 of 4 videos' } }, zoomTransitions: [{ path: [1, 2, 1] }] }));`, ['--states', 'videos']);
+    assert.equal(status, 2, output);
+    assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@100%-200%-100% \(Tier A\): the declared state was not reached at zoom change: did not settle at 200%/.test(e)), results.harnessErrors.join('\n'));
   });
 
   it('judges every step a transition passes through, as a load (Codex P1)', () => {

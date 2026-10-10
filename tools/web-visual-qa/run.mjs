@@ -424,7 +424,12 @@ async function runCase(lane, c) {
       lane.zoom = null;
       lane.zoom = await browser.pageZoom(factor);
       const last = index === viewport.zoom.length - 1;
-      const after = await settle(lane, end, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: !last || Boolean(transition?.then) });
+      // Each step settles on the declared state at the tier it lands in —
+      // the state's view there, as a load's; the transition's own at its
+      // last step — and only before a final action on loading alone, the
+      // action producing what the transition declares (Codex P1).
+      const stepView = last ? end : view(tierOf(ZOOM_CONDITION.width / factor));
+      const after = await settle(lane, stepView, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: last && Boolean(transition?.then) });
       if (!after.ok) { unreach('zoom change', `did not settle at ${factor * 100}% within ${SETTLE_TIMEOUT_MS}ms: ${after.why.join('; ')}`); reached = false; break; }
       const probe = await browser.evaluate(toExpression(zoomTransitionProbe));
       for (const finding of probe.findings) zoomFail(`at ${factor * 100}%: ${finding.message}`);

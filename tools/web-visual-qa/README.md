@@ -205,16 +205,20 @@ and digits); the keyboard order — the order Tab visits, positive tabindex firs
 — of the Context Bar is its visual order, and at Tier C, in the workspace or
 open overlay, the keyboard never steps back along a line or back up a column
 (side-by-side columns, such as a Ledger row's action column, are read one after
-another, and a control placed by its data — a timeline marker — follows the
-data); the Evidence Player draws the whole picture undistorted — measured from
+another, and a control placed by its data — a timeline marker, positioned by
+an inline `left`/`top`/`inset` on it or on an absolutely positioned ancestor,
+never by a stylesheet — follows the data); the Evidence Player draws the whole picture undistorted — measured from
 the footage's intrinsic size and its box for each `object-fit` (`contain` and
 `scale-down` fit it; `none` draws it at natural size and crops it when it is
 larger than the box; `cover` crops a different aspect; `fill` distorts one),
 never taken from a list of safe values. A transition's starting state must be
 the one it declares (its start tier's expected and forbidden text, after its
 preparation and set-up), and every step a transition passes through — its 200%
-start, or the 200% of a 100%→200%→100% path — is judged there by the same zoom
-checks as a load, before the zoom changes again.
+start, or the 200% of a 100%→200%→100% path — settles on the state's declared
+view at the tier it lands in (its expected and forbidden text there) and is
+judged there by the same zoom checks as a load, before the zoom changes again;
+only the final step before a transition's own action settles on loading alone,
+the action producing what the transition declares.
 
 **Text grows with the zoom (WCAG 1.4.4), by comparison.** Every zoom case
 compares the text the page draws with a baseline, or it is a harness fault: a
