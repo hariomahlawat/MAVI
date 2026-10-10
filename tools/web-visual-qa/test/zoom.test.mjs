@@ -343,6 +343,10 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.match(messages(await at200('<div style="clip-path:inset(0 0 0 calc(10% + 10px))"><button style="width:200px">Retry processing</button></div>')), /clipped by <div> .*clip-path inset\(0px 0px 0px calc\(10% \+ 10px\)\), which the harness cannot measure/);
     assert.match(messages(await at200('<div style="clip-path:inset(0 0 0 2em)"><button style="width:200px">Retry processing</button></div>')), /"Retry processing" is cut off even when focused \(28px of its width/);
     assert.match(messages(await at200('<div style="clip-path:inset(0 0 0 30px round 4px)"><button style="width:200px">Retry processing</button></div>')), /"Retry processing" is cut off even when focused \(30px of its width/);
+    // An overflow box's padding box is measured as drawn: scaled to a half,
+    // a 100px box clips a 120px control by 10 drawn px (Codex P1).
+    assert.match(messages(await at200('<div style="width:100px;overflow:hidden;transform:scale(.5);transform-origin:0 0"><button style="width:120px;height:40px">Retry processing</button></div>')), /"Retry processing" is cut off even when focused \(10px of its width/);
+    assert.equal(messages(await at200('<div style="width:100px;overflow:hidden;transform:scale(.5);transform-origin:0 0"><button style="width:90px;height:40px">Retry processing</button></div>')), '');
   });
 
   it('clips a fixed control by the ancestors that form its containing block, and no others (Codex P1, containing blocks)', async () => {
@@ -556,6 +560,9 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     const CLIPPED = `<style>body{margin:0;font:14px sans-serif} .box{width:200px;height:20px;overflow:hidden} .cut{margin-top:60px;font-size:7px} .narrow{display:none;font-size:9px} @media (width < 768px) { .narrow { display: block } }</style>
       <main id="main"><p>Videos</p><div class="box"><p class="cut">clipped away</p></div><p class="narrow">Shown only on a narrow display</p></main>`;
     assert.match((await change(CLIPPED)).changed.join('\n'), /"Shown only on a narrow display" is drawn at 9px at 200%, below the 14px smallest text at 100%/);
+    // Text a measured clip-path clips to nothing is not shown, so it is no
+    // baseline either (Codex P1).
+    assert.match((await change(CLIPPED.replace('<div class="box"><p class="cut">clipped away</p></div>', '<p style="font-size:7px;clip-path:inset(0 100% 0 0)">clipped away</p>'))).changed.join('\n'), /"Shown only on a narrow display" is drawn at 9px at 200%, below the 14px smallest text at 100%/);
     // Text behind an open overlay — inert, under a translucent scrim — is
     // still drawn and read: it stays a baseline (a Dialog over a Scene
     // Editor does not shrink the page's text to the Dialog's).

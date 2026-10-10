@@ -2027,7 +2027,14 @@ export function zoomVisibleRect(rect, chain, vw, vh) {
   };
   for (const c of chain) {
     const box = c.el.getBoundingClientRect();
-    if (c.overflow && !c.root) cut(box.left + c.el.clientLeft, box.top + c.el.clientTop, box.left + c.el.clientLeft + c.el.clientWidth, box.top + c.el.clientTop + c.el.clientHeight, c.el);
+    if (c.overflow && !c.root) {
+      // The padding box in viewport coordinates: client offsets and sizes
+      // are layout values, scaled by the drawn box over the layout box
+      // where an ancestor transform draws it smaller or larger (a rotation
+      // is not modelled) (Codex P1).
+      const sx = c.el.offsetWidth ? box.width / c.el.offsetWidth : 1; const sy = c.el.offsetHeight ? box.height / c.el.offsetHeight : 1;
+      cut(box.left + c.el.clientLeft * sx, box.top + c.el.clientTop * sy, box.left + (c.el.clientLeft + c.el.clientWidth) * sx, box.top + (c.el.clientTop + c.el.clientHeight) * sy, c.el);
+    }
     if (c.clipPath) {
       // Only an inset() of one to four plain px or % lengths is measured; a
       // component the harness cannot resolve (a calc(), an em, a viewport
@@ -2501,6 +2508,12 @@ export function zoomTextHolders(input) {
       const v = zoomVisibility(el);
       if (v.hidden || !v.reachable) continue;
       if (v.seen.unmeasured) continue;
+      // Clipped to nothing by a measured clip-path, wherever the page is
+      // scrolled: not shown, so neither a baseline nor a subject (Codex P1).
+      // Overflow boxes and the viewport are left to `reachable`: text a
+      // scrolling box or the page can bring into view is drawn.
+      const byClipPath = zoomVisibleRect(v.box, v.chain.filter((c) => c.clipPath), Infinity, Infinity);
+      if (byClipPath.width < 1 || byClipPath.height < 1) continue;
       let hidden = false;
       if (v.seen.width >= 1 && v.seen.height >= 1) {
         const x = (v.seen.left + v.seen.right) / 2; const y = (v.seen.top + v.seen.bottom) / 2;
