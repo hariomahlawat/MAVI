@@ -258,6 +258,38 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.equal(await player(PLAYER('320px', '180px', 'cover')), '');
   });
 
+  it('models overflow per axis: a box or page that scrolls only vertically still hides what lies past its right edge (cold review 2)', async () => {
+    // Focus scrolls the box sideways, which no pointer can; the capture shows nothing.
+    assert.match(messages(await at200('<div style="width:200px;height:120px;overflow-x:hidden;overflow-y:auto"><div style="width:600px;height:300px"><button style="margin-left:300px;width:150px;height:40px">Retry processing</button></div></div>')),
+      /"Retry processing" is shown only by focus scrolling <div>.*, which clips without scrolling on that axis/);
+    // The root's overflow is the viewport's (propagated); on the body as well
+    // it would clip the body itself, which the chain names instead.
+    assert.match(messages(await at200('<style>html{overflow-x:hidden}</style><div style="width:2000px;height:50px"><button style="margin-left:900px;width:150px;height:40px">Retry processing</button></div>')),
+      /"Retry processing" is shown only by focus scrolling the page, which hides its overflow on that axis/);
+    assert.match(messages(await at200('<style>html,body{overflow-x:hidden}</style><div style="width:2000px;height:50px"><button style="margin-left:900px;width:150px;height:40px">Retry processing</button></div>')),
+      /"Retry processing" is shown only by focus scrolling <body>.*, which clips without scrolling on that axis/);
+    assert.equal(messages(await at200('<div style="width:200px;height:120px;overflow:auto"><div style="width:600px;height:300px"><button style="margin-left:300px;width:150px;height:40px">Retry processing</button></div></div>')), '');
+  });
+
+  it('counts every layer that paints at the point — a backdrop filter, a border ring, an inset shadow, a static pseudo-element (cold review 2)', async () => {
+    const UNDER = '<div style="height:200px"></div><button style="display:block;width:160px;height:40px">Detail</button><div style="height:10px"></div>';
+    for (const [name, css] of [
+      ['a backdrop-filter', 'position:fixed;inset:0;backdrop-filter:blur(40px);pointer-events:none'],
+      ['a border ring', 'position:fixed;inset:0;border:400px solid #000;pointer-events:none'],
+      ['an inset shadow', 'position:fixed;inset:0;box-shadow:inset 0 0 0 400px #000;pointer-events:none'],
+    ]) {
+      assert.match(messages(await at200(UNDER + `<div style="${css}">layer</div>`)), /"Detail" is hidden under <div>/, name);
+    }
+    // An ancestor's static ::after pulled over the control by a negative margin.
+    assert.match(messages(await at200('<style>.w{pointer-events:none}.w::after{content:"";display:block;height:60px;margin-top:-60px;background:#000;position:relative}</style><div class="w"><button style="display:block;width:160px;height:40px;pointer-events:auto">Detail</button></div>')), /"Detail" is hidden under <div.w>/);
+    // A transparent, borderless, shadowless layer with no text of its own hides nothing.
+    assert.equal(messages(await at200(UNDER + '<div style="position:fixed;inset:0;pointer-events:none"></div>')), '');
+  });
+
+  it('judges visibility by the computed value: a visible control inside a hidden parent is still judged (cold review 2)', async () => {
+    assert.match(messages(await at200('<div style="visibility:hidden"><div style="width:100px;height:20px;overflow:hidden"><button style="visibility:visible;width:200px;height:40px">Retry processing</button></div></div>')), /"Retry processing" is (cut off|shown only by focus scrolling)/);
+  });
+
   it('fails a focusable control that stays 1px even when focused, and passes the skip link and a labelled native input (Codex P1)', async () => {
     const HIDDEN = 'position:absolute;width:1px;height:1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%)';
     assert.match(messages(await at200(`<button style="${HIDDEN}">Delete zone</button>`)), /"Delete zone" can be focused but is not shown, even when focused/);
@@ -511,6 +543,18 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     const COVERED = `<style>body{margin:0;font:14px sans-serif} .cover{position:absolute;left:0;right:0;top:30px;height:30px;background:#000} .narrow{display:none;font-size:11px} @media (width < 768px) { .narrow { display: block } .cover { display: none } }</style>
       <main id="main" style="position:relative"><p style="margin:0;height:30px">Videos</p><p style="margin:0;height:30px;font-size:11px">4 of 4 videos</p><div class="cover"></div></main><p class="narrow">Shown only on a narrow display</p>`;
     assert.match((await change(COVERED)).changed.join('\n'), /"Shown only on a narrow display" is drawn at 11px at 200%, below the 14px smallest text at 100%/);
+    // A size is the drawn size: text scaled down by a transform or the CSS
+    // zoom of an ancestor at the narrow tier is drawn smaller, whatever its
+    // font-size says (cold review 2).
+    const SCALED = (how) => `<style>body{margin:0;font:14px sans-serif} @media (width < 768px) { .box { ${how} } }</style><main id="main"><div class="box"><p>north-gate-0800.mp4</p></div></main>`;
+    assert.match((await change(SCALED('transform:scale(.5);transform-origin:0 0'))).changed.join('\n'), /"north-gate-0800.mp4" changed from 14px to 7px with the zoom change/);
+    assert.match((await change(SCALED('zoom:0.5'))).changed.join('\n'), /"north-gate-0800.mp4" changed from 14px to 7px with the zoom change/);
+    // A form control's value and a select's chosen option are text too.
+    const FORM = `<style>body{margin:0;font:14px sans-serif} input,select{font-size:14px} @media (width < 768px) { input,select { font-size: 6px } }</style>
+      <main id="main"><p>Videos</p><label>Camera <select><option>CAM-01 North Gate</option></select></label><label>Filter <input value="south dock"></label></main>`;
+    const form = (await change(FORM)).changed.join('\n');
+    assert.match(form, /"CAM-01 North Gate" changed from 14px to 6px/);
+    assert.match(form, /"south dock" changed from 14px to 6px/);
     // Hidden text is neither baseline nor subject: a visually-hidden 20px
     // heading does not hold a 13px crumb with the same words to it.
     const HIDDEN = `<style>body{margin:0;font:14px sans-serif} .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)} h1{font-size:20px} .crumb{display:none;font-size:13px} @media (width < 768px) { .crumb { display: inline } }</style>
@@ -526,6 +570,12 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     assert.match((await lane.browser.evaluate(toExpression(zoomTextCompare, { baseline: { holders: 0, floor: null, words: {} }, from: '100%', to: '200%', live: false }))).fault, /no text baseline at 100%/);
     await lane.page('<main id="main"><button aria-label="Play"></button></main>', { width: 1366, height: 768, zoom: 2 });
     assert.match((await lane.browser.evaluate(toExpression(zoomTextCompare, { baseline: { holders: 3, floor: 12, words: { videos: 14 } }, from: '100%', to: '200%', live: false }))).fault, /holds no text to compare/);
+    // Every word replaced: nothing matched, the physical size unproven — the
+    // run makes that a fault (minRatio null, matched 0).
+    await lane.page('<main id="main"><p>Imported videos</p></main>', { width: 1366, height: 768, zoom: 2 });
+    const none = await lane.browser.evaluate(toExpression(zoomTextCompare, { baseline: { holders: 3, floor: 12, words: { videos: 14 } }, from: '100%', to: '200%', live: false }));
+    assert.equal(none.matched, 0);
+    assert.equal(none.minRatio, null);
   });
 
   it('fails a focused fixed control that a transformed ancestor clips only after the zoom change', async () => {
@@ -603,7 +653,9 @@ ${output}`);
   it('is a harness fault when a transition\'s starting state is not the one it declares (T3 cold review)', () => {
     const { status, output, results } = run('start', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, expectText: 'Text this page never shows', zoomTransitions: [{ path: [1, 2], expectText: '4 of 4 videos' }] }));`, ['--states', 'videos']);
     assert.equal(status, 2, output);
-    assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@100%-200% \(Tier C\): the declared state was not reached at navigation settle/.test(e)), results.harnessErrors.join('\n'));
+    // Every zoom case first reaches the state at 100% for its text baseline,
+    // so the undeclared start is a fault there already.
+    assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@100%-200% \(Tier C\): the declared state was not reached at (navigation settle|zoom text baseline)/.test(e)), results.harnessErrors.join('\n'));
   });
 
   it('judges a transition against the frozen 200%, whatever factor the states declare (T3 cold review)', () => {
@@ -662,6 +714,23 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.equal(status, 1, output);
     const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@100%-200%-100%');
     assert.ok(zoom.some((f) => /^at 200%: .*(hidden under|covered by)/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
+  });
+
+  it('compares the text a transition\'s final action draws at 200%, and takes each baseline with the state\'s own storage, not the previous case\'s (cold review 2)', () => {
+    // search-grid stores the grid choice; a case after it must not inherit it
+    // into its 100% baseline: search-filtered's baseline matches its words
+    // as it does alone (every holder but the Tier C-only ones).
+    let { status, output, results } = run('storage-order', `export const STATES = REGISTERED.filter((s) => s.name === "search-grid" || s.name === "search-filtered").map(({ zoomTransitions, ...s }) => s);`, ['--states', 'search-grid,search-filtered']);
+    assert.equal(status, 0, output);
+    const filtered = results.cases.find((c) => c.state === 'search-filtered');
+    assert.ok(filtered.zoom.text.unmatched <= 3, JSON.stringify(filtered.zoom.text));
+    // A transition whose final action mounts tiny text at 200% is caught by
+    // the comparison after the action.
+    const TINY = `(() => { const p = document.createElement('p'); p.style.fontSize = '6px'; p.textContent = 'Mounted by the action'; document.querySelector('main').appendChild(p); return true; })()`;
+    ({ status, output, results } = run('then-text', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map(({ zoomTransitions, ...s }) => ({ ...s, zoomTransitions: [{ path: [1, 2], then: ${JSON.stringify(TINY)} }] }));`, ['--states', 'videos']));
+    assert.equal(status, 1, output);
+    const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@100%-200%');
+    assert.ok(zoom.some((f) => /"Mounted by the action" is drawn at 6px at 200%, below the 1[0-9]px smallest text at 100%/.test(f.message)), JSON.stringify(zoom));
   });
 
   it('is a harness fault when a required zoom state is never reached', () => {
