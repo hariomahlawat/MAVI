@@ -2263,6 +2263,32 @@ export function zoomAssertions(input) {
   return { findings, evaluated: ['a11y.zoom-200'], measured: { controls: checked, modals: modals.length, truncated, cssRulesRead: rulesRead, workbenchException: exception } };
 }
 
+/**
+ * Text grows with a live zoom change (T3, WCAG 1.4.4). Page zoom scales every
+ * CSS length by the same factor, so text that grows with it keeps its CSS
+ * font size; text whose CSS size changes across the change — a breakpoint
+ * that shrinks a label below 768px — is drawn at less than the zoom asks.
+ * The first call records the computed size of every element that holds text;
+ * each later call names those, still rendered, whose size has changed.
+ */
+export function zoomTextSizes() {
+  const holders = () => Array.from(document.body.querySelectorAll('*'))
+    .filter((el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getClientRects().length);
+  if (!window.__vqaZoomTextSizes) {
+    window.__vqaZoomTextSizes = new Map(holders().map((el) => [el, getComputedStyle(el).fontSize]));
+    return { recorded: window.__vqaZoomTextSizes.size, changed: [] };
+  }
+  const changed = [];
+  let compared = 0;
+  for (const [el, size] of window.__vqaZoomTextSizes) {
+    if (!el.isConnected || !el.getClientRects().length) continue;
+    compared += 1;
+    const now = getComputedStyle(el).fontSize;
+    if (now !== size) changed.push('"' + (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 30) + '" (' + size + ' -> ' + now + ')');
+  }
+  return { compared, changed };
+}
+
 /** Before a live zoom change: remember where focus is (T3). */
 export function zoomBeforeChange() {
   window.__vqaZoomFocus = document.activeElement;

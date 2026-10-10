@@ -64,7 +64,7 @@ try {
 const [
   {
     focusAssertions, overlayExitProbe, overlayFocusProbe, overlayOpened, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions,
-    zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTransitionProbe,
+    zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTextSizes, zoomTransitionProbe,
   },
   { launch },
   { createLedger, exitStatus, HarnessError, planCases, settle, unprovenPressedKinds, unreachedFaults, zoomCoverageFaults, zoomQualification },
@@ -339,6 +339,14 @@ async function runCase(lane, c) {
     if (previous) {
       zoom.steps.push({ factor: previous.factor, focus: null, environment: previous });
       if (viewport.zoom.length > 1) for (const problem of previous.problems) zoomFail(`at the start (${previous.factor * 100}%): ${problem}`);
+      // A transition that starts at 200% judges the state it prepared there
+      // before it leaves it (a drawer opened at 200%), as a load would.
+      if (viewport.zoom.length > 1 && viewport.zoom[0] !== 1) {
+        const atStart = await browser.evaluate(toExpression(zoomAssertions, { tier: viewport.startTier }));
+        for (const finding of atStart.findings) zoomFail(`at the start (${previous.factor * 100}%): ${finding.message}`);
+      }
+      // What every piece of text measures now, to compare after each change.
+      if (viewport.zoom.length > 1) zoom.textSizes = await browser.evaluate(toExpression(zoomTextSizes));
     }
     for (let index = 1; reached && index < viewport.zoom.length; index += 1) {
       const factor = viewport.zoom[index];
@@ -357,8 +365,9 @@ async function runCase(lane, c) {
         if (!verdict?.ok) zoomFail(`at ${factor * 100}%: ${verdict?.why ?? 'its check failed'}`);
       }
       const environment = await qualify(factor);
-      // Text grows with the zoom: its device-independent size follows the
-      // factor (WCAG 1.4.4), for the page's text and the Context Bar's.
+      // Text grows with the zoom (WCAG 1.4.4): drawn at the factor's size,
+      // the page's text and the Context Bar's, and every piece of text keeps
+      // its CSS size across the change (zoomTextSizes).
       for (const key of ['bodyFontPx', 'barTextPx']) {
         const a = previous.page[key] * previous.metrics.pageZoom;
         const b = environment.page[key] * environment.metrics.pageZoom;
@@ -366,6 +375,8 @@ async function runCase(lane, c) {
           zoomFail(`at ${factor * 100}%: ${key === 'bodyFontPx' ? 'the page text' : 'the Context Bar text'} is drawn ${Math.round(b * 10) / 10}px against ${Math.round(a * 10) / 10}px at ${previous.factor * 100}%: it did not scale with the zoom`);
         }
       }
+      const sizes = await browser.evaluate(toExpression(zoomTextSizes));
+      if (sizes.changed.length) zoomFail(`at ${factor * 100}%: ${sizes.changed.length} piece(s) of text changed their CSS size with the zoom, so they did not grow by it: ${sizes.changed.slice(0, 4).join(', ')}`);
       if (!last) for (const problem of environment.problems) zoomFail(`at ${factor * 100}%: ${problem}`);
       zoom.steps.push({ factor, focus: { before: focusBefore, after: probe.focus }, modals: probe.modals, environment });
       previous = environment;
@@ -561,7 +572,7 @@ async function runCase(lane, c) {
     valid: reached,
     unreached,
     surface: c.surface,
-    ...(zoom ? { zoom: { path: zoom.path, effective: zoom.effective, qualified: zoom.qualified ?? false, evaluated: zoom.evaluated, steps: zoom.steps, environment: zoom.environment ?? null, measured: zoom.measured ?? null } } : {}),
+    ...(zoom ? { zoom: { path: zoom.path, effective: zoom.effective, qualified: zoom.qualified ?? false, evaluated: zoom.evaluated, steps: zoom.steps, environment: zoom.environment ?? null, measured: zoom.measured ?? null, textHolders: zoom.textSizes?.recorded ?? null } } : {}),
     capture,
     pageWidth: page?.pageWidth ?? null,
     shell: page?.shell ?? null,

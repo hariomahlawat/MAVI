@@ -200,10 +200,8 @@ overlay, the keyboard never steps back along a line or back up a column
 another, and a control placed by its data — a timeline marker — follows the
 data); the Evidence Player is not drawn distorted (this fires only on an
 object-fit that stretches the footage; the product uses the browser's
-`contain`). A transition's starting state must be the one it declares (its start
-tier's expected and forbidden text, after its preparation and set-up). A live
-zoom change is judged as it happens: focus not lost to the document or left on something hidden, transparent, inert, out of view or covered, at every step, an overlay still open holding focus, nothing left
-inert, text growing by the zoom's factor, and the transition's own check (a
+`contain`). A transition's starting state must be the one it declares (its start tier's expected and forbidden text, after its preparation and set-up), and one that starts at 200% is judged there by the same zoom checks before the zoom changes. A live
+zoom change is judged as it happens: focus not lost to the document or left on something hidden, transparent, inert, out of view or covered, at every step, an overlay still open holding focus, nothing left inert, text growing by the zoom's factor (every piece of text keeps its CSS size across the change, as page zoom scales every CSS length alike), and the transition's own check (a
 draft kept with its geometry, the editor's keys inert at 200%, a preference
 kept, focus on the control the new composition offers). The full sweep is a
 harness fault unless every one of the ten operator surfaces had a valid 200%

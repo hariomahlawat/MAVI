@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { toExpression, zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTransitionProbe } from '../assertions.mjs';
+import { toExpression, zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTextSizes, zoomTransitionProbe } from '../assertions.mjs';
 import { createLedger, HarnessError, planCases, zoomCoverageFaults, zoomQualification } from '../engine.mjs';
 import { OPERATOR_SURFACES, ZOOM_CONDITION } from '../manifest.mjs';
 import { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM } from '../states.mjs';
@@ -360,6 +360,22 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     assert.match(messages(await across(MOVED, '(() => { document.querySelector(".target").focus(); return true; })()')), /focus is left on <button.target> "Detail", (out of view|covered by .*) after the zoom change/);
   });
 
+  it('names text whose CSS size changes with the zoom, which does not grow by it (Codex P1)', async () => {
+    const SHRINKS = (size) => `<style>body{margin:0;font:14px sans-serif} @media (width < 768px) { .label { font-size: ${size} } }</style>
+      <main id="main"><p>Videos</p><span class="label">north-gate-0800.mp4</span></main>`;
+    const change = async (html) => {
+      await lane.page(html, { width: 1366, height: 768, zoom: 1 });
+      await lane.browser.evaluate(toExpression(zoomTextSizes));
+      lane.zoom = await lane.browser.pageZoom(2);
+      return lane.browser.evaluate(toExpression(zoomTextSizes));
+    };
+    const shrunk = await change(SHRINKS('7px'));
+    assert.deepEqual(shrunk.changed, ['"north-gate-0800.mp4" (14px -> 7px)']);
+    const kept = await change(SHRINKS('14px'));
+    assert.ok(kept.compared >= 2);
+    assert.deepEqual(kept.changed, []);
+  });
+
   it('fails focus the zoom change leaves on a transparent control (Codex P1)', async () => {
     const FADED = `<style>body{margin:0} @media (width < 768px) { .fades { opacity: 0 } }</style>
       <main id="main"><button class="fades">Detail</button></main>`;
@@ -433,6 +449,14 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.equal(status, 1, output);
     const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && /1366x768@100%-180%/.test(f.viewport));
     assert.ok(zoom.some((f) => /applies a page zoom of 1\.(8|79\d*), not 2/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
+  });
+
+  it('judges a transition\'s prepared starting state at 200% before leaving it (Codex P1)', () => {
+    const WIDE = `(() => { const s = document.createElement('style'); s.textContent = '.toolbar-band__controls[aria-modal="true"]{width:900px!important;max-width:none!important}'; document.head.appendChild(s); return true; })()`;
+    const { status, output, results } = run('prepared', `export const STATES = REGISTERED.filter((s) => s.name === "videos-filters-drawer").map(({ zoomCapture, ...s }) => ({ ...s, zoomTransitions: [{ path: [2, 1], before: ${JSON.stringify(WIDE)} }] }));`, ['--states', 'videos-filters-drawer']);
+    assert.equal(status, 1, output);
+    const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@200%-100%');
+    assert.ok(zoom.some((f) => /^at the start \(200%\): .* does not fit the 683x384 viewport/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
   });
 
   it('is a harness fault when a required zoom state is never reached', () => {
