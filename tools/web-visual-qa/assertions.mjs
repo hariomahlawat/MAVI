@@ -2036,18 +2036,23 @@ export function zoomAssertions(input) {
     const style = getComputedStyle(el);
     if (style.visibility === 'hidden') continue;
     const r0 = el.getBoundingClientRect();
-    // A control drawn at 1px is offered only where focus shows it (the skip
-    // link) or a visible label of its own stands for it (a native input
-    // dressed by its label). Otherwise the keyboard reaches a control the
-    // operator cannot see: a finding, not a skip.
-    if (r0.width <= 1 && r0.height <= 1) {
+    // A control drawn at 1px, or transparent (its own or an ancestor's
+    // opacity), is offered only where focus shows it (the skip link) or a
+    // visible label of its own stands for it (a native input dressed by its
+    // label). Otherwise the keyboard reaches a control the operator cannot
+    // see: a finding, not a skip.
+    let opacity = 1;
+    for (let n = el; n && n !== document.documentElement; n = n.parentElement) opacity *= parseFloat(getComputedStyle(n).opacity);
+    if ((r0.width <= 1 && r0.height <= 1) || opacity < 0.05) {
       if (el.tabIndex < 0) continue;
       const labelled = el.labels && Array.from(el.labels).some((label) => { const lr = label.getBoundingClientRect(); return lr.width > 1 && lr.height > 1; });
       if (labelled) continue;
       el.focus({ focusVisible: false });
       if (document.activeElement !== el) continue;
       const fr = el.getBoundingClientRect();
-      if (fr.width <= 1 || fr.height <= 1) fail(describe(el) + ' can be focused but is not shown, even when focused: the keyboard reaches a control the operator cannot see');
+      let shownOpacity = 1;
+      for (let n = el; n && n !== document.documentElement; n = n.parentElement) shownOpacity *= parseFloat(getComputedStyle(n).opacity);
+      if (fr.width <= 1 || fr.height <= 1 || shownOpacity < 0.05) fail(describe(el) + ' can be focused but is not shown, even when focused: the keyboard reaches a control the operator cannot see');
       continue;
     }
     // The boxes between the control and the page that clip it, with where
@@ -2148,8 +2153,15 @@ export function zoomAssertions(input) {
     if (!scope) return;
     const controls = Array.from(scope.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])'))
       .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[inert]') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
-      .map((el) => ({ el, r: el.getBoundingClientRect() }))
-      .filter(({ r }) => r.width > 1 && r.height > 1);
+      .map((el, index) => ({ el, index, r: el.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 1 && r.height > 1)
+      // In the order Tab visits them (HTML): positive tabindex values first,
+      // ascending, then the rest in document order.
+      .sort((a, b) => {
+        const ta = a.el.tabIndex > 0 ? a.el.tabIndex : Infinity;
+        const tb = b.el.tabIndex > 0 ? b.el.tabIndex : Infinity;
+        return ta === tb ? a.index - b.index : ta - tb;
+      });
     for (let i = 1; i < controls.length; i += 1) {
       const a = controls[i - 1]; const b = controls[i];
       const sameLine = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top) > Math.min(a.r.height, b.r.height) / 2;
@@ -2196,8 +2208,13 @@ export function zoomAssertions(input) {
     // button (in a list item or table row) to its inspector: the full-value
     // home either way. Any other button acts in place, so its truncated label
     // must still say the whole value on focus.
-    const leads = Boolean(focusable) && (focusable.tagName === 'A'
-      || (focusable.tagName === 'BUTTON' && Boolean(focusable.closest('li, tr, [role="row"], [role="option"], [role="listitem"]'))));
+    // A row's selection control says what it is: it carries its selected
+    // state (aria-pressed, aria-selected, aria-current) or is the product's
+    // result-selection control (Search's .result-select, which opens the
+    // inspector). A Retry or Delete in the row is an action, not a selection.
+    const selects = (node) => node.tagName === 'BUTTON' && Boolean(node.closest('li, tr, [role="row"], [role="option"], [role="listitem"]'))
+      && (node.hasAttribute('aria-pressed') || node.hasAttribute('aria-selected') || node.hasAttribute('aria-current') || node.classList.contains('result-select'));
+    const leads = Boolean(focusable) && (focusable.tagName === 'A' || selects(focusable));
     // Compared by its letters and digits: the drawn value may set a code apart
     // from a name that the tooltip joins with a separator ("CAM-02 · North").
     const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
@@ -2263,6 +2280,25 @@ export async function zoomTransitionProbe() {
       fail('focus is left on ' + describe(active) + ', which the new composition does not show');
     } else if (active.closest('[inert]')) {
       fail('focus is left on ' + describe(active) + ', inside an inert region');
+    } else if (!main) {
+      // On screen, and not under anything: the focused control is where the
+      // operator can see it after the page reflowed, at every step.
+      const vw = document.documentElement.clientWidth; const vh = document.documentElement.clientHeight;
+      let left = Math.max(r.left, 0); let top = Math.max(r.top, 0); let right = Math.min(r.right, vw); let bottom = Math.min(r.bottom, vh);
+      for (let a = active.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+        const s = getComputedStyle(a);
+        if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
+          const c = a.getBoundingClientRect();
+          left = Math.max(left, c.left); top = Math.max(top, c.top); right = Math.min(right, c.right); bottom = Math.min(bottom, c.bottom);
+        }
+        if (s.position === 'fixed') break;
+      }
+      if (right - left < 1 || bottom - top < 1) fail('focus is left on ' + describe(active) + ', out of view after the zoom change');
+      else {
+        const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+        const own = hit && (hit === active || active.contains(hit) || (active.labels && Array.from(active.labels).some((label) => label.contains(hit))) || hit.closest('.tooltip, [role="tooltip"]'));
+        if (!own) fail('focus is left on ' + describe(active) + ', covered by ' + describe(hit) + ' after the zoom change');
+      }
     }
   }
   const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).filter((m) => !m.closest('[inert]'));

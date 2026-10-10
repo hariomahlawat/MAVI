@@ -220,6 +220,9 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.match(messages(await at200(`<button style="${HIDDEN}">Delete zone</button>`)), /"Delete zone" can be focused but is not shown, even when focused/);
     assert.equal(messages(await at200(`<style>.skip{${HIDDEN}} .skip:focus{width:auto;height:auto;clip-path:none}</style><a class="skip" href="#main">Skip to workspace</a><main id="main"></main>`)), '');
     assert.equal(messages(await at200(`<input id="c" type="checkbox" style="${HIDDEN}"><label for="c">Trajectory</label>`)), '');
+    // Transparent counts as unseen too (Codex P1): its own opacity or an ancestor's.
+    assert.match(messages(await at200('<div style="opacity:0"><button>Delete zone</button></div>')), /"Delete zone" can be focused but is not shown, even when focused/);
+    assert.equal(messages(await at200('<label><input type="checkbox" style="opacity:0;position:absolute"> Trajectory</label>')), '');
   });
 
   it('fails a step back up a column, and keeps side-by-side columns read one after the other (Codex P1)', async () => {
@@ -295,9 +298,11 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     // A link to the row's detail leads to the full-value home (§16), and so
     // does a row's own selection button, to its inspector.
     assert.equal(messages(await at200(`<a href="/processing/1" style="${CUT}">${NAME}</a>`)), '');
-    assert.equal(messages(await at200(`<ul><li><button style="${CUT}">${NAME}</button></li></ul>`)), '');
-    // Any other button acts in place: its truncated label must say the whole on focus (Codex P1).
+    // Any other button acts in place: its truncated label must say the whole on focus (Codex P1),
+    // in a row too — only the row's selection control leads to its inspector.
     assert.match(messages(await at200(`<button style="${CUT}">${NAME}</button>`)), /can be focused, but focus does not show its full value/);
+    assert.match(messages(await at200(`<ul><li><button style="${CUT}">Retry ${NAME}</button></li></ul>`)), /can be focused, but focus does not show its full value/);
+    assert.equal(messages(await at200(`<ul><li><button aria-pressed="false" style="${CUT}">${NAME}</button></li></ul>`)), '');
   });
 
   it('fails a Context Bar whose keyboard order is not its visual order — the menu drawn first but reached last', async () => {
@@ -306,6 +311,10 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
       ${moved ? '<button class="shell__menu" aria-label="Open navigation" style="order:-1">M</button>' : ''}</div>`;
     assert.match(messages(await at200(BAR(true))), /in the Context Bar the keyboard reaches <button.shell__menu> "Open navigation" after <button> "Import video", but it is drawn before it/);
     assert.equal(messages(await at200(BAR(false))), '');
+    // The order Tab visits, not the document's (Codex P1): a positive tabindex goes first.
+    assert.match(messages(await at200(`<div class="context-bar" style="display:flex;gap:8px;height:44px">
+      <button class="shell__menu" aria-label="Open navigation">M</button><a href="/cameras">Cameras</a><button tabindex="1">Import video</button></div>`)),
+      /keyboard reaches <button.shell__menu> "Open navigation" after <button> "Import video", but it is drawn before it/);
   });
 });
 
@@ -328,6 +337,13 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
   it('fails focus that the zoom drops to the document, and passes focus that stays on a shown control', async () => {
     assert.match(messages(await across(PAGE, '(() => { document.querySelector(".wide").focus(); return true; })()')), /focus fell to the document when the zoom changed \(it was on <button.wide> "Collapse navigation"\)/);
     assert.equal(messages(await across(PAGE, '(() => { document.querySelector(".always").focus(); return true; })()')), '');
+  });
+
+  it('fails focus left out of view or under a layer by the zoom change, at every step (Codex P1)', async () => {
+    const MOVED = `<style>body{margin:0} @media (width < 768px) { .push { height: 900px } .band { display: block !important } }</style>
+      <main id="main"><div class="push"></div><button class="target">Detail</button><div style="height:10px"></div></main>
+      <div class="band" style="display:none;position:fixed;inset:0;background:#000">overlay band</div>`;
+    assert.match(messages(await across(MOVED, '(() => { document.querySelector(".target").focus(); return true; })()')), /focus is left on <button.target> "Detail", (out of view|covered by .*) after the zoom change/);
   });
 
   it('fails an overlay left open with focus outside it, and a region left inert with no overlay open', async () => {
