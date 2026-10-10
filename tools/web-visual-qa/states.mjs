@@ -2982,6 +2982,27 @@ export const STATES = [
 
   { name: 'videos', path: '/videos', fullWidth: true, archetype: 'ledger' },
   {
+    // §25 Tier C (T2): the Ledger filters, and the sort, in their full-width
+    // drawer, opened from the band's control. The harness's overlay exit then
+    // presses real Shift+Tab, Tab and Escape and proves focus returns to the
+    // control with nothing left inert.
+    name: 'videos-filters-drawer', interaction: 'open the filters drawer', path: '/videos', fullWidth: true, archetype: 'ledger',
+    tierPolicy: 'breakpoint-probe', probeOf: 'videos', probeWidths: [390, 430],
+    prepare: `(async () => {
+      ${UNTIL}
+      const toggle = await until(() => document.querySelector('.toolbar-band__drawer-toggle'), 'the filters control in the band');
+      if (toggle.getAttribute('aria-expanded') !== 'false') return false;
+      toggle.focus();
+      window.__vqa.mark('interaction-start');
+      toggle.click();
+      return Boolean(await until(() => {
+        const drawer = document.querySelector('.toolbar-band__controls[role="dialog"][aria-modal="true"]');
+        return drawer && drawer.contains(document.activeElement) && drawer.querySelector('input[type="search"]')
+          && drawer.getBoundingClientRect().width >= document.documentElement.clientWidth - 1;
+      }, 'the full-width filters drawer holding focus, its controls in it'));
+    })()`,
+  },
+  {
     // T1 (§25 Tier B, Codex P1 on #199): with Recorded and Duration folded
     // into the File cell, their sort is still the operator's — through the
     // Sort select that stands in for the headers. Reached only if choosing

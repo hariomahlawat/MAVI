@@ -707,6 +707,20 @@ export function pageAssertions(input) {
       if (bar.querySelector('.context-bar__crumbs') && !crumbs.some((li) => li.getBoundingClientRect().width >= 24)) {
         fail('tier.c-shell', 'the Context Bar shows no readable identity: every crumb is under 24px');
       }
+      // A crumb that returns somewhere specific — a link carrying state
+      // (Review's Search, back to the Investigation it came from) — is the
+      // way back, and the menu offers only a fresh one: it stays drawn.
+      for (const link of Array.from(bar.querySelectorAll('.context-bar__crumbs a[href*="?"]'))) {
+        if (!shown(link)) fail('tier.c-shell', 'the Context Bar way back (' + link.textContent.trim() + ', to ' + link.getAttribute('href').slice(0, 40) + ') is not drawn at Tier C');
+      }
+      // §24: the zone a surface states is stated, visibly — it may truncate,
+      // never be only a name for assistive technology or a tooltip.
+      for (const zone of Array.from(bar.querySelectorAll('.zone-note code'))) {
+        const r = zone.getBoundingClientRect();
+        if (r.width < 24 || zone.closest('.visually-hidden') || zone.matches('.visually-hidden')) {
+          fail('tier.c-shell', 'the Context Bar states its time zone only invisibly (' + Math.round(r.width) + 'px drawn); §24 states it in the bar');
+        }
+      }
       for (const item of Array.from(bar.querySelectorAll('.context-bar__crumbs li, .context-bar__status > *')).filter(shown)) {
         const box = item.getBoundingClientRect();
         if (box.right > Math.min(barBox.right, doc.clientWidth) + 0.5) fail('tier.c-shell', 'the Context Bar item ' + describe(item) + ' extends past the bar');
@@ -1508,6 +1522,13 @@ export function workspaceAssertions(input) {
         const head = table.querySelector('thead');
         if (head && box(head).height > 1.5 && getComputedStyle(head).clipPath === 'none') {
           fail('tier.c-composition', 'the Ledger draws a ' + Math.round(box(head).height) + 'px column header at Tier C: it is still a multi-column table');
+        }
+        // The header is not drawn, so nothing in it may take keyboard focus:
+        // a tab stop the operator cannot see is the defect.
+        const hiddenStops = head ? Array.from(head.querySelectorAll('a[href], button, input, select, [tabindex]'))
+          .filter((el) => el.tabIndex >= 0 && !el.disabled && getComputedStyle(el).display !== 'none') : [];
+        if (head && getComputedStyle(head).clipPath !== 'none' && hiddenStops.length) {
+          fail('tier.c-composition', 'the Ledger header is not drawn but holds ' + hiddenStops.length + ' tab stop(s): ' + hiddenStops.slice(0, 3).map((el) => el.textContent.trim().slice(0, 16)).join(', '));
         }
         const rows = Array.from(table.querySelectorAll('tbody tr')).filter(visible).slice(0, 40);
         measured.listRows = rows.length;

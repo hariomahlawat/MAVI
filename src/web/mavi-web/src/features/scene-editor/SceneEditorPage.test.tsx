@@ -1612,6 +1612,23 @@ describe('scene editor across the Tier C boundary (§25: below 768px it is the u
     }
   });
 
+  it('never summarises a past revision that could not be read as an empty one (T2 cold review)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      vi.mocked(getCameraSceneRevision).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'down' }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await user.click(screen.getByRole('button', { name: /View revision 1/ }));
+      live.set(tierC);
+      expect(await screen.findByText(/Revision 1 could not be loaded|could not be loaded/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Retry/ })).toBeInTheDocument();
+      expect(screen.queryByText('None')).not.toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
   it('shows a clean scene as its read-only summary, with no unsaved-changes notice and no guard', async () => {
     const live = stubMatchMediaLive(tierC);
     try {

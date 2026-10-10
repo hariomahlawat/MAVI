@@ -1,5 +1,6 @@
 import { createContext, useContext, type ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 import { Link, type LinkProps } from 'react-router-dom';
+import Tooltip from '../overlay/Tooltip';
 import Icon, { type IconName } from './Icon';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -53,13 +54,18 @@ export default function Button({
   type = 'button',
   ...rest
 }: ButtonProps) {
-  iconOnly = useIconOnly(variant, icon, iconOnly);
-  return (
+  // Called unconditionally (a hook): whether the Context Bar compacts this.
+  const compacted = useIconOnly(variant, icon, false) && !iconOnly;
+  iconOnly = iconOnly || compacted;
+  const button = (
     <button type={type} className={classes(variant, size, iconOnly, className)} {...rest}>
       {icon ? <Icon name={icon} size={size === 'sm' ? 'sm' : 'md'} /> : null}
       {iconOnly ? <span className="visually-hidden">{children}</span> : children}
     </button>
   );
+  // Compacted to its icon (Tier C Context Bar), the label is also its hint on
+  // hover and focus, as every icon-only control in the shell has.
+  return compacted && typeof children === 'string' ? <Tooltip content={children}>{button}</Tooltip> : button;
 }
 
 type ButtonLinkProps = LinkProps & {
@@ -78,11 +84,14 @@ export function ButtonLink({
   children,
   ...rest
 }: ButtonLinkProps) {
-  iconOnly = useIconOnly(variant, icon, iconOnly);
-  return (
+  // Called unconditionally (a hook): whether the Context Bar compacts this.
+  const compacted = useIconOnly(variant, icon, false) && !iconOnly;
+  iconOnly = iconOnly || compacted;
+  const link = (
     <Link className={classes(variant, size, iconOnly, className)} {...rest}>
       {icon ? <Icon name={icon} size={size === 'sm' ? 'sm' : 'md'} /> : null}
       {iconOnly ? <span className="visually-hidden">{children}</span> : children}
     </Link>
   );
+  return compacted && typeof children === 'string' ? <Tooltip content={children}>{link}</Tooltip> : link;
 }

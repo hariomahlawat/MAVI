@@ -98,6 +98,34 @@ export default function AppShell() {
   // heading).
   const crossedOpenRef = useRef(false);
   const firstNarrowRef = useRef(true);
+  // The last element in the workspace that held focus, for the rescue below.
+  const lastFocusRef = useRef<HTMLElement | null>(null);
+  const rescueFrameRef = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(rescueFrameRef.current), []);
+  useEffect(() => {
+    const record = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && mainRef.current?.contains(event.target)) lastFocusRef.current = event.target;
+    };
+    // Focus that leaves the workspace on purpose (another control, or a click
+    // on nothing) clears it. Chromium also fires focusout when it removes a
+    // focused element — exactly the case the rescue is for — so the decision
+    // waits a microtask and clears only a target still in the document; the
+    // rescue itself runs in the commit, before then.
+    const leave = (event: FocusEvent) => {
+      const next = event.relatedTarget;
+      const target = event.target;
+      if (next instanceof Node && mainRef.current?.contains(next)) return;
+      queueMicrotask(() => {
+        if (target === lastFocusRef.current && target instanceof Node && target.isConnected) lastFocusRef.current = null;
+      });
+    };
+    document.addEventListener('focusin', record);
+    document.addEventListener('focusout', leave);
+    return () => {
+      document.removeEventListener('focusin', record);
+      document.removeEventListener('focusout', leave);
+    };
+  }, []);
   // Whether the menu control holds focus. Recorded as it happens: widening
   // past 768px unmounts the menu in the same commit, so by the time the
   // effect below runs focus is already on the document and cannot say where
@@ -117,6 +145,28 @@ export default function AppShell() {
       setRailOpen(false);
     } else if (onNavigation) {
       (narrow ? menuRef : toggleRef).current?.focus();
+    } else {
+      // The workspace's own regions change composition at 768px — the
+      // Workbench becomes its unsupported state, a Record reorders, Search
+      // drops its view control. Each surface subscribes to the query itself,
+      // so one resize can land as several commits, and this one may run
+      // before theirs: the check waits for the next frame, when every surface
+      // has recomposed. Focus left on the document, or on an element the new
+      // composition hides, goes back to where it was if that is still shown
+      // (a moved Record region), otherwise to the workspace.
+      rescueFrameRef.current = requestAnimationFrame(() => {
+        const now = document.activeElement as HTMLElement | null;
+        const main = mainRef.current;
+        const shown = (el: HTMLElement) => el.isConnected && el.getClientRects().length > 0;
+        const lost = !now || now === document.body || Boolean(main?.contains(now) && !shown(now));
+        const last = lastFocusRef.current;
+        // `last` was in the workspace when recorded; unmounted since, it is
+        // no longer contained, and that is exactly the case to rescue.
+        if (lost && main && last) {
+          if (main.contains(last) && shown(last) && last !== now) last.focus();
+          else main.focus();
+        }
+      });
     }
     // Only the crossing itself: `railOpen` is read, not watched.
     // eslint-disable-next-line react-hooks/exhaustive-deps

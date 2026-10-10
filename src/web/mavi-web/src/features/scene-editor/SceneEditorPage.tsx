@@ -551,10 +551,10 @@ export default function SceneEditorPage() {
           above. A 44px band cannot hold a sentence, so they are stated here and
           referenced from the control by `aria-describedby`: the association is
           the part that matters, and it does not depend on adjacency. */}
-      {blockedReason ? (
+      {blockedReason && !narrow ? (
         <p className="scene-notice" id="scene-save-blocked">{blockedReason}</p>
       ) : null}
-      {confirmingDisable ? (
+      {confirmingDisable && !narrow ? (
         // Stated once, plainly, in the place the operator is already looking.
         // Nothing about this is an emergency, so nothing about it is red; it is
         // simply a consequence worth reading before it happens.
@@ -596,6 +596,20 @@ export default function SceneEditorPage() {
           statement: 'Editing a scene needs a display at least 768px wide. This is a read-only summary of it.',
           summary: (
             <Panel title={readOnly ? `Revision ${viewingRevisionNumber as number}` : 'Scene'}>
+              {readOnly && !historicalDraft ? (
+                // The stage says this above Tier C; here it is the summary's
+                // whole content, never an empty revision (§37.1).
+                <StateRegion
+                  kind="panel"
+                  state={fromQuery(historicalRevision)}
+                  label={`revision ${viewingRevisionNumber as number}`}
+                  loadingLabel={`Loading revision ${viewingRevisionNumber as number}…`}
+                  unavailableMessage={(error) => sceneErrorMessage(error, `Revision ${viewingRevisionNumber as number} could not be loaded.`)}
+                  onRetry={() => void historicalRevision.refetch()}
+                >
+                  {() => null}
+                </StateRegion>
+              ) : (
               <dl className="kv">
                 <dt>Camera</dt>
                 <dd>{`${camera.data.code} · ${camera.data.name}`}{cameraActive ? '' : ' (inactive)'}</dd>
@@ -616,6 +630,7 @@ export default function SceneEditorPage() {
                 <dt>Trip lines</dt>
                 <dd>{shownDraft.tripLines.length ? shownDraft.tripLines.map((line) => line.name).join(', ') : 'None'}</dd>
               </dl>
+              )}
               {!readOnly && (state.dirty || noteRetained) ? (
                 // Said plainly, not as an alarm: nothing has been lost or sent.
                 <p className="scene-notice" role="status">

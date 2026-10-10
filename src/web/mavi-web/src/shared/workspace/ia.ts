@@ -127,6 +127,12 @@ export type Crumb = {
    * camera name or file name can be as long as the domain permits.
    */
   dynamic?: boolean;
+  /**
+   * The crumb returns somewhere specific (Review's `Search`, to the
+   * Investigation it was opened from, its URL state intact): it is the way
+   * back, not only a place word, so it is kept where a trail is shortened.
+   */
+  returns?: boolean;
 };
 
 /** The dynamic part of a surface's identity — the object it is about. */
@@ -154,7 +160,7 @@ export function crumbsFor(surface: SurfaceId, identity: SurfaceIdentity = {}): C
   const owner = ownerOf(surface);
   if (!owner) return [{ label: NOT_FOUND_LABEL }];
   const row = SURFACES[surface];
-  const trail: Crumb[] = [{ label: owner.label, to: identity.rootTo ?? owner.to }];
+  const trail: Crumb[] = [identity.rootTo ? { label: owner.label, to: identity.rootTo, returns: true } : { label: owner.label, to: owner.to }];
   if (identity.object) trail.push({ ...identity.object, dynamic: true });
   if (row.child) trail.push({ label: row.child });
   // The last crumb is where the operator is, so it never links.

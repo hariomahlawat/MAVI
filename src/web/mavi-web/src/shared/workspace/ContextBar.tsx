@@ -150,7 +150,7 @@ function CrumbItem({ crumb, last }: { crumb: Crumb; last: boolean }) {
   const [attachLink, linkTruncated] = useIsTruncated<HTMLAnchorElement>(crumb.label);
   const [attachText, textTruncated] = useIsTruncated<HTMLSpanElement>(crumb.label);
   return (
-    <li className={crumb.dynamic ? 'context-bar__crumb context-bar__crumb--object' : 'context-bar__crumb'}>
+    <li className={['context-bar__crumb', crumb.dynamic ? 'context-bar__crumb--object' : '', crumb.returns && !last ? 'context-bar__crumb--return' : ''].filter(Boolean).join(' ')}>
       {crumb.to && !last ? (
         <Tooltip content={crumb.label} enabled={linkTruncated}>
           <Link ref={attachLink} to={crumb.to}>{crumb.label}</Link>

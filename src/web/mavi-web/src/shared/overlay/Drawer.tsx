@@ -127,11 +127,14 @@ export default function Drawer({
   // appears when a supporting request fails behind it. It is made inert (and
   // so dimmed) on the commit that mounts it, before paint, and released with
   // the rest; nothing operable may appear beside a modal drawer.
+  // A drawer over the whole viewport covers whatever is outside it, so that
+  // set is re-derived the same way: a notice mounting beside the Ledger
+  // filters drawer is inert like the rest (T2 cold review).
   useLayoutEffect(() => {
     if (!modal) return;
-    const late = covers
-      .map((ref) => ref.current)
-      .filter((element): element is HTMLElement => element !== null && !element.hasAttribute('inert'));
+    const panel = panelRef.current;
+    const candidates = coversViewport && panel ? outsideOf(panel) : covers.map((ref) => ref.current);
+    const late = candidates.filter((element): element is HTMLElement => element !== null && element !== undefined && !element.hasAttribute('inert'));
     if (late.length > 0) releasesRef.current.push(makeInert(late));
   });
 

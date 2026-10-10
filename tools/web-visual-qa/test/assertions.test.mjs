@@ -734,14 +734,15 @@ describe('Tier C (T2): rules that reject the pre-T2 compositions and pass the de
 
   // The shell: a navigation landmark inside a rail that is a column (pre-T2)
   // or absent, and a top-of-page control naming it (T2).
-  const SHELL = ({ railColumn = false, menu = true, menuName = 'Open navigation', actions = '' } = {}) => `
+  const SHELL = ({ railColumn = false, menu = true, menuName = 'Open navigation', actions = '', back = null, zone = null } = {}) => `
     <div class="sidebar" style="position:absolute;left:0;top:0;bottom:0;width:56px;${railColumn ? '' : 'display:none'}">
       <nav id="primary-nav" aria-label="Primary"><a href="#">O</a></nav>
     </div>
     <main id="main" style="position:absolute;left:${railColumn ? 56 : 0}px;right:0;top:0;bottom:0">
       <div class="context-bar" style="display:flex;align-items:center;gap:8px;height:44px;padding:0 12px">
         ${menu ? `<button class="shell__menu" aria-controls="primary-nav" aria-expanded="false" ${menuName ? `aria-label="${menuName}"` : ''} style="width:32px;height:32px;flex:none"><svg width="16" height="16"></svg></button>` : ''}
-        <nav class="context-bar__crumbs" aria-label="Breadcrumb"><ol style="display:flex;margin:0;padding:0"><li style="list-style:none">Videos</li></ol></nav>
+        <nav class="context-bar__crumbs" aria-label="Breadcrumb"><ol style="display:flex;margin:0;padding:0">${back ? `<li style="list-style:none;${back === 'hidden' ? 'display:none' : ''}"><a href="/search?cameraId=1">Search</a></li>` : ''}<li style="list-style:none">Videos</li></ol></nav>
+        ${zone ? `<span class="context-bar__status"><span class="zone-note"><code class="${zone === 'hidden' ? 'visually-hidden' : ''}">Asia/Kolkata</code></span></span>` : ''}
         <div class="context-bar__actions" style="display:flex;flex:none">${actions}</div>
       </div>
       <p>workspace</p>
@@ -757,6 +758,10 @@ describe('Tier C (T2): rules that reject the pre-T2 compositions and pass the de
       /action <button> "Import video" extends past the bar/);
     assert.match(messages(await pageAt(SHELL({ actions: '<button class="btn btn--primary"><svg width="16" height="16"></svg><span class="visually-hidden">Import video</span></button>' })), 'tier.c-shell'),
       /primary action .* has lost its visible label at Tier C/);
+    // The way back to a filtered Investigation, and the stated zone, stay drawn.
+    assert.match(messages(await pageAt(SHELL({ back: 'hidden' })), 'tier.c-shell'), /way back \(Search, to \/search\?cameraId=1\) is not drawn/);
+    assert.match(messages(await pageAt(SHELL({ zone: 'hidden' })), 'tier.c-shell'), /states its time zone only invisibly/);
+    assert.deepEqual(fired(await pageAt(SHELL({ back: 'shown', zone: 'shown' })), 'tier.c-shell'), []);
     // The designed bar: the menu control, the identity, the primary with its label.
     assert.deepEqual(fired(await pageAt(SHELL({ actions: '<button class="btn btn--primary"><svg width="16" height="16"></svg>Import video</button>' })), 'tier.c-shell'), []);
   });
@@ -781,7 +786,7 @@ describe('Tier C (T2): rules that reject the pre-T2 compositions and pass the de
   });
 
   // A Videos-like Ledger row: identity, a secondary line, status, action.
-  const LIST = ({ list = true, badge = true, action = true, filters = 'drawer', drawerWidth = '100%' } = {}) => `
+  const LIST = ({ list = true, badge = true, action = true, filters = 'drawer', drawerWidth = '100%', sortable = false } = {}) => `
     <style>.list tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto}.list tbody td{display:block;grid-column:1}.list tbody td:last-child{grid-column:2;grid-row:1/span 4}
       .list thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}</style>
     <div class="main" data-scroll="body" style="height:800px;overflow:auto">
@@ -795,7 +800,7 @@ describe('Tier C (T2): rules that reject the pre-T2 compositions and pass the de
       </div></div></div>
       <div class="workspace__body workspace__body--ledger"><div class="ledger-table">
         <table class="table table--ledger ${list ? 'list' : ''}" style="width:100%">
-          <thead><tr><th>File</th><th>Camera</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>${sortable ? '<button>File</button>' : 'File'}</th><th>Camera</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody><tr>
             <td>clip.mp4</td><td>CAM-01</td><td>${badge ? '<span class="badge">Processed</span>' : 'Processed'}</td>
             <td>${action ? '<button>Results</button>' : ''}</td>
@@ -808,6 +813,7 @@ describe('Tier C (T2): rules that reject the pre-T2 compositions and pass the de
     assert.match(table, /draws a \d+px column header at Tier C/);
     assert.match(table, /row 1 lays its values out side by side/);
     assert.match(messages(await workspaceAt(LIST({ badge: false }), 'ledger'), 'tier.c-composition'), /row 1 shows no status/);
+    assert.match(messages(await workspaceAt(LIST({ sortable: true }), 'ledger'), 'tier.c-composition'), /header is not drawn but holds 1 tab stop\(s\): File/);
     assert.match(messages(await workspaceAt(LIST({ action: false }), 'ledger'), 'tier.c-composition'), /row 1 has no reachable action/);
     assert.match(messages(await workspaceAt(LIST({ filters: 'inline' }), 'ledger'), 'tier.c-composition'), /filters are in the band at Tier C/);
     assert.match(messages(await workspaceAt(LIST({ filters: 'orphan' }), 'ledger'), 'tier.c-composition'), /in a drawer with no visible control to open it/);

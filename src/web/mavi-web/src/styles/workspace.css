@@ -57,10 +57,16 @@
   display: flex; flex: 0 1 auto; min-width: 0;
 }
 .shell--narrow .context-bar__crumbs li::before { content: none; }
-/* The time zone the surface states (§24) is its clock: the zone stays its
-   accessible name ("Times shown in …") and its tooltip, read, not drawn
-   (DisplayTimeZone hides its name at Tier C). */
-.shell--narrow .context-bar__status > .zone-note { flex: none; }
+/* A crumb that is the way back (Review's Search, to the Investigation it was
+   opened from) is kept, first and whole: the menu's Search is a fresh one. */
+.shell--narrow .context-bar__crumbs li.context-bar__crumb--return { display: flex; flex: none; }
+.shell--narrow .context-bar__crumbs li.context-bar__crumb--return + li::before { content: "›"; }
+/* The time zone the surface states (§24) stays drawn, and gives way after
+   the identity: truncated to no less than 6ch, its full value on hover and
+   focus (DisplayTimeZone's TruncatedText). */
+.shell--narrow .context-bar__status > .zone-note { flex: 0 1 auto; min-width: 6ch; }
+.shell--narrow .context-bar__status > .zone-note code { min-width: 0; overflow: hidden; }
+.shell--narrow .context-bar__status > .zone-note .tooltip-anchor { min-width: 0; max-width: 100%; }
 .context-bar__crumbs .tooltip-anchor { min-width: 0; max-width: 100%; }
 .context-bar__crumbs li a, .context-bar__crumbs li span:not(.tooltip-anchor):not(.tooltip) {
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;

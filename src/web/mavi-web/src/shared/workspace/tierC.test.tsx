@@ -1,11 +1,14 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 import Button from '../components/Button';
 import { SHELL_QUERIES } from '../overlay/useMediaQuery';
 import { stubMatchMedia, stubMatchMediaLive } from '../../test/matchMedia';
 import ContextBar from './ContextBar';
+import { SortableColumn, useLedgerSort } from '../table';
+import Drawer from '../overlay/Drawer';
 import { RecordLayout, WorkbenchLayout } from './layouts';
 import Toolbar from './Toolbar';
 
@@ -138,7 +141,62 @@ describe('the Workbench unsupported state (§25 Tier C)', () => {
   });
 });
 
+describe('the hidden Tier C Ledger header (T2 cold review)', () => {
+  function Header() {
+    const sort = useLedgerSort<'file'>({ column: 'file', direction: 'asc' });
+    return <table><thead><tr><SortableColumn sort={sort} column="file">File</SortableColumn></tr></thead><tbody /></table>;
+  }
+  it('takes its sort buttons out of the tab order at Tier C, and keeps them there above it', () => {
+    restore = stubMatchMedia(tierC);
+    const { unmount } = render(<Header />);
+    expect(screen.getByRole('button', { name: /File/ })).toHaveAttribute('tabindex', '-1');
+    unmount();
+    restore();
+    restore = stubMatchMedia(tierB);
+    render(<Header />);
+    expect(screen.getByRole('button', { name: /File/ })).not.toHaveAttribute('tabindex');
+  });
+});
+
+describe('a viewport drawer and what mounts beside it (T2 cold review)', () => {
+  it('makes a region that appears while it is open inert too', async () => {
+    const user = userEvent.setup();
+    function Page() {
+      const [open, setOpen] = useState(false);
+      const [late, setLate] = useState(false);
+      return (
+        <div>
+          <button type="button" onClick={() => setOpen(true)}>Open</button>
+          {late ? <div data-testid="late"><button type="button">Retry</button></div> : null}
+          <Drawer open={open} overlay coversViewport covers={[]} onClose={() => setOpen(false)} className="filters">
+            <h2>Filters</h2>
+            <button type="button" onClick={() => setLate(true)}>Fail a refresh</button>
+          </Drawer>
+        </div>
+      );
+    }
+    render(<Page />);
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    await user.click(screen.getByRole('button', { name: 'Fail a refresh' }));
+    expect(screen.getByTestId('late')).toHaveAttribute('inert');
+  });
+});
+
 describe('the Context Bar at Tier C (§25: the primary keeps its icon and label)', () => {
+  it('keeps the way back to a filtered Investigation as its own crumb (T2 cold review)', () => {
+    restore = stubMatchMedia(tierC);
+    render(<MemoryRouter><ContextBar surface="review" object={{ label: 'gate.mp4' }} rootTo="/search?cameraId=1" /></MemoryRouter>);
+    const back = screen.getByRole('link', { name: 'Search' });
+    expect(back).toHaveAttribute('href', '/search?cameraId=1');
+    expect(back.closest('li')).toHaveClass('context-bar__crumb--return');
+  });
+
+  it('gives an action it draws icon-only its label as a hint on hover and focus', () => {
+    restore = stubMatchMedia(tierC);
+    render(<ContextBar surface="overview" actions={<Button icon="upload">Import video</Button>} />);
+    expect(screen.getByRole('button', { name: 'Import video' }).closest('.tooltip-anchor')).not.toBeNull();
+  });
+
   it('draws a secondary action with an icon icon-only, still named, and leaves the primary and an icon-less action as they are', () => {
     restore = stubMatchMedia(tierC);
     render(

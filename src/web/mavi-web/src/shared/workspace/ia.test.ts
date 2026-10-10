@@ -76,7 +76,7 @@ describe('the IA map', () => {
     expect(crumbsFor('cameras')).toEqual([{ label: 'Cameras' }]);
 
     const from = '/search?objectClass=Person&track=t';
-    expect(crumbsFor('review', { object: { label: 'gate.mp4' }, rootTo: from })[0]).toEqual({ label: 'Search', to: from });
+    expect(crumbsFor('review', { object: { label: 'gate.mp4' }, rootTo: from })[0]).toEqual({ label: 'Search', to: from, returns: true });
     expect(crumbsFor('review', { object: { label: 'gate.mp4' } })[0]).toEqual({ label: 'Search', to: '/search' });
   });
 
