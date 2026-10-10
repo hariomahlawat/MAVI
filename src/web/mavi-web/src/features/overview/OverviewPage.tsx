@@ -15,6 +15,7 @@ import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import Icon from '../../shared/components/Icon';
 import Panel from '../../shared/components/Panel';
 import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
+import { SHELL_QUERIES, useMediaQuery } from '../../shared/overlay/useMediaQuery';
 import StatusBadge from '../../shared/components/StatusBadge';
 import { formatDuration } from '../../shared/format/duration';
 import { displayTimestamp, formatConfidence, formatCount } from '../../shared/format/format';
@@ -47,6 +48,7 @@ const RECENT_LIMIT = 8;
  * and one of them failing must not blank the three that answered (§14).
  */
 export default function OverviewPage() {
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
   const cameras = useQuery({ queryKey: queryKeys.cameras, queryFn: ({ signal }) => listCameras(signal) });
   const videos = useQuery({ queryKey: queryKeys.videos, queryFn: ({ signal }) => listVideos(signal) });
   const systemConfig = useQuery({
@@ -209,6 +211,10 @@ export default function OverviewPage() {
             </Link>
           </div>
 
+          {/* §25 Tier C: "attention list only, then counts". The secondary
+              panels would compete with them on a narrow display, so they are
+              not drawn there — not hidden in the tab order, not drawn. */}
+          {narrow ? null : (
           <div className="overview-grid">
             <Panel
               body="flush"
@@ -285,6 +291,7 @@ export default function OverviewPage() {
               </StateRegion>
             </Panel>
           </div>
+          )}
           </>
         ) : null}
       </LedgerSummaryLayout>

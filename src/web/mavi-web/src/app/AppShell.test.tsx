@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPlatformHealth } from '../api/platform';
 import { SHELL_QUERIES } from '../shared/overlay/useMediaQuery';
 import { DESTINATIONS, ownerOf, type SurfaceId } from '../shared/workspace';
-import { stubMatchMedia } from '../test/matchMedia';
+import { stubMatchMedia, stubMatchMediaLive } from '../test/matchMedia';
 import { createMaviQueryClient } from './queryClient';
 import { appRoutes } from './router';
 import { CHORD_TIMEOUT_MS } from './useGlobalShortcuts';
@@ -265,6 +265,94 @@ describe('Tier B rail (§25: collapsed by default, an overlay when opened)', () 
     await user.click(screen.getByRole('button', { name: 'Open navigation' }));
     await user.keyboard('{Escape}');
     expect(window.localStorage.getItem('mavi.sidebar.collapsed')).toBe('1');
+  });
+});
+
+describe('Tier C navigation (§25: a top-of-page menu control opening an overlay)', () => {
+  const tierC = (query: string) => query === SHELL_QUERIES.compact || query === SHELL_QUERIES.narrow;
+  const tierB = (query: string) => query === SHELL_QUERIES.compact;
+  let restore: () => void = () => {};
+  afterEach(() => restore());
+
+  it('opens the same navigation from a named control leading the Context Bar, as a modal overlay, and returns focus to it on Escape', async () => {
+    restore = stubMatchMedia(tierC);
+    const user = userEvent.setup();
+    renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    expect(document.querySelector('.shell')).toHaveClass('shell--narrow');
+    // The rail's own control is not offered at Tier C; the menu is, in the band.
+    const menu = within(document.querySelector('.context-bar') as HTMLElement).getByRole('button', { name: 'Open navigation' });
+    expect(menu).toHaveAttribute('aria-expanded', 'false');
+    expect(menu).toHaveAttribute('aria-controls', rail().id);
+
+    await user.click(menu);
+    const overlay = screen.getByRole('dialog', { name: 'Navigation' });
+    expect(overlay).toContainElement(rail());
+    expect(document.getElementById('main')).toHaveAttribute('inert');
+    // Shift+Tab from the heading it focused stays inside (the T1 trap fix).
+    await user.tab({ shift: true });
+    expect(overlay).toContainElement(document.activeElement as HTMLElement);
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument();
+    expect(document.getElementById('main')).not.toHaveAttribute('inert');
+    expect(menu).toHaveFocus();
+  });
+
+  it('closes after a destination is chosen from it', async () => {
+    restore = stubMatchMedia(tierC);
+    const user = userEvent.setup();
+    renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    await user.click(within(document.querySelector('.context-bar') as HTMLElement).getByRole('button', { name: 'Open navigation' }));
+    await user.click(within(rail()).getByRole('link', { name: /Cameras/ }));
+    await screen.findByRole('heading', { name: 'Cameras route' });
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument();
+  });
+
+  it('closes an overlay open across 768px and puts focus on the control the new tier offers — never on its hidden heading (T1 carry-over)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    restore = live.restore;
+    const user = userEvent.setup();
+    renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    // Open at Tier B from the rail's toggle; cross into Tier C.
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(document.activeElement).toHaveTextContent('Navigation');
+    live.set(tierC);
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument();
+    expect(document.getElementById('main')).not.toHaveAttribute('inert');
+    const menu = within(document.querySelector('.context-bar') as HTMLElement).getByRole('button', { name: 'Open navigation' });
+    expect(menu).toHaveFocus();
+
+    // Open at Tier C from the menu; cross back into Tier B.
+    await user.click(menu);
+    live.set(tierB);
+    expect(screen.queryByRole('dialog', { name: 'Navigation' })).not.toBeInTheDocument();
+    expect(document.querySelector('.context-bar .shell__menu')).toBeNull();
+    expect(document.querySelector('.sidebar__toggle')).toHaveFocus();
+  });
+
+  it("moves focus from a closed rail's control to the menu when the window narrows, and back", () => {
+    const live = stubMatchMediaLive(tierB);
+    restore = live.restore;
+    renderAt('/');
+    const toggle = document.querySelector('.sidebar__toggle') as HTMLElement;
+    toggle.focus();
+    live.set(tierC);
+    expect(document.querySelector('.shell__menu')).toHaveFocus();
+    live.set(tierB);
+    expect(document.querySelector('.sidebar__toggle')).toHaveFocus();
+  });
+
+  it('lets no global shortcut act behind the open overlay', async () => {
+    restore = stubMatchMedia(tierC);
+    const user = userEvent.setup();
+    const { router } = renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    await user.click(within(document.querySelector('.context-bar') as HTMLElement).getByRole('button', { name: 'Open navigation' }));
+    await user.keyboard('gv');
+    expect(router.state.location.pathname).toBe('/');
   });
 });
 

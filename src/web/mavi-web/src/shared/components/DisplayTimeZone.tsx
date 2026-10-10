@@ -1,3 +1,5 @@
+import TruncatedText from '../overlay/Truncated';
+import { SHELL_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
 import Icon from './Icon';
 
 /**
@@ -15,6 +17,10 @@ import Icon from './Icon';
  * the zone is for.
  */
 export default function DisplayTimeZone({ timeZoneId }: { timeZoneId: string | null | undefined }) {
+  // §25 Tier C: the zone is still stated in the band (§24), and is the text
+  // that gives way when the band is short: truncated, its full value is on
+  // hover and keyboard focus (§16), never only in a tooltip.
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
   // Before the configuration arrives there is no zone to disclose, and a
   // placeholder in a 44px band would be chrome claiming to be information.
   if (!timeZoneId) return null;
@@ -22,7 +28,7 @@ export default function DisplayTimeZone({ timeZoneId }: { timeZoneId: string | n
     <span className="zone-note">
       <Icon name="clock" size="sm" />
       <span className="visually-hidden">Times shown in</span>
-      <code>{timeZoneId}</code>
+      <code>{narrow ? <TruncatedText text={timeZoneId} /> : timeZoneId}</code>
     </span>
   );
 }

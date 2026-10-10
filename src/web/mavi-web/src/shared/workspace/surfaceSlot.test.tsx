@@ -15,6 +15,9 @@ import {
 } from './layouts';
 import { SurfaceSlotProvider } from './surfaceSlot';
 
+/** Every Workbench states its §25 Tier C fallback; these tests are above Tier C. */
+const TEST_UNSUPPORTED = { statement: 'Needs a display at least 768px wide.', summary: null };
+
 /**
  * Context Bar ownership, observed at the commit boundary.
  *
@@ -237,7 +240,7 @@ function renderShell(children: ReactNode) {
 
 describe('shell scroll policy', () => {
   it('lets the Workbench forbid page scrolling, as §4.3.2 requires', () => {
-    renderShell(<WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />);
+    renderShell(<WorkbenchLayout unsupported={TEST_UNSUPPORTED} stage={<canvas />} inspector={<p>inspector</p>} />);
     expect(policy()).toBe('contain');
   });
 
@@ -283,7 +286,7 @@ describe('shell scroll policy', () => {
       return (
         <Shell>
           {where === 'workbench'
-            ? <WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />
+            ? <WorkbenchLayout unsupported={TEST_UNSUPPORTED} stage={<canvas />} inspector={<p>inspector</p>} />
             : <p>an unmigrated page</p>}
         </Shell>
       );
@@ -315,7 +318,7 @@ describe('the shell returns to its fallback state on the way out', () => {
           {where === 'scene' ? (
             <>
               <ContextBar tone="caution" surface="scene" object={{ label: 'CAM-01 · Revision 3' }} />
-              <WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />
+              <WorkbenchLayout unsupported={TEST_UNSUPPORTED} stage={<canvas />} inspector={<p>inspector</p>} />
             </>
           ) : (
             <p>{where === 'other' ? 'another ordinary page' : 'an unmigrated page'}</p>

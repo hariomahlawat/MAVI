@@ -25,6 +25,7 @@ import type { AnalyticsCoverage, TrackAnalyticsIdentity } from '../../api/tracks
 import CommittedFilterChips from './CommittedFilterChips';
 import CoverageStrip from '../../shared/evidence/CoverageStrip';
 import { keyboardHeldElsewhere } from '../../shared/overlay/focus';
+import { SHELL_QUERIES, useMediaQuery } from '../../shared/overlay/useMediaQuery';
 import SearchFilterRail, { ANALYTICS_DRAFT_FIELDS, emptyDraft, type DisplayZoneState, type SearchDraft } from './SearchFilterRail';
 import TrackInspector from './TrackInspector';
 import TrackResultCard from './TrackResultCard';
@@ -226,6 +227,11 @@ export default function VisualSearchPage() {
   // Each submit refused for field errors; the rail reveals the first (§12).
   const [refusedSubmits, setRefusedSubmits] = useState(0);
   const [view, setView] = useState<ResultView>(readView);
+  // §25 Tier C: grid view is unavailable below 768px. The list is drawn
+  // there without touching the operator's stored choice, so a wider window
+  // gets their grid back.
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
+  const shownView: ResultView = narrow ? 'list' : view;
 
   const outstanding = dirtyFields(draft);
   const hasDraftChanges = outstanding.length > 0;
@@ -741,6 +747,7 @@ export default function VisualSearchPage() {
             {/* §14 of the brief: the List/Grid choice is a property of the
                 results column, so it lives on the column rather than in
                 permanent page chrome above the whole workspace. */}
+            {narrow ? null : (
             <Segmented
               label="Result view"
               size="sm"
@@ -751,6 +758,7 @@ export default function VisualSearchPage() {
                 { value: 'grid', label: <Icon name="grid" size="sm" />, accessibleName: 'Grid view' },
               ]}
             />
+            )}
           </div>
 
           {/* §17: the coverage strip sits immediately beneath the header and chips
@@ -769,7 +777,7 @@ export default function VisualSearchPage() {
             state={fromInfiniteQuery(tracks, (pages) => pages.flatMap((page) => page.items))}
             label="results"
             loadingLabel="Searching…"
-            skeleton={view === 'list' ? { rows: 'default', pitch: 'list' } : undefined}
+            skeleton={shownView === 'list' ? { rows: 'default', pitch: 'list' } : undefined}
             isEmpty={(found) => found.length === 0}
             empty={resultsEmpty(coverage)}
             unavailableMessage={(error) => describeError(error, 'The search could not be completed.')}
@@ -778,7 +786,7 @@ export default function VisualSearchPage() {
           >
             {() => (
           <>
-          {view === 'list' ? (
+          {shownView === 'list' ? (
               <TrackResultList items={items} selectedId={selectedId} displayTimeZoneId={displayTimeZoneId} searchContext={searchContext} analyticsIdentity={analyticsIdentity} onSelect={selectTrack} />
             ) : (
               <div className="results__list">

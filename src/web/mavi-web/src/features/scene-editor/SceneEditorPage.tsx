@@ -39,6 +39,8 @@ import SceneToolbar from './SceneToolbar';
 import { issuesByKey, validateDraft } from './sceneValidation';
 import Dialog from '../../shared/overlay/Dialog';
 import { keyboardHeldElsewhere } from '../../shared/overlay/focus';
+import { SHELL_QUERIES, useMediaQuery } from '../../shared/overlay/useMediaQuery';
+import Panel from '../../shared/components/Panel';
 import { useUnsavedChangesGuard } from './useUnsavedChangesGuard';
 
 /** The frame the stage falls back to when no reference video is loaded. */
@@ -170,6 +172,11 @@ export default function SceneEditorPage() {
   });
 
   const readOnly = viewingRevisionNumber !== null;
+  // §25 Tier C: the editor is not rendered below 768px (the Workbench's
+  // unsupported state); the draft is this page's and is kept as it is.
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
+  const narrowRef = useRef(narrow);
+  narrowRef.current = narrow;
   // The server refuses every scene change on an inactive camera
   // (`scene_camera_inactive`), so its editing tools are withheld rather than
   // offered and then refused at Save: a scene that cannot be changed is shown
@@ -262,14 +269,19 @@ export default function SceneEditorPage() {
   // The revision note is the operator's typing even when the geometry is back
   // at its baseline, so it is guarded, offered for Reset and kept visible.
   const noteRetained = state.draft.note.trim().length > 0;
+  // A discard is decided over the draft on screen: below 768px the editor is
+  // not drawn, so a Reset or Reload confirmation open when the window
+  // narrows is dropped too — the draft is kept, and the leave guard still
+  // asks (Codex P2 on #200).
+  const discardAvailable = editorShown && !narrow;
   const leaveGuard = useUnsavedChangesGuard(
     state.dirty || noteRetained || state.drawing.kind !== 'none',
     UNSAVED_MESSAGE,
-    pendingDiscard !== null && editorShown,
+    pendingDiscard !== null && discardAvailable,
   );
   useEffect(() => {
-    if (!editorShown && pendingDiscard !== null) setPendingDiscard(null);
-  }, [editorShown, pendingDiscard]);
+    if (!discardAvailable && pendingDiscard !== null) setPendingDiscard(null);
+  }, [discardAvailable, pendingDiscard]);
 
 
   const referenceOffsetForCanvas = readOnly
@@ -302,6 +314,9 @@ export default function SceneEditorPage() {
       // Behind the navigation overlay or a Dialog the scene is covered: its
       // Delete, Enter and nudges are not the operator's keys there (§20).
       if (keyboardHeldElsewhere('.workspace__inspector')) return;
+      // Nor where the editor is not drawn at all (Tier C): a key must never
+      // change a draft the operator cannot see.
+      if (narrowRef.current) return;
 
       if (event.key === 'Escape') {
         if (state.drawing.kind !== 'none') dispatch({ type: 'cancelDrawing' });
@@ -417,7 +432,7 @@ export default function SceneEditorPage() {
 
   const discardDialog = (
     <Dialog
-      open={pendingDiscard !== null}
+      open={pendingDiscard !== null && discardAvailable}
       title={pendingDiscard === 'reload' ? 'Discard your changes and load the saved revision?' : 'Discard your unsaved scene changes?'}
       confirmLabel={pendingDiscard === 'reload' ? 'Discard and load revision' : 'Discard changes'}
       destructive
@@ -497,16 +512,20 @@ export default function SceneEditorPage() {
       {conflict ? (
         <Alert
           tone="error"
-          actions={<Button size="sm" icon="refresh" onClick={reloadActive}>Reload active revision</Button>}
+          // At Tier C the draft is not drawn: a discard of edits the operator
+          // cannot review is not offered there (Codex P2 on #200).
+          actions={narrow ? undefined : <Button size="sm" icon="refresh" onClick={reloadActive}>Reload active revision</Button>}
         >
           This scene changed since you started editing. Your edits are still here and have not been sent.
-          Reloading discards them and loads what is now saved.
+          {narrow
+            ? ' Review them, or reload what is now saved, on a display at least 768px wide.'
+            : ' Reloading discards them and loads what is now saved.'}
         </Alert>
       ) : null}
       {supersededRevision !== null && !conflict ? (
         <Alert
           tone="warning"
-          actions={(
+          actions={narrow ? undefined : (
             <Button size="sm" icon="refresh" onClick={adoptActiveRevision}>
               Discard my changes and load revision {supersededRevision}
             </Button>
@@ -514,6 +533,7 @@ export default function SceneEditorPage() {
         >
           Somebody saved revision {supersededRevision} while you were editing. Your unsaved changes are untouched, but
           saving them now will be refused as a conflict.
+          {narrow ? ' Review them, or load the new revision, on a display at least 768px wide.' : ''}
         </Alert>
       ) : null}
       {saveMutation.isError && !conflict ? (
@@ -541,10 +561,10 @@ export default function SceneEditorPage() {
           above. A 44px band cannot hold a sentence, so they are stated here and
           referenced from the control by `aria-describedby`: the association is
           the part that matters, and it does not depend on adjacency. */}
-      {blockedReason ? (
+      {blockedReason && !narrow ? (
         <p className="scene-notice" id="scene-save-blocked">{blockedReason}</p>
       ) : null}
-      {confirmingDisable ? (
+      {confirmingDisable && !narrow ? (
         // Stated once, plainly, in the place the operator is already looking.
         // Nothing about this is an emergency, so nothing about it is red; it is
         // simply a consequence worth reading before it happens.
@@ -582,6 +602,64 @@ export default function SceneEditorPage() {
       <WorkbenchLayout
         inspectorLabel="Scene inspector"
         notices={notices}
+        unsupported={{
+          statement: 'Editing a scene needs a display at least 768px wide. This is a read-only summary of it.',
+          summary: (
+            <Panel title={readOnly ? `Revision ${viewingRevisionNumber as number}` : 'Scene'}>
+              {revisionRefreshFailed ? (
+                // As the stage says it above Tier C: retained, and not current.
+                <Alert
+                  tone="warning"
+                  actions={<Button size="sm" onClick={() => void historicalRevision.refetch()}>Retry</Button>}
+                >
+                  {`Revision ${viewingRevisionNumber} could not be refreshed. It is shown as last loaded.`}
+                </Alert>
+              ) : null}
+              {readOnly && !historicalDraft ? (
+                // The stage says this above Tier C; here it is the summary's
+                // whole content, never an empty revision (§37.1).
+                <StateRegion
+                  kind="panel"
+                  state={fromQuery(historicalRevision)}
+                  label={`revision ${viewingRevisionNumber as number}`}
+                  loadingLabel={`Loading revision ${viewingRevisionNumber as number}…`}
+                  unavailableMessage={(error) => sceneErrorMessage(error, `Revision ${viewingRevisionNumber as number} could not be loaded.`)}
+                  onRetry={() => void historicalRevision.refetch()}
+                >
+                  {() => null}
+                </StateRegion>
+              ) : (
+              <dl className="kv">
+                <dt>Camera</dt>
+                <dd>{`${camera.data.code} · ${camera.data.name}`}{cameraActive ? '' : ' (inactive)'}</dd>
+                <dt>Revision</dt>
+                <dd>
+                  {readOnly
+                    ? `Revision ${viewingRevisionNumber as number}, a past revision`
+                    : state.draft.baseRevisionNumber > 0 ? `Revision ${state.draft.baseRevisionNumber}, active` : 'No revision saved yet'}
+                </dd>
+                {(readOnly ? historicalRevision.data?.analyticsEnabled ?? null : analyticsEnabled) === null ? null : (
+                  <>
+                    <dt>Analytics</dt>
+                    <dd>{(readOnly ? historicalRevision.data?.analyticsEnabled : analyticsEnabled) ? 'On' : 'Off'}</dd>
+                  </>
+                )}
+                <dt>Zones</dt>
+                <dd>{shownDraft.zones.length ? shownDraft.zones.map((zone) => zone.name).join(', ') : 'None'}</dd>
+                <dt>Trip lines</dt>
+                <dd>{shownDraft.tripLines.length ? shownDraft.tripLines.map((line) => line.name).join(', ') : 'None'}</dd>
+              </dl>
+              )}
+              {!readOnly && (state.dirty || noteRetained) ? (
+                // Said plainly, not as an alarm: nothing has been lost or sent.
+                <p className="scene-notice" role="status">
+                  This scene has unsaved changes. They are kept while this page stays open; review and save them on a
+                  display at least 768px wide.
+                </p>
+              ) : null}
+            </Panel>
+          ),
+        }}
         modes={(
           <SceneToolbar
             tool={state.tool}

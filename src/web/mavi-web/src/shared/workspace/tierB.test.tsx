@@ -10,6 +10,9 @@ import { stubElementWidth } from '../../test/resizeObserver';
 import { InvestigationLayout, InvestigationRailToggle, LedgerLayout, LedgerTable, WORKBENCH_SIDE_BY_SIDE_MIN, WorkbenchLayout } from './layouts';
 import { LedgerFoldedValue, LedgerPrimary } from './LedgerFold';
 
+/** Every Workbench states its §25 Tier C fallback; these tests are above Tier C. */
+const TEST_UNSUPPORTED = { statement: 'Needs a display at least 768px wide.', summary: null };
+
 /*
  * T1 (§25 Tier B): the shared pieces the compact compositions are made of —
  * each proven here on its own, so a surface that uses one inherits a contract
@@ -237,7 +240,7 @@ describe('folded Ledger columns (§25 Tier B)', () => {
 describe('the Workbench drawer: the frozen 1101-1149 band and the §4.3.1 floor, two obligations', () => {
   const drawerAt = (width: number) => {
     unstub = stubElementWidth(width);
-    const { container, unmount } = render(<WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />);
+    const { container, unmount } = render(<WorkbenchLayout unsupported={TEST_UNSUPPORTED} stage={<canvas />} inspector={<p>inspector</p>} />);
     const drawer = container.querySelector('.workspace--workbench')?.classList.contains('is-drawer');
     unmount();
     unstub();
@@ -270,7 +273,7 @@ describe('the Workbench drawer: the frozen 1101-1149 band and the §4.3.1 floor,
       disconnect() {}
     } as unknown as typeof ResizeObserver;
     try {
-      render(<WorkbenchLayout stage={<canvas />} inspector={<button type="button">Loading bay</button>} inspectorLabel="Scene inspector" />);
+      render(<WorkbenchLayout unsupported={TEST_UNSUPPORTED} stage={<canvas />} inspector={<button type="button">Loading bay</button>} inspectorLabel="Scene inspector" />);
       screen.getByRole('button', { name: 'Loading bay' }).focus();
       act(() => resize(850));
       expect(screen.getByRole('button', { name: 'Scene inspector' })).toHaveFocus();

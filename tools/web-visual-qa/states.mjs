@@ -593,11 +593,25 @@ export const TIER_POLICIES = {
     excluded: {},
   },
   'footage-variant': {
-    tiers: ['A'],
+    // T2: swept at Tier C too — the narrow Review is for reading evidence, and
+    // bright, dark, letterboxed and pillarboxed footage is what it reads.
+    tiers: ['A', 'C'],
     excluded: {
       B: 'a footage-condition variant (§26 media conditions): it differs from the canonical review state only in the video\'s pixels, '
         + 'so its Tier B geometry is the review state\'s, which is swept there',
-      C: 'a footage-condition variant (§26 media conditions): its Tier C geometry is the canonical review state\'s, which is swept there',
+    },
+  },
+  'workbench-variant': {
+    tiers: ['A', 'B'],
+    excluded: {
+      C: 'a Workbench editing or analytical variant: below 768px the Workbench is its §25 unsupported state — no canvas, chart, '
+        + 'inspector or analytical question exists to put in this state — and §26 has the base state assert that state at Tier C',
+    },
+  },
+  'grid-variant': {
+    tiers: ['A', 'B'],
+    excluded: {
+      C: 'a grid-view variant: grid view is unavailable at Tier C (§25); search-grid proves there that a stored grid choice is shown as the list',
     },
   },
   'typography-variant': {
@@ -673,6 +687,9 @@ function inventoryFixture(entries) {
 export const STATE_KEYS = new Set([
   'name', 'path', 'fullWidth', 'archetype', 'api', 'prepare', 'expectText', 'forbidText',
   'footage', 'requireOverlay', 'holds', 'tierPolicy', 'probeWidths', 'probeOf', 'interaction',
+  // T2: how a state is reached, and what it shows, at one tier; and a stored
+  // preference it arrives with.
+  'atTier', 'storage',
 ]);
 
 /**
@@ -2726,6 +2743,28 @@ export const STATES = [
     })()`,
   },
   {
+    // §25 Tier C (T2): the navigation behind the top-of-page menu control,
+    // opened from it — the same overlay as Tier B, its invoker the menu. The
+    // harness's overlay exit then presses real Shift+Tab, Tab and Escape, and
+    // proves focus returns to the menu with nothing left inert. Probed across
+    // the tier, the old 760px narrow shell's edge included.
+    name: 'shell-menu-overlay', interaction: 'open the navigation from the top-of-page menu', path: '/videos', fullWidth: true, archetype: 'ledger',
+    tierPolicy: 'breakpoint-probe', probeOf: 'videos', probeWidths: [390, 430, 600, 760, 761, 767],
+    prepare: `(async () => {
+      ${UNTIL}
+      const menu = await until(() => document.querySelector('.shell__menu'), 'the top-of-page menu control');
+      if (menu.getAttribute('aria-expanded') !== 'false') return false;
+      menu.focus();
+      window.__vqa.mark('interaction-start');
+      menu.click();
+      return Boolean(await until(() => {
+        const overlay = document.querySelector('.sidebar[role="dialog"][aria-modal="true"]');
+        return overlay && overlay.contains(document.activeElement) && document.getElementById('main')?.hasAttribute('inert')
+          && overlay.querySelector('nav[aria-label="Primary"] a span')?.getBoundingClientRect().width > 0;
+      }, 'the navigation open from the menu as a modal overlay over an inert workspace, its labels shown'));
+    })()`,
+  },
+  {
     // The ? shortcut sheet open over a Ledger: the shared Drawer, focus on its
     // heading, the rail and workspace inert beneath its scrim.
     name: 'shell-shortcut-sheet', interaction: 'press ? to open the shortcut sheet', path: '/videos', fullWidth: true, archetype: 'ledger',
@@ -2733,7 +2772,10 @@ export const STATES = [
       ${UNTIL}
       // From a focused control, as an operator would press it: the sheet must
       // give focus back to that control when it closes (§20).
-      const from = document.querySelector('nav[aria-label="Primary"] a');
+      // At Tier C the rail is not drawn: the navigation's own control, the
+      // top-of-page menu, is the operator's focused control there.
+      const menu = document.querySelector('.shell__menu');
+      const from = menu && menu.getBoundingClientRect().width > 0 ? menu : document.querySelector('nav[aria-label="Primary"] a');
       from.focus();
       window.__vqa.mark('interaction-start');
       from.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
@@ -2824,13 +2866,13 @@ export const STATES = [
     expectText: 'Checking what needs attention',
   },
   {
-    name: 'overview-empty', path: '/', fullWidth: false, archetype: 'ledger-summary',
+    name: 'overview-empty', atTier: { C: { expectText: 'No items need attention' } }, path: '/', fullWidth: false, archetype: 'ledger-summary',
     api: { '/api/videos': [], '/api/tracks': { items: [], nextCursor: null, totalCount: 0 } },
     expectText: 'No tracks yet',
   },
   {
     // One section's request failed; the other three must still answer.
-    name: 'overview-partial-failure', path: '/', fullWidth: false, archetype: 'ledger-summary', api: { '/api/videos': 'unavailable' },
+    name: 'overview-partial-failure', atTier: { C: { expectText: ['video inventory is unavailable', 'cannot be determined while the video inventory is unavailable'] } }, path: '/', fullWidth: false, archetype: 'ledger-summary', api: { '/api/videos': 'unavailable' },
     expectText: ['video inventory is unavailable', 'its distribution cannot be shown', 'cannot be determined while the video inventory is unavailable'],
     forbidText: ['No tracks yet', 'No items need attention'],
   },
@@ -2877,7 +2919,7 @@ export const STATES = [
   {
     // A long name and a dense inventory in one state: the column cap has to
     // truncate rather than widen, at every width.
-    name: 'cameras-dense', path: '/cameras', fullWidth: true, archetype: 'ledger',
+    name: 'cameras-dense', atTier: { C: { prepare: null } }, path: '/cameras', fullWidth: true, archetype: 'ledger',
     api: { '/api/cameras': DENSE_CAMERAS },
     // M1: the code is the row's identity, so it takes the wide cap (cap-lg,
     // 260px) — the NORTH-PERIMETER-GATE-CAM-000xx cameras differ only in their
@@ -2939,6 +2981,27 @@ export const STATES = [
   },
 
   { name: 'videos', path: '/videos', fullWidth: true, archetype: 'ledger' },
+  {
+    // §25 Tier C (T2): the Ledger filters, and the sort, in their full-width
+    // drawer, opened from the band's control. The harness's overlay exit then
+    // presses real Shift+Tab, Tab and Escape and proves focus returns to the
+    // control with nothing left inert.
+    name: 'videos-filters-drawer', interaction: 'open the filters drawer', path: '/videos', fullWidth: true, archetype: 'ledger',
+    tierPolicy: 'breakpoint-probe', probeOf: 'videos', probeWidths: [390, 430],
+    prepare: `(async () => {
+      ${UNTIL}
+      const toggle = await until(() => document.querySelector('.toolbar-band__drawer-toggle'), 'the filters control in the band');
+      if (toggle.getAttribute('aria-expanded') !== 'false') return false;
+      toggle.focus();
+      window.__vqa.mark('interaction-start');
+      toggle.click();
+      return Boolean(await until(() => {
+        const drawer = document.querySelector('.toolbar-band__controls[role="dialog"][aria-modal="true"]');
+        return drawer && drawer.contains(document.activeElement) && drawer.querySelector('input[type="search"]')
+          && drawer.getBoundingClientRect().width >= document.documentElement.clientWidth - 1;
+      }, 'the full-width filters drawer holding focus, its controls in it'));
+    })()`,
+  },
   {
     // T1 (§25 Tier B, Codex P1 on #199): with Recorded and Duration folded
     // into the File cell, their sort is still the operator's — through the
@@ -3295,7 +3358,7 @@ export const STATES = [
   //     additionally measures it against the frozen section 4.3 rules. ---
   { name: 'scene-editor', path: `/cameras/${CAM}/scene`, fullWidth: true, archetype: 'workbench' },
   {
-    name: 'scene-editor-unconfigured',
+    name: 'scene-editor-unconfigured', atTier: { C: { expectText: ['needs a display at least 768px wide', 'No revision saved yet'] } },
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3307,7 +3370,7 @@ export const STATES = [
   {
     // The bar at its fullest: identity, three badges, the note field, Reset and
     // Save, all in 44px.
-    name: 'scene-editor-dirty', interaction: 'rename the selected scene object',
+    name: 'scene-editor-dirty', tierPolicy: 'workbench-variant', interaction: 'rename the selected scene object',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3320,7 +3383,7 @@ export const STATES = [
     // The worst identity the domain permits: `Camera.Create` allows a 32-character
     // code, and a long name beside it. A 44px band cannot grow, so this is where
     // the crumb trail either truncates or pushes the controls off the end.
-    name: 'scene-editor-long-identity', interaction: 'rename the selected scene object',
+    name: 'scene-editor-long-identity', atTier: { C: { prepare: null, interaction: null, expectText: ['needs a display at least 768px wide'] } }, interaction: 'rename the selected scene object',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3345,7 +3408,7 @@ export const STATES = [
   },
   {
     // S1c: Reset over a dirty draft asks, in the product's Dialog (§15).
-    name: 'scene-editor-discard-dialog', interaction: 'reset a dirty draft, opening the discard Dialog',
+    name: 'scene-editor-discard-dialog', tierPolicy: 'workbench-variant', interaction: 'reset a dirty draft, opening the discard Dialog',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3355,7 +3418,7 @@ export const STATES = [
   {
     // S1c: a save refused because the active revision moved on; taking the
     // saved revision discards the draft, so it asks first.
-    name: 'scene-editor-reload-dialog', interaction: 'reload the active revision over a dirty draft, opening its Dialog',
+    name: 'scene-editor-reload-dialog', tierPolicy: 'workbench-variant', interaction: 'reload the active revision over a dirty draft, opening its Dialog',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3395,7 +3458,7 @@ export const STATES = [
     // A past revision open for reading: its chip pressed (`is-viewing`) and
     // the Context Bar in its caution form. Without it no capture shows a
     // revision chip pressed, and pressed.visible could not prove its look.
-    name: 'scene-editor-viewing-revision', interaction: 'view revision 3 from the revision strip',
+    name: 'scene-editor-viewing-revision', tierPolicy: 'workbench-variant', interaction: 'view revision 3 from the revision strip',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3417,7 +3480,7 @@ export const STATES = [
   {
     // A zone's vertex selected in the inspector: its point pressed
     // (`is-selected`) — the only capture that shows one.
-    name: 'scene-editor-vertex-selected', interaction: 'select a vertex of the selected zone',
+    name: 'scene-editor-vertex-selected', tierPolicy: 'workbench-variant', interaction: 'select a vertex of the selected zone',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3441,7 +3504,7 @@ export const STATES = [
   {
     // R4 (F18): the selected zone with its forensic tier closed — name, type,
     // state and loitering first; the coordinates one disclosure away.
-    name: 'scene-editor-object-selected', interaction: 'select a zone in the navigator',
+    name: 'scene-editor-object-selected', tierPolicy: 'workbench-variant', interaction: 'select a zone in the navigator',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3458,7 +3521,7 @@ export const STATES = [
   {
     // R4: a zone being drawn — the armed tool, its instruction, Finish and
     // Cancel in the mode strip — placed through the canvas's own projection.
-    name: 'scene-editor-drawing', interaction: 'place two vertices of a new zone',
+    name: 'scene-editor-drawing', tierPolicy: 'workbench-variant', interaction: 'place two vertices of a new zone',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3484,7 +3547,7 @@ export const STATES = [
     // R4 (cold review): the Context Bar's widest state — a long identity, a
     // dirty draft with its note, and the in-band confirmation of a save that
     // disables analytics ("Cancel", "Save and disable analytics").
-    name: 'scene-editor-confirm-disable', interaction: 'save a scene with every object disabled, opening its confirmation',
+    name: 'scene-editor-confirm-disable', tierPolicy: 'workbench-variant', interaction: 'save a scene with every object disabled, opening its confirmation',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3507,7 +3570,7 @@ export const STATES = [
   {
     // R4: an inactive camera, alone. The server refuses its changes, so the
     // tools are withheld and the reason stands where they would be — once.
-    name: 'scene-editor-inactive',
+    name: 'scene-editor-inactive', atTier: { C: { prepare: null, expectText: ['needs a display at least 768px wide', '(inactive)'] } },
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3526,7 +3589,7 @@ export const STATES = [
   {
     // R4: the reference video fails while its list answers — said on the stage
     // it would have filled (§37.1, media), not as a page alert.
-    name: 'scene-editor-media-unavailable',
+    name: 'scene-editor-media-unavailable', tierPolicy: 'workbench-variant',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3541,7 +3604,7 @@ export const STATES = [
   {
     // R4: a save the server refuses for a reason other than a conflict — one
     // alert naming what failed, the draft kept, Save offered again.
-    name: 'scene-editor-save-error', interaction: 'save a renamed object that the API refuses',
+    name: 'scene-editor-save-error', tierPolicy: 'workbench-variant', interaction: 'save a renamed object that the API refuses',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3569,7 +3632,7 @@ export const STATES = [
   {
     // The stress case for the frozen no-page-scroll rule (§4.3.2): every fixed
     // band this surface can have, at once, above and below the stage.
-    name: 'scene-editor-dense',
+    name: 'scene-editor-dense', tierPolicy: 'workbench-variant',
     path: `/cameras/${CAM}/scene`,
     fullWidth: true,
     archetype: 'workbench',
@@ -3663,7 +3726,7 @@ export const STATES = [
     expectText: ['This search link cannot be used.', 'must occur exactly once', 'Reset search'], forbidText: 'Searching…',
   },
   {
-    name: 'search-grid', interaction: 'switch the results to the grid view', path: '/search', fullWidth: true, archetype: 'investigation',
+    name: 'search-grid', atTier: { C: { prepare: null, interaction: null, storage: { 'mavi.search.view': 'grid' }, expectText: '6 Tracks' } }, interaction: 'switch the results to the grid view', path: '/search', fullWidth: true, archetype: 'investigation',
     prepare: PICK_GRID, expectText: 'Review evidence',
   },
   {
@@ -3840,7 +3903,7 @@ export const STATES = [
     expectText: INSPECTOR_LOADED,
   },
   {
-    name: 'search-inspecting-grid', interaction: 'switch the results to the grid view', path: `/search?track=${TRACK}`, fullWidth: true,
+    name: 'search-inspecting-grid', tierPolicy: 'grid-variant', interaction: 'switch the results to the grid view', path: `/search?track=${TRACK}`, fullWidth: true,
     archetype: 'investigation', prepare: PICK_GRID, expectText: INSPECTOR_LOADED,
   },
   {
@@ -3973,6 +4036,12 @@ export const STATES = [
         closeFilters.click();
         await until(() => !document.querySelector('.workspace__rail[role="dialog"]') && !document.querySelector('#main[inert]'), 'the filters drawer closed');
       }
+      // At Tier C the navigation is behind the top-of-page menu (§25).
+      const menu = document.querySelector('.shell__menu');
+      if (menu) {
+        menu.click();
+        await until(() => document.querySelector('.sidebar[role="dialog"][aria-modal="true"]'), 'the navigation overlay');
+      }
       const overview = Array.from(document.querySelectorAll('a')).find((a) => a.textContent.trim() === 'Overview');
       if (!overview || overview.closest('[inert]')) return false;
       overview.click();
@@ -3980,7 +4049,7 @@ export const STATES = [
       // going back while the route is still loading keeps Search mounted, and
       // a page that never remounts never refetches (a race seen on CI).
       await until(() => location.pathname === '/' && !document.querySelector('.workspace--investigation')
-        && document.body.innerText.includes('Recent tracks'), 'the Overview page to replace Search');
+        && document.querySelector('.workspace--ledger-summary') && document.body.innerText.includes('Needs attention'), 'the Overview page to replace Search');
       history.back();
       // Search remounts on return, its rail drawer (768-1100) shut again.
       await until(() => document.querySelector('.workspace--investigation'), 'Search to render again');
@@ -4372,7 +4441,7 @@ export const STATES = [
   // draw. Every other MAVI surface can show an empty result; this one cannot,
   // because an empty chart or an empty map is itself a claim about the world.
   {
-    name: 'analytics-activity', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-activity', atTier: { C: { expectText: ['needs a display at least 768px wide', 'Revision'] } }, path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     expectText: ['Coverage complete', 'Active Tracks'],
   },
@@ -4387,7 +4456,7 @@ export const STATES = [
   {
     // Occupancy: a reading taken at an instant, with its peak and the moment it
     // happened, and the "Not additive" tag that stops a reader summing it.
-    name: 'analytics-occupancy', interaction: 'choose the zone occupancy report', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-occupancy', tierPolicy: 'workbench-variant', interaction: 'choose the zone occupancy report', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: OCCUPANCY_METRIC,
     expectText: ['Peak occupancy', 'Not additive'],
@@ -4395,7 +4464,7 @@ export const STATES = [
   {
     // Two series in one chart: a trip line's directions, told apart by the
     // operator's own labels as well as by hue.
-    name: 'analytics-line-crossings', interaction: 'choose the line crossings report', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-line-crossings', tierPolicy: 'workbench-variant', interaction: 'choose the line crossings report', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: LINE_METRIC,
     expectText: ['Inbound', 'Outbound'],
@@ -4439,7 +4508,7 @@ export const STATES = [
   },
   {
     // The frozen rule, rendered: an incomplete scope draws nothing at all.
-    name: 'analytics-incomplete', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-incomplete', tierPolicy: 'workbench-variant', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: INCOMPLETE_AGGREGATES },
     expectText: ['Not every run in this window has been analysed', 'Coverage incomplete'],
@@ -4447,13 +4516,13 @@ export const STATES = [
   {
     // Its counterpart: complete, and genuinely zero. This one is an
     // observation and is drawn as one.
-    name: 'analytics-complete-zero', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-complete-zero', tierPolicy: 'workbench-variant', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: ZERO_AGGREGATES },
     expectText: ['Coverage complete'],
   },
   {
-    name: 'analytics-no-scene', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-no-scene', tierPolicy: 'workbench-variant', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: NO_SCENE_AGGREGATES },
     // F25: not configured is its own condition, never partial coverage.
@@ -4462,7 +4531,7 @@ export const STATES = [
   },
   {
     // F25: analytics disabled by the scene — a domain state, not a shortfall.
-    name: 'analytics-disabled', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-disabled', tierPolicy: 'workbench-variant', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: DISABLED_AGGREGATES },
     expectText: ['Analytics disabled by the scene', 'Analytics disabled'],
@@ -4471,7 +4540,7 @@ export const STATES = [
   {
     // Codex P1: no runs under a disabled revision is still "analytics
     // disabled", read from the scene, never a complete zero.
-    name: 'analytics-disabled-empty-window', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-disabled-empty-window', tierPolicy: 'workbench-variant', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: {
       [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
@@ -4483,7 +4552,7 @@ export const STATES = [
   {
     // Cold review F1: an empty window whose revision the scene confirms enables
     // analytics is a real, complete zero.
-    name: 'analytics-enabled-empty-window', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-enabled-empty-window', tierPolicy: 'workbench-variant', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: {
       [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
@@ -4494,7 +4563,7 @@ export const STATES = [
   },
   {
     // Cold review F1: the scene still being read — no zero until it has.
-    name: 'analytics-unconfirmed-scene-loading', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-unconfirmed-scene-loading', atTier: { C: { expectText: ['Reading the camera'] } }, path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench', holds: 'loading',
     api: {
       [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
@@ -4505,7 +4574,7 @@ export const STATES = [
   },
   {
     // Cold review F1: the scene unreadable — said, with its Retry, and no zero.
-    name: 'analytics-unconfirmed-scene-unavailable', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-unconfirmed-scene-unavailable', atTier: { C: { expectText: ['The camera or its scene could not be read.'] } }, path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: {
       [`/api/cameras/${CAM}/analytics/aggregates`]: EMPTY_WINDOW_AGGREGATES,
@@ -4517,7 +4586,7 @@ export const STATES = [
   {
     // Cold review F2: an emptied From refuses the query; the last answer is
     // not presented as the answer to it.
-    name: 'analytics-window-invalid-draft', interaction: 'empty the From field', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-window-invalid-draft', tierPolicy: 'workbench-variant', interaction: 'empty the From field', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: EMPTY_FROM,
     expectText: ['Adjust the window'],
@@ -4525,20 +4594,20 @@ export const STATES = [
   },
   {
     // F24: the bucket table scrolled under its header, judged by geometry.
-    name: 'analytics-bucket-table-scrolled', interaction: 'scroll the bucket table', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-bucket-table-scrolled', tierPolicy: 'workbench-variant', interaction: 'scroll the bucket table', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: SCROLL_BUCKET_TABLE,
     expectText: ['Coverage complete', 'Active Tracks'],
   },
   {
     // F22: a refused window, stated on the field that repairs it.
-    name: 'analytics-window-refused', interaction: 'choose a one-minute interval over a day', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-window-refused', tierPolicy: 'workbench-variant', interaction: 'choose a one-minute interval over a day', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: REFUSE_WINDOW,
     expectText: ['the most that can be shown is 512'],
   },
   {
-    name: 'analytics-unavailable', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-unavailable', tierPolicy: 'workbench-variant', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     api: { [`/api/cameras/${CAM}/analytics/aggregates`]: 'unavailable' },
     // The server's own words, and the way out beside them.
@@ -4551,7 +4620,7 @@ export const STATES = [
   // measurements are made analytically instead, and re-derived in
   // `contrast.test.ts`.
   {
-    name: 'analytics-heatmap', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap', tierPolicy: 'workbench-variant', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     expectText: ['Trajectory sample density — not people density, and not a probability or a prediction.', '64 × 36'],
@@ -4559,7 +4628,7 @@ export const STATES = [
   {
     // The refusal that names its bound. A map is never drawn for a scope the
     // server would not open.
-    name: 'analytics-heatmap-too-large', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap-too-large', tierPolicy: 'workbench-variant', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     api: {
@@ -4578,7 +4647,7 @@ export const STATES = [
   },
   {
     // Evidence that could not be read: no partial map, and no storage key.
-    name: 'analytics-heatmap-evidence-unreadable', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap-evidence-unreadable', tierPolicy: 'workbench-variant', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     api: {
@@ -4595,7 +4664,7 @@ export const STATES = [
   },
   {
     // Slice 7: the sparse end of the density scale.
-    name: 'analytics-heatmap-sparse', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap-sparse', tierPolicy: 'workbench-variant', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     api: { [`/api/cameras/${CAM}/analytics/heatmap`]: SPARSE_HEATMAP },
@@ -4603,7 +4672,7 @@ export const STATES = [
   },
   {
     // F25: the map's no-scene state in the same vocabulary as Activity's.
-    name: 'analytics-heatmap-no-scene', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap-no-scene', tierPolicy: 'workbench-variant', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     api: { [`/api/cameras/${CAM}/analytics/heatmap`]: NO_SCENE_HEATMAP },
@@ -4613,7 +4682,7 @@ export const STATES = [
   {
     // Cold review F1, Heatmap independently: an empty map is not drawn while
     // the scene that would confirm its revision is unreadable.
-    name: 'analytics-heatmap-unconfirmed-scene-unavailable', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
+    name: 'analytics-heatmap-unconfirmed-scene-unavailable', tierPolicy: 'workbench-variant', interaction: 'switch to the heatmap', path: `/cameras/${CAM}/analytics`,
     fullWidth: true, archetype: 'workbench',
     prepare: HEATMAP_MODE,
     api: {
@@ -4642,4 +4711,21 @@ for (const name of COMPACT_PROBE_BASES) {
   const base = STATES.find((state) => state.name === name);
   if (!base) throw new Error(`compact probe of an unknown state ${name}`);
   STATES.push({ ...base, name: `${name}-compact-band`, tierPolicy: 'breakpoint-probe', probeOf: name, probeWidths: [1101, 1200, 1365] });
+}
+
+/**
+ * T2 (§25 Tier C): every width of the tier is Tier C — the old 760px narrow
+ * shell left 761-767 composed for Tier B — and 768 is Tier B again. Each
+ * representative state is probed across the tier and on both sides of its
+ * lower edge: 600 inside it, 760/761 at the retired threshold, 767/768 at
+ * the tier boundary.
+ */
+const NARROW_PROBE_BASES = [
+  'overview', 'videos', 'cameras', 'processing-queue', 'import', 'processing-detail-failed',
+  'scene-editor', 'analytics-activity', 'search', 'search-inspector-opened', 'review', 'review-long-identity',
+];
+for (const name of NARROW_PROBE_BASES) {
+  const base = STATES.find((state) => state.name === name);
+  if (!base) throw new Error(`narrow probe of an unknown state ${name}`);
+  STATES.push({ ...base, name: `${name}-narrow-band`, tierPolicy: 'breakpoint-probe', probeOf: name, probeWidths: [600, 760, 761, 767, 768] });
 }

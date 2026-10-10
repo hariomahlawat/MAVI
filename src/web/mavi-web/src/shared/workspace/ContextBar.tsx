@@ -1,7 +1,9 @@
 import { useId, useLayoutEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
+import { CompactActionsContext } from '../components/Button';
 import Tooltip from '../overlay/Tooltip';
+import { SHELL_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
 import { useIsTruncated } from '../overlay/Truncated';
 import { crumbsFor, documentTitleFor, type Crumb, type SurfaceId } from './ia';
 import { useSurfaceSlot, type ContextTone } from './surfaceSlot';
@@ -65,6 +67,9 @@ export default function ContextBar({
   const unregister = slot?.unregister;
   const element = slot?.element ?? null;
   const id = useId();
+  // §25 Tier C: one truncated identity line and the primary action with its
+  // icon and label; every other action is drawn icon-only, still named.
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
 
   // Owning the band and publishing into it are the same fact, so they are
   // decided by the same condition — there is somewhere to publish, and this
@@ -97,7 +102,11 @@ export default function ContextBar({
       <Breadcrumbs crumbs={crumbs} />
       {status ? <div className="context-bar__status">{status}</div> : null}
       <div className="context-bar__spacer" />
-      {actions ? <div className="context-bar__actions">{actions}</div> : null}
+      {actions ? (
+        <div className="context-bar__actions">
+          <CompactActionsContext.Provider value={narrow}>{actions}</CompactActionsContext.Provider>
+        </div>
+      ) : null}
     </>
   );
 
@@ -141,7 +150,7 @@ function CrumbItem({ crumb, last }: { crumb: Crumb; last: boolean }) {
   const [attachLink, linkTruncated] = useIsTruncated<HTMLAnchorElement>(crumb.label);
   const [attachText, textTruncated] = useIsTruncated<HTMLSpanElement>(crumb.label);
   return (
-    <li className={crumb.dynamic ? 'context-bar__crumb context-bar__crumb--object' : 'context-bar__crumb'}>
+    <li className={['context-bar__crumb', crumb.dynamic ? 'context-bar__crumb--object' : '', crumb.returns && !last ? 'context-bar__crumb--return' : ''].filter(Boolean).join(' ')}>
       {crumb.to && !last ? (
         <Tooltip content={crumb.label} enabled={linkTruncated}>
           <Link ref={attachLink} to={crumb.to}>{crumb.label}</Link>

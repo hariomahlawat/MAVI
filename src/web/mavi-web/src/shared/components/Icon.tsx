@@ -37,6 +37,8 @@ const paths = {
   person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0',
   vehicle: 'M3 13l2-5h14l2 5v5H3zM6 18v2M18 18v2M6 13h12',
   sidebar: 'M3 5h18v14H3zM9 5v14',
+  // The Tier C navigation control (§25): the conventional three bars.
+  menu: 'M4 7h16M4 12h16M4 17h16',
   layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5',
   box: 'M4 6h16v12H4z',
   path: 'M4 18c4 0 4-12 8-12s4 12 8 12',

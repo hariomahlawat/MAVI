@@ -290,6 +290,9 @@ export default function ProcessingPage() {
       />
 
       <RecordLayout
+        // The Video facts are this run's identity (file, camera, recorded
+        // time): at Tier C they lead (§4.2, §25).
+        factsCarryIdentity
         notices={hasNotices ? notices : undefined}
         facts={(
           <>

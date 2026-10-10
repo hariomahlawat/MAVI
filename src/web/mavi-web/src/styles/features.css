@@ -61,6 +61,12 @@
    section 30 names stat tiles that restate the table below them as a pattern
    the product must not have. */
 .queue-counts { display: inline-flex; flex-wrap: wrap; gap: var(--s-3); font-variant-numeric: tabular-nums; }
+.queue-counts--pending { display: none; }
+@media (width < 768px) {
+  /* §25 Tier C: the counts are a line of their own under the invariant. */
+  .queue-counts__sep { display: none; }
+  .queue-counts, .queue-counts--pending { display: flex; }
+}
 .run-cell { display: grid; gap: var(--s-1); min-width: 160px; }
 /* In a Ledger the status cell is one column among six at 1366, so it takes the
    width it needs rather than a reserved minimum, and its inline progress is a
@@ -1155,3 +1161,11 @@
   .table--fold-cameras .ledger-fold { display: none; }
   .table--fold-cameras .ledger-folded { display: inline-flex; }
 }
+
+/* §25 Tier C: the Scene Editor is its read-only summary, which states the
+   revision and whether analytics are on. The bar keeps the revision and its
+   save state on one line, and leaves analytics to the summary. */
+.shell--narrow .scene-context__analytics { display: none; }
+.shell--narrow .scene-context__revision { white-space: nowrap; }
+/* With nothing unsaved, "Active" says what the summary below says. */
+.shell--narrow .scene-context__revision:is(.is-clean, .is-saved) .scene-context__revision-state { display: none; }

@@ -49,7 +49,7 @@ try {
   modules = await Promise.all([
     import('./assertions.mjs'), import('./cdp.mjs'), import('./engine.mjs'), import('./footage.mjs'),
     import('./manifest.mjs'), import('./server.mjs'), import('./settle.mjs'),
-    import(STATES_MODULE ? pathToFileURL(STATES_MODULE).href : './states.mjs'),
+    import(STATES_MODULE ? pathToFileURL(STATES_MODULE).href : './states.mjs'), import('./semantics.mjs'),
   ]);
 } catch (error) {
   fatal(`HARNESS ERROR: a harness module did not load: ${error.stack || error}\n`);
@@ -63,6 +63,7 @@ const [
   { startServer },
   { OBSERVERS, perfCollect, TRANSIENT },
   { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf },
+  { tierCLedgerSemantics },
 ] = modules;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -182,7 +183,12 @@ const record = (c, rule, message, scope) => ledger.record(c, rule, message, scop
 const markEvaluated = (c, rules, scope) => ledger.markEvaluated(c, rules, scope);
 
 async function runCase(lane, c) {
-  const { state, viewport } = c;
+  const { viewport } = c;
+  // A state may say how it is reached, and what it shows, at one tier
+  // (`atTier`): a Tier C Workbench state asserts the unsupported state, not
+  // the canvas its Tier A preparation drives (§26). Everything below reads
+  // the tier's view of the state.
+  const state = c.state.atTier?.[viewport.tier] ? { ...c.state, ...c.state.atTier[viewport.tier] } : c.state;
   const where = `${state.name} @ ${viewport.label}${c.attempt > 1 ? ` #${c.attempt}` : ''}`;
   const name = `${state.name}--${viewport.label}${repeat > 1 ? `--${c.attempt}` : ''}`;
   const caseFindings = [];
@@ -205,6 +211,11 @@ async function runCase(lane, c) {
   await browser.goto('about:blank');
   await browser.goto(lane.server.origin + '/__blank');
   await browser.evaluate('(() => { try { window.localStorage.clear(); } catch { /* blocked */ } return true; })()');
+  // A state that arrives with a stored preference (Search's grid view) has it
+  // written here, on the same blank page, before the surface boots.
+  if (state.storage) {
+    await browser.evaluate(`(() => { try { for (const [key, value] of Object.entries(${JSON.stringify(state.storage)})) window.localStorage.setItem(key, value); } catch { /* blocked */ } return true; })()`);
+  }
   await browser.goto(lane.server.origin + state.path);
 
   // V3: the state is reached when the page and the server say so.
@@ -278,6 +289,14 @@ async function runCase(lane, c) {
       // Surface-scoped rules also evaluated inside S1 regions, where they block.
       if (part.foundationEvaluated) markEvaluated(c, part.foundationEvaluated, 'foundation');
       for (const finding of part.findings) add(finding.rule, finding.message, finding.scope ?? null);
+    }
+    // §25 Tier C Ledger: the list is still a table to assistive technology.
+    if (viewport.tier === 'C' && state.archetype === 'ledger') {
+      const semantics = await tierCLedgerSemantics(browser);
+      if (semantics) {
+        markEvaluated(c, ['tier.c-composition']);
+        for (const message of semantics.findings) add('tier.c-composition', message);
+      }
     }
     markEvaluated(c, ['harness.focus-coverage']);
     const skippedTotal = Object.values(focus.skipped).reduce((sum, count) => sum + count, 0);

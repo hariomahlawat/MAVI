@@ -138,6 +138,9 @@ export default function VideosPage() {
   const toolbar = (
     <Toolbar
       label="Video filters"
+      // §25 Tier C: the filters, and the sort that stands in for the folded
+      // headers, move into a drawer; the band keeps the count.
+      drawer={{ label: 'Filters and sort', active: [filters.text, filters.cameraId, filters.status].filter(Boolean).length }}
       // While the inventory loads the count's place is held by what is
       // happening, so a band that wraps its count to a second row (Tier B,
       // §25: two rows at most) does not move the rows when they arrive.

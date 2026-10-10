@@ -14,7 +14,10 @@ import { getCameraScene, type CameraScene } from '../../api/scene';
 import { ApiError, isGuid } from '../../api/client';
 import { getSystemConfig } from '../../api/system';
 import { queryKeys } from '../../app/queryClient';
+import { combineStates } from '../../shared/async/asyncState';
 import { fromQuery } from '../../shared/async/fromQuery';
+import Panel from '../../shared/components/Panel';
+import { SHELL_QUERIES, useMediaQuery } from '../../shared/overlay/useMediaQuery';
 import StateRegion from '../../shared/async/StateRegion';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
@@ -67,6 +70,10 @@ export default function AnalyticsPage() {
   // A From/To draft that is not a whole wall time. Held here, beside the query
   // gate it feeds, rather than in the band that shows it (cold review F2).
   const [draftErrors, setDraftErrors] = useState<DraftErrors>({ from: null, to: null });
+  // §25 Tier C: below 768px the Workbench is its unsupported state, with no
+  // chart or heatmap to answer for — so neither is asked. The questions keep
+  // their keys and their gate; at Tier B and above they are asked as before.
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
 
   const camera = useQuery({
     queryKey: queryKeys.camera(cameraId),
@@ -130,7 +137,7 @@ export default function AnalyticsPage() {
     // A question the contract will refuse is not asked. The operator is told
     // what to change instead of being shown a failure they caused and cannot
     // read the cause of.
-    enabled: Boolean(cameraId) && state.mode === 'activity' && canRunQuery,
+    enabled: Boolean(cameraId) && state.mode === 'activity' && canRunQuery && !narrow,
   });
 
   const heatmapRequest = {
@@ -143,7 +150,7 @@ export default function AnalyticsPage() {
   const heatmap = useQuery({
     queryKey: queryKeys.cameraAnalyticsHeatmap(cameraId, serializeHeatmapQuery(heatmapRequest)),
     queryFn: ({ signal }) => getAnalyticsHeatmap(cameraId, heatmapRequest, signal),
-    enabled: Boolean(cameraId) && state.mode === 'heatmap' && canRunQuery,
+    enabled: Boolean(cameraId) && state.mode === 'heatmap' && canRunQuery && !narrow,
     // Reading sealed evidence is expensive and the answer is pinned to a
     // snapshot, so it is not refetched behind the operator's back.
     staleTime: Infinity,
@@ -217,6 +224,57 @@ export default function AnalyticsPage() {
 
       <WorkbenchLayout
         inspectorLabel="Analytics inspector"
+        unsupported={{
+          // Viewing, not editing: what needs the width is the chart, the
+          // heatmap and their inspector.
+          statement: 'Camera analytics — its activity chart, heatmap and figures — needs a display at least 768px wide. This is a read-only summary of the camera.',
+          summary: cameraMissing ? (
+            // Said here as the stage says it above Tier C: a camera that does
+            // not exist is not "could not be read", and has nothing to retry.
+            <EmptyState
+              icon="camera"
+              title="This camera does not exist"
+              actions={<ButtonLink to="/cameras">Go to Cameras</ButtonLink>}
+            >
+              It may have been removed since this link was made.
+            </EmptyState>
+          ) : (
+            <Panel title="Camera">
+              <StateRegion
+                kind="panel"
+                state={combineStates(fromQuery(camera), fromQuery(scene))}
+                label="the camera and its scene"
+                loadingLabel="Reading the camera…"
+                unavailableMessage={() => 'The camera or its scene could not be read.'}
+                onRetry={() => {
+                  if (camera.isError) void camera.refetch();
+                  if (scene.isError) void scene.refetch();
+                }}
+              >
+                {() => (
+                  <dl className="kv">
+                    <dt>Camera</dt>
+                    <dd>{camera.data ? `${camera.data.code} · ${camera.data.name}${camera.data.isActive ? '' : ' (inactive)'}` : '—'}</dd>
+                    <dt>Scene</dt>
+                    <dd>
+                      {scene.data?.activeRevision
+                        ? `Revision ${scene.data.activeRevision.revisionNumber}, analytics ${scene.data.activeRevision.analyticsEnabled ? 'on' : 'off'}`
+                        : 'Not configured'}
+                    </dd>
+                    {scene.data?.activeRevision ? (
+                      <>
+                        <dt>Zones</dt>
+                        <dd>{scene.data.activeRevision.zones.length}</dd>
+                        <dt>Trip lines</dt>
+                        <dd>{scene.data.activeRevision.tripLines.length}</dd>
+                      </>
+                    ) : null}
+                  </dl>
+                )}
+              </StateRegion>
+            </Panel>
+          ),
+        }}
         // F22: two 32px bands, each with one job — what is asked (mode,
         // metric, subject; Refresh asks it again) and over what (the window
         // and its filters) — instead of a form of labelled fields above the
@@ -282,7 +340,9 @@ export default function AnalyticsPage() {
             ) : null}
           </Toolbar>
         )}
-        notices={(
+        // The window band is the question's second band, not a notice: at
+        // Tier C there is no question to ask, so it is not offered.
+        notices={narrow ? null : (
           <AnalyticsControls
             state={state}
             displayTimeZoneId={displayTimeZoneId}

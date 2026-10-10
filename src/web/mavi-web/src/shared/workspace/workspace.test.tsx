@@ -12,6 +12,7 @@ import Segmented from './Segmented';
 import { SurfaceSlotProvider } from './surfaceSlot';
 import Toolbar from './Toolbar';
 import {
+
   LedgerLayout,
   WORKBENCH_GAP,
   WORKBENCH_INSPECTOR_MIN,
@@ -19,6 +20,9 @@ import {
   WORKBENCH_STAGE_FLOOR,
   WorkbenchLayout,
 } from './layouts';
+
+/** Every Workbench states its §25 Tier C fallback; these tests are above Tier C. */
+const TEST_UNSUPPORTED = { statement: 'Needs a display at least 768px wide.', summary: null };
 
 /**
  * The workspace grammar's own tests.
@@ -215,7 +219,7 @@ describe('archetypes', () => {
   it('makes the Workbench inspector a drawer that can actually be shut', async () => {
     const user = userEvent.setup();
     const { container } = render(
-      <WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} inspectorLabel="Scene inspector" />,
+      <WorkbenchLayout unsupported={TEST_UNSUPPORTED} stage={<canvas />} inspector={<p>inspector</p>} inspectorLabel="Scene inspector" />,
     );
     const workbench = container.querySelector('.workspace--workbench') as HTMLElement;
     const toggle = screen.getByRole('button', { name: 'Scene inspector' });
@@ -244,7 +248,7 @@ describe('archetypes', () => {
     const restore = stubElementWidth(850);
     window.addEventListener('keydown', onEscape);
     try {
-      const { container } = render(<WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} />);
+      const { container } = render(<WorkbenchLayout unsupported={TEST_UNSUPPORTED} stage={<canvas />} inspector={<p>inspector</p>} />);
       const workbench = container.querySelector('.workspace--workbench') as HTMLElement;
 
       // Shut, Escape is the surface's own: cancelling a drawing, clearing a
@@ -273,7 +277,7 @@ describe('archetypes', () => {
     const restore = stubElementWidth(850);
     try {
       const { container } = render(
-        <WorkbenchLayout
+        <WorkbenchLayout unsupported={TEST_UNSUPPORTED}
           stage={<canvas />}
           inspector={<p>inspector</p>}
           modes={<div>modes</div>}
@@ -301,7 +305,7 @@ describe('archetypes', () => {
 
   it('gives the Workbench a stage and an inspector that are not interchangeable', () => {
     const { container } = render(
-      <WorkbenchLayout stage={<canvas />} inspector={<p>inspector</p>} modes={<div>modes</div>} />,
+      <WorkbenchLayout unsupported={TEST_UNSUPPORTED} stage={<canvas />} inspector={<p>inspector</p>} modes={<div>modes</div>} />,
     );
     const grid = container.querySelector('.workspace__stage-grid') as HTMLElement;
     expect(grid.querySelector('.workspace__stage canvas')).toBeInTheDocument();

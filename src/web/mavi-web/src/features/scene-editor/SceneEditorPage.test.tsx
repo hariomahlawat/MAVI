@@ -16,6 +16,8 @@ import { listVideos, type VideoAsset } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { renderWithApp } from '../../test/renderWithApp';
 import SceneEditorPage, { sceneQueryKeys } from './SceneEditorPage';
+import { SHELL_QUERIES } from '../../shared/overlay/useMediaQuery';
+import { stubMatchMediaLive } from '../../test/matchMedia';
 
 vi.mock('../../api/cameras', () => ({ getCamera: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
@@ -1549,6 +1551,180 @@ describe('scene editor', () => {
     expect(screen.queryByText(/analysed runs/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/readiness/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/crossing count/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('scene editor across the Tier C boundary (§25: below 768px it is the unsupported state)', () => {
+  const tierC = (query: string) => query === SHELL_QUERIES.narrow || query === SHELL_QUERIES.compact;
+  const tierB = (query: string) => query === SHELL_QUERIES.compact;
+
+  it('keeps a dirty draft, its leave guard and its edits across 768px both ways — neither saved nor discarded', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      expect(unloadBlocked()).toBe(true);
+
+      live.set(tierC);
+      // The editor is not drawn: no canvas, no Save, no editing control.
+      expect(screen.queryByTestId('scene-canvas')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Save revision' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
+      expect(screen.getByText(/Editing a scene needs a display at least 768px wide/)).toBeInTheDocument();
+      // The summary says what the draft holds and that it is unsaved, and the
+      // guard still holds it: nothing was sent and nothing was dropped.
+      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      expect(screen.getByText(/Gate east/)).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(true);
+      expect(saveCameraScene).not.toHaveBeenCalled();
+
+      live.set(tierB);
+      await selectObject(user, 'Gate east');
+      expect(screen.getByLabelText('Name')).toHaveValue('Gate east');
+      expect(screen.getByRole('button', { name: 'Save revision' })).toBeEnabled();
+      expect(unloadBlocked()).toBe(true);
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('still asks before leaving a dirty draft carried into Tier C — the leave guard Dialog works where the editor is not drawn', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      const { router } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      live.set(tierC);
+      act(() => { void router.navigate('/cameras'); });
+      const leave = await screen.findByRole('dialog', { name: 'Leave with unsaved changes?' });
+      expect(leave).toHaveAttribute('aria-modal', 'true');
+      await user.click(within(leave).getByRole('button', { name: 'Stay on this page' }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(true);
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('never summarises a past revision that could not be read as an empty one (T2 cold review)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      vi.mocked(getCameraSceneRevision).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'down' }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await user.click(screen.getByRole('button', { name: /View revision 1/ }));
+      live.set(tierC);
+      expect(await screen.findByText(/Revision 1 could not be loaded|could not be loaded/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Retry/ })).toBeInTheDocument();
+      expect(screen.queryByText('None')).not.toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('says, in the Tier C summary, that a past revision shown as last loaded could not be refreshed (Codex P2 on #200)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      vi.mocked(getCameraSceneRevision).mockResolvedValue(revision({ revisionNumber: 1, tripLines: [] }));
+      const { queryClient } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await user.click(screen.getByRole('button', { name: /View revision 1/ }));
+      expect(await screen.findByText('Viewing revision 1 — read only')).toBeInTheDocument();
+      vi.mocked(getCameraSceneRevision).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'down' }));
+      await act(async () => { await queryClient.refetchQueries({ queryKey: sceneQueryKeys.revision(cameraId, 1) }); });
+      live.set(tierC);
+      expect(await screen.findByText('Revision 1 could not be refreshed. It is shown as last loaded.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      expect(screen.getByText('Gate')).toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('states a conflict at Tier C without offering to discard the draft the operator cannot see (Codex P2 on #200)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      vi.mocked(saveCameraScene).mockRejectedValue(new ApiError({ status: 409, code: 'scene_revision_conflict', detail: 'stale' }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      await user.click(screen.getByRole('button', { name: 'Save revision' }));
+      await screen.findByText(/This scene changed since you started editing/);
+      live.set(tierC);
+      const alert = screen.getByText(/This scene changed since you started editing/).closest('.alert') as HTMLElement;
+      expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
+      expect(alert).toHaveTextContent('on a display at least 768px wide');
+      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      live.set(tierB);
+      expect(screen.getByRole('button', { name: 'Reload active revision' })).toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('drops an open discard confirmation when the window narrows past 768px, keeping the draft and its guard (Codex P2 on #200)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      const { router } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      await user.click(screen.getByRole('button', { name: 'Reset' }));
+      expect(await screen.findByRole('dialog', { name: 'Discard your unsaved scene changes?' })).toBeInTheDocument();
+      live.set(tierC);
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Discard your unsaved scene changes?' })).not.toBeInTheDocument());
+      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      expect(screen.getByText(/Gate east/)).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(true);
+      // The leave guard is not held busy by the dropped decision: it still asks.
+      act(() => { void router.navigate('/cameras'); });
+      expect(await screen.findByRole('dialog', { name: 'Leave with unsaved changes?' })).toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('shows a clean scene as its read-only summary, with no unsaved-changes notice and no guard', async () => {
+    const live = stubMatchMediaLive(tierC);
+    try {
+      render();
+      expect(await screen.findByText(/Editing a scene needs a display at least 768px wide/)).toBeInTheDocument();
+      expect(screen.queryByText(/This scene has unsaved changes/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('scene-canvas')).not.toBeInTheDocument();
+      expect(unloadBlocked()).toBe(false);
+      live.set(tierB);
+      expect(await screen.findByTestId('scene-canvas')).toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
+  it('lets no editing key act on the draft while the editor is not drawn', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      live.set(tierC);
+      await user.keyboard('{Delete}');
+      live.set(tierB);
+      expect(screen.getByRole('button', { name: /^Gate/ })).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(false);
+    } finally {
+      live.restore();
+    }
   });
 });
 

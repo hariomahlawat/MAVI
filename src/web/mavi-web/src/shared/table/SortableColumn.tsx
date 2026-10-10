@@ -1,3 +1,4 @@
+import { SHELL_QUERIES, useMediaQuery } from '../overlay/useMediaQuery';
 import type { ReactNode } from 'react';
 import type { LedgerSort, SortDirection } from './ledgerSort';
 
@@ -35,6 +36,11 @@ export default function SortableColumn<Column extends string>({
 }) {
   const active = sort.state.column === column;
   const ascending = sort.state.direction === 'asc';
+  // §25 Tier C: the Ledger is a list and its header is not drawn — still the
+  // cells' column names for assistive technology, but no tab stop a sighted
+  // keyboard user would land on without seeing it (the order is the Sort
+  // select's, where a Ledger offers one).
+  const narrow = useMediaQuery(SHELL_QUERIES.narrow);
 
   return (
     <th
@@ -42,7 +48,7 @@ export default function SortableColumn<Column extends string>({
       className={['is-sortable', numeric ? 'num' : '', className ?? ''].filter(Boolean).join(' ')}
       aria-sort={active ? (ascending ? 'ascending' : 'descending') : 'none'}
     >
-      <button type="button" className="col-sort" onClick={() => sort.activate(column, firstDirection)}>
+      <button type="button" className="col-sort" tabIndex={narrow ? -1 : undefined} onClick={() => sort.activate(column, firstDirection)}>
         <span>{children}</span>
         <span className="col-sort__mark" aria-hidden="true">{active ? (ascending ? '▲' : '▼') : '↕'}</span>
       </button>

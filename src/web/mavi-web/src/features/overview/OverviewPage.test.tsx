@@ -7,6 +7,8 @@ import { searchTracks, type TrackSearchItem } from '../../api/tracks';
 import { getProcessingStatus, listVideos, type AnalyticsReadiness, type ProcessingStatus, type VideoAsset } from '../../api/videos';
 import { renderWithApp } from '../../test/renderWithApp';
 import OverviewPage from './OverviewPage';
+import { SHELL_QUERIES } from '../../shared/overlay/useMediaQuery';
+import { stubMatchMedia } from '../../test/matchMedia';
 
 vi.mock('../../api/cameras', () => ({ listCameras: vi.fn() }));
 vi.mock('../../api/system', () => ({ getSystemConfig: vi.fn() }));
@@ -195,6 +197,23 @@ describe('OverviewPage', () => {
     expect(await screen.findByText('Recent tracks are unavailable.')).toBeInTheDocument();
     expect(screen.queryByText('No tracks yet')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Videos.*5.*1 processed/ })).toBeInTheDocument();
+  });
+
+  describe('Tier C (§25: "attention list only, then counts")', () => {
+    it('draws the attention list, then the counts, and no secondary panel', async () => {
+      const restore = stubMatchMedia((query) => query === SHELL_QUERIES.narrow || query === SHELL_QUERIES.compact);
+      try {
+        renderWithApp(<OverviewPage />, { route: '/' });
+        const region = await attention();
+        await waitFor(() => expect(document.querySelector('.summary-band')).not.toBeNull());
+        const counts = document.querySelector('.summary-band') as HTMLElement;
+        expect(region.compareDocumentPosition(counts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(screen.queryByText('Recent tracks')).not.toBeInTheDocument();
+        expect(screen.queryByText('Media by status')).not.toBeInTheDocument();
+      } finally {
+        restore();
+      }
+    });
   });
 
   describe('the attention region (§4.1.1)', () => {
