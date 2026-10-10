@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { toExpression, zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTextSizes, zoomTransitionProbe } from '../assertions.mjs';
+import { toExpression, zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTextBaseline, zoomTextCompare, zoomTransitionProbe } from '../assertions.mjs';
 import { createLedger, HarnessError, planCases, zoomCoverageFaults, zoomQualification } from '../engine.mjs';
 import { OPERATOR_SURFACES, ZOOM_CONDITION } from '../manifest.mjs';
 import { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM } from '../states.mjs';
@@ -109,11 +109,11 @@ describe('the zoom rule is a zoom case\'s alone', () => {
   });
 
   it('makes a full sweep a harness fault where a surface was never judged at 200%, or a transition never evaluated', () => {
-    const results = OPERATOR_SURFACES.map((surface) => ({ valid: true, kind: 'zoom', surface, zoom: { evaluated: true } }));
+    const results = OPERATOR_SURFACES.map((surface) => ({ valid: true, kind: 'zoom', surface, zoom: { evaluated: true, text: { compared: 1 } } }));
     assert.deepEqual(zoomCoverageFaults(results, OPERATOR_SURFACES), []);
     const missing = results.filter((r) => r.surface !== 'review');
     assert.deepEqual(zoomCoverageFaults(missing, OPERATOR_SURFACES), ['a11y.zoom-200: the full sweep has no valid 200% zoom capture of review that evaluated it']);
-    const unevaluated = [...results, { valid: false, kind: 'zoom-transition', state: 'videos', viewport: '1366x768@100%-200%', zoom: { evaluated: false } }];
+    const unevaluated = [...results, { valid: false, kind: 'zoom-transition', state: 'videos', viewport: '1366x768@100%-200%', zoom: { evaluated: false, text: { compared: 1 } } }];
     assert.match(zoomCoverageFaults(unevaluated, OPERATOR_SURFACES)[0], /zoom transition videos @ 1366x768@100%-200% was never evaluated/);
   });
 });
@@ -251,6 +251,28 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.equal(messages(await at200('<div style="clip-path:inset(0)"><button style="width:200px">Retry processing</button></div>')), '');
   });
 
+  it('clips a fixed control by the ancestors that form its containing block, and no others (Codex P1, containing blocks)', async () => {
+    // A transformed ancestor is a fixed descendant's containing block: its
+    // overflow clips the control. 200px of button in a 180px box: 20px lost.
+    assert.match(messages(await at200('<div style="transform:translateZ(0);width:180px;height:60px;overflow:hidden"><button style="position:fixed;left:0;top:0;width:200px;height:40px">Retry processing</button></div>')),
+      /"Retry processing" is cut off even when focused \(20px of its width/);
+    // Clipped vertically, through a filter ancestor.
+    assert.match(messages(await at200('<div style="filter:blur(0);width:300px;height:24px;overflow:hidden"><button style="position:fixed;left:0;top:0;width:200px;height:40px">Retry processing</button></div>')),
+      /"Retry processing" is cut off even when focused \(0px of its width, 16px of its height/);
+    // Nested: a static box between the control and its containing block does
+    // not clip it (fixed escapes it), but the containing block's own parent does.
+    assert.equal(messages(await at200('<div style="transform:translateZ(0);width:300px;height:60px"><div style="width:100px;height:20px;overflow:hidden"><button style="position:fixed;left:0;top:0;width:200px;height:40px">Retry processing</button></div></div>')), '');
+    assert.match(messages(await at200('<div style="width:120px;height:60px;overflow:hidden"><div style="transform:translateZ(0);width:300px;height:60px"><div style="width:100px;height:20px;overflow:hidden"><button style="position:fixed;left:0;top:0;width:200px;height:40px">Retry processing</button></div></div></div>')),
+      /"Retry processing" is cut off even when focused \(80px of its width/);
+    // A fixed control with no such ancestor escapes every overflow box: no false positive.
+    assert.equal(messages(await at200('<div style="width:100px;height:20px;overflow:hidden"><button style="position:fixed;left:0;top:0;width:200px;height:40px">Retry processing</button></div>')), '');
+    // An absolute control escapes the overflow of static ancestors between it
+    // and its positioned containing block, and is clipped by that block.
+    assert.equal(messages(await at200('<div style="position:relative;width:300px;height:60px"><div style="width:100px;height:20px;overflow:hidden"><button style="position:absolute;left:0;top:0;width:200px;height:40px">Retry processing</button></div></div>')), '');
+    assert.match(messages(await at200('<div style="position:relative;width:180px;height:60px;overflow:hidden"><div style="width:100px;height:20px"><button style="position:absolute;left:0;top:0;width:200px;height:40px">Retry processing</button></div></div>')),
+      /"Retry processing" is cut off even when focused \(20px of its width/);
+  });
+
   it('fails a control only focus can scroll into a box that clips', async () => {
     const BOX = (overflow) => `<div style="height:120px;overflow:${overflow}"><div style="height:200px">facts</div><button>Retry</button></div>`;
     assert.match(messages(await at200(BOX('hidden'))), /"Retry" is shown only by focus scrolling .*which clips without scrolling/);
@@ -381,31 +403,74 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     assert.match(messages(await across(MOVED, '(() => { document.querySelector(".target").focus(); return true; })()')), /focus is left on <button.target> "Detail", (out of view|covered by .*) after the zoom change/);
   });
 
-  it('names text whose CSS size changes with the zoom, which does not grow by it (Codex P1)', async () => {
+  it('compares text with its baseline by words, then by the page floor, and element by element in a live change (Codex P1)', async () => {
     const SHRINKS = (size) => `<style>body{margin:0;font:14px sans-serif} @media (width < 768px) { .label { font-size: ${size} } }</style>
       <main id="main"><p>Videos</p><span class="label">north-gate-0800.mp4</span></main>`;
+    // A live change: the baseline taken at 100%, the comparison after the zoom.
     const change = async (html) => {
       await lane.page(html, { width: 1366, height: 768, zoom: 1 });
-      await lane.browser.evaluate(toExpression(zoomTextSizes));
+      const baseline = await lane.browser.evaluate(toExpression(zoomTextBaseline));
       lane.zoom = await lane.browser.pageZoom(2);
-      return lane.browser.evaluate(toExpression(zoomTextSizes));
+      return lane.browser.evaluate(toExpression(zoomTextCompare, { baseline, from: '100%', to: '200%', live: true }));
     };
     const shrunk = await change(SHRINKS('7px'));
-    assert.deepEqual(shrunk.changed, ['"north-gate-0800.mp4" (14px -> 7px)']);
+    assert.deepEqual(shrunk.changed, ['"north-gate-0800.mp4" changed from 14px to 7px with the zoom change']);
+    assert.equal(shrunk.matched, 2);
     const kept = await change(SHRINKS('14px'));
     assert.ok(kept.compared >= 2);
     assert.deepEqual(kept.changed, []);
-    // Text the new tier mounts in place of another composition has no
-    // counterpart: it may not be smaller than the smallest text before (Codex P1).
+    assert.equal(kept.minRatio, 1);
+    // Text the new composition mounts in place of another is held to the same
+    // words before, else to the page's smallest text.
     const REPLACED = (size) => `<style>body{margin:0;font:14px sans-serif} .summary{display:none;font-size:${size}} @media (width < 768px) { .editor { display: none } .summary { display: block } }</style>
       <main id="main"><div class="editor"><span style="font-size:12px">Zone A</span></div><div class="summary">Editing a scene needs a display at least 768px wide.</div></main>`;
-    const tiny = await change(REPLACED('7px'));
-    assert.match(tiny.changed.join('\n'), /"Editing a scene needs a displa" \(newly drawn at 7px, below the 12px smallest text before the change\)/);
+    assert.match((await change(REPLACED('7px'))).changed.join('\n'), /"Editing a scene needs a displa" is drawn at 7px at 200%, below the 12px smallest text at 100% \(it has no counterpart there\)/);
     assert.deepEqual((await change(REPLACED('14px'))).changed, []);
-    // Replacement text with words drawn before is held to their size, not the page's floor (Codex P1).
+    // Words drawn before are held to their own size, never to a smaller
+    // record's or field's — the baseline matched to the wrong text is caught.
     const RELABEL = `<style>body{margin:0;font:14px sans-serif} .tiny{font-size:10px} .narrow{display:none;font-size:10px} @media (width < 768px) { .wide { display: none } .narrow { display: block } }</style>
-      <main id="main"><small class="tiny">caption</small><h2 class="wide" style="font-size:16px">North Gate</h2><p class="narrow">North Gate</p></main>`;
-    assert.match((await change(RELABEL)).changed.join('\n'), /"North Gate" \(newly drawn at 10px, where the same text was 16px before the change\)/);
+      <main id="main"><small class="tiny">south-dock-2200.mp4</small><h2 class="wide" style="font-size:16px">north-gate-0800.mp4</h2><p class="narrow">north-gate-0800.mp4</p></main>`;
+    assert.match((await change(RELABEL)).changed.join('\n'), /"north-gate-0800.mp4" is drawn at 10px at 200%, where the same words were drawn no smaller than 16px at 100%/);
+    // Words a page draws at two sizes are held to the smaller: a status badge
+    // "Processing" (11px) beside a 13px rail link is not a shrink.
+    const ROLES = `<style>body{margin:0;font:14px sans-serif} .badge{font-size:11px} .nav{font-size:13px} @media (width < 768px) { .nav { display: none } }</style>
+      <main id="main"><a class="nav" href="/processing">Processing</a><span class="badge">Processed</span><span class="badge narrow-only">Processing</span></main>`;
+    assert.deepEqual((await change(ROLES)).changed, []);
+    // A component drawn smaller than it was, in the same document, is caught by its identity whatever its words.
+    const ROLE_SHRUNK = `<style>body{margin:0;font:14px sans-serif} .badge{font-size:11px} @media (width < 768px) { .badge.late { font-size: 8px } }</style>
+      <main id="main"><span class="badge">Processed</span><span class="badge late">Queued</span></main>`;
+    assert.match((await change(ROLE_SHRUNK)).changed.join('\n'), /"Queued" changed from 11px to 8px with the zoom change/);
+    // Across two documents, new words are held to the page's smallest text.
+    await lane.page(ROLE_SHRUNK.replace('@media (width < 768px) { .badge.late { font-size: 8px } }', ''), { width: 1366, height: 768, zoom: 1 });
+    const floorBaseline = await lane.browser.evaluate(toExpression(zoomTextBaseline));
+    await lane.page('<style>body{margin:0;font:14px sans-serif} .badge{font-size:8px}</style><main id="main"><span class="badge">Stale</span></main>', { width: 1366, height: 768, zoom: 2 });
+    assert.match((await lane.browser.evaluate(toExpression(zoomTextCompare, { baseline: floorBaseline, from: '100%', to: '200%', live: false }))).changed.join('\n'), /"Stale" is drawn at 8px at 200%, below the 11px smallest text at 100%/);
+    // Hidden text is neither baseline nor subject: a visually-hidden 20px
+    // heading does not hold a 13px crumb with the same words to it.
+    const HIDDEN = `<style>body{margin:0;font:14px sans-serif} .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)} h1{font-size:20px} .crumb{display:none;font-size:13px} @media (width < 768px) { .crumb { display: inline } }</style>
+      <main id="main"><h1 class="vh">Videos</h1><span class="crumb">Videos</span><p>rows</p><small style="font-size:12px">4 of 4 videos</small></main>`;
+    assert.deepEqual((await change(HIDDEN)).changed, []);
+    // The same element changing its own size in a live change, whatever its words elsewhere.
+    const SELF = `<style>body{margin:0;font:14px sans-serif} @media (width < 768px) { .a { font-size: 10px } }</style>
+      <main id="main"><p class="a">Cameras</p><p style="font-size:10px">Cameras</p></main>`;
+    const self = await change(SELF);
+    assert.deepEqual(self.changed, ['"Cameras" changed from 14px to 10px with the zoom change']);
+    // No baseline, or no text: a fault, never a pass.
+    await lane.page('<main id="main"><p>Videos</p></main>', { width: 1366, height: 768, zoom: 2 });
+    assert.match((await lane.browser.evaluate(toExpression(zoomTextCompare, { baseline: { holders: 0, floor: null, words: {} }, from: '100%', to: '200%', live: false }))).fault, /no text baseline at 100%/);
+    await lane.page('<main id="main"><button aria-label="Play"></button></main>', { width: 1366, height: 768, zoom: 2 });
+    assert.match((await lane.browser.evaluate(toExpression(zoomTextCompare, { baseline: { holders: 3, floor: 12, words: { videos: 14 } }, from: '100%', to: '200%', live: false }))).fault, /holds no text to compare/);
+  });
+
+  it('fails a focused fixed control that a transformed ancestor clips only after the zoom change', async () => {
+    // At 100% the box is wide; the Tier C rule narrows it to 180px, and the
+    // 200px fixed button inside the transformed box is cut by 20px.
+    const CLIPS = `<style>body{margin:0} .box{transform:translateZ(0);width:300px;height:60px;overflow:hidden} @media (width < 768px) { .box { width: 180px } }</style>
+      <main id="main"><div class="box"><button class="target" style="position:fixed;left:0;top:0;width:200px;height:40px">Retry processing</button></div></main>`;
+    const probe = await across(CLIPS, '(() => { document.querySelector(".target").focus(); return true; })()');
+    assert.deepEqual(probe.findings, [], 'the probe sees the control still partly on screen');
+    const step = await lane.browser.evaluate(toExpression(zoomAssertions, { tier: 'C' }));
+    assert.match(step.findings.map((f) => f.message).join('\n'), /"Retry processing" is cut off even when focused \(20px of its width/);
   });
 
   it('fails focus the zoom change leaves on a transparent control (Codex P1)', async () => {
@@ -485,10 +550,42 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
 
   it('judges a transition\'s prepared starting state at 200% before leaving it (Codex P1)', () => {
     const WIDE = `(() => { const s = document.createElement('style'); s.textContent = '.toolbar-band__controls[aria-modal="true"]{width:900px!important;max-width:none!important}'; document.head.appendChild(s); return true; })()`;
-    const { status, output, results } = run('prepared', `export const STATES = REGISTERED.filter((s) => s.name === "videos-filters-drawer").map(({ zoomCapture, ...s }) => ({ ...s, zoomTransitions: [{ path: [2, 1], before: ${JSON.stringify(WIDE)} }] }));`, ['--states', 'videos-filters-drawer']);
+    const { status, output, results } = run('prepared', `export const STATES = [...REGISTERED.filter((s) => s.name === "videos"), ...REGISTERED.filter((s) => s.name === "videos-filters-drawer").map(({ zoomCapture, ...s }) => ({ ...s, zoomTransitions: [{ path: [2, 1], before: ${JSON.stringify(WIDE)} }] }))];`, ['--states', 'videos-filters-drawer']);
     assert.equal(status, 1, output);
     const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@200%-100%');
     assert.ok(zoom.some((f) => /^at the start \(200%\): .* does not fit the 683x384 viewport/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
+  });
+
+  it('compares every 200% load with the same state at 100%: a label a Tier C rule shrinks fails (Codex P1, text scaling)', () => {
+    const SHRINK = (selector, size) => `(() => { const s = document.createElement('style'); s.textContent = '@media (width < 768px) { ${selector} { font-size: ${size} !important } }'; document.head.appendChild(s); return true; })()`;
+    // One label shrunk to 7px at the Tier C breakpoint; the body font untouched.
+    let { status, output, results } = run('shrunk-label', `${VIDEOS.replace('=> s)', '=> ({ ...s, prepare: ' + JSON.stringify(SHRINK('main tbody td .faint', '7px')) + ' }))')}`, ['--states', 'videos']);
+    assert.equal(status, 1, output);
+    let zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@200%');
+    assert.ok(zoom.some((f) => /"North Gate" .*7px at 200%, where .* 1[0-9]px at 100%/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
+    // A secondary field (the recorded time) reduced while everything else keeps its size.
+    ({ status, output, results } = run('shrunk-field', `${VIDEOS.replace('=> s)', '=> ({ ...s, prepare: ' + JSON.stringify(SHRINK('main tbody td .ledger-folded__value', '9px')) + ' }))')}`, ['--states', 'videos']));
+    assert.equal(status, 1, output);
+    zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@200%');
+    // The folded value's holder exists only at Tier C: caught by the floor.
+    assert.ok(zoom.some((f) => /"Recorded 14 Sept, 09:00" is drawn at 9px at 200%, (where|below) .*1[0-9]px/.test(f.message)), JSON.stringify(zoom));
+    // Text only the narrow composition draws, with no counterpart at 100%,
+    // is held to the smallest text the page drew at 100%.
+    const NARROW_ONLY = `(() => { if (matchMedia('(width < 768px)').matches) { const p = document.createElement('p'); p.style.fontSize = '7px'; p.textContent = 'Shown only on a narrow display'; document.querySelector('main').appendChild(p); } return true; })()`;
+    ({ status, output, results } = run('narrow-only', `${VIDEOS.replace('=> s)', '=> ({ ...s, prepare: ' + JSON.stringify(NARROW_ONLY) + ' }))')}`, ['--states', 'videos']));
+    assert.equal(status, 1, output);
+    zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@200%');
+    assert.ok(zoom.some((f) => /"Shown only on a narrow display" .*7px at 200%, below the 1[0-9]px smallest text at 100%/.test(f.message)), JSON.stringify(zoom));
+  });
+
+  it('is a harness fault when a 200% load\'s 100% baseline cannot be established, and when a zoom case never compares its text (Codex P1)', () => {
+    // The state's Tier A view (its baseline) waits for text the page never shows.
+    const { status, output, results } = run('no-baseline', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map(({ zoomTransitions, ...s }) => ({ ...s, expectText: 'Text this page never shows', atTier: { C: { expectText: '4 of 4 videos' } } }));`, ['--states', 'videos']);
+    assert.equal(status, 2, output);
+    assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@200% \(Tier C\): the declared state was not reached at zoom text baseline/.test(e)), results.harnessErrors.join('\n'));
+    // A valid zoom capture with no text comparison is a fault on the full sweep.
+    assert.match(zoomCoverageFaults([{ valid: true, kind: 'zoom', surface: 'videos', state: 'videos', viewport: '1366x768@200%', zoom: { evaluated: true, text: null } }], ['videos']).join('\n'),
+      /a11y.zoom-200: videos @ 1366x768@200% never compared its text with a 100% baseline/);
   });
 
   it('judges every step a transition passes through, as a load (Codex P1)', () => {

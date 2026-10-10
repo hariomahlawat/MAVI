@@ -152,6 +152,11 @@ export function zoomCoverageFaults(results, surfaces) {
   for (const r of results.filter((x) => x.kind === 'zoom-transition' && !x.zoom?.evaluated)) {
     faults.push(`a11y.zoom-200: the zoom transition ${r.state} @ ${r.viewport} was never evaluated`);
   }
+  // WCAG 1.4.4 is judged by comparison: a valid zoom case that compared no
+  // text with a 100% baseline has not judged it.
+  for (const r of results.filter((x) => x.valid && x.zoom && !x.zoom.text)) {
+    faults.push(`a11y.zoom-200: ${r.state} @ ${r.viewport} never compared its text with a 100% baseline`);
+  }
   return faults;
 }
 

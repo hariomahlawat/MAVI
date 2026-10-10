@@ -64,7 +64,7 @@ try {
 const [
   {
     focusAssertions, overlayExitProbe, overlayFocusProbe, overlayOpened, overlayReady, pageAssertions, stickyProbe, toExpression, workspaceAssertions,
-    zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTextSizes, zoomTransitionProbe,
+    zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTextBaseline, zoomTextCompare, zoomTransitionProbe,
   },
   { launch },
   { createLedger, exitStatus, HarnessError, planCases, settle, unprovenPressedKinds, unreachedFaults, zoomCoverageFaults, zoomQualification },
@@ -221,8 +221,6 @@ async function runCase(lane, c) {
   const add = (rule, message, scope = null) => caseFindings.push(record(c, rule, message, scope));
   // The harness could not establish the declared state. Not a finding: a
   // fault at every tier (engine.unreachedFaults), first cause kept.
-  let unreached = null;
-  const unreach = (stage, reason) => { if (!unreached) unreached = { stage, reason }; };
   const browser = lane.browser;
 
   lane.server.releaseHung();
@@ -234,6 +232,52 @@ async function runCase(lane, c) {
   // — set before the page loads and read back from the browser. A zoom that
   // cannot be set fails the case (a harness fault), never runs it at another.
   const startZoom = viewport.zoom?.[0] ?? 1;
+  // T3: a case that begins at 200% — a load, or a transition that starts
+  // there — is compared with the same state at 100% (WCAG 1.4.4): the state
+  // the page reaches at 100% on the same viewport, with the same fixtures and
+  // its Tier A preparation (a probe's base state), its text recorded as the
+  // baseline. A baseline that cannot be reached is a harness fault: the 200%
+  // capture is then not judged at all, never passed.
+  let textBaseline = null;
+  let unreached = null;
+  const unreach = (stage, reason) => { if (!unreached) unreached = { stage, reason }; };
+  if (viewport.kind === 'zoom' || startZoom !== 1) {
+    const baseName = c.state.probeOf ?? c.state.name;
+    const baseState = STATES.find((s) => s.name === baseName) ?? c.state;
+    const baseView = baseState.atTier?.A ? { ...baseState, ...baseState.atTier.A } : baseState;
+    if (lane.zoom !== 1) { lane.zoom = null; lane.zoom = await browser.pageZoom(1); }
+    await browser.goto(lane.server.origin + baseView.path);
+    const baseLoaded = await settle(lane, baseView, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: Boolean(baseView.prepare) });
+    if (!baseLoaded.ok) unreach('zoom text baseline', `the state at 100% did not settle within ${SETTLE_TIMEOUT_MS}ms: ${baseLoaded.why.join('; ')}`);
+    else if (baseView.prepare) {
+      let prepared = false;
+      try { prepared = Boolean(await browser.evaluate(`(async () => await ${baseView.prepare})()`)); } catch (error) { unreach('zoom text baseline', `its preparation at 100% failed: ${String(error.message || error).split('\n')[0]}`); }
+      if (prepared) {
+        const ready = await settle(lane, baseView, { timeoutMs: SETTLE_TIMEOUT_MS });
+        if (!ready.ok) unreach('zoom text baseline', `did not settle after its preparation at 100% within ${SETTLE_TIMEOUT_MS}ms: ${ready.why.join('; ')}`);
+      } else if (!unreached) unreach('zoom text baseline', 'its preparation at 100% reported that the state was not reached');
+    }
+    if (!unreached) {
+      const metrics = await browser.layoutMetrics();
+      if (Math.abs(metrics.pageZoom - 1) > 1e-3) unreach('zoom text baseline', `the baseline was taken at page zoom ${metrics.pageZoom}, not 100%`);
+      else {
+        textBaseline = await browser.evaluate(toExpression(zoomTextBaseline));
+        if (!textBaseline.holders) unreach('zoom text baseline', 'the state at 100% holds no text to be the baseline');
+      }
+    }
+    // The baseline's page is left behind as any other case's would be: the
+    // stored preferences it may have written are cleared and the state's own
+    // put back, held requests released and sequenced fixtures rewound, so the
+    // 200% load begins as it would alone.
+    lane.server.releaseHung();
+    lane.server.resetSequences();
+    await browser.goto('about:blank');
+    await browser.goto(lane.server.origin + '/__blank');
+    await browser.evaluate('(() => { try { window.localStorage.clear(); } catch { /* blocked */ } return true; })()');
+    if (state.storage) {
+      await browser.evaluate(`(() => { try { for (const [key, value] of Object.entries(${JSON.stringify(state.storage)})) window.localStorage.setItem(key, value); } catch { /* blocked */ } return true; })()`);
+    }
+  }
   if (lane.zoom !== startZoom) {
     lane.zoom = null;
     lane.zoom = await browser.pageZoom(startZoom);
@@ -258,8 +302,8 @@ async function runCase(lane, c) {
   // An overlay already open when the page settles was opened by its URL, not
   // by an action: §20 restoration to an invoking control does not apply to it.
   const openOnLoad = await browser.evaluate(`Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'))`);
-  let reached = loaded.ok;
   if (!loaded.ok) unreach('navigation settle', `did not settle within ${SETTLE_TIMEOUT_MS}ms: ${loaded.why.join('; ')}`);
+  let reached = !unreached;
 
   let prepareStart = null;
   let preparedAt = null;
@@ -335,19 +379,38 @@ async function runCase(lane, c) {
       }
       reached = !unreached;
     }
+    // The text comparison (WCAG 1.4.4): the page's text against its baseline,
+    // the smallest matched ratio turned into a physical size by the browser's
+    // own zoom factors. Every zoom case makes exactly one such comparison —
+    // a load or a 200% start against the 100% baseline, a change that zooms
+    // in against the step before it — or it is a fault, never a pass.
+    const compareText = async (baseline, from, to, live, zoomFrom, zoomTo, where) => {
+      const text = await browser.evaluate(toExpression(zoomTextCompare, { baseline, from, to, live }));
+      if (text.fault) { unreach('zoom text comparison', text.fault); reached = false; return; }
+      for (const message of text.changed) zoomFail(`${where}${message}`);
+      // Against the frozen condition's factor, by the browser's own zoom
+      // factors at each side: a "200%" that the browser applies as 100%
+      // draws its text at 1x, and fails here as well as in the environment.
+      const physical = text.minRatio === null ? null : text.minRatio * (zoomTo / zoomFrom);
+      const expected = ZOOM_CONDITION.factor;
+      if (physical !== null && physical < expected - 0.02) zoomFail(`${where}text is drawn at only ${Math.round(physical * 100) / 100}x its ${from} size at ${to}, not the ${expected}x the browser's zoom gives`);
+      zoom.text = { baselineHolders: baseline.holders, compared: text.compared, matched: text.matched, unmatched: text.unmatched, physical, expected, findings: text.changed.length };
+    };
     let previous = reached ? await qualify(viewport.zoom[0]) : null;
     if (previous) {
       zoom.steps.push({ factor: previous.factor, focus: null, environment: previous });
       if (viewport.zoom.length > 1) for (const problem of previous.problems) zoomFail(`at the start (${previous.factor * 100}%): ${problem}`);
       // A transition that starts at 200% judges the state it prepared there
-      // before it leaves it (a drawer opened at 200%), as a load would.
+      // before it leaves it (a drawer opened at 200%), as a load would — its
+      // text against the 100% baseline included.
       if (viewport.zoom.length > 1 && viewport.zoom[0] !== 1) {
         const atStart = await browser.evaluate(toExpression(zoomAssertions, { tier: viewport.startTier }));
         for (const finding of atStart.findings) zoomFail(`at the start (${previous.factor * 100}%): ${finding.message}`);
+        await compareText(textBaseline, '100%', `${previous.factor * 100}%`, false, 1, previous.metrics.pageZoom, `at the start (${previous.factor * 100}%): `);
       }
-      // What every piece of text measures now, to compare after each change.
-      if (viewport.zoom.length > 1) zoom.textSizes = await browser.evaluate(toExpression(zoomTextSizes));
     }
+    // What every piece of text measures at this step, for the next change.
+    let liveBaseline = reached && viewport.zoom.length > 1 ? await browser.evaluate(toExpression(zoomTextBaseline)) : null;
     for (let index = 1; reached && index < viewport.zoom.length; index += 1) {
       const factor = viewport.zoom[index];
       const focusBefore = await browser.evaluate(toExpression(zoomBeforeChange));
@@ -365,21 +428,16 @@ async function runCase(lane, c) {
         if (!verdict?.ok) zoomFail(`at ${factor * 100}%: ${verdict?.why ?? 'its check failed'}`);
       }
       const environment = await qualify(factor);
-      // Text grows with the zoom (WCAG 1.4.4): on a step that zooms in, drawn
-      // at the factor's size, the page's text and the Context Bar's, and every
-      // piece of text keeps its CSS size across the change (zoomTextSizes). A
+      // Text grows with the zoom (WCAG 1.4.4): on a step that zooms in, the
+      // page's text against the step before it — words matched, the live
+      // elements too — and its physical size by the browser's factors. A
       // step back out to 100% returns to the desktop composition and its own
       // type scale, which 1.4.4 does not judge.
-      const growing = factor > previous.factor;
-      for (const key of growing ? ['bodyFontPx', 'barTextPx'] : []) {
-        const a = previous.page[key] * previous.metrics.pageZoom;
-        const b = environment.page[key] * environment.metrics.pageZoom;
-        if (a > 0 && b > 0 && Math.abs(b / a - factor / previous.factor) > 0.02) {
-          zoomFail(`at ${factor * 100}%: ${key === 'bodyFontPx' ? 'the page text' : 'the Context Bar text'} is drawn ${Math.round(b * 10) / 10}px against ${Math.round(a * 10) / 10}px at ${previous.factor * 100}%: it did not scale with the zoom`);
-        }
+      if (factor > previous.factor) {
+        await compareText(liveBaseline, `${previous.factor * 100}%`, `${factor * 100}%`, true, previous.metrics.pageZoom, environment.metrics.pageZoom, `at ${factor * 100}%: `);
+        if (!reached) break;
       }
-      const sizes = growing ? await browser.evaluate(toExpression(zoomTextSizes)) : { changed: [] };
-      if (sizes.changed.length) zoomFail(`at ${factor * 100}%: ${sizes.changed.length} piece(s) of text changed their CSS size with the zoom, so they did not grow by it: ${sizes.changed.slice(0, 4).join(', ')}`);
+      liveBaseline = await browser.evaluate(toExpression(zoomTextBaseline));
       if (!last) for (const problem of environment.problems) zoomFail(`at ${factor * 100}%: ${problem}`);
       // A step the transition passes through is judged as a load would be —
       // every zoom check at the composition it shows — before it leaves it;
@@ -406,6 +464,9 @@ async function runCase(lane, c) {
       for (const problem of final.problems) zoomFail(problem);
       zoom.environment = final;
       zoom.qualified = final.problems.length === 0;
+      // A load: its text against the 100% baseline, now that the state is
+      // reached at 200%.
+      if (viewport.kind === 'zoom') await compareText(textBaseline, '100%', '200%', false, 1, final.metrics.pageZoom, '');
     }
   }
 
@@ -582,7 +643,7 @@ async function runCase(lane, c) {
     valid: reached,
     unreached,
     surface: c.surface,
-    ...(zoom ? { zoom: { path: zoom.path, effective: zoom.effective, qualified: zoom.qualified ?? false, evaluated: zoom.evaluated, steps: zoom.steps, environment: zoom.environment ?? null, measured: zoom.measured ?? null, textHolders: zoom.textSizes?.recorded ?? null } } : {}),
+    ...(zoom ? { zoom: { path: zoom.path, effective: zoom.effective, qualified: zoom.qualified ?? false, evaluated: zoom.evaluated, steps: zoom.steps, environment: zoom.environment ?? null, measured: zoom.measured ?? null, text: zoom.text ?? null } } : {}),
     capture,
     pageWidth: page?.pageWidth ?? null,
     shell: page?.shell ?? null,
