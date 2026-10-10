@@ -177,37 +177,43 @@ always does; with classic scrollbars shown, the environment check (rightly)
 refuses the 678px viewport of a page whose document scrolls, and the
 compositions raised no other finding.
 
-`a11y.zoom-200` is the rule only a zoom case settles (`lane: 'zoom'`: the
-engine refuses it in any other case). It blocks at Tier C (200%) and Tier A
-(zoomed back to 100%), and is not applicable at Tier B, where no zoom case
-lands. In every zoom case it proves the environment against §23's frozen
-condition (`ZOOM_CONDITION`, never the states' own): the browser's page-zoom
-setting, the zoom factor the browser applies (`Page.getLayoutMetrics`), the
-1366×768 device-independent viewport behind it, the 683×384 CSS viewport, no
-pinch scale, devicePixelRatio 2 and the Tier C media query — so the zoom left
-at 100%, or a viewport merely shrunk, fails it; a transition is judged against
-the frozen 200% at its zoomed step and 100% at the others, its starting step
-included. Then what the 384px height can take from the page: every offered
-control can be brought into view, unclipped, and not only by focus scrolling a
-box — or a page — that clips without scrolling; what a pointer hits at its
-middle is the control, and no painted fixed, sticky or pseudo-element layer
-the pointer passes through hides it (focus not obscured); drawers and dialogs
-fit the viewport; no font is sized in viewport units, directly or through a
-custom property; truncated text keeps its full value within the keyboard's
-reach (§16 — the text of a link or button that leads to the detail or
-inspector, else focus describes it through the Tooltip); the keyboard order of
-the Context Bar (and, at Tier C, of the workspace or open overlay) is its visual
-order; the Evidence Player is not drawn distorted (this fires only on an
+`a11y.zoom-200` is the rule only a zoom case settles (`lane: 'zoom'`: the engine
+refuses it in any other case). It blocks at Tier C (200%) and Tier A (zoomed
+back to 100%), and is not applicable at Tier B, where no zoom case lands. In
+every zoom case it proves the environment against §23's frozen condition
+(`ZOOM_CONDITION`, never the states' own): the browser's page-zoom setting, the
+zoom factor the browser applies (`Page.getLayoutMetrics`), the 1366×768
+device-independent viewport behind it, the 683×384 CSS viewport, no pinch scale,
+devicePixelRatio 2 and the Tier C media query — so the zoom left at 100%, or a
+viewport merely shrunk, fails it; a transition is judged against the frozen 200%
+at its zoomed step and 100% at the others, its starting step included. Then what
+the 384px height can take from the page: every offered control can be brought
+into view, with no more than a CSS pixel of it cut off in either direction, and
+not only by focus scrolling a box — or a page — that clips without scrolling;
+what a pointer hits across it (its middle and four points inset from its
+corners) is the control, and no painted fixed, sticky or pseudo-element layer
+the pointer passes through hides it (focus not obscured); a control drawn at 1px
+is offered only where focus shows it (the skip link) or a visible label stands
+for it; drawers and dialogs fit the viewport; no font is sized in viewport
+units, directly or through a custom property; truncated text keeps its full
+value within the keyboard's reach (§16 — the text of a link to the row's detail
+or of a row's own selection button, to its inspector; else focus describes it
+through the Tooltip, compared by letters and digits); the keyboard order of the
+Context Bar is its visual order, and at Tier C, in the workspace or open
+overlay, the keyboard never steps back along a line or back up a column
+(side-by-side columns, such as a Ledger row's action column, are read one after
+another, and a control placed by its data — a timeline marker — follows the
+data); the Evidence Player is not drawn distorted (this fires only on an
 object-fit that stretches the footage; the product uses the browser's
-`contain`). A transition's starting state must be the one it declares (its
-start tier's expected and forbidden text, after its preparation and set-up).
-A live zoom change is judged as it happens: focus not lost to the document or
-left on something hidden or inert, an overlay still open holding focus,
-nothing left inert, text growing by the zoom's factor, and the transition's own
-check (a draft kept with its geometry, the editor's keys inert at 200%, a
-preference kept, focus on the control the new composition offers). The full
-sweep is a harness fault unless every one of the ten operator surfaces had a
-valid 200% capture that evaluated the rule.
+`contain`). A transition's starting state must be the one it declares (its start
+tier's expected and forbidden text, after its preparation and set-up). A live
+zoom change is judged as it happens: focus not lost to the document or left on
+something hidden or inert, an overlay still open holding focus, nothing left
+inert, text growing by the zoom's factor, and the transition's own check (a
+draft kept with its geometry, the editor's keys inert at 200%, a preference
+kept, focus on the control the new composition offers). The full sweep is a
+harness fault unless every one of the ten operator surfaces had a valid 200%
+capture that evaluated the rule.
 
 **The documented exception, reported.** At 200% a Workbench is its §25 Tier C
 unsupported state: the Scene Editor's editing, and Camera Analytics' activity

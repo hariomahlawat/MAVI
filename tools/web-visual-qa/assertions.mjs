@@ -1924,9 +1924,9 @@ export function zoomEnvironment() {
  * - text grows with the page: no font size is set in viewport units, directly
  *   or through a custom property;
  * - visually truncated text keeps its full value within the keyboard's reach
- *   (§16): it is the text of a link or button that leads to the row's detail
- *   or inspector — the full-value home — or, focusable on its own, focus
- *   describes it with its full value (the Tooltip's aria-describedby);
+ *   (§16): it is the text of a link to the row's detail, or of a row's own
+ *   selection button (to its inspector) — the full-value home — or else
+ *   focus describes it with its full value (the Tooltip's aria-describedby);
  * - the Evidence Player is not drawn distorted (an object-fit that stretches
  *   it into a box of another aspect ratio).
  *
@@ -2036,7 +2036,20 @@ export function zoomAssertions(input) {
     const style = getComputedStyle(el);
     if (style.visibility === 'hidden') continue;
     const r0 = el.getBoundingClientRect();
-    if (r0.width <= 1 && r0.height <= 1) continue; // visually hidden until focused (the skip link)
+    // A control drawn at 1px is offered only where focus shows it (the skip
+    // link) or a visible label of its own stands for it (a native input
+    // dressed by its label). Otherwise the keyboard reaches a control the
+    // operator cannot see: a finding, not a skip.
+    if (r0.width <= 1 && r0.height <= 1) {
+      if (el.tabIndex < 0) continue;
+      const labelled = el.labels && Array.from(el.labels).some((label) => { const lr = label.getBoundingClientRect(); return lr.width > 1 && lr.height > 1; });
+      if (labelled) continue;
+      el.focus({ focusVisible: false });
+      if (document.activeElement !== el) continue;
+      const fr = el.getBoundingClientRect();
+      if (fr.width <= 1 || fr.height <= 1) fail(describe(el) + ' can be focused but is not shown, even when focused: the keyboard reaches a control the operator cannot see');
+      continue;
+    }
     // The boxes between the control and the page that clip it, with where
     // each stood before focus moved it.
     const boxes = [];
@@ -2080,7 +2093,12 @@ export function zoomAssertions(input) {
       fail(describe(el) + ' cannot be brought into the ' + vw + 'x' + vh + ' view: focused, it is at (' + Math.round(r.left) + ', ' + Math.round(r.top) + ')' + (clipper ? ', cut off by ' + describe(clipper) : ''));
       continue;
     }
-    if (shown < area * 0.5) fail(describe(el) + ' is ' + Math.round((1 - shown / area) * 100) + '% cut off even when focused' + (clipper ? ', by ' + describe(clipper) : ' by the viewport'));
+    // Focus brings a control wholly into view where it can: what stays cut
+    // off, by more than a CSS pixel in either direction (sub-pixel rounding
+    // at 2x is not a loss), is lost.
+    const lostX = Math.min(r.width, vw) - Math.max(0, right - left);
+    const lostY = Math.min(r.height, vh) - Math.max(0, bottom - top);
+    if (lostX > 1 || lostY > 1) fail(describe(el) + ' is cut off even when focused (' + Math.round(lostX) + 'px of its width, ' + Math.round(lostY) + 'px of its height)' + (clipper ? ', by ' + describe(clipper) : ' by the viewport'));
     // What is drawn at the middle of the part on screen. What a pointer hits
     // there must be the control (or its label, or its own tooltip). And a
     // layer the pointer passes through (pointer-events: none) still hides it
@@ -2089,11 +2107,13 @@ export function zoomAssertions(input) {
     // layer as the ancestor). A pass-through face drawn over a transparent
     // control in the same composition (a grid card's evidence over its
     // stretched select button) is the control's face, not a cover.
+    // Judged across the box, not at one point: its middle and four points
+    // inset a fifth from its corners.
     const own = (node) => node === el || el.contains(node) || (el.labels && Array.from(el.labels).some((label) => label.contains(node))) || Boolean(node.closest('.tooltip, [role="tooltip"]'));
-    const x = (left + right) / 2; const y = (top + bottom) / 2;
-    const hit = document.elementFromPoint(x, y);
-    if (!hit || !own(hit)) {
-      fail(describe(el) + ' is covered by ' + describe(hit) + ' when focused');
+    const points = [[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]].map(([fx, fy]) => [left + (right - left) * fx, top + (bottom - top) * fy]);
+    const covered = points.map(([x, y]) => document.elementFromPoint(x, y)).find((hit) => !hit || !own(hit));
+    if (covered !== undefined) {
+      fail(describe(el) + ' is covered by ' + describe(covered) + ' when focused');
       continue;
     }
     const floats = (node) => {
@@ -2108,10 +2128,10 @@ export function zoomAssertions(input) {
       return s.content !== 'none' && s.content !== 'normal' && /^(absolute|fixed)$/.test(s.position);
     });
     document.head.appendChild(reveal);
-    const stack = document.elementsFromPoint(x, y);
+    const layer = points.map(([x, y]) => document.elementsFromPoint(x, y).find((node) => own(node) || ((floats(node) || pseudoLayer(node)) && paints(node))))
+      .find((node) => node && !own(node));
     reveal.remove();
-    const layer = stack.find((node) => own(node) || ((floats(node) || pseudoLayer(node)) && paints(node)));
-    if (layer && !own(layer)) fail(describe(el) + ' is hidden under ' + describe(layer) + ' when focused (a layer the pointer passes through still covers it)');
+    if (layer) fail(describe(el) + ' is hidden under ' + describe(layer) + ' when focused (a layer the pointer passes through still covers it)');
   }
   if (before instanceof HTMLElement && before !== document.body && before.isConnected) before.focus({ preventScroll: true });
   else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -2124,7 +2144,7 @@ export function zoomAssertions(input) {
   // in the document, not only on screen) — and, in the single-column Tier C
   // composition, among the controls of the open overlay or, with none open,
   // the workspace (side by side, at Tier A, a column is read before the next).
-  const inOrder = (scope, label) => {
+  const inOrder = (scope, label, column = false) => {
     if (!scope) return;
     const controls = Array.from(scope.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])'))
       .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[inert]') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
@@ -2137,12 +2157,26 @@ export function zoomAssertions(input) {
         fail('in ' + label + ' the keyboard reaches ' + describe(b.el) + ' after ' + describe(a.el) + ', but it is drawn before it on the same line: focus order is not the visual order');
         return;
       }
+      // Read down a column, the keyboard never goes back up it. Side-by-side
+      // columns are read one after the other (a Tier C Ledger row's action
+      // column beside its identity, by design), and a control placed by its
+      // data (a timeline marker, absolutely positioned by time) follows the
+      // data's order, so only a step back up the same column is a finding.
+      const sameColumn = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left) > Math.min(a.r.width, b.r.width) / 2;
+      const placed = (el) => {
+        for (let n = el; n && n !== scope; n = n.parentElement) if (getComputedStyle(n).position === 'absolute') return true;
+        return false;
+      };
+      if (column && !sameLine && sameColumn && b.r.bottom <= a.r.top + 1 && !placed(a.el) && !placed(b.el)) {
+        fail('in ' + label + ' the keyboard reaches ' + describe(b.el) + ' after ' + describe(a.el) + ', but it is drawn above it in the same column: focus order is not the visual order');
+        return;
+      }
     }
   };
   inOrder(document.querySelector('.context-bar'), 'the Context Bar');
   if (input?.tier === 'C') {
     const topModal = modals[modals.length - 1];
-    inOrder(topModal ?? document.querySelector('main .workspace, main .page'), topModal ? 'the open overlay' : 'the workspace');
+    inOrder(topModal ?? document.querySelector('main .workspace, main .page'), topModal ? 'the open overlay' : 'the workspace', true);
   }
 
   // Truncated text keeps its full value within reach of the keyboard (§16).
@@ -2158,7 +2192,12 @@ export function zoomAssertions(input) {
     // full value lives. Text focusable only to be read (TruncatedText) must
     // say the whole of it on focus: the Tooltip describes its anchor
     // (aria-describedby) with the full value and shows it then.
-    const leads = Boolean(focusable) && /^(A|BUTTON|SUMMARY)$/.test(focusable.tagName);
+    // A link leads to the row's detail (its href), and a row's own selection
+    // button (in a list item or table row) to its inspector: the full-value
+    // home either way. Any other button acts in place, so its truncated label
+    // must still say the whole value on focus.
+    const leads = Boolean(focusable) && (focusable.tagName === 'A'
+      || (focusable.tagName === 'BUTTON' && Boolean(focusable.closest('li, tr, [role="row"], [role="option"], [role="listitem"]'))));
     // Compared by its letters and digits: the drawn value may set a code apart
     // from a name that the tooltip joins with a separator ("CAM-02 · North").
     const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');

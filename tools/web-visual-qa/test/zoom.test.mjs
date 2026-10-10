@@ -204,6 +204,36 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.equal(messages(await at200(PANEL('auto'))), '');
   });
 
+  it('fails a control partly cut off, or partly covered away from its middle (Codex P1)', async () => {
+    // 40% of the button outside a box that clips and cannot scroll it into view.
+    const CUT = (width) => `<div style="width:${width}px;overflow:hidden;white-space:nowrap"><button style="width:200px">Retry processing</button></div>`;
+    assert.match(messages(await at200(CUT(120))), /"Retry processing" is cut off even when focused \(80px of its width, 0px of its height\)/);
+    assert.equal(messages(await at200(CUT(220))), '');
+    // A band covering the button's lower edge, clear of its middle.
+    const EDGE = (paint) => `<div style="height:250px">top</div><button style="display:block;height:60px">Detail</button>
+      <div style="position:fixed;left:0;right:0;bottom:${384 - 250 - 60}px;height:16px;background:${paint}"></div>`;
+    assert.match(messages(await at200(EDGE('#000'))), /"Detail" is covered by <div>/);
+  });
+
+  it('fails a focusable control that stays 1px even when focused, and passes the skip link and a labelled native input (Codex P1)', async () => {
+    const HIDDEN = 'position:absolute;width:1px;height:1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%)';
+    assert.match(messages(await at200(`<button style="${HIDDEN}">Delete zone</button>`)), /"Delete zone" can be focused but is not shown, even when focused/);
+    assert.equal(messages(await at200(`<style>.skip{${HIDDEN}} .skip:focus{width:auto;height:auto;clip-path:none}</style><a class="skip" href="#main">Skip to workspace</a><main id="main"></main>`)), '');
+    assert.equal(messages(await at200(`<input id="c" type="checkbox" style="${HIDDEN}"><label for="c">Trajectory</label>`)), '');
+  });
+
+  it('fails a step back up a column, and keeps side-by-side columns read one after the other (Codex P1)', async () => {
+    const PAGE = (body) => `<main><section class="page">${body}</section></main>`;
+    // Down one column, the keyboard reaches the lower control first.
+    assert.match(messages(await at200(PAGE('<div style="display:flex;flex-direction:column-reverse"><button>Second</button><button>First</button></div>'))),
+      /the keyboard reaches <button> "First" after <button> "Second", but it is drawn above it in the same column/);
+    assert.equal(messages(await at200(PAGE('<div style="display:flex;flex-direction:column"><button>First</button><button>Second</button></div>'))), '');
+    // Two columns, each read down before the next (a Tier C Ledger row: its
+    // identity, then the action column beside it) — the composition's order.
+    assert.equal(messages(await at200(PAGE(`<div style="display:grid;grid-template-columns:1fr 1fr;grid-auto-flow:column;grid-template-rows:auto auto">
+      <button>Top left</button><button>Bottom left</button><button>Top right</button><button>Bottom right</button></div>`))), '');
+  });
+
   it('fails a control only focus can scroll into a box that clips', async () => {
     const BOX = (overflow) => `<div style="height:120px;overflow:${overflow}"><div style="height:200px">facts</div><button>Retry</button></div>`;
     assert.match(messages(await at200(BOX('hidden'))), /"Retry" is shown only by focus scrolling .*which clips without scrolling/);
@@ -262,8 +292,12 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     // The drawn value may set a code apart where the tooltip joins it with a separator.
     assert.equal(messages(await at200(`<span tabindex="0" aria-describedby="cam" style="${CUT}"><strong>CAM-02</strong> Perimeter fence south-west sector</span><span role="tooltip" id="cam" hidden>CAM-02 · Perimeter fence south-west sector</span>`)), '');
     assert.match(messages(await at200(`<span tabindex="0" aria-describedby="cam" style="${CUT}"><strong>CAM-02</strong> Perimeter fence south-west sector</span><span role="tooltip" id="cam" hidden>CAM-02</span>`)), /can be focused, but focus does not show its full value/);
-    // A link to the row's detail leads to the full-value home (§16).
+    // A link to the row's detail leads to the full-value home (§16), and so
+    // does a row's own selection button, to its inspector.
     assert.equal(messages(await at200(`<a href="/processing/1" style="${CUT}">${NAME}</a>`)), '');
+    assert.equal(messages(await at200(`<ul><li><button style="${CUT}">${NAME}</button></li></ul>`)), '');
+    // Any other button acts in place: its truncated label must say the whole on focus (Codex P1).
+    assert.match(messages(await at200(`<button style="${CUT}">${NAME}</button>`)), /can be focused, but focus does not show its full value/);
   });
 
   it('fails a Context Bar whose keyboard order is not its visual order — the menu drawn first but reached last', async () => {
