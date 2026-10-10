@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import Icon, { type IconName } from './Icon';
 import { statusText, useStatusReport } from './StatusSlot';
 
@@ -38,12 +38,13 @@ export default function Alert({
   // mounted before this alert appeared, so the sentence is a change there; only
   // an alert outside any slot carries `role="status"` itself.
   const assertive = tone === 'error';
-  const routed = useStatusReport(statusText(children), announce && !assertive);
+  const body = useRef<HTMLDivElement | null>(null);
+  const routed = useStatusReport(statusText(children), announce && !assertive, () => body.current?.textContent);
   const role = !announce ? undefined : assertive ? 'alert' : routed ? undefined : 'status';
   return (
     <div className={`alert alert--${tone}`} role={role}>
       <Icon name={icons[tone]} />
-      <div className="alert__body">{children}</div>
+      <div className="alert__body" ref={body}>{children}</div>
       {actions ? <div className="alert__actions">{actions}</div> : null}
     </div>
   );

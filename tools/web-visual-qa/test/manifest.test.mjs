@@ -125,6 +125,14 @@ describe('the assertion manifest', () => {
     for (const tier of ['A', 'B', 'C']) assert.equal(RULES['ledger.column-fold'].tiers[tier].status, 'blocking', tier);
   });
 
+  it('makes every X1 entry blocking at Tier A (§15.1), and the text-spacing rule a lane rule', () => {
+    for (const rule of ['a11y.target-size', 'a11y.names', 'a11y.form-fields', 'a11y.role-contract', 'a11y.live-regions', 'a11y.tooltips', 'a11y.shortcuts-in-text-entry', 'a11y.tab-order', 'a11y.state-cues', 'a11y.focus-not-obscured', 'a11y.spatial-twin', 'a11y.reading-order', 'a11y.text-spacing', 'a11y.hover-content']) {
+      assert.equal(RULES[rule].tiers.A.status, 'blocking', rule);
+      assert.equal(RULES[rule].kind, 'assertion', rule);
+    }
+    assert.equal(RULES['a11y.text-spacing'].lane, 'text-spacing');
+  });
+
   it('blocks the 200% zoom rule (T3) where a zoom case lands — Tier C at 200%, Tier A zoomed back out — and nowhere else', () => {
     const zoom = RULES['a11y.zoom-200'];
     assert.equal(zoom.kind, 'assertion');

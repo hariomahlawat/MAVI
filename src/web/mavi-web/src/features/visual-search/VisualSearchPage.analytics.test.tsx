@@ -320,7 +320,8 @@ describe('Slice 4 Investigation analytics', () => {
     const message = await screen.findByText(/Scene geometry is unavailable/);
     // The warning's sentence is said by the slot's live region, mounted before it
     // appeared (§23); the box itself carries the Retry (§37.1).
-    expect([...document.querySelectorAll('[role="status"]')].some((live) => /Scene geometry is unavailable/.test(live.textContent ?? ''))).toBe(true);
+    // The region's announcer says it one frame after the warning appears (StatusSlot).
+    await waitFor(() => expect([...document.querySelectorAll('[role="status"]')].some((live) => /Scene geometry is unavailable/.test(live.textContent ?? ''))).toBe(true));
     const alert = message.closest('.alert') as HTMLElement;
     expect(alert).not.toBeNull();
     const retry = within(alert).getByRole('button', { name: 'Retry scene' });

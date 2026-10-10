@@ -79,23 +79,43 @@ export function statusText(node: ReactNode): string {
  * Returns whether a slot took it: when none did (the presentation stands on
  * its own, outside any slot) the caller keeps its own live role.
  */
-export function useStatusReport(text: string, active: boolean): boolean {
+export function useStatusReport(
+  text: string,
+  active: boolean,
+  /**
+   * What the announcer says, read once the presentation is rendered, where
+   * that differs from `text`: a sentence built from components that render
+   * from their own props (a formatted time, a truncated value) reads fully
+   * from the DOM where `text`, derived from the children, would not. `text`
+   * remains the key on which a changed sentence is re-reported.
+   */
+  spoken?: () => string | null | undefined,
+): boolean {
   const store = useContext(SlotContext);
   const by = useRef<symbol | null>(null);
   if (by.current === null) by.current = Symbol('status');
   const routed = store !== null && active;
+  const latest = useRef(spoken);
+  latest.current = spoken;
   useEffect(() => {
     if (!routed) return undefined;
     const id = by.current!;
-    // In a later task than the commit that mounted the presentation — and,
-    // on a slot's first render, the announcer itself. React flushes the
-    // effects of a discrete event in the same task as its commit, and a
-    // region that appears with its text in one task is an insertion to the
-    // accessibility tree, not a change; one task later it is a change in a
-    // region that was already there (§23).
-    const handle = window.setTimeout(() => store.set(id, text), 0);
+    // In a later rendering frame than the commit that mounted the
+    // presentation — and, on a slot's first render, the announcer itself.
+    // Chromium updates the accessibility tree once per frame, and a region
+    // that appears with its text in one frame is an insertion to that tree,
+    // not a change; a frame later it is a change in a region that was already
+    // there (§23). After the next frame, then one task on.
+    let handle: number | undefined;
+    const raf = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 16);
+    const frame = raf(() => {
+      handle = window.setTimeout(() => store.set(id, (latest.current?.() ?? '').trim() || text), 0);
+    });
     return () => {
-      window.clearTimeout(handle);
+      if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frame); else window.clearTimeout(frame);
+      if (handle !== undefined) window.clearTimeout(handle);
       store.clear(id);
     };
   }, [store, routed, text]);

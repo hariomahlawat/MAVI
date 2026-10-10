@@ -11,6 +11,9 @@ import { cloneElement, useEffect, useId, useLayoutEffect, useRef, useState, type
  * task depends on, and it never takes focus. Escape dismisses it without moving
  * focus; the key still reaches the surface, so on the inspector's controls the
  * same Escape also closes the inspector, as it would with no tooltip shown.
+ * While shown it takes the pointer (`pointer-events: auto`, WCAG 1.4.13
+ * hoverable): the pointer can move onto it to read it, and whatever it
+ * overlaps is reached once the pointer has left the trigger and the hint.
  */
 export default function Tooltip({
   content,

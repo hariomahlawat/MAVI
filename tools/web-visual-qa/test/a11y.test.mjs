@@ -76,6 +76,10 @@ describe('a11y.names and a11y.form-fields: names from the accessibility tree', u
     assert.ok(r.evaluated.includes('a11y.names'));
     r = await judge('<button aria-label="Submit">Save</button>');
     assert.match(of(r, 'a11y.names'), /named "Submit" but shows "Save": the name does not contain the visible label/);
+    // A name that is merely part of the visible label is not a name that contains it.
+    r = await judge('<button aria-label="S">Save</button><button aria-label="Save">Save draft now</button>');
+    assert.match(of(r, 'a11y.names'), /named "S" but shows "Save"/);
+    assert.match(of(r, 'a11y.names'), /named "Save" but shows "Save draft now"/);
     r = await judge('<button><svg width="16" height="16"></svg></button>');
     assert.match(of(r, 'a11y.names'), /<button> has no accessible name/);
     r = await judge('<button title="Delete"><svg width="16" height="16"></svg></button>');
@@ -142,22 +146,41 @@ describe('a11y.live-regions: rendered, and mounted before populated', unitBlock(
     assert.match(r.findings[0].message, /<p> "Run status may be out of date" was inserted already holding "Run status may be out of date"/);
   });
 
-  it('judges timing, not membership: a region inserted empty and given its text in a later task is a change in an existing region; in the same task it is an insertion', async () => {
-    await lane.page(TOKENS + '<main><div id="host"></div></main>');
-    await lane.browser.evaluate(toExpression(a11yLiveMark));
-    // The product's StatusSlot: the announcer mounts empty with its slot, and
-    // the sentence lands one task later (setTimeout 0).
-    await lane.browser.evaluate('(async () => { const slot = document.createElement("div"); slot.innerHTML = "<span class=\\"announcer\\" role=\\"status\\"></span><p class=\\"empty\\">No videos imported yet.</p>"; document.getElementById("host").appendChild(slot); await new Promise((r) => setTimeout(r, 0)); slot.querySelector(".announcer").textContent = "No videos imported yet."; await new Promise((r) => setTimeout(r, 0)); return true; })()');
-    let r = await lane.browser.evaluate(toExpression(a11yLiveCheck));
+  it('judges timing, not membership: a region inserted empty and given its text in a later frame is a change in an existing region; in the same frame — a later task or microtask included — it is an insertion', async () => {
+    const SLOT = '<span class=\\"announcer\\" role=\\"status\\"></span><p class=\\"empty\\">No videos imported yet.</p>';
+    const after = async (wait) => {
+      await lane.page(TOKENS + '<main><div id="host"></div></main>');
+      await lane.browser.evaluate(toExpression(a11yLiveMark));
+      await lane.browser.evaluate('(async () => { const slot = document.createElement("div"); slot.innerHTML = "' + SLOT + '"; document.getElementById("host").appendChild(slot); await (' + wait + '); slot.querySelector(".announcer").textContent = "No videos imported yet."; await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))); return true; })()');
+      return lane.browser.evaluate(toExpression(a11yLiveCheck));
+    };
+    // The product's StatusSlot: the sentence lands after the next frame, one task on.
+    let r = await after('new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))');
     assert.equal(r.judged, 1);
     assert.deepEqual(r.findings, []);
-    // Mounted empty and filled in the same task: one batch, an insertion.
-    await lane.page(TOKENS + '<main><div id="host"></div></main>');
-    await lane.browser.evaluate(toExpression(a11yLiveMark));
-    await lane.browser.evaluate('(async () => { const slot = document.createElement("div"); slot.innerHTML = "<span class=\\"announcer\\" role=\\"status\\"></span>"; document.getElementById("host").appendChild(slot); slot.querySelector(".announcer").textContent = "No videos imported yet."; await new Promise((r) => setTimeout(r, 0)); return true; })()');
-    r = await lane.browser.evaluate(toExpression(a11yLiveCheck));
+    assert.ok(r.frames >= 1, String(r.frames));
+    // A microtask later is the same frame: an insertion.
+    r = await after('Promise.resolve()');
     assert.equal(r.judged, 1);
     assert.match(of(r, 'a11y.live-regions'), /<span.announcer> "No videos imported yet." was inserted already holding/);
+    // So is the same task.
+    r = await after('null');
+    assert.match(of(r, 'a11y.live-regions'), /was inserted already holding/);
+  });
+
+  it('exempts only a region inside an overlay the preparation opened and put focus in', async () => {
+    const OPEN = (focus) => '(() => { const d = document.createElement("div"); d.setAttribute("role", "dialog"); d.innerHTML = "<button>Keep</button><p role=\\"status\\">Draft kept</p>"; document.getElementById("host").appendChild(d); ' + (focus ? 'd.querySelector("button").focus();' : '') + ' return true; })()';
+    await lane.page(TOKENS + '<main><div id="host"></div></main>');
+    await lane.browser.evaluate(toExpression(a11yLiveMark));
+    await lane.browser.evaluate(OPEN(true));
+    let r = await lane.browser.evaluate(toExpression(a11yLiveCheck));
+    assert.deepEqual(r.findings, []);
+    assert.equal(r.judged, 0);
+    await lane.page(TOKENS + '<main><div id="host"></div></main>');
+    await lane.browser.evaluate(toExpression(a11yLiveMark));
+    await lane.browser.evaluate(OPEN(false));
+    r = await lane.browser.evaluate(toExpression(a11yLiveCheck));
+    assert.match(of(r, 'a11y.live-regions'), /<p> "Draft kept" was inserted already holding/);
   });
 });
 
@@ -169,12 +192,23 @@ describe('a11y.tooltips: no information required to operate the product', unitBl
       <span class="truncate" style="display:inline-block;width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="north-gate-0900-very-long-original-file-name.mp4">north-gate-0900-very-long-original-file-name.mp4</span>
       <td class="num" title="14 Sept 2026, 09:00:00">14 Sept, 09:00</td>
       <time datetime="2026-09-14T09:00:00Z" title="14 September 2026 09:00">09:00</time>
-      <th title="Final count, recorded when the run completed">Tracks</th>
+      <p>Tracks is the final count, recorded when the run completed.</p><table><tr><th title="Final count, recorded when the run completed">Tracks</th></tr></table>
       <p>Adjust the window before refreshing.</p><button disabled title="Adjust the window before refreshing.">Refresh</button>`);
     assert.equal(of(r, 'a11y.tooltips'), '');
     assert.ok(r.evaluated.includes('a11y.tooltips'));
     r = await judge('<button title="Press to discard the draft and reload">Reload</button>');
     assert.match(of(r, 'a11y.tooltips'), /carries "Press to discard the draft and reload" only in a tooltip/);
+    // A heading's definition is not stated by being a heading.
+    r = await judge('<table><tr><th title="Final count, recorded when the run completed">Tracks</th></tr></table>');
+    assert.match(of(r, 'a11y.tooltips'), /carries "Final count, recorded when the run completed" only in a tooltip/);
+    // K is the name and one key: an instruction bracketed after the name is still an instruction.
+    r = await judge('<button title="Delete (this cannot be undone; press twice to confirm)">Delete</button><button title="Save · you must adjust the window first">Save</button><button title="Open full review (Enter)">Open</button>');
+    assert.match(of(r, 'a11y.tooltips'), /carries "Delete \(this cannot be undone; press twice to confirm\)" only in a tooltip/);
+    assert.match(of(r, 'a11y.tooltips'), /carries "Save · you must adjust the window first" only in a tooltip/);
+    assert.match(of(r, 'a11y.tooltips'), /carries "Open full review \(Enter\)" only in a tooltip/);
+    // V is the truncated holder's own full value, not any truncated descendant's.
+    r = await judge('<table><tr title="Retry from the queue page"><td><span class="truncate" style="display:inline-block;width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">north-gate-0900-very-long-original-file-name.mp4</span></td></tr></table>');
+    assert.match(of(r, 'a11y.tooltips'), /carries "Retry from the queue page" only in a tooltip/);
   });
 });
 
@@ -216,6 +250,13 @@ describe('a11y.state-cues: a cue that is not colour alone', unitBlock(), () => {
     assert.equal(of(await rules(ITEM('font-weight:700')), 'a11y.state-cues'), '');
     assert.equal(of(await rules('<ul><li aria-current="true" class="row"><span class="icon" aria-hidden="true">✓</span>North gate</li><li class="row">South dock</li></ul>'), 'a11y.state-cues'), '');
     assert.equal(of(await rules(ITEM('background:#000;color:#fff')), 'a11y.state-cues'), '');
+    // Alone in its row (a crumb's link, an evidence-set control): the same control in a sibling row is the peer.
+    const ROWS = (style) => `<ol><li><a href="/a" aria-current="page" style="${style}">Search</a></li><li><a href="/b">Review</a></li></ol>`;
+    let r = await rules(ROWS('color:#88f'));
+    assert.match(of(r, 'a11y.state-cues'), /<a> "Search" is selected\/current, but nothing but colour tells it from <a> "Review"/);
+    r = await rules(ROWS('font-weight:700'));
+    assert.equal(of(r, 'a11y.state-cues'), '');
+    assert.equal(r.measured.stateCues?.unjudged ?? 0, 0);
   });
 
   it('requires dashed invalid geometry, text in every badge, distinct tick shapes per marker kind, and a handle told by its mark', async () => {
@@ -246,7 +287,7 @@ describe('a11y.focus-not-obscured and a11y.spatial-twin', unitBlock(), () => {
   });
 
   it('holds the object list to the canvas: every drawn object, its state, its actual coordinates; every timeline entry named', async () => {
-    const CANVAS = '<svg><g class="scene-zone" data-object-key="z1"><polygon points="0.1,0.1 0.5,0.1 0.5,0.6"/></g><g class="scene-line" data-object-key="l1"><polygon class="hit" points="0,0 1,0 1,1"/><line class="scene-line__segment" x1="0.1" y1="0.5" x2="0.9" y2="0.5"/></g></svg>';
+    const CANVAS = '<svg><g class="scene-zone" data-object-key="z1" data-points="0.100000,0.100000 0.500000,0.100000 0.500000,0.600000"><polygon points="10,10 50,10 50,60"/></g><g class="scene-line" data-object-key="l1" data-endpoints="0.100000,0.500000 0.900000,0.500000"><polygon class="hit" points="0,0 1,0 1,1"/><line class="scene-line__segment" x1="10" y1="50" x2="90" y2="50"/></g></svg>';
     const ROWS = (zonePoints, lineEnds) => `<ul aria-label="Zones"><li data-object-key="z1" data-object-kind="zone"><button aria-current="true">Gate, zone, 3 vertices, enabled</button><details class="scene-navigator__coordinates"><summary>Coordinates</summary><ol class="scene-navigator__points">${zonePoints}</ol></details></li></ul>
       <ul aria-label="Trip lines"><li data-object-key="l1" data-object-kind="line"><button>Door, directional, enabled</button>${lineEnds}</li></ul>`;
     const OK = ROWS('<li>0.100000, 0.100000</li><li>0.500000, 0.100000</li><li>0.500000, 0.600000</li>', '<span class="scene-navigator__endpoints">(0.100000, 0.500000) → (0.900000, 0.500000)</span>');
@@ -257,8 +298,14 @@ describe('a11y.focus-not-obscured and a11y.spatial-twin', unitBlock(), () => {
     assert.match(of(r, 'a11y.spatial-twin'), /<g.scene-zone> \(z1\) is drawn with no entry in the object list/);
     r = await rules(CANVAS + ROWS('', '<span class="scene-navigator__endpoints">(0.1, 0.5) → (0.9, 0.5)</span>'));
     assert.match(of(r, 'a11y.spatial-twin'), /the entry for z1 names no coordinates/);
-    r = await rules(CANVAS + ROWS('<li>0.1, 0.1</li><li>0.5, 0.1</li>', '<span class="scene-navigator__endpoints">(0.1, 0.5) → (0.9, 0.5)</span>'));
-    assert.match(of(r, 'a11y.spatial-twin'), /lists 2 coordinate\(s\) for a polygon of 3 vertices/);
+    r = await rules(CANVAS + ROWS('<li>0.100000, 0.100000</li><li>0.500000, 0.100000</li>', '<span class="scene-navigator__endpoints">(0.100000, 0.500000) → (0.900000, 0.500000)</span>'));
+    assert.match(of(r, 'a11y.spatial-twin'), /lists "0.100000,0.100000 0.500000,0.100000" where the drawing holds "0.100000,0.100000 0.500000,0.100000 0.500000,0.600000"/);
+    // The right count of the wrong vertices, and a line's wrong endpoint, are findings; a drawing that states no coordinates cannot be held to.
+    r = await rules(CANVAS + ROWS('<li>0.100000, 0.100000</li><li>0.500000, 0.100000</li><li>0.500000, 0.700000</li>', '<span class="scene-navigator__endpoints">(0.100000, 0.500000) → (0.900000, 0.400000)</span>'));
+    assert.match(of(r, 'a11y.spatial-twin'), /lists "[^"]*0.500000,0.700000" where the drawing holds/);
+    assert.match(of(r, 'a11y.spatial-twin'), /names endpoints "0.100000 0.500000 0.900000 0.400000" where the drawing holds "0.100000,0.500000 0.900000,0.500000"/);
+    r = await rules(CANVAS.replace(/ data-points="[^"]*"/, '') + OK);
+    assert.match(of(r, 'a11y.spatial-twin'), /does not state its stored coordinates \(data-points\)/);
     r = await rules(CANVAS + ROWS('<li>0.1, 0.1</li><li>0.5, 0.1</li><li>0.5, 0.6</li>', ''));
     assert.match(of(r, 'a11y.spatial-twin'), /the entry for l1 does not name both endpoints/);
     r = await rules('<ul><li class="evidence-timeline__interval"><button>Zone A, 00:01 to 00:04</button></li><li class="evidence-timeline__marker"><span>no control</span></li></ul>');
@@ -378,17 +425,39 @@ describe('the text-spacing lane, end to end', () => {
   });
 
   e2e('catches content that fits at normal spacing and clips only under the overrides, and a spaced control pushed under a fixed band', () => {
-    // A title box sized to its single line: at 1.5 line height the text overflows it.
-    const CLIP = `(() => { const s = document.createElement('style'); s.textContent = '.context-bar__title, main h1 { max-height: 1.25em; overflow: hidden; }'; document.head.appendChild(s); return true; })()`;
+    // A sentence in a box sized to its width at normal metrics (measured on a
+    // clone that overrides the spacing with !important): under the overrides
+    // the letter spacing widens it past the box, which cuts it off.
+    const CLIP = `(() => {
+      const p = document.createElement('p'); p.textContent = 'Latest run per video — earlier runs are not listed here.'; p.style.cssText = 'white-space:nowrap;overflow:hidden;margin:8px';
+      const probe = p.cloneNode(true); probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap';
+      for (const prop of [['letter-spacing', 'normal'], ['word-spacing', 'normal'], ['line-height', '1.45']]) probe.style.setProperty(prop[0], prop[1], 'important');
+      document.body.appendChild(probe); const width = Math.ceil(probe.getBoundingClientRect().width) + 2; probe.remove();
+      p.style.width = width + 'px'; document.querySelector('main').prepend(p); return true; })()`;
     let { status, output, results } = run('clip', VIDEOS(CLIP), ['--states', 'videos', '--text-spacing', 'only', '--widths', '1366']);
     assert.equal(status, 1, output);
     assert.ok(results.findingsList.some((f) => f.rule === 'text.overflow' && f.viewport === '1366x768@spacing' && f.severity === 'blocking'), JSON.stringify(results.findingsList.map((f) => [f.rule, f.message]).slice(0, 5)));
     ({ status, output, results } = run('clip-none', VIDEOS(CLIP), ['--states', 'videos', '--text-spacing', 'none', '--zoom', 'none', '--widths', '1366']));
     assert.equal(status, 0, output);
     assert.ok(!results.findingsList.some((f) => f.rule === 'text.overflow'));
-    // A fixed band whose height grows with the spacing covers the first row action only under the overrides.
-    const BAND = `(() => { const s = document.createElement('style'); s.textContent = '.context-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: #000; min-height: 0 } .context-bar > * { line-height: 1 } main tbody tr:first-child td { padding-top: 0 } .workspace__body { padding-top: 0 }'; document.head.appendChild(s); return true; })()`;
+    // A control after a paragraph, and a fixed band at the bottom whose top
+    // edge sits just under where the control ends at normal metrics: the
+    // paragraph spacing of the overrides pushes the control under the band.
+    const BAND = `(() => {
+      const wrap = document.createElement('div'); wrap.id = 'vqa-band-fixture';
+      const p = document.createElement('p'); p.textContent = 'Earlier runs are not listed here.'; const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Fixture action';
+      wrap.append(p, b); document.querySelector('main').prepend(wrap);
+      const probe = wrap.cloneNode(true); probe.id = ''; probe.style.cssText = 'position:absolute;left:0;top:0;visibility:hidden;width:' + wrap.offsetWidth + 'px';
+      for (const el of [probe, ...probe.querySelectorAll('*')]) for (const prop of [['letter-spacing', 'normal'], ['word-spacing', 'normal'], ['line-height', '1.45'], ['margin-bottom', '0']]) el.style.setProperty(prop[0], prop[1], 'important');
+      document.body.appendChild(probe); const normalBottom = probe.querySelector('button').offsetTop + probe.querySelector('button').offsetHeight; probe.remove();
+      const top = wrap.getBoundingClientRect().top + normalBottom + 2;
+      const band = document.createElement('div'); band.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:#000;z-index:100;top:' + top + 'px;height:auto;max-height:200px';
+      document.body.appendChild(band); return true; })()`;
     ({ status, output, results } = run('band', VIDEOS(BAND), ['--states', 'videos', '--text-spacing', 'only', '--widths', '1366']));
     assert.ok(results.cases.every((c) => c.valid), output);
+    assert.ok(results.findingsList.some((f) => f.rule === 'a11y.focus-not-obscured' && f.viewport === '1366x768@spacing' && /Fixture action/.test(f.message)), JSON.stringify(results.findingsList.map((f) => [f.rule, f.message]).slice(0, 8)));
+    ({ status, output, results } = run('band-none', VIDEOS(BAND), ['--states', 'videos', '--text-spacing', 'none', '--zoom', 'none', '--widths', '1366']));
+    assert.ok(results.cases.every((c) => c.valid), output);
+    assert.ok(!results.findingsList.some((f) => f.rule === 'a11y.focus-not-obscured' && /Fixture action/.test(f.message)), JSON.stringify(results.findingsList.map((f) => [f.rule, f.message]).slice(0, 8)));
   });
 });

@@ -74,7 +74,6 @@ export function a11yVisibleLabel(el) {
     if (s.display === 'none' || s.visibility === 'hidden') return;
     const r = node.getBoundingClientRect();
     if (r.width <= 1 && r.height <= 1 && node !== el) return; // the visually-hidden pattern
-    if (node.tagName === 'IMG' && node.alt) parts.push(node.alt);
     for (const child of Array.from(node.childNodes)) walk(child);
   };
   walk(el);
@@ -263,22 +262,26 @@ export function a11yAssertions(input) {
   // --- a11y.state-cues (§23: a non-colour cue for every state) --------------
   if (!namesOnly) {
     const NONCOLOUR = ['border-left-width', 'border-right-width', 'border-top-width', 'border-bottom-width', 'border-left-style', 'border-bottom-style', 'box-shadow', 'font-weight', 'text-decoration-line', 'outline-style', 'outline-width', 'transform', 'stroke-width', 'stroke-dasharray'];
-    const luminance = (rgb) => {
-      const m = /rgba?\(([^)]+)\)/.exec(rgb); if (!m) return null;
-      const [r, g, b, a] = m[1].split(',').map((v) => parseFloat(v));
-      if (a === 0) return null;
-      const ch = (c) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-      return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
-    };
-    const ratio = (x, y) => { const a = luminance(x); const b = luminance(y); if (a === null || b === null) return null; return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
-    // The background seen at an element: its own, else the first opaque one behind it.
+    // Colours as Chromium serialises them (rgb/rgba); anything else — a
+    // color() result — is unknown, never credited. A translucent layer is
+    // composited over what is behind it before its luminance counts.
+    const parse = (rgb) => { const m = /rgba?\(([^)]+)\)/.exec(rgb || ''); if (!m) return null; const [r, g, b, a] = m[1].split(',').map((v) => parseFloat(v)); return { r, g, b, a: a === undefined || Number.isNaN(a) ? 1 : a }; };
+    const over = (top, under) => { const a = top.a + under.a * (1 - top.a); if (a === 0) return { r: 0, g: 0, b: 0, a: 0 }; const mix = (k) => (top[k] * top.a + under[k] * under.a * (1 - top.a)) / a; return { r: mix('r'), g: mix('g'), b: mix('b'), a }; };
+    const luminanceOf = (c) => { if (!c || c.a === 0) return null; const ch = (v) => { const x = v / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b); };
+    const WHITE = { r: 255, g: 255, b: 255, a: 1 };
+    // The background seen at an element: every layer behind it composited, down to the page's white.
     const backgroundOf = (el) => {
+      let acc = null;
       for (let n = el; n; n = n.parentElement) {
-        const bg = getComputedStyle(n).backgroundColor;
-        if (luminance(bg) !== null) return bg;
+        const c = parse(getComputedStyle(n).backgroundColor);
+        if (!c || c.a === 0) continue;
+        acc = acc ? over(acc, c) : c;
+        if (acc.a >= 1) return acc;
       }
-      return 'rgb(255, 255, 255)';
+      return acc ? over(acc, WHITE) : WHITE;
     };
+    const seen = (colour, el) => { const c = parse(colour); if (!c || c.a === 0) return null; return c.a >= 1 ? c : over(c, backgroundOf(el)); };
+    const ratio = (x, y) => { const a = luminanceOf(x); const b = luminanceOf(y); if (a === null || b === null) return null; return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
     const STATE_CLASSES = /^(is-selected|is-active|is-current|is-invalid|is-off)$/;
     const cued = (el, peer) => {
       if (!peer) return null;
@@ -292,8 +295,6 @@ export function a11yAssertions(input) {
       const lr = ratio(backgroundOf(el), backgroundOf(peer));
       if (lr !== null && lr >= 3) return 'background luminance ' + lr.toFixed(1) + ':1';
       if (el.querySelector('.scene-handle') && !peer.querySelector('.scene-handle')) return 'handles shown';
-      // SVG: the state is drawn by the first mark inside (a handle's circle, a
-      // zone's polygon): its stroke width, dash, radius, or a fill luminance step.
       // SVG: the state is drawn by the marks inside (a handle's hit circle and
       // its mark, a zone's polygon), compared pairwise in document order: a
       // stroke width, dash, radius, or a fill or stroke luminance step on any.
@@ -301,18 +302,28 @@ export function a11yAssertions(input) {
       for (let i = 0; i < Math.min(marksA.length, marksB.length); i += 1) {
         const ma = getComputedStyle(marksA[i]); const mb = getComputedStyle(marksB[i]);
         for (const p of ['stroke-width', 'stroke-dasharray', 'r']) if (ma.getPropertyValue(p) !== mb.getPropertyValue(p)) return 'mark ' + p;
-        const fr = ratio(ma.fill, mb.fill);
+        const fr = ratio(seen(ma.fill, marksA[i]), seen(mb.fill, marksB[i]));
         if (fr !== null && fr >= 3) return 'mark fill luminance ' + fr.toFixed(1) + ':1';
-        const sr = ratio(ma.stroke, mb.stroke);
+        const sr = ratio(seen(ma.stroke, marksA[i]), seen(mb.stroke, marksB[i]));
         if (sr !== null && sr >= 3) return 'mark stroke luminance ' + sr.toFixed(1) + ':1';
       }
       return null;
     };
+    const MARKED = '[aria-current]:not([aria-current="false"]), [aria-selected="true"], .is-selected, .is-active';
+    const sameKind = (el, cand) => { const classes = Array.from(el.classList).filter((c) => !STATE_CLASSES.test(c)); return cand !== el && cand.tagName === el.tagName && !cand.matches(MARKED) && classes.every((c) => cand.classList.contains(c)); };
     const peerOf = (el) => {
-      const classes = Array.from(el.classList).filter((c) => !STATE_CLASSES.test(c));
-      return Array.from(el.parentElement?.children ?? []).find((sib) => sib !== el && sib.tagName === el.tagName
-        && !sib.matches('[aria-current]:not([aria-current="false"]), [aria-selected="true"], .is-selected, .is-active')
-        && classes.every((c) => sib.classList.contains(c)));
+      const sibling = Array.from(el.parentElement?.children ?? []).find((sib) => sameKind(el, sib));
+      if (sibling) return sibling;
+      // Alone in its row (a crumb's link, an evidence-set control, a
+      // navigator's button beside its delete): the same control in a
+      // sibling row is its peer.
+      const row = el.parentElement?.closest('li, tr, .row, [role="row"], [role="listitem"]');
+      for (const sib of Array.from(row?.parentElement?.children ?? [])) {
+        if (sib === row || sib.tagName !== row.tagName) continue;
+        const cand = Array.from(sib.querySelectorAll(el.tagName)).find((c) => sameKind(el, c));
+        if (cand) return cand;
+      }
+      return null;
     };
     let judged = 0; let unjudged = 0;
     for (const el of Array.from(document.querySelectorAll('[aria-current]:not([aria-current="false"]), [aria-selected="true"], .is-selected, .is-active')).filter(rendered)) {
@@ -376,18 +387,25 @@ export function a11yAssertions(input) {
         const text = (li.textContent || '').replace(/\s+/g, ' ').trim();
         const control = li.querySelector('button, a[href], [tabindex]:not([tabindex="-1"])');
         if (!control) fail('a11y.spatial-twin', 'the entry for ' + key + ' offers no control: the twin must be the control the pointer uses');
+        // The drawing states its stored coordinates (`data-points`, one "x,y"
+        // per vertex; `data-endpoints`, two) in the same form the list prints
+        // them; the list must name exactly those, in order.
+        const pair = (s) => (s.match(/-?\d+(?:\.\d+)?/g) || []).join(',');
         const polygon = obj.classList.contains('scene-line') ? null : obj.querySelector('polygon');
         if (polygon) {
-          const expected = polygon.points.length;
-          const points = li.querySelectorAll('.scene-navigator__points li, .scene-navigator__coordinates li');
+          const stored = (obj.getAttribute('data-points') || '').trim().split(/\s+/).filter(Boolean);
+          const points = Array.from(li.querySelectorAll('.scene-navigator__points li, .scene-navigator__coordinates li')).map((p) => pair(p.textContent));
+          if (!stored.length) fail('a11y.spatial-twin', describe(obj) + ' (' + key + ') does not state its stored coordinates (data-points), so the list cannot be held to them');
+          else if (stored.length !== polygon.points.length) fail('a11y.spatial-twin', describe(obj) + ' (' + key + ') states ' + stored.length + ' coordinate(s) for a polygon of ' + polygon.points.length + ' vertices');
           if (!points.length) fail('a11y.spatial-twin', 'the entry for ' + key + ' names no coordinates (§23: the list names each object, its state and its coordinates)');
-          else if (points.length !== expected) fail('a11y.spatial-twin', 'the entry for ' + key + ' lists ' + points.length + ' coordinate(s) for a polygon of ' + expected + ' vertices');
-          else if (Array.from(points).some((p) => !/-?\d/.test(p.textContent))) fail('a11y.spatial-twin', 'the entry for ' + key + ' lists a coordinate with no number in it');
-          const sides = Array.from(points).map((p) => p.textContent);
-          if (sides.length !== new Set(sides).size && expected !== new Set(Array.from(polygon.points).map((p) => p.x + ',' + p.y)).size) { /* repeated vertices are the drawing's */ }
+          else if (stored.length && points.join(' ') !== stored.join(' ')) fail('a11y.spatial-twin', 'the entry for ' + key + ' lists "' + points.join(' ') + '" where the drawing holds "' + stored.join(' ') + '"');
         } else {
+          const stored = (obj.getAttribute('data-endpoints') || '').trim().split(/\s+/).filter(Boolean);
           const endpoints = li.querySelector('.scene-navigator__endpoints');
-          if (!endpoints || (endpoints.textContent.match(/-?\d+(\.\d+)?/g) || []).length < 4) fail('a11y.spatial-twin', 'the entry for ' + key + ' does not name both endpoints of the line');
+          const named = endpoints ? (endpoints.textContent.match(/-?\d+(?:\.\d+)?/g) || []) : [];
+          if (stored.length !== 2) fail('a11y.spatial-twin', describe(obj) + ' (' + key + ') does not state its two stored endpoints (data-endpoints)');
+          if (named.length < 4) fail('a11y.spatial-twin', 'the entry for ' + key + ' does not name both endpoints of the line');
+          else if (stored.length === 2 && [named.slice(0, 2).join(','), named.slice(2, 4).join(',')].join(' ') !== stored.join(' ')) fail('a11y.spatial-twin', 'the entry for ' + key + ' names endpoints "' + named.join(' ') + '" where the drawing holds "' + stored.join(' ') + '"');
         }
         if (!/\b(enabled|disabled|invalid|selected|zone|line|vertices|vertex)\b/i.test(text)) fail('a11y.spatial-twin', 'the entry for ' + key + ' names no state');
       }
@@ -431,7 +449,15 @@ export function a11yAssertions(input) {
         if (line) line.push(c); else lines.push([c]);
       }
       lines.sort((p, q) => Math.min(...p.map((m) => m.r.top)) - Math.min(...q.map((m) => m.r.top)));
-      const visual = lines.flatMap((l) => l.slice().sort((p, q) => p.r.left - q.r.left));
+      // Row-major: each line left to right. A column-flow container instead
+      // reads each column top to bottom, columns left to right.
+      const overlapX = (p, q) => Math.min(p.r.right, q.r.right) - Math.max(p.r.left, q.r.left) > Math.min(p.r.width, q.r.width) / 2;
+      const columns = [];
+      if (columnFlow) {
+        for (const c of children) { const col = columns.find((k) => k.some((m) => overlapX(m, c))); if (col) col.push(c); else columns.push([c]); }
+        columns.sort((p, q) => Math.min(...p.map((m) => m.r.left)) - Math.min(...q.map((m) => m.r.left)));
+      }
+      const visual = columnFlow ? columns.flatMap((k) => k.slice().sort((p, q) => p.r.top - q.r.top)) : lines.flatMap((l) => l.slice().sort((p, q) => p.r.left - q.r.left));
       for (let i = 0; i < children.length; i += 1) {
         if (visual[i] !== children[i]) {
           fail('a11y.reading-order', 'in ' + describe(container) + ' the document reads ' + describe(children[i].el) + ' where the page shows ' + describe(visual[i].el) + (columnFlow ? ' (a column-flow container)' : '') + ': the reading order is not the visual order');
@@ -515,11 +541,11 @@ export function a11yAssertions(input) {
       const describedIds = (el.getAttribute('aria-describedby') || '') + ' ' + (el.getAttribute('aria-errormessage') || '');
       const described = describedIds.split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)).filter(Boolean);
       const errorText = described.map((d) => (d.textContent || '').trim()).filter(Boolean);
-      const announced = described.some((d) => d.closest('[role="alert"], [aria-live]'));
+      const announced = described.some((d) => d.closest('[role="alert"], [role="status"], [aria-live]'));
       tagged.push({
         index, description: describe(el), visibleLabel: a11yVisibleLabel(el), title: el.getAttribute('title') || '',
         railItem: Boolean(el.closest('nav[aria-label="Primary"], .sidebar, .rail')) && el.tagName === 'A',
-        railCollapsed: Boolean(document.querySelector('[aria-controls][aria-expanded="false"]') && el.closest('.sidebar')),
+        railCollapsed: Array.from(document.querySelectorAll('[aria-controls][aria-expanded="false"]')).some((ctrl) => document.getElementById(ctrl.getAttribute('aria-controls'))?.contains(el)),
         isField, type: el.type || el.tagName.toLowerCase(), placeholder: el.getAttribute('placeholder') || '',
         invalid: el.getAttribute('aria-invalid') === 'true', errorText, announced, focused: document.activeElement === el,
         onScreen: v.seen.width >= 1 && v.seen.height >= 1,
@@ -550,8 +576,9 @@ export function a11yAssertions(input) {
       tooltips.push({
         description: describe(el), text, controlIndex: control ? Number(control.getAttribute('data-vqa-ax')) : null,
         isTime: (el.tagName === 'TIME' && Boolean(el.getAttribute('datetime'))) || expandsTime,
-        truncated: Boolean(truncatedHolder) || Boolean(el.closest('.truncate') && (el.closest('.truncate').scrollWidth > el.closest('.truncate').clientWidth + 1)),
-        heading: /^(H[1-6]|TH)$/.test(el.tagName) || el.closest('th') !== null,
+        // V: the full value of a truncated holder — the holder's own text, not
+        // any truncated descendant's.
+        truncated: Boolean(truncatedHolder) && a11yNormalise(truncatedHolder.textContent) === a11yNormalise(text),
         elsewhere: a11yNormalise(document.body.innerText).includes(a11yNormalise(text)),
         isRoleTooltip: el.getAttribute('role') === 'tooltip',
       });
@@ -589,7 +616,7 @@ export function a11yNamesJudge(input) {
     } else {
       const label = a11yNormalise(c.visibleLabel).replace(/\s+/g, '');
       const flat = a11yNormalise(name).replace(/\s+/g, '');
-      if (label && !flat.includes(label) && !label.includes(flat)) {
+      if (label && !flat.includes(label)) {
         fail('a11y.names', c.description + ' is named "' + name.slice(0, 60) + '" but shows "' + c.visibleLabel.trim().slice(0, 60) + '": the name does not contain the visible label (WCAG 2.5.3)');
       }
       if (source === 'title' && !(c.railItem && c.railCollapsed)) {
@@ -612,13 +639,19 @@ export function a11yNamesJudge(input) {
     const control = t.controlIndex === null ? null : input.controls.find((c) => c.index === t.controlIndex);
     const name = control ? a11yNormalise(named.get(control.index)?.name ?? '') : '';
     const text = a11yNormalise(t.text);
-    const stripped = a11yNormalise(t.text.replace(/\s*(\(.*\)|·.*|—.*)$/u, ''));
+    // K: the control's name, then one key hint and nothing else — "(Space)",
+    // "· k or ↑", "· Esc": a few words, no sentence punctuation. Anything
+    // longer after the name is an instruction, however it is bracketed.
+    const hint = /^(.*?)\s*(?:\(([^()]{1,24})\)|·\s*([^·]{1,24}))$/u.exec(t.text.trim());
+    const key = hint ? (hint[2] ?? hint[3] ?? '').trim() : '';
+    const keyish = key && !/[.;:!?,]/.test(key) && key.split(/\s+/).length <= 4;
+    const stripped = keyish ? a11yNormalise(hint[1]) : '';
     const classes = [];
     if (control && name && (text === name || name.includes(text))) classes.push('N');
-    if (control && stripped && (stripped === name || name.includes(stripped) || (control.visibleLabel && a11yNormalise(control.visibleLabel) === stripped))) classes.push('K');
+    if (control && stripped && (stripped === name || (control.visibleLabel && a11yNormalise(control.visibleLabel) === stripped))) classes.push('K');
     if (t.truncated) classes.push('V');
     if (t.isTime) classes.push('F');
-    if (t.elsewhere || t.heading) classes.push('S');
+    if (t.elsewhere) classes.push('S');
     if (!classes.length) fail('a11y.tooltips', t.description + ' carries "' + t.text.slice(0, 80) + '" only in a tooltip: not its control\'s name, a truncated value, a timestamp\'s full form, nor stated elsewhere on the page (§23)');
   }
   for (const el of Array.from(document.querySelectorAll('[data-vqa-ax]'))) el.removeAttribute('data-vqa-ax');
@@ -635,30 +668,36 @@ export function a11yLiveMark() {
   const LIVE = '[aria-live], [role="status"], [role="alert"], [role="log"]';
   window.__vqaLive = new Set(Array.from(document.querySelectorAll(LIVE)));
   window.__vqaLiveContainers = new Set(Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"], .inspector, .drawer')));
-  // What the preparation does to the document, batch by batch: a region
-  // inserted in one batch and given its text in a later one was mounted
-  // before it was populated (its text is a change in an existing region); a
-  // region whose text is there by the end of the batch that inserted it was
-  // inserted populated. A batch is one observer callback: the mutations of
-  // one task, so an insertion and a text set in the same task are one batch.
+  // What the preparation does to the document, frame by frame: Chromium
+  // updates the accessibility tree once per rendering frame, so a region
+  // inserted in one frame and given its text in a later one was mounted
+  // before it was populated (its text is a change in an existing region),
+  // and a region whose text is there by the end of the frame that inserted
+  // it was inserted populated — however many tasks or microtasks the two
+  // mutations were apart. Frames are counted by requestAnimationFrame; each
+  // observer callback stamps its mutations with the frame they fall in.
   window.__vqaLiveObserver?.disconnect();
+  if (window.__vqaLiveFrameStop) window.__vqaLiveFrameStop();
   const tracked = new WeakMap();
   window.__vqaLiveTracked = tracked;
-  let batch = 0;
+  let frame = 0; let ticking = true;
+  const tick = () => { if (!ticking) return; frame += 1; requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  window.__vqaLiveFrameStop = () => { ticking = false; };
+  window.__vqaLiveFrames = () => frame;
   const regionOf = (node) => (node.nodeType === 1 ? node : node.parentElement)?.closest(LIVE) ?? null;
   const observer = new MutationObserver((records) => {
-    batch += 1;
     for (const record of records) {
       for (const added of Array.from(record.addedNodes)) {
         if (added.nodeType !== 1) continue;
         const regions = [added.matches(LIVE) ? added : null, ...Array.from(added.querySelectorAll(LIVE))].filter(Boolean);
-        for (const region of regions) if (!tracked.has(region) && !window.__vqaLive.has(region)) tracked.set(region, { insertedBatch: batch, populatedBatch: null });
+        for (const region of regions) if (!tracked.has(region) && !window.__vqaLive.has(region)) tracked.set(region, { insertedFrame: frame, populatedFrame: null });
       }
     }
     for (const record of records) {
       const region = regionOf(record.target);
       const info = region && tracked.get(region);
-      if (info && info.populatedBatch === null && (region.textContent || '').trim()) info.populatedBatch = batch;
+      if (info && info.populatedFrame === null && (region.textContent || '').trim()) info.populatedFrame = frame;
     }
   });
   observer.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
@@ -670,12 +709,13 @@ export function a11yLiveMark() {
  * After a preparation (a11y.live-regions): every live region holding text now
  * was mounted before the preparation — a region inserted together with its
  * message is not announced (§23: status regions mounted before populated).
- * A region inside an overlay the preparation opened is judged with it: the
- * overlay is new, so its regions are new, and the rule asks that the
- * region be mounted before its message, which an overlay that opens with its
- * message cannot show — unless the message came from the operator's own
- * action in that overlay (a second step), which the states declare by
- * preparing in steps.
+ * A region inserted by the preparation passes only if its text arrived in a
+ * later rendering frame than its insertion (a11yLiveMark's observer). The
+ * one exemption: a region inside an overlay or inspector the preparation
+ * itself opened and put the operator's focus in — what the operator opened
+ * is read from that component's own name and the focus landing in it, and
+ * the region's later changes are announced from then on. A container the
+ * preparation mounted without moving focus into it exempts nothing.
  */
 export function a11yLiveCheck() {
   const findings = [];
@@ -693,17 +733,17 @@ export function a11yLiveCheck() {
     // the component's own name and focus, and the region's later changes are
     // announced from then on.
     const container = el.closest('[role="dialog"], [aria-modal="true"], .inspector, .drawer');
-    if (container && !marked.has(container) && !(window.__vqaLiveContainers ?? new Set()).has(container)) continue;
+    const opened = container && !(window.__vqaLiveContainers ?? new Set()).has(container) && container.contains(document.activeElement);
+    if (opened) continue;
     judged += 1;
     if (marked.has(el)) continue;
-    // Inserted during the preparation: it passes only if its text arrived in
-    // a later batch than its insertion (a11yLiveMark's observer).
     const info = window.__vqaLiveTracked?.get(el);
-    const populatedLater = Boolean(info) && info.populatedBatch !== null && info.populatedBatch > info.insertedBatch;
-    if (!populatedLater) findings.push({ rule: 'a11y.live-regions', message: zoomDescribe(el) + ' was inserted already holding "' + (el.textContent || '').trim().slice(0, 60) + '": a status region is mounted before it is populated (its text set in a later task), or it is not announced' });
+    const populatedLater = Boolean(info) && info.populatedFrame !== null && info.populatedFrame > info.insertedFrame;
+    if (!populatedLater) findings.push({ rule: 'a11y.live-regions', message: zoomDescribe(el) + ' was inserted already holding "' + (el.textContent || '').trim().slice(0, 60) + '": a status region is mounted before it is populated (its text set in a later frame), or it is not announced' });
   }
   window.__vqaLiveObserver?.disconnect();
-  return { findings, judged };
+  if (window.__vqaLiveFrameStop) window.__vqaLiveFrameStop();
+  return { findings, judged, frames: window.__vqaLiveFrames ? window.__vqaLiveFrames() : null };
 }
 a11yLiveCheck.helpers = [zoomDescribe];
 
@@ -713,7 +753,7 @@ a11yLiveCheck.helpers = [zoomDescribe];
  * pressed by the harness (cdp.press), and a11yShortcutsAfter judges.
  */
 export function a11yShortcutsBefore() {
-  const field = Array.from(document.querySelectorAll('input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="email"], input[type="url"], textarea, [contenteditable="true"]'))
+  const field = Array.from(document.querySelectorAll('input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], textarea, [contenteditable="true"]'))
     .find((el) => { const v = zoomVisibility(el); return !el.disabled && !el.readOnly && !v.hidden && !v.inert; });
   if (!field) return { field: null };
   field.focus();
@@ -759,10 +799,18 @@ export function a11yShortcutsAfter(input) {
  */
 export function a11yTooltipTargets() {
   const out = [];
-  // With an overlay or inspector open, Escape is its (the overlay exit probe
-  // judges it) wherever the trigger is: Search's inspector closes on Escape
-  // from the shell's own controls too, and returns focus to the result.
-  const escapeHeld = Boolean(document.querySelector('[role="dialog"], [aria-modal="true"], .inspector, .drawer, .workspace__inspector'));
+  // Inside a closable overlay — a dialog, a drawer, an inspector with its own
+  // Close control — Escape is the overlay's (the exit probe judges it), and
+  // pressing it there would take the overlay and its other tooltips away:
+  // those triggers are not pressed, and are judged before any trigger whose
+  // Escape may close the overlay from outside it (Search's inspector closes
+  // on Escape from the shell's controls too).
+  const closable = (anchor) => {
+    const overlay = anchor.closest('[role="dialog"], [aria-modal="true"], .drawer');
+    if (overlay) return true;
+    const inspector = anchor.closest('.workspace__inspector, .inspector');
+    return Boolean(inspector && Array.from(inspector.querySelectorAll('button')).some((b) => /^close\b/i.test((b.getAttribute('aria-label') || b.textContent || '').trim())));
+  };
   for (const anchor of Array.from(document.querySelectorAll('.tooltip-anchor'))) {
     const tip = anchor.querySelector('[role="tooltip"]');
     const trigger = anchor.querySelector('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
@@ -774,24 +822,23 @@ export function a11yTooltipTargets() {
     out.push({
       id: tip.id, description: zoomDescribe(trigger), x: (v.seen.left + v.seen.right) / 2, y: (v.seen.top + v.seen.bottom) / 2,
       box: { x: r.x, y: r.y, width: r.width, height: r.height },
-      inOverlay: escapeHeld || Boolean(anchor.closest('[role="dialog"], [aria-modal="true"], .inspector, .drawer')),
+      inOverlay: closable(anchor),
     });
   }
-  return out;
+  return out.sort((p, q) => Number(q.inOverlay) - Number(p.inOverlay));
 }
 a11yTooltipTargets.helpers = [zoomDescribe, zoomClipChain, zoomVisibleRect, zoomVisibility];
 
 /** The state of one tooltip and the focus, for the harness's polling. */
 export function a11yTooltipState(id) {
   const tip = document.getElementById(id);
-  if (!tip) return { gone: true };
+  if (!tip) return { gone: true, overlays: document.querySelectorAll('[role="dialog"], [aria-modal="true"], .drawer, .workspace__inspector').length };
   const r = tip.getBoundingClientRect();
   const active = document.activeElement;
-  return { shown: !tip.hidden && getComputedStyle(tip).display !== 'none' && r.width > 0, box: { x: r.x, y: r.y, width: r.width, height: r.height }, focus: active ? zoomDescribe(active) : null, describes: Boolean(document.querySelector('[aria-describedby~="' + CSS.escape(id) + '"]')) };
+  return { shown: !tip.hidden && getComputedStyle(tip).display !== 'none' && r.width > 0, box: { x: r.x, y: r.y, width: r.width, height: r.height }, focus: active ? zoomDescribe(active) : null, describes: Boolean(document.querySelector('[aria-describedby~="' + CSS.escape(id) + '"]')), overlays: document.querySelectorAll('[role="dialog"], [aria-modal="true"], .drawer, .workspace__inspector').length };
 }
 a11yTooltipState.helpers = [zoomDescribe];
 
-/** Focus a tooltip's trigger (by its tooltip id) from the page, as Tab would land on it. */
 /** Where a tooltip's trigger (by its tooltip id) is now: the centre of its visible part, or null. */
 export function a11yTooltipPoint(id) {
   const tip = document.getElementById(id);
@@ -804,6 +851,7 @@ export function a11yTooltipPoint(id) {
 }
 a11yTooltipPoint.helpers = [zoomClipChain, zoomVisibleRect, zoomVisibility];
 
+/** Focus a tooltip's trigger (by its tooltip id) from the page, as Tab would land on it. */
 export function a11yTooltipFocus(id) {
   const tip = document.getElementById(id);
   const anchor = tip?.closest('.tooltip-anchor');

@@ -577,6 +577,12 @@ async function runCase(lane, c) {
       names = await browser.axNames('[data-vqa-ax]');
     }
     const judged = await browser.evaluate(toExpression(a11yNamesJudge, { controls: x1.controls, names, tooltips: x1.measured.tooltipList }));
+    // Controls still unnamed after the second pass were replaced again: the
+    // names rules did not run on them — a fault of the case, never a pass.
+    if (judged.measured.unresolved > 0) {
+      unreach('accessible names', `${judged.measured.unresolved} control(s) re-rendered between tagging and the accessibility-tree read, twice`);
+      reached = false;
+    }
     markEvaluated(c, judged.evaluated);
     for (const finding of judged.findings) add(finding.rule, finding.message);
     a11y = { ...x1.measured, tooltipList: undefined, names: judged.measured };
@@ -897,7 +903,7 @@ const report = {
     return { condition: TEXT_SPACING_CONDITION, scheduled: cases.filter((c) => c.viewport.textSpacing).length, valid: spacing.filter((r) => r.valid).length, inForce: spacing.filter((r) => r.textSpacing?.inForce).length, byViewport: by };
   })(),
   a11y: {
-    hover: { cases: results.filter((r) => r.hover?.judged).length, tooltips: results.reduce((n, r) => n + (r.hover?.judged ?? 0), 0), escapeSkipped: results.reduce((n, r) => n + (r.hover?.escapeSkipped ?? 0), 0) },
+    hover: { cases: results.filter((r) => r.hover?.judged).length, tooltips: results.reduce((n, r) => n + (r.hover?.judged ?? 0), 0), escapeSkipped: results.reduce((n, r) => n + (r.hover?.escapeSkipped ?? 0), 0), escapeClosedOverlay: results.reduce((n, r) => n + (r.hover?.escapeClosedOverlay ?? 0), 0) },
     shortcuts: { cases: results.filter((r) => r.shortcuts?.field).length },
     names: { controls: results.reduce((n, r) => n + (r.a11y?.names?.controls ?? 0), 0), fields: results.reduce((n, r) => n + (r.a11y?.names?.fields ?? 0), 0), tooltips: results.reduce((n, r) => n + (r.a11y?.names?.tooltips ?? 0), 0) },
     targets: results.reduce((n, r) => n + (r.a11y?.targets?.judged ?? 0), 0),

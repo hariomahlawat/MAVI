@@ -462,7 +462,7 @@ describe('VisualSearchPage', () => {
 
     expect(await screen.findByText(/snapshot can no longer continue/i)).toBeInTheDocument();
     expect(document.querySelector('.results__foot .status-slot__announcer')).toBe(live);
-    expect(live).toHaveTextContent(/snapshot can no longer continue/);
+    await waitFor(() => expect(live).toHaveTextContent(/snapshot can no longer continue/));
     expect(screen.getByText(/snapshot can no longer continue/i).closest('.alert')).not.toHaveAttribute('role');
     expect(screen.getAllByRole('link', { name: 'Review evidence' })).toHaveLength(1);
 

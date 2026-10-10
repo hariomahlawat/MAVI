@@ -13,7 +13,7 @@ import { SCENE_LIMITS } from '../../api/scene';
 import { contentRect, isInsideFrame, projectPoint, unprojectPoint, type PixelRect } from '../../shared/evidence/projection';
 import { aToBNormal, alongLine, arrowHead, bToANormal, midpoint } from './lineDirection';
 import type { Drawing, EditorTool, Selection } from './editorState';
-import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';
+import { formatCoordinate, type DraftTripLine, type DraftZone, type SceneDraft } from './sceneDraft';
 
 type Props = {
   draft: SceneDraft;
@@ -357,7 +357,14 @@ function ZoneShape({
   ].filter(Boolean).join(' ');
 
   return (
-    <g className={classes} data-testid={`scene-zone-${zone.key}`} data-object-key={zone.key}>
+    <g
+      className={classes}
+      data-testid={`scene-zone-${zone.key}`}
+      data-object-key={zone.key}
+      // The stored vertices, as the object list prints them (§23: the twin
+      // names each object's actual coordinates, held to the drawing).
+      data-points={zone.vertices.map((vertex) => `${formatCoordinate(vertex.x)},${formatCoordinate(vertex.y)}`).join(' ')}
+    >
       <polygon
         points={points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')}
         onPointerDown={(event) => {
@@ -435,7 +442,12 @@ function LineShape({
   const showCrossings = line.directed;
 
   return (
-    <g className={classes} data-testid={`scene-line-${line.key}`} data-object-key={line.key}>
+    <g
+      className={classes}
+      data-testid={`scene-line-${line.key}`}
+      data-object-key={line.key}
+      data-endpoints={`${formatCoordinate(line.a.x)},${formatCoordinate(line.a.y)} ${formatCoordinate(line.b.x)},${formatCoordinate(line.b.y)}`}
+    >
       <line
         className="scene-line__segment"
         x1={a.x}

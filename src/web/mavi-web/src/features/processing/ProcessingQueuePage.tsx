@@ -171,12 +171,14 @@ export default function ProcessingQueuePage() {
                       queue's order is its operational statement). */}
                   <th scope="col" className="num ledger-fold">Queued</th>
                   <th scope="col" className="num ledger-fold">Attempt</th>
-                  <th scope="col" className="num ledger-fold" title="Final count, recorded when the run completed">Tracks</th>
+                  {/* §23: a column's definition is not carried in a tooltip; the
+                      Processing Detail Record states what the count is. */}
+                  <th scope="col" className="num ledger-fold">Tracks</th>
                   {/* Slice 4: a separate compact column, as text. The Status
                       column keeps its one badge (§16); analytics readiness is a
                       second fact about the row, not a second opinion about the
                       same one, and is never a second badge. */}
-                  <th scope="col" title="Scene analytics readiness for the latest run">Analytics</th>
+                  <th scope="col">Analytics</th>
                   <th scope="col"><span className="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
@@ -202,7 +204,10 @@ export default function ProcessingQueuePage() {
                       <td>
                         <LedgerPrimary
                           identity={(
-                            <TruncatedText text={`${row.originalFileName} · ${row.cameraCode} · ${row.cameraName}`} className="cap-lg">
+                            // The full value of what is drawn (§16): the file and the
+                            // camera code. The camera's name is the Videos Ledger's and the
+                            // Record's, never only a tooltip's (§23).
+                            <TruncatedText text={`${row.originalFileName} · ${row.cameraCode}`} className="cap-lg">
                               {row.originalFileName} <span className="faint">{row.cameraCode}</span>
                             </TruncatedText>
                           )}

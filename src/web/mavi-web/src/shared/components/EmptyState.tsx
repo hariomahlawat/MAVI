@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import Button from './Button';
 import Icon, { type IconName } from './Icon';
 import { statusText, useStatusReport } from './StatusSlot';
@@ -37,13 +37,19 @@ export default function EmptyState({
   // was mounted before this state appeared, so the sentence is a change there);
   // a standalone empty state keeps `role="status"` itself.
   const body = statusText(children);
-  const routed = useStatusReport(body ? `${title}. ${body}` : title, announce);
+  // The title, then the sentence as rendered (the actions are outside it: a
+  // control is never copied into the announcer).
+  const sentence = useRef<HTMLSpanElement | null>(null);
+  const routed = useStatusReport(body ? `${title}. ${body}` : title, announce, () => {
+    const rendered = sentence.current?.textContent?.trim();
+    return rendered ? `${title}. ${rendered}` : title;
+  });
 
   return (
     <div className={className} role={announce && !routed ? 'status' : undefined}>
       {icon ? <Icon name={icon} size="lg" /> : null}
       <strong>{title}</strong>
-      {children ? <span>{children}</span> : null}
+      {children ? <span ref={sentence}>{children}</span> : null}
       {actions ? <div className="empty__actions">{actions}</div> : null}
     </div>
   );

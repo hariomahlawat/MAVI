@@ -14,8 +14,9 @@ const tick = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * a11y.hover-content (WCAG 1.4.13): every custom tooltip of the page — the
  * `.tooltip-anchor` with its `[role="tooltip"]` — driven: focus its trigger
  * (shown, and still shown once the delay has passed again), Escape (hidden,
- * focus unmoved — not pressed on a trigger inside an open overlay, whose
- * Escape the exit probe judges), then the pointer onto the trigger (shown),
+ * focus unmoved — not pressed on a trigger inside a closable overlay, whose
+ * Escape the exit probe judges; a focus move that came with an overlay
+ * closing is recorded, not charged), then the pointer onto the trigger (shown),
  * onto the tooltip itself (still shown: hoverable), away (hidden). The delay
  * is the page's motion token (`--dur`), read from the stylesheet.
  */
@@ -50,7 +51,7 @@ export async function probeHoverContent(browser) {
     await browser.mouseMove(target.x < vw / 2 ? vw - 2 : 2, target.y < vh / 2 ? vh - 2 : 2);
   };
   const findings = [];
-  let judged = 0; let escapeSkipped = 0;
+  let judged = 0; let escapeSkipped = 0; let escapeClosedOverlay = 0;
   for (const target of targets) {
     judged += 1;
     const problems = [];
@@ -66,11 +67,16 @@ export async function probeHoverContent(browser) {
         if (!s.describes) problems.push("the tooltip is not the trigger's description (aria-describedby)");
         if (target.inOverlay) escapeSkipped += 1;
         else {
-          const focusBefore = s.focus;
+          const focusBefore = s.focus; const overlaysBefore = s.overlays;
           await browser.press('Escape');
           s = await settleTip(target.id, (x) => !x.shown);
           if (s.shown) problems.push('Escape did not dismiss it');
-          if (s.focus !== focusBefore) problems.push('Escape moved focus from ' + focusBefore + ' to ' + (s.focus ?? 'nothing'));
+          // The same key closed an overlay the page had open (Search's
+          // inspector closes on Escape from the shell's controls and returns
+          // focus to the result): the focus move is the overlay's, recorded,
+          // not the tooltip's.
+          if (s.overlays < overlaysBefore) escapeClosedOverlay += 1;
+          else if (s.focus !== focusBefore) problems.push('Escape moved focus from ' + focusBefore + ' to ' + (s.focus ?? 'nothing'));
         }
       }
       await browser.evaluate('(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); return true; })()');
@@ -93,7 +99,7 @@ export async function probeHoverContent(browser) {
     if (problems.length) findings.push(`${target.description}: ${problems.join('; ')}`);
   }
   if (targets.length) await away(targets[targets.length - 1]);
-  return { findings, judged, measured: { judged, escapeSkipped, delayMs } };
+  return { findings, judged, measured: { judged, escapeSkipped, escapeClosedOverlay, delayMs } };
 }
 
 /**
