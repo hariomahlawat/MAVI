@@ -2008,6 +2008,11 @@ export function zoomAssertions(input) {
   const root = document.scrollingElement || document.documentElement;
   // What paints at a point, under every layer — one that lets the pointer
   // through (pointer-events: none) still hides what is under it.
+  const effectiveOpacity = (node) => {
+    let opacity = 1;
+    for (let n = node; n && n !== document.documentElement; n = n.parentElement) opacity *= parseFloat(getComputedStyle(n).opacity);
+    return opacity;
+  };
   const reveal = document.createElement('style');
   reveal.textContent = '*, *::before, *::after { pointer-events: auto !important; }';
   const opaque = (color) => {
@@ -2041,25 +2046,29 @@ export function zoomAssertions(input) {
     // visible label of its own stands for it (a native input dressed by its
     // label). Otherwise the keyboard reaches a control the operator cannot
     // see: a finding, not a skip.
-    let opacity = 1;
-    for (let n = el; n && n !== document.documentElement; n = n.parentElement) opacity *= parseFloat(getComputedStyle(n).opacity);
-    if ((r0.width <= 1 && r0.height <= 1) || opacity < 0.05) {
+    // The label that stands for it is then judged in its place — seen,
+    // reachable, unclipped and uncovered, like the control itself.
+    let face = el;
+    if ((r0.width <= 1 && r0.height <= 1) || effectiveOpacity(el) < 0.05) {
       if (el.tabIndex < 0) continue;
-      const labelled = el.labels && Array.from(el.labels).some((label) => { const lr = label.getBoundingClientRect(); return lr.width > 1 && lr.height > 1; });
-      if (labelled) continue;
-      el.focus({ focusVisible: false });
-      if (document.activeElement !== el) continue;
-      const fr = el.getBoundingClientRect();
-      let shownOpacity = 1;
-      for (let n = el; n && n !== document.documentElement; n = n.parentElement) shownOpacity *= parseFloat(getComputedStyle(n).opacity);
-      if (fr.width <= 1 || fr.height <= 1 || shownOpacity < 0.05) fail(describe(el) + ' can be focused but is not shown, even when focused: the keyboard reaches a control the operator cannot see');
-      continue;
+      const label = el.labels && Array.from(el.labels).find((candidate) => {
+        const lr = candidate.getBoundingClientRect();
+        return lr.width > 1 && lr.height > 1 && effectiveOpacity(candidate) >= 0.05 && getComputedStyle(candidate).visibility !== 'hidden';
+      });
+      if (label) face = label;
+      else {
+        el.focus({ focusVisible: false });
+        if (document.activeElement !== el) continue;
+        const fr = el.getBoundingClientRect();
+        if (fr.width <= 1 || fr.height <= 1 || effectiveOpacity(el) < 0.05) fail(describe(el) + ' can be focused but is not shown, even when focused: the keyboard reaches a control the operator cannot see');
+        continue;
+      }
     }
-    // The boxes between the control and the page that clip it, with where
-    // each stood before focus moved it.
+    // The boxes between the control (or the label in its place) and the page
+    // that clip it, with where each stood before focus moved it.
     const boxes = [];
     let hiddenIn = null;
-    for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+    for (let a = face.parentElement; a && a !== document.documentElement; a = a.parentElement) {
       const s = getComputedStyle(a);
       if (clips(s)) boxes.push({ el: a, user: scrollsByUser(s), top: a.scrollTop, left: a.scrollLeft });
       const ar = a.getBoundingClientRect();
@@ -2081,7 +2090,7 @@ export function zoomAssertions(input) {
       fail(describe(el) + ' is shown only by focus scrolling the page, which hides its overflow: a pointer cannot reach it');
     }
     // The part of the control on screen once focus has brought it into view.
-    const r = el.getBoundingClientRect();
+    const r = face.getBoundingClientRect();
     let left = Math.max(r.left, 0); let top = Math.max(r.top, 0);
     let right = Math.min(r.right, vw); let bottom = Math.min(r.bottom, vh);
     let clipper = null;
@@ -2093,16 +2102,17 @@ export function zoomAssertions(input) {
       left = nl; top = nt; right = nr; bottom = nb;
     }
     const shown = Math.max(0, right - left) * Math.max(0, bottom - top);
-    const area = Math.max(1, Math.min(r.width, vw) * Math.min(r.height, vh));
+
     if (shown < 1) {
       fail(describe(el) + ' cannot be brought into the ' + vw + 'x' + vh + ' view: focused, it is at (' + Math.round(r.left) + ', ' + Math.round(r.top) + ')' + (clipper ? ', cut off by ' + describe(clipper) : ''));
       continue;
     }
     // Focus brings a control wholly into view where it can: what stays cut
     // off, by more than a CSS pixel in either direction (sub-pixel rounding
-    // at 2x is not a loss), is lost.
-    const lostX = Math.min(r.width, vw) - Math.max(0, right - left);
-    const lostY = Math.min(r.height, vh) - Math.max(0, bottom - top);
+    // at 2x is not a loss), is lost — measured against the control's own
+    // size, so one larger than the viewport is not let off by it.
+    const lostX = r.width - Math.max(0, right - left);
+    const lostY = r.height - Math.max(0, bottom - top);
     if (lostX > 1 || lostY > 1) fail(describe(el) + ' is cut off even when focused (' + Math.round(lostX) + 'px of its width, ' + Math.round(lostY) + 'px of its height)' + (clipper ? ', by ' + describe(clipper) : ' by the viewport'));
     // What is drawn at the middle of the part on screen. What a pointer hits
     // there must be the control (or its label, or its own tooltip). And a
@@ -2280,6 +2290,8 @@ export async function zoomTransitionProbe() {
       fail('focus is left on ' + describe(active) + ', which the new composition does not show');
     } else if (active.closest('[inert]')) {
       fail('focus is left on ' + describe(active) + ', inside an inert region');
+    } else if (!main && (() => { let o = 1; for (let n = active; n && n !== document.documentElement; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity); return o < 0.05; })()) {
+      fail('focus is left on ' + describe(active) + ', which the zoom change has made transparent');
     } else if (!main) {
       // On screen, and not under anything: the focused control is where the
       // operator can see it after the page reflowed, at every step.

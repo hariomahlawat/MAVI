@@ -188,11 +188,11 @@ devicePixelRatio 2 and the Tier C media query — so the zoom left at 100%, or a
 viewport merely shrunk, fails it; a transition is judged against the frozen 200%
 at its zoomed step and 100% at the others, its starting step included. Then what
 the 384px height can take from the page: every offered control can be brought
-into view, with no more than a CSS pixel of it cut off in either direction, and
+into view, with no more than a CSS pixel of its own size cut off in either direction (a control larger than the viewport is not let off by it), and
 not only by focus scrolling a box — or a page — that clips without scrolling;
 what a pointer hits across it (its middle and four points inset from its
 corners) is the control, and no painted fixed, sticky or pseudo-element layer
-the pointer passes through hides it (focus not obscured); a control drawn at 1px, or transparent through its own or an ancestor's opacity, is offered only where focus shows it (the skip link) or a visible label stands for it; drawers and dialogs fit the viewport; no font is sized in viewport
+the pointer passes through hides it (focus not obscured); a control drawn at 1px, or transparent through its own or an ancestor's opacity, is offered only where focus shows it (the skip link) or a visible label stands for it, which is then judged in its place (seen, reachable, unclipped, uncovered); drawers and dialogs fit the viewport; no font is sized in viewport
 units, directly or through a custom property; truncated text keeps its full
 value within the keyboard's reach (§16 — the text of a link to the row's detail or of a row's own selection control — one that carries its selected state (aria-pressed, aria-selected, aria-current) or is Search's result-selection control — to its inspector; else focus describes it
 through the Tooltip, compared by letters and digits); the keyboard order — the order Tab visits, positive tabindex first — of the Context Bar is its visual order, and at Tier C, in the workspace or open
@@ -203,7 +203,7 @@ data); the Evidence Player is not drawn distorted (this fires only on an
 object-fit that stretches the footage; the product uses the browser's
 `contain`). A transition's starting state must be the one it declares (its start
 tier's expected and forbidden text, after its preparation and set-up). A live
-zoom change is judged as it happens: focus not lost to the document or left on something hidden, inert, out of view or covered, at every step, an overlay still open holding focus, nothing left
+zoom change is judged as it happens: focus not lost to the document or left on something hidden, transparent, inert, out of view or covered, at every step, an overlay still open holding focus, nothing left
 inert, text growing by the zoom's factor, and the transition's own check (a
 draft kept with its geometry, the editor's keys inert at 200%, a preference
 kept, focus on the control the new composition offers). The full sweep is a

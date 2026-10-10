@@ -209,6 +209,8 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     const CUT = (width) => `<div style="width:${width}px;overflow:hidden;white-space:nowrap"><button style="width:200px">Retry processing</button></div>`;
     assert.match(messages(await at200(CUT(120))), /"Retry processing" is cut off even when focused \(80px of its width, 0px of its height\)/);
     assert.equal(messages(await at200(CUT(220))), '');
+    // Larger than the viewport, it is not let off by the viewport's size (Codex P1).
+    assert.match(messages(await at200('<button style="width:1000px">Load more results</button>')), /"Load more results" is cut off even when focused \(\d+px of its width/);
     // A band covering the button's lower edge, clear of its middle.
     const EDGE = (paint) => `<div style="height:250px">top</div><button style="display:block;height:60px">Detail</button>
       <div style="position:fixed;left:0;right:0;bottom:${384 - 250 - 60}px;height:16px;background:${paint}"></div>`;
@@ -223,6 +225,10 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     // Transparent counts as unseen too (Codex P1): its own opacity or an ancestor's.
     assert.match(messages(await at200('<div style="opacity:0"><button>Delete zone</button></div>')), /"Delete zone" can be focused but is not shown, even when focused/);
     assert.equal(messages(await at200('<label><input type="checkbox" style="opacity:0;position:absolute"> Trajectory</label>')), '');
+    // The label standing for it must itself be seen: not transparent, not covered (Codex P1).
+    assert.match(messages(await at200(`<input id="t" type="checkbox" style="${HIDDEN}"><label for="t" style="opacity:0">Trajectory</label>`)), /can be focused but is not shown, even when focused/);
+    assert.match(messages(await at200(`<div style="height:250px"></div><input id="u" type="checkbox" style="${HIDDEN}"><label for="u" style="display:block;height:40px">Trajectory</label><div style="height:10px"></div>
+      <div style="position:fixed;inset:auto 0 0 0;height:200px;background:#000">band</div>`)), /is covered by <div> "band" when focused/);
   });
 
   it('fails a step back up a column, and keeps side-by-side columns read one after the other (Codex P1)', async () => {
@@ -344,6 +350,12 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
       <main id="main"><div class="push"></div><button class="target">Detail</button><div style="height:10px"></div></main>
       <div class="band" style="display:none;position:fixed;inset:0;background:#000">overlay band</div>`;
     assert.match(messages(await across(MOVED, '(() => { document.querySelector(".target").focus(); return true; })()')), /focus is left on <button.target> "Detail", (out of view|covered by .*) after the zoom change/);
+  });
+
+  it('fails focus the zoom change leaves on a transparent control (Codex P1)', async () => {
+    const FADED = `<style>body{margin:0} @media (width < 768px) { .fades { opacity: 0 } }</style>
+      <main id="main"><button class="fades">Detail</button></main>`;
+    assert.match(messages(await across(FADED, '(() => { document.querySelector(".fades").focus(); return true; })()')), /focus is left on <button.fades> "Detail", which the zoom change has made transparent/);
   });
 
   it('fails an overlay left open with focus outside it, and a region left inert with no overlay open', async () => {
