@@ -262,9 +262,21 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
       <button aria-label="Select Person" style="position:absolute;inset:0;background:transparent;border:0"></button>
       <span style="position:relative;display:block;height:120px;background:#333;pointer-events:none">No image</span></article>`;
     assert.equal(messages(await at200(CARD)), '');
+    // Over a stretched control, only its own composition is its face (Codex P1).
+    assert.match(messages(await at200(`<div style="position:relative;width:300px;height:220px">
+      <article style="position:relative;width:300px;height:160px"><button aria-label="Select Person" style="position:absolute;inset:0;background:transparent;border:0"></button>
+        <span style="position:relative;display:block;height:120px;background:#333;pointer-events:none">No image</span></article>
+      <span style="position:absolute;left:0;top:0;width:300px;height:160px;background:#900;pointer-events:none">alert band</span></div>`)), /"Select Person" is hidden under <span> "alert band"/);
     // An absolutely placed pass-through layer over an ordinary control covers it (Codex P1).
     assert.match(messages(await at200(`<div style="position:relative;width:300px;height:120px"><button style="width:200px;height:40px">Retry</button>
       <span style="position:absolute;inset:0;background:#000;pointer-events:none">badge</span></div>`)), /"Retry" is hidden under <span> "badge"/);
+  });
+
+  it('takes a control\'s own tooltip as part of it, and another control\'s as a cover (Codex P1)', async () => {
+    const TIPS = (own) => `<div style="height:250px"></div><span class="tooltip-anchor"><button ${own ? 'aria-describedby="tip"' : ''} style="width:160px;height:40px">Detail</button></span>
+      <span class="tooltip" role="tooltip" id="tip" style="position:fixed;left:0;top:240px;width:200px;height:60px;background:#222">${own ? 'Open the run detail' : 'Another control\'s hint'}</span><div style="height:10px"></div>`;
+    assert.equal(messages(await at200(TIPS(true))), '');
+    assert.match(messages(await at200(TIPS(false))), /"Detail" is (covered by|hidden under) <span.tooltip>/);
   });
 
   it('fails a control only focus can bring into a page that hides its overflow (T3 cold review)', async () => {

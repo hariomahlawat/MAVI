@@ -2124,7 +2124,16 @@ export function zoomAssertions(input) {
     // stretched select button) is the control's face, not a cover.
     // Judged across the box, not at one point: its middle and four points
     // inset a fifth from its corners.
-    const own = (node) => node === el || el.contains(node) || (el.labels && Array.from(el.labels).some((label) => label.contains(node))) || Boolean(node.closest('.tooltip, [role="tooltip"]'));
+    // Its own tooltip is part of it — the one its aria-describedby names, or
+    // the one its tooltip anchor holds — and no other.
+    const ownTip = (node, control) => {
+      const tip = node.closest('.tooltip, [role="tooltip"]');
+      if (!tip) return false;
+      const described = (control.getAttribute('aria-describedby') || '').split(/\s+/).includes(tip.id);
+      const anchor = control.closest('.tooltip-anchor');
+      return described || Boolean(anchor && anchor.contains(tip));
+    };
+    const own = (node) => node === el || el.contains(node) || (el.labels && Array.from(el.labels).some((label) => label.contains(node))) || ownTip(node, el);
     const points = [[0.5, 0.5], [0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]].map(([fx, fy]) => [left + (right - left) * fx, top + (bottom - top) * fy]);
     const covered = points.map(([x, y]) => document.elementFromPoint(x, y)).find((hit) => !hit || !own(hit));
     if (covered !== undefined) {
@@ -2149,7 +2158,10 @@ export function zoomAssertions(input) {
     const parentBox = face.parentElement?.getBoundingClientRect();
     const stretched = getComputedStyle(face).position === 'absolute' && parentBox
       && r.width >= parentBox.width - 2 && r.height >= parentBox.height - 2;
-    const placedOver = (node) => !node.contains(el) && !stretched && getComputedStyle(node).position === 'absolute';
+    // ...and only over its own composition: an absolute layer elsewhere — a
+    // sibling of the card, a badge from another region — still covers it.
+    const composition = stretched ? face.parentElement : null;
+    const placedOver = (node) => !node.contains(el) && !(composition && composition.contains(node)) && getComputedStyle(node).position === 'absolute';
     document.head.appendChild(reveal);
     const layer = points.map(([x, y]) => document.elementsFromPoint(x, y).find((node) => own(node) || ((floats(node) || pseudoLayer(node) || placedOver(node)) && paints(node))))
       .find((node) => node && !own(node));
@@ -2251,8 +2263,11 @@ export function zoomAssertions(input) {
     const fit = getComputedStyle(video).objectFit;
     const box = r.width / Math.max(1, r.height);
     const source = video.videoWidth / video.videoHeight;
-    if (!/^(contain|scale-down|none)$/.test(fit) && Math.abs(box / source - 1) > 0.02) {
-      fail('the Evidence Player draws ' + video.videoWidth + 'x' + video.videoHeight + ' footage in a ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' box with object-fit ' + fit + ': the picture is distorted');
+    // contain (the browser's default for video), scale-down and none keep
+    // the whole picture; fill stretches it, cover crops evidence off its edges.
+    if (/^(fill|cover)$/.test(fit) && Math.abs(box / source - 1) > 0.02) {
+      fail('the Evidence Player draws ' + video.videoWidth + 'x' + video.videoHeight + ' footage in a ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' box with object-fit ' + fit
+        + (fit === 'fill' ? ': the picture is distorted' : ': the picture keeps its aspect ratio but is cropped, so evidence at its edges is not shown'));
     }
   }
   // §23's documented exception, reported where it applies: a Workbench at
@@ -2357,7 +2372,9 @@ export async function zoomTransitionProbe() {
       if (right - left < 1 || bottom - top < 1) fail('focus is left on ' + describe(active) + ', out of view after the zoom change');
       else {
         const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
-        const own = hit && (hit === active || active.contains(hit) || (active.labels && Array.from(active.labels).some((label) => label.contains(hit))) || hit.closest('.tooltip, [role="tooltip"]'));
+        const tip = hit && hit.closest('.tooltip, [role="tooltip"]');
+        const ownTip = tip && ((active.getAttribute('aria-describedby') || '').split(/\s+/).includes(tip.id) || Boolean(active.closest('.tooltip-anchor')?.contains(tip)));
+        const own = hit && (hit === active || active.contains(hit) || (active.labels && Array.from(active.labels).some((label) => label.contains(hit))) || ownTip);
         if (!own) fail('focus is left on ' + describe(active) + ', covered by ' + describe(hit) + ' after the zoom change');
       }
     }
