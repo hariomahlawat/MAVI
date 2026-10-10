@@ -1250,8 +1250,14 @@ export function workspaceAssertions(input) {
         fail('review.composition', 'the player has only ' + measured.playerShare + '% of the working width at ' + doc.clientWidth + 'px; §25 sends ultra-wide surplus to the player');
       }
     }
+    // review.composition is not applicable at Tier C (the manifest): there
+    // tier.c-composition judges the player, then the summary, then provenance.
+    // The 384px height of a 200% zoom (T3) is the first Tier C view short
+    // enough to reach the initial-viewport rule below, so the tier is said.
     const summary = rail ? rail.querySelector('.panel') : null;
-    if (!summary) {
+    if (input.tier === 'C') {
+      // judged by tier.c-composition
+    } else if (!summary) {
       evaluated.add('review.composition');
       fail('review.composition', 'the Review is missing the primary evidence summary in its rail');
     } else if (doc.clientHeight <= 800) {
@@ -1874,4 +1880,259 @@ export async function overlayExitProbe() {
     restored: Boolean(invoker && invoker.isConnected && active === invoker),
     inertLeft: document.querySelectorAll('[inert]').length,
   };
+}
+
+// --- T3: 200% browser page zoom (§23, §25) -------------------------------------
+
+/**
+ * The page's own account of the zoom it is laid out at (T3): the CSS viewport,
+ * devicePixelRatio, the visual viewport (pinch scale), the tier media queries
+ * and the text sizes, so the harness can show that the page — not only the
+ * browser — is at the zoom the case claims (engine.zoomQualification).
+ */
+export function zoomEnvironment() {
+  // The same piece of Context Bar text at every step of a zoom change, so its
+  // size is compared with itself (the band recomposes across the tiers).
+  const bar = document.querySelector('.context-bar');
+  const kept = window.__vqaZoomText;
+  const text = kept && kept.isConnected ? kept
+    : bar && Array.from(bar.querySelectorAll('*')).find((el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getBoundingClientRect().width > 1);
+  window.__vqaZoomText = text ?? null;
+  return {
+    innerWidth, innerHeight,
+    clientWidth: document.documentElement.clientWidth, clientHeight: document.documentElement.clientHeight,
+    dpr: window.devicePixelRatio,
+    visual: { width: visualViewport.width, height: visualViewport.height, scale: visualViewport.scale },
+    media: { narrow: matchMedia('(width < 768px)').matches, compact: matchMedia('(width < 1366px)').matches },
+    rootFontPx: parseFloat(getComputedStyle(document.documentElement).fontSize),
+    bodyFontPx: parseFloat(getComputedStyle(document.body).fontSize),
+    barTextPx: text ? parseFloat(getComputedStyle(text).fontSize) : null,
+  };
+}
+
+/**
+ * What 200% zoom adds to the Tier C rules (T3, §23 "no lost control", §25).
+ * A Tier C composition proven at 390x844 can still lose a control to the
+ * 384px height of a zoomed 1366x768 display, so on a zoom capture:
+ *
+ * - every offered control (visible, enabled, outside an inert region) can be
+ *   brought into view, and is then on screen, not clipped by a box that does
+ *   not scroll, and not covered by anything else — focus is never obscured
+ *   (WCAG 2.4.11) — and no box that clips had to be scrolled by focus to show
+ *   it (a pointer cannot scroll such a box);
+ * - an open drawer or dialog fits the viewport;
+ * - text grows with the page: no font size is set in viewport units;
+ * - visually truncated text can be focused to show its full value (§16);
+ * - the Evidence Player keeps its footage's aspect ratio.
+ *
+ * Focus and every scroll position are put back afterwards, as the focus pass
+ * does, so the capture and the probes after it see the state as reached.
+ */
+export function zoomAssertions(input) {
+  const findings = [];
+  const fail = (message) => findings.push({ rule: 'a11y.zoom-200', message });
+  const describe = (el) => {
+    if (!el || !el.tagName) return String(el);
+    const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
+    const label = (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\s+/g, ' ');
+    return '<' + el.tagName.toLowerCase() + cls + '>' + (label ? ' "' + label.slice(0, 40) + '"' : '');
+  };
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+
+  // Text grows with the page (WCAG 1.4.4): a font sized in viewport units does
+  // not — the CSS viewport halves as the zoom doubles.
+  const VIEWPORT_UNITS = /(?:^|[\s(,*/+-])-?(?:\d*\.)?\d+(?:[sld]?v(?:w|h|i|b|min|max))\b/;
+  let rulesRead = 0;
+  const scan = (list) => {
+    for (const rule of Array.from(list ?? [])) {
+      if (rule.style) {
+        rulesRead += 1;
+        const size = rule.style.getPropertyValue('font-size') + ' ' + rule.style.getPropertyValue('font');
+        if (VIEWPORT_UNITS.test(size)) fail('"' + rule.selectorText + '" sets its font size in viewport units (' + size.trim() + '): its text does not grow with page zoom');
+      }
+      if (rule.cssRules) scan(rule.cssRules);
+    }
+  };
+  for (const sheet of Array.from(document.styleSheets)) {
+    try { scan(sheet.cssRules); } catch { /* a cross-origin sheet: the product has none */ }
+  }
+  for (const el of Array.from(document.querySelectorAll('[style*="font"]'))) {
+    if (VIEWPORT_UNITS.test(el.style.fontSize + ' ' + el.style.font)) fail(describe(el) + ' sets its font size in viewport units inline: its text does not grow with page zoom');
+  }
+
+  // Drawers and dialogs fit the effective viewport.
+  const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).filter((m) => !m.closest('[inert]'));
+  for (const modal of modals) {
+    const r = modal.getBoundingClientRect();
+    if (r.left < -1 || r.top < -1 || r.right > vw + 1 || r.bottom > vh + 1) {
+      fail(describe(modal) + ' is ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' at (' + Math.round(r.left) + ', ' + Math.round(r.top) + ') and does not fit the ' + vw + 'x' + vh + ' viewport');
+    }
+  }
+
+  // Every offered control is reachable, on screen, unclipped and unobscured.
+  const clips = (style) => style.overflowX !== 'visible' || style.overflowY !== 'visible';
+  const scrollsByUser = (style) => /^(auto|scroll)$/.test(style.overflowX) || /^(auto|scroll)$/.test(style.overflowY);
+  const scrolled = [document.scrollingElement, ...document.querySelectorAll('*')]
+    .filter((el) => el && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth))
+    .map((el) => [el, el.scrollTop, el.scrollLeft]);
+  const before = document.activeElement;
+  const candidates = Array.from(document.querySelectorAll(
+    'button, a[href], input, select, textarea, summary, video[controls], [tabindex]:not([tabindex="-1"]), [contenteditable="true"]',
+  ));
+  let checked = 0;
+  for (const el of candidates) {
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.closest('[inert]')) continue;
+    if (el.type === 'hidden' || !el.getClientRects().length) continue;
+    const style = getComputedStyle(el);
+    if (style.visibility === 'hidden') continue;
+    const r0 = el.getBoundingClientRect();
+    if (r0.width <= 1 && r0.height <= 1) continue; // visually hidden until focused (the skip link)
+    // The boxes between the control and the page that clip it, with where
+    // each stood before focus moved it.
+    const boxes = [];
+    let hiddenIn = null;
+    for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      if (clips(s)) boxes.push({ el: a, user: scrollsByUser(s), top: a.scrollTop, left: a.scrollLeft });
+      const ar = a.getBoundingClientRect();
+      if (!hiddenIn && (clips(s) || s.clipPath !== 'none') && ar.width <= 1 && ar.height <= 1) hiddenIn = a;
+      if (s.position === 'fixed') break;
+    }
+    // A control inside a visually-hidden region is offered only if the
+    // keyboard can reach it (then it must show when focused, judged below); one
+    // taken out of the tab order there — the Tier C Ledger's hidden header
+    // sort buttons (T2) — is not offered at all.
+    if (hiddenIn && el.tabIndex < 0) continue;
+    el.focus({ focusVisible: false });
+    if (document.activeElement !== el) continue;
+    checked += 1;
+    const forced = boxes.find((b) => !b.user && (Math.abs(b.el.scrollTop - b.top) > 0.5 || Math.abs(b.el.scrollLeft - b.left) > 0.5));
+    if (forced) fail(describe(el) + ' is shown only by focus scrolling ' + describe(forced.el) + ', which clips without scrolling: a pointer cannot reach it');
+    // The part of the control on screen once focus has brought it into view.
+    const r = el.getBoundingClientRect();
+    let left = Math.max(r.left, 0); let top = Math.max(r.top, 0);
+    let right = Math.min(r.right, vw); let bottom = Math.min(r.bottom, vh);
+    let clipper = null;
+    for (const b of boxes) {
+      const c = b.el.getBoundingClientRect();
+      const nl = Math.max(left, c.left + b.el.clientLeft); const nt = Math.max(top, c.top + b.el.clientTop);
+      const nr = Math.min(right, c.left + b.el.clientLeft + b.el.clientWidth); const nb = Math.min(bottom, c.top + b.el.clientTop + b.el.clientHeight);
+      if (!clipper && Math.max(0, nr - nl) * Math.max(0, nb - nt) < Math.max(0, right - left) * Math.max(0, bottom - top) - 1) clipper = b.el;
+      left = nl; top = nt; right = nr; bottom = nb;
+    }
+    const shown = Math.max(0, right - left) * Math.max(0, bottom - top);
+    const area = Math.max(1, Math.min(r.width, vw) * Math.min(r.height, vh));
+    if (shown < 1) {
+      fail(describe(el) + ' cannot be brought into the ' + vw + 'x' + vh + ' view: focused, it is at (' + Math.round(r.left) + ', ' + Math.round(r.top) + ')' + (clipper ? ', cut off by ' + describe(clipper) : ''));
+      continue;
+    }
+    if (shown < area * 0.5) fail(describe(el) + ' is ' + Math.round((1 - shown / area) * 100) + '% cut off even when focused' + (clipper ? ', by ' + describe(clipper) : ' by the viewport'));
+    // What a pointer would hit at the middle of the part on screen.
+    const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+    const own = hit && (hit === el || el.contains(hit) || (el.labels && Array.from(el.labels).some((label) => label.contains(hit))) || hit.closest('.tooltip, [role="tooltip"]'));
+    if (!own) fail(describe(el) + ' is covered by ' + describe(hit) + ' when focused');
+  }
+  if (before instanceof HTMLElement && before !== document.body && before.isConnected) before.focus({ preventScroll: true });
+  else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  for (const [el, top, left] of scrolled) { el.scrollTop = top; el.scrollLeft = left; }
+
+  // Focus order follows the visual order (§23 "tab order follows reading
+  // order"): a control the keyboard reaches later is never drawn before an
+  // earlier one on the same line. Judged in the Context Bar — the one-row
+  // band a live zoom change recomposes (the menu control it adds must lead it
+  // in the document, not only on screen) — and, in the single-column Tier C
+  // composition, among the controls of the open overlay or, with none open,
+  // the workspace (side by side, at Tier A, a column is read before the next).
+  const inOrder = (scope, label) => {
+    if (!scope) return;
+    const controls = Array.from(scope.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])'))
+      .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[inert]') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+      .map((el) => ({ el, r: el.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 1 && r.height > 1);
+    for (let i = 1; i < controls.length; i += 1) {
+      const a = controls[i - 1]; const b = controls[i];
+      const sameLine = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top) > Math.min(a.r.height, b.r.height) / 2;
+      if (sameLine && b.r.right <= a.r.left + 1) {
+        fail('in ' + label + ' the keyboard reaches ' + describe(b.el) + ' after ' + describe(a.el) + ', but it is drawn before it on the same line: focus order is not the visual order');
+        return;
+      }
+    }
+  };
+  inOrder(document.querySelector('.context-bar'), 'the Context Bar');
+  if (input?.tier === 'C') {
+    const topModal = modals[modals.length - 1];
+    inOrder(topModal ?? document.querySelector('main .workspace, main .page'), topModal ? 'the open overlay' : 'the workspace');
+  }
+
+  // Truncated text keeps its full value within reach of the keyboard (§16).
+  let truncated = 0;
+  for (const el of Array.from(document.querySelectorAll('body *'))) {
+    if (el.closest('[inert], [aria-hidden="true"], svg')) continue;
+    const s = getComputedStyle(el);
+    if (s.textOverflow !== 'ellipsis' || el.scrollWidth <= el.clientWidth + 1 || !el.getClientRects().length) continue;
+    truncated += 1;
+    const focusable = el.closest('a[href], button, summary, select, input, textarea, [tabindex]:not([tabindex="-1"])');
+    if (!focusable) fail('truncated text "' + el.textContent.trim().slice(0, 40) + '" in ' + describe(el) + ' cannot be focused to show its full value');
+  }
+
+  // The Evidence Player keeps its footage's aspect ratio.
+  const video = document.querySelector('.evidence-player__video');
+  if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+    const r = video.getBoundingClientRect();
+    const fit = getComputedStyle(video).objectFit;
+    const box = r.width / Math.max(1, r.height);
+    const source = video.videoWidth / video.videoHeight;
+    if (!/^(contain|scale-down|none)$/.test(fit) && Math.abs(box / source - 1) > 0.02) {
+      fail('the Evidence Player draws ' + video.videoWidth + 'x' + video.videoHeight + ' footage in a ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' box with object-fit ' + fit + ': the picture is distorted');
+    }
+  }
+  return { findings, evaluated: ['a11y.zoom-200'], measured: { controls: checked, modals: modals.length, truncated, cssRulesRead: rulesRead } };
+}
+
+/** Before a live zoom change: remember where focus is (T3). */
+export function zoomBeforeChange() {
+  window.__vqaZoomFocus = document.activeElement;
+  const a = document.activeElement;
+  if (!a || a === document.body) return null;
+  const label = (a.getAttribute('aria-label') || a.textContent || '').trim().replace(/\s+/g, ' ');
+  return '<' + a.tagName.toLowerCase() + '>' + (label ? ' "' + label.slice(0, 40) + '"' : '');
+}
+
+/**
+ * After a live zoom change (T3, §20, §23): focus is not lost to the document
+ * and not left on anything hidden or inert; an overlay still open holds it;
+ * and nothing is left inert with no overlay open.
+ */
+export async function zoomTransitionProbe() {
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  const findings = [];
+  const fail = (message) => findings.push({ rule: 'a11y.zoom-200', message });
+  const describe = (el) => {
+    if (!el || !el.tagName) return 'nothing';
+    const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
+    const label = (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\s+/g, ' ');
+    return '<' + el.tagName.toLowerCase() + cls + '>' + (label ? ' "' + label.slice(0, 40) + '"' : '');
+  };
+  const before = window.__vqaZoomFocus;
+  const active = document.activeElement;
+  const lost = !active || active === document.body || active === document.documentElement;
+  if (lost && before && before !== document.body && before !== document.documentElement) {
+    fail('focus fell to the document when the zoom changed (it was on ' + describe(before) + ')');
+  } else if (!lost) {
+    const style = getComputedStyle(active);
+    const r = active.getBoundingClientRect();
+    const main = active === document.querySelector('main');
+    if (!active.isConnected || !active.getClientRects().length || style.visibility === 'hidden' || (!main && r.width <= 1 && r.height <= 1)) {
+      fail('focus is left on ' + describe(active) + ', which the new composition does not show');
+    } else if (active.closest('[inert]')) {
+      fail('focus is left on ' + describe(active) + ', inside an inert region');
+    }
+  }
+  const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).filter((m) => !m.closest('[inert]'));
+  const top = modals[modals.length - 1];
+  if (top && !(active && top.contains(active))) fail(describe(top) + ' is still open after the zoom change, but focus is on ' + describe(active) + ', outside it');
+  const inert = document.querySelectorAll('[inert]').length;
+  if (!top && inert) fail(inert + ' region(s) are left inert after the zoom change with no overlay open');
+  return { findings, focus: describe(active), modals: modals.length };
 }

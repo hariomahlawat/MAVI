@@ -23,6 +23,7 @@ node --test 'tools/web-visual-qa/test/*.test.mjs'   # the harness's own tests
 | `--states cameras,search` | only these states (see `states.mjs`) |
 | `--tiers A` | only the anchors and probes of these support tiers |
 | `--widths 1366,2560` | only these widths |
+| `--zoom only` / `--zoom none` | only the 200% browser-zoom cases, or none of them (T3) |
 | `--workers 3` | parallel lanes (default: CPUs − 1, at most 4) |
 | `--repeat 5` | prepare every selected case this many times, independently, and require one settled state |
 | `--keep` | report blocking findings but exit 0 |
@@ -84,8 +85,8 @@ measurements; `review.sticky-rendered` was too until R6 made the pin render,
 and now blocks at Tier A: the player still on screen after the page scrolls,
 and clear of the Context Bar) and declared
 `future` with an execution policy where
-it does not yet (200% zoom, reduced motion, keyboard journeys, the remaining
-§23 rows).
+it does not yet (reduced motion, keyboard journeys, the remaining §23 rows;
+200% zoom was until T3).
 
 **Tiers and states** (`states.mjs`, V2). The default sweep is every §25 anchor:
 1366×768, 1440×900, 1920×1080, 2560×1080 and 2560×1440 (Tier A); 1024×768 and
@@ -151,6 +152,50 @@ was opened by its URL and has no invoker; for it restoration is reported
 which no Tier A Dialog or Drawer opened by an action had its restoration judged
 is a harness fault. The focus pass that precedes it puts back both the scroll
 positions and the focus it found.
+
+**200% browser page zoom** (S5 / T3, §23: "200% browser zoom at 1366×768 (an
+effective 683px) reflows under the Tier C rules of §25 with no horizontal scroll
+and no lost control"). Every state swept at Tier C is also captured on the
+1366×768 anchor with the **browser's own page zoom** at 200% — labelled
+`1366x768@200%` and judged at Tier C, where its effective 683×384 falls — and
+twelve states declare sixteen live zoom transitions (`zoomTransitions`: 100%→200%,
+200%→100% and 100%→200%→100% on a page in use, with navigation, filters, the
+Search inspector, a focused result, a dirty Scene draft, its discard
+confirmation and its leave guard, Review transport focus, an invalid Import
+field, a stored grid choice and URL filters). The zoom is set the way an operator
+sets it for every page — Chrome's Settings → Appearance → Page zoom, through
+that page's own `chrome.settingsPrivate` in a background window (`cdp.mjs`
+`pageZoom`) — and read back. CDP has no page-zoom command: device-scale-factor
+emulation, page-scale (pinch) and screenshot scaling are not page zoom, and a
+CSS `zoom` or a narrower viewport is not either. T3 validated the method against
+a reference zoom made by real OS-level Ctrl+= keypresses into a headed Chrome
+window with a 1366×768 viewport: identical page zoom factor, viewport,
+devicePixelRatio and media queries, and every element's geometry identical,
+where a shrunk 683×384 viewport and devicePixelRatio-2 emulation each differed.
+
+`a11y.zoom-200` is the rule only a zoom case settles (`lane: 'zoom'`: the
+engine refuses it in any other case). It blocks at Tier C (200%) and Tier A
+(zoomed back to 100%), and is not applicable at Tier B, where no zoom case
+lands. In every zoom case it proves the environment against §23's frozen
+condition (`ZOOM_CONDITION`, never the states' own): the browser's page-zoom
+setting, the zoom factor the browser applies (`Page.getLayoutMetrics`), the
+1366×768 device-independent viewport behind it, the 683×384 CSS viewport, no
+pinch scale, devicePixelRatio 2 and the Tier C media query — so the zoom left
+at 100%, or a viewport merely shrunk, fails it. Then what the 384px height can
+take from the page: every offered control can be brought into view, unclipped,
+uncovered (focus not obscured), and not only by focus scrolling a box that
+clips; drawers and dialogs fit the viewport; no font is sized in viewport units;
+truncated text can be focused to show its full value; the keyboard order of the
+Context Bar (and, at Tier C, of the workspace or open overlay) is its visual
+order; the Evidence Player keeps its aspect ratio. A live zoom change is judged
+as it happens: focus not lost to the document or left on something hidden or
+inert, an overlay still open holding focus, nothing left inert, text growing by
+the zoom's factor, and the transition's own check (a draft kept, a preference
+kept, focus on the control the new composition offers). The full sweep is a
+harness fault unless every one of the ten operator surfaces had a valid 200%
+capture that evaluated the rule. The Workbench's editing at 200% is §23's
+documented WCAG 1.4.4 exception (the Tier C unsupported state is what is
+asserted), and 1.4.10 reflow at 320 CSS px is not targeted.
 
 **Pressed state** (`pressed.visible`, §12): every visible enabled
 `aria-pressed` control is rendered in its other state and compared with itself

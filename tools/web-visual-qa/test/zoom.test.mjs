@@ -1,0 +1,328 @@
+/**
+ * T3 (§23): 200% browser page zoom on a 1366x768 viewport. The zoom is the
+ * browser's own (cdp.mjs pageZoom) and is proven, not assumed: these tests
+ * show the gate tells it apart from every impostor — 100%, a shrunk viewport,
+ * device-pixel-ratio emulation, pinch scale — in real Chromium, that what the
+ * 384px height can take from a page fails the zoom rule, that a live zoom
+ * change is judged as it happens, and that a run fails, end to end, when the
+ * zoom is not genuine or a zoom state is never reached.
+ */
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after, before, describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { toExpression, zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTransitionProbe } from '../assertions.mjs';
+import { createLedger, HarnessError, planCases, zoomCoverageFaults, zoomQualification } from '../engine.mjs';
+import { OPERATOR_SURFACES, ZOOM_CONDITION } from '../manifest.mjs';
+import { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM } from '../states.mjs';
+import { openBrowser } from './browser.mjs';
+
+const plan = (states = STATES, extra = {}) => planCases({ states, anchors: ANCHORS, policies: TIER_POLICIES, stateKeys: STATE_KEYS, tierOf, zoom: ZOOM, ...extra });
+
+describe('the zoom condition (§23, frozen)', () => {
+  it('is 200% page zoom on the 1366x768 anchor, an effective 683x384 that is Tier C', () => {
+    assert.deepEqual({ ...ZOOM_CONDITION }, { width: 1366, height: 768, factor: 2 });
+    assert.ok(Object.isFrozen(ZOOM_CONDITION));
+    assert.equal(ZOOM, ZOOM_CONDITION, 'the states sweep the frozen condition');
+    assert.equal(tierOf(ZOOM.width / ZOOM.factor), 'C');
+  });
+});
+
+describe('planning the zoom cases', () => {
+  const { cases } = plan();
+  const loads = cases.filter((c) => c.viewport.kind === 'zoom');
+  const transitions = cases.filter((c) => c.viewport.kind === 'zoom-transition');
+
+  it('captures every state swept at Tier C at 200%, plus the opted-in Tier C overlay probes, and no other', () => {
+    const expected = STATES.filter((s) => TIER_POLICIES[s.tierPolicy ?? 'all-tiers'].tiers.includes('C') || s.zoomCapture).map((s) => s.name).sort();
+    assert.deepEqual(loads.map((c) => c.state.name).sort(), expected);
+    assert.ok(expected.includes('shell-menu-overlay') && expected.includes('videos-filters-drawer'));
+    // A Workbench editing variant is not captured loaded at 200%: there is no
+    // editor at Tier C to put in that state (its transitions carry it there).
+    assert.ok(!expected.includes('scene-editor-dirty'));
+    for (const c of loads) {
+      assert.deepEqual([c.viewport.width, c.viewport.height, c.viewport.zoom, c.viewport.tier, c.viewport.label], [1366, 768, [2], 'C', '1366x768@200%']);
+      assert.deepEqual(c.viewport.effective, { width: 683, height: 384 });
+    }
+  });
+
+  it('reaches all ten operator surfaces at 200%', () => {
+    const reached = new Set(loads.map((c) => c.surface));
+    assert.equal(OPERATOR_SURFACES.length, 10);
+    for (const surface of OPERATOR_SURFACES) assert.ok(reached.has(surface), `${surface} has no 200% capture`);
+  });
+
+  it('takes each declared transition from the tier it starts at to the tier it ends at', () => {
+    const find = (name, label) => transitions.find((c) => c.state.name === name && c.viewport.label === label);
+    const there = find('videos', '1366x768@100%-200%-100%');
+    assert.deepEqual([there.viewport.startTier, there.viewport.tier], ['A', 'A']);
+    const into = find('overview', '1366x768@100%-200%.rail-link-focused');
+    assert.deepEqual([into.viewport.startTier, into.viewport.tier, into.viewport.effective], ['A', 'C', { width: 683, height: 384 }]);
+    const out = find('shell-menu-overlay', '1366x768@200%-100%');
+    assert.deepEqual([out.viewport.startTier, out.viewport.tier], ['C', 'A']);
+    // The brief's ten transitions, each present.
+    for (const [name, label] of [
+      ['videos', '1366x768@100%-200%-100%'], ['shell-menu-overlay', '1366x768@200%-100%'], ['search', '1366x768@200%-100%.filters-open'],
+      ['search-inspector-opened', '1366x768@100%-200%-100%'], ['videos-filters-drawer', '1366x768@200%-100%'], ['search', '1366x768@100%-200%-100%.result-focused'],
+      ['scene-editor-dirty', '1366x768@100%-200%-100%'], ['scene-editor-discard-dialog', '1366x768@100%-200%'], ['review-transport', '1366x768@100%-200%-100%'],
+      ['import-invalid', '1366x768@100%-200%-100%'], ['search-grid', '1366x768@100%-200%-100%'], ['scene-editor-dirty', '1366x768@100%-200%.leave-guard'],
+    ]) assert.ok(find(name, label), `${name} @ ${label}`);
+  });
+
+  it('runs the zoom cases alone, or leaves them out, on request', () => {
+    assert.ok(plan(STATES, { onlyZoom: 'only' }).cases.every((c) => c.viewport.zoom));
+    assert.ok(plan(STATES, { onlyZoom: 'none' }).cases.every((c) => !c.viewport.zoom));
+    assert.equal(plan(STATES, { zoom: null }).cases.filter((c) => c.viewport.zoom).length, 0);
+  });
+
+  it('refuses a malformed transition or zoom capture instead of running it', () => {
+    const base = STATES.find((s) => s.name === 'videos');
+    const refuse = (state, pattern) => assert.throws(() => plan([{ ...base, ...state }]), (error) => error instanceof HarnessError && pattern.test(error.message));
+    refuse({ zoomTransitions: [{ path: [2] }] }, /changes between 100% and 200% at every step/);
+    refuse({ zoomTransitions: [{ path: [1, 1] }] }, /changes between 100% and 200% at every step/);
+    refuse({ zoomTransitions: [{ path: [1, 3] }] }, /changes between 100% and 200% at every step/);
+    refuse({ zoomTransitions: [{ path: [1, 2], checks: ['a', 'b'] }] }, /more zoom-transition checks than zoom changes/);
+    refuse({ zoomTransitions: [{ path: [1, 2], wait: 500 }] }, /unknown key "wait"/);
+    refuse({ zoomTransitions: [{ path: [1, 2] }, { path: [1, 2] }] }, /share the label/);
+    refuse({ zoomCapture: 'yes' }, /zoomCapture must be true/);
+    const scene = STATES.find((s) => s.name === 'scene-editor-dirty');
+    // A Workbench variant is not swept at Tier C: no transition may start there.
+    assert.throws(() => plan([{ ...scene, zoomTransitions: [{ path: [2, 1] }] }]), /starts at Tier C, where the state is not swept/);
+    assert.throws(() => plan([{ ...scene, zoomCapture: true }]), /not swept at Tier C, where it lands/);
+  });
+});
+
+describe('the zoom rule is a zoom case\'s alone', () => {
+  it('is refused, as a harness fault, in a case with no page zoom — a shrunk viewport cannot stand in', () => {
+    const ledger = createLedger();
+    const shrunk = { state: { name: 's' }, viewport: { tier: 'C', label: '683x384', kind: 'probe' } };
+    assert.throws(() => ledger.record(shrunk, 'a11y.zoom-200', 'x'), (error) => error instanceof HarnessError && /not a zoom case/.test(error.message));
+    assert.throws(() => ledger.markEvaluated(shrunk, ['a11y.zoom-200']), /not a zoom case/);
+    const zoomed = { state: { name: 's' }, viewport: { tier: 'C', label: '1366x768@200%', kind: 'zoom', zoom: [2] } };
+    assert.equal(ledger.record(zoomed, 'a11y.zoom-200', 'x').severity, 'blocking');
+    const back = { state: { name: 's' }, viewport: { tier: 'A', label: '1366x768@200%-100%', kind: 'zoom-transition', zoom: [2, 1] } };
+    assert.equal(ledger.record(back, 'a11y.zoom-200', 'x').severity, 'blocking');
+    assert.throws(() => ledger.record({ ...zoomed, viewport: { ...zoomed.viewport, tier: 'B' } }, 'a11y.zoom-200', 'x'), /not applicable/);
+  });
+
+  it('makes a full sweep a harness fault where a surface was never judged at 200%, or a transition never evaluated', () => {
+    const results = OPERATOR_SURFACES.map((surface) => ({ valid: true, kind: 'zoom', surface, zoom: { evaluated: true } }));
+    assert.deepEqual(zoomCoverageFaults(results, OPERATOR_SURFACES), []);
+    const missing = results.filter((r) => r.surface !== 'review');
+    assert.deepEqual(zoomCoverageFaults(missing, OPERATOR_SURFACES), ['a11y.zoom-200: the full sweep has no valid 200% zoom capture of review that evaluated it']);
+    const unevaluated = [...results, { valid: false, kind: 'zoom-transition', state: 'videos', viewport: '1366x768@100%-200%', zoom: { evaluated: false } }];
+    assert.match(zoomCoverageFaults(unevaluated, OPERATOR_SURFACES)[0], /zoom transition videos @ 1366x768@100%-200% was never evaluated/);
+  });
+});
+
+describe('in Chromium: genuine 200% page zoom, and the impostors the gate refuses', () => {
+  let lane;
+  before(async () => { lane = await openBrowser(); });
+  after(async () => { await lane.close(); });
+  const PAGE = '<style>body{margin:0;font:14px sans-serif}</style><div class="context-bar"><span>Videos</span></div><p>text</p>';
+  const measure = async () => ({
+    reported: lane.zoom,
+    metrics: await lane.browser.layoutMetrics(),
+    page: await lane.browser.evaluate(toExpression(zoomEnvironment)),
+  });
+  const qualify = (m) => zoomQualification({ factor: ZOOM_CONDITION.factor, viewport: ZOOM_CONDITION, ...m });
+
+  it('qualifies the browser\'s own 200% page zoom on a 1366x768 viewport', async () => {
+    await lane.page(PAGE, { width: 1366, height: 768, zoom: 2 });
+    const m = await measure();
+    assert.deepEqual(qualify(m), []);
+    assert.equal(m.metrics.pageZoom, 2);
+    assert.deepEqual(m.metrics.dipViewport, { width: 1366, height: 768 });
+    assert.deepEqual([m.page.innerWidth, m.page.innerHeight, m.page.dpr, m.page.media.narrow], [683, 384, 2, true]);
+    // Text grows with the page: the same CSS size, drawn at twice the device-independent size.
+    await lane.page(PAGE, { width: 1366, height: 768, zoom: 1 });
+    const at100 = await measure();
+    assert.equal(m.page.bodyFontPx * m.metrics.pageZoom, 2 * at100.page.bodyFontPx * at100.metrics.pageZoom);
+  });
+
+  it('refuses the zoom left at 100%', async () => {
+    await lane.page(PAGE, { width: 1366, height: 768, zoom: 1 });
+    const problems = qualify(await measure());
+    assert.ok(problems.some((p) => /page-zoom setting is 100%, not 200%/.test(p)), problems.join('\n'));
+    assert.ok(problems.some((p) => /applies a page zoom of 1, not 2/.test(p)));
+    assert.ok(problems.some((p) => /media queries see Tier A/.test(p)));
+  });
+
+  it('refuses a viewport merely shrunk to 683x384', async () => {
+    await lane.page(PAGE, { width: 683, height: 384, zoom: 1 });
+    const m = await measure();
+    // The page alone cannot tell: it is 683x384 and Tier C either way.
+    assert.deepEqual([m.page.innerWidth, m.page.innerHeight, m.page.media.narrow], [683, 384, true]);
+    const problems = qualify(m);
+    assert.ok(problems.some((p) => /viewport is 683x384 device-independent px, not 1366x768/.test(p)), problems.join('\n'));
+    assert.ok(problems.some((p) => /applies a page zoom of 1, not 2/.test(p)));
+    assert.ok(problems.some((p) => /devicePixelRatio is 1/.test(p)));
+  });
+
+  it('refuses device-pixel-ratio emulation at 683x384, which gives devicePixelRatio 2 without zoom', async () => {
+    await lane.page(PAGE, { width: 683, height: 384, zoom: 1 });
+    await lane.browser.cdp('Emulation.setDeviceMetricsOverride', { width: 683, height: 384, deviceScaleFactor: 2, mobile: false });
+    const m = await measure();
+    assert.equal(m.page.dpr, 2);
+    const problems = qualify(m);
+    assert.ok(problems.some((p) => /applies a page zoom of 1, not 2/.test(p)), problems.join('\n'));
+    assert.ok(problems.some((p) => /viewport is 683x384 device-independent px/.test(p)));
+  });
+
+  it('refuses pinch scale, which magnifies without reflowing', async () => {
+    await lane.page(PAGE, { width: 1366, height: 768, zoom: 1 });
+    await lane.browser.cdp('Emulation.setPageScaleFactor', { pageScaleFactor: 2 });
+    const m = await measure();
+    await lane.browser.cdp('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
+    const problems = qualify(m);
+    assert.ok(problems.some((p) => /pinch-scaled/.test(p)), problems.join('\n'));
+    assert.ok(problems.some((p) => /page sees 1366x768/.test(p)));
+  });
+});
+
+describe('what the 384px height can take from a page at 200% (zoomAssertions)', () => {
+  let lane;
+  before(async () => { lane = await openBrowser(); });
+  after(async () => { await lane.close(); });
+  const TOKENS = '<style>body{margin:0;font:14px sans-serif} button:focus{outline:2px solid #fff}</style>';
+  const at200 = async (html) => {
+    await lane.page(TOKENS + html, { width: 1366, height: 768, zoom: 2 });
+    return lane.browser.evaluate(toExpression(zoomAssertions, { tier: 'C' }));
+  };
+  const messages = (result) => result.findings.map((f) => f.message).join('\n');
+
+  it('fails a control a fixed region cuts off below the viewport, and passes it once the region scrolls', async () => {
+    const PANEL = (overflow) => `<div style="position:fixed;inset:0 auto 0 0;width:300px;overflow:${overflow}">
+      <div style="height:420px">brand and links</div><button>Close navigation</button></div>`;
+    const clipped = await at200(PANEL('hidden'));
+    assert.match(messages(clipped), /"Close navigation".*(cannot be brought into the 683x384 view|cut off|shown only by focus scrolling)/);
+    assert.ok(clipped.evaluated.includes('a11y.zoom-200'));
+    assert.ok(clipped.measured.controls >= 1);
+    assert.equal(messages(await at200(PANEL('auto'))), '');
+  });
+
+  it('fails a control only focus can scroll into a box that clips', async () => {
+    const BOX = (overflow) => `<div style="height:120px;overflow:${overflow}"><div style="height:200px">facts</div><button>Retry</button></div>`;
+    assert.match(messages(await at200(BOX('hidden'))), /"Retry" is shown only by focus scrolling .*which clips without scrolling/);
+    assert.equal(messages(await at200(BOX('auto'))), '');
+  });
+
+  it('fails a focused control covered by a fixed band', async () => {
+    const PAGE = (cover) => `<div style="height:300px">top</div><button style="display:block;margin-bottom:${cover ? 0 : 80}px">Play</button>
+      ${cover ? '<div style="position:fixed;left:0;right:0;bottom:0;height:120px;background:#222">transport bar</div>' : ''}<div style="height:10px"></div>`;
+    assert.match(messages(await at200(PAGE(true))), /"Play" is covered by <div> "transport bar" when focused/);
+    assert.equal(messages(await at200(PAGE(false))), '');
+  });
+
+  it('fails a drawer or dialog that does not fit the viewport', async () => {
+    const DRAWER = (width) => `<div role="dialog" aria-modal="true" aria-label="Filters" style="position:fixed;top:0;right:0;bottom:0;width:${width}"><button>Apply</button></div>`;
+    assert.match(messages(await at200(DRAWER('800px'))), /<div> "Filters" is 800x384 at \(-117, 0\) and does not fit the 683x384 viewport/);
+    assert.equal(messages(await at200(DRAWER('100%'))), '');
+  });
+
+  it('fails text sized in viewport units, which does not grow with the zoom', async () => {
+    assert.match(messages(await at200('<style>.title{font-size:2.5vw}</style><p class="title">Videos</p>')), /"\.title" sets its font size in viewport units/);
+    assert.match(messages(await at200('<p style="font-size:3vmin">Videos</p>')), /sets its font size in viewport units inline/);
+    assert.equal(messages(await at200('<style>.title{font-size:1.25rem}</style><p class="title">Videos</p>')), '');
+  });
+
+  it('fails truncated text that cannot be focused to show its full value', async () => {
+    const CELL = (focusable) => `<span ${focusable ? 'tabindex="0"' : ''} style="display:block;width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">north-gate-0900-very-long-original-file-name.mp4</span>`;
+    assert.match(messages(await at200(CELL(false))), /truncated text "north-gate-0900.*cannot be focused to show its full value/);
+    assert.equal(messages(await at200(CELL(true))), '');
+  });
+
+  it('fails a Context Bar whose keyboard order is not its visual order — the menu drawn first but reached last', async () => {
+    const BAR = (moved) => `<div class="context-bar" style="display:flex;gap:8px;height:44px">
+      ${moved ? '' : '<button class="shell__menu" aria-label="Open navigation">M</button>'}<a href="/cameras">Cameras</a><button>Import video</button>
+      ${moved ? '<button class="shell__menu" aria-label="Open navigation" style="order:-1">M</button>' : ''}</div>`;
+    assert.match(messages(await at200(BAR(true))), /in the Context Bar the keyboard reaches <button.shell__menu> "Open navigation" after <button> "Import video", but it is drawn before it/);
+    assert.equal(messages(await at200(BAR(false))), '');
+  });
+});
+
+describe('a live zoom change (zoomTransitionProbe)', () => {
+  let lane;
+  before(async () => { lane = await openBrowser(); });
+  after(async () => { await lane.close(); });
+  // A page whose composition changes at 768px CSS, as the product's does.
+  const PAGE = `<style>@media (width < 768px) { .wide { display: none } } body{margin:0}</style>
+    <main id="main" tabindex="-1"><button class="wide">Collapse navigation</button><button class="always">Detail</button></main>`;
+  const across = async (html, setup) => {
+    await lane.page(html, { width: 1366, height: 768, zoom: 1 });
+    await lane.browser.evaluate(setup);
+    await lane.browser.evaluate(toExpression(zoomBeforeChange));
+    lane.zoom = await lane.browser.pageZoom(2);
+    return lane.browser.evaluate(toExpression(zoomTransitionProbe));
+  };
+  const messages = (result) => result.findings.map((f) => f.message).join('\n');
+
+  it('fails focus that the zoom drops to the document, and passes focus that stays on a shown control', async () => {
+    assert.match(messages(await across(PAGE, '(() => { document.querySelector(".wide").focus(); return true; })()')), /focus fell to the document when the zoom changed \(it was on <button.wide> "Collapse navigation"\)/);
+    assert.equal(messages(await across(PAGE, '(() => { document.querySelector(".always").focus(); return true; })()')), '');
+  });
+
+  it('fails an overlay left open with focus outside it, and a region left inert with no overlay open', async () => {
+    const OPEN = `<main id="main"><button id="out">Outside</button></main><div role="dialog" aria-modal="true" aria-label="Filters"><button>In</button></div>`;
+    assert.match(messages(await across(OPEN, '(() => { document.getElementById("out").focus(); return true; })()')), /"Filters" is still open after the zoom change, but focus is on <button> "Outside", outside it/);
+    const INERT = '<main id="main"><button id="b">Detail</button></main><aside inert><button>Nav</button></aside>';
+    assert.match(messages(await across(INERT, '(() => { document.getElementById("b").focus(); return true; })()')), /1 region\(s\) are left inert after the zoom change with no overlay open/);
+  });
+});
+
+describe('the run, end to end, at 200% zoom', () => {
+  const RUN = fileURLToPath(new URL('../run.mjs', import.meta.url));
+  const REGISTERED = new URL('../states.mjs', import.meta.url).href;
+  let dir;
+  before(() => { dir = mkdtempSync(join(tmpdir(), 'mavi-vqa-zoom-')); });
+  after(() => { rmSync(dir, { recursive: true, force: true }); });
+  const run = (name, body, args) => {
+    const module = join(dir, `${name}.mjs`);
+    writeFileSync(module, `export * from ${JSON.stringify(REGISTERED)};
+import { STATES as REGISTERED } from ${JSON.stringify(REGISTERED)};
+${body}
+`);
+    const out = join(dir, name);
+    const result = spawnSync(process.execPath, [RUN, '--zoom', 'only', '--workers', '1', ...args], {
+      env: { ...process.env, MAVI_VQA_STATES_MODULE: module, MAVI_VQA_OUT: out }, encoding: 'utf8', timeout: 180_000,
+    });
+    assert.equal(result.error, undefined, 'the run hung');
+    const output = result.stdout + result.stderr;
+    assert.ok(existsSync(join(out, 'results.json')), `the run wrote no results (exit ${result.status}):
+${output}`);
+    return { status: result.status, output, results: JSON.parse(readFileSync(join(out, 'results.json'), 'utf8')) };
+  };
+  const VIDEOS = 'export const STATES = REGISTERED.filter((s) => s.name === "videos").map(({ zoomTransitions, ...s }) => s);';
+
+  it('fails, blocking, when the zoom is left at 100%', () => {
+    const { status, output, results } = run('at-100', `${VIDEOS}\nexport const ZOOM = { width: 1366, height: 768, factor: 1 };`, ['--states', 'videos']);
+    assert.equal(status, 1, output);
+    const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200');
+    assert.ok(zoom.length && zoom.every((f) => f.severity === 'blocking'));
+    assert.ok(zoom.some((f) => /applies a page zoom of 1, not 2/.test(f.message)), JSON.stringify(zoom));
+  });
+
+  it('fails, blocking, when the viewport is merely shrunk to 683x384', () => {
+    const { status, output, results } = run('shrunk', `${VIDEOS}\nexport const ZOOM = { width: 683, height: 384, factor: 1 };`, ['--states', 'videos']);
+    assert.equal(status, 1, output);
+    const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.tier === 'C');
+    assert.ok(zoom.some((f) => /viewport is 683x384 device-independent px, not 1366x768/.test(f.message)), JSON.stringify(zoom));
+    assert.ok(zoom.every((f) => f.severity === 'blocking'));
+  });
+
+  it('passes the genuine zoom of the same state, its zoom proven', () => {
+    const { status, output, results } = run('genuine', VIDEOS, ['--states', 'videos']);
+    assert.equal(status, 0, output);
+    assert.equal(results.executions.zoom.qualified, 1);
+    assert.equal(results.executions.zoom.sample.metrics.pageZoom, 2);
+  });
+
+  it('is a harness fault when a required zoom state is never reached', () => {
+    const { status, output, results } = run('unreached', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, zoomTransitions: [{ path: [1, 2], before: '(() => false)()' }] }));`, ['--states', 'videos']);
+    assert.equal(status, 2, output);
+    assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@100%-200% \(Tier C\): the declared state was not reached at zoom transition set-up/.test(e)), results.harnessErrors.join('\n'));
+  });
+});

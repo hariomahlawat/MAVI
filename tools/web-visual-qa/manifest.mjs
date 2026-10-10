@@ -28,10 +28,15 @@
  * Tier policy (§26, §34.2): S5 flips the tiers below A as it implements them.
  * T1 (Tier B compositions) made every rule that judges a Tier B composition
  * `blocking` at Tier B, and T2 (Tier C degradation) every rule that judges a
- * Tier C composition `blocking` at Tier C; a rule owned by a later slice
- * (S6's target size, journeys, motion and measurements, T3's zoom) stays
- * measured against that owner. `validateManifest` refuses a Tier C entry still
- * owned by T2: T2 is done or it is not.
+ * Tier C composition `blocking` at Tier C, and T3 (200% zoom) made the zoom
+ * rule `blocking` where a zoom case lands; a rule owned by a later slice (S6's
+ * target size, journeys, motion and measurements) stays measured against that
+ * owner. `validateManifest` refuses a Tier C entry still owned by T2, and any
+ * entry still owned by T3: each is done or it is not.
+ *
+ * Lane (T3). A rule with `lane: 'zoom'` is evaluated only in a zoom case —
+ * the 1366x768 anchor at a browser page zoom — and the engine refuses it
+ * anywhere else, so a shrunk viewport can never stand in for zoom.
  *
  * Surface scope (§34.2 staged conformance). A rule with `scope: 'surface'` is
  * `blocking` at Tier A, and a finding of it carries where it was found: in a
@@ -97,6 +102,17 @@ export const SURFACES = {
   'camera-analytics': { owner: 'S4 / M4', accepted: true },
 };
 
+/**
+ * §23 (frozen): the condition a11y.zoom-200 qualifies — 200% browser page zoom
+ * on a 1366x768 viewport. A zoom case is judged against this, not against
+ * whatever condition the states declare, so no states module can shrink the
+ * viewport, or leave the zoom at 100%, and still pass the rule.
+ */
+export const ZOOM_CONDITION = Object.freeze({ width: 1366, height: 768, factor: 2 });
+
+/** The ten operator surfaces (§23 "every other surface keeps its function"). */
+export const OPERATOR_SURFACES = Object.keys(SURFACES).filter((name) => name !== 'foundation' && name !== 'not-found');
+
 /** Route to surface. A route no entry owns is refused, never defaulted. */
 export const ROUTES = [
   [/^\/$/, 'overview'],
@@ -155,7 +171,10 @@ export const RULES = {
   'harness.focus-coverage': { section: '§26', kind: 'assertion', summary: 'Every discovered control is focus-checked or skipped for a named reason.', tiers: s1() },
 
   // --- Overlays (S1c, §15, §20) ------------------------------------------------
-  'overlay.dialog': { section: '§15, §23', kind: 'assertion', summary: 'An open Dialog is a named modal dialog holding focus, with everything else inert and nothing outside it focusable.', tiers: { A: blocking(), B, C: na("no capture can reach a Dialog at Tier C: the product's Dialogs are the Scene Editor's, whose editor is the unsupported state there, and its leave guard is reached only by carrying a dirty draft across 768px, which SceneEditorPage.test.tsx proves instead") } },
+  // T3: a dirty draft carried across 768px by a live zoom change reaches the
+  // Scene Editor's leave guard at Tier C (scene-editor-dirty's leave-guard
+  // transition): a Dialog at Tier C is reachable, so it is judged, and blocks.
+  'overlay.dialog': { section: '§15, §23', kind: 'assertion', summary: 'An open Dialog is a named modal dialog holding focus, with everything else inert and nothing outside it focusable.', tiers: s1() },
   'overlay.drawer': { section: '§20, §23', kind: 'assertion', summary: 'An overlay drawer is a named modal dialog holding focus over an inert workspace; an in-place inspector claims no modality.', tiers: s1() },
 
   // --- Archetypes (§4; UI-2..UI-5 and S1d) -----------------------------------
@@ -285,12 +304,27 @@ export const RULES = {
     tiers: { A: pending('S6 / X3 (§38: fonts do not swap)'), B: pending('S6 / X3'), C: pending('S6 / X3') },
   },
 
-  // --- Known rules not yet evaluated by any code ------------------------------
+  // T3 (S5): 200% browser page zoom at 1366x768 (§23). A zoom case is the
+  // 1366x768 anchor with the browser's page zoom set (cdp.mjs pageZoom): its
+  // effective 683x384 CSS viewport is Tier C, so every Tier C rule judges it
+  // as well. This rule is what only a zoom case can settle — that the zoom is
+  // real (the browser's zoom factor, the 1366x768 viewport behind it, the
+  // devicePixelRatio and the media queries it drives), that no offered control
+  // is lost to the 384px height (reachable, unclipped and unobscured when
+  // focused), that drawers and dialogs fit, that text grows with the page, and
+  // that a zoom change keeps focus, overlays, drafts and preferences sound. It
+  // is evaluated only in zoom cases (`lane`), and the full sweep must evaluate
+  // it on every operator surface (engine.zoomCoverageFaults).
   'a11y.zoom-200': {
-    section: '§23, §25', kind: 'future', execution: 'not evaluated until S5 adds the 200% zoom sweep at 1366x768',
-    summary: '200% zoom at 1366x768 reflows under the Tier C rules.',
-    tiers: { A: pending('S5 / T3'), B: pending('S5 / T3'), C: pending('S5 / T3') },
+    section: '§23, §25', kind: 'assertion', lane: 'zoom',
+    summary: 'At 200% browser page zoom on a 1366x768 viewport the page lays out at 683x384 CSS px under the Tier C rules with no offered control lost, hidden, clipped or obscured; drawers and dialogs fit; text grows with the page; and a zoom change in either direction keeps focus visible, overlays valid, drafts and preferences intact.',
+    tiers: {
+      A: blocking(),
+      B: na('200% of the 1366x768 anchor is an effective 683px (Tier C), and zooming back out returns to 1366 (Tier A): no zoom case lands at Tier B'),
+      C: blocking(),
+    },
   },
+  // --- Known rules not yet evaluated by any code ------------------------------
   'a11y.reduced-motion': {
     section: '§13, §23', kind: 'future', execution: 'not evaluated until S6 adds the reduced-motion emulation pass',
     summary: 'Under prefers-reduced-motion no transition or animation runs.',
@@ -351,6 +385,11 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
     }
     if (entry.kind === 'future' && !entry.execution) problems.push(`${id}: future rule without an execution policy`);
     if (entry.scope !== undefined && entry.scope !== 'surface') problems.push(`${id}: unknown scope "${entry.scope}"`);
+    if (entry.lane !== undefined && entry.lane !== 'zoom') problems.push(`${id}: unknown lane "${entry.lane}"`);
+    // T3: 200% zoom is §23 MUST, owned by T3 alone; T3 is done or it is not.
+    for (const tier of TIERS) {
+      if (entry.tiers?.[tier]?.status === 'measured/pending' && /T3/.test(entry.tiers[tier].owner ?? '')) problems.push(`${id} @ ${tier}: still owned by T3 after T3`);
+    }
     if (entry.scope === 'surface' && entry.tiers?.A?.status !== 'blocking') problems.push(`${id}: a surface-scoped rule must block at Tier A, where S1 owns it`);
     if (implemented) {
       const isImplemented = implemented.has(id);
