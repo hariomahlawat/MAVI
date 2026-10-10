@@ -45,3 +45,38 @@ export async function openBrowser() {
   };
   return lane;
 }
+
+/**
+ * Which tests this process runs (CI partitions the harness's self-tests):
+ * MAVI_VQA_TEST_GROUP unset — everything; `unit` — everything but the
+ * end-to-end runs of run.mjs; `e2e-i/n` — the i-th of n deterministic groups
+ * of the end-to-end runs, by their order in the file, and nothing else. Each
+ * end-to-end test is in exactly one group by construction: `e2e()` numbers
+ * them as they are declared and keeps index % n === i.
+ */
+export function testGroup() {
+  const raw = process.env.MAVI_VQA_TEST_GROUP;
+  if (!raw) return { kind: 'all', unit: true, e2e: () => true, label: 'all' };
+  if (raw === 'unit') return { kind: 'unit', unit: true, e2e: () => false, label: 'unit' };
+  const m = /^e2e-([0-9]+)\/([1-9][0-9]*)$/.exec(raw);
+  if (!m || Number(m[1]) >= Number(m[2])) throw new Error(`MAVI_VQA_TEST_GROUP must be unset, "unit" or "e2e-i/n" with 0 <= i < n, not "${raw}"`);
+  const index = Number(m[1]); const count = Number(m[2]);
+  return { kind: 'e2e', unit: false, e2e: (ordinal) => ordinal % count === index, label: raw, index, count };
+}
+
+/** `it` for an end-to-end run of run.mjs: declared in order, run in its group only. */
+export function e2eIt(it) {
+  const group = testGroup();
+  let ordinal = 0;
+  return (name, fn) => {
+    const mine = group.e2e(ordinal);
+    ordinal += 1;
+    return mine ? it(name, fn) : it(name, { skip: `end-to-end test of another group (MAVI_VQA_TEST_GROUP=${group.label})` }, fn);
+  };
+}
+
+/** `describe` options for a block of unit tests: skipped in an e2e group. */
+export function unitBlock() {
+  const group = testGroup();
+  return group.unit ? {} : { skip: `unit tests are the unit group's (MAVI_VQA_TEST_GROUP=${group.label})` };
+}

@@ -5,6 +5,7 @@
  *
  *   node tools/web-visual-qa/run.mjs [--states a,b] [--tiers A,B] [--widths 1366,2560]
  *                                    [--zoom only|none] [--workers 3] [--repeat 5] [--keep] [--build]
+ *                                    [--shard i/n]
  *
  * Runs the real production bundle (build it first, or pass --build) in real
  * Chromium at every tier anchor each state applies to, plus each state's probe
@@ -17,6 +18,12 @@
  * judged at Tier C, where its effective 683x384 falls; states declare live
  * zoom transitions too. `--zoom only` runs just those cases, `--zoom none`
  * leaves them out; either is a partial run.
+ *
+ * `--shard i/n` (CI) runs the i-th of n deterministic shards of the same plan
+ * (engine.partitionCases: a state and its loading-pair partner in one shard)
+ * and records the whole plan beside its own cases, so aggregate.mjs can prove
+ * every planned case ran exactly once and apply the sweep-wide checks that a
+ * shard cannot judge alone. A shard's own exit status covers only what it ran.
  *
  * Exit status:
  *   0  no blocking finding (measured/pending findings are reported, never fail);
@@ -67,7 +74,7 @@ const [
     zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTextBaseline, zoomTextCompare, zoomTransitionProbe,
   },
   { launch },
-  { createLedger, exitStatus, HarnessError, planCases, settle, unprovenPressedKinds, unreachedFaults, zoomCoverageFaults, zoomQualification },
+  { caseKey, createLedger, exitStatus, HarnessError, partitionCases, planCases, settle, sweepChecks, zoomQualification },
   { CONDITIONS, ensureFootage },
   { manifestSummary, OPERATOR_SURFACES, RULES, TIERS, validateManifest, ZOOM_CONDITION },
   { startServer },
@@ -110,7 +117,18 @@ const positiveInt = (name, fallback) => {
   return Number(raw);
 };
 const repeat = positiveInt('repeat', 1);
-const fullSweep = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom && repeat === 1 && !STATES_MODULE;
+// `--shard i/n`: refused unless it names one of n shards.
+const shardArg = arg('shard', null);
+let shard = null;
+if (shardArg !== null) {
+  const m = /^([0-9]+)\/([1-9][0-9]*)$/.exec(String(shardArg));
+  if (!m || Number(m[1]) >= Number(m[2])) fatal(`--shard takes i/n with 0 <= i < n, not "${shardArg}"`);
+  shard = { index: Number(m[1]), count: Number(m[2]) };
+}
+// The whole plan, with nothing left out: the sweep-wide obligations hold here.
+const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom && repeat === 1 && !STATES_MODULE;
+// A shard is never the full sweep by itself; aggregate.mjs is, over every shard.
+const fullSweep = completeSelection && !shard;
 const workers = positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
 
 const manifestProblems = validateManifest();
@@ -130,8 +148,11 @@ try {
 } catch (error) {
   fatal(String(error.message || error) + '\n');
 }
-const { cases, applicability } = plan;
-if (!cases.length) { fatal('nothing to run\n'); }
+const { applicability } = plan;
+if (!plan.cases.length) { fatal('nothing to run\n'); }
+const partition = shard ? partitionCases(plan.cases, { ...shard, pairs: LOADING_PAIRS }) : null;
+const cases = partition ? partition.selected : plan.cases;
+if (partition && !cases.length) { fatal(`shard ${shard.index}/${shard.count} selects no case of ${plan.cases.length}\n`); }
 
 if (flag('build')) {
   process.stdout.write('building frontend…\n');
@@ -223,6 +244,13 @@ async function runCase(lane, c) {
   // fault at every tier (engine.unreachedFaults), first cause kept.
   const browser = lane.browser;
 
+  // The previous document goes first, then its held requests: a page whose
+  // held request is destroyed while it is still alive retries it, and that
+  // retry would land on this case's scenario and consume the first answer of
+  // its sequenced fixtures (a loading Ledger followed by a degraded one, in a
+  // sharded sweep, showed the failed refresh where the retained one was due).
+  // A blank document has nothing to retry.
+  await browser.goto('about:blank');
   lane.server.releaseHung();
   lane.scenario = state.api ?? {};
   lane.server.resetSequences();
@@ -284,9 +312,11 @@ async function runCase(lane, c) {
       }
     }
     // The baseline's page is left behind as any other case's would be: the
-    // stored preferences it may have written are cleared and the state's own
-    // put back, held requests released and sequenced fixtures rewound, so the
-    // 200% load begins as it would alone.
+    // document gone first (so nothing of it retries), then held requests
+    // released and sequenced fixtures rewound, and the stored preferences it
+    // may have written cleared with the state's own put back, so the 200%
+    // load begins as it would alone.
+    await browser.goto('about:blank');
     lane.server.releaseHung();
     lane.server.resetSequences();
   }
@@ -655,7 +685,9 @@ async function runCase(lane, c) {
   for (const problem of browser.resourceErrors()) {
     if (!expectedPaths.some((path) => problem.includes(path))) pageProblem('page.resource-error', problem);
   }
-  lane.server.releaseHung();
+  // Held requests are released at the start of the next case, after its
+  // document is gone (above); releasing them here, with this page alive,
+  // would make it retry into the next case's scenario.
 
   const result = {
     state: state.name, viewport: viewport.label, tier: viewport.tier, kind: viewport.kind, attempt: c.attempt, lane: lane.index,
@@ -698,7 +730,7 @@ try {
       } catch (error) {
         if (error instanceof HarnessError) throw error;
         harnessErrors.push(`${c.state.name} @ ${c.viewport.label}: ${String(error.stack || error).split('\n').slice(0, 3).join(' | ')}`);
-        errored.push({ state: c.state.name, viewport: c.viewport.label, tier: c.viewport.tier, stage: 'exception', reason: String(error.message || error).split('\n')[0] });
+        errored.push({ state: c.state.name, viewport: c.viewport.label, tier: c.viewport.tier, attempt: c.attempt, stage: 'exception', reason: String(error.message || error).split('\n')[0] });
         process.stdout.write(`  ERR   ${c.state.name} @ ${c.viewport.label}: ${String(error.message || error).split('\n')[0]}\n`);
       }
     }
@@ -709,19 +741,6 @@ try {
   await Promise.all(lanes.map(async (lane) => { await lane.browser.close(); await lane.server.close(); }));
 }
 const durationMs = Date.now() - started;
-
-// A loading Ledger's first skeleton row is where the first table row arrives.
-for (const [loading, ready] of LOADING_PAIRS) {
-  for (const result of results.filter((r) => r.state === loading)) {
-    const settled = results.find((r) => r.state === ready && r.viewport === result.viewport);
-    const a = result.workspace?.firstRowTop;
-    const b = settled?.workspace?.firstRowTop;
-    if (typeof a !== 'number' || typeof b !== 'number') continue;
-    const c = { state: { name: loading }, viewport: { label: result.viewport, tier: result.tier, kind: result.kind } };
-    markEvaluated(c, ['ledger.loading-geometry']);
-    if (Math.abs(a - b) > 0.5) record(c, 'ledger.loading-geometry', `first skeleton row at ${a}px, first ${ready} row at ${b}px: the rows move when the table arrives`);
-  }
-}
 
 // Repeated preparations must confirm the same settled state (V3).
 const determinism = [];
@@ -738,38 +757,18 @@ if (repeat > 1) {
   }
 }
 
-// pressed.visible: a control whose pressed form a capture never shows is
-// unproven there, not passed. On the full sweep every such kind must be shown
-// distinct in some capture; one never proven is a finding where first seen.
-const pressedUnproven = [];
-if (fullSweep) {
-  for (const { kind, result: r, control } of unprovenPressedKinds(results)) {
-    const c = { state: { name: r.state }, viewport: { label: r.viewport, tier: r.tier, kind: r.kind }, surface: r.surface };
-    record(c, 'pressed.visible', `${control} (${kind}): its pressed treatment is never shown in any capture of the sweep, so it is unproven`);
-    pressedUnproven.push(kind);
-  }
-}
-
-// Non-vacuity: on the full sweep every blocking assertion must have run.
-harnessErrors.push(...unreachedFaults(results));
-// Every scheduled case produced a result or a recorded error: a case the run
-// never reached is not a passed one.
-if (results.length + errored.length !== cases.length) {
-  harnessErrors.push(`${cases.length - results.length - errored.length} of ${cases.length} scheduled case(s) never ran`);
-}
-// T3: every operator surface judged at 200% zoom, every transition evaluated.
-if (fullSweep) harnessErrors.push(...zoomCoverageFaults(results, OPERATOR_SURFACES));
-const vacuous = fullSweep && !harnessErrors.length ? ledger.vacuous() : [];
-if (vacuous.length) harnessErrors.push('blocking rules the full sweep never evaluated: ' + vacuous.join(', '));
-// §15/§20 restoration is part of each overlay rule: a full sweep must have
-// judged it at Tier A for an overlay an action opened, not only for ones the
-// URL opened.
-if (fullSweep && !harnessErrors.length) {
-  for (const rule of ['overlay.dialog', 'overlay.drawer']) {
-    const judged = results.some((r) => r.tier === 'A' && r.overlayExit?.rule === rule && ['restored', 'failed', 'unverifiable'].includes(r.overlayExit.restoration));
-    if (!judged) harnessErrors.push(`${rule}: the full sweep never judged focus restoration at Tier A for an overlay an action opened`);
-  }
-}
+// The checks that read across cases (engine.sweepChecks): a loading Ledger
+// against its table, pressed treatments proven somewhere, every scheduled case
+// run and reached, and — on the full sweep — every surface judged at 200%, no
+// blocking rule unevaluated, overlay restoration judged at Tier A. A shard
+// runs only what is its own to judge (every case ran and reached); the rest
+// is the aggregate's, over every shard.
+const sweep = sweepChecks({
+  results, cases, errored, ledger, surfaces: OPERATOR_SURFACES,
+  loadingPairs: shard ? [] : LOADING_PAIRS, fullSweep,
+});
+harnessErrors.push(...sweep.faults);
+const pressedUnproven = sweep.pressedUnproven;
 
 // --- Report -----------------------------------------------------------------------
 
@@ -793,6 +792,9 @@ const report = {
   durationMs,
   workers: lanes.length,
   fullSweep,
+  // A shard says which of how many it is and lists the whole plan beside its
+  // own selection, so the aggregate can prove the plan ran exactly once.
+  shard: shard ? { ...shard, completeSelection, planned: partition.planned, selected: partition.selectedKeys } : null,
   manifest: manifestSummary(),
   states: { registered: STATES.length, selected: new Set(cases.map((c) => c.state.name)).size, applicability },
   executions: {
@@ -837,7 +839,8 @@ writeFileSync(join(OUT, 'results.json'), JSON.stringify({ ...report, findingsLis
 
 const line = (text = '') => process.stdout.write(text + '\n');
 line();
-line(`${valid.length} valid captures of ${cases.length} scheduled (${STATES.length} registered states, ${report.states.selected} selected) in ${Math.round(durationMs / 1000)}s on ${lanes.length} lane(s)`);
+line(`${valid.length} valid captures of ${cases.length} scheduled (${STATES.length} registered states, ${report.states.selected} selected) in ${Math.round(durationMs / 1000)}s on ${lanes.length} lane(s)`
+  + (shard ? ` — shard ${shard.index}/${shard.count} of ${plan.cases.length} planned case(s); the sweep-wide checks are aggregate.mjs's` : ''));
 for (const tier of TIERS) {
   const t = byTier[tier];
   line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe${t.zoomCaptures ? ` + ${t.zoomCaptures} zoom` : ''} valid captures, ${t.invalid} invalid; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);

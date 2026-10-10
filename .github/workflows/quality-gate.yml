@@ -1,5 +1,13 @@
 name: MAVI Quality Gate
 
+# The one required check is the aggregate job `quality` (branch protection;
+# docs/runbooks/ci-checks-and-merge-gates.md). The workflow runs on every pull
+# request so that check always reports; the `scope` job then decides, from the
+# pull request's merge diff (tools/ci/quality_scope.py, tools/ci/quality-scope.json),
+# which lanes the change can reach, and only those run. `quality` requires every
+# applicable lane to have succeeded and every non-applicable lane to have been
+# skipped — any other state fails it. A push to a gated branch runs every lane.
+
 on:
   pull_request:
     branches:
@@ -15,15 +23,62 @@ on:
 permissions:
   contents: read
 
+# A newer head of the same pull request supersedes the run in progress (one
+# group per pull-request ref). A push to a gated branch gets a group of its own
+# (the run id), so it is neither cancelled nor queued behind another push: the
+# evidence on `main` for one merge commit is never lost to the next.
 concurrency:
-  group: mavi-quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: mavi-quality-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   MAVI_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  scope:
+    name: quality scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tooling: ${{ steps.scope.outputs.tooling }}
+      dotnet: ${{ steps.scope.outputs.dotnet }}
+      vision: ${{ steps.scope.outputs.vision }}
+      guard: ${{ steps.scope.outputs.guard }}
+      qualification: ${{ steps.scope.outputs.qualification }}
+      web: ${{ steps.scope.outputs.web }}
+      visual: ${{ steps.scope.outputs.visual }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Decide which lanes the change reaches
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          every() { for lane in tooling dotnet vision guard qualification web visual; do echo "$lane=true"; done; }
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "quality-scope: ${{ github.event_name }} event; running every lane" >&2
+            every | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$RUNNER_TEMP/quality-changed-paths"
+          # The merge commit's first parent is the base branch, so this is exactly
+          # what merging changes. --no-renames lists both paths of a rename.
+          if test "$(git rev-parse HEAD)" = "$GITHUB_SHA" \
+              && git rev-parse --verify --quiet 'HEAD^2' >/dev/null \
+              && git diff --no-renames --name-only -z 'HEAD^1' HEAD > "$changed"; then
+            python3 tools/ci/quality_scope.py lanes --files "$changed" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "quality-scope: merge commit diff unavailable; running every lane" >&2
+            every | tee -a "$GITHUB_OUTPUT"
+          fi
+
   repo-contracts:
+    # Always: the repository's own contracts cover documents, configuration and
+    # workflows as much as code, and the scope classifier's tests run here.
     name: repo contracts
     runs-on: ubuntu-latest
     timeout-minutes: 12
@@ -48,6 +103,34 @@ jobs:
           python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
       - name: Verify repository
         run: python tools/verify_repo.py
+      - name: Test the quality scope classifier
+        run: python -m pytest -q tools/ci/tests
+
+  tooling-tests:
+    name: tooling tests
+    needs: scope
+    if: needs.scope.outputs.tooling != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            src/vision/pyproject.toml
+            tools/requirements.txt
+      - name: Install verification dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './src/vision[dev]' -r tools/requirements.txt
       - name: Test Task 17 acceptance tooling
         run: python -m pytest -q tools/phase1/tests
       - name: Ensure FFmpeg
@@ -78,6 +161,8 @@ jobs:
 
   dotnet-tests:
     name: dotnet shard ${{ matrix.shard }}
+    needs: scope
+    if: needs.scope.outputs.dotnet != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     strategy:
@@ -172,6 +257,8 @@ jobs:
 
   python-vision:
     name: python vision
+    needs: scope
+    if: needs.scope.outputs.vision != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -199,6 +286,8 @@ jobs:
 
   guard-coverage:
     name: guard coverage shard ${{ matrix.shard }}
+    needs: scope
+    if: needs.scope.outputs.guard != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     strategy:
@@ -232,6 +321,8 @@ jobs:
 
   qualification-tests:
     name: qualification shard ${{ matrix.shard }}
+    needs: scope
+    if: needs.scope.outputs.qualification != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     strategy:
@@ -280,6 +371,8 @@ jobs:
 
   web-host:
     name: web and production host
+    needs: scope
+    if: needs.scope.outputs.web != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -343,17 +436,22 @@ jobs:
           include-hidden-files: false
           if-no-files-found: warn
 
-  visual-qa:
-    # Stage 3.5 S2 (specification §26 as amended, register V4): the visual-QA
-    # harness against the production build at every tier anchor. The job fails
-    # only on a `blocking` manifest finding (exit 1) or a harness fault (exit
-    # 2); `measured/pending` findings are printed and kept in results.json.
-    # It builds the frontend itself rather than waiting on web-host's build: the
-    # Vite build takes seconds, and depending on that lane would serialise this
-    # job behind its .NET publish for no isolation gain.
-    name: visual QA
+  visual-harness-tests:
+    # Stage 3.5 S2 (specification §26 as amended, register V4): the harness's
+    # own tests, in four concurrent groups — the unit tests in one, the
+    # end-to-end runs of run.mjs (the T3 zoom negatives among them) in three,
+    # each run in exactly one group (test/browser.mjs testGroup). Every group
+    # builds the production bundle itself: the Vite build takes seconds and an
+    # artifact hand-off would cost more than it saves.
+    name: visual harness ${{ matrix.group }}
+    needs: scope
+    if: needs.scope.outputs.visual != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [unit, e2e-0/3, e2e-1/3, e2e-2/3]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -396,11 +494,148 @@ jobs:
       - name: Build frontend (production)
         working-directory: src/web/mavi-web
         run: npm run build
-      - name: Test the harness
+      - name: Test the harness (unit group)
+        if: matrix.group == 'unit'
+        env:
+          MAVI_VQA_TEST_GROUP: unit
         run: node --test 'tools/web-visual-qa/test/*.test.mjs'
-      - name: Run the visual-QA sweep
-        run: node tools/web-visual-qa/run.mjs --workers 3
-      - name: Retain captures and results
+      - name: Test the harness (end-to-end group)
+        if: matrix.group != 'unit'
+        env:
+          MAVI_VQA_TEST_GROUP: ${{ matrix.group }}
+        run: node --test tools/web-visual-qa/test/zoom.test.mjs tools/web-visual-qa/test/run.test.mjs tools/web-visual-qa/test/shard.test.mjs
+
+  visual-sweep:
+    # The full sweep at every tier anchor, against the production build, in
+    # four deterministic shards of the one plan (run.mjs --shard i/n: a state
+    # and its loading-pair partner in one shard). A shard judges each case it
+    # runs; the aggregate below proves the plan ran exactly once and applies
+    # the sweep-wide checks. A shard fails only on a `blocking` finding (exit
+    # 1) or a harness fault (exit 2) in its own cases.
+    name: visual sweep shard ${{ matrix.shard }}
+    needs: scope
+    if: needs.scope.outputs.visual != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      SHARD_COUNT: '4'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/web/mavi-web/package-lock.json
+      - name: Locate Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$browser"
+          "$browser" --version
+          echo "MAVI_CHROMIUM=$browser" >> "$GITHUB_ENV"
+      - name: Ensure FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+            exit 0
+          fi
+          if sudo apt-get install -y ffmpeg; then
+            exit 0
+          fi
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
+          sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y ffmpeg
+      - name: Install frontend dependencies
+        working-directory: src/web/mavi-web
+        run: npm ci
+      - name: Build frontend (production)
+        working-directory: src/web/mavi-web
+        run: npm run build
+      - name: Run the visual-QA sweep shard
+        shell: bash
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: node tools/web-visual-qa/run.mjs --workers 3 --shard "$SHARD_INDEX/$SHARD_COUNT"
+      # The shard's results (small) for the aggregate; its captures (diagnostic,
+      # never qualification evidence) for a person to read.
+      - name: Retain shard results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-qa-shard-results-${{ matrix.shard }}
+          path: tools/web-visual-qa/.captures/results.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Retain shard captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-qa-captures-shard-${{ matrix.shard }}
+          path: tools/web-visual-qa/.captures/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
+
+  visual-aggregate:
+    # The full sweep's verdict from its shards (aggregate.mjs): the same head,
+    # manifest and plan in every shard; every planned case run exactly once,
+    # reached and valid; no harness error; the sweep-wide checks (every surface
+    # judged at 200%, no blocking rule unevaluated, overlay restoration at Tier
+    # A, pressed treatments proven, loading Ledgers against their tables); no
+    # blocking finding. Runs only when every shard succeeded; `quality` then
+    # requires it.
+    name: visual aggregate
+    needs:
+      - scope
+      - visual-sweep
+    if: needs.scope.outputs.visual != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: visual-qa-shard-results-*
+          path: visual-shards/
+      - name: Aggregate the sweep
+        shell: bash
+        env:
+          SHARD_COUNT: '4'
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find visual-shards -name results.json | sort)
+          test "${#files[@]}" = "$SHARD_COUNT"
+          for f in "${files[@]}"; do
+            test "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).head))' "$f")" = "$MAVI_EXPECTED_SOURCE_SHA"
+          done
+          node tools/web-visual-qa/aggregate.mjs --out tools/web-visual-qa/.captures "${files[@]}"
+          # The aggregate must be the full sweep, not a partial selection.
+          test "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync("tools/web-visual-qa/.captures/results.json","utf8")).fullSweep))')" = 'true'
+      - name: Retain the aggregate
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -414,13 +649,17 @@ jobs:
     name: quality
     if: always()
     needs:
+      - scope
       - repo-contracts
+      - tooling-tests
       - dotnet-tests
       - python-vision
       - guard-coverage
       - qualification-tests
       - web-host
-      - visual-qa
+      - visual-harness-tests
+      - visual-sweep
+      - visual-aggregate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -452,27 +691,56 @@ jobs:
           path: qualification-evidence/
           include-hidden-files: false
           if-no-files-found: warn
+      # Every lane is accounted for: an applicable lane must have succeeded, a
+      # non-applicable one must have been skipped by the scope decision, and
+      # anything else — failed, cancelled, missing — fails the gate. The scope
+      # job itself must have succeeded, and repo-contracts always applies.
       - name: Require every quality lane
         shell: bash
         run: |
           set -euo pipefail
-          test '${{ needs.repo-contracts.result }}' = 'success'
-          test '${{ needs.dotnet-tests.result }}' = 'success'
-          test '${{ needs.python-vision.result }}' = 'success'
-          test '${{ needs.guard-coverage.result }}' = 'success'
-          test '${{ needs.qualification-tests.result }}' = 'success'
-          test '${{ needs.web-host.result }}' = 'success'
-          test '${{ needs.visual-qa.result }}' = 'success'
+          require() {
+            job="$1"; result="$2"; applicable="$3"
+            if [ "$applicable" = 'false' ]; then
+              if [ "$result" != 'skipped' ]; then echo "$job: not applicable to this change, but its result is '$result' (expected skipped)"; exit 1; fi
+              echo "$job: not applicable (skipped)"
+            else
+              if [ "$result" != 'success' ]; then echo "$job: applicable, but its result is '$result' (expected success)"; exit 1; fi
+              echo "$job: success"
+            fi
+          }
+          test '${{ needs.scope.result }}' = 'success'
+          require repo-contracts '${{ needs.repo-contracts.result }}' true
+          require tooling-tests '${{ needs.tooling-tests.result }}' '${{ needs.scope.outputs.tooling }}'
+          require dotnet-tests '${{ needs.dotnet-tests.result }}' '${{ needs.scope.outputs.dotnet }}'
+          require python-vision '${{ needs.python-vision.result }}' '${{ needs.scope.outputs.vision }}'
+          require guard-coverage '${{ needs.guard-coverage.result }}' '${{ needs.scope.outputs.guard }}'
+          require qualification-tests '${{ needs.qualification-tests.result }}' '${{ needs.scope.outputs.qualification }}'
+          require web-host '${{ needs.web-host.result }}' '${{ needs.scope.outputs.web }}'
+          require visual-harness-tests '${{ needs.visual-harness-tests.result }}' '${{ needs.scope.outputs.visual }}'
+          require visual-sweep '${{ needs.visual-sweep.result }}' '${{ needs.scope.outputs.visual }}'
+          require visual-aggregate '${{ needs.visual-aggregate.result }}' '${{ needs.scope.outputs.visual }}'
       - name: Require one TRX per test project and the web JUnit
         shell: bash
+        env:
+          DOTNET_APPLICABLE: ${{ needs.scope.outputs.dotnet }}
+          WEB_APPLICABLE: ${{ needs.scope.outputs.web }}
         run: |
           set -euo pipefail
-          expected="$(find tests -mindepth 2 -maxdepth 2 -name '*.csproj' -exec basename {} .csproj \; | sort)"
-          actual="$(find qualification-evidence/trx -maxdepth 1 -name '*.trx' -exec basename {} .trx \; | sort)"
-          test -n "$expected"
-          if [ "$expected" != "$actual" ]; then
-            echo "retained TRX set differs from the test projects"
-            diff <(echo "$expected") <(echo "$actual") || true
-            exit 1
+          if [ "$DOTNET_APPLICABLE" != 'false' ]; then
+            expected="$(find tests -mindepth 2 -maxdepth 2 -name '*.csproj' -exec basename {} .csproj \; | sort)"
+            actual="$(find qualification-evidence/trx -maxdepth 1 -name '*.trx' -exec basename {} .trx \; | sort)"
+            test -n "$expected"
+            if [ "$expected" != "$actual" ]; then
+              echo "retained TRX set differs from the test projects"
+              diff <(echo "$expected") <(echo "$actual") || true
+              exit 1
+            fi
+          else
+            echo "dotnet lane not applicable: no TRX expected"
           fi
-          test -s qualification-evidence/junit/mavi-web.xml
+          if [ "$WEB_APPLICABLE" != 'false' ]; then
+            test -s qualification-evidence/junit/mavi-web.xml
+          else
+            echo "web lane not applicable: no JUnit expected"
+          fi

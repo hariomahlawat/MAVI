@@ -18,11 +18,11 @@ import { toExpression, zoomAssertions, zoomBeforeChange, zoomEnvironment, zoomTe
 import { createLedger, HarnessError, planCases, zoomCoverageFaults, zoomQualification } from '../engine.mjs';
 import { OPERATOR_SURFACES, ZOOM_CONDITION } from '../manifest.mjs';
 import { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM } from '../states.mjs';
-import { openBrowser } from './browser.mjs';
+import { e2eIt, openBrowser, unitBlock } from './browser.mjs';
 
 const plan = (states = STATES, extra = {}) => planCases({ states, anchors: ANCHORS, policies: TIER_POLICIES, stateKeys: STATE_KEYS, tierOf, zoom: ZOOM, ...extra });
 
-describe('the zoom condition (§23, frozen)', () => {
+describe('the zoom condition (§23, frozen)', unitBlock(), () => {
   it('is 200% page zoom on the 1366x768 anchor, an effective 683x384 that is Tier C', () => {
     assert.deepEqual({ ...ZOOM_CONDITION }, { width: 1366, height: 768, factor: 2 });
     assert.ok(Object.isFrozen(ZOOM_CONDITION));
@@ -31,7 +31,7 @@ describe('the zoom condition (§23, frozen)', () => {
   });
 });
 
-describe('planning the zoom cases', () => {
+describe('planning the zoom cases', unitBlock(), () => {
   const { cases } = plan();
   const loads = cases.filter((c) => c.viewport.kind === 'zoom');
   const transitions = cases.filter((c) => c.viewport.kind === 'zoom-transition');
@@ -95,7 +95,7 @@ describe('planning the zoom cases', () => {
   });
 });
 
-describe('the zoom rule is a zoom case\'s alone', () => {
+describe('the zoom rule is a zoom case\'s alone', unitBlock(), () => {
   it('is refused, as a harness fault, in a case with no page zoom — a shrunk viewport cannot stand in', () => {
     const ledger = createLedger();
     const shrunk = { state: { name: 's' }, viewport: { tier: 'C', label: '683x384', kind: 'probe' } };
@@ -118,7 +118,7 @@ describe('the zoom rule is a zoom case\'s alone', () => {
   });
 });
 
-describe('in Chromium: genuine 200% page zoom, and the impostors the gate refuses', () => {
+describe('in Chromium: genuine 200% page zoom, and the impostors the gate refuses', unitBlock(), () => {
   let lane;
   before(async () => { lane = await openBrowser(); });
   after(async () => { await lane.close(); });
@@ -183,7 +183,7 @@ describe('in Chromium: genuine 200% page zoom, and the impostors the gate refuse
   });
 });
 
-describe('what the 384px height can take from a page at 200% (zoomAssertions)', () => {
+describe('what the 384px height can take from a page at 200% (zoomAssertions)', unitBlock(), () => {
   let lane;
   before(async () => { lane = await openBrowser(); });
   after(async () => { await lane.close(); });
@@ -473,7 +473,7 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
   });
 });
 
-describe('a live zoom change (zoomTransitionProbe)', () => {
+describe('a live zoom change (zoomTransitionProbe)', unitBlock(), () => {
   let lane;
   before(async () => { lane = await openBrowser(); });
   after(async () => { await lane.close(); });
@@ -664,6 +664,7 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
 });
 
 describe('the run, end to end, at 200% zoom', () => {
+  const e2e = e2eIt(it);
   const RUN = fileURLToPath(new URL('../run.mjs', import.meta.url));
   const REGISTERED = new URL('../states.mjs', import.meta.url).href;
   let dir;
@@ -687,7 +688,7 @@ ${output}`);
   };
   const VIDEOS = 'export const STATES = REGISTERED.filter((s) => s.name === "videos").map(({ zoomTransitions, ...s }) => s);';
 
-  it('fails, blocking, when the zoom is left at 100%', () => {
+  e2e('fails, blocking, when the zoom is left at 100%', () => {
     const { status, output, results } = run('at-100', `${VIDEOS}\nexport const ZOOM = { width: 1366, height: 768, factor: 1 };`, ['--states', 'videos']);
     assert.equal(status, 1, output);
     const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200');
@@ -695,7 +696,7 @@ ${output}`);
     assert.ok(zoom.some((f) => /applies a page zoom of 1, not 2/.test(f.message)), JSON.stringify(zoom));
   });
 
-  it('fails, blocking, when the viewport is merely shrunk to 683x384', () => {
+  e2e('fails, blocking, when the viewport is merely shrunk to 683x384', () => {
     const { status, output, results } = run('shrunk', `${VIDEOS}\nexport const ZOOM = { width: 683, height: 384, factor: 1 };`, ['--states', 'videos']);
     assert.equal(status, 1, output);
     const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.tier === 'C');
@@ -703,14 +704,14 @@ ${output}`);
     assert.ok(zoom.every((f) => f.severity === 'blocking'));
   });
 
-  it('passes the genuine zoom of the same state, its zoom proven', () => {
+  e2e('passes the genuine zoom of the same state, its zoom proven', () => {
     const { status, output, results } = run('genuine', VIDEOS, ['--states', 'videos']);
     assert.equal(status, 0, output);
     assert.equal(results.executions.zoom.qualified, 1);
     assert.equal(results.executions.zoom.sample.metrics.pageZoom, 2);
   });
 
-  it('is a harness fault when a transition\'s starting state is not the one it declares (T3 cold review)', () => {
+  e2e('is a harness fault when a transition\'s starting state is not the one it declares (T3 cold review)', () => {
     const { status, output, results } = run('start', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, expectText: 'Text this page never shows', zoomTransitions: [{ path: [1, 2], expectText: '4 of 4 videos' }] }));`, ['--states', 'videos']);
     assert.equal(status, 2, output);
     // Every zoom case first reaches the state at 100% for its text baseline,
@@ -718,7 +719,7 @@ ${output}`);
     assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@100%-200% \(Tier C\): the declared state was not reached at (navigation settle|zoom text baseline)/.test(e)), results.harnessErrors.join('\n'));
   });
 
-  it('judges a transition against the frozen 200%, whatever factor the states declare (T3 cold review)', () => {
+  e2e('judges a transition against the frozen 200%, whatever factor the states declare (T3 cold review)', () => {
     const { status, output, results } = run('factor', `export const ZOOM = { width: 1366, height: 768, factor: 1.8 };
 export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, zoomTransitions: [{ path: [1, 1.8] }] }));`, ['--states', 'videos']);
     assert.equal(status, 1, output);
@@ -726,7 +727,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.ok(zoom.some((f) => /applies a page zoom of 1\.(8|79\d*), not 2/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
   });
 
-  it('judges a transition\'s prepared starting state at 200% before leaving it (Codex P1)', () => {
+  e2e('judges a transition\'s prepared starting state at 200% before leaving it (Codex P1)', () => {
     const WIDE = `(() => { const s = document.createElement('style'); s.textContent = '.toolbar-band__controls[aria-modal="true"]{width:900px!important;max-width:none!important}'; document.head.appendChild(s); return true; })()`;
     const { status, output, results } = run('prepared', `export const STATES = [...REGISTERED.filter((s) => s.name === "videos"), ...REGISTERED.filter((s) => s.name === "videos-filters-drawer").map(({ zoomCapture, ...s }) => ({ ...s, zoomTransitions: [{ path: [2, 1], before: ${JSON.stringify(WIDE)} }] }))];`, ['--states', 'videos-filters-drawer']);
     assert.equal(status, 1, output);
@@ -734,7 +735,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.ok(zoom.some((f) => /^at the start \(200%\): .* does not fit the 683x384 viewport/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
   });
 
-  it('compares every 200% load with the same state at 100%: a label a Tier C rule shrinks fails (Codex P1, text scaling)', () => {
+  e2e('compares every 200% load with the same state at 100%: a label a Tier C rule shrinks fails (Codex P1, text scaling)', () => {
     const SHRINK = (selector, size) => `(() => { const s = document.createElement('style'); s.textContent = '@media (width < 768px) { ${selector} { font-size: ${size} !important } }'; document.head.appendChild(s); return true; })()`;
     // One label shrunk to 7px at the Tier C breakpoint; the body font untouched.
     let { status, output, results } = run('shrunk-label', `${VIDEOS.replace('=> s)', '=> ({ ...s, prepare: ' + JSON.stringify(SHRINK('main tbody td .faint', '7px')) + ' }))')}`, ['--states', 'videos']);
@@ -756,7 +757,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.ok(zoom.some((f) => /"Shown only on a narrow display" .*7px at 200%, below the 1[0-9]px smallest text at 100%/.test(f.message)), JSON.stringify(zoom));
   });
 
-  it('holds words a layer covers at 100% to the size they are drawn: the 11px badges under a sheet are not a shrink beside the 13px rail link (CI, DejaVu Sans)', () => {
+  e2e('holds words a layer covers at 100% to the size they are drawn: the 11px badges under a sheet are not a shrink beside the 13px rail link (CI, DejaVu Sans)', () => {
     // A black panel over the ledger at 100% only: the badges' words stay in
     // the baseline at 11px, so the same badges drawn at 11px at 200%,
     // uncovered, are no shrink against the rail's 13px "Processing".
@@ -769,7 +770,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.ok(text.matched > 0 && text.physical === 2, JSON.stringify(text));
   });
 
-  it('does not fault a page whose only controls are disabled or behind an open overlay, and faults one that offers controls none of which could be judged (cold review 3)', () => {
+  e2e('does not fault a page whose only controls are disabled or behind an open overlay, and faults one that offers controls none of which could be judged (cold review 3)', () => {
     // The videos state with every row action disabled and the filters
     // control gone: nothing offered — no fault; with the offered controls
     // refusing focus (tabindex kept, focus() prevented): a fault.
@@ -782,7 +783,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.ok(results.harnessErrors.some((e) => /not reached at zoom controls: \d+ control\(s\) offered and none judged/.test(e)), results.harnessErrors.join('\n'));
   });
 
-  it('is a harness fault when a 200% load\'s 100% baseline cannot be established, and when a zoom case never compares its text (Codex P1)', () => {
+  e2e('is a harness fault when a 200% load\'s 100% baseline cannot be established, and when a zoom case never compares its text (Codex P1)', () => {
     // The state's Tier A view (its baseline) waits for text the page never shows.
     const { status, output, results } = run('no-baseline', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map(({ zoomTransitions, ...s }) => ({ ...s, expectText: 'Text this page never shows', atTier: { C: { expectText: '4 of 4 videos' } } }));`, ['--states', 'videos']);
     assert.equal(status, 2, output);
@@ -792,7 +793,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
       /a11y.zoom-200: videos @ 1366x768@200% never compared its text with a 100% baseline/);
   });
 
-  it('settles every step a transition passes through on the state declared at that tier (Codex P1)', () => {
+  e2e('settles every step a transition passes through on the state declared at that tier (Codex P1)', () => {
     // The videos state forbids, at Tier C only, text the page shows there:
     // the 200% step of a 100%→200%→100% path is not the declared state.
     const { status, output, results } = run('step-declared', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, atTier: { C: { forbidText: '4 of 4 videos' } }, zoomTransitions: [{ path: [1, 2, 1] }] }));`, ['--states', 'videos']);
@@ -800,7 +801,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@100%-200%-100% \(Tier A\): the declared state was not reached at zoom change: did not settle at 200%/.test(e)), results.harnessErrors.join('\n'));
   });
 
-  it('judges every step a transition passes through, as a load (Codex P1)', () => {
+  e2e('judges every step a transition passes through, as a load (Codex P1)', () => {
     // A band drawn only at 200%, letting the pointer through: it hides the
     // focused row action there, and is gone again by the 100% capture.
     const BAND = `(() => { const s = document.createElement('style'); s.textContent = '@media (width < 768px) { body::after { content: ""; position: fixed; inset: 0; background: #000; pointer-events: none; z-index: 9 } }'; document.head.appendChild(s); const a = document.querySelector('main tbody tr a[href], main tbody tr button'); a.focus(); return document.activeElement === a; })()`;
@@ -810,7 +811,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.ok(zoom.some((f) => /^at 200%: .*(hidden under|covered by)/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
   });
 
-  it('compares the text a transition\'s final action draws at 200%, and takes each baseline with the state\'s own storage, not the previous case\'s (cold review 2)', () => {
+  e2e('compares the text a transition\'s final action draws at 200%, and takes each baseline with the state\'s own storage, not the previous case\'s (cold review 2)', () => {
     // search-grid stores the grid choice; a case after it must not inherit it
     // into its 100% baseline: search-filtered's baseline matches its words
     // as it does alone (every holder but the Tier C-only ones).
@@ -827,7 +828,7 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.ok(zoom.some((f) => /"Mounted by the action" is drawn at 6px at 200%, below the 1[0-9]px smallest text at 100%/.test(f.message)), JSON.stringify(zoom));
   });
 
-  it('is a harness fault when a required zoom state is never reached', () => {
+  e2e('is a harness fault when a required zoom state is never reached', () => {
     const { status, output, results } = run('unreached', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, zoomTransitions: [{ path: [1, 2], before: '(() => false)()' }] }));`, ['--states', 'videos']);
     assert.equal(status, 2, output);
     assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@100%-200% \(Tier C\): the declared state was not reached at zoom transition set-up/.test(e)), results.harnessErrors.join('\n'));

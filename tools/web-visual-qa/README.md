@@ -27,6 +27,37 @@ node --test 'tools/web-visual-qa/test/*.test.mjs'   # the harness's own tests
 | `--workers 3` | parallel lanes (default: CPUs − 1, at most 4) |
 | `--repeat 5` | prepare every selected case this many times, independently, and require one settled state |
 | `--keep` | report blocking findings but exit 0 |
+| `--shard i/n` | run the i-th of n deterministic shards of the same plan (CI); the sweep-wide verdict is `aggregate.mjs`'s |
+
+**Sharding (CI).** `run.mjs --shard i/n` partitions the plan it would otherwise
+run whole: the unit is a state (every anchor, probe and 200% case of a state in
+one shard), a loading Ledger and its table are kept together, and the states are
+dealt round-robin in their registered order (`engine.partitionCases`), so the
+same head gives the same shards every time. A shard judges each case it runs and
+writes, beside its own results, the whole planned case list. It is never the
+full sweep by itself: `node tools/web-visual-qa/aggregate.mjs --out DIR
+shard0/results.json …` is, and it refuses to pass unless every shard is of the
+same head, manifest, shard count and plan, the shard indices are 0…n−1 each
+exactly once, every planned case ran in exactly one shard and reached its state,
+no shard reported a harness error — and then applies the sweep-wide checks an
+unsharded full run applies (`engine.sweepChecks`: a loading Ledger against its
+table, pressed treatments proven somewhere, every operator surface judged at
+200%, no blocking rule left unevaluated, overlay restoration judged at Tier A)
+and fails on any blocking finding. The aggregate's `results.json` carries every
+shard's cases and findings; its exit status is `run.mjs`'s. A future lane (the
+S6/X1 text-spacing lane) shards the same way: it is a plan, and
+`partitionCases` partitions plans.
+
+**Test groups (CI).** The harness's own tests run in four concurrent groups:
+`MAVI_VQA_TEST_GROUP=unit` runs every file but skips the tests declared with
+`e2eIt` — the long end-to-end runs of `run.mjs` in `zoom.test.mjs`,
+`run.test.mjs` and `shard.test.mjs`; `MAVI_VQA_TEST_GROUP=e2e-i/n` runs the i-th
+of n groups of those, each test in exactly one group by its order in the file,
+and nothing else from those files (`test/browser.mjs` `testGroup`, `e2eIt`,
+`unitBlock`). The short `run.mjs` spawns in `engine.test.mjs` stay in the unit
+group. `tools/verify_repo.py` holds that every test file using `e2eIt` is named
+in the workflow's end-to-end step, so no such test can be skipped in every
+group. Unset, everything runs in one process as before.
 
 Exit status: **0** no blocking finding; **1** at least one blocking finding;
 **2** the harness itself failed — a browser or server fault, a case that threw,
