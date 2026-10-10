@@ -2010,7 +2010,7 @@ export function zoomAssertions(input) {
   // through (pointer-events: none) still hides what is under it.
   const effectiveOpacity = (node) => {
     let opacity = 1;
-    for (let n = node; n && n !== document.documentElement; n = n.parentElement) opacity *= parseFloat(getComputedStyle(n).opacity);
+    for (let n = node; n; n = n.parentElement) opacity *= parseFloat(getComputedStyle(n).opacity);
     return opacity;
   };
   const reveal = document.createElement('style');
@@ -2142,8 +2142,16 @@ export function zoomAssertions(input) {
       const s = getComputedStyle(node, pseudo);
       return s.content !== 'none' && s.content !== 'normal' && /^(absolute|fixed)$/.test(s.position);
     });
+    // A control stretched over its own composition (absolute, filling its
+    // parent: a grid card's select button) has that composition drawn over
+    // it as its face; over any other control an absolutely placed layer
+    // that paints is a cover too.
+    const parentBox = face.parentElement?.getBoundingClientRect();
+    const stretched = getComputedStyle(face).position === 'absolute' && parentBox
+      && r.width >= parentBox.width - 2 && r.height >= parentBox.height - 2;
+    const placedOver = (node) => !node.contains(el) && !stretched && getComputedStyle(node).position === 'absolute';
     document.head.appendChild(reveal);
-    const layer = points.map(([x, y]) => document.elementsFromPoint(x, y).find((node) => own(node) || ((floats(node) || pseudoLayer(node)) && paints(node))))
+    const layer = points.map(([x, y]) => document.elementsFromPoint(x, y).find((node) => own(node) || ((floats(node) || pseudoLayer(node) || placedOver(node)) && paints(node))))
       .find((node) => node && !own(node));
     reveal.remove();
     if (layer) fail(describe(el) + ' is hidden under ' + describe(layer) + ' when focused (a layer the pointer passes through still covers it)');
@@ -2218,12 +2226,14 @@ export function zoomAssertions(input) {
     // button (in a list item or table row) to its inspector: the full-value
     // home either way. Any other button acts in place, so its truncated label
     // must still say the whole value on focus.
-    // A row's selection control says what it is: it carries its selected
-    // state (aria-pressed, aria-selected, aria-current) or is the product's
-    // result-selection control (Search's .result-select, which opens the
-    // inspector). A Retry or Delete in the row is an action, not a selection.
+    // A row's selection control: one that carries a selection state
+    // (aria-selected, aria-current), or one of the product's named selection
+    // controls that open the inspector — Search's .result-select and the
+    // Scene navigator's object selector. aria-pressed alone is a toggle's
+    // state as well (Enable, Favourite), and a Retry or Delete is an action:
+    // neither leads to the full value.
     const selects = (node) => node.tagName === 'BUTTON' && Boolean(node.closest('li, tr, [role="row"], [role="option"], [role="listitem"]'))
-      && (node.hasAttribute('aria-pressed') || node.hasAttribute('aria-selected') || node.hasAttribute('aria-current') || node.classList.contains('result-select'));
+      && (node.hasAttribute('aria-selected') || node.hasAttribute('aria-current') || node.matches('.result-select, .scene-navigator__name'));
     const leads = Boolean(focusable) && (focusable.tagName === 'A' || selects(focusable));
     // Compared by its letters and digits: the drawn value may set a code apart
     // from a name that the tooltip joins with a separator ("CAM-02 · North").
@@ -2290,7 +2300,7 @@ export async function zoomTransitionProbe() {
       fail('focus is left on ' + describe(active) + ', which the new composition does not show');
     } else if (active.closest('[inert]')) {
       fail('focus is left on ' + describe(active) + ', inside an inert region');
-    } else if (!main && (() => { let o = 1; for (let n = active; n && n !== document.documentElement; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity); return o < 0.05; })()) {
+    } else if (!main && (() => { let o = 1; for (let n = active; n; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity); return o < 0.05; })()) {
       fail('focus is left on ' + describe(active) + ', which the zoom change has made transparent');
     } else if (!main) {
       // On screen, and not under anything: the focused control is where the

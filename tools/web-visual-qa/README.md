@@ -191,10 +191,9 @@ the 384px height can take from the page: every offered control can be brought
 into view, with no more than a CSS pixel of its own size cut off in either direction (a control larger than the viewport is not let off by it), and
 not only by focus scrolling a box — or a page — that clips without scrolling;
 what a pointer hits across it (its middle and four points inset from its
-corners) is the control, and no painted fixed, sticky or pseudo-element layer
-the pointer passes through hides it (focus not obscured); a control drawn at 1px, or transparent through its own or an ancestor's opacity, is offered only where focus shows it (the skip link) or a visible label stands for it, which is then judged in its place (seen, reachable, unclipped, uncovered); drawers and dialogs fit the viewport; no font is sized in viewport
+corners) is the control, and no painted fixed, sticky, absolutely placed or pseudo-element layer the pointer passes through hides it (focus not obscured; a control stretched over its own composition, a grid card's select button, has that composition as its face); a control drawn at 1px, or transparent through its own or an ancestor's opacity (the root's included), is offered only where focus shows it (the skip link) or a visible label stands for it, which is then judged in its place (seen, reachable, unclipped, uncovered); drawers and dialogs fit the viewport; no font is sized in viewport
 units, directly or through a custom property; truncated text keeps its full
-value within the keyboard's reach (§16 — the text of a link to the row's detail or of a row's own selection control — one that carries its selected state (aria-pressed, aria-selected, aria-current) or is Search's result-selection control — to its inspector; else focus describes it
+value within the keyboard's reach (§16 — the text of a link to the row's detail or of a row's own selection control — one that carries a selection state (aria-selected, aria-current) or is one of the product's named selection controls, Search's result selector and the Scene navigator's object selector — to its inspector (aria-pressed alone is a toggle's state as well); else focus describes it
 through the Tooltip, compared by letters and digits); the keyboard order — the order Tab visits, positive tabindex first — of the Context Bar is its visual order, and at Tier C, in the workspace or open
 overlay, the keyboard never steps back along a line or back up a column
 (side-by-side columns, such as a Ledger row's action column, are read one after

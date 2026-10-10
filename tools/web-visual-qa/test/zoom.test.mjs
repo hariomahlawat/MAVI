@@ -224,6 +224,8 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.equal(messages(await at200(`<input id="c" type="checkbox" style="${HIDDEN}"><label for="c">Trajectory</label>`)), '');
     // Transparent counts as unseen too (Codex P1): its own opacity or an ancestor's.
     assert.match(messages(await at200('<div style="opacity:0"><button>Delete zone</button></div>')), /"Delete zone" can be focused but is not shown, even when focused/);
+    // The page faded as a whole counts as well (Codex P1).
+    assert.match(messages(await at200('<style>html{opacity:0}</style><button>Delete zone</button>')), /"Delete zone" can be focused but is not shown, even when focused/);
     assert.equal(messages(await at200('<label><input type="checkbox" style="opacity:0;position:absolute"> Trajectory</label>')), '');
     // The label standing for it must itself be seen: not transparent, not covered (Codex P1).
     assert.match(messages(await at200(`<input id="t" type="checkbox" style="${HIDDEN}"><label for="t" style="opacity:0">Trajectory</label>`)), /can be focused but is not shown, even when focused/);
@@ -260,6 +262,9 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
       <button aria-label="Select Person" style="position:absolute;inset:0;background:transparent;border:0"></button>
       <span style="position:relative;display:block;height:120px;background:#333;pointer-events:none">No image</span></article>`;
     assert.equal(messages(await at200(CARD)), '');
+    // An absolutely placed pass-through layer over an ordinary control covers it (Codex P1).
+    assert.match(messages(await at200(`<div style="position:relative;width:300px;height:120px"><button style="width:200px;height:40px">Retry</button>
+      <span style="position:absolute;inset:0;background:#000;pointer-events:none">badge</span></div>`)), /"Retry" is hidden under <span> "badge"/);
   });
 
   it('fails a control only focus can bring into a page that hides its overflow (T3 cold review)', async () => {
@@ -308,7 +313,10 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     // in a row too — only the row's selection control leads to its inspector.
     assert.match(messages(await at200(`<button style="${CUT}">${NAME}</button>`)), /can be focused, but focus does not show its full value/);
     assert.match(messages(await at200(`<ul><li><button style="${CUT}">Retry ${NAME}</button></li></ul>`)), /can be focused, but focus does not show its full value/);
-    assert.equal(messages(await at200(`<ul><li><button aria-pressed="false" style="${CUT}">${NAME}</button></li></ul>`)), '');
+    assert.equal(messages(await at200(`<ul><li><button class="scene-navigator__name" aria-pressed="false" style="${CUT}">${NAME}</button></li></ul>`)), '');
+    assert.equal(messages(await at200(`<ul><li><button class="result-select" style="${CUT}">${NAME}</button></li></ul>`)), '');
+    // aria-pressed alone is a toggle's state too: no lead to the full value (Codex P1).
+    assert.match(messages(await at200(`<ul><li><button aria-pressed="false" style="${CUT}">Favourite ${NAME}</button></li></ul>`)), /can be focused, but focus does not show its full value/);
   });
 
   it('fails a Context Bar whose keyboard order is not its visual order — the menu drawn first but reached last', async () => {
