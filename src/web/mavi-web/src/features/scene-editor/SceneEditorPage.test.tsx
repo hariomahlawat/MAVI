@@ -1629,6 +1629,26 @@ describe('scene editor across the Tier C boundary (§25: below 768px it is the u
     }
   });
 
+  it('says, in the Tier C summary, that a past revision shown as last loaded could not be refreshed (Codex P2 on #200)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      vi.mocked(getCameraSceneRevision).mockResolvedValue(revision({ revisionNumber: 1, tripLines: [] }));
+      const { queryClient } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await user.click(screen.getByRole('button', { name: /View revision 1/ }));
+      expect(await screen.findByText('Viewing revision 1 — read only')).toBeInTheDocument();
+      vi.mocked(getCameraSceneRevision).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'down' }));
+      await act(async () => { await queryClient.refetchQueries({ queryKey: sceneQueryKeys.revision(cameraId, 1) }); });
+      live.set(tierC);
+      expect(await screen.findByText('Revision 1 could not be refreshed. It is shown as last loaded.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      expect(screen.getByText('Gate')).toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
   it('shows a clean scene as its read-only summary, with no unsaved-changes notice and no guard', async () => {
     const live = stubMatchMediaLive(tierC);
     try {

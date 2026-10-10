@@ -108,7 +108,7 @@ M rows are held to the Section R standard (§34.2 S4 row).
 
 ## Non-claims
 
-- Tier B anchors and probes block in CI from T1 (PR #199), except the rules later slices own (S6/X1 target size, S6/X3 measurements, T3 zoom). Tier C anchors are still executed only as diagnostics: their findings are `measured/pending` until T2. **Tier C diagnostic execution does not constitute Tier C product acceptance.**
+- Tier B anchors and probes block in CI from T1 (PR #199), and Tier C anchors and probes from T2 (PR #200), except the rules later slices own (S6/X1 target size, S6/X2 journeys, S6/X3 measurements, S6/X4 motion, T3 zoom) and the side-by-side rules not applicable at Tier C (each with its reason in the manifest). **Tier C acceptance is designed degradation only: no workflow is accepted below Tier A, and the mobile analyst experience stays deferred (§31).**
 - The P1 figures are a baseline on one Windows host, not a budget or a Production performance claim; §38 budgets do not exist until X3.
 - Nothing here is Production qualification; Task 18 is unchanged.
 - No dependency, font or framework is added by any slice; a slice that cannot meet a rule without one amends the rule by ADR instead.

@@ -596,6 +596,15 @@ export default function SceneEditorPage() {
           statement: 'Editing a scene needs a display at least 768px wide. This is a read-only summary of it.',
           summary: (
             <Panel title={readOnly ? `Revision ${viewingRevisionNumber as number}` : 'Scene'}>
+              {revisionRefreshFailed ? (
+                // As the stage says it above Tier C: retained, and not current.
+                <Alert
+                  tone="warning"
+                  actions={<Button size="sm" onClick={() => void historicalRevision.refetch()}>Retry</Button>}
+                >
+                  {`Revision ${viewingRevisionNumber} could not be refreshed. It is shown as last loaded.`}
+                </Alert>
+              ) : null}
               {readOnly && !historicalDraft ? (
                 // The stage says this above Tier C; here it is the summary's
                 // whole content, never an empty revision (§37.1).
