@@ -314,7 +314,7 @@ export default function EvidencePlayer({
           size="sm"
           icon={playing ? 'pause' : 'play'}
           onClick={() => transport.toggle()}
-          title="Play or pause (Space)"
+          title={playing ? 'Pause (Space)' : 'Play (Space)'}
         >
           {playing ? 'Pause' : 'Play'}
         </Button>
@@ -345,7 +345,7 @@ export default function EvidencePlayer({
           variant="ghost"
           icon="skipStart"
           onClick={() => transport.seekTo(subject.startOffsetMs)}
-          title="Jump to start (Home)"
+          title="Start (Home)"
         >
           Start
         </Button>
@@ -355,7 +355,7 @@ export default function EvidencePlayer({
             variant="ghost"
             icon="target"
             onClick={() => transport.seekTo(representative.offsetMs)}
-            title="Jump to the representative frame (E)"
+            title="Evidence (E)"
           >
             Evidence
           </Button>
@@ -365,7 +365,7 @@ export default function EvidencePlayer({
           variant="ghost"
           icon="skipEnd"
           onClick={() => transport.seekTo(subject.endOffsetMs)}
-          title="Jump to end (End)"
+          title="End (End)"
         >
           End
         </Button>

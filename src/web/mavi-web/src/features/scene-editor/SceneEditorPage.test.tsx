@@ -941,10 +941,16 @@ describe('scene editor', () => {
     const user = userEvent.setup();
     render();
     await screen.findByRole('button', { name: /^Gate/ });
+    // The statement's region exists, empty, before there is anything to state,
+    // so the statement is a change the live region announces.
+    const notice = document.getElementById('scene-disable-confirm') as HTMLElement;
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toBeEmptyDOMElement();
 
     await disableEverything(user);
     await user.click(screen.getByRole('button', { name: 'Save revision' }));
 
+    expect(screen.getByText(/stops future runs of this camera being analysed/)).toBe(notice);
     const save = screen.getByRole('button', { name: 'Save and disable analytics' });
     expect(save).toHaveAccessibleDescription(
       expect.stringContaining('stops future runs of this camera being analysed'),
@@ -1110,13 +1116,19 @@ describe('scene editor', () => {
     const user = userEvent.setup();
     render();
     await screen.findByRole('button', { name: /^Gate/ });
+    // The status region is on the stage before there is anything to report:
+    // a live region inserted already populated is not announced.
+    const note = document.querySelector('.scene-stage__media-note') as HTMLElement;
+    expect(note).toHaveAttribute('role', 'status');
+    expect(note).toBeEmptyDOMElement();
 
     await user.selectOptions(screen.getByLabelText('Reference video'), videoId);
     const video = screen.getByLabelText('Reference frame video') as HTMLVideoElement;
     video.dispatchEvent(new Event('error'));
 
-    // Said on the stage it affects (§37.1, media), not as a page alert.
-    expect(await screen.findByText(/Reference video unavailable/)).toBeInTheDocument();
+    // Said on the stage it affects (§37.1, media), not as a page alert, and in
+    // the region that was already there.
+    expect(await screen.findByText(/Reference video unavailable/)).toBe(note);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Gate/ })).toBeInTheDocument();
   });
@@ -1558,6 +1570,21 @@ describe('scene editor across the Tier C boundary (§25: below 768px it is the u
   const tierC = (query: string) => query === SHELL_QUERIES.narrow || query === SHELL_QUERIES.compact;
   const tierB = (query: string) => query === SHELL_QUERIES.compact;
 
+  it('keeps the unsaved-changes status region mounted, empty, while there is nothing unsaved', async () => {
+    const live = stubMatchMediaLive(tierC);
+    try {
+      render();
+      await screen.findByText(/Editing a scene needs a display at least 768px wide/);
+      // Nothing is unsaved, so the region says nothing; it is there so that
+      // what it later says is a change rather than an insertion.
+      const notice = document.querySelector('.scene-notice[role="status"]') as HTMLElement;
+      expect(notice).toBeEmptyDOMElement();
+      expect(screen.queryByText(/This scene has unsaved changes/)).not.toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
   it('keeps a dirty draft, its leave guard and its edits across 768px both ways — neither saved nor discarded', async () => {
     const live = stubMatchMediaLive(tierB);
     try {
@@ -1576,7 +1603,7 @@ describe('scene editor across the Tier C boundary (§25: below 768px it is the u
       expect(screen.getByText(/Editing a scene needs a display at least 768px wide/)).toBeInTheDocument();
       // The summary says what the draft holds and that it is unsaved, and the
       // guard still holds it: nothing was sent and nothing was dropped.
-      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      expect(screen.getByText(/This scene has unsaved changes/)).toHaveAttribute('role', 'status');
       expect(screen.getByText(/Gate east/)).toBeInTheDocument();
       expect(unloadBlocked()).toBe(true);
       expect(saveCameraScene).not.toHaveBeenCalled();
@@ -1744,10 +1771,55 @@ describe('scene editor accessibility', () => {
     await screen.findByRole('button', { name: /^Gate/ });
 
     const zones = screen.getByRole('list', { name: 'Zones' });
-    expect(within(zones).getAllByRole('listitem')).toHaveLength(1);
+    // One item per object; a zone's item holds its own vertex list, so count
+    // the list's items and not their descendants.
+    expect(within(zones).getAllByRole('listitem').filter((item) => item.parentElement === zones)).toHaveLength(1);
     expect(within(zones).getByRole('button', { name: /^Gate/ })).toHaveAttribute('aria-pressed', 'false');
     const lines = screen.getByRole('list', { name: 'Trip lines' });
-    expect(within(lines).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(lines).getAllByRole('listitem').filter((item) => item.parentElement === lines)).toHaveLength(1);
+  });
+
+  it("states each object's actual geometry in its own list item, in the stored order", async () => {
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    // The zone's vertices, as stored and in order, one disclosure away inside
+    // the same item as the control that selects it.
+    const zone = screen.getByRole('list', { name: 'Zones' }).querySelector('li[data-object-kind="zone"]') as HTMLElement;
+    expect(zone).toHaveAttribute('data-object-key');
+    const coordinates = zone.querySelector('details.scene-navigator__coordinates') as HTMLDetailsElement;
+    expect(coordinates.querySelector('summary')).toHaveTextContent('Coordinates');
+    expect(coordinates.open).toBe(false);
+    expect([...coordinates.querySelectorAll('ol.scene-navigator__points > li')].map((li) => li.textContent)).toEqual([
+      '0.200000, 0.200000',
+      '0.600000, 0.200000',
+      '0.600000, 0.600000',
+      '0.200000, 0.600000',
+    ]);
+    // The canvas object carries the same key, so the twin and the drawing match.
+    expect(document.querySelector(`.scene-zone[data-object-key="${zone.dataset.objectKey}"]`)).toBeInTheDocument();
+
+    // A trip line's two endpoints, A to B, inline in its item.
+    const line = screen.getByRole('list', { name: 'Trip lines' }).querySelector('li[data-object-kind="line"]') as HTMLElement;
+    expect(line.querySelector('.scene-navigator__endpoints')).toHaveTextContent(
+      '(0.100000, 0.500000) \u2192 (0.900000, 0.500000)',
+    );
+    expect(document.querySelector(`.scene-line[data-object-key="${line.dataset.objectKey}"]`)).toBeInTheDocument();
+  });
+
+  it('marks the selected object current in the navigator, and only that one', async () => {
+    const user = userEvent.setup();
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+    expect(objectButton('Gate')).not.toHaveAttribute('aria-current');
+
+    await selectObject(user, 'Gate');
+    expect(objectButton('Gate')).toHaveAttribute('aria-current', 'true');
+    expect(objectButton('Kerb')).not.toHaveAttribute('aria-current');
+
+    await selectObject(user, 'Kerb');
+    expect(objectButton('Kerb')).toHaveAttribute('aria-current', 'true');
+    expect(objectButton('Gate')).not.toHaveAttribute('aria-current');
   });
 
   it('exposes every coordinate a keyboard user needs', async () => {
@@ -1810,7 +1882,9 @@ describe('scene editor accessibility', () => {
     expect(objectButton('Gate')).toHaveAttribute('aria-pressed', 'true');
     expect(queryObjectButton('Kerb')).toBeInTheDocument();
     expect(screen.getByRole('list', { name: 'Vertices of Gate' })).toBeInTheDocument();
-    expect(within(screen.getByRole('list', { name: 'Zones' })).queryByRole('list')).toBeNull();
+    // The item's own coordinates stay folded: selection opens the inspector,
+    // not the navigator.
+    expect(screen.getByRole('list', { name: 'Zones' }).querySelector('details[open]')).toBeNull();
   });
 
   it('gets the empty state out of the way once a drawing tool is armed', async () => {

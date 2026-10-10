@@ -152,18 +152,22 @@ describe('Tooltip', () => {
   it('aligns to the edge of what clips it instead of being cut off, and stays centred where it fits', async () => {
     const user = userEvent.setup();
     // jsdom does no layout: give the clipping column, the trigger's hint and
-    // everything else the geometry of the inspector's Close button at 1920px.
+    // everything else the geometry of the inspector's Close button in
+    // jsdom's 1024px viewport.
+    // (jsdom does not expand the `overflow` shorthand either: the clipping
+    // columns here set the longhands clippingBounds reads.)
     const rects = new Map<string, Partial<DOMRect>>([
-      ['clip', { left: 216, right: 1920 }],
-      ['tooltip', { left: 1812, right: 1936 }],
+      ['clip', { left: 216, right: 1024 }],
+      ['tooltip', { left: 900, right: 1040 }],
+      ['anchor', { left: 960, right: 1004 }],
     ]);
     const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      const key = this.classList.contains('tooltip') ? 'tooltip' : this.dataset.testid === 'clip' ? 'clip' : '';
+      const key = this.classList.contains('tooltip') ? 'tooltip' : this.classList.contains('tooltip-anchor') ? 'anchor' : this.dataset.testid === 'clip' ? 'clip' : '';
       return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}), ...rects.get(key) } as DOMRect;
     });
     try {
       const { rerender } = render(
-        <div data-testid="clip" style={{ overflow: 'hidden' }}>
+        <div data-testid="clip" style={{ overflowX: 'hidden', overflowY: 'hidden' }}>
           <Tooltip content="Close inspector · Esc"><button type="button">Close inspector</button></Tooltip>
         </div>,
       );
@@ -172,9 +176,9 @@ describe('Tooltip', () => {
 
       // Room on both sides: centred, as everywhere else.
       await user.unhover(screen.getByRole('button', { name: 'Close inspector' }));
-      rects.set('tooltip', { left: 900, right: 1024 });
+      rects.set('tooltip', { left: 700, right: 840 });
       rerender(
-        <div data-testid="clip" style={{ overflow: 'hidden' }}>
+        <div data-testid="clip" style={{ overflowX: 'hidden', overflowY: 'hidden' }}>
           <Tooltip content="Close inspector · Esc"><button type="button">Close inspector</button></Tooltip>
         </div>,
       );
@@ -203,7 +207,7 @@ describe('Tooltip', () => {
     });
     try {
       render(
-        <div data-testid="clip" style={{ overflow: 'auto' }}>
+        <div data-testid="clip" style={{ overflowX: 'auto', overflowY: 'auto' }}>
           <Tooltip content={long}><span tabIndex={0}>north-perimeter…</span></Tooltip>
         </div>,
       );
@@ -212,11 +216,65 @@ describe('Tooltip', () => {
       expect(tip).toHaveTextContent(long);
       expect(tip).toHaveAttribute('data-float');
       expect(tip).not.toHaveAttribute('data-align');
-      // Centred on its trigger (400 − 300) and below it (156 + 4).
-      expect(tip.style.left).toBe('100px');
+      // Inside the frame it belongs to (centred on its trigger would start at
+      // 100, left of the frame's 236) and below the trigger (156 + 4).
+      expect(tip.style.left).toBe('236px');
       expect(tip.style.top).toBe('160px');
     } finally {
       spy.mockRestore();
+    }
+  });
+
+  it('floats a hint whose trigger is scrolled partly out of its frame, so the whole hint is inside the frame and hoverable (1.4.13)', async () => {
+    const user = userEvent.setup();
+    // A Ledger frame from 56 to 760; the name cell scrolled so that it starts
+    // 166px left of the viewport and only its last 150px show; the hint, aligned
+    // to the cell's start, would be cut off with it.
+    const rects = new Map<string, Partial<DOMRect>>([
+      ['clip', { left: 56, right: 760, top: 100, bottom: 700 }],
+      ['tooltip', { left: -166, right: 200, top: 331, bottom: 358 }],
+      ['anchor', { left: -166, right: 94, top: 308, bottom: 327 }],
+    ]);
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const key = this.classList.contains('tooltip')
+        ? (this.hasAttribute('data-float') ? 'floated' : 'tooltip')
+        : this.classList.contains('tooltip-anchor') ? 'anchor' : this.dataset.testid === 'clip' ? 'clip' : '';
+      const floated = { left: 0, right: 366, top: 0, bottom: 27 };
+      return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}), ...(key === 'floated' ? floated : rects.get(key)) } as DOMRect;
+    });
+    try {
+      render(
+        <div data-testid="clip" style={{ overflowX: 'auto', overflowY: 'auto' }}>
+          <Tooltip content="north-gate-0900-very-long-original-file-name.mp4"><span tabIndex={0}>north-gate-0900-very…</span></Tooltip>
+        </div>,
+      );
+      await user.tab();
+      const tip = await screen.findByRole('tooltip');
+      expect(tip).toHaveAttribute('data-float');
+      expect(tip).not.toHaveAttribute('data-align');
+      // At the frame's left edge (centred on the trigger would start at −219), below the trigger.
+      expect(tip.style.left).toBe('56px');
+      expect(tip.style.top).toBe('331px');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('is dismissed by Escape even when an open overlay takes the key at the window and stops it (1.4.13)', async () => {
+    // A Drawer listens for Escape at the window in the capture phase and stops
+    // propagation; a hint over the shell's navigation toggle beside it must
+    // still go away on the same key.
+    const stopper = (event: KeyboardEvent) => { if (event.key === 'Escape') event.stopPropagation(); };
+    window.addEventListener('keydown', stopper, true);
+    try {
+      const user = userEvent.setup();
+      render(<Harness />);
+      await user.hover(screen.getByRole('button', { name: 'Next result' }));
+      expect(await screen.findByRole('tooltip')).toBeInTheDocument();
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    } finally {
+      window.removeEventListener('keydown', stopper, true);
     }
   });
 

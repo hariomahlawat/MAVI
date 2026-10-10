@@ -1,3 +1,4 @@
+import { a11yOrderFindings } from './a11y.mjs';
 /**
  * The automated part of the section 26 visual-QA standard: what a rendered
  * page can settle and a unit test cannot.
@@ -523,7 +524,7 @@ export function pageAssertions(input) {
     // shared FileInput (§27) drawn like every other input, and a long file
     // name wraps inside it (the one statement of what is imported) until it is
     // as tall as a container — a control still (M3).
-    if (el.matches('button, a, input, select, textarea, .file-input, img, video, canvas, svg, kbd, code, [role="alert"], [role="status"], .alert, .badge, .chip, .evidence-placeholder, .tooltip, .skip-link')) return false;
+    if (el.matches('button, a, input, select, textarea, .file-input, img, video, canvas, svg, kbd, code, [role="alert"], [role="status"], .alert, .empty, .badge, .chip, .evidence-placeholder, .tooltip, .skip-link')) return false;
     if (mediaFrame(el)) return false;
     const s = getComputedStyle(el);
     if (s.display === 'inline') return false;
@@ -774,15 +775,8 @@ export function pageAssertions(input) {
     }
   }
 
-  // 14. Pointer targets (§10.1), reported: a canvas handle is legitimately
-  //     small, so this stays measured until S6 settles its exceptions.
-  const small = [];
-  for (const el of Array.from(document.querySelectorAll('button, a[href], input, select')).filter(shown)) {
-    const r = el.getBoundingClientRect();
-    if (r.width < 24 || r.height < 24) small.push(describe(el) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height));
-  }
-  evaluated.add('a11y.target-size');
-  if (small.length) fail('a11y.target-size', small.length + ' pointer target(s) under 24x24: ' + small.slice(0, 4).join(', '));
+  // 14. Pointer targets (§10.1) are a11y.mjs's (a11y.target-size, X1): one
+  //     discovery of what a pointer presses, measured by its effective hit area.
 
   return {
     findings, evaluated: Array.from(evaluated), foundationEvaluated: Array.from(foundationEvaluated), pageWidth, declaresFullWidth, shell,
@@ -1853,7 +1847,9 @@ export async function overlayFocusProbe() {
   const active = document.activeElement;
   const name = (el) => {
     if (!el || !el.tagName) return null;
-    const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
+    // An SVG element's className is an SVGAnimatedString: read the attribute.
+  const classes = typeof el.className === 'string' ? el.className : (el.getAttribute && el.getAttribute('class')) || '';
+  const cls = classes.trim() ? '.' + classes.trim().split(/\s+/)[0] : '';
     const label = (el.getAttribute('aria-label') || el.textContent || '').trim();
     return el.tagName.toLowerCase() + cls + (label ? ' "' + label.slice(0, 40) + '"' : '');
   };
@@ -1871,7 +1867,9 @@ export async function overlayExitProbe() {
   while (open() && performance.now() < end) await new Promise((resolve) => requestAnimationFrame(() => resolve()));
   const name = (el) => {
     if (!el || !el.tagName) return null;
-    const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
+    // An SVG element's className is an SVGAnimatedString: read the attribute.
+  const classes = typeof el.className === 'string' ? el.className : (el.getAttribute && el.getAttribute('class')) || '';
+  const cls = classes.trim() ? '.' + classes.trim().split(/\s+/)[0] : '';
     const label = (el.getAttribute('aria-label') || el.textContent || '').trim();
     return el.tagName.toLowerCase() + cls + (label ? ' "' + label.slice(0, 40) + '"' : '');
   };
@@ -1918,7 +1916,9 @@ export function zoomEnvironment() {
 /** A node, named for a finding (T3). */
 export function zoomDescribe(el) {
   if (!el || !el.tagName) return el === null || el === undefined ? 'nothing' : String(el);
-  const cls = typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\s+/)[0] : '';
+  // An SVG element's className is an SVGAnimatedString: read the attribute.
+  const classes = typeof el.className === 'string' ? el.className : (el.getAttribute && el.getAttribute('class')) || '';
+  const cls = classes.trim() ? '.' + classes.trim().split(/\s+/)[0] : '';
   const label = (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\s+/g, ' ');
   return '<' + el.tagName.toLowerCase() + cls + '>' + (label ? ' "' + label.slice(0, 40) + '"' : '');
 }
@@ -2128,7 +2128,17 @@ export function zoomVisibility(el) {
   const box = el.getBoundingClientRect();
   const style = getComputedStyle(el);
   let hidden = null;
-  if (!el.getClientRects().length) hidden = 'not rendered';
+  // The content of a closed <details> (all but its summary) is not rendered:
+  // Chromium keeps it out of layout and the accessibility tree, yet still
+  // answers getClientRects for it, so it is asked for by name here (X1).
+  const closedDisclosure = (() => {
+    for (let d = el.parentElement?.closest('details'); d; d = d.parentElement?.closest('details')) {
+      const summary = d.querySelector(':scope > summary');
+      if (!d.open && !(summary && (summary === el || summary.contains(el)))) return true;
+    }
+    return false;
+  })();
+  if (!el.getClientRects().length || closedDisclosure) hidden = 'not rendered';
   else if (box.width <= 1 || box.height <= 1) hidden = 'collapsed to ' + Math.round(box.width * 10) / 10 + 'x' + Math.round(box.height * 10) / 10 + 'px';
   else if (style.visibility === 'hidden') hidden = 'visibility hidden';
   let opacity = 1; let scale = 1;
@@ -2364,47 +2374,11 @@ export function zoomAssertions(input) {
   // in the document, not only on screen) — and, in the single-column Tier C
   // composition, among the controls of the open overlay or, with none open,
   // the workspace (side by side, at Tier A, a column is read before the next).
+  // One reading of order for the zoom lane and the anchors (a11y.mjs
+  // a11yOrderFindings, X1): adjacent stops never step back along a line or
+  // up a column, and each container's stops are visited in its reading order.
   const inOrder = (scope, label, column = false) => {
-    if (!scope) return;
-    const controls = Array.from(scope.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])'))
-      .filter((el) => !el.disabled && el.tabIndex >= 0 && !el.closest('[inert]') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
-      .map((el, index) => ({ el, index, r: el.getBoundingClientRect() }))
-      .filter(({ r }) => r.width > 1 && r.height > 1)
-      // In the order Tab visits them (HTML): positive tabindex values first,
-      // ascending, then the rest in document order.
-      .sort((a, b) => {
-        const ta = a.el.tabIndex > 0 ? a.el.tabIndex : Infinity;
-        const tb = b.el.tabIndex > 0 ? b.el.tabIndex : Infinity;
-        return ta === tb ? a.index - b.index : ta - tb;
-      });
-    for (let i = 1; i < controls.length; i += 1) {
-      const a = controls[i - 1]; const b = controls[i];
-      const sameLine = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top) > Math.min(a.r.height, b.r.height) / 2;
-      if (sameLine && b.r.right <= a.r.left + 1) {
-        fail('in ' + label + ' the keyboard reaches ' + describe(b.el) + ' after ' + describe(a.el) + ', but it is drawn before it on the same line: focus order is not the visual order');
-        return;
-      }
-      // Read down a column, the keyboard never goes back up it. Side-by-side
-      // columns are read one after the other (a Tier C Ledger row's action
-      // column beside its identity, by design), and a control placed by its
-      // data (a timeline marker, absolutely positioned by time) follows the
-      // data's order, so only a step back up the same column is a finding.
-      const sameColumn = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left) > Math.min(a.r.width, b.r.width) / 2;
-      // Placed by its data: an inline left/top/right/bottom/inset on the
-      // control or an absolutely positioned ancestor of it (a timeline
-      // marker's item, at its offset) — never a stylesheet's absolute
-      // position, which composes, and composes in reading order (Codex P1).
-      const placed = (el) => {
-        for (let n = el; n && n !== scope; n = n.parentElement) {
-          if (getComputedStyle(n).position === 'absolute' && Array.from(n.style).some((property) => /^(left|top|right|bottom|inset)/.test(property))) return true;
-        }
-        return false;
-      };
-      if (column && !sameLine && sameColumn && b.r.bottom <= a.r.top + 1 && !placed(a.el) && !placed(b.el)) {
-        fail('in ' + label + ' the keyboard reaches ' + describe(b.el) + ' after ' + describe(a.el) + ', but it is drawn above it in the same column: focus order is not the visual order');
-        return;
-      }
-    }
+    for (const message of a11yOrderFindings(scope, label, column)) fail(message);
   };
   inOrder(document.querySelector('.context-bar'), 'the Context Bar');
   if (input?.tier === 'C') {
@@ -2476,7 +2450,7 @@ export function zoomAssertions(input) {
   const exception = unsupported ? (unsupported.querySelector('.workspace__unsupported-statement')?.textContent || unsupported.textContent || '').trim().slice(0, 200) : null;
   return { findings, evaluated: ['a11y.zoom-200'], measured: { candidates: candidates.length, controls: checked, skipped, modals: modals.length, truncated, cssRulesRead: rulesRead, workbenchException: exception } };
 }
-zoomAssertions.helpers = [zoomDescribe, zoomOwn, zoomClipChain, zoomVisibleRect, zoomPaintsAt, zoomVisibility];
+zoomAssertions.helpers = [zoomDescribe, zoomOwn, zoomClipChain, zoomVisibleRect, zoomPaintsAt, zoomVisibility, a11yOrderFindings];
 
 /**
  * The elements whose text the page draws (T3): each holding a text node — or

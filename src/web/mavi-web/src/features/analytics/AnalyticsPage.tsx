@@ -23,6 +23,7 @@ import Button, { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import EmptyState from '../../shared/components/EmptyState';
 import StatusBadge from '../../shared/components/StatusBadge';
+import StatusSlot from '../../shared/components/StatusSlot';
 import { ContextBar, Inspector, Segmented, Toolbar, WorkbenchLayout } from '../../shared/workspace';
 import ActivityChart from './ActivityChart';
 import ActivityInspector from './ActivityInspector';
@@ -285,15 +286,14 @@ export default function AnalyticsPage() {
             actions={(
               // Disabled while the query is refused, rather than left enabled
               // over a callback that silently declines: the reason is stated
-              // in the window band on the field that repairs it, and `title`
-              // carries it to anyone who reaches the button first.
+              // in the window band, as an alert, on the field that repairs it
+              // (§23: a tooltip never carries an instruction).
               <Button
                 size="sm"
                 variant="ghost"
                 icon="refresh"
                 onClick={refresh}
                 disabled={active.isFetching || !canRunQuery}
-                title={canRunQuery ? undefined : 'Adjust the window before refreshing.'}
               >
                 {active.isFetching ? 'Refreshing…' : 'Refresh'}
               </Button>
@@ -355,7 +355,11 @@ export default function AnalyticsPage() {
           />
         )}
         stage={(
+          // One slot for the stage's own answers (a missing camera, a refused
+          // window), announced from a region mounted before they appear
+          // (§23); the timezone and mode regions inside carry their own.
           <div className="analytics-stage">
+            <StatusSlot>
             {cameraMissing || analyticsCameraMissing ? (
               <EmptyState
                 icon="camera"
@@ -419,6 +423,7 @@ export default function AnalyticsPage() {
                 )}
               </StateRegion>
             )}
+            </StatusSlot>
           </div>
         )}
         inspector={(

@@ -16,6 +16,8 @@
  * eight signals "a list is coming" at roughly two thirds of that without
  * painting a column of placeholder to the fold.
  */
+import { useStatusReport } from './StatusSlot';
+
 export const DEFAULT_SKELETON_ROWS = 8;
 
 const SKELETON_CLASS = {
@@ -30,8 +32,11 @@ export default function LoadingState({
   label = 'Loading…',
   rows,
   pitch = 'table',
+  announce = true,
 }: {
   label?: string;
+  /** Whether a live region says the load; false where the surface has already said it. */
+  announce?: boolean;
   /**
    * Render skeleton rows instead of the spinner: a number, or `'default'` for
    * the confirmed eight.
@@ -46,9 +51,13 @@ export default function LoadingState({
   pitch?: 'table' | 'ledger' | 'list' | 'compactList' | 'keyValue';
 }) {
   const count = rows === 'default' ? DEFAULT_SKELETON_ROWS : rows;
+  // Said through the enclosing StatusSlot's announcer where there is one; a
+  // standalone loading state keeps `role="status"` itself.
+  const routed = useStatusReport(label, announce);
+  const role = announce && !routed ? 'status' : undefined;
   if (count && count > 0) {
     return (
-      <div className={SKELETON_CLASS[pitch]} role="status">
+      <div className={SKELETON_CLASS[pitch]} role={role}>
         {/* A live region announces its content, not a name: the label is text
             inside it, hidden visually, so the load is actually said — once. */}
         <span className="visually-hidden">{label}</span>
@@ -63,7 +72,7 @@ export default function LoadingState({
   }
 
   return (
-    <p className="loading-state" role="status">
+    <p className="loading-state" role={role}>
       <span className="spinner" aria-hidden="true" />
       {label}
     </p>

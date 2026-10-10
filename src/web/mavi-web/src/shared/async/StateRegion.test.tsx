@@ -1,8 +1,9 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { AsyncState } from './asyncState';
-import StateRegion, { type RegionKind } from './StateRegion';
+import StateRegion, { SupportingRequestNotice, type RegionKind } from './StateRegion';
+import EmptyState from '../components/EmptyState';
 
 /**
  * State *presentation* by region kind (§37.1). Each test pins one rule of the
@@ -29,44 +30,138 @@ function region(state: AsyncState<string[]>, kind: RegionKind = 'column', extra:
 }
 
 describe('StateRegion selects exactly one presentation', () => {
-  it('loads, and shows neither empty nor content', () => {
+  it('loads, and shows neither empty nor content', async () => {
     region({ kind: 'loading' });
-    expect(screen.getByRole('status')).toHaveTextContent('Loading videos…');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Loading videos…'));
     expect(screen.queryByText('No videos imported yet')).not.toBeInTheDocument();
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
   });
 
-  it('shows the empty presentation only for a successful empty result', () => {
+  it('shows the empty presentation only for a successful empty result', async () => {
     region({ kind: 'ready', data: [] });
     expect(screen.getByText('No videos imported yet')).toBeInTheDocument();
     expect(screen.getByText('Import an MP4 recording to begin.')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('shows content for a populated result', () => {
+  it('shows content for a populated result', async () => {
     region({ kind: 'ready', data: ['clip.mp4'] });
     expect(within(screen.getByRole('list', { name: 'Rows' })).getByText('clip.mp4')).toBeInTheDocument();
   });
 
-  it('never asks the empty question of a failure, and never renders empty for one', () => {
+  it('never asks the empty question of a failure, and never renders empty for one', async () => {
     const isEmpty = vi.fn(() => true);
     region({ kind: 'unavailable', error: new Error('network') }, 'column', { isEmpty });
     expect(isEmpty).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent('Videos could not be loaded.');
     expect(screen.queryByText('No videos imported yet')).not.toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    // The failure is the alert's to announce; the region's polite announcer
+    // stays, mounted and silent, for whatever comes next.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+});
+
+describe('StateRegion announces from one region mounted before it has anything to say (§23)', () => {
+  const announcer = () => document.querySelector('.status-slot__announcer') as HTMLElement;
+
+  it('keeps the same polite region across loading, content and a failed refresh', async () => {
+    const { rerender } = region({ kind: 'loading' });
+    const live = announcer();
+    expect(live).toHaveAttribute('role', 'status');
+    expect(live).toHaveClass('visually-hidden');
+    await waitFor(() => expect(live).toHaveTextContent('Loading videos…'));
+    // The loading presentation itself is not a second live region.
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+
+    rerender(
+      <StateRegion kind="column" state={{ kind: 'ready', data: ['clip.mp4'] }} label="videos" isEmpty={(list) => list.length === 0}>
+        {rows}
+      </StateRegion>,
+    );
+    expect(announcer()).toBe(live);
+    expect(live).toBeEmptyDOMElement();
+
+    rerender(
+      <StateRegion
+        kind="column"
+        state={{ kind: 'ready', data: ['clip.mp4'], degraded: { error: new Error('network') } }}
+        label="videos"
+        isEmpty={(list) => list.length === 0}
+        onRetry={() => {}}
+      >
+        {rows}
+      </StateRegion>,
+    );
+    expect(announcer()).toBe(live);
+    await waitFor(() => expect(live).toHaveTextContent('Showing the last known videos; refreshing failed.'));
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(screen.getByText('Showing the last known videos; refreshing failed.')).not.toHaveAttribute('role');
+  });
+
+  it('says the empty state, title then sentence, from the region that was loading', async () => {
+    const { rerender } = region({ kind: 'loading' });
+    const live = announcer();
+    rerender(
+      <StateRegion
+        kind="column"
+        state={{ kind: 'ready', data: [] }}
+        label="videos"
+        isEmpty={(list) => list.length === 0}
+        empty={{ icon: 'video', title: 'No videos imported yet', body: 'Import an MP4 recording to begin.' }}
+      >
+        {rows}
+      </StateRegion>,
+    );
+    expect(announcer()).toBe(live);
+    await waitFor(() => expect(live).toHaveTextContent('No videos imported yet. Import an MP4 recording to begin.'));
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+  });
+
+  it('says a domain state the caller renders as content through the same region', async () => {
+    const { rerender } = region({ kind: 'loading' });
+    const live = announcer();
+    rerender(
+      <StateRegion kind="column" state={{ kind: 'ready', data: ['clip.mp4'] }} label="videos">
+        {() => <EmptyState icon="layers" title="No scene configured" hatched>Nothing to count against.</EmptyState>}
+      </StateRegion>,
+    );
+    expect(announcer()).toBe(live);
+    await waitFor(() => expect(live).toHaveTextContent('No scene configured. Nothing to count against.'));
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+  });
+
+  it('gives a supporting request its own region before its warning arrives', async () => {
+    const { rerender } = render(
+      <SupportingRequestNotice
+        state={{ kind: 'loading' }}
+        unavailableMessage="Display timezone is unavailable."
+        degradedMessage="Display configuration could not be refreshed."
+      />,
+    );
+    const live = screen.getByRole('status');
+    expect(live).toBeEmptyDOMElement();
+    rerender(
+      <SupportingRequestNotice
+        state={{ kind: 'unavailable', error: new Error('network') }}
+        unavailableMessage="Display timezone is unavailable."
+        degradedMessage="Display configuration could not be refreshed."
+      />,
+    );
+    expect(screen.getByRole('status')).toBe(live);
+    await waitFor(() => expect(live).toHaveTextContent('Display timezone is unavailable.'));
+    expect(screen.getByText('Display timezone is unavailable.')).not.toHaveAttribute('role');
   });
 });
 
 describe('column (§37.1)', () => {
-  it('loads as skeleton rows at the default count where the row geometry is known', () => {
+  it('loads as skeleton rows at the default count where the row geometry is known', async () => {
     const { container } = region({ kind: 'loading' }, 'column', { skeleton: { rows: 'default' } });
-    expect(screen.getByRole('status')).toHaveTextContent('Loading videos…');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Loading videos…'));
     expect(container.querySelectorAll('.skeleton__row')).toHaveLength(8);
     expect(container.querySelector('.spinner')).toBeNull();
   });
 
-  it('loads as a list skeleton at the result-row pitch when asked', () => {
+  it('loads as a list skeleton at the result-row pitch when asked', async () => {
     const { container } = region({ kind: 'loading' }, 'column', { skeleton: { rows: 3, pitch: 'list' } });
     expect(container.querySelector('.skeleton--list')).not.toBeNull();
     expect(container.querySelectorAll('.skeleton__row')).toHaveLength(3);
@@ -83,7 +178,7 @@ describe('column (§37.1)', () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it('states a failure retrying cannot mend without the control', () => {
+  it('states a failure retrying cannot mend without the control', async () => {
     region({ kind: 'unavailable', error: new Error('gone') }, 'column', {
       onRetry: vi.fn(),
       retryable: () => false,
@@ -97,16 +192,20 @@ describe('column (§37.1)', () => {
     const onRetry = vi.fn();
     region({ kind: 'ready', data: ['clip.mp4'], degraded: { error: new Error('later') } }, 'column', { onRetry });
     expect(screen.getByText('clip.mp4')).toBeInTheDocument();
-    const warning = screen.getByRole('status');
-    expect(warning).toHaveTextContent('Showing the last known videos; refreshing failed.');
+    // Said by the region's one announcer; the warning itself carries the retry.
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Showing the last known videos; refreshing failed.'));
+    const warning = screen.getByText('Showing the last known videos; refreshing failed.').closest('.alert') as HTMLElement;
+    expect(warning).toHaveClass('alert--warning');
     expect(screen.queryByText(/Loading/)).not.toBeInTheDocument();
     await userEvent.click(within(warning).getByRole('button', { name: 'Retry' }));
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it('renders the empty presentation content-sized at the region top, uncontained', () => {
+  it('renders the empty presentation content-sized at the region top, uncontained', async () => {
     const { container } = region({ kind: 'ready', data: [] });
-    const wrapper = container.firstElementChild as HTMLElement;
+    // The region's announcer precedes the presentation; the presentation is the wrapper.
+    expect(container.firstElementChild).toHaveClass('status-slot__announcer');
+    const wrapper = container.firstElementChild!.nextElementSibling as HTMLElement;
     expect(wrapper).toHaveClass('state-region', 'state-region--column');
     expect(wrapper.querySelector('.empty')).not.toBeNull();
     expect(wrapper.querySelector('.panel')).toBeNull();
@@ -114,7 +213,7 @@ describe('column (§37.1)', () => {
 });
 
 describe('panel (§37.1)', () => {
-  it('keeps its unavailable alert inside the panel body it replaces', () => {
+  it('keeps its unavailable alert inside the panel body it replaces', async () => {
     render(
       <section aria-label="Video panel">
         <StateRegion kind="panel" state={{ kind: 'unavailable', error: new Error('x') }} label="video metadata" onRetry={vi.fn()}>
@@ -127,7 +226,7 @@ describe('panel (§37.1)', () => {
     expect(within(within(panel).getByRole('alert')).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
-  it('states a failure announced by another region as text, with no second alert or retry', () => {
+  it('states a failure announced by another region as text, with no second alert or retry', async () => {
     render(
       <StateRegion
         kind="panel"
@@ -147,7 +246,7 @@ describe('panel (§37.1)', () => {
 });
 
 describe('page (§37.1)', () => {
-  it('presents one region and leaves independent siblings to their own state', () => {
+  it('presents one region and leaves independent siblings to their own state', async () => {
     render(
       <>
         <StateRegion kind="page" state={{ kind: 'unavailable', error: new Error('x') }} label="the scene" onRetry={vi.fn()}>
@@ -247,14 +346,14 @@ describe('row (§37.1)', () => {
 });
 
 describe('media (§37.1)', () => {
-  it('renders an unavailable image as the evidence placeholder, not an alert, an empty block or a spinner', () => {
+  it('renders an unavailable image as the evidence placeholder, not an alert, an empty block or a spinner', async () => {
     const { container } = region({ kind: 'unavailable', error: new Error('x') }, 'media');
     expect(screen.getByRole('img', { name: /^No image/ })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(container.querySelector('.empty, .spinner, img')).toBeNull();
   });
 
-  it('reserves the frame while an image is still expected: matte only, no spinner', () => {
+  it('reserves the frame while an image is still expected: matte only, no spinner', async () => {
     const { container } = region({ kind: 'loading' }, 'media');
     expect(container.querySelector('.evidence-placeholder--pending')).not.toBeNull();
     expect(container.querySelector('.spinner')).toBeNull();

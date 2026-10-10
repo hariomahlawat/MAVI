@@ -105,7 +105,7 @@ export default function TrackInspector({
           <span className="track-inspector__pos" aria-live="polite">{position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total}</span>
           <Tooltip content="Next result · j or ↓"><Button size="sm" iconOnly icon="chevronRight" onClick={onNext} disabled={!canNext}>Next result</Button></Tooltip>
           {detail ? (
-            <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext, analyticsIdentity)} icon="external" title="Open full review (Enter)">
+            <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext, analyticsIdentity)} icon="external" title="Open (Enter)">
               Open
             </ButtonLink>
           ) : null}

@@ -22,7 +22,10 @@
   padding: 0 var(--s-5);
   border-bottom: var(--stroke-hair) solid var(--border-subtle);
   background: var(--surface-base);
-  position: sticky; top: 0; z-index: var(--z-sticky);
+  /* One above a Ledger's sticky column headers (`.table th`): a hint hanging
+     below the bar — a crumb's full identity — is painted over them, not under
+     them, once the table has scrolled beneath the bar (WCAG 1.4.13). */
+  position: sticky; top: 0; z-index: calc(var(--z-sticky) + 1);
 }
 /* A surface that is not the live thing it usually is — a past revision open
    for reading. One chip was judged too quiet for the mistake it prevents. */
@@ -60,6 +63,10 @@
 /* A crumb that is the way back (Review's Search, to the Investigation it was
    opened from) is kept, first and whole: the menu's Search is a fresh one. */
 .shell--narrow .context-bar__crumbs li.context-bar__crumb--return { display: flex; flex: none; }
+/* The trail's floor then covers that whole crumb ("Search" is 6ch, 7 under
+   WCAG 1.4.12 text spacing), its separator and the 4ch of identity: narrower,
+   the way back would overflow the trail into the status group beside it. */
+.shell--narrow .context-bar__crumbs:has(> ol > .context-bar__crumb--return) { min-width: 13ch; }
 .shell--narrow .context-bar__crumbs li.context-bar__crumb--return + li::before { content: "›"; }
 /* The time zone the surface states (§24) stays drawn, and gives way after
    the identity: truncated to no less than 6ch, its full value on hover and

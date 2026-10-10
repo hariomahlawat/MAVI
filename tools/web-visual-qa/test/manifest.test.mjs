@@ -29,7 +29,7 @@ const ACCEPTED_ROWS = {
 export function implementedRules() {
   const ids = new Set();
   const RULE = "'([a-z0-9]+(?:\\.[a-z0-9-]+)+)'";
-  for (const file of ['assertions.mjs', 'run.mjs']) {
+  for (const file of ['assertions.mjs', 'run.mjs', 'a11y.mjs']) {
     const text = source(file);
     for (const pattern of [
       new RegExp(`(?:fail|add|evaluated\\.add)\\(\\s*${RULE}`, 'g'),
@@ -89,8 +89,8 @@ describe('the assertion manifest', () => {
     // T1 (S5) promoted every rule that judges a Tier B composition, and T2 every
     // rule that judges a Tier C one; a rule a later slice owns at Tier A stays
     // measured against that owner at Tiers B and C.
-    const laterOwned = new Set(['a11y.target-size', 'perf.cls', 'perf.long-tasks', 'typography.resolved-font',
-      'a11y.reduced-motion', 'a11y.keyboard-journeys', 'a11y.section23-remaining']);
+    const laterOwned = new Set(['perf.cls', 'perf.long-tasks', 'typography.resolved-font',
+      'a11y.reduced-motion', 'a11y.keyboard-journeys']);
     for (const [rule, entry] of Object.entries(RULES)) {
       const atB = entry.tiers.B;
       if (laterOwned.has(rule)) {

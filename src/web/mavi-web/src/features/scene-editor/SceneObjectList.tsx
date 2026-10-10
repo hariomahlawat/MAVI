@@ -2,7 +2,7 @@ import Button from '../../shared/components/Button';
 import Icon from '../../shared/components/Icon';
 import { Inspector } from '../../shared/workspace';
 import type { Selection } from './editorState';
-import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';
+import { formatCoordinate, type DraftTripLine, type DraftZone, type SceneDraft } from './sceneDraft';
 
 type Props = {
   draft: SceneDraft;
@@ -29,16 +29,21 @@ type Props = {
  * accessibility annex.
  *
  * Its height follows the size of the scene, not the size of the selection: the
- * selected object's coordinates live in the inspector below, so selecting
- * something never pushes the rest of the scene out of view. It creates nothing:
- * drawing starts in the mode strip, the one place that arms a tool (§4.3).
+ * selected object's editable coordinates live in the inspector below, so
+ * selecting something never pushes the rest of the scene out of view. Each
+ * item still carries its object's actual geometry (§23): a trip line's two
+ * endpoints inline, a zone's vertices behind a closed disclosure in the same
+ * item, so the list is the canvas's twin and not a parallel surface. It
+ * creates nothing: drawing starts in the mode strip, the one place that arms a
+ * tool (§4.3).
  *
  * It is a list of buttons rather than a listbox on purpose. A listbox option
  * may not contain focusable children, and each row here carries its own name
  * and delete controls; claiming the role would promise arrow-key
  * navigation that does not exist and would leave a screen-reader user pressing
  * Down against nothing. Selection is stated with `aria-pressed` on the control
- * that does the selecting.
+ * that does the selecting, and with `aria-current` so it is the same "current"
+ * the result row and evidence set state.
  */
 export default function SceneObjectList({
   draft,
@@ -140,12 +145,17 @@ function ZoneRow({
 }) {
   const state = `${zone.kind}, ${zone.vertices.length} vertices, ${zone.enabled ? 'enabled' : 'disabled'}`;
   return (
-    <li className={`scene-navigator__item${selected ? ' is-selected' : ''}`}>
+    <li
+      className={`scene-navigator__item${selected ? ' is-selected' : ''}`}
+      data-object-kind="zone"
+      data-object-key={zone.key}
+    >
       <div className="scene-navigator__row">
         <button
           type="button"
           className="scene-navigator__name"
           aria-pressed={selected}
+          aria-current={selected ? 'true' : undefined}
           onClick={() => onSelect({ kind: 'zone', key: zone.key, vertexIndex: null })}
         >
           <StateDot enabled={zone.enabled} invalid={invalid} />
@@ -158,6 +168,18 @@ function ZoneRow({
           </Button>
         )}
       </div>
+      {/* The stored vertices, in order, as stored: a native disclosure so the
+          navigator keeps the size of the scene and the geometry is one step
+          away in the same item. Editing them is the inspector's job. */}
+      <details className="scene-navigator__coordinates">
+        <summary>Coordinates</summary>
+        <ol className="scene-navigator__points">
+          {zone.vertices.map((vertex, index) => (
+            // Vertices are positional, not identified; a reorder re-renders the text.
+            <li key={index}>{`${formatCoordinate(vertex.x)}, ${formatCoordinate(vertex.y)}`}</li>
+          ))}
+        </ol>
+      </details>
     </li>
   );
 }
@@ -179,12 +201,17 @@ function LineRow({
 }) {
   const state = `${line.directed ? 'directional' : 'undirected'}, ${line.enabled ? 'enabled' : 'disabled'}`;
   return (
-    <li className={`scene-navigator__item${selected ? ' is-selected' : ''}`}>
+    <li
+      className={`scene-navigator__item${selected ? ' is-selected' : ''}`}
+      data-object-kind="line"
+      data-object-key={line.key}
+    >
       <div className="scene-navigator__row">
         <button
           type="button"
           className="scene-navigator__name"
           aria-pressed={selected}
+          aria-current={selected ? 'true' : undefined}
           onClick={() => onSelect({ kind: 'line', key: line.key, endpoint: null })}
         >
           <StateDot enabled={line.enabled} invalid={invalid} />
@@ -197,6 +224,10 @@ function LineRow({
           </Button>
         )}
       </div>
+      {/* Two endpoints are short enough to state inline, A to B, as stored. */}
+      <span className="scene-navigator__endpoints">
+        {`(${formatCoordinate(line.a.x)}, ${formatCoordinate(line.a.y)}) → (${formatCoordinate(line.b.x)}, ${formatCoordinate(line.b.y)})`}
+      </span>
     </li>
   );
 }

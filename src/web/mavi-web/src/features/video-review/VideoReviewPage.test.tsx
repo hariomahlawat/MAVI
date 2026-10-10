@@ -395,7 +395,7 @@ describe('VideoReviewPage', () => {
     const crop = await screen.findByRole('img', { name: 'Representative · 03:17.4 evidence crop' });
     fireEvent.error(crop);
     expect(screen.getByRole('img', { name: /^No image: the evidence image could not be loaded/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Representative · 03:17.4, no image' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'No image, Representative · 03:17.4' })).toBeInTheDocument();
     expect(screen.queryByText(/Source video could not be loaded/i)).not.toBeInTheDocument();
 
     const video = screen.getByLabelText(/source video evidence$/);

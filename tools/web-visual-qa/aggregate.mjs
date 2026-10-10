@@ -123,7 +123,7 @@ const cases = planned.map((key) => ({ key }));
 let sweep = { faults: [], pressedUnproven: [] };
 if (!structural) {
   try {
-    sweep = sweepChecks({ results, cases, errored, ledger, surfaces: OPERATOR_SURFACES, loadingPairs: LOADING_PAIRS, fullSweep });
+    sweep = sweepChecks({ results, cases, errored, ledger, surfaces: OPERATOR_SURFACES, loadingPairs: LOADING_PAIRS, fullSweep, plannedKeys: planned });
   } catch (error) { faults.push(String(error.message || error)); }
   faults.push(...sweep.faults);
 }

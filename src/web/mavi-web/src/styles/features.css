@@ -105,7 +105,8 @@
 .analytics-state[data-readiness="Ready"] { color: var(--text-primary); }
 .analytics-state[data-readiness="Pending"] { color: var(--text-muted); font-style: italic; }
 .analytics-state[data-readiness="Failed"] { color: var(--status-err); }
-.analytics-state[data-readiness="Stale"] { text-decoration: underline dashed var(--status-stale-border); text-underline-offset: var(--stroke-2); }
+/* Section 23: a boundary that identifies a state meets 3:1 — the dashed underline is the stale cue, drawn in the status hue, not the fill edge. */
+.analytics-state[data-readiness="Stale"] { text-decoration: underline dashed var(--status-stale); text-underline-offset: var(--stroke-2); }
 .analytics-state[data-readiness="Disabled"], .analytics-state[data-readiness="NotConfigured"] { color: var(--text-muted); }
 
 /* Search workspace.
@@ -168,7 +169,7 @@
 .coverage--info > .icon { color: var(--status-info); }
 .coverage--success { background: var(--status-ok-soft); }
 .coverage--success > .icon { color: var(--status-ok); }
-.coverage--stale { background: var(--status-stale-soft); border-bottom-style: dashed; border-bottom-color: var(--status-stale-border); }
+.coverage--stale { background: var(--status-stale-soft); border-bottom-style: dashed; border-bottom-color: var(--status-stale); }
 .coverage--stale > .icon { color: var(--status-stale); }
 .text-warn { color: var(--status-warn); }
 
@@ -395,7 +396,10 @@
    stays fixed however much evidence the rail could not place. There is no list
    here on purpose — a list would be one permanent control per fact. */
 .evidence-timeline__dense { border-top: none; }
-.evidence-timeline__dense summary { font-size: var(--fs-0); color: var(--text-muted); }
+/* A pointer-operable control, so it keeps the minimum target height
+   (section 10.1); the line height centres the single line in it and leaves
+   the native disclosure marker, which a flex summary would drop. */
+.evidence-timeline__dense summary { min-height: var(--control-min-target); line-height: var(--control-min-target); font-size: var(--fs-0); color: var(--text-muted); }
 .evidence-timeline__navigator {
   display: grid; gap: var(--s-1);
   padding-block-start: var(--s-1);
@@ -623,7 +627,7 @@
 .scene-context__revision.is-dirty .scene-context__revision-state { color: var(--status-warn); }
 .scene-context__revision.is-saved { border-color: var(--status-ok-border); background: var(--status-ok-soft); }
 .scene-context__revision.is-saved .scene-context__revision-state { color: var(--status-ok); }
-.scene-context__revision.is-readonly { border-color: var(--status-warn-border); background: transparent; }
+.scene-context__revision.is-readonly { border-color: var(--status-warn); background: transparent; }
 .scene-context__revision.is-readonly .scene-context__revision-state { color: var(--status-warn); font-weight: 600; }
 .scene-context__analytics { color: var(--text-secondary); font-size: var(--fs-0); letter-spacing: 0.04em; text-transform: uppercase; }
 /* The words say on or off; the quieter token only seconds them — no opacity (§12). */
@@ -657,6 +661,11 @@
 
 /* An explanation of a Context Bar control, stated in the notices region. */
 .scene-notice { color: var(--text-muted); font-size: var(--fs-1); max-width: 72ch; }
+/* A status region is mounted before it has anything to say, so that what it
+   later says is a change and is announced. Empty, it leaves the notices grid
+   (an out-of-flow item takes no track and no gap) but stays in the
+   accessibility tree, which `display: none` would not. */
+.scene-notice:empty { position: absolute; min-height: 0; margin: 0; padding: 0; border: 0; }
 .scene-notice--confirm {
   padding: var(--s-1) var(--s-3); border: 1px solid var(--status-warn-border);
   border-radius: var(--r-1); background: var(--status-warn-soft); color: var(--text-secondary);
@@ -726,6 +735,8 @@
   padding: var(--s-1) var(--s-2); border: 1px solid var(--border-subtle); border-radius: var(--r-1);
   background: var(--surface-overlay); color: var(--text-secondary); font-size: var(--fs-1); pointer-events: none;
 }
+/* Mounted empty for the same reason as `.scene-notice`; already out of flow. */
+.scene-stage__media-note:empty { padding: 0; border: 0; }
 .scene-stage__intro span { color: var(--text-secondary); font-size: var(--fs-1); max-width: 52ch; }
 
 /* Geometry */
@@ -741,7 +752,9 @@
   stroke-width: var(--stroke-3);
 }
 .scene-zone.is-disabled polygon { fill: color-mix(in srgb, var(--status-neutral) 6%, transparent); stroke: var(--status-neutral); stroke-dasharray: 5 4; }
-.scene-zone.is-invalid polygon { stroke: var(--status-warn); }
+/* Invalid geometry is cued by shape as well as colour (section 23): the dash
+   differs from the disabled dash so the two states stay distinct. */
+.scene-zone.is-invalid polygon { stroke: var(--status-warn); stroke-dasharray: 6 4; }
 
 .scene-line__segment {
   stroke: var(--geo-line); stroke-width: var(--stroke-2); vector-effect: non-scaling-stroke; cursor: pointer;
@@ -750,7 +763,7 @@
 .scene-line__segment:hover { stroke-width: var(--evidence-halo-w); }
 .scene-line.is-selected .scene-line__segment { stroke: var(--accent); stroke-width: var(--evidence-halo-w); }
 .scene-line.is-disabled .scene-line__segment { stroke: var(--status-neutral); stroke-dasharray: 5 4; }
-.scene-line.is-invalid .scene-line__segment { stroke: var(--status-warn); }
+.scene-line.is-invalid .scene-line__segment { stroke: var(--status-warn); stroke-dasharray: 6 4; }
 .scene-line__endpoint {
   fill: var(--geo-line); font: 600 var(--fs-0) var(--font-mono); text-anchor: middle; dominant-baseline: middle;
   paint-order: stroke; stroke: var(--evidence-matte); stroke-width: var(--evidence-halo-w); stroke-linejoin: round;
@@ -811,7 +824,9 @@
 .scene-navigator__group h3 span { font-variant-numeric: tabular-nums; }
 .scene-navigator__group ul { display: grid; gap: var(--s-px); list-style: none; }
 .scene-navigator__item { border-radius: var(--r-1); }
-.scene-navigator__item.is-selected { background: var(--accent-soft); }
+/* Selection by shape as well as colour: the same inset bar the result row
+   carries, so one idiom says "current" across surfaces (section 23). */
+.scene-navigator__item.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .scene-navigator__row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .scene-navigator__name {
   display: flex; align-items: center; gap: var(--s-2); min-width: 0;
@@ -828,6 +843,16 @@
 .scene-navigator__group--lines .scene-navigator__dot { background: var(--geo-line); }
 .scene-navigator__dot.is-off { background: transparent; box-shadow: inset 0 0 0 var(--stroke-hair) var(--status-neutral); }
 .scene-navigator__warn { color: var(--status-warn); flex: 0 0 auto; }
+/* The object's actual geometry, in the same list item as the control that
+   selects it (section 23): a trip line's two endpoints inline, a zone's
+   vertices one disclosure away so the navigator stays the size of the scene. */
+.scene-navigator__endpoints {
+  display: block; padding: 0 var(--s-2) var(--s-1); color: var(--text-muted);
+  font: var(--fs-0)/1.5 var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.scene-navigator__coordinates { padding: 0 var(--s-2); color: var(--text-muted); font-size: var(--fs-0); }
+.scene-navigator__coordinates summary { cursor: pointer; min-height: var(--control-min-target); line-height: var(--control-min-target); }
+.scene-navigator__points { display: grid; gap: var(--s-px); padding: 0 0 var(--s-1) var(--s-3); list-style: none; font-family: var(--font-mono); line-height: 1.5; }
 
 /* The shared inspector body owns the padding; this owns the rhythm inside it. */
 .scene-inspector { display: grid; gap: var(--s-3); align-content: start; }
@@ -882,7 +907,7 @@
   transition: background var(--dur) ease, border-color var(--dur) ease;
 }
 .scene-revisions__chip:hover { background: var(--surface-raised-2); }
-.scene-revisions__chip.is-active { border-color: var(--status-ok-border); }
+.scene-revisions__chip.is-active { border-color: var(--status-ok); }
 .scene-revisions__chip.is-viewing { border-color: var(--status-warn); background: var(--status-warn-soft); color: var(--status-warn); }
 .scene-revisions__chip.is-off .scene-revisions__number { opacity: 0.6; }
 .scene-revisions__number { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -1047,7 +1072,7 @@
 .analytics-inspector__caution {
   color: var(--text-secondary);
   font-size: var(--fs-2);
-  border-left: 2px solid var(--status-warn-border);
+  border-left: 2px solid var(--status-warn);
   padding-left: var(--s-2);
 }
 

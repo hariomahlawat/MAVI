@@ -172,7 +172,10 @@ describe('ProcessingPage', () => {
     expect(screen.getByText('Recorded').nextElementSibling).toHaveTextContent('UTC');
 
     vi.mocked(getSystemConfig).mockResolvedValue({ displayTimeZoneId: 'Asia/Kolkata' });
-    await user.click(within(notice.closest('[role="status"], [role="alert"]') as HTMLElement).getByRole('button', { name: 'Retry display config' }));
+    // The warning's sentence is said by the slot's live region, mounted before it
+    // appeared (§23); the box itself carries the Retry (§37.1).
+    expect([...document.querySelectorAll('[role="status"]')].some((live) => /Display timezone is unavailable/.test(live.textContent ?? ''))).toBe(true);
+    await user.click(within(notice.closest('.alert') as HTMLElement).getByRole('button', { name: 'Retry display config' }));
 
     await waitFor(() => expect(screen.queryByText(/Display timezone is unavailable/)).not.toBeInTheDocument());
     expect(screen.getByText('Queued').nextElementSibling).not.toHaveTextContent('UTC');

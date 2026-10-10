@@ -217,7 +217,10 @@ describe('CamerasPage', () => {
     await screen.findByText('A camera with this code already exists.');
     // §21: a conflict attributable to a field belongs on that field. Stating
     // it twice, once of them as a page-level alert, is the duplicate §30 names.
-    expect(within(form).queryByRole('alert')).not.toBeInTheDocument();
+    // The field's own message is the one alert (§23: announced on insertion).
+    const alerts = within(form).getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveClass('field__error');
     expect(form.querySelector('.alert')).toBeNull();
   });
 

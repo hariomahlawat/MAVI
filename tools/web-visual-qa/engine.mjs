@@ -15,7 +15,7 @@ export class HarnessError extends Error {}
  * A state is swept at every anchor of every tier its policy applies to, plus
  * its probe widths; a tier is absent only through a policy that says why.
  */
-export function planCases({ states, anchors, policies, stateKeys, tierOf, zoom = null, onlyStates = null, onlyTiers = null, onlyWidths = null, onlyZoom = null, repeat = 1 }) {
+export function planCases({ states, anchors, policies, stateKeys, tierOf, zoom = null, textSpacing = null, onlyStates = null, onlyTiers = null, onlyWidths = null, onlyZoom = null, onlyTextSpacing = null, repeat = 1 }) {
   const applicability = states.map((state) => {
     for (const key of Object.keys(state)) {
       if (!stateKeys.has(key)) throw new HarnessError(`state ${state.name} carries unknown key "${key}"`);
@@ -47,12 +47,18 @@ export function planCases({ states, anchors, policies, stateKeys, tierOf, zoom =
       viewports.push({ width, height: 900, label, tier, kind: 'probe' });
     }
     if (zoom) viewports.push(...zoomViewports(state, applies, zoom, tierOf));
+    if (textSpacing) viewports.push(...textSpacingViewports(state, applies, textSpacing, tierOf));
     for (const viewport of viewports) {
       if (onlyTiers && !onlyTiers.includes(viewport.tier)) continue;
       if (onlyWidths && !onlyWidths.includes(viewport.width)) continue;
       // `--zoom only` runs the zoom cases alone; `--zoom none` leaves them out.
       if (onlyZoom === 'only' && !viewport.zoom) continue;
       if (onlyZoom === 'none' && viewport.zoom) continue;
+      if (onlyTextSpacing === 'only' && !viewport.textSpacing) continue;
+      if (onlyTextSpacing === 'none' && viewport.textSpacing) continue;
+      // A zoom-only or spacing-only run is of that lane alone.
+      if (onlyZoom === 'only' && viewport.textSpacing) continue;
+      if (onlyTextSpacing === 'only' && viewport.zoom) continue;
       for (let attempt = 1; attempt <= repeat; attempt += 1) cases.push({ state, viewport, attempt, surface });
     }
   }
@@ -104,6 +110,47 @@ function zoomViewports(state, applies, zoom, tierOf) {
     out.push(viewport(path, { label, kind: 'zoom-transition', transition, startTier: tierAt(path[0]) }));
   }
   return out;
+}
+
+/**
+ * X1 (§23, WCAG 1.4.12): a state's text-spacing cases — the state loaded with
+ * the user's spacing overrides in force, at one canonical anchor of every
+ * distinct responsive composition it is swept at (the lane's frozen anchors:
+ * the narrowest acceptance anchor of each tier range and each orientation
+ * Tier B distinguishes) and at each of its declared probe widths (the
+ * compositions the sweep itself declares distinct). Wider anchors that
+ * render the same composition are not duplicated. Judged at the tier the
+ * width falls in, by every rule of that tier plus a11y.text-spacing.
+ */
+function textSpacingViewports(state, applies, textSpacing, tierOf) {
+  const out = [];
+  for (const anchor of textSpacing.anchors) {
+    if (!applies.tiers.includes(anchor.tier)) continue;
+    out.push({ ...anchor, label: `${anchor.width}x${anchor.height}@spacing`, kind: 'text-spacing', textSpacing: true });
+  }
+  for (const width of state.probeWidths ?? []) {
+    const label = `${width}x900@spacing`;
+    if (out.some((viewport) => viewport.label === label)) continue;
+    out.push({ width, height: 900, label, tier: tierOf(width), kind: 'text-spacing', textSpacing: true });
+  }
+  return out;
+}
+
+/**
+ * The text-spacing lane's coverage (X1): on the full sweep every planned
+ * spacing case produced a valid capture with the overrides proven in force
+ * and the rule evaluated — a state the lane never judged at one of its
+ * anchors is a fault, never a pass.
+ */
+export function textSpacingCoverageFaults(results, plannedKeys) {
+  const faults = [];
+  for (const key of plannedKeys.filter((k) => /@spacing#\d+$/.test(k))) {
+    const r = results.find((x) => caseKey(x) === key);
+    const where = key.replace(/#\d+$/, '').replace('@', ' @ ');
+    if (!r || !r.valid) faults.push(`a11y.text-spacing: ${where} has no valid capture`);
+    else if (!r.textSpacing?.inForce) faults.push(`a11y.text-spacing: ${where} ran without the overrides proven in force`);
+  }
+  return faults;
 }
 
 /**
@@ -179,6 +226,7 @@ export function createLedger(rules = RULES, surfaces = SURFACES) {
     if (!rules[rule]) throw new HarnessError(`unregistered rule "${rule}" ${what}: every assertion must have a manifest entry`);
     // T3: a zoom rule is judged only where the browser's page zoom is set.
     if (rules[rule].lane === 'zoom' && !c?.viewport?.zoom) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}, which is not a zoom case`);
+    if (rules[rule].lane === 'text-spacing' && !c?.viewport?.textSpacing) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}, which is not a text-spacing case`);
     let at;
     try { at = severityOf(rule, tier, surface, { rules, surfaces }); } catch (error) { throw new HarnessError(`${rule} ${what}: ${error.message}`); }
     if (at.status === 'not-applicable') {
@@ -363,7 +411,7 @@ export function partitionCases(cases, { index, count, pairs = [] }) {
  * Tier A. `fullSweep` enables the sweep-wide obligations. Returns the harness
  * faults; findings go through the ledger, so their severity is the manifest's.
  */
-export function sweepChecks({ results, cases, errored, ledger, surfaces, loadingPairs = [], fullSweep }) {
+export function sweepChecks({ results, cases, errored, ledger, surfaces, loadingPairs = [], fullSweep, plannedKeys = null }) {
   const faults = [];
   const pressedUnproven = [];
   for (const [loading, ready] of loadingPairs) {
@@ -389,6 +437,7 @@ export function sweepChecks({ results, cases, errored, ledger, surfaces, loading
     faults.push(`${cases.length - results.length - errored.length} of ${cases.length} scheduled case(s) never ran`);
   }
   if (fullSweep) faults.push(...zoomCoverageFaults(results, surfaces));
+  if (fullSweep && plannedKeys) faults.push(...textSpacingCoverageFaults(results, plannedKeys));
   const vacuous = fullSweep && !faults.length ? ledger.vacuous() : [];
   if (vacuous.length) faults.push('blocking rules the full sweep never evaluated: ' + vacuous.join(', '));
   if (fullSweep && !faults.length) {

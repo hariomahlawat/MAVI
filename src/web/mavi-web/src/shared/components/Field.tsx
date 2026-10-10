@@ -55,7 +55,9 @@ export default function Field({
         ...(error ? { 'aria-invalid': true as const } : {}),
         ...(describedBy ? { 'aria-describedby': describedBy } : {}),
       })}
-      {error ? <p className="field__error" id={errorId ?? undefined}>{error}</p> : null}
+      {/* Associated by `aria-describedby` above and, as an alert, announced
+          when it appears (§23): a refusal typed into a field is news. */}
+      {error ? <p className="field__error" id={errorId ?? undefined} role="alert">{error}</p> : null}
       {help ? <div className="field__help" id={helpId ?? undefined}>{help}</div> : null}
     </div>
   );

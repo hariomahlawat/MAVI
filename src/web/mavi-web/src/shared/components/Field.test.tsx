@@ -25,6 +25,8 @@ describe('Field', () => {
     expect(input).toHaveAttribute('aria-invalid', 'true');
     expect(input).toHaveAccessibleDescription('Enter a camera code.');
     expect(screen.getByText('Enter a camera code.')).toHaveClass('field__error');
+    // Announced when it appears, not only associated (section 23).
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a camera code.');
   });
 
   it('names the error before the help, and drops aria-invalid when the value is accepted', () => {

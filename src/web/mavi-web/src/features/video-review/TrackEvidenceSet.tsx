@@ -80,7 +80,10 @@ export default function TrackEvidenceSet({ detail, compact = false }: Props) {
                     className="evidence-set__control"
                     // The inspected Observation, as the result list marks its selection.
                     aria-current={isSelected ? 'true' : undefined}
-                    aria-label={name + (state === 'available' ? '' : ', no image')}
+                    // The placeholder's "No image" is painted before the name,
+                    // so the name reads in that order (WCAG 2.5.3: the visible
+                    // label's words, in sequence, are in the accessible name).
+                    aria-label={(state === 'available' ? '' : 'No image, ') + name}
                     data-role={observation.evidenceRole}
                     onClick={() => setSelectedId(observation.observationId)}
                   >

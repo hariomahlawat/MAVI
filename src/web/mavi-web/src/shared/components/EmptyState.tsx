@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import Button from './Button';
 import Icon, { type IconName } from './Icon';
+import { statusText, useStatusReport } from './StatusSlot';
 
 /**
  * "Nothing here" — never "we could not find out". A failed request is an Alert
@@ -18,6 +19,7 @@ export default function EmptyState({
   actions,
   compact = false,
   hatched = false,
+  announce = true,
 }: {
   icon?: IconName;
   title: string;
@@ -25,13 +27,20 @@ export default function EmptyState({
   actions?: ReactNode;
   compact?: boolean;
   hatched?: boolean;
+  /** Whether a live region says the state; false where the surface has already said it. */
+  announce?: boolean;
 }) {
   const className = ['empty', compact ? 'empty--compact' : '', hatched ? 'empty--hatched' : '']
     .filter(Boolean)
     .join(' ');
+  // Said through the enclosing StatusSlot's announcer where there is one (it
+  // was mounted before this state appeared, so the sentence is a change there);
+  // a standalone empty state keeps `role="status"` itself.
+  const body = statusText(children);
+  const routed = useStatusReport(body ? `${title}. ${body}` : title, announce);
 
   return (
-    <div className={className} role="status">
+    <div className={className} role={announce && !routed ? 'status' : undefined}>
       {icon ? <Icon name={icon} size="lg" /> : null}
       <strong>{title}</strong>
       {children ? <span>{children}</span> : null}

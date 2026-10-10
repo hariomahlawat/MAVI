@@ -503,7 +503,7 @@ jobs:
         if: matrix.group != 'unit'
         env:
           MAVI_VQA_TEST_GROUP: ${{ matrix.group }}
-        run: node --test tools/web-visual-qa/test/zoom.test.mjs tools/web-visual-qa/test/run.test.mjs tools/web-visual-qa/test/shard.test.mjs
+        run: node --test tools/web-visual-qa/test/zoom.test.mjs tools/web-visual-qa/test/run.test.mjs tools/web-visual-qa/test/shard.test.mjs tools/web-visual-qa/test/a11y.test.mjs
 
   visual-sweep:
     # The full sweep at every tier anchor, against the production build, in

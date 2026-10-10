@@ -2510,8 +2510,11 @@ const REFUSE_WINDOW = `(async () => {
   await until(() => select.getAttribute('aria-invalid') === 'true', 'the interval marked invalid');
   const described = document.getElementById(select.getAttribute('aria-describedby') || '');
   if (!described || !/the most that can be shown is 512/.test(described.textContent)) return false;
+  // The reason is the band's alert on the field (X1, §23: never a tooltip);
+  // Refresh is disabled and carries no title.
+  if (described.getAttribute('role') !== 'alert') return false;
   const refresh = Array.from(document.querySelectorAll('button')).find((button) => /Refresh/.test(button.textContent));
-  return Boolean(refresh && refresh.disabled && refresh.title);
+  return Boolean(refresh && refresh.disabled && !refresh.title);
 })()`;
 
 /** Arms the Heatmap mode, which is a click rather than a route. */

@@ -324,7 +324,8 @@ type Projector = (point: ScenePoint) => { x: number; y: number };
 
 /** The visible marker, and the larger area a pointer may grab it by. */
 const HANDLE_R = 3.5;
-const HANDLE_HIT_R = 11;
+// The invisible hit area is the pointer target (section 10.1): 2 × 12 = 24px.
+const HANDLE_HIT_R = 12;
 
 function ZoneShape({
   zone,
@@ -356,7 +357,7 @@ function ZoneShape({
   ].filter(Boolean).join(' ');
 
   return (
-    <g className={classes} data-testid={`scene-zone-${zone.key}`}>
+    <g className={classes} data-testid={`scene-zone-${zone.key}`} data-object-key={zone.key}>
       <polygon
         points={points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ')}
         onPointerDown={(event) => {
@@ -434,7 +435,7 @@ function LineShape({
   const showCrossings = line.directed;
 
   return (
-    <g className={classes} data-testid={`scene-line-${line.key}`}>
+    <g className={classes} data-testid={`scene-line-${line.key}`} data-object-key={line.key}>
       <line
         className="scene-line__segment"
         x1={a.x}

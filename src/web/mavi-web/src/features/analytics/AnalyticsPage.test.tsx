@@ -158,6 +158,11 @@ describe('Analytics identity (§5, §14)', () => {
   });
 });
 
+/** The alert saying this, among the page's alerts (the window band's problem is one too). */
+async function alertSaying(pattern: RegExp): Promise<HTMLElement> {
+  return screen.findByText(pattern, { selector: '[role="alert"], [role="alert"] *' }).then((node) => node.closest('[role="alert"]') as HTMLElement);
+}
+
 describe('Analytics Workbench', () => {
   it('is one `.page` Workbench surface like every routed surface (S1e, D9)', async () => {
     const { container } = render();
@@ -322,7 +327,9 @@ describe('Analytics Workbench', () => {
     expect(screen.getByLabelText('From')).not.toHaveAttribute('aria-invalid');
     const refresh = screen.getByRole('button', { name: /Refresh/i });
     expect(refresh).toBeDisabled();
-    expect(refresh).toHaveAttribute('title', 'Adjust the window before refreshing.');
+    // The reason is the band's alert on the field (§23: never a tooltip).
+    expect(refresh).not.toHaveAttribute('title');
+    expect(screen.getByText(/the most that can be shown is 512/i)).toHaveAttribute('role', 'alert');
   });
 
   it('keeps the figures and Not additive in view, and the definition and provenance one step away (F23)', async () => {
@@ -408,7 +415,7 @@ describe('Analytics Workbench', () => {
       .mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, true));
     render();
 
-    const alert = await screen.findByRole('alert');
+    const alert = await alertSaying(/whether analytics were enabled/i);
     expect(alert).toHaveTextContent(/whether analytics were enabled/i);
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByText('Coverage complete')).not.toBeInTheDocument();
@@ -425,7 +432,7 @@ describe('Analytics Workbench', () => {
       .mockResolvedValue(sceneWith(completeCoverage.sceneRevisionId!, false));
     render();
 
-    await userEvent.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Retry' }));
+    await userEvent.click(within(await alertSaying(/whether analytics were enabled/i)).getByRole('button', { name: 'Retry' }));
     expect(await screen.findByText('Analytics disabled by the scene', { selector: '.empty strong' })).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
@@ -475,7 +482,7 @@ describe('Analytics Workbench', () => {
     );
     render();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Evidence could not be read.');
+    expect(await alertSaying(/Evidence could not be read\./)).toHaveTextContent('Evidence could not be read.');
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
@@ -494,6 +501,26 @@ describe('Analytics Workbench', () => {
     expect(screen.getByText(/the most that can be shown is/i)).toBeInTheDocument();
     // The refused question was never put to the server.
     expect(vi.mocked(getAnalyticsAggregates).mock.calls.length).toBe(calls);
+  });
+
+  it('says a refused window from a stage region that was there before the refusal (§23)', async () => {
+    render();
+    await screen.findByRole('table');
+    // The stage's own announcer, apart from the regions inside it.
+    const stage = document.querySelector('.analytics-stage') as HTMLElement;
+    const live = stage.querySelector(':scope > .status-slot__announcer') as HTMLElement;
+    expect(live).toHaveAttribute('role', 'status');
+    expect(live).toBeEmptyDOMElement();
+
+    await userEvent.selectOptions(screen.getByLabelText('Interval'), '60');
+    await userEvent.clear(screen.getByLabelText('From'));
+    await userEvent.type(screen.getByLabelText('From'), '2026-08-01T00:00');
+    await screen.findByText(/Adjust the window/i);
+
+    expect(stage.querySelector(':scope > .status-slot__announcer')).toBe(live);
+    expect(live).toHaveTextContent(/^Adjust the window\. The window and interval above have to be changed/);
+    // The presentation is not a second live region.
+    expect(screen.getByText('Adjust the window').closest('.empty')).not.toHaveAttribute('role');
   });
 
   it('will not let manual Refresh ask a question the contract would refuse', async () => {
@@ -548,10 +575,10 @@ describe('Analytics Workbench', () => {
     vi.mocked(getSystemConfig).mockRejectedValue(new Error('config unavailable'));
     render();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/display timezone is unavailable/i);
+    expect(await alertSaying(/display timezone is unavailable/i)).toHaveTextContent(/display timezone is unavailable/i);
     expect(screen.queryByRole('figure')).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 
   it('keeps the last answer on screen when a refresh fails, and says it may be stale', async () => {
