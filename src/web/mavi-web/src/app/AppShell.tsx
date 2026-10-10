@@ -323,24 +323,30 @@ export default function AppShell() {
                 place in the IA map rather than a bare product name. */}
             <div className={barClass(tone)} ref={attachContextBar}>
               {/* §25 Tier C: the navigation's top-of-page control, leading the
-                  band (`order` keeps it first beside the surface's portal). */}
-              {narrow ? (
-                <Tooltip content={railOpen ? 'Close navigation' : 'Open navigation'}>
-                  <button
-                    ref={menuRef}
-                    type="button"
-                    className="shell__menu"
-                    onClick={() => setRailOpen((open) => !open)}
-                    onFocus={() => { menuFocusedRef.current = true; }}
-                    onBlur={() => { menuFocusedRef.current = false; }}
-                    aria-expanded={railOpen}
-                    aria-controls={navId}
-                    aria-label={railOpen ? 'Close navigation' : 'Open navigation'}
-                  >
-                    <Icon name="menu" />
-                  </button>
-                </Tooltip>
-              ) : null}
+                  band — in the document as on screen, so the keyboard reaches
+                  it first (§23). Its slot is mounted at every width, before the
+                  surface's portal fills the band, so a menu control mounted by a
+                  live crossing (a resize, or 200% page zoom on a page in use)
+                  still lands first; the slot itself draws no box. */}
+              <span className="shell__menu-slot">
+                {narrow ? (
+                  <Tooltip content={railOpen ? 'Close navigation' : 'Open navigation'}>
+                    <button
+                      ref={menuRef}
+                      type="button"
+                      className="shell__menu"
+                      onClick={() => setRailOpen((open) => !open)}
+                      onFocus={() => { menuFocusedRef.current = true; }}
+                      onBlur={() => { menuFocusedRef.current = false; }}
+                      aria-expanded={railOpen}
+                      aria-controls={navId}
+                      aria-label={railOpen ? 'Close navigation' : 'Open navigation'}
+                    >
+                      <Icon name="menu" />
+                    </button>
+                  </Tooltip>
+                ) : null}
+              </span>
               {claimed ? null : <Breadcrumbs crumbs={crumbsFor(surface)} />}
             </div>
             {/* The archetype mounted below says whether this column may scroll

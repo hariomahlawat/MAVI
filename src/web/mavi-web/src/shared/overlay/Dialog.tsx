@@ -93,6 +93,13 @@ export default function Dialog({
       window.removeEventListener('keydown', onKeyDown, true);
       release();
       restoreFocus(invokerRef.current);
+      // The decision can close because the control that opened it has gone:
+      // a Scene Editor discard confirmation is dropped when the window
+      // narrows below 768px — or the page is zoomed to 200% (§23) — and its
+      // Reset button with the editor. Focus is then not left on the document:
+      // it goes to the workspace the decision was about (§20, §23).
+      const active = document.activeElement;
+      if (!active || active === document.body) document.querySelector<HTMLElement>('main')?.focus({ preventScroll: true });
     };
   }, [open]);
 
