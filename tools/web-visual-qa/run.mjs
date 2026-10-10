@@ -228,6 +228,19 @@ async function runCase(lane, c) {
   lane.server.resetSequences();
   lane.footage = state.footage ?? 'saturated';
   await browser.viewport(viewport.width, viewport.height);
+  // A fresh document for a load: a blank document first (Chromium holds
+  // media decoders across same-origin navigations), then storage cleared
+  // from a same-origin page that boots nothing, so a stored preference
+  // cannot leak between cases, and the state's own preference written
+  // there before the surface boots.
+  const freshDocument = async () => {
+    await browser.goto('about:blank');
+    await browser.goto(lane.server.origin + '/__blank');
+    await browser.evaluate('(() => { try { window.localStorage.clear(); } catch { /* blocked */ } return true; })()');
+    if (state.storage) {
+      await browser.evaluate(`(() => { try { for (const [key, value] of Object.entries(${JSON.stringify(state.storage)})) window.localStorage.setItem(key, value); } catch { /* blocked */ } return true; })()`);
+    }
+  };
   // T3: the browser's page zoom for this case — 100% unless it is a zoom case
   // — set before the page loads and read back from the browser. A zoom that
   // cannot be set fails the case (a harness fault), never runs it at another.
@@ -249,14 +262,8 @@ async function runCase(lane, c) {
     const baseState = STATES.find((s) => s.name === baseName) ?? c.state;
     const baseView = baseState.atTier?.A ? { ...baseState, ...baseState.atTier.A } : baseState;
     if (lane.zoom !== 1) { lane.zoom = null; lane.zoom = await browser.pageZoom(1); }
-    // The baseline begins as the case will: a blank document, storage
-    // cleared of the previous case's, the state's own preferences set.
-    await browser.goto('about:blank');
-    await browser.goto(lane.server.origin + '/__blank');
-    await browser.evaluate('(() => { try { window.localStorage.clear(); } catch { /* blocked */ } return true; })()');
-    if (state.storage) {
-      await browser.evaluate(`(() => { try { for (const [key, value] of Object.entries(${JSON.stringify(state.storage)})) window.localStorage.setItem(key, value); } catch { /* blocked */ } return true; })()`);
-    }
+    // The baseline begins as the case will.
+    await freshDocument();
     await browser.goto(lane.server.origin + baseView.path);
     const baseLoaded = await settle(lane, baseView, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: Boolean(baseView.prepare) });
     if (!baseLoaded.ok) unreach('zoom text baseline', `the state at 100% did not settle within ${SETTLE_TIMEOUT_MS}ms: ${baseLoaded.why.join('; ')}`);
@@ -282,29 +289,12 @@ async function runCase(lane, c) {
     // 200% load begins as it would alone.
     lane.server.releaseHung();
     lane.server.resetSequences();
-    await browser.goto('about:blank');
-    await browser.goto(lane.server.origin + '/__blank');
-    await browser.evaluate('(() => { try { window.localStorage.clear(); } catch { /* blocked */ } return true; })()');
-    if (state.storage) {
-      await browser.evaluate(`(() => { try { for (const [key, value] of Object.entries(${JSON.stringify(state.storage)})) window.localStorage.setItem(key, value); } catch { /* blocked */ } return true; })()`);
-    }
   }
   if (lane.zoom !== startZoom) {
     lane.zoom = null;
     lane.zoom = await browser.pageZoom(startZoom);
   }
-  // A blank document first: Chromium holds media decoders across same-origin
-  // navigations. Then storage is cleared from a same-origin page that boots
-  // nothing, so a stored preference cannot leak between cases and a sequenced
-  // fixture is not consumed before the case begins.
-  await browser.goto('about:blank');
-  await browser.goto(lane.server.origin + '/__blank');
-  await browser.evaluate('(() => { try { window.localStorage.clear(); } catch { /* blocked */ } return true; })()');
-  // A state that arrives with a stored preference (Search's grid view) has it
-  // written here, on the same blank page, before the surface boots.
-  if (state.storage) {
-    await browser.evaluate(`(() => { try { for (const [key, value] of Object.entries(${JSON.stringify(state.storage)})) window.localStorage.setItem(key, value); } catch { /* blocked */ } return true; })()`);
-  }
+  await freshDocument();
   await browser.goto(lane.server.origin + state.path);
 
   // V3: the state is reached when the page and the server say so.
@@ -411,6 +401,7 @@ async function runCase(lane, c) {
       const expected = ZOOM_CONDITION.factor;
       if (physical !== null && physical < expected - 0.02) zoomFail(`${where}text is drawn at only ${Math.round(physical * 100) / 100}x its ${from} size at ${to}, not the ${expected}x the browser's zoom gives`);
       zoom.text = { baselineHolders: baseline.holders, compared: text.compared, matched: text.matched, unmatched: text.unmatched, physical, expected, findings: text.changed.length, comparisons };
+      zoom.textComparisons = [...(zoom.textComparisons ?? []), { from, to, ...zoom.text }];
     };
     let previous = reached ? await qualify(viewport.zoom[0]) : null;
     if (previous) {
@@ -521,10 +512,13 @@ async function runCase(lane, c) {
     if (zoom) {
       const zoomed = await browser.evaluate(toExpression(zoomAssertions, input));
       zoom.measured = zoomed.measured;
-      // Controls the page offers but none the harness could judge: the
-      // rule did not run on them, which is a fault, not a pass.
-      if (zoomed.measured.candidates > 0 && zoomed.measured.controls === 0) {
-        unreach('zoom controls', `${zoomed.measured.candidates} control(s) found and none judged (${JSON.stringify(zoomed.measured.skipped)})`);
+      // Controls the page offers — not disabled, not behind an open overlay,
+      // not taken out of the tab order while hidden — of which the harness
+      // judged none: the rule did not run on them, a fault, not a pass.
+      const offered = zoomed.measured.candidates - ['disabled', 'a hidden input', 'inside an inert region', 'hidden and out of the tab order', 'not rendered']
+        .reduce((sum, reason) => sum + (zoomed.measured.skipped[reason] ?? 0), 0);
+      if (offered > 0 && zoomed.measured.controls === 0) {
+        unreach('zoom controls', `${offered} control(s) offered and none judged (${JSON.stringify(zoomed.measured.skipped)})`);
         reached = false;
       }
       markEvaluated(c, zoomed.evaluated);
@@ -666,7 +660,7 @@ async function runCase(lane, c) {
     valid: reached,
     unreached,
     surface: c.surface,
-    ...(zoom ? { zoom: { path: zoom.path, effective: zoom.effective, qualified: zoom.qualified ?? false, evaluated: zoom.evaluated, steps: zoom.steps, environment: zoom.environment ?? null, measured: zoom.measured ?? null, text: zoom.text ?? null } } : {}),
+    ...(zoom ? { zoom: { path: zoom.path, effective: zoom.effective, qualified: zoom.qualified ?? false, evaluated: zoom.evaluated, steps: zoom.steps, environment: zoom.environment ?? null, measured: zoom.measured ?? null, text: zoom.text ?? null, textComparisons: zoom.textComparisons ?? [] } } : {}),
     capture,
     pageWidth: page?.pageWidth ?? null,
     shell: page?.shell ?? null,

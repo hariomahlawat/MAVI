@@ -1969,8 +1969,8 @@ export function zoomClipChain(el) {
   const html = document.documentElement;
   const page = document.scrollingElement || html;
   const entry = (node, s, overflowOf) => {
-    const clipsX = Boolean(overflowOf) && (overflowOf.overflowX !== 'visible' || overflowOf.overflowY !== 'visible');
-    const overflow = clipsX;
+    // One axis not visible makes the other compute to auto: a box clips both.
+    const overflow = Boolean(overflowOf) && (overflowOf.overflowX !== 'visible' || overflowOf.overflowY !== 'visible');
     const clipPath = s.clipPath && s.clipPath !== 'none' ? s.clipPath : null;
     const clip = s.clip && s.clip !== 'auto' ? s.clip : null;
     const mask = (s.maskImage && s.maskImage !== 'none') || (s.webkitMaskImage && s.webkitMaskImage !== 'none') ? 'mask' : null;
@@ -2046,43 +2046,45 @@ export function zoomVisibleRect(rect, chain, vw, vh) {
  * computed style at that point — pixels are not read, which is a stated
  * limit: a replaced element or form control anywhere in its box; inside its
  * padding box, a background colour at least `opaque` in alpha, any
- * background image, an inset box-shadow, a filter or backdrop-filter (which
- * change what is seen beneath), or, unless `backgroundOnly`, text of its
- * own; inside its border ring, a border with a colour that is not
- * transparent; and likewise for a ::before or ::after it draws (whose own
- * boxes cannot be read, so they are judged over the node's). `opaque` is
- * 0.05 for a control, which any paint hides, and 0.95 for text, which a
- * translucent scrim dims but leaves readable.
+ * background image, an inset box-shadow, a backdrop-filter (which changes
+ * what is seen beneath; a filter of a transparent box draws nothing), or,
+ * unless `backgroundOnly`, text of its own; inside its border ring, a
+ * border with a colour that is not transparent, else the background, which
+ * is painted under the border; and likewise for a ::before or ::after it
+ * draws (whose own boxes cannot be read, so they are judged over the
+ * node's). With `pseudoOnly` — for a node that holds the subject, whose own
+ * box is under its descendants — only its pseudo-elements are judged. Paint
+ * outside a node's box (an outline, a spread shadow) is not modelled.
+ * `opaque` is 0.05 for a control, which any paint hides, and 0.95 for text,
+ * which a translucent scrim dims but leaves readable.
  */
-export function zoomPaintsAt(node, x, y, { opaque = 0.05, backgroundOnly = false } = {}) {
+export function zoomPaintsAt(node, x, y, { opaque = 0.05, backgroundOnly = false, pseudoOnly = false } = {}) {
   const alpha = (color) => {
     const m = /rgba?\(([^)]+)\)/.exec(color || '');
     if (!m) return color && color !== 'transparent' ? 1 : 0;
     const parts = m[1].split(/[,\s/]+/).filter(Boolean);
     return parts.length < 4 ? 1 : parseFloat(parts[3]);
   };
-  if (!backgroundOnly && /^(IMG|VIDEO|CANVAS|IFRAME|SVG|INPUT|SELECT|TEXTAREA)$/i.test(node.tagName)) return true;
+  if (!pseudoOnly && !backgroundOnly && /^(IMG|VIDEO|CANVAS|IFRAME|SVG|INPUT|SELECT|TEXTAREA)$/i.test(node.tagName)) return true;
   const box = node.getBoundingClientRect();
   const inBox = x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
-  for (const pseudo of [null, '::before', '::after']) {
+  for (const pseudo of pseudoOnly ? ['::before', '::after'] : [null, '::before', '::after']) {
     const s = getComputedStyle(node, pseudo);
     if (pseudo && (s.content === 'none' || s.content === 'normal')) continue;
     if (s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) continue;
-    if (!pseudo && inBox) {
-      const bw = ['Top', 'Right', 'Bottom', 'Left'].map((side) => parseFloat(s['border' + side + 'Width']) || 0);
-      const inRing = x < box.left + bw[3] || x > box.right - bw[1] || y < box.top + bw[0] || y > box.bottom - bw[2];
-      if (inRing) {
-        const colors = ['Top', 'Right', 'Bottom', 'Left'].map((side) => s['border' + side + 'Color']);
-        if (colors.some((color, i) => bw[i] > 0 && alpha(color) >= opaque)) return true;
-        continue;
-      }
+    const bw = ['Top', 'Right', 'Bottom', 'Left'].map((side) => parseFloat(s['border' + side + 'Width']) || 0);
+    const inRing = !pseudo && inBox && (x < box.left + bw[3] || x > box.right - bw[1] || y < box.top + bw[0] || y > box.bottom - bw[2]);
+    if (inRing || pseudo) {
+      const colors = ['Top', 'Right', 'Bottom', 'Left'].map((side) => s['border' + side + 'Color']);
+      if (colors.some((color, i) => bw[i] > 0 && alpha(color) >= opaque)) return true;
     }
-    if (alpha(s.backgroundColor) >= opaque || s.backgroundImage !== 'none') return true;
-    if ((s.filter && s.filter !== 'none') || (s.backdropFilter && s.backdropFilter !== 'none')) return true;
-    if (/inset/.test(s.boxShadow || '')) return true;
-    if (pseudo && ['Top', 'Right', 'Bottom', 'Left'].some((side) => (parseFloat(s['border' + side + 'Width']) || 0) > 0 && alpha(s['border' + side + 'Color']) >= opaque)) return true;
+    // The background is painted under the border as well (background-clip
+    // border-box, the default), so a transparent border still shows it.
+    if ((!inRing || s.backgroundClip !== 'padding-box') && (alpha(s.backgroundColor) >= opaque || s.backgroundImage !== 'none')) return true;
+    if (s.backdropFilter && s.backdropFilter !== 'none') return true;
+    if (!inRing && /inset/.test(s.boxShadow || '')) return true;
   }
-  return !backgroundOnly && Array.from(node.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
+  return !pseudoOnly && !backgroundOnly && Array.from(node.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
 }
 
 /**
@@ -2123,7 +2125,11 @@ export function zoomVisibility(el) {
     opacity *= parseFloat(s.opacity);
     if (s.zoom && s.zoom !== 'normal' && s.zoom !== '1') scale *= parseFloat(s.zoom) || 1;
     const m = /^matrix(3d)?\(([^)]+)\)/.exec(s.transform || '');
-    if (m) { const v = m[2].split(',').map(Number); scale *= Math.sqrt(v[0] * v[0] + v[1] * v[1]) || 1; }
+    if (m) {
+      const v = m[2].split(',').map(Number);
+      const [sx, sy] = m[1] ? [Math.hypot(v[0], v[1]), Math.hypot(v[4], v[5])] : [Math.hypot(v[0], v[1]), Math.hypot(v[2], v[3])];
+      scale *= Math.min(sx || 1, sy || 1);
+    }
   }
   if (!hidden && opacity < 0.05) hidden = 'transparent';
   const inert = Boolean(el.closest('[inert]'));
@@ -2326,7 +2332,9 @@ export function zoomAssertions(input) {
       for (const node of document.elementsFromPoint(x, y)) {
         if (own(node)) break;
         if (composition && composition.contains(node) && !node.contains(el)) continue;
-        if (zoomPaintsAt(node, x, y)) { layer = node; break; }
+        // An ancestor's own box is under the control; above it, only a
+        // pseudo-element of its can be.
+        if (zoomPaintsAt(node, x, y, { pseudoOnly: node.contains(el) })) { layer = node; break; }
       }
       if (layer) break;
     }
@@ -2457,8 +2465,10 @@ zoomAssertions.helpers = [zoomDescribe, zoomOwn, zoomClipChain, zoomVisibleRect,
  * a form control's value or chosen option, which WCAG 1.4.4 covers too — and
  * seen by the one account (zoomVisibility): not hidden, reachable (on
  * screen, or where scrolling brings it: a box far off the page or outside a
- * clipped region is not), and not hidden at its middle under anything that
- * paints opaquely there (zoomPaintsAt at 0.95) but its own content. Text
+ * clipped region is not; a clip the harness cannot measure counts as not
+ * shown), and not hidden at its middle under anything that paints opaquely
+ * there (zoomPaintsAt at 0.95 — an ancestor by its pseudo-elements alone)
+ * but its own content. Text
  * behind an open overlay (inert, under a translucent scrim) is still drawn
  * and read, so it counts. Hidden or unreachable text is neither a baseline
  * nor a subject of 1.4.4, which is about text the operator reads.
@@ -2474,15 +2484,16 @@ export function zoomTextHolders() {
     for (const el of holders) {
       const v = zoomVisibility(el);
       if (v.hidden || !v.reachable) continue;
+      if (v.seen.unmeasured) continue;
+      let covered = false;
       if (v.seen.width >= 1 && v.seen.height >= 1) {
         const x = (v.seen.left + v.seen.right) / 2; const y = (v.seen.top + v.seen.bottom) / 2;
         for (const node of document.elementsFromPoint(x, y)) {
-          if (node === el || el.contains(node) || node.contains(el)) break;
-          if (zoomPaintsAt(node, x, y, { opaque: 0.95 })) { seen.covered = (seen.covered || 0) + 1; el.__vqaCovered = true; break; }
+          if (node === el || el.contains(node)) break;
+          if (zoomPaintsAt(node, x, y, { opaque: 0.95, pseudoOnly: node.contains(el) })) { covered = true; break; }
         }
-        if (el.__vqaCovered) { delete el.__vqaCovered; continue; }
       }
-      seen.push(el);
+      if (!covered) seen.push(el);
     }
   } finally { reveal.remove(); }
   return seen;
@@ -2491,8 +2502,12 @@ export function zoomTextHolders() {
 /** The words an element draws (T3): its own text, or a form control's value or chosen option. */
 export function zoomTextOf(el) {
   if (el.tagName === 'SELECT') return (el.selectedOptions && el.selectedOptions[0] ? el.selectedOptions[0].textContent : '').trim();
-  if (el.tagName === 'INPUT') return /^(hidden|checkbox|radio|file|submit|button|reset|image|color|range)$/.test(el.type) ? '' : String(el.value || '').trim();
-  if (el.tagName === 'TEXTAREA') return String(el.value || '').trim();
+  if (el.tagName === 'INPUT') {
+    if (/^(hidden|checkbox|radio|file|submit|button|reset|image|color|range)$/.test(el.type)) return '';
+    if (el.type === 'password') return el.value ? '•'.repeat(String(el.value).length) : String(el.placeholder || '').trim();
+    return String(el.value || el.placeholder || '').trim();
+  }
+  if (el.tagName === 'TEXTAREA') return String(el.value || el.placeholder || '').trim();
   return '';
 }
 

@@ -282,8 +282,17 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     }
     // An ancestor's static ::after pulled over the control by a negative margin.
     assert.match(messages(await at200('<style>.w{pointer-events:none}.w::after{content:"";display:block;height:60px;margin-top:-60px;background:#000;position:relative}</style><div class="w"><button style="display:block;width:160px;height:40px;pointer-events:auto">Detail</button></div>')), /"Detail" is hidden under <div.w>/);
-    // A transparent, borderless, shadowless layer with no text of its own hides nothing.
+    // A transparent, borderless, shadowless layer with no text of its own hides nothing;
+    // nor does a filter on one — a filter of nothing draws nothing (cold review 3).
     assert.equal(messages(await at200(UNDER + '<div style="position:fixed;inset:0;pointer-events:none"></div>')), '');
+    assert.equal(messages(await at200(UNDER + '<div style="position:fixed;inset:0;pointer-events:none;filter:drop-shadow(0 0 4px #000)"></div>')), '');
+    // The background is painted under a transparent border too (cold review 3).
+    assert.match(messages(await at200(UNDER + '<div style="position:fixed;inset:0;border:400px solid transparent;background:#000;pointer-events:none"></div>')), /"Detail" is hidden under <div>/);
+    // An ancestor above its descendant in the stack is judged by its pseudo-elements
+    // alone: a card's own background or border, under the control, is no cover
+    // even when a transparent ::after of the card lies over it (cold review 3).
+    assert.equal(messages(await at200('<style>.card{position:relative;background:#333;border:2px solid #888;box-shadow:inset 0 0 0 1px #999;padding:20px}.card::after{content:"";position:absolute;inset:0;pointer-events:none}</style><div class="card"><button style="width:160px;height:40px">Detail</button></div>')), '');
+    assert.match(messages(await at200('<style>.card{position:relative;padding:20px}.card::after{content:"";position:absolute;inset:0;pointer-events:none;background:#000}</style><div class="card"><button style="width:160px;height:40px">Detail</button></div>')), /"Detail" is hidden under <div.card>/);
   });
 
   it('judges visibility by the computed value: a visible control inside a hidden parent is still judged (cold review 2)', async () => {
@@ -549,12 +558,26 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     const SCALED = (how) => `<style>body{margin:0;font:14px sans-serif} @media (width < 768px) { .box { ${how} } }</style><main id="main"><div class="box"><p>north-gate-0800.mp4</p></div></main>`;
     assert.match((await change(SCALED('transform:scale(.5);transform-origin:0 0'))).changed.join('\n'), /"north-gate-0800.mp4" changed from 14px to 7px with the zoom change/);
     assert.match((await change(SCALED('zoom:0.5'))).changed.join('\n'), /"north-gate-0800.mp4" changed from 14px to 7px with the zoom change/);
+    // Scaled on one axis only, the drawn size is the smaller (cold review 3).
+    assert.match((await change(SCALED('transform:scale(1,.5);transform-origin:0 0'))).changed.join('\n'), /"north-gate-0800.mp4" changed from 14px to 7px with the zoom change/);
     // A form control's value and a select's chosen option are text too.
     const FORM = `<style>body{margin:0;font:14px sans-serif} input,select{font-size:14px} @media (width < 768px) { input,select { font-size: 6px } }</style>
       <main id="main"><p>Videos</p><label>Camera <select><option>CAM-01 North Gate</option></select></label><label>Filter <input value="south dock"></label></main>`;
     const form = (await change(FORM)).changed.join('\n');
     assert.match(form, /"CAM-01 North Gate" changed from 14px to 6px/);
     assert.match(form, /"south dock" changed from 14px to 6px/);
+    // A placeholder is drawn text; a password's value is not drawn words (cold review 3).
+    const PLACEHOLDER = `<style>body{margin:0;font:14px sans-serif} input{font-size:14px} @media (width < 768px) { input { font-size: 6px } }</style>
+      <main id="main"><p>Videos</p><input placeholder="Filter by file"><input type="password" value="hunter2"></main>`;
+    const placeholder = (await change(PLACEHOLDER)).changed.join('\n');
+    assert.match(placeholder, /"Filter by file" changed from 14px to 6px/);
+    assert.match(placeholder, /"•••••••" changed from 14px to 6px/);
+    assert.doesNotMatch(placeholder, /hunter2/);
+    // Text under a mask — a clip the harness cannot measure — is not shown, so
+    // it is not a baseline either (cold review 3).
+    const MASKED = `<style>body{margin:0;font:14px sans-serif} .m{mask-image:linear-gradient(#000,#000);-webkit-mask-image:linear-gradient(#000,#000)} .narrow{display:none;font-size:9px} @media (width < 768px) { .narrow { display: block } }</style>
+      <main id="main"><p>Videos</p><div class="m"><p style="font-size:5px">masked away</p></div><p class="narrow">Shown only on a narrow display</p></main>`;
+    assert.match((await change(MASKED)).changed.join('\n'), /"Shown only on a narrow display" is drawn at 9px at 200%, below the 14px smallest text at 100%/);
     // Hidden text is neither baseline nor subject: a visually-hidden 20px
     // heading does not hold a 13px crumb with the same words to it.
     const HIDDEN = `<style>body{margin:0;font:14px sans-serif} .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)} h1{font-size:20px} .crumb{display:none;font-size:13px} @media (width < 768px) { .crumb { display: inline } }</style>
@@ -694,6 +717,19 @@ export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => (
     assert.equal(status, 1, output);
     zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && f.viewport === '1366x768@200%');
     assert.ok(zoom.some((f) => /"Shown only on a narrow display" .*7px at 200%, below the 1[0-9]px smallest text at 100%/.test(f.message)), JSON.stringify(zoom));
+  });
+
+  it('does not fault a page whose only controls are disabled or behind an open overlay, and faults one that offers controls none of which could be judged (cold review 3)', () => {
+    // The videos state with every row action disabled and the filters
+    // control gone: nothing offered — no fault; with the offered controls
+    // refusing focus (tabindex kept, focus() prevented): a fault.
+    const DISABLE = `(() => { for (const el of document.querySelectorAll('main button, main a[href], main input, main select')) { if (el.tagName === 'A') el.removeAttribute('href'); else el.disabled = true; } return true; })()`;
+    let { status, output, results } = run('all-disabled', `${VIDEOS.replace('=> s)', '=> ({ ...s, prepare: ' + JSON.stringify(DISABLE) + ' }))')}`, ['--states', 'videos']);
+    assert.ok(!results.harnessErrors.some((e) => /zoom controls/.test(e)), output);
+    const REFUSE = `(() => { for (const el of document.querySelectorAll('button, a[href], input, select, [tabindex]')) el.addEventListener('focus', () => el.blur()); return true; })()`;
+    ({ status, output, results } = run('all-refuse', `${VIDEOS.replace('=> s)', '=> ({ ...s, prepare: ' + JSON.stringify(REFUSE) + ' }))')}`, ['--states', 'videos']));
+    assert.equal(status, 2, output);
+    assert.ok(results.harnessErrors.some((e) => /not reached at zoom controls: \d+ control\(s\) offered and none judged/.test(e)), results.harnessErrors.join('\n'));
   });
 
   it('is a harness fault when a 200% load\'s 100% baseline cannot be established, and when a zoom case never compares its text (Codex P1)', () => {
