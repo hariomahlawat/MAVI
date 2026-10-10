@@ -1649,6 +1649,29 @@ describe('scene editor across the Tier C boundary (§25: below 768px it is the u
     }
   });
 
+  it('states a conflict at Tier C without offering to discard the draft the operator cannot see (Codex P2 on #200)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      vi.mocked(saveCameraScene).mockRejectedValue(new ApiError({ status: 409, code: 'scene_revision_conflict', detail: 'stale' }));
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      await user.click(screen.getByRole('button', { name: 'Save revision' }));
+      await screen.findByText(/This scene changed since you started editing/);
+      live.set(tierC);
+      const alert = screen.getByText(/This scene changed since you started editing/).closest('.alert') as HTMLElement;
+      expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
+      expect(alert).toHaveTextContent('on a display at least 768px wide');
+      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      live.set(tierB);
+      expect(screen.getByRole('button', { name: 'Reload active revision' })).toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
   it('shows a clean scene as its read-only summary, with no unsaved-changes notice and no guard', async () => {
     const live = stubMatchMediaLive(tierC);
     try {

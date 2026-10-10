@@ -507,16 +507,20 @@ export default function SceneEditorPage() {
       {conflict ? (
         <Alert
           tone="error"
-          actions={<Button size="sm" icon="refresh" onClick={reloadActive}>Reload active revision</Button>}
+          // At Tier C the draft is not drawn: a discard of edits the operator
+          // cannot review is not offered there (Codex P2 on #200).
+          actions={narrow ? undefined : <Button size="sm" icon="refresh" onClick={reloadActive}>Reload active revision</Button>}
         >
           This scene changed since you started editing. Your edits are still here and have not been sent.
-          Reloading discards them and loads what is now saved.
+          {narrow
+            ? ' Review them, or reload what is now saved, on a display at least 768px wide.'
+            : ' Reloading discards them and loads what is now saved.'}
         </Alert>
       ) : null}
       {supersededRevision !== null && !conflict ? (
         <Alert
           tone="warning"
-          actions={(
+          actions={narrow ? undefined : (
             <Button size="sm" icon="refresh" onClick={adoptActiveRevision}>
               Discard my changes and load revision {supersededRevision}
             </Button>
@@ -524,6 +528,7 @@ export default function SceneEditorPage() {
         >
           Somebody saved revision {supersededRevision} while you were editing. Your unsaved changes are untouched, but
           saving them now will be refused as a conflict.
+          {narrow ? ' Review them, or load the new revision, on a display at least 768px wide.' : ''}
         </Alert>
       ) : null}
       {saveMutation.isError && !conflict ? (
