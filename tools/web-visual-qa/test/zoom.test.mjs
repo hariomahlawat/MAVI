@@ -259,6 +259,9 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     // Focusable only to be read, it must describe itself with the whole value (the Tooltip).
     assert.match(messages(await at200(`<span tabindex="0" style="${CUT}">${NAME}</span>`)), /can be focused, but focus does not show its full value/);
     assert.equal(messages(await at200(`<span tabindex="0" aria-describedby="tip" style="${CUT}">${NAME}</span><span role="tooltip" id="tip" hidden>${NAME}</span>`)), '');
+    // The drawn value may set a code apart where the tooltip joins it with a separator.
+    assert.equal(messages(await at200(`<span tabindex="0" aria-describedby="cam" style="${CUT}"><strong>CAM-02</strong> Perimeter fence south-west sector</span><span role="tooltip" id="cam" hidden>CAM-02 · Perimeter fence south-west sector</span>`)), '');
+    assert.match(messages(await at200(`<span tabindex="0" aria-describedby="cam" style="${CUT}"><strong>CAM-02</strong> Perimeter fence south-west sector</span><span role="tooltip" id="cam" hidden>CAM-02</span>`)), /can be focused, but focus does not show its full value/);
     // A link to the row's detail leads to the full-value home (§16).
     assert.equal(messages(await at200(`<a href="/processing/1" style="${CUT}">${NAME}</a>`)), '');
   });

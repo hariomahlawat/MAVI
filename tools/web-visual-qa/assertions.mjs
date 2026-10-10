@@ -2159,8 +2159,11 @@ export function zoomAssertions(input) {
     // say the whole of it on focus: the Tooltip describes its anchor
     // (aria-describedby) with the full value and shows it then.
     const leads = Boolean(focusable) && /^(A|BUTTON|SUMMARY)$/.test(focusable.tagName);
+    // Compared by its letters and digits: the drawn value may set a code apart
+    // from a name that the tooltip joins with a separator ("CAM-02 · North").
+    const letters = (text) => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
     const described = Boolean(focusable) && [focusable, el].some((node) => (node.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
-      .some((id) => (document.getElementById(id)?.textContent || '').replace(/\s+/g, ' ').includes(full)));
+      .some((id) => letters(document.getElementById(id)?.textContent || '').includes(letters(full))));
     if (!focusable) fail('truncated text "' + full.slice(0, 40) + '" in ' + describe(el) + ' cannot be focused to show its full value');
     else if (!leads && !described) fail('truncated text "' + full.slice(0, 40) + '" in ' + describe(el) + ' can be focused, but focus does not show its full value');
   }
