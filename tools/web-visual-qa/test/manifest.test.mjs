@@ -90,7 +90,7 @@ describe('the assertion manifest', () => {
     // rule that judges a Tier C one; a rule a later slice owns at Tier A stays
     // measured against that owner at Tiers B and C.
     const laterOwned = new Set(['a11y.target-size', 'perf.cls', 'perf.long-tasks', 'typography.resolved-font',
-      'a11y.zoom-200', 'a11y.reduced-motion', 'a11y.keyboard-journeys', 'a11y.section23-remaining']);
+      'a11y.reduced-motion', 'a11y.keyboard-journeys', 'a11y.section23-remaining']);
     for (const [rule, entry] of Object.entries(RULES)) {
       const atB = entry.tiers.B;
       if (laterOwned.has(rule)) {
@@ -104,7 +104,7 @@ describe('the assertion manifest', () => {
       const atC = entry.tiers.C;
       if (laterOwned.has(rule)) {
         assert.equal(atC.status, 'measured/pending', `${rule} @ C stays its owner's`);
-        assert.match(atC.owner, /S6|T3/, `${rule} @ C owner`);
+        assert.match(atC.owner, /S6/, `${rule} @ C owner`);
       } else if (atC.status !== 'not-applicable') {
         assert.equal(atC.status, 'blocking', `${rule} @ C is T2's and blocks`);
       } else {
@@ -125,9 +125,35 @@ describe('the assertion manifest', () => {
     for (const tier of ['A', 'B', 'C']) assert.equal(RULES['ledger.column-fold'].tiers[tier].status, 'blocking', tier);
   });
 
+  it('blocks the 200% zoom rule (T3) where a zoom case lands — Tier C at 200%, Tier A zoomed back out — and nowhere else', () => {
+    const zoom = RULES['a11y.zoom-200'];
+    assert.equal(zoom.kind, 'assertion');
+    assert.equal(zoom.lane, 'zoom');
+    assert.equal(zoom.tiers.A.status, 'blocking');
+    assert.equal(zoom.tiers.C.status, 'blocking');
+    assert.equal(zoom.tiers.B.status, 'not-applicable');
+    assert.match(zoom.tiers.B.reason, /683px \(Tier C\)/);
+    // No entry is left owned by T3: it is done or it is not.
+    for (const [rule, entry] of Object.entries(RULES)) {
+      for (const tier of TIERS) assert.doesNotMatch(entry.tiers[tier].owner ?? '', /T3/, `${rule} @ ${tier} still owned by T3`);
+    }
+    // The leave guard reached at Tier C by a live zoom change makes a Dialog
+    // reachable there: overlay.dialog blocks at every tier.
+    for (const tier of TIERS) assert.equal(RULES['overlay.dialog'].tiers[tier].status, 'blocking', tier);
+  });
+
+  it('rejects an entry still owned by T3 after T3, and an unknown lane', () => {
+    const rules = clone();
+    rules['a11y.zoom-200'].tiers.C = { status: 'measured/pending', owner: 'S5 / T3' };
+    rules['page.text-overlap'].lane = 'magnifier';
+    const problems = validateManifest(rules);
+    assert.ok(problems.some((p) => p.includes('a11y.zoom-200 @ C: still owned by T3 after T3')));
+    assert.ok(problems.some((p) => p.includes('page.text-overlap: unknown lane "magnifier"')));
+  });
+
   it('keeps the later-slice rules measured with their owners named', () => {
     assert.match(severityOf('perf.cls', 'A').owner, /X3/);
-    assert.match(severityOf('a11y.zoom-200', 'A').owner, /T3/);
+    assert.match(severityOf('a11y.reduced-motion', 'A').owner, /X4/);
     assert.match(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).owner, /R1/);
   });
 
@@ -169,7 +195,7 @@ describe('the assertion manifest', () => {
 
   it('rejects a future rule without an execution policy', () => {
     const rules = clone();
-    delete rules['a11y.zoom-200'].execution;
+    delete rules['a11y.reduced-motion'].execution;
     assert.ok(validateManifest(rules).some((p) => p.includes('future rule without an execution policy')));
   });
 
@@ -190,7 +216,8 @@ describe('the assertion manifest', () => {
     for (const rule of ['ledger.row-pitch', 'surface.one-primary', 'pressed.visible', 'overlay.dialog', 'containment.depth', 'perf.cls']) {
       assert.ok(implemented.has(rule), `${rule} not found in the code`);
     }
-    assert.ok(!implemented.has('a11y.zoom-200'), 'a future rule appears in the code');
+    assert.ok(implemented.has('a11y.zoom-200'), 'the T3 zoom rule is not found in the code');
+    assert.ok(!implemented.has('a11y.reduced-motion'), 'a future rule appears in the code');
   });
 
   it('summarises by tier and status', () => {

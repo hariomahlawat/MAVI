@@ -186,9 +186,81 @@ async function connect(child, profile) {
     }
   });
 
+  /**
+   * Browser page zoom (§23: 200% at 1366x768), set the way an operator sets it
+   * for every page: Chrome's own Settings → Appearance → Page zoom, through
+   * that page's settings API (`chrome.settingsPrivate`) in a background window.
+   * It is the browser's zoom map — the one Ctrl+= writes per host — so the
+   * page lays out at viewport/zoom CSS px with devicePixelRatio scaled, and
+   * media queries see the narrower width. CDP has no page-zoom command: its
+   * device-scale-factor, page-scale (pinch) and screenshot-scale options are
+   * not page zoom, and the harness never substitutes one for it.
+   */
+  let settings = null;
+  async function settingsPage() {
+    if (settings) return settings;
+    const { targetId: id } = await send('Target.createTarget', { url: 'chrome://settings/appearance', newWindow: true, background: true });
+    const { sessionId: sid } = await send('Target.attachToTarget', { targetId: id, flatten: true });
+    const evaluate = async (expression) => {
+      const { result, exceptionDetails } = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sid);
+      if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
+      return result.value;
+    };
+    // The settings page answers once its own bundle has loaded; bounded.
+    const ready = 'Boolean(window.chrome && chrome.settingsPrivate && chrome.settingsPrivate.setDefaultZoom && chrome.settingsPrivate.getDefaultZoom)';
+    const end = Date.now() + 15_000;
+    while (!(await evaluate(ready).catch(() => false))) {
+      if (Date.now() > end) throw new Error('page zoom cannot be set: this browser\'s Settings page exposes no page-zoom setting (chrome.settingsPrivate) within 15s');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    settings = { evaluate };
+    return settings;
+  }
+
   return {
     async viewport(width, height) {
       await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    },
+    /**
+     * Sets the browser's page zoom and returns the factor the browser then
+     * reports for it — read back, never assumed. A factor the browser does not
+     * take is an error: the caller never runs a zoom case at another zoom.
+     */
+    async pageZoom(factor) {
+      const page = await settingsPage();
+      await page.evaluate(`new Promise((resolve) => chrome.settingsPrivate.setDefaultZoom(${Number(factor)}, () => resolve(true)))`);
+      const reported = await page.evaluate('new Promise((resolve) => chrome.settingsPrivate.getDefaultZoom(resolve))');
+      if (Math.abs(reported - factor) > 1e-6) throw new Error(`page zoom ${factor * 100}% was asked for, and the browser reports ${reported * 100}%`);
+      return reported;
+    },
+    /**
+     * The browser's own account of the page's geometry (Page.getLayoutMetrics):
+     * the page zoom it applies (CSS px to device-independent px), the viewport
+     * in device-independent px, and the CSS layout and visual viewports.
+     */
+    async layoutMetrics() {
+      const m = await call('Page.getLayoutMetrics');
+      return {
+        pageZoom: m.cssVisualViewport.zoom ?? 1,
+        dipViewport: { width: m.layoutViewport.clientWidth, height: m.layoutViewport.clientHeight },
+        cssLayoutViewport: { width: m.cssLayoutViewport.clientWidth, height: m.cssLayoutViewport.clientHeight },
+        cssVisualViewport: { width: m.cssVisualViewport.clientWidth, height: m.cssVisualViewport.clientHeight, scale: m.cssVisualViewport.scale },
+      };
+    },
+    /**
+     * A raw protocol call on the page, for the harness's own tests only: they
+     * build the impostors page zoom is told apart from (device-scale-factor
+     * emulation, pinch scale) to show that the zoom rule refuses each.
+     */
+    async cdp(method, params) {
+      return call(method, params);
+    },
+    /** The browser product and version, and its window, for the evidence. */
+    async environment() {
+      const version = await send('Browser.getVersion');
+      let window = null;
+      try { window = (await send('Browser.getWindowForTarget', { targetId })).bounds; } catch { /* not every build reports it */ }
+      return { product: version.product, revision: version.revision, userAgent: version.userAgent, window: window && { width: window.width, height: window.height, state: window.windowState } };
     },
     async goto(url) {
       problems = [];

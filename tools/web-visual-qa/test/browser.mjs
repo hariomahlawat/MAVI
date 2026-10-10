@@ -27,11 +27,14 @@ export async function openBrowser() {
     rmSync(dist, { recursive: true, force: true });
     throw error;
   }
-  lane.page = async (html, { width = 1366, height = 768, api = {} } = {}) => {
+  // The browser's page zoom (T3): 100% unless a test asks for another.
+  lane.zoom = 1;
+  lane.page = async (html, { width = 1366, height = 768, api = {}, zoom = 1 } = {}) => {
     lane.scenario = api;
     lane.server.resetSequences();
     writeFileSync(join(dist, 'index.html'), `<!doctype html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`);
     await lane.browser.viewport(width, height);
+    if (lane.zoom !== zoom) lane.zoom = await lane.browser.pageZoom(zoom);
     await lane.browser.goto('about:blank');
     await lane.browser.goto(lane.server.origin + '/case');
   };

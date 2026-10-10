@@ -6,7 +6,8 @@
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { focusAssertions, overlayExitProbe, overlayOpened, pageAssertions, stickyProbe, toExpression, workspaceAssertions } from '../assertions.mjs';
+import { focusAssertions, overlayExitProbe, overlayFocusProbe, overlayOpened, pageAssertions, stickyProbe, toExpression, workspaceAssertions } from '../assertions.mjs';
+import { createLedger } from '../engine.mjs';
 import { openBrowser } from './browser.mjs';
 
 const TOKENS = '<style>:root{--accent-strong:#2563eb;--accent-hover:#1d4ed8} body{margin:0;font:14px sans-serif}</style>';
@@ -889,6 +890,73 @@ describe('Tier C (T2): rules that reject the pre-T2 compositions and pass the de
     assert.match(messages(await workspaceAt(REVIEW({ order: ['player', 'provenance', 'summary'] }), 'review'), 'tier.c-composition'), /provenance comes before the Track summary/);
     assert.match(messages(await workspaceAt(REVIEW({ control: 18 }), 'review'), 'tier.c-composition'), /1 Evidence Player control\(s\) under the 24px effective target/);
     assert.deepEqual(fired(await workspaceAt(REVIEW(), 'review'), 'tier.c-composition'), []);
+  });
+
+  // T3 (§23): the same Tier C rules judge a page at genuine 200% browser page
+  // zoom on a 1366x768 viewport (683x384 CSS px), and what they find there
+  // blocks — each negative fails a blocking assertion of a zoom case.
+  describe('under genuine 200% page zoom (T3 negatives)', () => {
+    const ZOOM_CASE = { state: { name: 'zoom-negative' }, viewport: { tier: 'C', label: '1366x768@200%', kind: 'zoom', zoom: [2] }, surface: 'videos' };
+    const zoomed = async (html, fn, input) => {
+      await lane.page(TOKENS + html, { width: 1366, height: 768, zoom: 2 });
+      const at = await lane.browser.evaluate('[innerWidth, innerHeight, devicePixelRatio, matchMedia("(width < 768px)").matches]');
+      assert.deepEqual(at, [683, 384, 2, true], 'the page is at 200% zoom: 683x384 CSS px, devicePixelRatio 2, Tier C');
+      return lane.browser.evaluate(toExpression(fn, input));
+    };
+    const zoomPage = (html, archetype = null) => zoomed(html, pageAssertions, { tier: 'C', width: 683, fullWidth: null, archetype, holds: null });
+    const zoomWorkspace = (html, archetype, surface = null) => zoomed(html, workspaceAssertions, { tier: 'C', width: 683, archetype, surface });
+    const blocks = (rule) => assert.equal(createLedger().record(ZOOM_CASE, rule, 'x').severity, 'blocking', `${rule} blocks in a zoom case`);
+    after(async () => { await lane.page('<p>reset</p>'); });
+
+    it('fails when the Tier C menu navigation is absent', async () => {
+      assert.match(messages(await zoomPage(SHELL({ menu: false })), 'tier.c-shell'), /no visible control opens the navigation/);
+      blocks('tier.c-shell');
+      assert.deepEqual(fired(await zoomPage(SHELL()), 'tier.c-shell'), []);
+    });
+
+    it('fails when a Ledger row loses its status or its action', async () => {
+      assert.match(messages(await zoomWorkspace(LIST({ badge: false }), 'ledger'), 'tier.c-composition'), /row 1 shows no status/);
+      assert.match(messages(await zoomWorkspace(LIST({ action: false }), 'ledger'), 'tier.c-composition'), /row 1 has no reachable action/);
+      blocks('tier.c-composition');
+      assert.deepEqual(fired(await zoomWorkspace(LIST(), 'ledger'), 'tier.c-composition'), []);
+    });
+
+    it('fails on horizontal page overflow', async () => {
+      assert.ok(fired(await zoomPage('<main id="main"><div style="width:900px;height:20px">wide</div></main>'), 'page.horizontal-overflow').length);
+      blocks('page.horizontal-overflow');
+      assert.deepEqual(fired(await zoomPage('<main id="main"><div style="width:600px;height:20px">fits</div></main>'), 'page.horizontal-overflow'), []);
+    });
+
+    it('fails when the Workbench canvas is still rendered', async () => {
+      assert.match(messages(await zoomPage(UNSUPPORTED({ canvas: true }), 'workbench'), 'tier.c-workbench-unsupported'), /the editing canvas renders at Tier C/);
+      blocks('tier.c-workbench-unsupported');
+      assert.deepEqual(fired(await zoomPage(UNSUPPORTED(), 'workbench'), 'tier.c-workbench-unsupported'), []);
+    });
+
+    it('fails when Search still offers the grid', async () => {
+      assert.match(messages(await zoomWorkspace(SEARCH({ grid: true }), 'investigation'), 'tier.c-composition'), /grid view is offered at Tier C/);
+      blocks('tier.c-composition');
+    });
+
+    it('fails when an open drawer lets real Tab and Shift+Tab out', async () => {
+      // As the run does (run.mjs): from inside the topmost modal, real keys.
+      const DRAWER = (contained) => `<main id="main" ${contained ? 'inert' : ''}><button id="behind">Behind</button></main>
+        <div class="filters" role="dialog" aria-modal="true" aria-label="Filters" style="position:fixed;inset:0;background:#111">
+          <button id="first">First</button><button id="last">Last</button></div>
+        ${contained ? `<script>document.querySelector('.filters').addEventListener('keydown', (e) => {
+          if (e.key !== 'Tab') return; const f = document.getElementById('first'); const l = document.getElementById('last');
+          if (e.shiftKey && document.activeElement === f) { e.preventDefault(); l.focus(); } else if (!e.shiftKey && document.activeElement === l) { e.preventDefault(); f.focus(); } });</script>` : ''}`;
+      const escapes = async (contained) => {
+        await lane.page(TOKENS + DRAWER(contained), { width: 1366, height: 768, zoom: 2 });
+        await lane.browser.evaluate('(() => { document.getElementById("last").focus(); return true; })()');
+        await lane.browser.press('Tab');
+        const probe = await lane.browser.evaluate(toExpression(overlayFocusProbe));
+        return !probe.inside;
+      };
+      assert.equal(await escapes(false), true, 'Tab leaves an uncontained drawer');
+      blocks('overlay.drawer');
+      assert.equal(await escapes(true), false, 'a contained drawer keeps Tab inside');
+    });
   });
 });
 

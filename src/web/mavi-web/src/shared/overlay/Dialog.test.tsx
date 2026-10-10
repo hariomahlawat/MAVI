@@ -187,6 +187,33 @@ describe('Dialog', () => {
     expect(document.activeElement).not.toBe(original);
   });
 
+  it('gives focus to the workspace, not the document, when it closes with its invoker gone (T3)', () => {
+    // The Scene Editor's discard confirmation, dropped with its Reset button
+    // when the page is zoomed to 200% (Tier C): nothing it opened from remains.
+    function Narrowing({ open, editor }: { open: boolean; editor: boolean }) {
+      return (
+        <main tabIndex={-1}>
+          {editor ? <button type="button">Reset</button> : <p>Editing a scene needs a display at least 768px wide.</p>}
+          <Dialog open={open} title="Discard your unsaved scene changes?" confirmLabel="Discard changes" destructive onConfirm={() => {}} onCancel={() => {}}>
+            Body
+          </Dialog>
+        </main>
+      );
+    }
+    const { rerender } = render(<Narrowing open={false} editor />);
+    screen.getByRole('button', { name: 'Reset' }).focus();
+    rerender(<Narrowing open editor />);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    rerender(<Narrowing open={false} editor={false} />);
+    expect(screen.getByRole('main')).toHaveFocus();
+  });
+
+  it('leaves focus alone where its invoker takes it back', async () => {
+    const { user, invoker } = await openDialog();
+    await user.keyboard('{Escape}');
+    expect(invoker).toHaveFocus();
+  });
+
   it('renders nothing while closed', () => {
     render(<Harness />);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

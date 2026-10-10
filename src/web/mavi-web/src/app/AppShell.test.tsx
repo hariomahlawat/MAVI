@@ -333,6 +333,22 @@ describe('Tier C navigation (§25: a top-of-page menu control opening an overlay
     expect(document.querySelector('.sidebar__toggle')).toHaveFocus();
   });
 
+  it('leads the Context Bar with the menu control in the document, not only on screen, when the window narrows live (T3)', async () => {
+    // A live crossing — a resize, or 200% page zoom pressed on a page in use —
+    // mounts the menu after the surface has published its Context Bar: the
+    // keyboard must still reach the menu first, as it is drawn.
+    const live = stubMatchMediaLive(tierB);
+    restore = live.restore;
+    renderAt(`/cameras/${CAMERA}/scene`);
+    await screen.findByRole('heading', { name: 'Scene route' });
+    act(() => { window.dispatchEvent(new Event('test:camera-arrives')); });
+    live.set(tierC);
+    const bar = document.querySelector('.context-bar') as HTMLElement;
+    const menu = within(bar).getByRole('button', { name: 'Open navigation' });
+    expect(bar.querySelector('button, a[href], [tabindex]:not([tabindex="-1"])')).toBe(menu);
+    expect(menu.compareDocumentPosition(within(bar).getByRole('navigation', { name: 'Breadcrumb' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("moves focus from a closed rail's control to the menu when the window narrows, and back", () => {
     const live = stubMatchMediaLive(tierB);
     restore = live.restore;

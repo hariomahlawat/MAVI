@@ -49,6 +49,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { ZOOM_CONDITION } from './manifest.mjs';
 
 const CAM = '11111111-1111-7111-8111-111111111111';
 const VIDEO = '22222222-2222-7222-8222-222222222222';
@@ -571,6 +572,16 @@ export const ANCHORS = [
   { width: 390, height: 844, tier: 'C' },
 ].map((anchor) => ({ ...anchor, label: `${anchor.width}x${anchor.height}` }));
 
+/**
+ * T3 (§23): 200% browser page zoom on the 1366x768 anchor — an effective
+ * 683x384 CSS viewport, which is Tier C (§25). Every state swept at Tier C is
+ * also captured at this zoom, loaded at it (`zoomCapture` opts in a breakpoint
+ * probe that is a Tier C composition); a state's `zoomTransitions` are taken
+ * across it live, from 100% to 200% and back. The zoom is the browser's own
+ * (cdp.mjs pageZoom), never a narrower viewport.
+ */
+export const ZOOM = ZOOM_CONDITION;
+
 /** The support tier a width falls in (§25); below 390 nothing is asserted. */
 export function tierOf(width) {
   if (width >= 1366) return 'A';
@@ -690,6 +701,9 @@ export const STATE_KEYS = new Set([
   // T2: how a state is reached, and what it shows, at one tier; and a stored
   // preference it arrives with.
   'atTier', 'storage',
+  // T3: a breakpoint probe captured at 200% zoom too, and the live zoom
+  // changes a state is taken across.
+  'zoomCapture', 'zoomTransitions',
 ]);
 
 /**
@@ -4728,4 +4742,195 @@ for (const name of NARROW_PROBE_BASES) {
   const base = STATES.find((state) => state.name === name);
   if (!base) throw new Error(`narrow probe of an unknown state ${name}`);
   STATES.push({ ...base, name: `${name}-narrow-band`, tierPolicy: 'breakpoint-probe', probeOf: name, probeWidths: [600, 760, 761, 767, 768] });
+}
+
+/*
+ * T3 (§23): 200% browser page zoom. Every state swept at Tier C is captured
+ * loaded at 200% on the 1366x768 anchor (planCases); these are the rest.
+ *
+ * `zoomCapture`: the two Tier C overlay compositions that exist only as
+ * breakpoint probes — the navigation open from the menu and the Videos filters
+ * drawer — are captured at 200% too, where the 384px height presses a drawer.
+ *
+ * `zoomTransitions`: the zoom changed live, as an operator presses Ctrl+= on
+ * a page in use, from 100% to 200% (1366 to an effective 683px: Tier A to
+ * Tier C at once) and back. `before` sets up what the change must survive at
+ * the starting zoom; each zoom change is then judged as it happens — focus
+ * not lost to the document or left on something hidden or inert, an overlay
+ * still open holding focus, nothing left inert (assertions.zoomTransitionProbe)
+ * — and by its own `checks` entry; `then` acts at the final zoom before the
+ * capture. The capture is judged at the tier its final zoom lands in.
+ */
+const ZOOM_DESCRIBE = `const name = (el) => !el || !el.tagName ? 'nothing' : '<' + el.tagName.toLowerCase() + '> "' + (el.getAttribute('aria-label') || el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 40) + '"';`;
+/** Put focus on a control at the starting zoom, as an operator's Tab would. */
+const ZOOM_FOCUS = (selector) => `(() => {
+  const el = document.querySelector(${JSON.stringify(selector)});
+  if (!el) return false;
+  el.focus();
+  return document.activeElement === el;
+})()`;
+/** Focus stayed on the control it was on: the zoom change moved nothing. */
+const ZOOM_SAME_FOCUS = `(() => {
+  ${ZOOM_DESCRIBE}
+  const before = window.__vqaZoomFocus;
+  return { ok: document.activeElement === before && before !== document.body, why: 'focus moved from ' + name(before) + ' to ' + name(document.activeElement) };
+})()`;
+/** Focus went to the control the new composition offers in its place. */
+const ZOOM_FOCUS_ON = (selector, what) => `(() => {
+  ${ZOOM_DESCRIBE}
+  const target = document.querySelector(${JSON.stringify(selector)});
+  return { ok: Boolean(target) && document.activeElement === target, why: 'focus is on ' + name(document.activeElement) + ', not on ' + ${JSON.stringify(what)} };
+})()`;
+const ZOOM_NO_MODAL = `(() => {
+  const open = document.querySelector('[role="dialog"][aria-modal="true"]');
+  return { ok: !open, why: 'an overlay is still open after the zoom change: ' + (open ? open.getAttribute('aria-label') || open.className : '') };
+})()`;
+const RENAMED = 'A considerably longer zone name';
+/**
+ * The dirty Scene Editor at 200% (§25 Tier C, §23's WCAG 1.4.4 exception):
+ * the draft is kept and said to be unsaved, no editor is drawn, and the
+ * editor's keys do nothing to it — Delete and a nudge, pressed where the
+ * operator's focus is, with the renamed zone still selected.
+ */
+const SCENE_DRAFT_AT_200 = `(async () => {
+  const text = document.body.innerText;
+  if (!text.includes('Unsaved changes')) return { ok: false, why: 'the unsaved draft is not stated at 200%' };
+  const editor = document.querySelector('.workspace__stage, .workspace__inspector, .workspace canvas, .scene-navigator__name');
+  if (editor) return { ok: false, why: 'the editor is still drawn at 200%: ' + editor.className };
+  const zones = () => (Array.from(document.querySelectorAll('.workspace--unsupported dt')).find((dt) => dt.textContent.trim() === 'Zones')?.nextElementSibling?.textContent || '').trim();
+  const listed = zones();
+  if (!listed.includes(${JSON.stringify(RENAMED)})) return { ok: false, why: 'the summary does not list the renamed zone at 200%: ' + listed };
+  // The renamed zone is still selected in the draft: Delete would remove it
+  // and an arrow would nudge its vertex, were the editor's keys live here.
+  for (const key of ['Delete', 'ArrowLeft']) {
+    (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  }
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (zones() !== listed) return { ok: false, why: 'an editor key changed the draft at 200%: zones ' + listed + ' became ' + zones() };
+  return { ok: true, why: '' };
+})()`;
+/** At 100%, before the zoom: the selected zone's vertices, to compare on return. */
+const SCENE_GEOMETRY = `(() => {
+  window.__vqaSceneGeometry = Array.from(document.querySelectorAll('.scene-inspector__point')).map((el) => el.getAttribute('aria-label') || el.textContent.trim());
+  return window.__vqaSceneGeometry.length > 0;
+})()`;
+/** Back at 100%: the same draft — the rename kept, no vertex moved, nothing saved or discarded. */
+const SCENE_DRAFT_KEPT = `(() => {
+  const names = Array.from(document.querySelectorAll('.scene-navigator__name')).map((el) => el.textContent.trim());
+  if (!names.some((n) => n.includes(${JSON.stringify(RENAMED)}))) return { ok: false, why: 'the renamed zone is gone after 200% and back: ' + names.join(', ') };
+  if (!document.body.innerText.includes('Unsaved changes') || !document.querySelector('.scene-context__note input')) return { ok: false, why: 'the draft is no longer unsaved after 200% and back: it was saved or discarded' };
+  const geometry = Array.from(document.querySelectorAll('.scene-inspector__point')).map((el) => el.getAttribute('aria-label') || el.textContent.trim());
+  if (JSON.stringify(geometry) !== JSON.stringify(window.__vqaSceneGeometry)) return { ok: false, why: 'the zone geometry changed across 200% and back: ' + JSON.stringify(window.__vqaSceneGeometry) + ' became ' + JSON.stringify(geometry) };
+  return { ok: true, why: '' };
+})()`;
+const SEARCH_VIEW = `(() => {
+  let stored = null; try { stored = window.localStorage.getItem('mavi.search.view'); } catch { /* blocked */ }
+  return { stored, grid: Boolean(document.querySelector('article.track-card, .result-grid article, [class*="grid"] article[aria-current], main article')), list: document.querySelectorAll('.result-row').length };
+})()`;
+const ZOOM_TRANSITIONS = {
+  // Navigation closed, focus on a row action: it stays there.
+  videos: [{ path: [1, 2, 1], before: ZOOM_FOCUS('main tbody tr a[href], main tbody tr button'), checks: [ZOOM_SAME_FOCUS, ZOOM_SAME_FOCUS] }],
+  // A stored filter and its URL survive the zoom both ways.
+  'videos-filtered': [{
+    path: [1, 2, 1],
+    checks: Array(2).fill(`(() => {
+      const q = new URLSearchParams(location.search);
+      const field = document.querySelector('#videos-text');
+      return { ok: q.get('q') === 'gate' && q.get('status') === 'Processed' && (!field || field.value === 'gate'), why: 'the filter changed with the zoom: ' + location.search + ' / ' + (field ? field.value : '(no field)') };
+    })()`),
+  }],
+  // Navigation in use at 100% (focus on a rail link): at 200% the rail is the
+  // closed menu overlay, and focus is on the menu control that opens it.
+  overview: [{ id: 'rail-link-focused', path: [1, 2], before: ZOOM_FOCUS('nav[aria-label="Primary"] a[href="/videos"]'), checks: [ZOOM_FOCUS_ON('.shell__menu', 'the menu control')] }],
+  // Navigation open at 200% (the menu overlay): at 100% it is the rail in
+  // place, the overlay closed, focus on the rail's control.
+  'shell-menu-overlay': [{ path: [2, 1], checks: [`(() => { const m = ${ZOOM_NO_MODAL}; if (!m.ok) return m; return ${ZOOM_FOCUS_ON('.sidebar__toggle', 'the rail control')}; })()`] }],
+  // The Videos filters drawer open at 200%: back at 100% the controls are in
+  // the band, the drawer gone, focus kept in the controls.
+  'videos-filters-drawer': [{ path: [2, 1], checks: [`(() => { const m = ${ZOOM_NO_MODAL}; if (!m.ok) return m; const band = document.querySelector('.toolbar-band__controls'); return { ok: Boolean(band && band.contains(document.activeElement)), why: 'focus left the filter controls: it is on ' + (document.activeElement && document.activeElement.tagName) }; })()`] }],
+  search: [
+    // The filters drawer open at 200%: at 100% the rail is in place.
+    { id: 'filters-open', path: [2, 1], before: OPEN_FILTERS, checks: [ZOOM_NO_MODAL] },
+    // Focus in a filter at 100%: at 200% the rail is a closed drawer, and
+    // focus is on the control that opens it.
+    { id: 'filter-focused', path: [1, 2], before: ZOOM_FOCUS('.workspace__rail input, .workspace__rail select'), checks: [ZOOM_FOCUS_ON('.workspace__rail-toggle', 'the filters control')] },
+    // A result with keyboard focus keeps it, both ways.
+    { id: 'result-focused', path: [1, 2, 1], before: ZOOM_FOCUS('.result-row__select'), checks: [ZOOM_SAME_FOCUS, ZOOM_SAME_FOCUS] },
+  ],
+  // The inspector open (a drawer at 1366 and at 200%), both ways: still open,
+  // still holding focus (zoomTransitionProbe), still the same Track.
+  'search-inspector-opened': [{ path: [1, 2, 1], checks: Array(2).fill(`(() => ({ ok: new URLSearchParams(location.search).get('track') === '${TRACK}' && Boolean(document.querySelector('.workspace__inspector')), why: 'the inspected Track was lost with the zoom: ' + location.search }))()`) }],
+  // The stored grid choice: shown as the list at 200%, kept, and the grid again at 100%.
+  'search-grid': [{
+    path: [1, 2, 1],
+    checks: [
+      `(() => { const v = ${SEARCH_VIEW}; return { ok: v.stored === 'grid' && v.list > 0, why: 'at 200% the results are not the list, or the stored grid choice was overwritten: ' + JSON.stringify(v) }; })()`,
+      `(() => { const v = ${SEARCH_VIEW}; return { ok: v.stored === 'grid' && v.list === 0, why: 'back at 100% the stored grid choice is not shown: ' + JSON.stringify(v) }; })()`,
+    ],
+  }],
+  // A dirty draft across 200% and back: kept, never saved or discarded, and
+  // the editor's keys inert while it is not drawn. Judged at Tier A on return,
+  // and at Tier C (the unsupported state over a dirty draft) without it.
+  'scene-editor-dirty': [
+    { path: [1, 2, 1], before: SCENE_GEOMETRY, checks: [SCENE_DRAFT_AT_200, SCENE_DRAFT_KEPT] },
+    { path: [1, 2], checks: [SCENE_DRAFT_AT_200] },
+    // The leave guard still asks at 200%: the operator opens the menu — the
+    // page's one way elsewhere there — and chooses Cameras; the product's
+    // Dialog holds the navigation, over a draft it has not touched. The
+    // capture is the Dialog at Tier C — its focus, Tab containment, Escape
+    // and focus back on the menu that opened the navigation, judged by
+    // overlay.dialog.
+    {
+      id: 'leave-guard', path: [1, 2], checks: [SCENE_DRAFT_AT_200],
+      then: `(async () => {
+        ${UNTIL}
+        const menu = await until(() => document.querySelector('.shell__menu'), 'the menu control at 200%');
+        menu.focus();
+        menu.click();
+        const link = await until(() => document.querySelector('.sidebar[role="dialog"][aria-modal="true"]')
+          && document.querySelector('nav[aria-label="Primary"] a[href="/cameras"]'), 'the navigation open from the menu');
+        link.focus();
+        window.__vqa.mark('interaction-start');
+        link.click();
+        return Boolean(await until(() => {
+          const dialog = document.querySelector('.dialog[role="dialog"][aria-modal="true"]');
+          return dialog && dialog.contains(document.activeElement) && /Leave with unsaved changes/.test(dialog.textContent || '');
+        }, 'the leave guard Dialog holding focus'));
+      })()`,
+      expectText: ['Leave with unsaved changes?', 'Stay on this page'],
+    },
+  ],
+  // The discard confirmation open at 100%: at 200% there is no editor to
+  // discard from — the confirmation is gone, the draft is kept and stated.
+  'scene-editor-discard-dialog': [{ path: [1, 2], expectText: 'Unsaved changes', forbidText: 'Discard your unsaved scene changes?', checks: [`(() => { const m = ${ZOOM_NO_MODAL}; if (!m.ok) return m; return { ok: document.body.innerText.includes('Unsaved changes'), why: 'the draft is not stated as unsaved at 200%' }; })()`] }],
+  // Playback controls with focus: the transport control keeps it, both ways,
+  // and the player is still at the frame it was on.
+  'review-transport': [{
+    path: [1, 2, 1],
+    before: `(() => { const play = Array.from(document.querySelectorAll('.evidence-player button')).find((b) => /Play|Pause/.test(b.textContent || '')); if (!play) return false; play.focus(); window.__vqaZoomTime = document.querySelector('.evidence-player__video')?.currentTime; return document.activeElement === play; })()`,
+    checks: Array(2).fill(`(() => { const s = ${ZOOM_SAME_FOCUS}; if (!s.ok) return s; const v = document.querySelector('.evidence-player__video'); return { ok: Boolean(v) && Math.abs(v.currentTime - window.__vqaZoomTime) < 0.05, why: 'the player moved from ' + window.__vqaZoomTime + 's to ' + (v && v.currentTime) + 's with the zoom' }; })()`),
+  }],
+  // An invalid Import form with focus on a refused field: focus, the refusal
+  // and its association survive the zoom, both ways.
+  'import-invalid': [{
+    path: [1, 2, 1],
+    before: ZOOM_FOCUS('[aria-invalid="true"]'),
+    checks: Array(2).fill(`(() => {
+      const s = ${ZOOM_SAME_FOCUS}; if (!s.ok) return s;
+      const field = document.activeElement;
+      const ids = (field.getAttribute('aria-describedby') || '').split(/\\s+/).filter(Boolean);
+      const errors = ids.map((id) => document.getElementById(id)).filter((el) => el && el.textContent.trim() && el.getClientRects().length);
+      return { ok: field.getAttribute('aria-invalid') === 'true' && errors.length > 0, why: 'the refused field lost its stated error with the zoom (aria-invalid ' + field.getAttribute('aria-invalid') + ', ' + errors.length + ' visible described-by error)' };
+    })()`),
+  }],
+};
+for (const name of ['shell-menu-overlay', 'videos-filters-drawer']) {
+  const state = STATES.find((s) => s.name === name);
+  if (!state) throw new Error(`zoom capture of an unknown state ${name}`);
+  state.zoomCapture = true;
+}
+for (const [name, transitions] of Object.entries(ZOOM_TRANSITIONS)) {
+  const state = STATES.find((s) => s.name === name);
+  if (!state) throw new Error(`zoom transitions for an unknown state ${name}`);
+  state.zoomTransitions = transitions;
 }

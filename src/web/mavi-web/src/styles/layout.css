@@ -27,7 +27,7 @@
   min-height: 0;
 }
 .sidebar__brand {
-  display: flex; align-items: center; gap: var(--s-3);
+  display: flex; align-items: center; gap: var(--s-3); flex: none;
   height: var(--topbar-h); padding: 0 var(--s-3);
   border-bottom: var(--stroke-hair) solid var(--border-subtle);
 }
@@ -39,7 +39,12 @@
 .sidebar__brand strong { font-size: var(--fs-2); letter-spacing: var(--label-tracking); }
 .sidebar__brand span { display: block; color: var(--text-muted); font-size: var(--fs-0); line-height: var(--lh-tight); }
 
-.sidebar__nav { display: grid; gap: var(--s-px); padding: var(--s-2); }
+/* The destinations scroll, not the rail: on a short viewport — 384px at 200%
+   page zoom on a 1366x768 display (§23) — the brand and the footer, with the
+   control that closes the navigation overlay, stay whole on screen (neither
+   shrinks) and the list between them scrolls (T3). Where everything fits
+   nothing changes. */
+.sidebar__nav { display: grid; align-content: start; gap: var(--s-px); padding: var(--s-2); flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .sidebar__group { display: grid; gap: var(--s-px); }
 .sidebar__group + .sidebar__group { margin-top: var(--s-2); }
 .sidebar__nav a {
@@ -56,7 +61,7 @@
   padding: var(--s-3) var(--s-3) var(--s-1); color: var(--text-muted);
   font-size: var(--fs-0); font-weight: 600; letter-spacing: var(--label-tracking); text-transform: uppercase;
 }
-.sidebar__footer { margin-top: auto; padding: var(--s-2); border-top: var(--stroke-hair) solid var(--border-subtle); display: grid; gap: var(--s-2); }
+.sidebar__footer { flex: none; margin-top: auto; padding: var(--s-2); border-top: var(--stroke-hair) solid var(--border-subtle); display: grid; gap: var(--s-2); }
 /* The rail's collapse control (§5): a labelled control with a visible icon at
    the 32px control metric, not the 26px icon-only ghost it replaces. Expanded,
    its name is its visible text; collapsed, it is a 32x32 icon button named by
@@ -198,15 +203,18 @@
 .shell--narrow:not(.shell--rail-open) > .sidebar { display: none; }
 .shell--narrow.shell--rail-open > .sidebar { width: min(var(--sidebar-w), 100%); }
 /* The menu control: the §5 rail control's metric (32px, a visible icon,
-   named and announcing the navigation's state), first in the band. */
+   named and announcing the navigation's state), first in the band — first in
+   the document, through its slot (AppShell), so no `order` moves it on screen
+   only. The slot draws no box: the control is the band's own flex item. */
+.shell__menu-slot { display: contents; }
 .shell__menu {
-  order: -1; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: var(--control-h); height: var(--control-h); padding: 0; margin-left: calc(-1 * var(--s-1));
   border: var(--stroke-hair) solid transparent; border-radius: var(--r-2);
   background: transparent; color: var(--text-secondary); cursor: pointer;
 }
 .shell__menu:hover { background: var(--surface-raised); }
-.context-bar > .tooltip-anchor:has(> .shell__menu) { order: -1; flex: none; }
+.shell__menu-slot > .tooltip-anchor { flex: none; }
 
 @media (width < 768px) {
   /* A Tier C Ledger and the Overview are single-column reading lists: the
