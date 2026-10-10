@@ -1921,9 +1921,18 @@ export function zoomEnvironment() {
  *   (WCAG 2.4.11) — and no box that clips had to be scrolled by focus to show
  *   it (a pointer cannot scroll such a box);
  * - an open drawer or dialog fits the viewport;
- * - text grows with the page: no font size is set in viewport units;
- * - visually truncated text can be focused to show its full value (§16);
- * - the Evidence Player keeps its footage's aspect ratio.
+ * - text grows with the page: no font size is set in viewport units, directly
+ *   or through a custom property;
+ * - visually truncated text keeps its full value within the keyboard's reach
+ *   (§16): it is the text of a link or button that leads to the row's detail
+ *   or inspector — the full-value home — or, focusable on its own, focus
+ *   describes it with its full value (the Tooltip's aria-describedby);
+ * - the Evidence Player is not drawn distorted (an object-fit that stretches
+ *   it into a box of another aspect ratio).
+ *
+ * It also records whether the capture is a Workbench's §25 unsupported
+ * state — at 200% that is §23's documented WCAG 1.4.4 exception, reported as
+ * such, never passed silently.
  *
  * Focus and every scroll position are put back afterwards, as the focus pass
  * does, so the capture and the probes after it see the state as reached.
@@ -1942,24 +1951,38 @@ export function zoomAssertions(input) {
 
   // Text grows with the page (WCAG 1.4.4): a font sized in viewport units does
   // not — the CSS viewport halves as the zoom doubles.
+  // A custom property carries viewport units as well as a declaration does
+  // (`--title: 3vw; font-size: var(--title)`), so those are found first, to a
+  // fixed point through properties that refer to them.
   const VIEWPORT_UNITS = /(?:^|[\s(,*/+-])-?(?:\d*\.)?\d+(?:[sld]?v(?:w|h|i|b|min|max))\b/;
-  let rulesRead = 0;
-  const scan = (list) => {
+  const styleRules = [];
+  const collect = (list) => {
     for (const rule of Array.from(list ?? [])) {
-      if (rule.style) {
-        rulesRead += 1;
-        const size = rule.style.getPropertyValue('font-size') + ' ' + rule.style.getPropertyValue('font');
-        if (VIEWPORT_UNITS.test(size)) fail('"' + rule.selectorText + '" sets its font size in viewport units (' + size.trim() + '): its text does not grow with page zoom');
-      }
-      if (rule.cssRules) scan(rule.cssRules);
+      if (rule.style) styleRules.push({ style: rule.style, where: '"' + rule.selectorText + '"' });
+      if (rule.cssRules) collect(rule.cssRules);
     }
   };
   for (const sheet of Array.from(document.styleSheets)) {
-    try { scan(sheet.cssRules); } catch { /* a cross-origin sheet: the product has none */ }
+    try { collect(sheet.cssRules); } catch { /* a cross-origin sheet: the product has none */ }
   }
-  for (const el of Array.from(document.querySelectorAll('[style*="font"]'))) {
-    if (VIEWPORT_UNITS.test(el.style.fontSize + ' ' + el.style.font)) fail(describe(el) + ' sets its font size in viewport units inline: its text does not grow with page zoom');
+  for (const el of Array.from(document.querySelectorAll('[style]'))) styleRules.push({ style: el.style, where: describe(el) + ' (inline)' });
+  const customs = [];
+  for (const { style } of styleRules) {
+    for (let i = 0; i < style.length; i += 1) if (style[i].startsWith('--')) customs.push([style[i], style.getPropertyValue(style[i])]);
   }
+  const viewportProps = new Set();
+  const refersTo = (value) => Array.from(viewportProps).some((name) => value.includes('var(' + name + ')') || value.includes('var(' + name + ',') || new RegExp('var\\(\\s*' + name + '\\s*[,)]').test(value));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [name, value] of customs) {
+      if (!viewportProps.has(name) && (VIEWPORT_UNITS.test(value) || refersTo(value))) { viewportProps.add(name); grew = true; }
+    }
+  }
+  for (const { style, where } of styleRules) {
+    const size = (style.getPropertyValue('font-size') + ' ' + style.getPropertyValue('font')).trim();
+    if (size && (VIEWPORT_UNITS.test(size) || refersTo(size))) fail(where + ' sets its font size in viewport units (' + size + '): its text does not grow with page zoom');
+  }
+  const rulesRead = styleRules.length;
 
   // Drawers and dialogs fit the effective viewport.
   const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).filter((m) => !m.closest('[inert]'));
@@ -1977,6 +2000,32 @@ export function zoomAssertions(input) {
     .filter((el) => el && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth))
     .map((el) => [el, el.scrollTop, el.scrollLeft]);
   const before = document.activeElement;
+  // The page itself is a box that clips without scrolling when the root (or
+  // the body, propagated to the viewport) hides its overflow.
+  const rootStyle = getComputedStyle(document.documentElement);
+  const viewportStyle = rootStyle.overflowX === 'visible' && rootStyle.overflowY === 'visible' ? getComputedStyle(document.body) : rootStyle;
+  const pageScrolls = { x: !/^(hidden|clip)$/.test(viewportStyle.overflowX), y: !/^(hidden|clip)$/.test(viewportStyle.overflowY) };
+  const root = document.scrollingElement || document.documentElement;
+  // What paints at a point, under every layer — one that lets the pointer
+  // through (pointer-events: none) still hides what is under it.
+  const reveal = document.createElement('style');
+  reveal.textContent = '*, *::before, *::after { pointer-events: auto !important; }';
+  const opaque = (color) => {
+    const m = /rgba?\(([^)]+)\)/.exec(color || '');
+    if (!m) return Boolean(color) && color !== 'transparent';
+    const parts = m[1].split(/[,\s/]+/).filter(Boolean);
+    return parts.length < 4 || parseFloat(parts[3]) > 0.05;
+  };
+  const paints = (node) => {
+    if (/^(IMG|VIDEO|CANVAS|IFRAME|SVG|INPUT|SELECT|TEXTAREA|BUTTON)$/i.test(node.tagName)) return true;
+    for (const pseudo of [null, '::before', '::after']) {
+      const s = getComputedStyle(node, pseudo);
+      if (pseudo && (s.content === 'none' || s.content === 'normal')) continue;
+      if (s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) continue;
+      if (opaque(s.backgroundColor) || s.backgroundImage !== 'none') return true;
+    }
+    return Array.from(node.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
+  };
   const candidates = Array.from(document.querySelectorAll(
     'button, a[href], input, select, textarea, summary, video[controls], [tabindex]:not([tabindex="-1"]), [contenteditable="true"]',
   ));
@@ -2004,11 +2053,15 @@ export function zoomAssertions(input) {
     // taken out of the tab order there — the Tier C Ledger's hidden header
     // sort buttons (T2) — is not offered at all.
     if (hiddenIn && el.tabIndex < 0) continue;
+    const rootAt = { top: root.scrollTop, left: root.scrollLeft };
     el.focus({ focusVisible: false });
     if (document.activeElement !== el) continue;
     checked += 1;
     const forced = boxes.find((b) => !b.user && (Math.abs(b.el.scrollTop - b.top) > 0.5 || Math.abs(b.el.scrollLeft - b.left) > 0.5));
     if (forced) fail(describe(el) + ' is shown only by focus scrolling ' + describe(forced.el) + ', which clips without scrolling: a pointer cannot reach it');
+    else if ((!pageScrolls.y && Math.abs(root.scrollTop - rootAt.top) > 0.5) || (!pageScrolls.x && Math.abs(root.scrollLeft - rootAt.left) > 0.5)) {
+      fail(describe(el) + ' is shown only by focus scrolling the page, which hides its overflow: a pointer cannot reach it');
+    }
     // The part of the control on screen once focus has brought it into view.
     const r = el.getBoundingClientRect();
     let left = Math.max(r.left, 0); let top = Math.max(r.top, 0);
@@ -2028,10 +2081,37 @@ export function zoomAssertions(input) {
       continue;
     }
     if (shown < area * 0.5) fail(describe(el) + ' is ' + Math.round((1 - shown / area) * 100) + '% cut off even when focused' + (clipper ? ', by ' + describe(clipper) : ' by the viewport'));
-    // What a pointer would hit at the middle of the part on screen.
-    const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
-    const own = hit && (hit === el || el.contains(hit) || (el.labels && Array.from(el.labels).some((label) => label.contains(hit))) || hit.closest('.tooltip, [role="tooltip"]'));
-    if (!own) fail(describe(el) + ' is covered by ' + describe(hit) + ' when focused');
+    // What is drawn at the middle of the part on screen. What a pointer hits
+    // there must be the control (or its label, or its own tooltip). And a
+    // layer the pointer passes through (pointer-events: none) still hides it
+    // when it paints and floats over the page — fixed or sticky, or an
+    // ancestor's positioned ::before/::after (elementsFromPoint reports that
+    // layer as the ancestor). A pass-through face drawn over a transparent
+    // control in the same composition (a grid card's evidence over its
+    // stretched select button) is the control's face, not a cover.
+    const own = (node) => node === el || el.contains(node) || (el.labels && Array.from(el.labels).some((label) => label.contains(node))) || Boolean(node.closest('.tooltip, [role="tooltip"]'));
+    const x = (left + right) / 2; const y = (top + bottom) / 2;
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || !own(hit)) {
+      fail(describe(el) + ' is covered by ' + describe(hit) + ' when focused');
+      continue;
+    }
+    const floats = (node) => {
+      for (let n = node; n && n !== document.documentElement; n = n.parentElement) {
+        if (n.contains(el)) return false;
+        if (/^(fixed|sticky)$/.test(getComputedStyle(n).position)) return true;
+      }
+      return false;
+    };
+    const pseudoLayer = (node) => node !== el && node.contains(el) && ['::before', '::after'].some((pseudo) => {
+      const s = getComputedStyle(node, pseudo);
+      return s.content !== 'none' && s.content !== 'normal' && /^(absolute|fixed)$/.test(s.position);
+    });
+    document.head.appendChild(reveal);
+    const stack = document.elementsFromPoint(x, y);
+    reveal.remove();
+    const layer = stack.find((node) => own(node) || ((floats(node) || pseudoLayer(node)) && paints(node)));
+    if (layer && !own(layer)) fail(describe(el) + ' is hidden under ' + describe(layer) + ' when focused (a layer the pointer passes through still covers it)');
   }
   if (before instanceof HTMLElement && before !== document.body && before.isConnected) before.focus({ preventScroll: true });
   else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -2072,8 +2152,17 @@ export function zoomAssertions(input) {
     const s = getComputedStyle(el);
     if (s.textOverflow !== 'ellipsis' || el.scrollWidth <= el.clientWidth + 1 || !el.getClientRects().length) continue;
     truncated += 1;
+    const full = el.textContent.trim().replace(/\s+/g, ' ');
     const focusable = el.closest('a[href], button, summary, select, input, textarea, [tabindex]:not([tabindex="-1"])');
-    if (!focusable) fail('truncated text "' + el.textContent.trim().slice(0, 40) + '" in ' + describe(el) + ' cannot be focused to show its full value');
+    // §16: a link or button leads to the row's detail or inspector, where the
+    // full value lives. Text focusable only to be read (TruncatedText) must
+    // say the whole of it on focus: the Tooltip describes its anchor
+    // (aria-describedby) with the full value and shows it then.
+    const leads = Boolean(focusable) && /^(A|BUTTON|SUMMARY)$/.test(focusable.tagName);
+    const described = Boolean(focusable) && [focusable, el].some((node) => (node.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
+      .some((id) => (document.getElementById(id)?.textContent || '').replace(/\s+/g, ' ').includes(full)));
+    if (!focusable) fail('truncated text "' + full.slice(0, 40) + '" in ' + describe(el) + ' cannot be focused to show its full value');
+    else if (!leads && !described) fail('truncated text "' + full.slice(0, 40) + '" in ' + describe(el) + ' can be focused, but focus does not show its full value');
   }
 
   // The Evidence Player keeps its footage's aspect ratio.
@@ -2087,7 +2176,12 @@ export function zoomAssertions(input) {
       fail('the Evidence Player draws ' + video.videoWidth + 'x' + video.videoHeight + ' footage in a ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' box with object-fit ' + fit + ': the picture is distorted');
     }
   }
-  return { findings, evaluated: ['a11y.zoom-200'], measured: { controls: checked, modals: modals.length, truncated, cssRulesRead: rulesRead } };
+  // §23's documented exception, reported where it applies: a Workbench at
+  // 200% is its §25 unsupported state (Scene editing; Camera Analytics'
+  // chart, heatmap and figures), with the statement it gives.
+  const unsupported = document.querySelector('.workspace--unsupported');
+  const exception = unsupported ? (unsupported.querySelector('.workspace__unsupported-statement')?.textContent || unsupported.textContent || '').trim().slice(0, 200) : null;
+  return { findings, evaluated: ['a11y.zoom-200'], measured: { controls: checked, modals: modals.length, truncated, cssRulesRead: rulesRead, workbenchException: exception } };
 }
 
 /** Before a live zoom change: remember where focus is (T3). */

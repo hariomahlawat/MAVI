@@ -210,6 +210,25 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.equal(messages(await at200(BOX('auto'))), '');
   });
 
+  it('fails a control hidden under a painted layer the pointer passes through, and passes a card face over its own select button (T3 cold review)', async () => {
+    // A fixed band with pointer-events: none hides what is under it all the same.
+    const BAND = (paint) => `<style>body::after{content:"";position:fixed;left:0;right:0;bottom:0;height:200px;background:${paint};pointer-events:none}</style>
+      <div style="height:250px">top</div><button>Detail</button><div style="height:10px"></div>`;
+    assert.match(messages(await at200(BAND('#000'))), /"Detail" is hidden under <body>.*a layer the pointer passes through still covers it/);
+    assert.equal(messages(await at200(BAND('transparent'))), '');
+    // A grid card: a transparent select button under its own drawn face.
+    const CARD = `<article style="position:relative;width:300px;height:160px">
+      <button aria-label="Select Person" style="position:absolute;inset:0;background:transparent;border:0"></button>
+      <span style="position:relative;display:block;height:120px;background:#333;pointer-events:none">No image</span></article>`;
+    assert.equal(messages(await at200(CARD)), '');
+  });
+
+  it('fails a control only focus can bring into a page that hides its overflow (T3 cold review)', async () => {
+    const PAGE = (overflow) => `<style>html{overflow:${overflow}}</style><div style="height:500px">facts</div><button>Retry</button>`;
+    assert.match(messages(await at200(PAGE('hidden'))), /"Retry" is shown only by focus scrolling the page, which hides its overflow/);
+    assert.equal(messages(await at200(PAGE('auto'))), '');
+  });
+
   it('fails a focused control covered by a fixed band', async () => {
     const PAGE = (cover) => `<div style="height:300px">top</div><button style="display:block;margin-bottom:${cover ? 0 : 80}px">Play</button>
       ${cover ? '<div style="position:fixed;left:0;right:0;bottom:0;height:120px;background:#222">transport bar</div>' : ''}<div style="height:10px"></div>`;
@@ -225,14 +244,23 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
 
   it('fails text sized in viewport units, which does not grow with the zoom', async () => {
     assert.match(messages(await at200('<style>.title{font-size:2.5vw}</style><p class="title">Videos</p>')), /"\.title" sets its font size in viewport units/);
-    assert.match(messages(await at200('<p style="font-size:3vmin">Videos</p>')), /sets its font size in viewport units inline/);
+    assert.match(messages(await at200('<p style="font-size:3vmin">Videos</p>')), /<p> "Videos" \(inline\) sets its font size in viewport units \(3vmin\)/);
     assert.equal(messages(await at200('<style>.title{font-size:1.25rem}</style><p class="title">Videos</p>')), '');
+    // Through custom properties, to any depth (T3 cold review).
+    assert.match(messages(await at200('<style>:root{--size:3vw;--title:var(--size)}.title{font-size:var(--title)}</style><p class="title">Videos</p>')), /"\.title" sets its font size in viewport units \(var\(--title\)\)/);
+    assert.match(messages(await at200('<style>:root{--title:calc(1rem + 2vw)}.title{font:600 var(--title)/1.2 sans-serif}</style><p class="title">Videos</p>')), /"\.title" sets its font size in viewport units/);
+    assert.equal(messages(await at200('<style>:root{--title:1.25rem}.title{font-size:var(--title)}</style><p class="title">Videos</p>')), '');
   });
 
-  it('fails truncated text that cannot be focused to show its full value', async () => {
-    const CELL = (focusable) => `<span ${focusable ? 'tabindex="0"' : ''} style="display:block;width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">north-gate-0900-very-long-original-file-name.mp4</span>`;
-    assert.match(messages(await at200(CELL(false))), /truncated text "north-gate-0900.*cannot be focused to show its full value/);
-    assert.equal(messages(await at200(CELL(true))), '');
+  it('fails truncated text whose full value the keyboard cannot reach (§16)', async () => {
+    const NAME = 'north-gate-0900-very-long-original-file-name.mp4';
+    const CUT = 'display:block;width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    assert.match(messages(await at200(`<span style="${CUT}">${NAME}</span>`)), /truncated text "north-gate-0900.*cannot be focused to show its full value/);
+    // Focusable only to be read, it must describe itself with the whole value (the Tooltip).
+    assert.match(messages(await at200(`<span tabindex="0" style="${CUT}">${NAME}</span>`)), /can be focused, but focus does not show its full value/);
+    assert.equal(messages(await at200(`<span tabindex="0" aria-describedby="tip" style="${CUT}">${NAME}</span><span role="tooltip" id="tip" hidden>${NAME}</span>`)), '');
+    // A link to the row's detail leads to the full-value home (§16).
+    assert.equal(messages(await at200(`<a href="/processing/1" style="${CUT}">${NAME}</a>`)), '');
   });
 
   it('fails a Context Bar whose keyboard order is not its visual order — the menu drawn first but reached last', async () => {
@@ -318,6 +346,20 @@ ${output}`);
     assert.equal(status, 0, output);
     assert.equal(results.executions.zoom.qualified, 1);
     assert.equal(results.executions.zoom.sample.metrics.pageZoom, 2);
+  });
+
+  it('is a harness fault when a transition\'s starting state is not the one it declares (T3 cold review)', () => {
+    const { status, output, results } = run('start', `export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, expectText: 'Text this page never shows', zoomTransitions: [{ path: [1, 2], expectText: '4 of 4 videos' }] }));`, ['--states', 'videos']);
+    assert.equal(status, 2, output);
+    assert.ok(results.harnessErrors.some((e) => /videos @ 1366x768@100%-200% \(Tier C\): the declared state was not reached at navigation settle/.test(e)), results.harnessErrors.join('\n'));
+  });
+
+  it('judges a transition against the frozen 200%, whatever factor the states declare (T3 cold review)', () => {
+    const { status, output, results } = run('factor', `export const ZOOM = { width: 1366, height: 768, factor: 1.8 };
+export const STATES = REGISTERED.filter((s) => s.name === "videos").map((s) => ({ ...s, zoomTransitions: [{ path: [1, 1.8] }] }));`, ['--states', 'videos']);
+    assert.equal(status, 1, output);
+    const zoom = results.findingsList.filter((f) => f.rule === 'a11y.zoom-200' && /1366x768@100%-180%/.test(f.viewport));
+    assert.ok(zoom.some((f) => /applies a page zoom of 1\.(8|79\d*), not 2/.test(f.message) && f.severity === 'blocking'), JSON.stringify(zoom));
   });
 
   it('is a harness fault when a required zoom state is never reached', () => {

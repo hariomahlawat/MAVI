@@ -253,7 +253,7 @@ async function runCase(lane, c) {
   await browser.goto(lane.server.origin + state.path);
 
   // V3: the state is reached when the page and the server say so.
-  const loaded = await settle(lane, start, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: Boolean(start.prepare) || Boolean(transition) });
+  const loaded = await settle(lane, start, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: Boolean(start.prepare) });
   const settledAt = await browser.evaluate('performance.now()');
   // An overlay already open when the page settles was opened by its URL, not
   // by an action: §20 restoration to an invoking control does not apply to it.
@@ -277,7 +277,7 @@ async function runCase(lane, c) {
       unreach('preparation', `preparation failed: ${String(error.message || error).split('\n')[0]}`);
     }
     if (prepared) {
-      afterPrepare = await settle(lane, start, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: Boolean(transition) });
+      afterPrepare = await settle(lane, start, { timeoutMs: SETTLE_TIMEOUT_MS });
       if (afterPrepare.ok) preparedAt = await browser.evaluate('performance.now()');
       else unreach('settle after preparation', `did not settle after its preparation within ${SETTLE_TIMEOUT_MS}ms: ${afterPrepare.why.join('; ')}`);
     } else {
@@ -310,13 +310,14 @@ async function runCase(lane, c) {
   let zoom = null;
   if (viewport.zoom && reached) {
     // Judged against §23's frozen condition (manifest ZOOM_CONDITION): the
-    // 1366x768 viewport, and for a load the 200% factor — never the condition
-    // the states happen to declare. A transition's steps are 100% or 200%.
+    // 1366x768 viewport, and the 200% factor for a load or a transition's
+    // zoomed step — never the condition the states happen to declare. A
+    // transition's other steps are 100%.
     const qualify = async (factor) => {
       const page = await browser.evaluate(toExpression(zoomEnvironment));
       const metrics = await browser.layoutMetrics();
       const reported = lane.zoom;
-      const expected = viewport.kind === 'zoom' ? ZOOM_CONDITION.factor : factor;
+      const expected = viewport.kind === 'zoom' || factor !== 1 ? ZOOM_CONDITION.factor : 1;
       const problems = zoomQualification({ factor: expected, viewport: ZOOM_CONDITION, reported, metrics, page });
       return { factor, reported, metrics, page, problems };
     };
@@ -328,13 +329,17 @@ async function runCase(lane, c) {
       try { ok = Boolean(await browser.evaluate(`(async () => await ${transition.before})()`)); } catch (error) { unreach('zoom transition set-up', firstLine(error)); }
       if (!ok) unreach('zoom transition set-up', 'its set-up reported that the state was not reached');
       else {
-        const ready = await settle(lane, start, { timeoutMs: SETTLE_TIMEOUT_MS, beforePreparation: true });
+        // The state the change must survive, as the start tier declares it.
+        const ready = await settle(lane, start, { timeoutMs: SETTLE_TIMEOUT_MS });
         if (!ready.ok) unreach('zoom transition set-up', `did not settle within ${SETTLE_TIMEOUT_MS}ms: ${ready.why.join('; ')}`);
       }
       reached = !unreached;
     }
     let previous = reached ? await qualify(viewport.zoom[0]) : null;
-    if (previous) zoom.steps.push({ factor: previous.factor, focus: null, environment: previous });
+    if (previous) {
+      zoom.steps.push({ factor: previous.factor, focus: null, environment: previous });
+      if (viewport.zoom.length > 1) for (const problem of previous.problems) zoomFail(`at the start (${previous.factor * 100}%): ${problem}`);
+    }
     for (let index = 1; reached && index < viewport.zoom.length; index += 1) {
       const factor = viewport.zoom[index];
       const focusBefore = await browser.evaluate(toExpression(zoomBeforeChange));
@@ -702,6 +707,11 @@ const report = {
         scheduled: { loads: zoomCases.filter((c) => c.viewport.kind === 'zoom').length, transitions: zoomCases.filter((c) => c.viewport.kind === 'zoom-transition').length },
         valid: { loads: zoomResults.filter((r) => r.valid && r.kind === 'zoom').length, transitions: zoomResults.filter((r) => r.valid && r.kind === 'zoom-transition').length },
         qualified: zoomResults.filter((r) => r.valid && r.zoom.qualified).length,
+        // §23's WCAG 1.4.4 exception, where it applied: a Workbench at 200%
+        // is its unsupported state. Reported, never passed silently.
+        workbenchException: Object.entries(zoomResults.filter((r) => r.valid && r.zoom.measured?.workbenchException && r.tier === 'C')
+          .reduce((acc, r) => { (acc[r.surface] ??= { captures: 0, statement: r.zoom.measured.workbenchException }).captures += 1; return acc; }, {}))
+          .map(([surface, entry]) => ({ surface, ...entry })),
         bySurface: count(zoomResults.filter((r) => r.valid), 'surface'),
         sample: sample && { reported: sample.reported, metrics: sample.metrics, page: sample.page },
       };
@@ -734,6 +744,7 @@ for (const tier of TIERS) {
     const s = z.sample;
     line(`  200% zoom (${z.browser?.product ?? 'browser ?'}): ${z.valid.loads}/${z.scheduled.loads} loads and ${z.valid.transitions}/${z.scheduled.transitions} transitions valid, ${z.qualified} with the zoom proven`
       + (s ? `; ${ZOOM.width}x${ZOOM.height} at page zoom ${s.metrics.pageZoom} -> ${s.page.innerWidth}x${s.page.innerHeight} CSS px, devicePixelRatio ${s.page.dpr}` : ''));
+    for (const e of z.workbenchException) line(`  200% zoom, §23 WCAG 1.4.4 Workbench exception: ${e.surface} (${e.captures} capture(s)) — "${e.statement}"`);
   }
 }
 line(`  CLS (navigation): ${JSON.stringify(report.perf.cls.statuses)}; measured range ${report.perf.cls.min ?? '-'}..${report.perf.cls.max ?? '-'}`);

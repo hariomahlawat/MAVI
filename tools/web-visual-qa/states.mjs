@@ -4792,21 +4792,35 @@ const RENAMED = 'A considerably longer zone name';
  * editor's keys do nothing to it — Delete and a nudge, pressed where the
  * operator's focus is, with the renamed zone still selected.
  */
-const SCENE_DRAFT_AT_200 = `(() => {
+const SCENE_DRAFT_AT_200 = `(async () => {
   const text = document.body.innerText;
   if (!text.includes('Unsaved changes')) return { ok: false, why: 'the unsaved draft is not stated at 200%' };
   const editor = document.querySelector('.workspace__stage, .workspace__inspector, .workspace canvas, .scene-navigator__name');
   if (editor) return { ok: false, why: 'the editor is still drawn at 200%: ' + editor.className };
+  const zones = () => (Array.from(document.querySelectorAll('.workspace--unsupported dt')).find((dt) => dt.textContent.trim() === 'Zones')?.nextElementSibling?.textContent || '').trim();
+  const listed = zones();
+  if (!listed.includes(${JSON.stringify(RENAMED)})) return { ok: false, why: 'the summary does not list the renamed zone at 200%: ' + listed };
+  // The renamed zone is still selected in the draft: Delete would remove it
+  // and an arrow would nudge its vertex, were the editor's keys live here.
   for (const key of ['Delete', 'ArrowLeft']) {
     (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   }
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  if (zones() !== listed) return { ok: false, why: 'an editor key changed the draft at 200%: zones ' + listed + ' became ' + zones() };
   return { ok: true, why: '' };
 })()`;
-/** Back at 100%: the same draft — the rename and nothing else lost or saved. */
+/** At 100%, before the zoom: the selected zone's vertices, to compare on return. */
+const SCENE_GEOMETRY = `(() => {
+  window.__vqaSceneGeometry = Array.from(document.querySelectorAll('.scene-inspector__point')).map((el) => el.getAttribute('aria-label') || el.textContent.trim());
+  return window.__vqaSceneGeometry.length > 0;
+})()`;
+/** Back at 100%: the same draft — the rename kept, no vertex moved, nothing saved or discarded. */
 const SCENE_DRAFT_KEPT = `(() => {
   const names = Array.from(document.querySelectorAll('.scene-navigator__name')).map((el) => el.textContent.trim());
   if (!names.some((n) => n.includes(${JSON.stringify(RENAMED)}))) return { ok: false, why: 'the renamed zone is gone after 200% and back: ' + names.join(', ') };
   if (!document.body.innerText.includes('Unsaved changes') || !document.querySelector('.scene-context__note input')) return { ok: false, why: 'the draft is no longer unsaved after 200% and back: it was saved or discarded' };
+  const geometry = Array.from(document.querySelectorAll('.scene-inspector__point')).map((el) => el.getAttribute('aria-label') || el.textContent.trim());
+  if (JSON.stringify(geometry) !== JSON.stringify(window.__vqaSceneGeometry)) return { ok: false, why: 'the zone geometry changed across 200% and back: ' + JSON.stringify(window.__vqaSceneGeometry) + ' became ' + JSON.stringify(geometry) };
   return { ok: true, why: '' };
 })()`;
 const SEARCH_VIEW = `(() => {
@@ -4858,7 +4872,7 @@ const ZOOM_TRANSITIONS = {
   // the editor's keys inert while it is not drawn. Judged at Tier A on return,
   // and at Tier C (the unsupported state over a dirty draft) without it.
   'scene-editor-dirty': [
-    { path: [1, 2, 1], checks: [SCENE_DRAFT_AT_200, SCENE_DRAFT_KEPT] },
+    { path: [1, 2, 1], before: SCENE_GEOMETRY, checks: [SCENE_DRAFT_AT_200, SCENE_DRAFT_KEPT] },
     { path: [1, 2], checks: [SCENE_DRAFT_AT_200] },
     // The leave guard still asks at 200%: the operator opens the menu — the
     // page's one way elsewhere there — and chooses Cameras; the product's
