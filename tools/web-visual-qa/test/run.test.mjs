@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { e2eIt } from './browser.mjs';
 
 const RUN = fileURLToPath(new URL('../run.mjs', import.meta.url));
 const REGISTERED = new URL('../states.mjs', import.meta.url).href;
@@ -19,8 +20,32 @@ let dir;
 before(() => { dir = mkdtempSync(join(tmpdir(), 'mavi-vqa-run-')); });
 after(() => { rmSync(dir, { recursive: true, force: true }); });
 
+describe('a held request is released only once its document is gone', () => {
+  const e2e = e2eIt(it);
+  const RUN = fileURLToPath(new URL('../run.mjs', import.meta.url));
+  let out;
+  before(() => { out = mkdtempSync(join(tmpdir(), 'mavi-vqa-order-')); });
+  after(() => { rmSync(out, { recursive: true, force: true }); });
+
+  e2e('reaches a degraded Ledger right after the loading Ledger that held its request, on one lane', () => {
+    // The loading state holds /api/videos; the degraded state answers each
+    // row's status once and then fails (a sequenced fixture). Released while
+    // the loading page was alive, its retry consumed the first answer, and
+    // the degraded state was never reached: an order a sharded sweep runs.
+    const run = spawnSync(process.execPath, [RUN, '--states', 'processing-queue-loading,processing-queue-row-degraded', '--tiers', 'A', '--widths', '1366', '--zoom', 'none', '--workers', '1'], {
+      env: { ...process.env, MAVI_VQA_OUT: out }, encoding: 'utf8', timeout: 180_000,
+    });
+    assert.equal(run.error, undefined, 'the run hung');
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    const results = JSON.parse(readFileSync(join(out, 'results.json'), 'utf8'));
+    assert.deepEqual(results.executions.notReached, []);
+    assert.equal(results.cases.filter((c) => c.valid).length, 2);
+  });
+});
+
 describe('a state the harness cannot reach', () => {
-  it('fails the run with a harness fault at Tier C, and a later success does not erase it', () => {
+  const e2e = e2eIt(it);
+  e2e('fails the run with a harness fault at Tier C, and a later success does not erase it', () => {
     const module = join(dir, 'states.mjs');
     // The registered states plus one whose preparation can never succeed,
     // listed first so the case that follows it succeeds after the failure.

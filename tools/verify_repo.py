@@ -272,6 +272,73 @@ def check_required_check_names(errors: list[str]) -> None:
         fail(problem, errors)
 
 
+QUALITY_SCOPE_FILE = "tools/ci/quality-scope.json"
+
+
+def quality_scope_problems(scope_text: str, workflow: str) -> list[str]:
+    """The Quality Gate's scope list and its workflow describe the same lanes:
+    every lane the list declares gates a job (`if: needs.scope.outputs.<lane>
+    != 'false'`), is exported by the scope job and is required by `quality`
+    with that same output; and no job is gated by a lane the list does not
+    declare. A lane missing on either side would be run never or required never."""
+    problems: list[str] = []
+    try:
+        lanes = set(json.loads(scope_text)["lanes"])
+    except (ValueError, KeyError, TypeError) as exc:
+        return [f"{QUALITY_SCOPE_FILE}: cannot read its lanes ({exc})"]
+    gated = set(re.findall(r"^    if: needs\.scope\.outputs\.([a-z0-9-]+) != 'false'$", workflow, re.M))
+    exported = set(re.findall(r"^      ([a-z0-9-]+): \$\{\{ steps\.scope\.outputs\.\1 \}\}$", workflow, re.M))
+    required = set(re.findall(r"'\$\{\{ needs\.scope\.outputs\.([a-z0-9-]+) \}\}'", workflow))
+    for lane in sorted(lanes - gated):
+        problems.append(f"{QUALITY_SCOPE_FILE} declares lane '{lane}', which gates no job in quality-gate.yml")
+    for lane in sorted(gated - lanes):
+        problems.append(f"quality-gate.yml gates a job on scope lane '{lane}', which {QUALITY_SCOPE_FILE} does not declare")
+    for lane in sorted(lanes - exported):
+        problems.append(f"quality-gate.yml's scope job does not export lane '{lane}'")
+    for lane in sorted(lanes - required):
+        problems.append(f"quality-gate.yml's quality job does not require lane '{lane}' by its scope output")
+    return problems
+
+
+VISUAL_QA_TESTS = "tools/web-visual-qa/test"
+
+
+def visual_test_group_problems(workflow: str, test_files: dict[str, str]) -> list[str]:
+    """Every harness test file that declares end-to-end tests with `e2eIt` is
+    named in the workflow's end-to-end step: such a test is skipped in the unit
+    group by design, so a file the end-to-end groups never run would skip it in
+    every group, silently."""
+    step = re.search(r"- name: Test the harness \(end-to-end group\)\n(?:.*\n)*?\s+run: (.+)\n", workflow)
+    if step is None:
+        return ["quality-gate.yml has no 'Test the harness (end-to-end group)' step"]
+    named = set(re.findall(r"tools/web-visual-qa/test/[A-Za-z0-9_.-]+\.mjs", step.group(1)))
+    problems: list[str] = []
+    for name, text in sorted(test_files.items()):
+        if re.search(r"\be2eIt\b", text) and f"{VISUAL_QA_TESTS}/{name}" not in named:
+            problems.append(f"{VISUAL_QA_TESTS}/{name} declares end-to-end tests (e2eIt) but is not run by the workflow's end-to-end step")
+    for path in sorted(named):
+        if path.split("/")[-1] not in test_files:
+            problems.append(f"quality-gate.yml's end-to-end step names {path}, which does not exist")
+    return problems
+
+
+def check_quality_scope(errors: list[str]) -> None:
+    try:
+        scope_text = (ROOT / QUALITY_SCOPE_FILE).read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/quality-gate.yml").read_text(encoding="utf-8")
+    except OSError as exc:
+        fail(f"Cannot read the Quality Gate scope or workflow: {exc}", errors)
+        return
+    for problem in quality_scope_problems(scope_text, workflow):
+        fail(problem, errors)
+    test_files = {
+        path.name: path.read_text(encoding="utf-8")
+        for path in sorted((ROOT / VISUAL_QA_TESTS).glob("*.test.mjs"))
+    }
+    for problem in visual_test_group_problems(workflow, test_files):
+        fail(problem, errors)
+
+
 def check_project_references(errors: list[str]) -> None:
     platform = ROOT / "src/platform"
     for project, expected in ALLOWED_REFERENCES.items():
@@ -2038,6 +2105,7 @@ def main() -> int:
     check_required_paths(errors)
     check_code_owners(errors)
     check_required_check_names(errors)
+    check_quality_scope(errors)
     check_project_references(errors)
     check_dependency_policy(errors)
     check_offline_binary_catalog(errors)

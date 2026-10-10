@@ -314,3 +314,88 @@ export async function settle(lane, state, { timeoutMs = 20_000, stable = 2, befo
   }
   return { ok: false, ms: Date.now() - started, probes, why: last.length ? last : ['no probe completed'] };
 }
+
+// --- Sharding (CI) ----------------------------------------------------------------
+
+/** One case's identity across a run and across shards: state, viewport, attempt. */
+export function caseKey(c) {
+  const state = c.state?.name ?? c.state;
+  const viewport = c.viewport?.label ?? c.viewport;
+  return `${state}@${viewport}#${c.attempt ?? 1}`;
+}
+
+/**
+ * The shard a state belongs to: the unit of partition is a state (every anchor,
+ * probe and zoom case of a state runs in one shard), with the two states of a
+ * loading pair kept together so a shard can compare them. Round-robin over the
+ * states in their registered order — deterministic, and even enough: a state
+ * has 3 to 12 cases, so 228 states give shards within a few per cent of each
+ * other.
+ */
+export function partitionCases(cases, { index, count, pairs = [] }) {
+  if (!Number.isInteger(count) || count < 1) throw new HarnessError(`shard count must be a positive integer, not ${count}`);
+  if (!Number.isInteger(index) || index < 0 || index >= count) throw new HarnessError(`shard index must be 0..${count - 1}, not ${index}`);
+  const partner = new Map(pairs.flatMap(([a, b]) => [[a, b], [b, a]]));
+  const keyOf = (name) => {
+    const other = partner.get(name);
+    // The pair's partition key is the lexically first of the two names, so both
+    // states resolve to the same key whichever is registered first.
+    return other && other < name ? other : name;
+  };
+  const order = [];
+  const seen = new Set();
+  for (const c of cases) {
+    const key = keyOf(c.state.name);
+    if (!seen.has(key)) { seen.add(key); order.push(key); }
+  }
+  const shardOfKey = new Map(order.map((key, i) => [key, i % count]));
+  const assignment = cases.map((c) => shardOfKey.get(keyOf(c.state.name)));
+  const selected = cases.filter((_, i) => assignment[i] === index);
+  return { selected, planned: cases.map(caseKey), selectedKeys: selected.map(caseKey), assignment };
+}
+
+/**
+ * The checks that read across cases — what a shard cannot judge alone and the
+ * aggregate must: a loading Ledger's first row against its table's (S1e, D3);
+ * pressed treatments never proven in any capture (pressed.visible); every
+ * scheduled case ran and reached its state; every operator surface judged at
+ * 200% (T3); no blocking rule left unevaluated; overlay restoration judged at
+ * Tier A. `fullSweep` enables the sweep-wide obligations. Returns the harness
+ * faults; findings go through the ledger, so their severity is the manifest's.
+ */
+export function sweepChecks({ results, cases, errored, ledger, surfaces, loadingPairs = [], fullSweep }) {
+  const faults = [];
+  const pressedUnproven = [];
+  for (const [loading, ready] of loadingPairs) {
+    for (const result of results.filter((r) => r.state === loading)) {
+      const settled = results.find((r) => r.state === ready && r.viewport === result.viewport);
+      const a = result.workspace?.firstRowTop;
+      const b = settled?.workspace?.firstRowTop;
+      if (typeof a !== 'number' || typeof b !== 'number') continue;
+      const c = { state: { name: loading }, viewport: { label: result.viewport, tier: result.tier, kind: result.kind } };
+      ledger.markEvaluated(c, ['ledger.loading-geometry']);
+      if (Math.abs(a - b) > 0.5) ledger.record(c, 'ledger.loading-geometry', `first skeleton row at ${a}px, first ${ready} row at ${b}px: the rows move when the table arrives`);
+    }
+  }
+  if (fullSweep) {
+    for (const { kind, result: r, control } of unprovenPressedKinds(results)) {
+      const c = { state: { name: r.state }, viewport: { label: r.viewport, tier: r.tier, kind: r.kind }, surface: r.surface };
+      ledger.record(c, 'pressed.visible', `${control} (${kind}): its pressed treatment is never shown in any capture of the sweep, so it is unproven`);
+      pressedUnproven.push(kind);
+    }
+  }
+  faults.push(...unreachedFaults(results));
+  if (results.length + errored.length !== cases.length) {
+    faults.push(`${cases.length - results.length - errored.length} of ${cases.length} scheduled case(s) never ran`);
+  }
+  if (fullSweep) faults.push(...zoomCoverageFaults(results, surfaces));
+  const vacuous = fullSweep && !faults.length ? ledger.vacuous() : [];
+  if (vacuous.length) faults.push('blocking rules the full sweep never evaluated: ' + vacuous.join(', '));
+  if (fullSweep && !faults.length) {
+    for (const rule of ['overlay.dialog', 'overlay.drawer']) {
+      const judged = results.some((r) => r.tier === 'A' && r.overlayExit?.rule === rule && ['restored', 'failed', 'unverifiable'].includes(r.overlayExit.restoration));
+      if (!judged) faults.push(`${rule}: the full sweep never judged focus restoration at Tier A for an overlay an action opened`);
+    }
+  }
+  return { faults, pressedUnproven };
+}

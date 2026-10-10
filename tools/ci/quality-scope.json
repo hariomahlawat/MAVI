@@ -1,0 +1,100 @@
+{
+  "$comment": "Which MAVI Quality Gate lanes a pull request's changed paths make applicable (tools/ci/quality_scope.py). A path matching a lane's globs applies that lane; a path matching only `inert` applies none; a path matching neither applies every lane (the fail-safe); a path in `always` applies every lane. GitHub path-filter glob subset: `*` within a segment, `**` across segments. Grounded in what each lane's tests read (src/vision/tests read the workflows, verify_repo and three documents; tools/qualification/tests read docs/qualification, config and the workflows; the .NET integration tests read config and tools; the web tests read config). `.editorconfig` is deliberately unlisted: the .NET build treats analyzer severities from it as errors, so a change to it runs every lane.",
+  "always": [
+    ".github/workflows/quality-gate.yml",
+    "tools/ci/**"
+  ],
+  "inert": [
+    "docs/**",
+    "*.md",
+    "**/*.md",
+    ".claude/**",
+    ".gitignore",
+    "LICENSE",
+    "LICENSE.*",
+    ".github/pull_request_template.md"
+  ],
+  "lanes": {
+    "tooling": [
+      "tools/phase1/**",
+      "tools/stage3/**",
+      "tools/benchmarks/**",
+      "tools/fixture/**",
+      "tools/requirements.txt",
+      "src/vision/**",
+      "contracts/**",
+      "tests/fixtures/**",
+      "config/**",
+      "models/**",
+      "sample-data/**",
+      "vendor/**",
+      "docs/qualification/**",
+      ".gitattributes"
+    ],
+    "dotnet": [
+      "src/platform/**",
+      "tests/**",
+      "MAVI.sln",
+      "Directory.Build.props",
+      "global.json",
+      "src/vision/**",
+      "contracts/**",
+      "config/**",
+      "database/**",
+      "tools/qualification/**",
+      "tools/stage3/**",
+      "tools/vision/**",
+      "docs/qualification/**"
+    ],
+    "vision": [
+      "src/vision/**",
+      "contracts/**",
+      "tools/requirements.txt",
+      "tools/verify_repo.py",
+      "tools/vision/**",
+      "tests/fixtures/**",
+      "config/**",
+      "models/**",
+      "sample-data/**",
+      ".github/workflows/**",
+      "docs/qualification/**",
+      "docs/runbooks/windows-cuda-host-session.md",
+      "docs/superpowers/plans/2026-09-18-windows-cuda-development.md",
+      "docs/superpowers/plans/c8-pr49-readiness.md",
+      "src/platform/**",
+      ".github/CODEOWNERS",
+      ".gitattributes"
+    ],
+    "guard": [
+      "src/vision/**",
+      "tools/vision/**",
+      "tools/requirements.txt"
+    ],
+    "qualification": [
+      "tools/qualification/**",
+      "tools/requirements.txt",
+      "src/vision/**",
+      "contracts/**",
+      "tests/**",
+      "config/**",
+      "models/**",
+      ".github/workflows/**",
+      "docs/qualification/**",
+      "tools/phase1/**",
+      "tools/vision/**",
+      ".gitattributes"
+    ],
+    "web": [
+      "src/web/**",
+      "src/platform/**",
+      "Directory.Build.props",
+      "global.json",
+      "config/**",
+      "tests/fixtures/**"
+    ],
+    "visual": [
+      "src/web/**",
+      "tools/web-visual-qa/**"
+    ]
+  }
+}

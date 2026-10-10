@@ -14,19 +14,30 @@ Each gating workflow (Quality Gate, Task 10 and Qualification Tooling Windows) e
 
 ### `quality`
 
-The `quality` job aggregates these lanes:
+The workflow runs on every pull request so that `quality` always reports. Its first job, `quality scope`, reads the pull request's merge diff (`git diff --no-renames HEAD^1 HEAD` on the merge commit, both paths of a rename) and classifies every changed path with `tools/ci/quality_scope.py` against `tools/ci/quality-scope.json`. Each expensive lane then runs only if its scope output is not `false`; `repo contracts` always runs; a push to a gated branch runs every lane.
 
-- the .NET test shards;
-- the guard-coverage shards (the evidence-assembler mutation catalogue);
-- the qualification test shards (`tools/qualification/tests`, split by test);
-- Python vision;
-- web and production host;
-- repository contracts.
+| Lane (jobs) | Scope output | Runs when a changed path matches |
+|---|---|---|
+| `repo contracts` | — (always) | every change: `tools/verify_repo.py` over the whole repository (documents, configuration, workflows and code), plus the scope classifier's own tests |
+| `tooling tests` | `tooling` | `tools/phase1`, `tools/stage3`, `tools/benchmarks`, `tools/fixture`, `tools/requirements.txt`, `src/vision`, `contracts`, `tests/fixtures`, `config`, `models`, `sample-data`, `vendor`, `docs/qualification` |
+| `dotnet shard 0–2` | `dotnet` | `src/platform`, `tests`, `MAVI.sln`, `Directory.Build.props`, `global.json`, `src/vision`, `contracts`, `config`, `database`, `tools/qualification`, `tools/stage3`, `tools/vision`, `docs/qualification` |
+| `python vision` | `vision` | `src/vision`, `contracts`, `tools/requirements.txt`, `tools/verify_repo.py`, `tools/vision`, `tests/fixtures`, `config`, `models`, `sample-data`, every workflow, `docs/qualification` and the three documents its tests read |
+| `guard coverage shard 0–3` | `guard` | `src/vision`, `tools/vision`, `tools/requirements.txt` |
+| `qualification shard 0–3` | `qualification` | `tools/qualification`, `tools/requirements.txt`, `src/vision`, `contracts`, `tests`, `config`, `models`, every workflow, `docs/qualification` |
+| `web and production host` | `web` | `src/web`, `src/platform`, `Directory.Build.props`, `global.json`, `config` |
+| `visual harness unit / e2e-0/3 … e2e-2/3`, `visual sweep shard 0–3`, `visual aggregate` | `visual` | `src/web`, `tools/web-visual-qa` |
 
-Tests in `src/vision/tests/test_runtime_metadata.py` hold three things:
-- every sharded job's matrix covers each shard index exactly once for its shard count;
-- the `quality` aggregate depends on every lane in `quality-gate.yml`;
-- no job in `quality-gate.yml` uses `continue-on-error`.
+The rules of the classifier, in order: a path in `always` (`.github/workflows/quality-gate.yml`, `tools/ci/**`) runs every lane; a path matching a lane's globs runs that lane; a path matching only an `inert` glob (`docs/**` outside the lane triggers above, Markdown, `.claude/**`, Git and editor metadata, the pull-request template) runs none; **a path matching nothing runs every lane**, as does an empty change list, an unreadable list or any error in the tool. Any doubt answers "run". A documentation-only pull request therefore runs `quality scope`, `repo contracts` and `quality` — about three minutes — and nothing else.
+
+`quality` then accounts for every lane: the scope job must have succeeded; `repo contracts` must have succeeded; every other lane must be `success` where its scope output made it applicable and `skipped` where the output is `false`. A lane that failed, was cancelled, or is missing although applicable fails the gate; so does a lane that ran although the scope said it need not (a workflow defect). The TRX-per-project and web-JUnit checks apply when the `dotnet` and `web` lanes applied.
+
+The visual-QA lane is three jobs in parallel: the harness's own tests in four groups (`unit`, and the end-to-end runs of `run.mjs` — the T3 zoom negatives among them — in three groups, each test in exactly one), the full sweep in four deterministic shards (`run.mjs --shard i/4`: a state and its loading-pair partner in one shard), and `visual aggregate`, which runs only when every shard succeeded and proves the sweep whole: same head, manifest and plan in every shard, every planned case run exactly once, reached and valid, no harness error, the sweep-wide checks (every operator surface judged at 200%, no blocking rule unevaluated, overlay restoration at Tier A, pressed treatments proven, loading Ledgers against their tables) and no blocking finding (`tools/web-visual-qa/aggregate.mjs`; the harness README, "Sharding (CI)"). The shards' captures are retained per shard (`visual-qa-captures-shard-i`), the aggregate as `visual-qa-captures`.
+
+Tests hold the graph together: `src/vision/tests/test_runtime_metadata.py` (every sharded matrix covers each index exactly once; `quality` depends on every job, requires each conditional lane by the same scope output that gates it, and nothing is `continue-on-error`; pull-request runs are cancelled by a newer head, pushes never), `tools/ci/tests/test_quality_scope.py` (the classifier: documents skip, web changes run web and visual, the workflow runs everything, renames count both paths, unknown paths run everything), `tools/qualification/tests/test_s1_evidence.py` (the retained evidence artifacts) and `tools/verify_repo.py` (the scope list, the scope job's outputs and `quality`'s requirements name the same lanes).
+
+#### Concurrency
+
+A pull request's runs share one concurrency group (its ref): a newer head cancels the run in progress. A push to `main` or another gated branch gets a group of its own (the run id), so it is neither cancelled by nor queued behind another push — GitHub otherwise keeps at most one running and one pending run per group, and a third push would cancel the pending one. Merging pull requests one after another therefore no longer loses the push run for an earlier merge commit. Unrelated pull requests have different refs and never cancel each other.
 
 ### `Task 10 qualification`
 
@@ -59,7 +70,10 @@ The workflow did not run for the pull request's current head. The usual causes:
 - **`Task 10 qualification` failed after `Task 10 scope` said `applicable=false`.** One of the heavy jobs was not skipped. This is a workflow defect, not a flaky run.
 - **A qualification shard failed.** Open that shard's log. Each qualification shard prints `shard i/n runs k of N collected tests`, and the `k` values across the shards sum to `N`.
 - **Do not re-run a lane in place of reading it.** A second failure on the same head is a real failure.
-- **Merging pull requests one after another.** Quality Gate cancels an in-progress run for the same ref. Rapid successive merges can cancel the push run on `main` for an earlier merge commit, so check that the latest `main` run completed.
+- **Merging pull requests one after another.** Quality Gate cancels an in-progress run only for a pull request's own ref; a push run on `main` is never cancelled, so each merge commit keeps its run. Still check that the latest `main` run completed.
+- **A lane shows "not applicable (skipped)" in `quality`'s log.** The scope job decided the change could not reach it. If you believe it should have run, the scope list (`tools/ci/quality-scope.json`) is missing a path: add it with a test in `tools/ci/tests/test_quality_scope.py`. A path the list does not know runs every lane, so an omission can only make CI slower, never skip a lane a known path reaches.
+- **`visual aggregate` was skipped and `quality` failed on `visual-sweep`.** A sweep shard failed; open that shard's log and its `visual-qa-captures-shard-i` artifact. The aggregate runs only once every shard has succeeded.
+- **`visual aggregate` failed with a harness error naming a shard.** The shards did not agree (head, manifest, plan) or a planned case ran zero or two times: a workflow or harness defect, not a product finding.
 
 ## Changing CI
 

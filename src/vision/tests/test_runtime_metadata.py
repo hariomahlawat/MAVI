@@ -511,6 +511,7 @@ SHARDED_JOBS = {
     ("quality-gate.yml", "dotnet-tests"),
     ("quality-gate.yml", "guard-coverage"),
     ("quality-gate.yml", "qualification-tests"),
+    ("quality-gate.yml", "visual-sweep"),
     ("qualification-tooling-windows.yml", "qualification-tests"),
 }
 
@@ -544,19 +545,41 @@ def test_qualification_lanes_shard_by_test_and_never_vacuously() -> None:
         assert "@shard-tests.txt" in block and "set -euo pipefail" in block
 
 
-def test_the_quality_aggregate_requires_success_from_every_lane() -> None:
+def test_the_quality_aggregate_accounts_for_every_lane() -> None:
+    """`quality` depends on every other job and requires each one to be
+    `success` where the scope job made it applicable and `skipped` where it did
+    not; the scope job itself must have succeeded; `repo-contracts` always
+    applies; nothing is `continue-on-error`. A lane the change reaches that was
+    cancelled or missing therefore fails the gate, and a lane that ran although
+    the scope said it need not fails it too (a workflow defect, never a pass)."""
     import re
 
-    blocks = _job_blocks((_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8"))
+    workflow = (_WORKFLOWS / "quality-gate.yml").read_text(encoding="utf-8")
+    blocks = _job_blocks(workflow)
     quality = blocks["quality"]
     needs = re.search(r"needs:\n((?:      - [a-z-]+\n)+)", quality).group(1).split()
     needs = [n for n in needs if n != "-"]
     assert set(needs) == set(blocks) - {"quality"}
     assert "if: always()" in quality
-    for lane in needs:
-        assert f"test '${{{{ needs.{lane}.result }}}}' = 'success'" in quality, lane
+    assert "test '${{ needs.scope.result }}' = 'success'" in quality
+    assert "require repo-contracts '${{ needs.repo-contracts.result }}' true" in quality
+    # Every conditional lane is gated by one scope output and required by that same output.
+    scope_outputs = set(re.findall(r"^      ([a-z]+): \$\{\{ steps\.scope\.outputs\.\1 \}\}$", blocks["scope"], re.M))
+    gated = {}
+    for job, block in blocks.items():
+        m = re.search(r"^    if: needs\.scope\.outputs\.([a-z]+) != 'false'$", block, re.M)
+        if m:
+            gated[job] = m.group(1)
+    assert set(gated) == set(needs) - {"scope", "repo-contracts"}, gated
+    assert set(gated.values()) == scope_outputs, (gated, scope_outputs)
+    for job, lane in gated.items():
+        assert f"require {job} '${{{{ needs.{job}.result }}}}' '${{{{ needs.scope.outputs.{lane} }}}}'" in quality, job
+    # The gate's own verdict logic: applicable -> success, else -> skipped, else fail.
+    assert "if [ \"$result\" != 'skipped' ]; then" in quality and "if [ \"$result\" != 'success' ]; then" in quality
     for block in blocks.values():
         assert "continue-on-error" not in block
+    # A pull request head supersedes its own run; a push to a gated branch is never cancelled.
+    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
 
 
 def test_task12_keeps_its_byte_reproducibility_build_serial() -> None:
