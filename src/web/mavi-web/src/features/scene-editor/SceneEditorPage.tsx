@@ -269,14 +269,19 @@ export default function SceneEditorPage() {
   // The revision note is the operator's typing even when the geometry is back
   // at its baseline, so it is guarded, offered for Reset and kept visible.
   const noteRetained = state.draft.note.trim().length > 0;
+  // A discard is decided over the draft on screen: below 768px the editor is
+  // not drawn, so a Reset or Reload confirmation open when the window
+  // narrows is dropped too — the draft is kept, and the leave guard still
+  // asks (Codex P2 on #200).
+  const discardAvailable = editorShown && !narrow;
   const leaveGuard = useUnsavedChangesGuard(
     state.dirty || noteRetained || state.drawing.kind !== 'none',
     UNSAVED_MESSAGE,
-    pendingDiscard !== null && editorShown,
+    pendingDiscard !== null && discardAvailable,
   );
   useEffect(() => {
-    if (!editorShown && pendingDiscard !== null) setPendingDiscard(null);
-  }, [editorShown, pendingDiscard]);
+    if (!discardAvailable && pendingDiscard !== null) setPendingDiscard(null);
+  }, [discardAvailable, pendingDiscard]);
 
 
   const referenceOffsetForCanvas = readOnly
@@ -427,7 +432,7 @@ export default function SceneEditorPage() {
 
   const discardDialog = (
     <Dialog
-      open={pendingDiscard !== null}
+      open={pendingDiscard !== null && discardAvailable}
       title={pendingDiscard === 'reload' ? 'Discard your changes and load the saved revision?' : 'Discard your unsaved scene changes?'}
       confirmLabel={pendingDiscard === 'reload' ? 'Discard and load revision' : 'Discard changes'}
       destructive

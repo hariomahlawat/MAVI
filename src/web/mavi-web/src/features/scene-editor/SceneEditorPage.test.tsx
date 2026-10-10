@@ -1672,6 +1672,29 @@ describe('scene editor across the Tier C boundary (§25: below 768px it is the u
     }
   });
 
+  it('drops an open discard confirmation when the window narrows past 768px, keeping the draft and its guard (Codex P2 on #200)', async () => {
+    const live = stubMatchMediaLive(tierB);
+    try {
+      const user = userEvent.setup();
+      const { router } = render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      await selectObject(user, 'Gate');
+      await user.type(screen.getByLabelText('Name'), ' east');
+      await user.click(screen.getByRole('button', { name: 'Reset' }));
+      expect(await screen.findByRole('dialog', { name: 'Discard your unsaved scene changes?' })).toBeInTheDocument();
+      live.set(tierC);
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Discard your unsaved scene changes?' })).not.toBeInTheDocument());
+      expect(screen.getByText(/This scene has unsaved changes/)).toBeInTheDocument();
+      expect(screen.getByText(/Gate east/)).toBeInTheDocument();
+      expect(unloadBlocked()).toBe(true);
+      // The leave guard is not held busy by the dropped decision: it still asks.
+      act(() => { void router.navigate('/cameras'); });
+      expect(await screen.findByRole('dialog', { name: 'Leave with unsaved changes?' })).toBeInTheDocument();
+    } finally {
+      live.restore();
+    }
+  });
+
   it('shows a clean scene as its read-only summary, with no unsaved-changes notice and no guard', async () => {
     const live = stubMatchMediaLive(tierC);
     try {
