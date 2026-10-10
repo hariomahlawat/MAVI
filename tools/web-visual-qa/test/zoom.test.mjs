@@ -217,6 +217,47 @@ describe('what the 384px height can take from a page at 200% (zoomAssertions)', 
     assert.match(messages(await at200(EDGE('#000'))), /"Detail" is covered by <div>/);
   });
 
+  it('treats a control collapsed in either dimension, or to nothing, as unseen (Codex P1-A)', async () => {
+    const LINE = (w, h) => `<button style="display:block;width:${w};height:${h};padding:0;border:0;overflow:hidden">Delete zone</button>`;
+    for (const [w, h] of [['1px', '32px'], ['32px', '1px'], ['1px', '1px'], ['0', '0']]) {
+      assert.match(messages(await at200(LINE(w, h))), /"Delete zone" can be focused but is not shown, even when focused/, `${w} x ${h}`);
+    }
+    // Adversarial: collapsed by its box rather than by its own size.
+    assert.match(messages(await at200('<div style="width:1px;height:40px;overflow:hidden"><button style="width:200px;height:40px">Delete zone</button></div>')), /"Delete zone"/);
+    assert.equal(messages(await at200(LINE('120px', '32px'))), '');
+  });
+
+  it('includes the root in the clip chain (Codex P1-B)', async () => {
+    assert.match(messages(await at200('<style>html{clip-path:inset(0 0 0 15%)}</style><button style="width:200px;height:40px">Retry processing</button>')), /"Retry processing" is cut off even when focused \(\d+px of its width/);
+    assert.match(messages(await at200('<style>html{clip-path:circle(40%)}</style><button style="width:200px;height:40px">Retry processing</button>')), /clip-path circle\(40%\), which the harness cannot measure/);
+    // A fixed control is clipped by the root's clip-path too: it covers the
+    // whole page (whose box must have height: a root with no in-flow content
+    // is 0px tall, and its clip-path then clips everything — as Chrome does).
+    assert.match(messages(await at200('<style>html{clip-path:inset(0 0 0 15%)}</style><div style="height:400px"></div><button style="position:fixed;left:0;top:0;width:200px;height:40px">Retry processing</button>')), /"Retry processing" is cut off even when focused \(\d+px of its width/);
+    assert.equal(messages(await at200('<style>html{clip-path:inset(0)}</style><button style="width:200px;height:40px">Retry processing</button>')), '');
+  });
+
+  it('measures the Evidence Player by its intrinsic size and box, not by an object-fit whitelist (Codex P1-C)', async () => {
+    // Footage from a canvas stream, so the video has intrinsic dimensions.
+    const PLAYER = (w, h, fit, cw = 640, ch = 360) => `<canvas id="c" width="${cw}" height="${ch}"></canvas><video class="evidence-player__video" style="display:block;width:${w};height:${h};object-fit:${fit}" muted autoplay playsinline></video>
+      <script>const c = document.getElementById('c'); const x = c.getContext('2d'); x.fillStyle = '#4af'; x.fillRect(0, 0, c.width, c.height); document.querySelector('video').srcObject = c.captureStream(5);</script>`;
+    const player = async (html) => {
+      await lane.page(TOKENS + html, { width: 1366, height: 768, zoom: 2 });
+      for (let i = 0; i < 100 && !(await lane.browser.evaluate('document.querySelector("video").videoWidth > 0')); i += 1) await lane.browser.evaluate('new Promise((r) => setTimeout(r, 50))');
+      assert.ok(await lane.browser.evaluate('document.querySelector("video").videoWidth > 0'), 'the footage decoded');
+      return messages(await lane.browser.evaluate(toExpression(zoomAssertions, { tier: 'C' })));
+    };
+    // none: natural size; cropped when the footage is larger than its box.
+    assert.match(await player(PLAYER('300px', '200px', 'none')), /640x360 footage in a 300x200 box with object-fit none: .*cropped/);
+    assert.equal(await player(PLAYER('660px', '380px', 'none')), '');
+    // scale-down and contain never crop; cover crops a different aspect; fill distorts it.
+    assert.equal(await player(PLAYER('300px', '200px', 'scale-down')), '');
+    assert.equal(await player(PLAYER('300px', '200px', 'contain')), '');
+    assert.match(await player(PLAYER('300px', '300px', 'cover')), /object-fit cover: .*cropped/);
+    assert.match(await player(PLAYER('300px', '300px', 'fill')), /object-fit fill: the picture is distorted/);
+    assert.equal(await player(PLAYER('320px', '180px', 'cover')), '');
+  });
+
   it('fails a focusable control that stays 1px even when focused, and passes the skip link and a labelled native input (Codex P1)', async () => {
     const HIDDEN = 'position:absolute;width:1px;height:1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%)';
     assert.match(messages(await at200(`<button style="${HIDDEN}">Delete zone</button>`)), /"Delete zone" can be focused but is not shown, even when focused/);
@@ -445,6 +486,31 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
     const floorBaseline = await lane.browser.evaluate(toExpression(zoomTextBaseline));
     await lane.page('<style>body{margin:0;font:14px sans-serif} .badge{font-size:8px}</style><main id="main"><span class="badge">Stale</span></main>', { width: 1366, height: 768, zoom: 2 });
     assert.match((await lane.browser.evaluate(toExpression(zoomTextCompare, { baseline: floorBaseline, from: '100%', to: '200%', live: false }))).changed.join('\n'), /"Stale" is drawn at 8px at 200%, below the 11px smallest text at 100%/);
+    // Text the operator cannot view is not a baseline (Codex P1-D): a 7px
+    // element far off-screen does not lower the floor; text below the fold,
+    // reachable by scrolling, is one; text in an inert region or outside a
+    // clipped box is not; a hidden heading is not.
+    const OFFSCREEN = `<style>body{margin:0;font:14px sans-serif} .away{position:absolute;left:-9999px;font-size:7px} .narrow{display:none;font-size:9px} @media (width < 768px) { .narrow { display: block } }</style>
+      <main id="main"><p>Videos</p><p class="away">far away</p><p class="narrow">Shown only on a narrow display</p></main>`;
+    assert.match((await change(OFFSCREEN)).changed.join('\n'), /"Shown only on a narrow display" is drawn at 9px at 200%, below the 14px smallest text at 100%/);
+    const BELOW = `<style>body{margin:0;font:14px sans-serif} .fold{margin-top:2000px;font-size:9px} .narrow{display:none;font-size:9px} @media (width < 768px) { .narrow { display: block } }</style>
+      <main id="main"><p>Videos</p><p class="fold">below the fold</p><p class="narrow">Shown only on a narrow display</p></main>`;
+    assert.deepEqual((await change(BELOW)).changed, []);
+    const CLIPPED = `<style>body{margin:0;font:14px sans-serif} .box{width:200px;height:20px;overflow:hidden} .cut{margin-top:60px;font-size:7px} .narrow{display:none;font-size:9px} @media (width < 768px) { .narrow { display: block } }</style>
+      <main id="main"><p>Videos</p><div class="box"><p class="cut">clipped away</p></div><p class="narrow">Shown only on a narrow display</p></main>`;
+    assert.match((await change(CLIPPED)).changed.join('\n'), /"Shown only on a narrow display" is drawn at 9px at 200%, below the 14px smallest text at 100%/);
+    // Text behind an open overlay — inert, under a translucent scrim — is
+    // still drawn and read: it stays a baseline (a Dialog over a Scene
+    // Editor does not shrink the page's text to the Dialog's).
+    const SCRIM = `<style>body{margin:0;font:14px sans-serif} .scrim{position:fixed;inset:0;background:rgba(0,0,0,.5)} .narrow{display:none;font-size:11px} @media (width < 768px) { .narrow { display: block } .scrim { display: none } }</style>
+      <main id="main" inert><p>Videos</p><p style="font-size:11px">4 of 4 videos</p></main><div class="scrim"></div><p class="narrow">Shown only on a narrow display</p>`;
+    assert.deepEqual((await change(SCRIM)).changed, []);
+    // ...but under an opaque cover it is hidden: with every text covered the
+    // comparison is a fault, and with the 11px text alone covered the floor is 14px.
+    assert.match((await change(SCRIM.replace('rgba(0,0,0,.5)', '#000'))).fault, /no text baseline at 100%/);
+    const COVERED = `<style>body{margin:0;font:14px sans-serif} .cover{position:absolute;left:0;right:0;top:30px;height:30px;background:#000} .narrow{display:none;font-size:11px} @media (width < 768px) { .narrow { display: block } .cover { display: none } }</style>
+      <main id="main" style="position:relative"><p style="margin:0;height:30px">Videos</p><p style="margin:0;height:30px;font-size:11px">4 of 4 videos</p><div class="cover"></div></main><p class="narrow">Shown only on a narrow display</p>`;
+    assert.match((await change(COVERED)).changed.join('\n'), /"Shown only on a narrow display" is drawn at 11px at 200%, below the 14px smallest text at 100%/);
     // Hidden text is neither baseline nor subject: a visually-hidden 20px
     // heading does not hold a 13px crumb with the same words to it.
     const HIDDEN = `<style>body{margin:0;font:14px sans-serif} .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)} h1{font-size:20px} .crumb{display:none;font-size:13px} @media (width < 768px) { .crumb { display: inline } }</style>
@@ -476,7 +542,7 @@ describe('a live zoom change (zoomTransitionProbe)', () => {
   it('fails focus the zoom change leaves on a transparent control (Codex P1)', async () => {
     const FADED = `<style>body{margin:0} @media (width < 768px) { .fades { opacity: 0 } }</style>
       <main id="main"><button class="fades">Detail</button></main>`;
-    assert.match(messages(await across(FADED, '(() => { document.querySelector(".fades").focus(); return true; })()')), /focus is left on <button.fades> "Detail", which the zoom change has made transparent/);
+    assert.match(messages(await across(FADED, '(() => { document.querySelector(".fades").focus(); return true; })()')), /focus is left on <button.fades> "Detail", which the zoom change has left transparent/);
   });
 
   it('fails an overlay left open with focus outside it, and a region left inert with no overlay open', async () => {

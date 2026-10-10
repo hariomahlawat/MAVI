@@ -187,29 +187,39 @@ device-independent viewport behind it, the 683×384 CSS viewport, no pinch scale
 devicePixelRatio 2 and the Tier C media query — so the zoom left at 100%, or a
 viewport merely shrunk, fails it; a transition is judged against the frozen 200%
 at its zoomed step and 100% at the others, its starting step included. Then what
-the 384px height can take from the page: every offered control can be brought
-into view, with no more than a CSS pixel of its own size cut off in either
-direction by the viewport or by the ancestors that clip it — found by CSS's
-containing-block rules (`zoomClipChain`): a fixed box escapes every ancestor up
-to the one that transforms, filters or contains it, an absolute box the static
-ancestors up to its positioned one, and the walk resumes from each containing
-block by its own rules — through overflow, an inset() clip-path (measured) or
-any other clip-path or legacy clip (counted as lost, since it cannot be
-measured; a control larger than the viewport is not let off by it), and not only
-by focus scrolling a box — or a page — that clips without scrolling; what a
-pointer hits across it (its middle and four points inset from its corners) is
-the control (or its label, or its own tooltip — the one it is described by —
-never another's), and no painted layer the pointer passes through hides it,
-however it is placed (focus not obscured; a control that is only a hit area —
-empty and painting nothing, a grid card's select button — has its composition,
-and only it, as its face); a control drawn at 1px, or transparent through its
-own or an ancestor's opacity (the root's included), is offered only where focus
-shows it (the skip link) or a visible label stands for it, which is then judged
-in its place (seen, reachable, unclipped, uncovered); drawers and dialogs fit
-the viewport; no font is sized in viewport units, directly or through a custom
-property; truncated text keeps its full value within the keyboard's reach (§16 —
-the text of a link to the row's detail or of a row's own selection control — one
-that carries a selection state (aria-selected, aria-current) or is one of the
+the 384px height can take from the page, judged by one account of what is seen
+(`zoomVisibility`, read alike by the control sweep, the transition focus probe
+and the text baseline): a box is *hidden* when it is not rendered, collapsed in
+either dimension to a pixel or less, `visibility: hidden` or transparent through
+its own or any ancestor's opacity (the root's included); *inert* when behind an
+open overlay; *reachable* when scrolling can bring it on screen (walking its
+clip chain outward: inside a scrolling box's extent, which then stands in for
+it; inside a non-scrolling clip box; inside the page's extent where the page
+scrolls); and *seen* where its box survives the viewport and its clipping
+ancestors. Those ancestors come from CSS's containing-block rules
+(`zoomClipChain`): a fixed box escapes every ancestor up to the one that
+transforms, filters or contains it (else the viewport), an absolute box the
+static ancestors up to its positioned one, any other box is clipped by each
+ancestor, the walk resuming from each containing block by its own rules; the
+root's `clip-path` or legacy `clip` reaches every box and its overflow (the
+body's, propagated) every box but a fixed one. Each clips by its overflow
+padding box or an `inset()` clip-path (measured); any other clip-path shape or
+legacy clip is reported as a loss the harness cannot measure. Every offered
+control can then be brought into view with no more than a CSS pixel of its own
+size cut off in either direction, and not only by focus scrolling a box — or the
+page — that clips without scrolling; what a pointer hits across it (its middle
+and four points inset from its corners) is the control (or its label, or its own
+tooltip — the one it is described by — never another's), and no painted layer
+the pointer passes through hides it, however it is placed (focus not obscured —
+a sample at five points, not a proof against every cover; a control that is only
+a hit area — empty, with no background of its own, a grid card's select button —
+has its composition, and only it, as its face); a hidden control is offered only
+where focus shows it (the skip link) or a visible label of its own stands for
+it, which is then judged in its place; drawers and dialogs fit the viewport; no
+font is sized in viewport units, directly or through a custom property;
+truncated text keeps its full value within the keyboard's reach (§16 — the text
+of a link to the row's detail or of a row's own selection control — one that
+carries a selection state (aria-selected, aria-current) or is one of the
 product's named selection controls, Search's result selector and the Scene
 navigator's object selector — to its inspector (aria-pressed alone is a toggle's
 state as well); else focus describes it through the Tooltip, compared by letters
@@ -218,13 +228,15 @@ and digits); the keyboard order — the order Tab visits, positive tabindex firs
 open overlay, the keyboard never steps back along a line or back up a column
 (side-by-side columns, such as a Ledger row's action column, are read one after
 another, and a control placed by its data — a timeline marker — follows the
-data); the Evidence Player draws the whole picture undistorted (an object-fit of
-fill distorts it and cover crops evidence off its edges; the product uses the
-browser's `contain`). A transition's starting state must be the one it declares
-(its start tier's expected and forbidden text, after its preparation and
-set-up), and every step a transition passes through — its 200% start, or the
-200% of a 100%→200%→100% path — is judged there by the same zoom checks as a
-load, before the zoom changes again.
+data); the Evidence Player draws the whole picture undistorted — measured from
+the footage's intrinsic size and its box for each `object-fit` (`contain` and
+`scale-down` fit it; `none` draws it at natural size and crops it when it is
+larger than the box; `cover` crops a different aspect; `fill` distorts one),
+never taken from a list of safe values. A transition's starting state must be
+the one it declares (its start tier's expected and forbidden text, after its
+preparation and set-up), and every step a transition passes through — its 200%
+start, or the 200% of a 100%→200%→100% path — is judged there by the same zoom
+checks as a load, before the zoom changes again.
 
 **Text grows with the zoom (WCAG 1.4.4), by comparison.** Every zoom case
 compares the text the page draws with a baseline, or it is a harness fault: a
@@ -232,33 +244,36 @@ compares the text the page draws with a baseline, or it is a harness fault: a
 at 100% on the same 1366×768 viewport with the same fixtures (a probe's base
 state; the baseline must be reached, at page zoom 1, and hold text, or the case
 is a fault and never a pass); a change that zooms in, against the step before
-it. Only drawn text counts — not the visually-hidden pattern's 1px boxes, not
-transparent or hidden text — and the rule is that no text is drawn at 200% at a
-CSS size smaller than its counterpart at 100%, since page zoom scales every CSS
-length alike and a composition may draw its text larger, never smaller. In the
-same document an element is its own counterpart. Across two compositions an
-element has no identity and its classes do not name its component (`.truncate`,
-`code` are utilities shared across sizes), so the counterpart is the same words
-at the smallest size they were drawn at 100%, and words only the narrow
-composition draws are held to the page's smallest text at 100%. That rule has
-one stated leniency: words a page legitimately draws at two sizes (a time zone
-in the band and in a facts list) are held to the smaller. The smallest matched
-ratio, times the browser's own zoom factors, must be the frozen 2×: a "200%" the
-browser applies as 100% draws its text at 1× and fails here as well as in the
-environment check. The run records, per case, the baseline's holders, the text
-compared, matched and unmatched, and the physical ratio. A live zoom change is
-judged as it happens: focus not lost to the document or left on something
-hidden, transparent, inert, out of view or covered, at every step, an overlay
-still open holding focus, nothing left inert, text growing by the zoom's factor
-on a step that zooms in (every piece of text keeps its CSS size across the
-change, as page zoom scales every CSS length alike; text the change mounts in
-place of another composition is no smaller than the same words were before, or
-else than the smallest text before; a step back out to 100% returns to the
-desktop type scale, which 1.4.4 does not judge), and the transition's own check
-(a draft kept with its geometry, the editor's keys inert at 200%, a preference
-kept, focus on the control the new composition offers). The full sweep is a
-harness fault unless every one of the ten operator surfaces had a valid 200%
-capture that evaluated the rule.
+it. Only text the operator can read counts — not hidden text (collapsed,
+transparent, `visibility: hidden`, the visually-hidden pattern's 1px boxes), not
+unreachable text (far off the page, or outside a clipped region), not text under
+an opaque cover at its middle; text behind an open overlay, inert under a
+translucent scrim, is still read and counts — and the rule is that no text is
+drawn at 200% at a CSS size smaller than its counterpart at 100%, since page
+zoom scales every CSS length alike and a composition may draw its text larger,
+never smaller. In the same document an element is its own counterpart. Across
+two compositions an element has no identity and its classes do not name its
+component (`.truncate`, `code` are utilities shared across sizes), so the
+counterpart is the same words at the smallest size they were drawn at 100%, and
+words only the narrow composition draws are held to the page's smallest text at
+100%. That rule has one stated leniency: words a page legitimately draws at two
+sizes (a time zone in the band and in a facts list) are held to the smaller. The
+smallest matched ratio, times the browser's own zoom factors, must be the frozen
+2×: a "200%" the browser applies as 100% draws its text at 1× and fails here as
+well as in the environment check. The run records, per case, the baseline's
+holders, the text compared, matched and unmatched, and the physical ratio. A
+live zoom change is judged as it happens: focus not lost to the document or left
+on something hidden, transparent, inert, out of view or covered, at every step,
+an overlay still open holding focus, nothing left inert, text growing by the
+zoom's factor on a step that zooms in (every piece of text keeps its CSS size
+across the change, as page zoom scales every CSS length alike; text the change
+mounts in place of another composition is no smaller than the same words were
+before, or else than the smallest text before; a step back out to 100% returns
+to the desktop type scale, which 1.4.4 does not judge), and the transition's own
+check (a draft kept with its geometry, the editor's keys inert at 200%, a
+preference kept, focus on the control the new composition offers). The full
+sweep is a harness fault unless every one of the ten operator surfaces had a
+valid 200% capture that evaluated the rule.
 
 **The documented exception, reported.** At 200% a Workbench is its §25 Tier C
 unsupported state: the Scene Editor's editing, and Camera Analytics' activity

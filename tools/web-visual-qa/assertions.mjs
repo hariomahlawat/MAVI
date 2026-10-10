@@ -1922,9 +1922,12 @@ export function zoomEnvironment() {
  * block), and an absolute box escapes the static ancestors between it and
  * its positioned one; any other box is clipped by each ancestor in turn. The
  * walk resumes from each containing block by that block's own rules, so
- * nesting is followed. Each entry says how it clips (overflow, which may
- * scroll; a clip-path; the legacy clip) and where it stood before focus moved
- * it. The element's own clip-path or clip leads the chain.
+ * nesting is followed. The root is the last entry: its overflow (the body's,
+ * where the root's is visible, as the viewport takes it) says whether the
+ * page scrolls, and its clip-path or clip covers every box, a fixed one
+ * included. Each entry says how it clips (overflow, which may scroll; a
+ * clip-path; the legacy clip) and where it stood before focus moved it. The
+ * element's own clip-path or clip leads the chain.
  */
 export function zoomClipChain(el) {
   const contains = (s) => s.transform !== 'none' || s.perspective !== 'none' || s.filter !== 'none'
@@ -1938,34 +1941,48 @@ export function zoomClipChain(el) {
     }
     return 'viewport';
   };
-  const entry = (node, own) => {
-    const s = getComputedStyle(node);
-    const overflow = !own && (s.overflowX !== 'visible' || s.overflowY !== 'visible');
+  const entry = (node, s, overflowOf) => {
+    const overflow = Boolean(overflowOf) && (overflowOf.overflowX !== 'visible' || overflowOf.overflowY !== 'visible');
     const clipPath = s.clipPath && s.clipPath !== 'none' ? s.clipPath : null;
     const clip = s.clip && s.clip !== 'auto' ? s.clip : null;
     if (!overflow && !clipPath && !clip) return null;
-    return { el: node, overflow, scrolls: /^(auto|scroll)$/.test(s.overflowX) || /^(auto|scroll)$/.test(s.overflowY), clipPath, clip, top: node.scrollTop, left: node.scrollLeft };
+    const scrolls = overflow && (/^(auto|scroll)$/.test(overflowOf.overflowX) || /^(auto|scroll)$/.test(overflowOf.overflowY));
+    return { el: node, root: node === document.documentElement, overflow, scrolls, clipPath, clip, top: node.scrollTop, left: node.scrollLeft };
   };
   const chain = [];
-  const self = entry(el, true);
-  if (self) chain.push(self);
+  const own = entry(el, getComputedStyle(el), null);
+  if (own) chain.push(own);
   let cb = containingBlock(el);
   for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
     if (cb === 'viewport') break;
     if (cb !== 'parent' && a !== cb) continue;
-    const e = entry(a, false);
+    const s = getComputedStyle(a);
+    const e = entry(a, s, s);
     if (e) chain.push(e);
     cb = containingBlock(a);
+  }
+  // The root: its clip-path and clip reach everything; its overflow (or the
+  // body's, propagated to the viewport) reaches everything but a box fixed to
+  // the viewport, which page scrolling and page overflow do not touch.
+  const html = document.documentElement;
+  const rootStyle = getComputedStyle(html);
+  const viewportStyle = rootStyle.overflowX === 'visible' && rootStyle.overflowY === 'visible' && document.body ? getComputedStyle(document.body) : rootStyle;
+  const rootEntry = entry(html, rootStyle, cb === 'viewport' ? null : viewportStyle);
+  if (rootEntry) {
+    rootEntry.top = (document.scrollingElement || html).scrollTop;
+    rootEntry.left = (document.scrollingElement || html).scrollLeft;
+    chain.push(rootEntry);
   }
   return chain;
 }
 
 /**
- * The part of a box on screen (T3): its rectangle cut to the viewport and to
- * each clipping ancestor of its chain — an overflow box's padding box, an
- * inset() clip-path's inset — with the first ancestor that cut something
- * named. A clip-path of any other shape, or a legacy clip, is a loss the
- * harness cannot measure, and is named as such rather than passed.
+ * The part of a box on screen now (T3): its rectangle cut to the viewport and
+ * to each clipping ancestor of its chain — an overflow box's padding box
+ * (the root's is the viewport itself), an inset() clip-path's inset — with
+ * the first ancestor that cut something named. A clip-path of any other
+ * shape, or a legacy clip, is a loss the harness cannot measure, and is named
+ * as such rather than passed.
  */
 export function zoomVisibleRect(rect, chain, vw, vh) {
   let left = Math.max(rect.left, 0); let top = Math.max(rect.top, 0);
@@ -1980,7 +1997,7 @@ export function zoomVisibleRect(rect, chain, vw, vh) {
   };
   for (const c of chain) {
     const box = c.el.getBoundingClientRect();
-    if (c.overflow) cut(box.left + c.el.clientLeft, box.top + c.el.clientTop, box.left + c.el.clientLeft + c.el.clientWidth, box.top + c.el.clientTop + c.el.clientHeight, c.el);
+    if (c.overflow && !c.root) cut(box.left + c.el.clientLeft, box.top + c.el.clientTop, box.left + c.el.clientLeft + c.el.clientWidth, box.top + c.el.clientTop + c.el.clientHeight, c.el);
     if (c.clipPath) {
       const m = /^inset\(([^)]*?)(?:\s+round\s[^)]*)?\)$/.exec(c.clipPath.trim());
       if (!m) { unmeasured = unmeasured ?? { el: c.el, what: 'clip-path ' + c.clipPath }; continue; }
@@ -1993,6 +2010,115 @@ export function zoomVisibleRect(rect, chain, vw, vh) {
   }
   return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top), clipper, unmeasured };
 }
+
+/**
+ * Whether a node paints anything of its own at a point under it (T3): a
+ * replaced element or form control, a background, or text of its own — so a
+ * layer the pointer passes through can be told from one that merely exists.
+ */
+export function zoomPaints(node) {
+  const opaque = (color) => {
+    const m = /rgba?\(([^)]+)\)/.exec(color || '');
+    if (!m) return Boolean(color) && color !== 'transparent';
+    const parts = m[1].split(/[,\s/]+/).filter(Boolean);
+    return parts.length < 4 || parseFloat(parts[3]) > 0.05;
+  };
+  if (/^(IMG|VIDEO|CANVAS|IFRAME|SVG|INPUT|SELECT|TEXTAREA|BUTTON)$/i.test(node.tagName)) return true;
+  for (const pseudo of [null, '::before', '::after']) {
+    const s = getComputedStyle(node, pseudo);
+    if (pseudo && (s.content === 'none' || s.content === 'normal')) continue;
+    if (s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) continue;
+    if (opaque(s.backgroundColor) || s.backgroundImage !== 'none') return true;
+  }
+  return Array.from(node.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
+}
+
+/**
+ * Whether a node hides what is under it (T3): a replaced element or form
+ * control, an opaque background (or any image), or text of its own. A
+ * translucent scrim — a Dialog's backdrop — dims the page but leaves it
+ * readable, so it does not hide text; `backgroundOnly` asks about the box's
+ * own paint, text aside (whether a control is only a hit area).
+ */
+export function zoomObscures(node, backgroundOnly = false) {
+  const alpha = (color) => {
+    const m = /rgba?\(([^)]+)\)/.exec(color || '');
+    if (!m) return color && color !== 'transparent' ? 1 : 0;
+    const parts = m[1].split(/[,\s/]+/).filter(Boolean);
+    return parts.length < 4 ? 1 : parseFloat(parts[3]);
+  };
+  if (!backgroundOnly && /^(IMG|VIDEO|CANVAS|IFRAME|SVG|INPUT|SELECT|TEXTAREA)$/i.test(node.tagName)) return true;
+  for (const pseudo of [null, '::before', '::after']) {
+    const s = getComputedStyle(node, pseudo);
+    if (pseudo && (s.content === 'none' || s.content === 'normal')) continue;
+    if (s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) continue;
+    if (alpha(s.backgroundColor) >= 0.95 || s.backgroundImage !== 'none') return true;
+  }
+  return !backgroundOnly && Array.from(node.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
+}
+
+/**
+ * One account of whether, and where, an element is seen (T3) — the primitive
+ * every zoom check reads, so a control, the focused control and a piece of
+ * text are judged by the same rules:
+ *
+ * - `hidden`: why it cannot be seen at all, or null — not rendered;
+ *   collapsed (either dimension at a pixel or less); visibility hidden;
+ *   transparent (its effective opacity, the root's included, under 0.05);
+ *   inside an inert region;
+ * - `chain`: the ancestors that clip it (zoomClipChain);
+ * - `seen`: the part of its box on screen now (zoomVisibleRect);
+ * - `inert`: inside an inert region (behind an open overlay) — not operable,
+ *   but drawn;
+ * - `reachable`: whether the operator can bring it on screen by scrolling.
+ *   Walking its chain outward: inside the scroll extent of a scrolling box,
+ *   which then stands in for it (scrolling the box brings it to the box's own
+ *   place); inside the padding box of a box that clips without scrolling;
+ *   and, where the page itself scrolls, inside the page's extent. A box far
+ *   off the page, or outside a clipped region, is not reachable.
+ */
+export function zoomVisibility(el) {
+  const vw = document.documentElement.clientWidth; const vh = document.documentElement.clientHeight;
+  const box = el.getBoundingClientRect();
+  let hidden = null;
+  if (!el.getClientRects().length) hidden = 'not rendered';
+  else if (box.width <= 1 || box.height <= 1) hidden = 'collapsed to ' + Math.round(box.width * 10) / 10 + 'x' + Math.round(box.height * 10) / 10 + 'px';
+  else {
+    let opacity = 1;
+    for (let n = el; n && !hidden; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      if (s.visibility === 'hidden') hidden = 'visibility hidden';
+      opacity *= parseFloat(s.opacity);
+    }
+    if (!hidden && opacity < 0.05) hidden = 'transparent';
+  }
+  const inert = Boolean(el.closest('[inert]'));
+  const chain = zoomClipChain(el);
+  const seen = zoomVisibleRect(box, chain, vw, vh);
+  let reachable = !hidden;
+  const page = document.scrollingElement || document.documentElement;
+  let rect = { left: box.left, top: box.top, right: box.right, bottom: box.bottom };
+  let pageScrolls = true;
+  for (const c of chain) {
+    if (!c.overflow) continue;
+    if (c.root) { pageScrolls = c.scrolls; continue; }
+    const cb = c.el.getBoundingClientRect();
+    const inner = { left: cb.left + c.el.clientLeft, top: cb.top + c.el.clientTop };
+    inner.right = inner.left + c.el.clientWidth; inner.bottom = inner.top + c.el.clientHeight;
+    if (c.scrolls) {
+      const left = rect.left - inner.left + c.el.scrollLeft; const top = rect.top - inner.top + c.el.scrollTop;
+      reachable = reachable && rect.right - inner.left + c.el.scrollLeft > 0 && rect.bottom - inner.top + c.el.scrollTop > 0 && left < c.el.scrollWidth && top < c.el.scrollHeight;
+      rect = inner;
+    } else {
+      reachable = reachable && rect.right > inner.left && rect.bottom > inner.top && rect.left < inner.right && rect.top < inner.bottom;
+      rect = { left: Math.max(rect.left, inner.left), top: Math.max(rect.top, inner.top), right: Math.min(rect.right, inner.right), bottom: Math.min(rect.bottom, inner.bottom) };
+    }
+  }
+  if (pageScrolls) reachable = reachable && rect.right + page.scrollLeft > 0 && rect.bottom + page.scrollTop > 0 && rect.left + page.scrollLeft < page.scrollWidth && rect.top + page.scrollTop < page.scrollHeight;
+  else reachable = reachable && rect.right > 0 && rect.bottom > 0 && rect.left < vw && rect.top < vh;
+  return { box, hidden, inert, chain, seen, reachable };
+}
+zoomVisibility.helpers = [zoomClipChain, zoomVisibleRect];
 
 /**
  * What 200% zoom adds to the Tier C rules (T3, §23 "no lost control", §25).
@@ -2077,103 +2203,65 @@ export function zoomAssertions(input) {
     }
   }
 
-  // Every offered control is reachable, on screen, unclipped and unobscured.
-  const clips = (style) => style.overflowX !== 'visible' || style.overflowY !== 'visible';
+  // Every offered control is reachable, on screen, unclipped and unobscured:
+  // judged by zoomVisibility, the one account of what is seen.
   const scrolled = [document.scrollingElement, ...document.querySelectorAll('*')]
     .filter((el) => el && (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth))
     .map((el) => [el, el.scrollTop, el.scrollLeft]);
   const before = document.activeElement;
-  // The page itself is a box that clips without scrolling when the root (or
-  // the body, propagated to the viewport) hides its overflow.
-  const rootStyle = getComputedStyle(document.documentElement);
-  const viewportStyle = rootStyle.overflowX === 'visible' && rootStyle.overflowY === 'visible' ? getComputedStyle(document.body) : rootStyle;
-  const pageScrolls = { x: !/^(hidden|clip)$/.test(viewportStyle.overflowX), y: !/^(hidden|clip)$/.test(viewportStyle.overflowY) };
-  const root = document.scrollingElement || document.documentElement;
-  // What paints at a point, under every layer — one that lets the pointer
-  // through (pointer-events: none) still hides what is under it.
-  const effectiveOpacity = (node) => {
-    let opacity = 1;
-    for (let n = node; n; n = n.parentElement) opacity *= parseFloat(getComputedStyle(n).opacity);
-    return opacity;
-  };
   const reveal = document.createElement('style');
   reveal.textContent = '*, *::before, *::after { pointer-events: auto !important; }';
-  const opaque = (color) => {
-    const m = /rgba?\(([^)]+)\)/.exec(color || '');
-    if (!m) return Boolean(color) && color !== 'transparent';
-    const parts = m[1].split(/[,\s/]+/).filter(Boolean);
-    return parts.length < 4 || parseFloat(parts[3]) > 0.05;
-  };
-  const paints = (node) => {
-    if (/^(IMG|VIDEO|CANVAS|IFRAME|SVG|INPUT|SELECT|TEXTAREA|BUTTON)$/i.test(node.tagName)) return true;
-    for (const pseudo of [null, '::before', '::after']) {
-      const s = getComputedStyle(node, pseudo);
-      if (pseudo && (s.content === 'none' || s.content === 'normal')) continue;
-      if (s.visibility === 'hidden' || parseFloat(s.opacity) < 0.05) continue;
-      if (opaque(s.backgroundColor) || s.backgroundImage !== 'none') return true;
-    }
-    return Array.from(node.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim());
-  };
+  // An ancestor's positioned ::before/::after drawn over the control is a
+  // layer too; elementsFromPoint reports it as the ancestor.
+  const pseudoLayer = (node) => ['::before', '::after'].some((pseudo) => {
+    const s = getComputedStyle(node, pseudo);
+    return s.content !== 'none' && s.content !== 'normal' && /^(absolute|fixed)$/.test(s.position) && zoomPaints(node);
+  });
   const candidates = Array.from(document.querySelectorAll(
     'button, a[href], input, select, textarea, summary, video[controls], [tabindex]:not([tabindex="-1"]), [contenteditable="true"]',
   ));
   let checked = 0;
   for (const el of candidates) {
-    if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.closest('[inert]')) continue;
-    if (el.type === 'hidden' || !el.getClientRects().length) continue;
-    const style = getComputedStyle(el);
-    if (style.visibility === 'hidden') continue;
-    const r0 = el.getBoundingClientRect();
-    // A control drawn at 1px, or transparent (its own or an ancestor's
-    // opacity), is offered only where focus shows it (the skip link) or a
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.type === 'hidden') continue;
+    const v = zoomVisibility(el);
+    if (v.hidden === 'not rendered' || v.hidden === 'visibility hidden' || v.inert) continue;
+    // A control that cannot be seen (collapsed in either dimension, or
+    // transparent) is offered only where focus shows it (the skip link) or a
     // visible label of its own stands for it (a native input dressed by its
-    // label). Otherwise the keyboard reaches a control the operator cannot
-    // see: a finding, not a skip.
-    // The label that stands for it is then judged in its place — seen,
-    // reachable, unclipped and uncovered, like the control itself.
+    // label) — the label then judged in its place. Otherwise the keyboard
+    // reaches a control the operator cannot see: a finding, not a skip.
     let face = el;
-    if ((r0.width <= 1 && r0.height <= 1) || effectiveOpacity(el) < 0.05) {
+    if (v.hidden) {
       if (el.tabIndex < 0) continue;
-      const label = el.labels && Array.from(el.labels).find((candidate) => {
-        const lr = candidate.getBoundingClientRect();
-        return lr.width > 1 && lr.height > 1 && effectiveOpacity(candidate) >= 0.05 && getComputedStyle(candidate).visibility !== 'hidden';
-      });
+      const label = el.labels && Array.from(el.labels).find((candidate) => !zoomVisibility(candidate).hidden);
       if (label) face = label;
       else {
         el.focus({ focusVisible: false });
         if (document.activeElement !== el) continue;
-        const fr = el.getBoundingClientRect();
-        if (fr.width <= 1 || fr.height <= 1 || effectiveOpacity(el) < 0.05) fail(describe(el) + ' can be focused but is not shown, even when focused: the keyboard reaches a control the operator cannot see');
+        const shown = zoomVisibility(el);
+        if (shown.hidden) fail(describe(el) + ' can be focused but is not shown, even when focused (' + shown.hidden + '): the keyboard reaches a control the operator cannot see');
         continue;
       }
     }
-    // The ancestors that clip the control (or the label in its place), by
-    // the containing-block rules (zoomClipChain), with where each stood
-    // before focus moved it.
-    const chain = zoomClipChain(face);
-    const hiddenIn = chain.find((c) => c.el !== face && (() => { const ar = c.el.getBoundingClientRect(); return ar.width <= 1 && ar.height <= 1; })())?.el ?? null;
-    // A control inside a visually-hidden region is offered only if the
-    // keyboard can reach it (then it must show when focused, judged below); one
-    // taken out of the tab order there — the Tier C Ledger's hidden header
-    // sort buttons (T2) — is not offered at all.
+    // The ancestors that clip the control (or the label in its place), with
+    // where each stood before focus moved it. A control inside a box drawn
+    // at a pixel is offered only if the keyboard can reach it; one taken out
+    // of the tab order there — the Tier C Ledger's hidden header sort
+    // buttons (T2) — is not offered at all.
+    const chain = face === el ? v.chain : zoomClipChain(face);
+    const hiddenIn = chain.find((c) => !c.root && c.el !== face && (() => { const ar = c.el.getBoundingClientRect(); return ar.width <= 1 || ar.height <= 1; })())?.el ?? null;
     if (hiddenIn && el.tabIndex < 0) continue;
-    const rootAt = { top: root.scrollTop, left: root.scrollLeft };
     el.focus({ focusVisible: false });
     if (document.activeElement !== el) continue;
     checked += 1;
-    const forced = chain.find((c) => c.overflow && !c.scrolls && (Math.abs(c.el.scrollTop - c.top) > 0.5 || Math.abs(c.el.scrollLeft - c.left) > 0.5));
-    if (forced) fail(describe(el) + ' is shown only by focus scrolling ' + describe(forced.el) + ', which clips without scrolling: a pointer cannot reach it');
-    else if ((!pageScrolls.y && Math.abs(root.scrollTop - rootAt.top) > 0.5) || (!pageScrolls.x && Math.abs(root.scrollLeft - rootAt.left) > 0.5)) {
-      fail(describe(el) + ' is shown only by focus scrolling the page, which hides its overflow: a pointer cannot reach it');
-    }
+    const forced = chain.find((c) => c.overflow && !c.scrolls && (() => { const s = c.root ? (document.scrollingElement || c.el) : c.el; return Math.abs(s.scrollTop - c.top) > 0.5 || Math.abs(s.scrollLeft - c.left) > 0.5; })());
+    if (forced) fail(describe(el) + ' is shown only by focus scrolling ' + (forced.root ? 'the page, which hides its overflow' : describe(forced.el) + ', which clips without scrolling') + ': a pointer cannot reach it');
     // The part of the control on screen once focus has brought it into view.
     const r = face.getBoundingClientRect();
     const seen = zoomVisibleRect(r, chain, vw, vh);
     const { left, top, right, bottom, clipper } = seen;
     if (seen.unmeasured) fail(describe(el) + ' is clipped by ' + describe(seen.unmeasured.el) + ' with ' + seen.unmeasured.what + ', which the harness cannot measure: count it as lost');
-    const shown = seen.width * seen.height;
-
-    if (shown < 1) {
+    if (seen.width * seen.height < 1) {
       fail(describe(el) + ' cannot be brought into the ' + vw + 'x' + vh + ' view: focused, it is at (' + Math.round(r.left) + ', ' + Math.round(r.top) + ')' + (clipper ? ', cut off by ' + describe(clipper) : ''));
       continue;
     }
@@ -2181,21 +2269,19 @@ export function zoomAssertions(input) {
     // off, by more than a CSS pixel in either direction (sub-pixel rounding
     // at 2x is not a loss), is lost — measured against the control's own
     // size, so one larger than the viewport is not let off by it.
-    const lostX = r.width - Math.max(0, right - left);
-    const lostY = r.height - Math.max(0, bottom - top);
+    const lostX = r.width - seen.width;
+    const lostY = r.height - seen.height;
     if (lostX > 1 || lostY > 1) fail(describe(el) + ' is cut off even when focused (' + Math.round(lostX) + 'px of its width, ' + Math.round(lostY) + 'px of its height)' + (clipper ? ', by ' + describe(clipper) : ' by the viewport'));
-    // What is drawn at the middle of the part on screen. What a pointer hits
-    // there must be the control (or its label, or its own tooltip). And a
-    // layer the pointer passes through (pointer-events: none) still hides it
-    // when it paints and floats over the page — fixed or sticky, or an
-    // ancestor's positioned ::before/::after (elementsFromPoint reports that
-    // layer as the ancestor). A pass-through face drawn over a transparent
-    // control in the same composition (a grid card's evidence over its
-    // stretched select button) is the control's face, not a cover.
-    // Judged across the box, not at one point: its middle and four points
-    // inset a fifth from its corners.
-    // Its own tooltip is part of it — the one its aria-describedby names, or
-    // the one its tooltip anchor holds — and no other.
+    // What is drawn over the part on screen, sampled at five points — its
+    // middle and four points inset a fifth from its corners (a cover between
+    // the samples is not seen; this is a sample, not a proof). What a pointer
+    // hits there must be the control, its label, or its own tooltip (the one
+    // its aria-describedby names or its anchor holds — never another's). And
+    // a layer the pointer passes through (pointer-events: none) still hides
+    // it when it paints above it, however it is placed. A control that is
+    // only a hit area — empty, painting nothing (a grid card's select button
+    // under the card's evidence and facts) — has its own composition, its
+    // parent, as its face, and nothing else may lie over it.
     const ownTip = (node, control) => {
       const tip = node.closest('.tooltip, [role="tooltip"]');
       if (!tip) return false;
@@ -2210,30 +2296,12 @@ export function zoomAssertions(input) {
       fail(describe(el) + ' is covered by ' + describe(covered) + ' when focused');
       continue;
     }
-    const floats = (node) => {
-      for (let n = node; n && n !== document.documentElement; n = n.parentElement) {
-        if (n.contains(el)) return false;
-        if (/^(fixed|sticky)$/.test(getComputedStyle(n).position)) return true;
-      }
-      return false;
-    };
-    const pseudoLayer = (node) => node !== el && node.contains(el) && ['::before', '::after'].some((pseudo) => {
-      const s = getComputedStyle(node, pseudo);
-      return s.content !== 'none' && s.content !== 'normal' && /^(absolute|fixed)$/.test(s.position);
-    });
-    // A control that is only a hit area — empty, painting nothing of its own
-    // (a grid card's select button, under the card's evidence and facts) —
-    // has its composition drawn over it as its face; that composition, and
-    // nothing else (a sibling of the card, a badge from another region), may
-    // lie over it.
     const faceStyle = getComputedStyle(face);
-    const hitArea = !face.textContent.trim() && !face.children.length && !opaque(faceStyle.backgroundColor) && faceStyle.backgroundImage === 'none';
+    const hitArea = !face.textContent.trim() && !face.children.length && !zoomObscures(face, true);
     const composition = hitArea ? face.parentElement : null;
-    // Above the control in the stack and painting, wherever and however it
-    // is placed (absolute, relative with a negative margin, transformed).
-    const placedOver = (node) => !node.contains(el) && !(composition && composition.contains(node));
+    const above = (node) => !node.contains(el) && !(composition && composition.contains(node));
     document.head.appendChild(reveal);
-    const layer = points.map(([x, y]) => document.elementsFromPoint(x, y).find((node) => own(node) || ((floats(node) || pseudoLayer(node) || placedOver(node)) && paints(node))))
+    const layer = points.map(([x, y]) => document.elementsFromPoint(x, y).find((node) => own(node) || (above(node) && zoomPaints(node)) || (node !== el && node.contains(el) && pseudoLayer(node))))
       .find((node) => node && !own(node));
     reveal.remove();
     if (layer) fail(describe(el) + ' is hidden under ' + describe(layer) + ' when focused (a layer the pointer passes through still covers it)');
@@ -2326,18 +2394,26 @@ export function zoomAssertions(input) {
     else if (!leads && !described) fail('truncated text "' + full.slice(0, 40) + '" in ' + describe(el) + ' can be focused, but focus does not show its full value');
   }
 
-  // The Evidence Player keeps its footage's aspect ratio.
+  // The Evidence Player shows the whole picture, undistorted: what each
+  // object-fit draws, from the footage's intrinsic size and the box (a
+  // picture larger than its box is cropped by it; one stretched to the box
+  // is distorted) — measured, not taken from a list of safe values.
   const video = document.querySelector('.evidence-player__video');
   if (video && video.videoWidth > 0 && video.videoHeight > 0) {
     const r = video.getBoundingClientRect();
     const fit = getComputedStyle(video).objectFit;
-    const box = r.width / Math.max(1, r.height);
-    const source = video.videoWidth / video.videoHeight;
-    // contain (the browser's default for video), scale-down and none keep
-    // the whole picture; fill stretches it, cover crops evidence off its edges.
-    if (/^(fill|cover)$/.test(fit) && Math.abs(box / source - 1) > 0.02) {
-      fail('the Evidence Player draws ' + video.videoWidth + 'x' + video.videoHeight + ' footage in a ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' box with object-fit ' + fit
-        + (fit === 'fill' ? ': the picture is distorted' : ': the picture keeps its aspect ratio but is cropped, so evidence at its edges is not shown'));
+    const iw = video.videoWidth; const ih = video.videoHeight;
+    const scale = fit === 'contain' ? Math.min(r.width / iw, r.height / ih)
+      : fit === 'cover' ? Math.max(r.width / iw, r.height / ih)
+        : fit === 'none' ? 1
+          : fit === 'scale-down' ? Math.min(1, r.width / iw, r.height / ih)
+            : null;
+    const where = 'the Evidence Player draws ' + iw + 'x' + ih + ' footage in a ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' box with object-fit ' + fit;
+    if (scale === null) {
+      // fill, or anything else: the box's own shape.
+      if (Math.abs((r.width / Math.max(1, r.height)) / (iw / ih) - 1) > 0.02) fail(where + ': the picture is distorted');
+    } else if (iw * scale > r.width + 0.5 || ih * scale > r.height + 0.5) {
+      fail(where + ': the picture is drawn ' + Math.round(iw * scale) + 'x' + Math.round(ih * scale) + ', larger than its box, so it is cropped and evidence at its edges is not shown');
     }
   }
   // §23's documented exception, reported where it applies: a Workbench at
@@ -2347,30 +2423,41 @@ export function zoomAssertions(input) {
   const exception = unsupported ? (unsupported.querySelector('.workspace__unsupported-statement')?.textContent || unsupported.textContent || '').trim().slice(0, 200) : null;
   return { findings, evaluated: ['a11y.zoom-200'], measured: { controls: checked, modals: modals.length, truncated, cssRulesRead: rulesRead, workbenchException: exception } };
 }
-zoomAssertions.helpers = [zoomClipChain, zoomVisibleRect];
+zoomAssertions.helpers = [zoomClipChain, zoomVisibleRect, zoomPaints, zoomObscures, zoomVisibility];
 
 /**
  * The elements whose text the page draws (T3): each holding a text node and
- * shown — sized, not hidden or transparent, and not inside a box drawn at a
- * pixel (the visually-hidden pattern: a Ledger's hidden column headers, a
- * heading kept for assistive technology). Hidden text is neither a baseline
- * nor a subject of WCAG 1.4.4, which is about text the operator reads.
+ * seen by the one account (zoomVisibility) — not hidden (collapsed,
+ * transparent, visibility hidden), reachable (on screen, or where scrolling
+ * brings it: a box far off the page or outside a clipped region is not), and
+ * not hidden at its middle under anything that obscures (zoomObscures) but
+ * its own content. Text behind an open overlay (inert, under a translucent
+ * scrim) is still drawn and read, so it counts. Hidden or unreachable text
+ * is neither a baseline nor a subject of WCAG 1.4.4, which is about text the
+ * operator reads.
  */
 export function zoomTextHolders() {
-  const shown = (el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width <= 1 || r.height <= 1) return false;
-    let opacity = 1;
-    for (let n = el; n; n = n.parentElement) {
-      const s = getComputedStyle(n);
-      if (s.visibility === 'hidden') return false;
-      opacity *= parseFloat(s.opacity);
+  const reveal = document.createElement('style');
+  reveal.textContent = '*, *::before, *::after { pointer-events: auto !important; }';
+  const holders = Array.from(document.body.querySelectorAll('*'))
+    .filter((el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim()));
+  const seen = [];
+  document.head.appendChild(reveal);
+  try {
+    for (const el of holders) {
+      const v = zoomVisibility(el);
+      if (v.hidden || !v.reachable) continue;
+      if (v.chain.some((c) => !c.root && c.el !== el && (() => { const b = c.el.getBoundingClientRect(); return b.width <= 1 || b.height <= 1; })())) continue;
+      // Painted over: only where the element is on screen can that be seen.
+      if (v.seen.width >= 1 && v.seen.height >= 1) {
+        const x = (v.seen.left + v.seen.right) / 2; const y = (v.seen.top + v.seen.bottom) / 2;
+        const top = document.elementsFromPoint(x, y).find((node) => node === el || el.contains(node) || node.contains(el) || zoomObscures(node));
+        if (top && top !== el && !el.contains(top) && !top.contains(el)) continue;
+      }
+      seen.push(el);
     }
-    if (opacity < 0.05) return false;
-    return !zoomClipChain(el).some((c) => c.el !== el && (() => { const b = c.el.getBoundingClientRect(); return b.width <= 1 || b.height <= 1; })());
-  };
-  return Array.from(document.body.querySelectorAll('*'))
-    .filter((el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getClientRects().length && shown(el));
+  } finally { reveal.remove(); }
+  return seen;
 }
 
 /**
@@ -2399,7 +2486,7 @@ export function zoomTextBaseline() {
   window.__vqaZoomTextLive = live;
   return { holders: holders.length, floor, words };
 }
-zoomTextBaseline.helpers = [zoomClipChain, zoomTextHolders];
+zoomTextBaseline.helpers = [zoomClipChain, zoomVisibleRect, zoomObscures, zoomVisibility, zoomTextHolders];
 
 /**
  * Text grows with the zoom (T3, WCAG 1.4.4). Page zoom scales every CSS
@@ -2457,7 +2544,7 @@ export function zoomTextCompare(input) {
   }
   return { compared: holders.length, matched, unmatched, minRatio: matched ? minRatio : null, changed };
 }
-zoomTextCompare.helpers = [zoomClipChain, zoomTextHolders];
+zoomTextCompare.helpers = [zoomClipChain, zoomVisibleRect, zoomObscures, zoomVisibility, zoomTextHolders];
 
 /** Before a live zoom change: remember where focus is (T3). */
 export function zoomBeforeChange() {
@@ -2488,31 +2575,21 @@ export async function zoomTransitionProbe() {
   const lost = !active || active === document.body || active === document.documentElement;
   if (lost && before && before !== document.body && before !== document.documentElement) {
     fail('focus fell to the document when the zoom changed (it was on ' + describe(before) + ')');
-  } else if (!lost) {
-    const style = getComputedStyle(active);
-    const r = active.getBoundingClientRect();
-    const main = active === document.querySelector('main');
-    if (!active.isConnected || !active.getClientRects().length || style.visibility === 'hidden' || (!main && r.width <= 1 && r.height <= 1)) {
-      fail('focus is left on ' + describe(active) + ', which the new composition does not show');
-    } else if (active.closest('[inert]')) {
-      fail('focus is left on ' + describe(active) + ', inside an inert region');
-    } else if (!main && (() => { let o = 1; for (let n = active; n; n = n.parentElement) o *= parseFloat(getComputedStyle(n).opacity); return o < 0.05; })()) {
-      fail('focus is left on ' + describe(active) + ', which the zoom change has made transparent');
-    } else if (!main) {
-      // On screen, and not under anything: the focused control is where the
-      // operator can see it after the page reflowed, at every step.
-      const vw = document.documentElement.clientWidth; const vh = document.documentElement.clientHeight;
-      const seen = zoomVisibleRect(r, zoomClipChain(active), vw, vh);
-      const { left, top, right, bottom } = seen;
-      if (seen.unmeasured) fail('focus is left on ' + describe(active) + ', clipped by ' + describe(seen.unmeasured.el) + ' with ' + seen.unmeasured.what + ', which the harness cannot measure');
-      else if (seen.width < 1 || seen.height < 1) fail('focus is left on ' + describe(active) + ', out of view after the zoom change');
-      else {
-        const hit = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
-        const tip = hit && hit.closest('.tooltip, [role="tooltip"]');
-        const ownTip = tip && ((active.getAttribute('aria-describedby') || '').split(/\s+/).includes(tip.id) || Boolean(active.closest('.tooltip-anchor')?.contains(tip)));
-        const own = hit && (hit === active || active.contains(hit) || (active.labels && Array.from(active.labels).some((label) => label.contains(hit))) || ownTip);
-        if (!own) fail('focus is left on ' + describe(active) + ', covered by ' + describe(hit) + ' after the zoom change');
-      }
+  } else if (!lost && active !== document.querySelector('main')) {
+    // Judged by the one account of what is seen (zoomVisibility): the
+    // focused control is where the operator can see it after the reflow.
+    const v = zoomVisibility(active);
+    if (!active.isConnected || v.hidden === 'not rendered') fail('focus is left on ' + describe(active) + ', which the new composition does not show');
+    else if (v.inert) fail('focus is left on ' + describe(active) + ', inside an inert region');
+    else if (v.hidden) fail('focus is left on ' + describe(active) + ', which the zoom change has left ' + v.hidden);
+    else if (v.seen.unmeasured) fail('focus is left on ' + describe(active) + ', clipped by ' + describe(v.seen.unmeasured.el) + ' with ' + v.seen.unmeasured.what + ', which the harness cannot measure');
+    else if (v.seen.width < 1 || v.seen.height < 1) fail('focus is left on ' + describe(active) + ', out of view after the zoom change');
+    else {
+      const hit = document.elementFromPoint((v.seen.left + v.seen.right) / 2, (v.seen.top + v.seen.bottom) / 2);
+      const tip = hit && hit.closest('.tooltip, [role="tooltip"]');
+      const ownTip = tip && ((active.getAttribute('aria-describedby') || '').split(/\s+/).includes(tip.id) || Boolean(active.closest('.tooltip-anchor')?.contains(tip)));
+      const own = hit && (hit === active || active.contains(hit) || (active.labels && Array.from(active.labels).some((label) => label.contains(hit))) || ownTip);
+      if (!own) fail('focus is left on ' + describe(active) + ', covered by ' + describe(hit) + ' after the zoom change');
     }
   }
   const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).filter((m) => !m.closest('[inert]'));
@@ -2522,4 +2599,4 @@ export async function zoomTransitionProbe() {
   if (!top && inert) fail(inert + ' region(s) are left inert after the zoom change with no overlay open');
   return { findings, focus: describe(active), modals: modals.length };
 }
-zoomTransitionProbe.helpers = [zoomClipChain, zoomVisibleRect];
+zoomTransitionProbe.helpers = [zoomClipChain, zoomVisibleRect, zoomVisibility];
