@@ -39,6 +39,11 @@ if (path === '/plain' || path === '/pointer') {
   button('Alpha', () => say('Alpha pressed'));
   button('Beta', () => say('Beta pressed'));
 }
+if (path === '/datetime') {
+  const label = document.createElement('label'); label.htmlFor = 'when'; label.textContent = 'When';
+  const input = document.createElement('input'); input.id = 'when'; input.type = 'datetime-local';
+  document.querySelector('main').append(label, input);
+}
 if (path === '/ghost') {
   button('Alpha', () => {});
   const ghost = button('Ghost', () => {}); ghost.style.opacity = '0';
@@ -115,6 +120,30 @@ describe('the keyboard-journey runner', { timeout: 300_000 }, () => {
     const tab = result.steps.find((s) => s.action === 'tab-to');
     assert.equal(tab.focusAfter, 'button "Beta"');
     assert.ok(tab.stops.length >= 2, 'the Tab stops are recorded');
+  });
+
+  it('types a date and time into the field segment by segment, in the order the field shows them', async () => {
+    const result = await run({
+      id: 'datetime', title: 'datetime', start: '/datetime', ready: 'Boolean(document.querySelector("input"))',
+      async run(op) {
+        await op.tabTo({ name: 'When' });
+        await op.enterDateTime('2026-09-14T20:05');
+        await op.done('the field holds the value', 'document.querySelector("input").value === "2026-09-14T20:05" && "held"');
+      },
+    });
+    assert.equal(result.failure, null);
+    const typed = result.steps.find((s) => s.segments);
+    assert.match(typed.segments, /day|month/);
+    assert.ok(typed.presses >= 12, 'every digit a key');
+  });
+
+  it('refuses to type a date and time where focus is not on such a field', async () => {
+    const result = await run({
+      id: 'datetime-elsewhere', title: 'datetime elsewhere', start: '/plain', ready: 'Boolean(document.querySelector("button"))',
+      async run(op) { await op.tabTo({ name: 'Alpha', role: 'button' }); await op.enterDateTime('2026-09-14T20:05'); await op.done('never', 'true'); },
+    });
+    assert.equal(result.passed, false);
+    assert.match(result.failure, /not on a date and time field/);
   });
 
   it('fails a target the keyboard cannot reach, within its bound', async () => {

@@ -51,10 +51,18 @@ const KEY_CODES = Object.freeze({
   ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46,
 });
 
-export async function launch() {
+/**
+ * `lang`: the browser's own UI locale (X2's journey lane). A native control's
+ * segments — a `datetime-local`'s day/month order, its 12- or 24-hour clock —
+ * follow it, not the page's emulated locale, and it otherwise comes from the
+ * host (en-GB on one workstation, en-US on a CI runner).
+ */
+export async function launch({ lang } = {}) {
   const binary = findChromium();
   const profile = mkdtempSync(join(tmpdir(), 'mavi-visual-qa-'));
+  const env = lang ? { ...process.env, LANG: `${lang.replace('-', '_')}.UTF-8`, LANGUAGE: lang.replace('-', '_') } : process.env;
   const child = spawn(binary, [
+    ...(lang ? [`--lang=${lang}`, `--accept-lang=${lang}`] : []),
     '--headless=new',
     '--remote-debugging-port=0',
     `--user-data-dir=${profile}`,
@@ -63,7 +71,7 @@ export async function launch() {
     '--hide-scrollbars',
     '--force-color-profile=srgb',
     '--disable-lcd-text',
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  ], { stdio: ['ignore', 'ignore', 'pipe'], env });
 
   // Until the browser is fully up the caller has no browser object to close,
   // so a failure on the way owns the cleanup: the process and its profile go

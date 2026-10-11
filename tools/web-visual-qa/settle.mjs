@@ -93,15 +93,19 @@ function installObservers(transient) {
     vqa.observers.push({ observer, handle });
   }
   vqa.mark = (name) => { vqa.marks[name] = performance.now(); return vqa.marks[name]; };
-  // The overlay's invoker (§15, §20): the last element focused outside any
+  // The overlay's invoker (§15, §20): the last control focused outside any
   // modal before focus first enters that modal. Later focus moves — the focus
-  // pass walking the page while a drawer is open — never replace it.
+  // pass walking the page while a drawer is open — never replace it. Only a
+  // control invokes: focus parked on a container (a route change handing it
+  // to the workspace's main, X2) opens nothing, and clears the last control,
+  // which is no longer where the operator is.
+  const CONTROL = 'a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="gridcell"], [role="treeitem"], [contenteditable="true"]';
   vqa.lastOutsideFocus = null;
   vqa.invoker = null;
   vqa.invokerFor = null;
   document.addEventListener('focusin', (event) => {
     const modal = event.target && event.target.closest ? event.target.closest('[role="dialog"][aria-modal="true"]') : null;
-    if (!modal) { vqa.lastOutsideFocus = event.target; return; }
+    if (!modal) { vqa.lastOutsideFocus = event.target.matches && event.target.matches(CONTROL) ? event.target : null; return; }
     if (vqa.invokerFor !== modal) { vqa.invokerFor = modal; vqa.invoker = vqa.lastOutsideFocus; }
   }, true);
 }

@@ -315,6 +315,49 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
       step({ ...entry, observed: 'typed; focus valid', pass: true });
     },
     /**
+     * A `datetime-local`'s value, typed into its segments as an operator
+     * reads them: the segment order (day, month, year, hour, minute, and a
+     * 12-hour clock's AM/PM) is the browser's own, by its locale, and is read
+     * from the focused control's rendering — observed, never set — then each
+     * segment is typed with keys (Tab after a year, which does not advance by
+     * itself). The value is then checked as the field holds it.
+     */
+    async enterDateTime(value, { note } = {}) {
+      const before = await focus();
+      const entry = { action: 'type', key: JSON.stringify(value), focusBefore: summary(before), routeBefore: before.route, note };
+      if (before.tag !== 'input' || before.type !== 'datetime-local') fail(entry, `focus is on ${summary(before)}, not on a date and time field`);
+      const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+      if (!m) throw new HarnessError(`enterDateTime takes YYYY-MM-DDTHH:MM, not ${value}`);
+      const [, year, month, day, hour, minute] = m;
+      const { root } = await browser.cdp('DOM.getDocument', { depth: 0 });
+      const { nodeId } = await browser.cdp('DOM.querySelector', { nodeId: root.nodeId, selector: '[data-vqa-journey-focus]' });
+      const { node } = await browser.cdp('DOM.describeNode', { nodeId, depth: -1, pierce: true });
+      const order = [];
+      const walk = (n) => {
+        const a = n.attributes ?? []; const i = a.indexOf('pseudo');
+        const f = i === -1 ? null : /^-webkit-datetime-edit-(day|month|year|hour|minute|ampm)-field$/.exec(a[i + 1]);
+        if (f) order.push(f[1]);
+        for (const c of [...(n.shadowRoots ?? []), ...(n.children ?? [])]) walk(c);
+      };
+      walk(node);
+      if (order.length < 5) fail(entry, `the field's segments could not be read (${order.join(', ') || 'none'})`);
+      const twelve = order.includes('ampm');
+      const h = Number(hour);
+      const keys = { day, month, year, minute, hour: twelve ? String(h % 12 === 0 ? 12 : h % 12).padStart(2, '0') : hour, ampm: h < 12 ? 'A' : 'P' };
+      markRequests();
+      entry.presses = 0;
+      for (const [index, segment] of order.entries()) {
+        for (const ch of keys[segment]) { await browser.press(ch, codeOf(ch)); entry.presses += 1; }
+        if (segment === 'year' && index < order.length - 1) { await browser.press('Tab', 'Tab'); entry.presses += 1; }
+      }
+      await quiet();
+      entry.segments = order.join(' ');
+      const held = await browser.evaluate('document.activeElement && document.activeElement.value');
+      if (held !== value) fail(entry, `the field holds ${JSON.stringify(held)}, not ${value} (segments ${entry.segments})`);
+      await judge(entry);
+      step({ ...entry, observed: `typed by segment (${entry.segments}); the field holds ${held}`, pass: true });
+    },
+    /**
      * Tab (or Shift+Tab) until focus is on the named control — by its
      * accessible name and role — within a strict maximum, every stop recorded.
      * Never focuses the target itself.
@@ -463,7 +506,7 @@ export async function openJourneyLane({ distDir, fixtureDir, mediaDir }) {
   const lane = { scenario: {}, uploads: writeUploads(join(mediaDir, 'uploads')) };
   lane.server = await startServer({ distDir, fixtureDir, scenario: () => lane.scenario, footage: () => ensureFootage(mediaDir, 'saturated') });
   try {
-    lane.browser = await launch();
+    lane.browser = await launch({ lang: JOURNEY_CONDITION.locale });
     await lane.browser.addInitScript(OBSERVERS);
     await lane.browser.addInitScript(JOURNEY_GUARD);
     // The locale the journeys' segmented fields read (a datetime-local's day,
@@ -535,7 +578,7 @@ export async function runJourney(lane, item, { record, outDir } = {}) {
     rule: 'a11y.keyboard-journeys',
     key: item.key, journey: journey.id, title: journey.title, viewport: viewport.label, tier: viewport.tier,
     passed: !failure && Boolean(terminal()), failure, terminal: terminal(),
-    steps, keyPresses: steps.reduce((n, s) => n + (s.action === 'tab-to' ? s.stops.length : s.action === 'type' ? JSON.parse(s.key).length : s.action === 'checkpoint' ? 0 : 1), 0),
+    steps, keyPresses: steps.reduce((n, s) => n + (s.action === 'tab-to' ? s.stops.length : s.presses ?? (s.action === 'type' ? JSON.parse(s.key).length : s.action === 'checkpoint' ? 0 : 1)), 0),
     pointerEvents: guard.pointer ?? null, syntheticEvents: guard.synthetic ?? null, documentLoadsAfterStart: guard.document != null && documentIndex != null ? guard.document - documentIndex : null,
     pageProblems: browser.problems(), durationMs: Date.now() - startedAt, snapshot,
   };

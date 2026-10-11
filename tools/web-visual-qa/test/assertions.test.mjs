@@ -473,6 +473,14 @@ describe('overlay exit (Escape)', () => {
     assert.equal(exit.restored, false);
     assert.match(exit.focus, /Elsewhere/);
   });
+  it('records no invoker when focus was last parked on a container, not a control (X2)', async () => {
+    await lane.page(DIALOG('open'));
+    await lane.browser.evaluate(`(() => { const b = document.getElementById('open'); b.focus(); const m = document.querySelector('main'); m.tabIndex = -1; m.focus(); b.click(); })()`);
+    await lane.browser.evaluate(toExpression(overlayOpened));
+    await lane.browser.press('Escape');
+    const exit = await lane.browser.evaluate(toExpression(overlayExitProbe));
+    assert.equal(exit.invoker, null);
+  });
   it('records no invoker when nothing outside had focus, so restoration cannot pass', async () => {
     const exit = await exitAfter(DIALOG('open'), { focusInvoker: false });
     assert.equal(exit.invoker, null);

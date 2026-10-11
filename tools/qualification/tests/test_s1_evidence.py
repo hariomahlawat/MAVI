@@ -2524,7 +2524,17 @@ def test_the_quality_gate_retains_a_trx_per_test_project_and_the_web_junit() -> 
     aggregate = [u for u in diagnostic if "name: visual-qa-captures\n" in u.split("\n      - ", 1)[0]]
     assert len(aggregate) == 1
     assert "path: tools/web-visual-qa/.captures/\n" in aggregate[0].split("\n      - ", 1)[0]
-    uploads = [u for u in uploads if u not in diagnostic]
+    # S6/X2: the keyboard journeys' step evidence is diagnostic in the same
+    # way: one upload per journey shard and one aggregate, expiring, outside
+    # qualification-evidence/, never merged into the canonical result.
+    journeys = [u for u in uploads if "name: keyboard-journey" in u.split("\n      - ", 1)[0]]
+    assert len(journeys) == 2
+    for upload in journeys:
+        step = upload.split("\n      - ", 1)[0]
+        assert "retention-days: 14\n" in step, step
+        assert "qualification-evidence" not in step, step
+    assert any("name: keyboard-journeys\n" in u.split("\n      - ", 1)[0] for u in journeys)
+    uploads = [u for u in uploads if u not in diagnostic and u not in journeys]
     assert len(uploads) == 3
     for upload in uploads:
         step = upload.split("\n      - ", 1)[0]

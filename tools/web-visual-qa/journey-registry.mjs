@@ -254,9 +254,7 @@ const REGISTERED = [
       await op.type('C');
       await op.until('Camera reads CAM-01', 'Array.from(document.querySelectorAll("select")).some((s) => /^CAM-01/.test(s.selectedOptions[0]?.textContent.trim() ?? "")) && "CAM-01"');
       await op.tabTo({ name: 'Recording local date/time' }, { note: 'the recording\'s local start' });
-      await op.type('14092026', { note: 'day, month, year (en-GB)' });
-      await op.press('Tab', { note: 'the field\'s own time segments' });
-      await op.type('0800');
+      await op.enterDateTime('2026-09-14T08:00', { note: 'segment by segment, in the order the field shows them' });
       await op.until('the recording start reads 14 Sept 2026, 08:00', '(() => { const i = document.querySelector("input[type=datetime-local]"); return i && i.value === "2026-09-14T08:00" && i.value; })()');
       await op.tabTo({ name: /MP4 file/ }, { note: 'the file field' });
       await op.chooseFile(op.upload('north-gate-0800.mp4'), { key: 'Enter' });

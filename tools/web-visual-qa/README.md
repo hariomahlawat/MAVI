@@ -569,8 +569,8 @@ refuses them in a case), and the journey aggregate is its evidence.
 `journeys.mjs` runs the six frozen journeys of plan §5.3, registered in
 `journey-registry.mjs` in the plan's order, at the workstation compositions
 (`JOURNEY_CONDITION`: 1366×768 Tier A, 1024×768 and 768×1024 Tier B) — 18
-executions — with the locale pinned (`en-GB`, the order of a `datetime-local`'s
-segments):
+executions — the browser launched in `en-GB` (`--lang`) and the page's locale
+emulated the same:
 
 | # | Journey (`id`) | Starts at | What the operator does, by keyboard |
 |---|---|---|---|
@@ -586,7 +586,11 @@ action is a key through the input pipeline (`cdp.mjs` `press`: `rawKeyDown`,
 `char`, `keyUp`) — Tab, Shift+Tab, Enter, Space, Escape, arrows, Home/End,
 `j`/`k`, the Evidence Player's grammar and the Scene Editor's. The operator
 object (`createOperator`) is all a journey is given: `press`, `type`, `tabTo`,
-`until`, `route`, `requested`, `chooseFile`, `done`. `tabTo` presses Tab (or
+`until`, `route`, `requested`, `chooseFile`, `enterDateTime`, `done`.
+`enterDateTime` reads the focused `datetime-local`'s segment order from its
+rendering (`DOM.describeNode` with `pierce`, observed, never set) — day, month,
+year, hour, minute and, on a 12-hour clock, AM/PM follow the host's locale,
+not the page's — and types each segment with keys. `tabTo` presses Tab (or
 Shift+Tab) up to a strict bound and matches the focused control by its
 accessible name and role from Chromium's accessibility tree (`axNames`), and,
 where names repeat, by its row's text or its labelled landmark or group
