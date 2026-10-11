@@ -6,8 +6,9 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-// These runs count cases of the plan's anchors: the X1 text-spacing lane (its
-// own tests in a11y.test.mjs) is left out so the counts stay the anchors'.
+// These runs count cases of the plan's anchors: the X1 text-spacing and X4
+// reduced-motion lanes (their own tests in a11y.test.mjs and motion.test.mjs)
+// are left out so the counts stay the anchors'.
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,7 +35,7 @@ describe('a held request is released only once its document is gone', () => {
     // row's status once and then fails (a sequenced fixture). Released while
     // the loading page was alive, its retry consumed the first answer, and
     // the degraded state was never reached: an order a sharded sweep runs.
-    const run = spawnSync(process.execPath, [RUN, '--states', 'processing-queue-loading,processing-queue-row-degraded', '--tiers', 'A', '--widths', '1366', '--zoom', 'none', '--workers', '1', '--text-spacing', 'none'], {
+    const run = spawnSync(process.execPath, [RUN, '--states', 'processing-queue-loading,processing-queue-row-degraded', '--tiers', 'A', '--widths', '1366', '--zoom', 'none', '--workers', '1', '--text-spacing', 'none', '--reduced-motion', 'none'], {
       env: { ...process.env, MAVI_VQA_OUT: out }, encoding: 'utf8', timeout: 180_000,
     });
     assert.equal(run.error, undefined, 'the run hung');
@@ -59,7 +60,7 @@ export const STATES = [
 ];
 `);
     const out = join(dir, 'captures');
-    const run = spawnSync(process.execPath, [RUN, '--states', 'test-unreachable,videos', '--tiers', 'C', '--widths', '390', '--workers', '1', '--text-spacing', 'none'], {
+    const run = spawnSync(process.execPath, [RUN, '--states', 'test-unreachable,videos', '--tiers', 'C', '--widths', '390', '--workers', '1', '--text-spacing', 'none', '--reduced-motion', 'none'], {
       env: { ...process.env, MAVI_VQA_STATES_MODULE: module, MAVI_VQA_OUT: out },
       encoding: 'utf8',
       timeout: 120_000,

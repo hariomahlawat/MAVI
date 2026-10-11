@@ -110,7 +110,7 @@ export const SURFACES = {
  */
 export const ZOOM_CONDITION = Object.freeze({ width: 1366, height: 768, factor: 2 });
 /** The lanes a rule may be confined to: a case of that lane alone evaluates it. */
-export const LANES = Object.freeze(['zoom', 'text-spacing']);
+export const LANES = Object.freeze(['zoom', 'text-spacing', 'reduced-motion']);
 
 /** The ten operator surfaces (§23 "every other surface keeps its function"). */
 export const OPERATOR_SURFACES = Object.keys(SURFACES).filter((name) => name !== 'foundation' && name !== 'not-found');
@@ -330,10 +330,20 @@ export const RULES = {
     },
   },
   // --- Known rules not yet evaluated by any code ------------------------------
+  // The reduced-motion lane (X4, §13): a case of the lane loads the state
+  // with Chromium emulating `prefers-reduced-motion: reduce` from before its
+  // first document (cdp.mjs reducedMotion, Emulation.setEmulatedMedia) at one
+  // canonical anchor per distinct composition (REDUCED_MOTION_CONDITION) and
+  // its probe widths, and is judged by every rule of its tier; this rule holds
+  // that the preference is in force (matchMedia and a CSS media probe agree)
+  // and that no element or ::before/::after has a positive transition or
+  // animation duration, and no running browser animation a positive one
+  // (a11y.mjs a11yReducedMotion; engine.reducedMotionCoverageFaults on the
+  // full sweep). Evaluated only in a reduced-motion case (`lane`).
   'a11y.reduced-motion': {
-    section: '§13, §23', kind: 'future', execution: 'not evaluated until S6 adds the reduced-motion emulation pass',
-    summary: 'Under prefers-reduced-motion no transition or animation runs.',
-    tiers: { A: pending('S6 / X4'), B: pending('S6 / X4'), C: pending('S6 / X4') },
+    section: '§13, §23', kind: 'assertion', lane: 'reduced-motion',
+    summary: 'With prefers-reduced-motion: reduce emulated before first paint, every element and pseudo-element computes a zero transition and animation duration, and no running animation has a positive duration.',
+    tiers: s1(),
   },
   'a11y.keyboard-journeys': {
     section: '§23', kind: 'future', execution: 'not evaluated until S6 scripts the six keyboard-only operator journeys',
@@ -434,6 +444,17 @@ export const TEXT_SPACING_CONDITION = Object.freeze({
 });
 
 /**
+ * X4 (§13, §23): the reduced-motion lane's frozen condition — the media
+ * feature Chromium emulates and the same canonical anchors as the
+ * text-spacing lane (one per distinct composition, §25). A state's probe
+ * widths are added by the plan.
+ */
+export const REDUCED_MOTION_CONDITION = Object.freeze({
+  anchors: TEXT_SPACING_CONDITION.anchors,
+  media: Object.freeze({ name: 'prefers-reduced-motion', value: 'reduce' }),
+});
+
+/**
  * The status of a rule at a tier — for a surface-scoped rule, on the surface
  * the finding belongs to — or a thrown error for anything unregistered.
  */
@@ -482,7 +503,10 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
     for (const tier of TIERS) {
       if (entry.tiers?.[tier]?.status === 'measured/pending' && /T3/.test(entry.tiers[tier].owner ?? '')) problems.push(`${id} @ ${tier}: still owned by T3 after T3`);
       if (entry.tiers?.[tier]?.status === 'measured/pending' && /X1/.test(entry.tiers[tier].owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X1 after X1`);
+      // X4: reduced motion is asserted; nothing stays owned by X4.
+      if (/X4/.test(entry.tiers?.[tier]?.owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X4 after X4`);
     }
+    if (id === 'a11y.reduced-motion' && (entry.kind !== 'assertion' || entry.lane !== 'reduced-motion')) problems.push(`${id}: X4 asserts it in the reduced-motion lane`);
     if (id === 'a11y.section23-remaining') problems.push(`${id}: the X1 placeholder is retired; every §23 obligation has its own rule`);
     if (entry.scope === 'surface' && entry.tiers?.A?.status !== 'blocking') problems.push(`${id}: a surface-scoped rule must block at Tier A, where S1 owns it`);
     if (implemented) {

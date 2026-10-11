@@ -24,6 +24,8 @@ node --test 'tools/web-visual-qa/test/*.test.mjs'   # the harness's own tests
 | `--tiers A` | only the anchors and probes of these support tiers |
 | `--widths 1366,2560` | only these widths |
 | `--zoom only` / `--zoom none` | only the 200% browser-zoom cases, or none of them (T3) |
+| `--text-spacing only` / `--text-spacing none` | only the WCAG 1.4.12 text-spacing cases, or none of them (X1) |
+| `--reduced-motion only` / `--reduced-motion none` | only the `prefers-reduced-motion: reduce` cases, or none of them (X4) |
 | `--workers 3` | parallel lanes (default: CPUs − 1, at most 4) |
 | `--repeat 5` | prepare every selected case this many times, independently, and require one settled state |
 | `--keep` | report blocking findings but exit 0 |
@@ -44,14 +46,15 @@ unsharded full run applies (`engine.sweepChecks`: a loading Ledger against its
 table, pressed treatments proven somewhere, every operator surface judged at
 200%, no blocking rule left unevaluated, overlay restoration judged at Tier A)
 and fails on any blocking finding. The aggregate's `results.json` carries every
-shard's cases and findings; its exit status is `run.mjs`'s. A future lane (the
-S6/X1 text-spacing lane) shards the same way: it is a plan, and
-`partitionCases` partitions plans.
+shard's cases and findings; its exit status is `run.mjs`'s. The lanes (T3's zoom,
+X1's text spacing, X4's reduced motion) shard the same way: a lane's cases are
+a state's cases, and `partitionCases` partitions plans; the aggregate proves
+each lane's coverage over the union of the shards.
 
 **Test groups (CI).** The harness's own tests run in four concurrent groups:
 `MAVI_VQA_TEST_GROUP=unit` runs every file but skips the tests declared with
 `e2eIt` — the long end-to-end runs of `run.mjs` in `zoom.test.mjs`,
-`run.test.mjs` and `shard.test.mjs`; `MAVI_VQA_TEST_GROUP=e2e-i/n` runs the i-th
+`run.test.mjs`, `shard.test.mjs`, `a11y.test.mjs` and `motion.test.mjs`; `MAVI_VQA_TEST_GROUP=e2e-i/n` runs the i-th
 of n groups of those, each test in exactly one group by its order in the file,
 and nothing else from those files (`test/browser.mjs` `testGroup`, `e2eIt`,
 `unitBlock`). The short `run.mjs` spawns in `engine.test.mjs` stay in the unit
@@ -502,6 +505,42 @@ an accessibility engine; every rule is one obligation.
 | `a11y.hover-content` | the custom `Tooltip` driven through the input pipeline (`probes.mjs`): shown on focus and on hover, persistent while held, hoverable (the pointer moves onto it), dismissed by Escape without moving focus (not pressed while an overlay or inspector is open, whose Escape the exit probe judges), hidden once both leave; native `title` is the browser's and not driven | not hoverable; ignores Escape; fades under focus |
 
 Stated limits: the names rule compares the computed name with the control's rendered text after a bounded normalisation (case, punctuation, whitespace); the state-cue luminance step composites every layer behind an element down to white, and reads only colours Chromium serialises as rgb/rgba (a `color()` result is never credited); a marked control with no sibling of its kind, in a row with no sibling row, is counted as unjudged (`measured.stateCues.unjudged`), never passed; the live-region rule judges mounting only across a state's preparation (the first load's loading → content transition is not judged) and counts frames by `requestAnimationFrame`; the tooltip rule's key hint is a bounded grammar (up to four words, no sentence punctuation, after the control's name); the spatial twin is held to the coordinates the drawing states in `data-points`/`data-endpoints`, in the list's own format; the hover probe does not press Escape on a trigger inside a closable overlay (its Escape is the exit probe's) and does not charge a focus move that came with an overlay closing; the shortcuts probe types into the first text-entry field only (number fields refuse the character by their nature); the reading-order and tab-order rules judge declared containers only, and treat a column-flow container as read down its columns.
+
+## X4 (§13): reduced motion
+
+`a11y.reduced-motion` is an assertion confined to its own lane (`lane:
+'reduced-motion'`, blocking at A, B and C). A case of the lane loads the state
+with Chromium emulating the preference itself — `cdp.mjs` `reducedMotion(true)`,
+`Emulation.setEmulatedMedia` with `prefers-reduced-motion: reduce` — set on the
+target before the case's first document; every case sets it (`false` clears the
+emulated features), so no case inherits another's, and every case records the
+preference it ran under (`motionMedia`). The lane's cases are the text-spacing
+lane's: one canonical anchor per distinct composition (`REDUCED_MOTION_CONDITION`:
+1366×768, 1024×768, 768×1024, 390×844 — 1440, 1920 and 2560 render Tier A's
+composition again) plus each state's declared probe widths, judged by every rule
+of their tier as well (a zero duration is behaviour too: a `transitionend` that
+never fires).
+
+| Part | What it checks | Fails on |
+|---|---|---|
+| the environment (`a11yMotionEnvironment`) | the preference read two ways that must agree: `matchMedia('(prefers-reduced-motion: reduce)')` and the CSS media evaluation of a probe element; a lane case where either is false is not reached (a harness fault, never a pass); an ordinary case where they disagree likewise | a page that replaces `matchMedia`; emulation not applied |
+| the durations (`a11yReducedMotion`) | every element (rendered or not: a hidden element's transition runs when it is shown) and every `::before`/`::after` that generates a box: each entry of `transition-duration` and `animation-duration`, comma lists parsed, `s` and `ms`, must be 0 — strictly, whether or not keyframes or properties are named | a transition or animation left running; one non-zero entry in a list; a duration the harness cannot read |
+| running animations | `document.getAnimations()`: an animation `running` at a non-zero rate whose iteration duration is positive — a CSS animation or transition the stylesheet missed, or a script-driven Web Animation the stylesheet cannot reach; a zero-duration, paused or finished one moves nothing and passes | a script `element.animate()` with a duration |
+| coverage (`engine.reducedMotionCoverageFaults`, full sweep and aggregate) | every planned lane case ran, was reached, had the preference proven and judged at least one element | a composition or probe width missing; a case not reached, not proven or judging nothing |
+
+The control: every ordinary case measures, without judging, the motion its page
+has under the normal preference (`normalMotion`: per site, the longest duration)
+— the activity pulse at `--dur-pulse` (1.2s), the spinner at `--dur-spin` (0.8s),
+the `--dur` (120ms) transitions — so the contract is proven to suppress motion
+that exists, not motion that was never there. The report states both.
+
+Stated limits: the pseudo-elements judged are `::before` and `::after` (the
+product animates no other; `::marker`, `::placeholder` and `::selection` are not
+read); `getAnimations()` is the document's own (no iframes exist); smooth
+scrolling (`scroll-behavior`, `behavior: 'smooth'`) is not a duration and is not
+read — the product uses neither; delays are not judged (a delayed zero-duration
+animation moves nothing); the preference is judged on the settled state of each
+case and its preparation, not on every intermediate frame.
 
 ## What still needs a person
 

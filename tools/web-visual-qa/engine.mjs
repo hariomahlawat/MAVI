@@ -15,7 +15,7 @@ export class HarnessError extends Error {}
  * A state is swept at every anchor of every tier its policy applies to, plus
  * its probe widths; a tier is absent only through a policy that says why.
  */
-export function planCases({ states, anchors, policies, stateKeys, tierOf, zoom = null, textSpacing = null, onlyStates = null, onlyTiers = null, onlyWidths = null, onlyZoom = null, onlyTextSpacing = null, repeat = 1 }) {
+export function planCases({ states, anchors, policies, stateKeys, tierOf, zoom = null, textSpacing = null, reducedMotion = null, onlyStates = null, onlyTiers = null, onlyWidths = null, onlyZoom = null, onlyTextSpacing = null, onlyReducedMotion = null, repeat = 1 }) {
   const applicability = states.map((state) => {
     for (const key of Object.keys(state)) {
       if (!stateKeys.has(key)) throw new HarnessError(`state ${state.name} carries unknown key "${key}"`);
@@ -48,6 +48,7 @@ export function planCases({ states, anchors, policies, stateKeys, tierOf, zoom =
     }
     if (zoom) viewports.push(...zoomViewports(state, applies, zoom, tierOf));
     if (textSpacing) viewports.push(...textSpacingViewports(state, applies, textSpacing, tierOf));
+    if (reducedMotion) viewports.push(...reducedMotionViewports(state, applies, reducedMotion, tierOf));
     for (const viewport of viewports) {
       if (onlyTiers && !onlyTiers.includes(viewport.tier)) continue;
       if (onlyWidths && !onlyWidths.includes(viewport.width)) continue;
@@ -56,9 +57,12 @@ export function planCases({ states, anchors, policies, stateKeys, tierOf, zoom =
       if (onlyZoom === 'none' && viewport.zoom) continue;
       if (onlyTextSpacing === 'only' && !viewport.textSpacing) continue;
       if (onlyTextSpacing === 'none' && viewport.textSpacing) continue;
-      // A zoom-only or spacing-only run is of that lane alone.
-      if (onlyZoom === 'only' && viewport.textSpacing) continue;
-      if (onlyTextSpacing === 'only' && viewport.zoom) continue;
+      if (onlyReducedMotion === 'only' && !viewport.reducedMotion) continue;
+      if (onlyReducedMotion === 'none' && viewport.reducedMotion) continue;
+      // A zoom-only, spacing-only or reduced-motion-only run is of that lane alone.
+      if (onlyZoom === 'only' && (viewport.textSpacing || viewport.reducedMotion)) continue;
+      if (onlyTextSpacing === 'only' && (viewport.zoom || viewport.reducedMotion)) continue;
+      if (onlyReducedMotion === 'only' && (viewport.zoom || viewport.textSpacing)) continue;
       for (let attempt = 1; attempt <= repeat; attempt += 1) cases.push({ state, viewport, attempt, surface });
     }
   }
@@ -134,6 +138,47 @@ function textSpacingViewports(state, applies, textSpacing, tierOf) {
     out.push({ width, height: 900, label, tier: tierOf(width), kind: 'text-spacing', textSpacing: true });
   }
   return out;
+}
+
+/**
+ * X4 (§13, §23): a state's reduced-motion cases — the state loaded with
+ * Chromium emulating `prefers-reduced-motion: reduce` from before its first
+ * document, at the same canonical anchors as the text-spacing lane (one per
+ * distinct responsive composition the state is swept at) and at each of its
+ * declared probe widths. Judged at the tier the width falls in, by every rule
+ * of that tier plus a11y.reduced-motion: the preference changes no layout, but
+ * a zero duration is behaviour too (a transitionend that never fires).
+ */
+function reducedMotionViewports(state, applies, reducedMotion, tierOf) {
+  const out = [];
+  for (const anchor of reducedMotion.anchors) {
+    if (!applies.tiers.includes(anchor.tier)) continue;
+    out.push({ width: anchor.width, height: anchor.height, tier: anchor.tier, label: `${anchor.width}x${anchor.height}@reduced-motion`, kind: 'reduced-motion', reducedMotion: true });
+  }
+  for (const width of state.probeWidths ?? []) {
+    const label = `${width}x900@reduced-motion`;
+    if (out.some((viewport) => viewport.label === label)) continue;
+    out.push({ width, height: 900, label, tier: tierOf(width), kind: 'reduced-motion', reducedMotion: true });
+  }
+  return out;
+}
+
+/**
+ * The reduced-motion lane's coverage (X4): on the full sweep every planned
+ * reduced-motion case produced a valid capture with the preference proven in
+ * force and the rule judging at least one element — a state the lane never
+ * judged at one of its compositions is a fault, never a pass.
+ */
+export function reducedMotionCoverageFaults(results, plannedKeys) {
+  const faults = [];
+  for (const key of plannedKeys.filter((k) => /@reduced-motion#\d+$/.test(k))) {
+    const r = results.find((x) => caseKey(x) === key);
+    const where = key.replace(/#\d+$/, '').replace('@', ' @ ');
+    if (!r || !r.valid) faults.push(`a11y.reduced-motion: ${where} has no valid capture`);
+    else if (!r.reducedMotion?.active) faults.push(`a11y.reduced-motion: ${where} ran without prefers-reduced-motion: reduce proven in force`);
+    else if (!(r.reducedMotion.measured?.elements > 0)) faults.push(`a11y.reduced-motion: ${where} judged no element`);
+  }
+  return faults;
 }
 
 /**
@@ -227,6 +272,7 @@ export function createLedger(rules = RULES, surfaces = SURFACES) {
     // T3: a zoom rule is judged only where the browser's page zoom is set.
     if (rules[rule].lane === 'zoom' && !c?.viewport?.zoom) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}, which is not a zoom case`);
     if (rules[rule].lane === 'text-spacing' && !c?.viewport?.textSpacing) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}, which is not a text-spacing case`);
+    if (rules[rule].lane === 'reduced-motion' && !c?.viewport?.reducedMotion) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}, which is not a reduced-motion case`);
     let at;
     try { at = severityOf(rule, tier, surface, { rules, surfaces }); } catch (error) { throw new HarnessError(`${rule} ${what}: ${error.message}`); }
     if (at.status === 'not-applicable') {
@@ -438,6 +484,7 @@ export function sweepChecks({ results, cases, errored, ledger, surfaces, loading
   }
   if (fullSweep) faults.push(...zoomCoverageFaults(results, surfaces));
   if (fullSweep && plannedKeys) faults.push(...textSpacingCoverageFaults(results, plannedKeys));
+  if (fullSweep && plannedKeys) faults.push(...reducedMotionCoverageFaults(results, plannedKeys));
   const vacuous = fullSweep && !faults.length ? ledger.vacuous() : [];
   if (vacuous.length) faults.push('blocking rules the full sweep never evaluated: ' + vacuous.join(', '));
   if (fullSweep && !faults.length) {

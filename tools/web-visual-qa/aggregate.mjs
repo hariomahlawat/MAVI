@@ -139,6 +139,8 @@ const byTier = Object.fromEntries(TIERS.map((tier) => [tier, {
   anchorCaptures: valid.filter((r) => r.tier === tier && r.kind === 'anchor').length,
   probeCaptures: valid.filter((r) => r.tier === tier && r.kind === 'probe').length,
   zoomCaptures: valid.filter((r) => r.tier === tier && (r.kind === 'zoom' || r.kind === 'zoom-transition')).length,
+  spacingCaptures: valid.filter((r) => r.tier === tier && r.kind === 'text-spacing').length,
+  motionCaptures: valid.filter((r) => r.tier === tier && r.kind === 'reduced-motion').length,
   invalid: results.filter((r) => r.tier === tier && !r.valid).length + errored.filter((e) => e.tier === tier).length,
   blocking: findings.filter((f) => f.tier === tier && f.severity === 'blocking').length,
   pending: findings.filter((f) => f.tier === tier && f.severity === 'measured/pending').length,
@@ -146,6 +148,10 @@ const byTier = Object.fromEntries(TIERS.map((tier) => [tier, {
 const blocking = findings.filter((f) => f.severity === 'blocking');
 const pending = findings.filter((f) => f.severity === 'measured/pending');
 const zoomResults = results.filter((r) => r.zoom);
+// X4: the reduced-motion lane over the union of the shards — its coverage
+// fault is sweepChecks' (engine.reducedMotionCoverageFaults, by planned key).
+const motionResults = results.filter((r) => r.kind === 'reduced-motion');
+const motionSum = (key) => motionResults.reduce((n, r) => n + (r.reducedMotion?.measured?.[key] ?? 0), 0);
 const report = {
   harness: 'web-visual-qa v2 (aggregate of shards)',
   head: first.head,
@@ -168,6 +174,18 @@ const report = {
         .map(([surface, entry]) => ({ surface, ...entry })),
     },
   },
+  reducedMotion: {
+    planned: planned.filter((k) => /@reduced-motion#\d+$/.test(k)).length,
+    valid: motionResults.filter((r) => r.valid).length,
+    active: motionResults.filter((r) => r.reducedMotion?.active).length,
+    byViewport: motionResults.reduce((acc, r) => { const v = (acc[r.viewport] ??= { valid: 0, active: 0, cases: 0 }); v.cases += 1; if (r.valid) v.valid += 1; if (r.reducedMotion?.active) v.active += 1; return acc; }, {}),
+    elements: motionSum('elements'), pseudos: motionSum('pseudos'), transitionValues: motionSum('transitionValues'), animationValues: motionSum('animationValues'),
+    positiveTransitions: motionSum('positiveTransitions'), positiveAnimations: motionSum('positiveAnimations'), unparseable: motionSum('unparseable'),
+    browserAnimations: motionSum('browserAnimations'), browserRunning: motionSum('browserRunning'), browserRunningPositive: motionSum('browserRunningPositive'),
+    otherCasesUnderReduce: results.filter((r) => r.kind !== 'reduced-motion' && r.motionMedia?.matchMedia === true).length,
+    // The normal-preference control over the union: per site, the ordinary cases it ran in and its longest duration.
+    normalSites: results.reduce((sites, r) => { for (const [key, s] of Object.entries(r.normalMotion ?? {})) { const e = (sites[key] ??= { cases: 0, maxMs: 0 }); e.cases += 1; e.maxMs = Math.max(e.maxMs, s.maxMs); } return sites; }, {}),
+  },
   findings: { blocking: blocking.length, pending: pending.length },
   coverage: ledger.coverage,
   pressedUnproven: sweep.pressedUnproven,
@@ -180,7 +198,16 @@ const line = (text = '') => process.stdout.write(text + '\n');
 line(`${valid.length} valid captures of ${planned.length} planned across ${shards.length} shard(s)${fullSweep ? ' (the full sweep)' : ' (a partial selection)'}`);
 for (const tier of TIERS) {
   const t = byTier[tier];
-  line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe${t.zoomCaptures ? ` + ${t.zoomCaptures} zoom` : ''} valid captures, ${t.invalid} invalid; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);
+  line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe${t.zoomCaptures ? ` + ${t.zoomCaptures} zoom` : ''}${t.spacingCaptures ? ` + ${t.spacingCaptures} text-spacing` : ''}${t.motionCaptures ? ` + ${t.motionCaptures} reduced-motion` : ''} valid captures, ${t.invalid} invalid; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);
+}
+{
+  const rm = report.reducedMotion;
+  if (rm.planned) {
+    line(`  reduced motion (§13): ${rm.valid}/${rm.planned} valid with prefers-reduced-motion: reduce proven in force on ${rm.active}; ${Object.entries(rm.byViewport).map(([v, n]) => `${v} ${n.valid}/${n.cases}`).join(', ')}`);
+    const ns = Object.entries(rm.normalSites).filter(([k]) => /^animation /.test(k)).map(([k, s]) => `${k.replace('animation ', '')} ${s.maxMs}ms in ${s.cases}`).join(', ');
+    if (ns) line(`  normal preference (control): ${ns} ordinary case(s)`);
+    line(`  reduced motion judged: ${rm.elements} elements and ${rm.pseudos} pseudo-elements, ${rm.transitionValues} transition and ${rm.animationValues} animation durations; positive: ${rm.positiveTransitions} transition, ${rm.positiveAnimations} animation, ${rm.browserRunningPositive} running browser animation(s) of ${rm.browserAnimations}; ordinary cases under reduce: ${rm.otherCasesUnderReduce}`);
+  }
 }
 const z = report.executions.zoom;
 line(`  200% zoom: ${z.valid.loads} loads and ${z.valid.transitions} transitions valid, ${z.qualified} with the zoom proven`);
@@ -208,9 +235,9 @@ if (process.env.GITHUB_STEP_SUMMARY) {
     '',
     `${valid.length} valid captures of ${planned.length} planned${fullSweep ? ' (full sweep)' : ' (partial selection)'}; head ${first.head}.`,
     '',
-    '| Tier | Valid anchor | Valid probe | Valid 200% zoom | Invalid | Blocking | Measured/pending |',
-    '|---|---|---|---|---|---|---|',
-    ...TIERS.map((tier) => `| ${tier} | ${byTier[tier].anchorCaptures} | ${byTier[tier].probeCaptures} | ${byTier[tier].zoomCaptures} | ${byTier[tier].invalid} | ${byTier[tier].blocking} | ${byTier[tier].pending} |`),
+    '| Tier | Valid anchor | Valid probe | Valid 200% zoom | Valid text spacing | Valid reduced motion | Invalid | Blocking | Measured/pending |',
+    '|---|---|---|---|---|---|---|---|---|',
+    ...TIERS.map((tier) => `| ${tier} | ${byTier[tier].anchorCaptures} | ${byTier[tier].probeCaptures} | ${byTier[tier].zoomCaptures} | ${byTier[tier].spacingCaptures} | ${byTier[tier].motionCaptures} | ${byTier[tier].invalid} | ${byTier[tier].blocking} | ${byTier[tier].pending} |`),
     '',
     ...(faults.length ? ['### Harness errors', ...faults.map((e) => `- ${e}`), ''] : []),
     ...(blocking.length ? ['### Blocking findings', ...blocking.slice(0, 100).map((f) => `- \`${f.state} @ ${f.viewport}\` [${f.rule}] ${f.message}`), ''] : []),

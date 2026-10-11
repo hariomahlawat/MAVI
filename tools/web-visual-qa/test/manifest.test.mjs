@@ -90,7 +90,7 @@ describe('the assertion manifest', () => {
     // rule that judges a Tier C one; a rule a later slice owns at Tier A stays
     // measured against that owner at Tiers B and C.
     const laterOwned = new Set(['perf.cls', 'perf.long-tasks', 'typography.resolved-font',
-      'a11y.reduced-motion', 'a11y.keyboard-journeys']);
+      'a11y.keyboard-journeys']);
     for (const [rule, entry] of Object.entries(RULES)) {
       const atB = entry.tiers.B;
       if (laterOwned.has(rule)) {
@@ -161,7 +161,7 @@ describe('the assertion manifest', () => {
 
   it('keeps the later-slice rules measured with their owners named', () => {
     assert.match(severityOf('perf.cls', 'A').owner, /X3/);
-    assert.match(severityOf('a11y.reduced-motion', 'A').owner, /X4/);
+    assert.match(severityOf('a11y.keyboard-journeys', 'A').owner, /X2/);
     assert.match(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).owner, /R1/);
   });
 
@@ -203,7 +203,7 @@ describe('the assertion manifest', () => {
 
   it('rejects a future rule without an execution policy', () => {
     const rules = clone();
-    delete rules['a11y.reduced-motion'].execution;
+    delete rules['a11y.keyboard-journeys'].execution;
     assert.ok(validateManifest(rules).some((p) => p.includes('future rule without an execution policy')));
   });
 
@@ -225,7 +225,28 @@ describe('the assertion manifest', () => {
       assert.ok(implemented.has(rule), `${rule} not found in the code`);
     }
     assert.ok(implemented.has('a11y.zoom-200'), 'the T3 zoom rule is not found in the code');
-    assert.ok(!implemented.has('a11y.reduced-motion'), 'a future rule appears in the code');
+    assert.ok(implemented.has('a11y.reduced-motion'), 'the X4 reduced-motion rule is not found in the code');
+    assert.ok(!implemented.has('a11y.keyboard-journeys'), 'a future rule appears in the code');
+  });
+
+  it('asserts reduced motion in its own lane, blocking at every tier, with nothing left owned by X4', () => {
+    const entry = RULES['a11y.reduced-motion'];
+    assert.equal(entry.kind, 'assertion');
+    assert.equal(entry.lane, 'reduced-motion');
+    for (const tier of ['A', 'B', 'C']) assert.equal(entry.tiers[tier].status, 'blocking', tier);
+    for (const [id, rule] of Object.entries(RULES)) {
+      for (const tier of ['A', 'B', 'C']) assert.doesNotMatch(rule.tiers[tier].owner ?? '', /X4/, `${id} @ ${tier}`);
+    }
+    // The validator refuses the rule back as a pending marker, an X4-owned
+    // entry anywhere, and the rule outside its lane.
+    let rules = clone();
+    rules['a11y.reduced-motion'] = { section: '§13', kind: 'future', execution: 'later', summary: 'x', tiers: { A: { status: 'measured/pending', owner: 'S6 / X4' }, B: { status: 'measured/pending', owner: 'S6 / X4' }, C: { status: 'measured/pending', owner: 'S6 / X4' } } };
+    let problems = validateManifest(rules);
+    assert.ok(problems.some((p) => p.includes('a11y.reduced-motion @ A: still owned by X4 after X4')), problems.join(' | '));
+    assert.ok(problems.some((p) => p.includes('a11y.reduced-motion: X4 asserts it in the reduced-motion lane')), problems.join(' | '));
+    rules = clone();
+    delete rules['a11y.reduced-motion'].lane;
+    assert.ok(validateManifest(rules).some((p) => p.includes('a11y.reduced-motion: X4 asserts it in the reduced-motion lane')));
   });
 
   it('summarises by tier and status', () => {

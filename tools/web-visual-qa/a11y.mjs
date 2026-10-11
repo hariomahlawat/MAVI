@@ -882,3 +882,119 @@ export function a11yTextSpacingEnvironment() {
   }
   return { problems, lineHeight, letterSpacing: letter, wordSpacing: word, paragraphSpacing: paragraph };
 }
+
+/**
+ * X4 (a11y.reduced-motion): whether the page is under
+ * `prefers-reduced-motion: reduce`, read two ways that must agree — the
+ * MediaQueryList the page's scripts see, and the CSS media evaluation the
+ * stylesheet's own rule depends on (a probe element sized by an
+ * `@media (prefers-reduced-motion: reduce)` rule). A page that replaces
+ * `matchMedia` cannot fake the second; a stylesheet cannot fake the first.
+ */
+export function a11yMotionEnvironment() {
+  const query = '(prefers-reduced-motion: reduce)';
+  const matchMediaReduce = window.matchMedia(query).matches;
+  const style = document.createElement('style');
+  style.textContent = '#vqa-motion-probe{position:absolute;left:-9999px;top:0;width:1px;height:1px}@media ' + query + '{#vqa-motion-probe{width:7px}}';
+  const probe = document.createElement('div');
+  probe.id = 'vqa-motion-probe';
+  document.head.appendChild(style);
+  document.body.appendChild(probe);
+  const cssReduce = probe.getBoundingClientRect().width === 7;
+  probe.remove();
+  style.remove();
+  return { matchMedia: matchMediaReduce, css: cssReduce };
+}
+
+/**
+ * X4 (a11y.reduced-motion, §13): every element and every rendered ::before
+ * and ::after has a zero transition and animation duration — each entry of a
+ * comma-separated list parsed (`0s`, `0ms`, decimal seconds) — and no running
+ * animation the browser exposes (`document.getAnimations()`: CSS animations
+ * and transitions, and any script-driven Web Animation) has a positive
+ * duration. `judge` false measures without findings: the normal-preference
+ * control of the same sites. Elements are judged whether or not they are
+ * rendered now: a hidden element's transition runs when it is shown.
+ */
+export function a11yReducedMotion(input = {}) {
+  const judge = input.judge !== false;
+  const findings = [];
+  const fail = (message) => findings.push({ rule: 'a11y.reduced-motion', message });
+  // A duration list in CSS time units, in ms; NaN for a token that is not one.
+  const durations = (value) => String(value || '').split(',').map((t) => t.trim()).filter(Boolean).map((t) => {
+    const m = /^(-?\d*\.?\d+(?:e[-+]?\d+)?)(ms|s)$/i.exec(t);
+    if (!m) return NaN;
+    const n = parseFloat(m[1]);
+    return m[2].toLowerCase() === 's' ? n * 1000 : n;
+  });
+  const names = (value) => String(value || '').split(',').map((t) => t.trim());
+  const measured = {
+    elements: 0, pseudos: 0, transitionValues: 0, animationValues: 0,
+    positiveTransitions: 0, positiveAnimations: 0, unparseable: 0,
+    browserAnimations: 0, browserRunning: 0, browserRunningPositive: 0, sites: {},
+  };
+  const site = (key, ms) => {
+    const s = measured.sites[key] ?? (measured.sites[key] = { count: 0, maxMs: 0 });
+    s.count += 1;
+    s.maxMs = Math.max(s.maxMs, ms);
+  };
+  const reported = [];
+  for (const el of Array.from(document.querySelectorAll('*'))) {
+    if (el.id === 'vqa-motion-probe') continue;
+    measured.elements += 1;
+    for (const pseudo of [null, '::before', '::after']) {
+      const s = getComputedStyle(el, pseudo);
+      if (pseudo) {
+        // A pseudo-element exists only where its content generates a box.
+        if (s.content === 'none' || s.content === 'normal') continue;
+        measured.pseudos += 1;
+      }
+      const transition = durations(s.transitionDuration);
+      const animation = durations(s.animationDuration);
+      measured.transitionValues += transition.length;
+      measured.animationValues += animation.length;
+      const props = names(s.transitionProperty);
+      const anims = names(s.animationName);
+      transition.forEach((ms, i) => { if (ms > 0) site('transition ' + (props[i] ?? props[props.length - 1] ?? 'all'), ms); });
+      animation.forEach((ms, i) => { if (ms > 0 && (anims[i] ?? 'none') !== 'none') site('animation ' + anims[i], ms); });
+      const badT = transition.some((ms) => ms > 0);
+      // Strict, as §13 reads: every computed duration is zero, whether or not
+      // keyframes are named for it.
+      const badA = animation.some((ms) => ms > 0);
+      const unparsed = transition.some(Number.isNaN) || animation.some(Number.isNaN);
+      if (badT) measured.positiveTransitions += 1;
+      if (badA) measured.positiveAnimations += 1;
+      if (unparsed) measured.unparseable += 1;
+      if (judge && (badT || badA || unparsed) && reported.length < 30) {
+        reported.push(zoomDescribe(el) + (pseudo ?? '') + ' has '
+          + (badA ? 'animation-duration ' + s.animationDuration + ' (' + s.animationName + ')' : 'animation-duration ' + s.animationDuration)
+          + ' and ' + 'transition-duration ' + s.transitionDuration + (badT ? ' (' + s.transitionProperty + ')' : '')
+          + (unparsed ? ', a duration the harness cannot read' : '')
+          + ' under prefers-reduced-motion: reduce');
+      }
+    }
+  }
+  for (const message of reported) fail(message);
+  const more = measured.positiveTransitions + measured.positiveAnimations + measured.unparseable - reported.length;
+  if (judge && more > 0) fail(more + ' more element(s) with a positive or unreadable duration under prefers-reduced-motion: reduce');
+  // Anything the browser animates — CSS or script — that is running with a
+  // positive iteration duration moves. A zero-duration animation object (the
+  // CSS contract's result) or a paused or finished one does not.
+  for (const animation of document.getAnimations()) {
+    measured.browserAnimations += 1;
+    if (animation.playState !== 'running' || animation.playbackRate === 0) continue;
+    measured.browserRunning += 1;
+    const timing = animation.effect?.getComputedTiming?.() ?? {};
+    const duration = typeof timing.duration === 'number' ? timing.duration : Number(timing.duration);
+    if (!(duration > 0)) continue;
+    measured.browserRunningPositive += 1;
+    if (!judge) continue;
+    const target = animation.effect?.target;
+    const what = animation.animationName ? 'CSS animation ' + animation.animationName
+      : animation.transitionProperty ? 'CSS transition of ' + animation.transitionProperty
+        : 'script animation' + (animation.id ? ' ' + animation.id : '');
+    fail((target ? zoomDescribe(target) + (animation.effect.pseudoElement ?? '') : 'the document') + ': a running ' + what + ' with a ' + Math.round(duration) + 'ms duration under prefers-reduced-motion: reduce');
+  }
+  return { findings, evaluated: judge && measured.elements > 0 ? ['a11y.reduced-motion'] : [], measured };
+}
+a11yReducedMotion.helpers = [zoomDescribe];
