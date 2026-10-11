@@ -161,8 +161,12 @@ export function journeyFocusState() {
   // text: row actions share names ("Detail"), the row says which.
   const rowEl = el.closest('tr, li, [role="row"], [role="listitem"]');
   const row = rowEl ? (rowEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 240) : '';
+  // The labelled landmark it sits in: two links may share a name ("Search" in
+  // the rail and in a breadcrumb), the landmark says which.
+  const landmarkEl = el.closest('nav[aria-label], aside[aria-label], section[aria-label], [role="navigation"][aria-label], [role="region"][aria-label], [role="dialog"][aria-label]');
+  const within = landmarkEl ? landmarkEl.getAttribute('aria-label') : '';
   return {
-    route, row, description: zoomDescribe(el), tag: el.tagName.toLowerCase(), type: el.getAttribute('type'),
+    route, row, within, description: zoomDescribe(el), tag: el.tagName.toLowerCase(), type: el.getAttribute('type'),
     inModal: Boolean(modal && modal.contains(el)), modalOpen: Boolean(modal), problems,
   };
 }
@@ -228,7 +232,8 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
     const nameOk = target.name === undefined || (target.name instanceof RegExp ? target.name.test(state.name) : state.name === target.name);
     const roleOk = target.role === undefined || state.role === target.role;
     const rowOk = target.row === undefined || (target.row instanceof RegExp ? target.row.test(state.row ?? '') : (state.row ?? '').includes(target.row));
-    return nameOk && roleOk && rowOk;
+    const withinOk = target.within === undefined || state.within === target.within;
+    return nameOk && roleOk && rowOk && withinOk;
   };
   const judge = async (entry, { expectFocus } = {}) => {
     const problems = await guards();
@@ -362,8 +367,8 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
   return { op, steps, terminal: () => terminal };
 }
 
-const summary = (state) => (state.onBody ? '<body>' : `${state.role ?? state.tag} "${state.name ?? ''}"`);
-const describeTarget = (t) => `${t.role ?? 'control'} named ${t.name instanceof RegExp ? t.name.toString() : JSON.stringify(t.name)}${t.row ? ` in the row of ${t.row instanceof RegExp ? t.row.toString() : JSON.stringify(t.row)}` : ''}`;
+const summary = (state) => (state.onBody ? '<body>' : `${state.role ?? state.tag} "${state.name ?? ''}"${state.within ? ` within "${state.within}"` : ''}`);
+const describeTarget = (t) => `${t.role ?? 'control'} named ${t.name instanceof RegExp ? t.name.toString() : JSON.stringify(t.name)}${t.row ? ` in the row of ${t.row instanceof RegExp ? t.row.toString() : JSON.stringify(t.row)}` : ''}${t.within ? ` within "${t.within}"` : ''}`;
 
 // --- Running ----------------------------------------------------------------------
 

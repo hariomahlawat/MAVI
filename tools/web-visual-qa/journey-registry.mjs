@@ -73,9 +73,77 @@ const PAGE_TWO = {
   nextCursor: null, totalCount: 12,
 };
 
+// --- Journey 2's backend: a search the operator narrows to people ------------------
+
+const TRACK_ONE = '55555550-5555-7555-8555-555555555550';
+const DETAIL_ONE = fixture(`tracks_${TRACK_ONE}`);
+const PEOPLE = TRACKS.items.filter((t) => t.objectClass === 'Person');
+/** Every person Track opens in the inspector (the fixture has one detail; the others are it, renumbered). */
+const PEOPLE_DETAILS = Object.fromEntries(PEOPLE.map((t, i) => [
+  `/api/tracks/${t.id}`,
+  t.id === TRACK_ONE ? 'fixture' : { ...DETAIL_ONE, id: t.id, localTrackNumber: DETAIL_ONE.localTrackNumber + i * 2 },
+]));
+
 // --- The six journeys --------------------------------------------------------------
 
 export const JOURNEYS = [
+  {
+    id: 'search-inspect-evidence',
+    title: 'Search → filter → scan → inspect → evidence → return',
+    start: '/search',
+    // Only the operator's committed filter narrows the list to people.
+    api: { '/api/tracks': { query: [{ match: { objectClass: 'Person' }, then: { ...TRACKS, items: PEOPLE, totalCount: PEOPLE.length } }], otherwise: TRACKS }, ...PEOPLE_DETAILS },
+    ready: 'document.querySelectorAll(".result-select").length === 6',
+    async run(op) {
+      const drawerFilters = op.viewport.width <= 1100;
+      // Filter: people only, committed by the form's own Search.
+      if (drawerFilters) {
+        await op.tabTo({ name: 'Filters', role: 'button' }, { note: 'the results header opens the filter drawer (§25 Tier B)' });
+        await op.press('Enter', { expectFocus: { name: 'Filters', role: 'heading' }, note: 'the drawer takes focus' });
+      }
+      await op.tabTo({ name: 'Object class', role: 'combobox' }, { max: 40 });
+      await op.type('P');
+      await op.until('Object class reads Person', 'Array.from(document.querySelectorAll("select")).some((s) => s.labels?.[0]?.textContent.trim() === "Object class" && s.selectedOptions[0]?.textContent.trim() === "Person") && "Person"');
+      await op.tabTo({ name: 'Search', role: 'button' }, { max: 40, note: 'the form\'s submit' });
+      await op.press('Enter', { note: 'commit the filter' });
+      await op.requested('the search asked for people', 'GET', /^\/api\/tracks$/, { query: { objectClass: 'Person' } });
+      await op.until('the results are the three people', '(() => { const s = Array.from(document.querySelectorAll(".result-select")); return s.length === 3 && s.every((b) => /^Select Person /.test(b.getAttribute("aria-label"))) && /objectClass=Person/.test(location.search) && "3 people"; })()');
+      if (drawerFilters) await op.press('Escape', { expectFocus: { name: 'Filters', role: 'button' }, note: 'close the drawer; focus returns to its opener' });
+      // Scan: select the first result, then step through with j / k.
+      await op.tabTo({ name: /^Select Person · CAM-01/, role: 'button' }, { max: 40, note: 'the first result' });
+      await op.press('Enter', { note: 'select it; the inspector opens' });
+      await op.route('the first person is selected', new RegExp(`[?&]track=${TRACK_ONE}`));
+      await op.until('the inspector shows Track 1', '/Person · Track 1/i.test(document.body.innerText) && "Person · Track 1"');
+      await op.press('j', { note: 'next result' });
+      await op.route('the second person is selected', new RegExp(`[?&]track=${PEOPLE[1].id}`));
+      await op.press('j', { note: 'next result' });
+      await op.route('the third person is selected', new RegExp(`[?&]track=${PEOPLE[2].id}`));
+      await op.press('k');
+      await op.press('k', { note: 'back to the first' });
+      await op.route('the first person is selected again', new RegExp(`[?&]track=${TRACK_ONE}`));
+      await op.until('the inspector shows Track 1 and its evidence', '/Person · Track 1/i.test(document.body.innerText) && Boolean(document.querySelector("video")) && "Track 1 with its player"');
+      // Evidence: the player's own keys, on its frame.
+      await op.tabTo({ name: /^Person Track 1 evidence frame/, role: 'group' }, { max: 30, note: 'the evidence frame' });
+      await op.press('End', { note: 'jump to the subject\'s end' });
+      await op.until('the frame is at the subject\'s end (3.4 s)', '(() => { const v = document.querySelector("video"); return v && Math.abs(v.currentTime - 3.4) < 0.05 && "t=" + v.currentTime.toFixed(2); })()');
+      await op.press('Home', { note: 'jump to the subject\'s start' });
+      await op.until('the frame is at the subject\'s start (0.6 s)', '(() => { const v = document.querySelector("video"); return v && Math.abs(v.currentTime - 0.6) < 0.05 && "t=" + v.currentTime.toFixed(2); })()');
+      await op.press('ArrowRight', { note: 'one frame on' });
+      await op.until('the frame stepped one frame (40 ms at 25 fps)', '(() => { const v = document.querySelector("video"); return v && Math.abs(v.currentTime - 0.64) < 0.02 && "t=" + v.currentTime.toFixed(2); })()');
+      // The full review of the evidence.
+      await op.tabTo({ name: 'Open', role: 'link' }, { reverse: true, max: 20, note: 'the inspector\'s Open' });
+      await op.press('Enter');
+      await op.route('the review of Track 1 is open', new RegExp(`^/review/video/${PROCESSED}\?.*trackId=${TRACK_ONE}`));
+      await op.until('the review summarises the Track', '/Track summary/.test(document.body.innerText) && "Track summary"');
+      // Return: the breadcrumb back to the search, as it was.
+      await op.tabTo({ name: 'Search', role: 'link', within: 'Breadcrumb' }, { max: 30, note: 'the breadcrumb\'s Search' });
+      await op.press('Enter', { note: 'return to the search' });
+      await op.route('the search is back, filtered and on Track 1', new RegExp(`^/search\?(?=.*objectClass=Person)(?=.*track=${TRACK_ONE})`));
+      await op.until('the three people are listed again', 'document.querySelectorAll(".result-select").length === 3 && "3 people"');
+      await op.press('Escape', { note: 'close the inspector' });
+      await op.done('back in the results, on Track 1\'s own row, filter intact', `(() => { const a = document.activeElement; return a && a.classList.contains("result-select") && a.getAttribute("data-track-id") === "${TRACK_ONE}" && /objectClass=Person/.test(location.search) && !/[?&]track=/.test(location.search) && "focus on Track 1's result"; })()`);
+    },
+  },
   {
     id: 'error-retry-recovery',
     title: 'Error / retry / recovery',
