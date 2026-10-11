@@ -153,7 +153,12 @@ function PendingGroup({ kind, count }: { kind: 'zones' | 'lines'; count: number 
             {kind === 'zones' ? (
               <div className="scene-navigator__coordinates"><div className="scene-navigator__summary-space">{'\u00a0'}</div></div>
             ) : (
-              <span className="scene-navigator__endpoints">{'\u00a0'}</span>
+              // The endpoints line has one fixed width (every coordinate is
+              // printed to the same precision), so a hidden one of zeros wraps
+              // exactly as the line's own will.
+              <span className="scene-navigator__endpoints scene-navigator__placeholder">
+                {`(${formatCoordinate(0)}, ${formatCoordinate(0)}) \u2192 (${formatCoordinate(0)}, ${formatCoordinate(0)})`}
+              </span>
             )}
           </li>
         ))}
