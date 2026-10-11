@@ -106,16 +106,30 @@ const LOADING_PAIRS = [['cameras-loading', 'cameras'], ['videos-loading', 'video
 
 // --- Plan the run ---------------------------------------------------------------
 
-const onlyStates = list('states');
+// X3: the long-task lane (§38 "long tasks during the first interaction"):
+// every state that declares an operator interaction, at its ordinary anchors
+// and probes, on ONE lane — another lane's work on the same machine would be
+// measured as the interaction's (P1's method). It is blocking evidence only
+// whole and single-lane, so it takes no other selection and refuses workers.
+const longTaskLane = flag('long-tasks');
+if (longTaskLane) {
+  for (const other of ['states', 'tiers', 'widths', 'zoom', 'text-spacing', 'reduced-motion', 'shard', 'repeat']) {
+    if (process.argv.includes(`--${other}`)) fatal(`HARNESS ERROR: --long-tasks is the whole interaction plan; it takes no --${other}
+`);
+  }
+  if (arg('workers', '1') !== '1') fatal(`HARNESS ERROR: --long-tasks runs on one lane: lanes contend for the CPU and their work would be measured as the interaction's (--workers ${arg('workers')})
+`);
+}
+const onlyStates = longTaskLane ? STATES.filter((state) => state.interaction).map((state) => state.name) : list('states');
 const onlyTiers = list('tiers');
 const onlyWidths = list('widths')?.map(Number) ?? null;
-const onlyZoom = arg('zoom', null);
+const onlyZoom = longTaskLane ? 'none' : arg('zoom', null);
 if (onlyZoom !== null && onlyZoom !== 'only' && onlyZoom !== 'none') fatal(`--zoom takes "only" or "none", not "${onlyZoom}"`);
 // X1: the text-spacing lane (WCAG 1.4.12), `--text-spacing only|none` as `--zoom`.
-const onlyTextSpacing = arg('text-spacing', null);
+const onlyTextSpacing = longTaskLane ? 'none' : arg('text-spacing', null);
 if (onlyTextSpacing !== null && onlyTextSpacing !== 'only' && onlyTextSpacing !== 'none') fatal(`--text-spacing takes "only" or "none", not "${onlyTextSpacing}"`);
 // X4: the reduced-motion lane (§13), `--reduced-motion only|none` as `--zoom`.
-const onlyReducedMotion = arg('reduced-motion', null);
+const onlyReducedMotion = longTaskLane ? 'none' : arg('reduced-motion', null);
 if (onlyReducedMotion !== null && onlyReducedMotion !== 'only' && onlyReducedMotion !== 'none') fatal(`--reduced-motion takes "only" or "none", not "${onlyReducedMotion}"`);
 // A count that is not a positive integer is refused: NaN would plan cases and
 // run none of them.
@@ -137,7 +151,7 @@ if (shardArg !== null) {
 const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom && !onlyTextSpacing && !onlyReducedMotion && repeat === 1 && !STATES_MODULE;
 // A shard is never the full sweep by itself; aggregate.mjs is, over every shard.
 const fullSweep = completeSelection && !shard;
-const workers = positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
+const workers = longTaskLane ? 1 : positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
 
 const manifestProblems = validateManifest();
 if (manifestProblems.length) {
@@ -914,6 +928,9 @@ const report = {
   startedAt: new Date(started).toISOString(),
   durationMs,
   workers: lanes.length,
+  // X3: a single-lane run of the whole interaction plan, the only blocking
+  // evidence of long tasks (performance.mjs refuses any other).
+  longTaskLane,
   fullSweep,
   // A shard says which of how many it is and lists the whole plan beside its
   // own selection, so the aggregate can prove the plan ran exactly once.

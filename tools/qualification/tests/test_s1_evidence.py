@@ -2534,7 +2534,14 @@ def test_the_quality_gate_retains_a_trx_per_test_project_and_the_web_junit() -> 
         assert "retention-days: 14\n" in step, step
         assert "qualification-evidence" not in step, step
     assert any("name: keyboard-journeys\n" in u.split("\n      - ", 1)[0] for u in journeys)
-    uploads = [u for u in uploads if u not in diagnostic and u not in journeys]
+    # S6/X3: the performance gate's evidence likewise.
+    performance = [u for u in uploads if "name: performance-budgets\n" in u.split("\n      - ", 1)[0]]
+    assert len(performance) == 1
+    for upload in performance:
+        step = upload.split("\n      - ", 1)[0]
+        assert "retention-days: 14\n" in step, step
+        assert "qualification-evidence" not in step, step
+    uploads = [u for u in uploads if u not in diagnostic and u not in journeys and u not in performance]
     assert len(uploads) == 3
     for upload in uploads:
         step = upload.split("\n      - ", 1)[0]
