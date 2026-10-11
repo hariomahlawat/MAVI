@@ -117,6 +117,20 @@ describe('a11y.reduced-motion: every duration, every element and pseudo-element'
     assert.equal(r.measured.browserRunningPositive, 1);
   });
 
+  it('counts elements at fault, not the ways each faults: one element with a transition and an animation is one entry, and the summary counts the rest', async () => {
+    const BOTH = `<style>${KEYFRAMES} .both { display: inline-block; width: 10px; height: 10px; transition: opacity 600ms; animation: spin 1s linear infinite; }</style><main><span class="both"></span></main>`;
+    let r = await judge(BOTH);
+    assert.equal(r.measured.affected, 1);
+    assert.equal(r.measured.positiveTransitions, 1);
+    assert.equal(r.measured.positiveAnimations, 1);
+    assert.doesNotMatch(messages(r), /more element/);
+    // Beyond the 30 reported in full, the summary counts elements, once each.
+    const MANY = `<style>${KEYFRAMES} .m { display: inline-block; width: 4px; height: 4px; transition: opacity 600ms; animation: spin 1s linear infinite; }</style><main>${'<span class="m"></span>'.repeat(35)}</main>`;
+    r = await judge(MANY);
+    assert.equal(r.measured.affected, 35);
+    assert.match(messages(r), /^5 more element\(s\) or pseudo-element\(s\) with a positive or unreadable duration/m);
+  });
+
   it('finds an animated ::before, naming the pseudo-element, and judges only pseudo-elements that render', async () => {
     const THING = `<style>${KEYFRAMES} .thing::before { content: ""; display: inline-block; width: 6px; height: 6px; animation: pulse 1.2s ease-in-out infinite; } .bare::after { animation: pulse 1.2s infinite; }</style><main><span class="thing">Running</span><span class="bare">idle</span></main>`;
     const r = await judge(THING);

@@ -954,7 +954,7 @@ export function a11yReducedMotion(input = {}) {
   const names = (value) => String(value || '').split(',').map((t) => t.trim());
   const measured = {
     elements: 0, pseudos: 0, transitionValues: 0, animationValues: 0,
-    positiveTransitions: 0, positiveAnimations: 0, unparseable: 0,
+    positiveTransitions: 0, positiveAnimations: 0, unparseable: 0, affected: 0,
     browserAnimations: 0, browserRunning: 0, browserRunningPositive: 0, sites: {},
   };
   const site = (key, ms) => {
@@ -988,6 +988,8 @@ export function a11yReducedMotion(input = {}) {
       // keyframes are named for it.
       const badA = animation.some((ms) => ms > 0);
       const unparsed = transition.some(Number.isNaN) || animation.some(Number.isNaN);
+      // One entry per element or pseudo-element at fault, whatever it faults on.
+      if (badT || badA || unparsed) measured.affected += 1;
       if (badT) measured.positiveTransitions += 1;
       if (badA) measured.positiveAnimations += 1;
       if (unparsed) measured.unparseable += 1;
@@ -1001,8 +1003,8 @@ export function a11yReducedMotion(input = {}) {
     }
   }
   for (const message of reported) fail(message);
-  const more = measured.positiveTransitions + measured.positiveAnimations + measured.unparseable - reported.length;
-  if (judge && more > 0) fail(more + ' more element(s) with a positive or unreadable duration under prefers-reduced-motion: reduce');
+  const more = measured.affected - reported.length;
+  if (judge && more > 0) fail(more + ' more element(s) or pseudo-element(s) with a positive or unreadable duration under prefers-reduced-motion: reduce');
   // Anything the browser animates — CSS or script — that is running with a
   // positive iteration duration moves. A zero-duration animation object (the
   // CSS contract's result) or a paused or finished one does not.
