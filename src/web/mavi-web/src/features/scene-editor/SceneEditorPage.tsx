@@ -253,7 +253,12 @@ export default function SceneEditorPage() {
   // surface under the operator's focus. The object just drawn is selected;
   // its entry in the navigator — which names it, and from which its
   // properties follow — takes focus, before the document can hold it (X2).
+  // Set by a completion from the keyboard (Enter on a zone, Space on a line's
+  // second end); a pointer's completion leaves focus to the pointer.
+  const completedByKeyRef = useRef(false);
   useLayoutEffect(() => {
+    if (!completedByKeyRef.current) return;
+    completedByKeyRef.current = false;
     const active = document.activeElement;
     // Stranded: on the document (where Chromium puts it), or still on a frame
     // that is no longer focusable (where some engines leave it).
@@ -309,14 +314,16 @@ export default function SceneEditorPage() {
     ? cameraVideos.find((video) => video.id === canvasVideoId)
     : undefined;
 
-  const handleFrameClick = useCallback((point: { x: number; y: number }) => {
+  const handleFrameClick = useCallback((point: { x: number; y: number }, via?: { keyboard: boolean }) => {
     if (state.tool === 'zone') {
       dispatch({ type: 'addDrawingVertex', point });
       return;
     }
     if (state.tool === 'line') {
-      if (state.drawing.kind === 'line') dispatch({ type: 'finishLine', point });
-      else dispatch({ type: 'startLine', point });
+      if (state.drawing.kind === 'line') {
+        if (via?.keyboard) completedByKeyRef.current = true;
+        dispatch({ type: 'finishLine', point });
+      } else dispatch({ type: 'startLine', point });
     }
   }, [state.tool, state.drawing.kind]);
 
@@ -347,6 +354,7 @@ export default function SceneEditorPage() {
       // else (the armed tool keeps focus after it is pressed) Enter finishes.
       if (event.key === 'Enter' && state.drawing.kind === 'zone' && !isGeometryControl(event.target as HTMLElement | null)) {
         event.preventDefault();
+        completedByKeyRef.current = true;
         dispatch({ type: 'closeZone' });
         return;
       }

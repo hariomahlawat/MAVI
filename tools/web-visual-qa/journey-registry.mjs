@@ -214,7 +214,7 @@ const REGISTERED = [
       await op.tabTo({ name: 'Open results', role: 'link' }, { reverse: true, max: 60 });
       await op.press('Enter');
       await op.route('Search opens on the video', new RegExp(`^/search\\?videoAssetId=${PROCESSED}`));
-      await op.until('the zone filter offers the new zone', 'Array.from(document.querySelectorAll("select option")).some((o) => o.textContent.trim() === "Weighbridge" && !o.closest("select").disabled) && "Weighbridge offered"');
+      await op.until('the zone filter offers the new zone', 'Array.from(document.querySelectorAll("select option")).some((o) => o.textContent.trim() === "Weighbridge" && !o.parentElement.disabled) && "Weighbridge offered"');
       const drawerFilters = op.viewport.width <= 1100;
       if (drawerFilters) {
         await op.tabTo({ name: 'Filters', role: 'button' }, { max: 40 });
@@ -272,7 +272,7 @@ const REGISTERED = [
       await op.press('Enter');
       await op.route('Search opens on the new video', new RegExp(`^/search\\?videoAssetId=${IMPORTED}`));
       await op.requested('the search asked for the new video\'s Tracks', 'GET', /^\/api\/tracks$/, { query: { videoAssetId: IMPORTED } });
-      await op.done('the imported video\'s results are listed', `(() => { const s = document.querySelectorAll(".result-select"); return s.length === 6 && new URLSearchParams(location.search).get("videoAssetId") === "${IMPORTED}" && "6 results for the imported video"; })()`);
+      await op.done('the imported video\'s results are listed', `(() => { const s = document.querySelectorAll(".result-select"); return s.length === 6 && /[?&]videoAssetId=${IMPORTED}(&|$)/.test(location.search) && "6 results for the imported video"; })()`);
     },
   },
   {
@@ -323,7 +323,7 @@ const REGISTERED = [
       await op.tabTo({ name: 'Open', role: 'link' }, { max: 30, note: 'the inspector\'s Open' });
       await op.press('Enter');
       await op.route('the review of that car is open', new RegExp(`^/review/video/${PROCESSED}\?.*trackId=${CAR_ONE}`));
-      await op.done('the review is of the car that was inspected', `(() => { const t = document.body.innerText; return new URLSearchParams(location.search).get("trackId") === "${CAR_ONE}" && /Track summary/.test(t) && /Vehicle · Car/i.test(t) && "Review: Vehicle · Car, track ${CAR_ONE}"; })()`);
+      await op.done('the review is of the car that was inspected', `(() => { const t = document.body.innerText; return /[?&]trackId=${CAR_ONE}(&|$)/.test(location.search) && /Track summary/.test(t) && /Vehicle · Car/i.test(t) && "Review: Vehicle · Car, track ${CAR_ONE}"; })()`);
     },
   },
   {

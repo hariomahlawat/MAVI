@@ -102,7 +102,9 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         req.on('data', (chunk) => { if (body.length < 65536) body += chunk; });
         req.on('end', () => { logged.body = body; });
       }
-      received.add(`${req.method} ${path}`);
+      // Only a mutation flips an `{ after }`: a GET is a read the application
+      // may make on its own (a prefetch, a poll), never the operator's act.
+      if (req.method !== 'GET' && req.method !== 'HEAD') received.add(`${req.method} ${path}`);
       // An exact override wins over a prefix one, and the longest prefix wins
       // over a shorter one. Declaration order used to decide it, so overriding
       // `/api/cameras/{id}` silently answered `/api/cameras/{id}/scene` with a

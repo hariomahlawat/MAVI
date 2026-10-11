@@ -551,9 +551,11 @@ function SceneAnalyticsPanel({
   };
   useLayoutEffect(() => {
     if (!actedRef.current || retrying || reanalysing) return;
+    // The action has finished: its claim on focus ends here, moved or not,
+    // so a later render (the panel polls) never pulls focus back to it.
+    actedRef.current = false;
     const active = document.activeElement;
     if (active && active !== document.body && active.isConnected) return;
-    actedRef.current = false;
     (outcomeRef.current?.childElementCount ? outcomeRef.current : panelRef.current)?.focus();
   });
 

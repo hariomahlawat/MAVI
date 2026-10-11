@@ -144,6 +144,36 @@ describe('VisualSearchPage pagination and navigation guards', () => {
     expect((await screen.findAllByText(/West Gate/)).length).toBeGreaterThan(0);
   });
 
+  it('hands nothing on from a continuation that failed: a later search does not take the operator\'s focus (X2)', async () => {
+    let release: (() => void) | undefined;
+    vi.mocked(searchTracks).mockImplementation(async (filters) => {
+      if (filters.cursor === 'page-two') throw new ApiError({ status: 503, code: 'search_unavailable', detail: 'Search backend unavailable.' });
+      if (filters.objectClass === 'Vehicle') {
+        await new Promise<void>((resolve) => { release = resolve; });
+        return { items: [A, B, C], nextCursor: null };
+      }
+      return { items: [A, B], nextCursor: 'page-two' };
+    });
+    const user = userEvent.setup();
+    renderWithApp(<Harness />, { route: '/search' });
+
+    (await screen.findByRole('button', { name: 'Load more' })).focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('button', { name: 'Retry load more' }, { timeout: 4000 })).toHaveFocus();
+
+    // A new search, its answer still to come, and focus put down meanwhile.
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(release).toBeDefined());
+    (document.activeElement as HTMLElement | null)?.blur();
+    release!();
+    await screen.findByText(/South Gate/);
+    await settle();
+    // Three results, more than the two the failed continuation started from:
+    // focus is not moved onto the third.
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("keeps the operator's focus through a continuation they asked for, and hands it to the first new result when the snapshot ends (X2)", async () => {
     const release = deferredSecondPage();
     const user = userEvent.setup();

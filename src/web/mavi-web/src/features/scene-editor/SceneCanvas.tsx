@@ -33,7 +33,8 @@ type Props = {
   invalidKeys: ReadonlySet<string>;
   overlay: ReactNode;
   onMediaFailed?: (failed: boolean) => void;
-  onFrameClick?: (point: ScenePoint) => void;
+  /** `keyboard`: placed by Space on the frame, not by a pointer. */
+  onFrameClick?: (point: ScenePoint, via?: { keyboard: boolean }) => void;
   onCloseZone?: () => void;
   onSelect?: (selection: Selection) => void;
   onMoveVertex?: (key: string, vertexIndex: number, point: ScenePoint) => void;
@@ -253,6 +254,7 @@ export default function SceneCanvas({
       // The editor's own arrows nudge a selected vertex; on the frame, with a
       // tool armed, they move the cursor instead.
       event.stopPropagation();
+      setKeyboardDrawing(true);
       setCursor(moved);
       if (drawing.kind !== 'none') setPointer(moved);
       return;
@@ -262,7 +264,8 @@ export default function SceneCanvas({
       const label = tool === 'zone'
         ? `Vertex ${drawing.kind === 'zone' ? drawing.vertices.length + 1 : 1}`
         : drawing.kind === 'line' ? 'Line end B' : 'Line end A';
-      onFrameClick?.(cursor);
+      setKeyboardDrawing(true);
+      onFrameClick?.(cursor, { keyboard: true });
       setPointer(cursor);
       setPlaced(`${label} placed at ${formatCoordinate(cursor.x)}, ${formatCoordinate(cursor.y)}.`);
     }
@@ -288,7 +291,9 @@ export default function SceneCanvas({
         ? `Scene frame, drawing a ${tool === 'zone' ? 'zone' : 'trip line'}. Arrows move the cursor, Shift and arrows move it further, Space places a point, ${tool === 'zone' ? 'Enter completes the zone, ' : ''}Escape cancels.`
         : undefined}
       onKeyDown={handleSurfaceKeyDown}
-      onFocus={(event) => { if (event.target === event.currentTarget) setKeyboardDrawing(true); }}
+      // The crosshair is the keyboard's: shown on keyboard focus, not on the
+      // focus a pointer press gives the frame (whose pointer is its cursor).
+      onFocus={(event) => { if (event.target === event.currentTarget) setKeyboardDrawing(event.currentTarget.matches(':focus-visible')); }}
       onBlur={(event) => { if (event.target === event.currentTarget) setKeyboardDrawing(false); }}
       data-testid="scene-canvas"
       data-frame={`${frame.x},${frame.y},${frame.width},${frame.height}`}

@@ -807,6 +807,21 @@ describe('scene editor', () => {
       expect(objectButton('Line 1')).toHaveFocus();
     });
 
+    it('leaves focus to the pointer when a pointer completes the drawing, and draws no keyboard cursor for it', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+      render();
+      await screen.findByText('No scene configured');
+
+      await user.click(toolButton('Trip line'));
+      await clickFrame(user, 0.1, 0.5);
+      expect(screen.queryByTestId('scene-keyboard-cursor')).not.toBeInTheDocument();
+      await clickFrame(user, 0.9, 0.5);
+
+      expect(await screen.findByRole('button', { name: /^Line 1/ })).toBeInTheDocument();
+      expect(objectButton('Line 1')).not.toHaveFocus();
+    });
+
     it('is not a keyboard surface without a drawing tool armed', async () => {
       render();
       await screen.findByRole('button', { name: /^Gate/ });

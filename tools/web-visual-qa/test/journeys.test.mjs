@@ -39,6 +39,11 @@ if (path === '/plain' || path === '/pointer') {
   button('Alpha', () => say('Alpha pressed'));
   button('Beta', () => say('Beta pressed'));
 }
+if (path === '/ghost') {
+  button('Alpha', () => {});
+  const ghost = button('Ghost', () => {}); ghost.style.opacity = '0';
+  button('Beta', () => {});
+}
 if (path === '/vanish') {
   const b = button('Remove me', () => { b.remove(); say('removed'); });
 }
@@ -158,6 +163,59 @@ describe('the keyboard-journey runner', { timeout: 300_000 }, () => {
     });
     assert.equal(result.passed, false);
     assert.match(result.failure, /something other than the input pipeline acted: scripted click/);
+  });
+
+  it('fails a scripted input event, as it fails a scripted click', async () => {
+    const result = await run({
+      id: 'scripted-input', title: 'scripted input', start: '/plain', ready: 'Boolean(document.querySelector("button"))',
+      async run(op) {
+        await lane.browser.evaluate('document.body.dispatchEvent(new Event("input", { bubbles: true }))');
+        await op.tabTo({ name: 'Alpha', role: 'button' });
+        await op.done('never', 'true');
+      },
+    });
+    assert.equal(result.passed, false);
+    assert.match(result.failure, /something other than the input pipeline acted: scripted input/);
+  });
+
+  it('fails a checkpoint that acts on the page instead of observing it', async () => {
+    const result = await run({
+      id: 'acting-checkpoint', title: 'acting checkpoint', start: '/plain', ready: 'Boolean(document.querySelector("button"))',
+      async run(op) {
+        await op.tabTo({ name: 'Alpha', role: 'button' });
+        await op.until('Beta pressed', '(document.querySelectorAll("button")[1].click(), /Beta pressed/.test(document.body.innerText))');
+        await op.done('never', 'true');
+      },
+    });
+    assert.equal(result.passed, false);
+    assert.match(result.failure, /the checkpoint expression acts on the page .*: a checkpoint may only observe/);
+    assert.doesNotMatch(result.snapshot.text, /Beta pressed/, 'the side effect was refused before it ran');
+  });
+
+  it('fails a Tab stop where focus is not valid, before the target is reached', async () => {
+    const result = await run({
+      id: 'ghost', title: 'ghost', start: '/ghost', ready: 'Boolean(document.querySelector("button"))',
+      async run(op) { await op.tabTo({ name: 'Beta', role: 'button' }); await op.done('never', 'true'); },
+    });
+    assert.equal(result.passed, false);
+    assert.match(result.failure, /Tab stop 2: <button> "Ghost" has focus but is not rendered \(transparent\)/);
+  });
+
+  it('counts only requests made after the operator\'s last key', async () => {
+    // /save asks for /api/state as it loads, before any key: that request is
+    // not the effect of the Save the operator then presses.
+    const result = await run({
+      id: 'early-request', title: 'early request', start: '/save', ready: 'Boolean(document.querySelector("button"))',
+      api: { '/api/state': { saved: false } },
+      async run(op) {
+        await op.tabTo({ name: 'Save', role: 'button' });
+        await op.press('Enter');
+        await op.requested('the state was read', 'GET', /^\/api\/state$/);
+        await op.done('never', 'true');
+      },
+    });
+    assert.equal(result.passed, false);
+    assert.match(result.failure, /no GET .* request was made after the operator's last key/);
   });
 
   it('fails a direct route jump: a document load after the start', async () => {
@@ -341,6 +399,24 @@ describe('the journey plan, its shards and their aggregate', () => {
     } finally { rmSync(work, { recursive: true, force: true }); }
   });
 
+  it('refuses a substitute registry in a shard, and an aggregate of shards that ran another registry', () => {
+    const work = mkdtempSync(join(tmpdir(), 'mavi-vqa-journey-reg-'));
+    try {
+      const script = fileURLToPath(new URL('../journeys.mjs', import.meta.url));
+      const substitute = join(work, 'other.mjs');
+      writeFileSync(substitute, 'export const JOURNEYS = [];\n');
+      const refused = spawnSync(process.execPath, [script, '--shard', '0/3', '--out', join(work, 'shard')], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, MAVI_VQA_JOURNEYS_MODULE: substitute } });
+      assert.equal(refused.status, 2);
+      assert.match(refused.stderr, /a shard \(X2 evidence\) refuses it/);
+      const file = join(work, 'shard.json');
+      const full = planJourneys({ journeys: JOURNEYS }).map((p) => p.key);
+      writeFileSync(file, JSON.stringify({ head: 'abc', registry: 'not-this-registry', planned: full, executions: full.map((key) => exec(key)), harnessErrors: [] }));
+      const agg = spawnSync(process.execPath, [script, '--aggregate', '--out', join(work, 'out'), file], { encoding: 'utf8', timeout: 60_000 });
+      assert.equal(agg.status, 2, agg.stdout + agg.stderr);
+      assert.match(agg.stdout, /ran registry not-this-registry, not this head's [0-9a-f]{64}/);
+    } finally { rmSync(work, { recursive: true, force: true }); }
+  });
+
   it('keeps a failed execution failed, apart from the faults', () => {
     const agg = journeyAggregate([shard('a', [exec('one@1366x768'), exec('two@1366x768', { passed: false, failure: 'x' })])]);
     assert.deepEqual(agg.faults, []);
@@ -354,7 +430,12 @@ describe('the journey registry', () => {
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
   it('drives the product through the operator alone: no click, focus, navigation, event or browser call', () => {
-    for (const forbidden of [/\.click\(/, /\.focus\(/, /dispatchEvent/, /pushState|replaceState/, /location\.(assign|replace|href\s*=)/, /dispatchMouseEvent|dispatchTouchEvent|mouseMove/, /\bgoto\(/, /\bbrowser\./, /\.cdp\(/, /\.evaluate\(/, /setInputFiles|setFileInputFiles/]) {
+    for (const forbidden of [
+      /\.click\(/, /\.focus\(/, /\.blur\(/, /\.select\(/, /requestSubmit|\.submit\(/, /showPicker/, /dispatchEvent/,
+      /pushState|replaceState|history\./, /location\s*=|location\.(assign|replace|reload|href\s*=)/, /\.value\s*=[^=]/, /\.checked\s*=[^=]/,
+      /localStorage|sessionStorage|indexedDB|document\.cookie/, /setAttribute|removeAttribute|\.remove\(|innerHTML\s*=|\.append\(/,
+      /dispatchMouseEvent|dispatchTouchEvent|mouseMove/, /\bgoto\(/, /\bbrowser\./, /\.cdp\(/, /\.evaluate\(/, /setInputFiles|setFileInputFiles/,
+    ]) {
       assert.doesNotMatch(source, forbidden, `the registry uses ${forbidden}`);
     }
   });

@@ -31,6 +31,7 @@ import { cpus } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { toExpression, zoomClipChain, zoomDescribe, zoomVisibility, zoomVisibleRect } from './assertions.mjs';
 import { launch } from './cdp.mjs';
 import { HarnessError } from './engine.mjs';
@@ -125,8 +126,9 @@ export function journeyAggregate(shards) {
 /**
  * Installed before every document: what the journey's guards read. Trusted
  * pointer and touch input (none is ever sent; one means a pointer reached the
- * page), and scripted clicks and key events (the product makes none; one means
- * something other than the input pipeline acted). A keyboard-activated button
+ * page), and scripted clicks, key, input, change and submit events (the
+ * product dispatches none; one means something other than the input pipeline
+ * acted). A keyboard-activated button
  * still fires its trusted `click` — that is keyboard input, and is not counted.
  * Each document numbers itself, so a load after the journey's start (a direct
  * navigation) shows as a new number.
@@ -139,8 +141,8 @@ export const JOURNEY_GUARD = `(() => {
     window.addEventListener(type, (e) => { if (e.isTrusted) guard.pointer.push(type + ' on ' + name(e.target)); }, true);
   }
   window.addEventListener('click', (e) => { if (!e.isTrusted) guard.synthetic.push('scripted click on ' + name(e.target)); }, true);
-  for (const type of ['keydown', 'keyup', 'keypress', 'input', 'change']) {
-    window.addEventListener(type, (e) => { if (!e.isTrusted && (type.startsWith('key'))) guard.synthetic.push('scripted ' + type + ' on ' + name(e.target)); }, true);
+  for (const type of ['keydown', 'keyup', 'keypress', 'beforeinput', 'input', 'change', 'submit']) {
+    window.addEventListener(type, (e) => { if (!e.isTrusted) guard.synthetic.push('scripted ' + type + ' on ' + name(e.target)); }, true);
   }
 })();`;
 
@@ -156,13 +158,16 @@ export function journeyFocusState() {
   const route = location.pathname + location.search;
   if (!el || el === document.body || el === document.documentElement) return { route, description: '<body>', onBody: true, problems: ['focus is on the document, not on a control (lost)'] };
   el.setAttribute('data-vqa-journey-focus', '');
+  // The last control focus stood on: where a Tab that leaves the page left from.
+  window.__vqaJourneyLastFocus = el;
   const problems = [];
-  // X1's rule, the same here: a control that is not itself drawn — a native
-  // input dressed by its label, as the FileInput's transparent input is — is
-  // shown by a visible label of its own, and that label is judged in its place.
+  // X1's rule, here confined to the one control that needs it: a file input
+  // not itself drawn (the FileInput's transparent native input, dressed by its
+  // label and framed by its :focus-within ring) is shown by a visible label of
+  // its own, judged in its place. Any other hidden control with focus fails.
   let face = el;
   let facedBy = null;
-  if (zoomVisibility(el).hidden && el.labels) {
+  if (zoomVisibility(el).hidden && el.matches('input[type="file"]') && el.labels) {
     const label = Array.from(el.labels).find((candidate) => !zoomVisibility(candidate).hidden);
     if (label) { face = label; facedBy = 'its label ' + zoomDescribe(label); }
   }
@@ -194,6 +199,22 @@ export function journeyFocusState() {
 }
 journeyFocusState.helpers = [zoomDescribe, zoomClipChain, zoomVisibleRect, zoomVisibility];
 
+/**
+ * Whether a Tab that put focus on the document left the page from its edge:
+ * the control it left was the last tabbable one in the document (the first,
+ * for Shift+Tab). Focus then returns to the page on the next press — the
+ * browser's own cycle, not focus lost.
+ */
+export function journeyTabEdge(reverse) {
+  const from = window.__vqaJourneyLastFocus;
+  if (!from || !from.isConnected) return false;
+  const tabbable = Array.from(document.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable="true"]'))
+    .filter((el) => el.tabIndex >= 0 && !el.disabled && !el.closest('[inert]') && !(el.type === 'hidden') && !zoomVisibility(el).hidden);
+  const index = tabbable.indexOf(from);
+  return index !== -1 && index === (reverse ? 0 : tabbable.length - 1);
+}
+journeyTabEdge.helpers = journeyFocusState.helpers;
+
 // --- The operator ------------------------------------------------------------------
 
 const CODES = { Enter: 'Enter', Tab: 'Tab', Escape: 'Escape', ' ': 'Space', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Home: 'Home', End: 'End', Delete: 'Delete', '?': 'Slash', '/': 'Slash' };
@@ -210,6 +231,10 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
   const timeout = limits.timeoutMs ?? 12_000;
   const steps = [];
   let terminal = null;
+  // Where the request log stood at the operator's last key: `requested`
+  // looks only after it, so a request is proven to follow the action.
+  let requestMark = 0;
+  const markRequests = () => { requestMark = server.requests().length; };
   const step = (entry) => {
     const s = { journey: journeyId, viewport: viewport.label, step: steps.length + 1, ...entry };
     steps.push(s);
@@ -273,6 +298,7 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
     async press(key, { shift = false, expectFocus, note } = {}) {
       const before = await focus();
       const entry = { action: 'press', key: (shift ? 'Shift+' : '') + (key === ' ' ? 'Space' : key), focusBefore: summary(before), routeBefore: before.route, note };
+      markRequests();
       await browser.press(key, codeOf(key), { shift });
       await quiet();
       await judge(entry, { expectFocus });
@@ -282,6 +308,7 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
     async type(text, { note } = {}) {
       const before = await focus();
       const entry = { action: 'type', key: JSON.stringify(text), focusBefore: summary(before), routeBefore: before.route, note };
+      markRequests();
       for (const ch of text) await browser.press(ch, codeOf(ch));
       await quiet();
       await judge(entry);
@@ -300,10 +327,20 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
         step({ ...entry, observed: 'already focused', pass: true });
         return;
       }
+      let previousStop = before;
       for (let i = 0; i < max; i += 1) {
         await browser.press('Tab', 'Tab', { shift: reverse });
         const state = await focus();
         entry.stops.push(summary(state));
+        // Every stop is somewhere the operator stands: lost, hidden or covered
+        // focus on the way fails as it would at the end.
+        if (state.problems.length) {
+          // The document itself is a stop only at the page's edge, the
+          // browser's cycle; anywhere else focus was lost on the way.
+          const edge = state.onBody && !previousStop.onBody && await browser.evaluate(toExpression(journeyTabEdge, reverse)).catch(() => false);
+          if (!edge) { entry.focusAfter = summary(state); fail(entry, `Tab stop ${i + 1}: ${state.problems.join('; ')}`); }
+        }
+        previousStop = state;
         if (named(state, target)) {
           await quiet();
           await judge(entry, { expectFocus: target });
@@ -318,12 +355,21 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
     async until(description, expression, { timeoutMs = timeout, judgeFocus = true } = {}) {
       const started = Date.now();
       let last;
+      const entry = { action: 'checkpoint', expect: description };
       while (Date.now() - started < timeoutMs) {
-        last = await browser.evaluate(`(() => { try { return ${expression}; } catch (e) { return false; } })()`);
+        // Evaluated with V8's side-effect check: a checkpoint that would click,
+        // focus, write a value, navigate or store anything throws before it
+        // does, and fails the journey — it observes; only keys act. An
+        // ordinary error (an element not there yet) is "not yet".
+        const r = await browser.cdp('Runtime.evaluate', {
+          expression: `(() => { try { return ${expression}; } catch (e) { if (e instanceof EvalError) throw e; return false; } })()`,
+          returnByValue: true, throwOnSideEffect: true,
+        });
+        if (r.exceptionDetails) fail(entry, `the checkpoint expression acts on the page (${(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text).split('\n')[0]}): a checkpoint may only observe`);
+        last = r.result?.value;
         if (last) break;
         await tick(50);
       }
-      const entry = { action: 'checkpoint', expect: description };
       if (!last) fail(entry, `not reached within ${timeoutMs}ms`);
       await quiet();
       // Focus is judged from the operator's first action on: a page just
@@ -343,14 +389,14 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
       const started = Date.now();
       let found = null;
       while (Date.now() - started < timeout && !found) {
-        found = server.requests().find((r) => r.method === method && pathPattern.test(r.path)
+        found = server.requests().slice(requestMark).find((r) => r.method === method && pathPattern.test(r.path)
           && (!query || Object.entries(query).every(([k, v]) => new URLSearchParams(r.search).get(k) === String(v)))
           // `body`: a predicate over the parsed JSON the application sent.
           && (!body || (() => { try { return r.body !== undefined && body(JSON.parse(r.body)); } catch { return false; } })())) ?? null;
         if (!found) await tick(50);
       }
       const entry = { action: 'checkpoint', expect: description };
-      if (!found) fail(entry, `no ${method} ${pathPattern} request was made`);
+      if (!found) fail(entry, `no ${method} ${pathPattern} request was made after the operator's last key`);
       step({ ...entry, observed: `${found.method} ${found.path}${found.search}`, pass: true });
     },
     /**
@@ -367,6 +413,7 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
       const { node } = await browser.cdp('DOM.describeNode', { nodeId });
       let opened = null;
       const off = browser.onEvent('Page.fileChooserOpened', (params) => { opened = params; });
+      markRequests();
       try {
         await browser.press(key, codeOf(key));
         const started = Date.now();
@@ -403,6 +450,11 @@ const describeTarget = (t) => `${t.role ?? 'control'} named ${t.name instanceof 
 // --- Running ----------------------------------------------------------------------
 
 /** The head and dirty count of the exact tree being judged. */
+/** The registry a run executed, by the hash of its source. */
+function registryHash(file) {
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+
 function gitHead() {
   try { return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { return 'unknown'; }
 }
@@ -502,6 +554,8 @@ async function main() {
     const files = process.argv.slice(2).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--out');
     const shards = files.map((file) => ({ file, ...JSON.parse(readFileSync(file, 'utf8')) }));
     const verdict = journeyAggregate(shards);
+    const expected = registryHash(join(HERE, 'journey-registry.mjs'));
+    for (const s of shards) if (s.registry !== expected) verdict.faults.push(`${s.file}: ran registry ${s.registry ?? '(none recorded)'}, not this head's ${expected}`);
     // The aggregate is of the whole registry: a subset is not X2's evidence.
     const { JOURNEYS: registered } = await import('./journey-registry.mjs');
     const full = planJourneys({ journeys: registered }).map((p) => p.key);
@@ -512,8 +566,11 @@ async function main() {
     process.exitCode = verdict.faults.length ? 2 : verdict.failed.length ? 1 : 0;
     return;
   }
-  const { JOURNEYS } = await import(process.env.MAVI_VQA_JOURNEYS_MODULE ? new URL('file:///' + resolve(process.env.MAVI_VQA_JOURNEYS_MODULE).replaceAll('\\', '/')).href : './journey-registry.mjs');
   const shardArg = arg('shard');
+  // A shard is X2's evidence: it runs the registry, never a substitute.
+  if (process.env.MAVI_VQA_JOURNEYS_MODULE && shardArg) throw new HarnessError('MAVI_VQA_JOURNEYS_MODULE replaces the registry, so a shard (X2 evidence) refuses it');
+  const registryFile = process.env.MAVI_VQA_JOURNEYS_MODULE ? resolve(process.env.MAVI_VQA_JOURNEYS_MODULE) : join(HERE, 'journey-registry.mjs');
+  const { JOURNEYS } = await import(new URL('file:///' + registryFile.replaceAll('\\', '/')).href);
   const shard = shardArg ? (() => { const m = /^(\d+)\/(\d+)$/.exec(shardArg); if (!m || Number(m[1]) >= Number(m[2])) throw new HarnessError(`--shard takes i/n with 0 <= i < n, not ${shardArg}`); return { index: Number(m[1]), count: Number(m[2]) }; })() : null;
   const plan = planJourneys({ journeys: JOURNEYS, onlyJourneys: arg('journeys')?.split(','), onlyViewports: arg('viewports')?.split(',') });
   const selected = partitionJourneys(plan, shard);
@@ -542,7 +599,7 @@ async function main() {
     for (const lane of lanes) { await lane.browser.close().catch(() => {}); await lane.server.close().catch(() => {}); }
   }
   executions.sort((a, b) => a.key.localeCompare(b.key));
-  const result = { head: gitHead(), shard, planned: plan.map((p) => p.key), selected: selected.map((p) => p.key), executions, harnessErrors };
+  const result = { head: gitHead(), registry: registryHash(registryFile), shard, planned: plan.map((p) => p.key), selected: selected.map((p) => p.key), executions, harnessErrors };
   writeFileSync(join(OUT, 'journeys.json'), JSON.stringify(result, null, 2));
   const faults = [...harnessErrors];
   if (!shard) faults.push(...journeyAggregate([{ file: 'this run', ...result }]).faults.filter((f) => !(arg('journeys') || arg('viewports')) || !/never ran/.test(f)));

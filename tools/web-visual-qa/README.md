@@ -590,7 +590,13 @@ object (`createOperator`) is all a journey is given: `press`, `type`, `tabTo`,
 Shift+Tab) up to a strict bound and matches the focused control by its
 accessible name and role from Chromium's accessibility tree (`axNames`), and,
 where names repeat, by its row's text or its labelled landmark or group
-(`within`); each stop is recorded; never reached is a failure.
+(`within`); each stop is recorded and judged like any focus (lost, hidden or
+covered on the way fails — the document only where a Tab left the page from
+its last control, the browser's own cycle); never reached is a failure.
+Checkpoints observe and never act: they are evaluated with V8's side-effect
+check (`Runtime.evaluate` `throwOnSideEffect`), so one that would click, focus,
+write a value, navigate or store fails the journey before it runs.
+`requested` looks only at requests made after the operator's last key.
 
 **The file chooser.** `chooseFile` requires focus on an `input[type=file]`,
 presses its key (Enter), waits for `Page.fileChooserOpened` from the
@@ -602,10 +608,12 @@ outside the product — is recorded on the step.
 **What is judged at every step** (`journeyFocusState`, the page guard): focus
 exists, is not the document, is rendered and in view, is not under another
 element at its middle, is inside an open modal overlay when there is one, is
-not inert; a control not itself drawn (the FileInput's transparent input) is
-shown by its own visible label, judged in its place — X1's rule. The guard
+not inert; a file input not itself drawn (the FileInput's transparent input,
+framed by its `:focus-within` ring) is shown by its own visible label, judged in
+its place — X1's rule, confined here to file inputs. The guard
 (`JOURNEY_GUARD`, before every document) records trusted pointer, touch and
-wheel input, scripted clicks and key events, and numbers each document: a
+wheel input, scripted clicks and key, input, change and submit events, and
+numbers each document: a
 pointer event, a scripted event or a document after the start (a direct
 navigation) fails the step. A keyboard-activated control's trusted `click` is
 keyboard input and passes. Waits poll conditions (no fixed sleep); a bound
@@ -636,7 +644,9 @@ evidence); `--shard i/n` runs execution k where k mod n = i;
 `--aggregate --out DIR file…` proves the shards whole: same head and plan, the
 registry's whole plan, every execution exactly once, none at Tier C, every pass
 carrying its evidence (no pointer, nothing scripted, one document, a terminal
-checkpoint), no harness error. Exit 0 all passed, 1 a journey failed, 2 a
+checkpoint), every shard having run this head's registry (its source hash; a
+shard refuses `MAVI_VQA_JOURNEYS_MODULE`), no harness error. An `{ after }`
+flips only on a mutation (a GET is a read the application may make by itself). Exit 0 all passed, 1 a journey failed, 2 a
 harness fault. CI: `keyboard journeys shard 0–2` and `keyboard journeys
 aggregate`, required by `quality`.
 

@@ -638,12 +638,18 @@ export default function VisualSearchPage() {
   };
   useLayoutEffect(() => {
     const from = continuationFrom.current;
-    if (from === null || items.length <= from) return;
+    if (from === null) return;
+    // A continuation that failed hands nothing on; its Retry asks again.
+    if (tracks.isFetchNextPageError) { continuationFrom.current = null; return; }
+    if (items.length <= from) return;
     continuationFrom.current = null;
     const now = document.activeElement;
     if (now && now !== document.body && now !== document.documentElement) return;
     findSelectControl(items[from].id.toLowerCase())?.focus();
-  }, [items]);
+  }, [items, tracks.isFetchNextPageError]);
+  // Nor does one asked of an earlier search: a new committed search is not
+  // the page the operator asked to continue.
+  useEffect(() => { continuationFrom.current = null; }, [fingerprint]);
 
   const continuationInvalid = tracks.isFetchNextPageError
     && tracks.error instanceof ApiError
