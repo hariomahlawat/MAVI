@@ -97,9 +97,61 @@ const CAR_DETAILS = Object.fromEntries(CARS.map((t, i) => [
   { ...DETAIL_ONE, id: t.id, objectClass: 'Vehicle', objectSubclass: 'car', localTrackNumber: 2 + i * 4 },
 ]));
 
+// --- Journey 1's backend: an import, its processing, its results ------------------
+
+const IMPORTED = '77777777-7777-7777-8777-777777777777';
+const IMPORTED_VIDEO = { ...fixture(`videos_${PROCESSED}`), id: IMPORTED, originalFileName: 'north-gate-0800.mp4', processingStatus: 'Imported' };
+const PROCESS_REQUEST = `POST /api/videos/${IMPORTED}/process`;
+const COMPLETED_RUN = fixture(`videos_${PROCESSED}_processing`);
+const NEW_RUN = 'dddddddd-dddd-7ddd-8ddd-dddddddddddd';
+const RUNNING_RUN = { videoStatus: 'Processing', latestRun: { ...COMPLETED_RUN.latestRun, processingRunId: NEW_RUN, status: 'Running', completedAtUtc: null, progressPercent: 40, framesProcessed: 6000, tracksCreated: 0, analyticsReadiness: 'NotConfigured' } };
+const DONE_RUN = { ...COMPLETED_RUN, latestRun: { ...COMPLETED_RUN.latestRun, processingRunId: NEW_RUN } };
+const IMPORTED_TRACKS = { ...TRACKS, items: TRACKS.items.map((t) => ({ ...t, videoAssetId: IMPORTED, videoContentUrl: `/api/videos/${IMPORTED}/content` })) };
+
 // --- The six journeys --------------------------------------------------------------
 
 export const JOURNEYS = [
+  {
+    id: 'import-process-results',
+    title: 'Import → Process → Status → Results',
+    start: '/import',
+    // Nothing of the new video exists until the operator's own requests: the
+    // import answers with it; its status exists only once the operator's
+    // workflow asked for processing, and then runs to completion.
+    api: {
+      'POST /api/videos/import': IMPORTED_VIDEO,
+      [PROCESS_REQUEST]: { processingRunId: NEW_RUN },
+      [`/api/videos/${IMPORTED}/processing`]: { after: PROCESS_REQUEST, before: { status: 404, body: {} }, then: { sequence: [RUNNING_RUN, RUNNING_RUN, RUNNING_RUN, DONE_RUN] } },
+      [`/api/videos/${IMPORTED}`]: { after: PROCESS_REQUEST, before: IMPORTED_VIDEO, then: { sequence: [{ ...IMPORTED_VIDEO, processingStatus: 'Processing' }, { ...IMPORTED_VIDEO, processingStatus: 'Processed' }] } },
+      '/api/tracks': { query: [{ match: { videoAssetId: IMPORTED }, then: IMPORTED_TRACKS }], otherwise: TRACKS },
+    },
+    ready: 'Boolean(document.querySelector("input[type=file]")) && Array.from(document.querySelectorAll("select option")).some((o) => /CAM-01/.test(o.textContent))',
+    async run(op) {
+      await op.tabTo({ name: 'Camera', role: 'combobox' }, { max: 40, note: 'the import form\'s first field' });
+      await op.type('C');
+      await op.until('Camera reads CAM-01', 'Array.from(document.querySelectorAll("select")).some((s) => /^CAM-01/.test(s.selectedOptions[0]?.textContent.trim() ?? "")) && "CAM-01"');
+      await op.tabTo({ name: 'Recording local date/time' }, { note: 'the recording\'s local start' });
+      await op.type('14092026', { note: 'day, month, year (en-GB)' });
+      await op.press('Tab', { note: 'the field\'s own time segments' });
+      await op.type('0800');
+      await op.until('the recording start reads 14 Sept 2026, 08:00', '(() => { const i = document.querySelector("input[type=datetime-local]"); return i && i.value === "2026-09-14T08:00" && i.value; })()');
+      await op.tabTo({ name: /MP4 file/ }, { note: 'the file field' });
+      await op.chooseFile(op.upload('north-gate-0800.mp4'), { key: 'Enter' });
+      await op.until('the form holds the chosen file', '/north-gate-0800\\.mp4/.test(document.body.innerText) && "north-gate-0800.mp4"');
+      await op.tabTo({ name: 'Import and process', role: 'button' }, { note: 'the form\'s submit' });
+      await op.press('Enter', { note: 'import and queue processing' });
+      await op.requested('the file was imported', 'POST', /^\/api\/videos\/import$/);
+      await op.requested('processing was queued for it', 'POST', new RegExp(`^/api/videos/${IMPORTED}/process$`));
+      await op.route('the new video\'s processing status is open', new RegExp(`^/processing/${IMPORTED}$`));
+      await op.until('its status is stated while it runs', '(() => { const t = document.body.innerText; return /north-gate-0800\\.mp4/.test(t) && /\\b40%/.test(t) && !Array.from(document.querySelectorAll("a")).some((a) => a.textContent.trim() === "Open results") && "running · 40%"; })()');
+      await op.until('its processing completed, and its results are offered', '(() => { const l = Array.from(document.querySelectorAll("a")).find((a) => a.textContent.trim() === "Open results"); return l && /Processed|Completed/.test(document.body.innerText) && "Processed · Open results offered"; })()');
+      await op.tabTo({ name: 'Open results', role: 'link' }, { max: 40 });
+      await op.press('Enter');
+      await op.route('Search opens on the new video', new RegExp(`^/search\\?videoAssetId=${IMPORTED}`));
+      await op.requested('the search asked for the new video\'s Tracks', 'GET', /^\/api\/tracks$/, { query: { videoAssetId: IMPORTED } });
+      await op.done('the imported video\'s results are listed', `(() => { const s = document.querySelectorAll(".result-select"); return s.length === 6 && new URLSearchParams(location.search).get("videoAssetId") === "${IMPORTED}" && "6 results for the imported video"; })()`);
+    },
+  },
   {
     id: 'vehicle-car-review',
     title: 'Vehicle search → Car refinement → inspect → Review',

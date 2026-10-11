@@ -145,14 +145,23 @@ export function journeyFocusState() {
   if (!el || el === document.body || el === document.documentElement) return { route, description: '<body>', onBody: true, problems: ['focus is on the document, not on a control (lost)'] };
   el.setAttribute('data-vqa-journey-focus', '');
   const problems = [];
-  const v = zoomVisibility(el);
+  // X1's rule, the same here: a control that is not itself drawn — a native
+  // input dressed by its label, as the FileInput's transparent input is — is
+  // shown by a visible label of its own, and that label is judged in its place.
+  let face = el;
+  let facedBy = null;
+  if (zoomVisibility(el).hidden && el.labels) {
+    const label = Array.from(el.labels).find((candidate) => !zoomVisibility(candidate).hidden);
+    if (label) { face = label; facedBy = 'its label ' + zoomDescribe(label); }
+  }
+  const v = zoomVisibility(face);
   if (v.hidden) problems.push(zoomDescribe(el) + ' has focus but is not rendered (' + v.hidden + ')');
   else if (v.seen.width < 1 || v.seen.height < 1) problems.push(zoomDescribe(el) + ' has focus but no part of it is in view');
   else {
     const x = (v.seen.left + v.seen.right) / 2; const y = (v.seen.top + v.seen.bottom) / 2;
     const hit = document.elementFromPoint(x, y);
     const label = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
-    if (hit && !(hit === el || el.contains(hit) || hit.contains(el) || (label && label.contains(hit)))) problems.push(zoomDescribe(el) + ' has focus but ' + zoomDescribe(hit) + ' is over its middle');
+    if (hit && !(hit === el || el.contains(hit) || hit.contains(el) || face.contains(hit) || (label && label.contains(hit)))) problems.push(zoomDescribe(el) + ' has focus but ' + zoomDescribe(hit) + ' is over its middle');
   }
   const modal = Array.from(document.querySelectorAll('[aria-modal="true"]')).find((m) => !zoomVisibility(m).hidden);
   if (modal && !modal.contains(el)) problems.push('a modal overlay is open and focus is outside it, on ' + zoomDescribe(el));
@@ -166,7 +175,7 @@ export function journeyFocusState() {
   const landmarkEl = el.closest('nav[aria-label], aside[aria-label], section[aria-label], [role="navigation"][aria-label], [role="region"][aria-label], [role="dialog"][aria-label]');
   const within = landmarkEl ? landmarkEl.getAttribute('aria-label') : '';
   return {
-    route, row, within, description: zoomDescribe(el), tag: el.tagName.toLowerCase(), type: el.getAttribute('type'),
+    route, row, within, description: zoomDescribe(el) + (facedBy ? ' (shown by ' + facedBy + ')' : ''), tag: el.tagName.toLowerCase(), type: el.getAttribute('type'),
     inModal: Boolean(modal && modal.contains(el)), modalOpen: Boolean(modal), problems,
   };
 }
@@ -184,7 +193,7 @@ const tick = (ms) => new Promise((done) => setTimeout(done, ms));
  * states (no fixed sleep); every action is recorded with the focus and route
  * before and after; focus is judged after every action.
  */
-export function createOperator({ browser, server, record, journeyId, viewport, documentIndex, limits = {} }) {
+export function createOperator({ browser, server, record, journeyId, viewport, documentIndex, uploads = {}, limits = {} }) {
   const timeout = limits.timeoutMs ?? 12_000;
   const steps = [];
   let terminal = null;
@@ -360,6 +369,11 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
       terminal = { description, observed: typeof observed === 'string' ? observed : 'reached' };
       steps[steps.length - 1].terminal = true;
     },
+    /** A file the operator will pick in the chooser: one the lane wrote before the journey started. */
+    upload(name) {
+      if (!uploads[name]) throw new HarnessError(`no upload fixture named ${name}`);
+      return uploads[name];
+    },
     /** For the journey's own branching: the focused control's name and role, read, never changed. */
     focused: async () => { const s = await focus(); return { name: s.name, role: s.role, description: s.description, route: s.route }; },
     viewport,
@@ -378,7 +392,7 @@ function gitHead() {
 }
 
 export async function openJourneyLane({ distDir, fixtureDir, mediaDir }) {
-  const lane = { scenario: {} };
+  const lane = { scenario: {}, uploads: writeUploads(join(mediaDir, 'uploads')) };
   lane.server = await startServer({ distDir, fixtureDir, scenario: () => lane.scenario, footage: () => ensureFootage(mediaDir, 'saturated') });
   try {
     lane.browser = await launch();
@@ -394,6 +408,21 @@ export async function openJourneyLane({ distDir, fixtureDir, mediaDir }) {
     throw error;
   }
   return lane;
+}
+
+/**
+ * The files an operator picks in a chooser (journey 1's import). The fixture
+ * server never reads an upload, so its bytes need not decode — only its name
+ * meets the form's own check (an `.mp4`).
+ */
+export const UPLOADS = Object.freeze({ 'north-gate-0800.mp4': 'MAVI keyboard-journey upload fixture; the fixture server does not decode it.\n' });
+function writeUploads(dir) {
+  mkdirSync(dir, { recursive: true });
+  return Object.fromEntries(Object.entries(UPLOADS).map(([name, body]) => {
+    const path = join(dir, name);
+    writeFileSync(path, body);
+    return [name, resolve(path)];
+  }));
 }
 
 /** One execution: the declared start, then the journey's own keyboard steps. */
@@ -412,7 +441,7 @@ export async function runJourney(lane, item, { record, outDir } = {}) {
   // The journey's one direct load: its declared starting route.
   await browser.goto(server.origin + journey.start);
   const documentIndex = await browser.evaluate('window.__vqaJourneyGuard ? window.__vqaJourneyGuard.document : null');
-  const { op, steps, terminal } = createOperator({ browser, server, record, journeyId: journey.id, viewport, documentIndex });
+  const { op, steps, terminal } = createOperator({ browser, server, record, journeyId: journey.id, viewport, documentIndex, uploads: lane.uploads });
   let failure = null;
   try {
     await op.until(`the start, ${journey.start}, has rendered`, journey.ready ?? 'Boolean(document.querySelector("main"))', { judgeFocus: false });
@@ -426,6 +455,8 @@ export async function runJourney(lane, item, { record, outDir } = {}) {
   let snapshot = null;
   if (failure) {
     snapshot = await browser.evaluate(String.raw`({ route: location.pathname + location.search, text: document.body.innerText.replace(/\s+/g, ' ').slice(0, 1500) })`).catch(() => null);
+    // What the application asked the backend, last first (the request log).
+    if (snapshot) snapshot.requests = server.requests().slice(-25).map((r) => `${r.method} ${r.path}${r.search}`);
     if (outDir) {
       try { writeFileSync(join(outDir, `${item.key.replace(/[^a-z0-9@-]+/gi, '_')}.png`), Buffer.from(await browser.screenshot(), 'base64')); } catch { /* a capture is a convenience */ }
     }
