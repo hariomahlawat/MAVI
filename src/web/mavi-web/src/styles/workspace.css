@@ -274,6 +274,9 @@
    wide display the border ends where the columns do. */
 .workspace--ledger .workspace__body--ledger > .ledger-table {
   flex: 0 1 auto; min-height: 0; overflow: auto;
+  /* Focus brought into view by Shift+Tab stops below the sticky column
+     headers, not under them (WCAG 2.4.11; found by the X2 journeys). */
+  scroll-padding-top: var(--table-head-h);
   width: fit-content;
   border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-3);
   background: var(--surface-base);

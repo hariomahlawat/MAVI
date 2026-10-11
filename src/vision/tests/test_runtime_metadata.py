@@ -512,6 +512,7 @@ SHARDED_JOBS = {
     ("quality-gate.yml", "guard-coverage"),
     ("quality-gate.yml", "qualification-tests"),
     ("quality-gate.yml", "visual-sweep"),
+    ("quality-gate.yml", "keyboard-journeys"),
     ("qualification-tooling-windows.yml", "qualification-tests"),
 }
 

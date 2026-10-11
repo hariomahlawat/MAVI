@@ -302,6 +302,38 @@ describe('ProcessingPage', () => {
       expect(retryRunAnalytics).not.toHaveBeenCalled();
     });
 
+    it('keeps the operator’s focus through a re-analysis asked for from the keyboard, ending on its outcome (X2)', async () => {
+      const user = userEvent.setup();
+      arrange('Stale', [unit({ sceneRevisionId: '018f3f5a-2f70-7a2b-8a12-2d02f4c21481', sceneRevisionNumber: 1, status: 'Superseded' })]);
+      let accept: (() => void) | undefined;
+      vi.mocked(requestSceneReanalysis).mockImplementation(() => new Promise((resolve) => {
+        accept = () => resolve({
+          cameraId, sceneRevisionId: activeRevision, algorithmVersion: 'scene-analytics-v1', scope: 'latestRuns',
+          created: 1, alreadyQueued: 0, alreadyRunning: 0, alreadyReady: 0, failedRequiresRetry: 0, alreadySuperseded: 0, runsInScope: 1,
+        });
+      }));
+      render();
+
+      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      within(panel).getByRole('button', { name: 'Re-analyse camera' }).focus();
+      await user.keyboard('{Enter}');
+      // Queueing: unavailable, and still where the operator is.
+      const queueing = await within(panel).findByRole('button', { name: 'Queueing…' });
+      expect(queueing).toHaveAttribute('aria-disabled', 'true');
+      expect(queueing).toHaveFocus();
+      await user.keyboard('{Enter}');
+      expect(requestSceneReanalysis).toHaveBeenCalledTimes(1);
+
+      // Accepted: the run is pending under the new revision, the button has
+      // gone with the stale state, and focus is on what the request did.
+      arrange('Pending', [unit({ status: 'Running', completedAtUtc: null })]);
+      accept!();
+      const outcome = await within(panel).findByText(/1 of 1 runs queued/);
+      await waitFor(() => expect(within(panel).queryByRole('button', { name: /Re-analyse camera|Queueing/ })).not.toBeInTheDocument());
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.activeElement).toContainElement(outcome);
+    });
+
     it('keeps disabled and never-configured distinct, each pointing at the Scene Editor', async () => {
       arrange('Disabled', []);
       const first = render();

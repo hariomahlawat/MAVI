@@ -520,3 +520,10 @@ describe('control states are painted by tokens, not by opacity (section 12)', ()
     }
   });
 });
+
+describe('focus is never brought into view under a sticky band (WCAG 2.4.11, X2)', () => {
+  it('keeps the Ledger scroll owner\'s scroll padding at its sticky header\'s height', () => {
+    const rule = /\.workspace--ledger \.workspace__body--ledger > \.ledger-table \{([^}]*)\}/.exec(workspaceCss);
+    expect(rule?.[1]).toMatch(/scroll-padding-top:\s*var\(--table-head-h\)/);
+  });
+});

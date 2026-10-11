@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type RefObject,
@@ -12,7 +13,7 @@ import type { ScenePoint } from '../../api/scene';
 import { SCENE_LIMITS } from '../../api/scene';
 import { contentRect, isInsideFrame, projectPoint, unprojectPoint, type PixelRect } from '../../shared/evidence/projection';
 import { aToBNormal, alongLine, arrowHead, bToANormal, midpoint } from './lineDirection';
-import type { Drawing, EditorTool, Selection } from './editorState';
+import { moveCursor, type Drawing, type EditorTool, type Selection } from './editorState';
 import { formatCoordinate, type DraftTripLine, type DraftZone, type SceneDraft } from './sceneDraft';
 
 type Props = {
@@ -32,7 +33,8 @@ type Props = {
   invalidKeys: ReadonlySet<string>;
   overlay: ReactNode;
   onMediaFailed?: (failed: boolean) => void;
-  onFrameClick?: (point: ScenePoint) => void;
+  /** `keyboard`: placed by Space on the frame, not by a pointer. */
+  onFrameClick?: (point: ScenePoint, via?: { keyboard: boolean }) => void;
   onCloseZone?: () => void;
   onSelect?: (selection: Selection) => void;
   onMoveVertex?: (key: string, vertexIndex: number, point: ScenePoint) => void;
@@ -45,6 +47,7 @@ type Drag =
 
 /** How near the first vertex a click has to be, in rendered pixels, to close a polygon. */
 const CLOSE_RADIUS_PX = 12;
+
 
 /**
  * The spatial working surface: the reference frame with the scene drawn over it.
@@ -84,6 +87,26 @@ export default function SceneCanvas({
   const [frame, setFrame] = useState<PixelRect>({ x: 0, y: 0, width: 0, height: 0 });
   const [pointer, setPointer] = useState<ScenePoint | null>(null);
   const [nearFirstVertex, setNearFirstVertex] = useState(false);
+  // The keyboard's drawing cursor (§22): the pointer's equivalent where there
+  // is no pointer. It starts at the frame's centre and stays where it was left.
+  const [cursor, setCursor] = useState<ScenePoint>({ x: 0.5, y: 0.5 });
+  const [keyboardDrawing, setKeyboardDrawing] = useState(false);
+  const [placed, setPlaced] = useState('');
+  // A Space placement waits for the editor's answer: announced once the
+  // drawing shows it was accepted, never for a point the editor refused (a
+  // line's ends too close, a zone at its vertex limit).
+  const pendingPlacement = useRef<{ message: string; kind: Drawing['kind']; vertices: number; lines: number } | null>(null);
+  useEffect(() => {
+    const pending = pendingPlacement.current;
+    if (!pending) return;
+    const accepted = pending.kind === 'zone' || (tool === 'zone' && pending.kind === 'none')
+      ? drawing.kind === 'zone' && drawing.vertices.length === pending.vertices + 1
+      : pending.kind === 'none' ? drawing.kind === 'line' : draft.tripLines.length === pending.lines + 1;
+    if (!accepted) return;
+    pendingPlacement.current = null;
+    setPlaced(pending.message);
+  }, [drawing, draft.tripLines.length, tool]);
+  const drawable = !readOnly && tool !== 'select';
 
   // Overlay geometry follows the rendered surface, which the video fills exactly.
   const measure = useCallback(() => {
@@ -234,6 +257,37 @@ export default function SceneCanvas({
   const project = useCallback((point: ScenePoint) => projectPoint(point.x, point.y, frame), [frame]);
   const hasSurface = box.width > 0 && box.height > 0;
 
+  // Arrows move the cursor and Space places a point there — the same point a
+  // click would have placed. Enter (complete the zone) and Escape (cancel)
+  // are the editor's own keys and pass through to it.
+  const handleSurfaceKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!drawable || event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return;
+    const moved = moveCursor(cursor, event.key, event.shiftKey);
+    if (moved) {
+      event.preventDefault();
+      // The editor's own arrows nudge a selected vertex; on the frame, with a
+      // tool armed, they move the cursor instead.
+      event.stopPropagation();
+      setKeyboardDrawing(true);
+      setCursor(moved);
+      if (drawing.kind !== 'none') setPointer(moved);
+      return;
+    }
+    if (event.key === ' ') {
+      event.preventDefault();
+      const label = tool === 'zone'
+        ? `Vertex ${drawing.kind === 'zone' ? drawing.vertices.length + 1 : 1}`
+        : drawing.kind === 'line' ? 'Line end B' : 'Line end A';
+      setKeyboardDrawing(true);
+      pendingPlacement.current = {
+        message: `${label} placed at ${formatCoordinate(cursor.x)}, ${formatCoordinate(cursor.y)}.`,
+        kind: drawing.kind, vertices: drawing.kind === 'zone' ? drawing.vertices.length : 0, lines: draft.tripLines.length,
+      };
+      onFrameClick?.(cursor, { keyboard: true });
+      setPointer(cursor);
+    }
+  }, [drawable, cursor, drawing, draft.tripLines.length, tool, onFrameClick]);
+
   return (
     <div
       className={[
@@ -247,6 +301,17 @@ export default function SceneCanvas({
       onPointerMove={handleSurfacePointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      // With a drawing tool armed the frame is a keyboard surface too (§22).
+      tabIndex={drawable ? 0 : undefined}
+      role={drawable ? 'group' : undefined}
+      aria-label={drawable
+        ? `Scene frame, drawing a ${tool === 'zone' ? 'zone' : 'trip line'}. Arrows move the cursor, Shift and arrows move it further, Space places a point, ${tool === 'zone' ? 'Enter completes the zone, ' : ''}Escape cancels.`
+        : undefined}
+      onKeyDown={handleSurfaceKeyDown}
+      // The crosshair is the keyboard's: shown on keyboard focus, not on the
+      // focus a pointer press gives the frame (whose pointer is its cursor).
+      onFocus={(event) => { if (event.target === event.currentTarget) setKeyboardDrawing(event.currentTarget.matches(':focus-visible')); }}
+      onBlur={(event) => { if (event.target === event.currentTarget) setKeyboardDrawing(false); }}
       data-testid="scene-canvas"
       data-frame={`${frame.x},${frame.y},${frame.width},${frame.height}`}
     >
@@ -312,8 +377,15 @@ export default function SceneCanvas({
             nearFirstVertex={nearFirstVertex}
             project={project}
           />
+
+          {drawable && keyboardDrawing ? <KeyboardCursor point={project(cursor)} /> : null}
         </svg>
       ) : null}
+
+      {/* Mounted while the scene is editable, not only while a tool is armed:
+          the placement that completes a line returns the tool to Select, and
+          its announcement must outlive that. */}
+      {!readOnly ? <span className="visually-hidden" aria-live="polite" data-testid="scene-canvas-placed">{placed}</span> : null}
 
       {overlay}
     </div>
@@ -515,6 +587,17 @@ function LineShape({
           </g>
         </>
       ) : null}
+    </g>
+  );
+}
+
+/** Where Space will place the next point: a crosshair on the frame. */
+function KeyboardCursor({ point }: { point: { x: number; y: number } }) {
+  return (
+    <g className="scene-cursor" data-testid="scene-keyboard-cursor">
+      <line x1={point.x - 10} y1={point.y} x2={point.x + 10} y2={point.y} />
+      <line x1={point.x} y1={point.y - 10} x2={point.x} y2={point.y + 10} />
+      <circle cx={point.x} cy={point.y} r={4} />
     </g>
   );
 }

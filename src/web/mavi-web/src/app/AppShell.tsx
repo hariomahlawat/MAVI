@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent } from 'react';
-import { Link, Outlet, useMatches, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useLocation, useMatches, useNavigate } from 'react-router-dom';
 import { getPlatformHealth } from '../api/platform';
 import Icon from '../shared/components/Icon';
 import Drawer from '../shared/overlay/Drawer';
@@ -126,6 +126,29 @@ export default function AppShell() {
       document.removeEventListener('focusout', leave);
     };
   }, []);
+  // A route change made from inside the workspace — a row's Detail link, a
+  // Context Bar action, a destination shortcut — unmounts the control that
+  // made it, and the browser leaves focus on the document: the operator's next
+  // Tab would start again from the top of the page (§23, X2). After the new
+  // surface has rendered, focus left on the document goes to the workspace,
+  // whose first Tab stop is the new surface's Context Bar. Focus that is still
+  // somewhere (a rail link, which stays mounted; a surface that placed it) is
+  // left where it is. Only a change of path: a query change (Search's
+  // selected Track) is the surface's own to manage. Never on the first load.
+  const location = useLocation();
+  const routedRef = useRef(location.pathname);
+  const routeFrameRef = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(routeFrameRef.current), []);
+  useEffect(() => {
+    if (routedRef.current === location.pathname) return;
+    routedRef.current = location.pathname;
+    cancelAnimationFrame(routeFrameRef.current);
+    routeFrameRef.current = requestAnimationFrame(() => {
+      const now = document.activeElement;
+      if (!now || now === document.body || now === document.documentElement) mainRef.current?.focus();
+    });
+  }, [location.pathname]);
+
   // Whether the menu control holds focus. Recorded as it happens: widening
   // past 768px unmounts the menu in the same commit, so by the time the
   // effect below runs focus is already on the document and cannot say where

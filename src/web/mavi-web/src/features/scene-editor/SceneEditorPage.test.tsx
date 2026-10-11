@@ -367,7 +367,7 @@ describe('scene editor', () => {
     expect(screen.getAllByText(/This camera is inactive/)).toHaveLength(1);
     expect(screen.queryByRole('group', { name: 'Drawing tools' })).not.toBeInTheDocument();
     const save = screen.getByRole('button', { name: 'Save revision' });
-    expect(save).toBeDisabled();
+    expect(save).toHaveAttribute('aria-disabled', 'true');
     expect(save).toHaveAttribute('aria-describedby', reason.id);
 
     // Still readable and selectable; not editable, not deletable.
@@ -438,7 +438,7 @@ describe('scene editor', () => {
       expect(screen.getByLabelText('Revision note (optional)')).toHaveValue('Moved the gate');
       expect(screen.getByRole('button', { name: 'Reset' })).toBeEnabled();
       // A note alone is not a revision.
-      expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Save revision' })).toHaveAttribute('aria-disabled', 'true');
       // It is the operator's input, so leaving asks.
       expect(unloadBlocked()).toBe(true);
       act(() => { void router.navigate('/cameras'); });
@@ -503,7 +503,7 @@ describe('scene editor', () => {
       expect(screen.getByLabelText('Name')).toHaveValue('Gate east');
       expect(unloadBlocked()).toBe(true);
       expect(screen.getByRole('button', { name: 'Reset' })).toBeEnabled();
-      expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Save revision' })).toHaveAttribute('aria-disabled', 'true');
     });
   });
 
@@ -590,7 +590,7 @@ describe('scene editor', () => {
       await user.type(screen.getByLabelText('Name'), ' east');
       await user.click(screen.getByRole('button', { name: 'Save revision' }));
 
-      expect(await screen.findByRole('button', { name: 'Saving…' })).toBeDisabled();
+      expect(await screen.findByRole('button', { name: 'Saving…' })).toHaveAttribute('aria-disabled', 'true');
       expect(screen.getByLabelText('Name')).toBeDisabled();
       expect(screen.queryByRole('button', { name: /^Delete / })).not.toBeInTheDocument();
       await act(async () => { resolve(revision({ revisionNumber: 3 })); });
@@ -752,6 +752,119 @@ describe('scene editor', () => {
     expect(screen.getByRole('button', { name: /Vertex 1: x 0.200000, y 0.200000/ })).toBeInTheDocument();
   });
 
+  describe('drawing from the keyboard (§22 Workbench, X2)', () => {
+    /** Tab, as an operator does, until the frame has focus (bounded). */
+    async function tabTo(user: ReturnType<typeof userEvent.setup>, target: HTMLElement) {
+      for (let i = 0; i < 12 && document.activeElement !== target; i += 1) await user.tab();
+      expect(target).toHaveFocus();
+    }
+
+    it('draws a zone with the frame\'s cursor: arrows move it, Space places a vertex, Enter completes', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+      render();
+      await screen.findByText('No scene configured');
+
+      toolButton('Zone').focus();
+      await user.keyboard('{Enter}');
+      const frame = screen.getByRole('group', { name: /^Scene frame, drawing a zone/ });
+      await tabTo(user, frame);
+
+      // From the centre (0.5, 0.5): up 3 coarse, left 3 coarse → (0.2, 0.2).
+      await user.keyboard('{Shift>}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowLeft}{ArrowLeft}{ArrowLeft}{/Shift}');
+      await user.keyboard(' ');
+      expect(screen.getByTestId('scene-canvas-placed')).toHaveTextContent('Vertex 1 placed at 0.200000, 0.200000.');
+      await user.keyboard('{Shift>}{ArrowRight}{ArrowRight}{ArrowRight}{/Shift}{ArrowRight}');
+      await user.keyboard(' ');
+      await user.keyboard('{Shift>}{ArrowDown}{ArrowDown}{ArrowDown}{/Shift}');
+      await user.keyboard(' ');
+      expect(screen.getByTestId('scene-canvas-placed')).toHaveTextContent('Vertex 3 placed at 0.510000, 0.500000.');
+      await user.keyboard('{Enter}');
+
+      expect(await screen.findByRole('button', { name: /^Zone 1/ })).toBeInTheDocument();
+      // The frame stops being a keyboard surface with the tool back on Select;
+      // focus goes to the new zone's entry, never to the document.
+      expect(objectButton('Zone 1')).toHaveFocus();
+      expect(screen.getByTestId(/^scene-zone-/)).toHaveAttribute('data-points', '0.200000,0.200000 0.510000,0.200000 0.510000,0.500000');
+    });
+
+    it('draws a trip line with two placements, and Escape abandons one half drawn', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+      render();
+      await screen.findByText('No scene configured');
+
+      toolButton('Trip line').focus();
+      await user.keyboard('{Enter}');
+      await tabTo(user, screen.getByRole('group', { name: /^Scene frame, drawing a trip line/ }));
+      await user.keyboard(' ');
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('button', { name: /^Line 1/ })).not.toBeInTheDocument();
+
+      await user.keyboard('{Shift>}{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}{/Shift} ');
+      await user.keyboard('{Shift>}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{/Shift} ');
+      expect(await screen.findByRole('button', { name: /^Line 1/ })).toBeInTheDocument();
+      expect(objectButton('Line 1')).toHaveFocus();
+    });
+
+    it('leaves focus to the pointer when a pointer completes the drawing, and draws no keyboard cursor for it', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+      render();
+      await screen.findByText('No scene configured');
+
+      await user.click(toolButton('Trip line'));
+      await clickFrame(user, 0.1, 0.5);
+      expect(screen.queryByTestId('scene-keyboard-cursor')).not.toBeInTheDocument();
+      await clickFrame(user, 0.9, 0.5);
+
+      expect(await screen.findByRole('button', { name: /^Line 1/ })).toBeInTheDocument();
+      expect(objectButton('Line 1')).not.toHaveFocus();
+    });
+
+    it('announces only a placement the editor accepted, never one it refused', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+      render();
+      await screen.findByText('No scene configured');
+
+      toolButton('Trip line').focus();
+      await user.keyboard('{Enter}');
+      await tabTo(user, screen.getByRole('group', { name: /^Scene frame, drawing a trip line/ }));
+      await user.keyboard(' ');
+      const placed = screen.getByTestId('scene-canvas-placed');
+      await waitFor(() => expect(placed).toHaveTextContent('Line end A placed at 0.500000, 0.500000.'));
+      // The second end on the first: too close to have a direction, refused.
+      await user.keyboard(' ');
+      expect(await screen.findByText(/must be further apart/)).toBeInTheDocument();
+      expect(placed).toHaveTextContent('Line end A placed at 0.500000, 0.500000.');
+      expect(placed).not.toHaveTextContent('Line end B');
+      expect(screen.queryByRole('button', { name: /^Line 1/ })).not.toBeInTheDocument();
+      // Moved away, it is accepted, and only then said.
+      await user.keyboard('{Shift>}{ArrowRight}{ArrowRight}{/Shift} ');
+      await waitFor(() => expect(placed).toHaveTextContent('Line end B placed at 0.700000, 0.500000.'));
+    });
+
+    it('is not a keyboard surface without a drawing tool armed', async () => {
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      expect(screen.getByTestId('scene-canvas')).not.toHaveAttribute('tabindex');
+      expect(screen.queryByRole('group', { name: /^Scene frame/ })).not.toBeInTheDocument();
+    });
+  });
+
+  it('nudges a selected vertex by one hundredth with Shift (§22 coarse nudge)', async () => {
+    const user = userEvent.setup();
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await selectObject(user, 'Gate');
+    await user.click(screen.getByRole('button', { name: /Vertex 1: x 0.200000/ }));
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}');
+
+    expect(await screen.findByRole('button', { name: /Vertex 1: x 0.210000, y 0.200000/ })).toBeInTheDocument();
+  });
+
   it('nudges a selected vertex by one thousandth', async () => {
     const user = userEvent.setup();
     render();
@@ -888,6 +1001,28 @@ describe('scene editor', () => {
     expect(request.tripLines[0].lineId).toBe(lineId);
     expect(request.referenceFrameVideoAssetId).toBeNull();
     expect(request.referenceFrameOffsetMs).toBeNull();
+  });
+
+  it('keeps focus on Save through the save it started from the keyboard (X2)', async () => {
+    const user = userEvent.setup();
+    vi.mocked(saveCameraScene).mockResolvedValue(revision({ revisionNumber: 3 }));
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await selectObject(user, 'Gate');
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Forecourt');
+    const save = screen.getByRole('button', { name: 'Save revision' });
+    save.focus();
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(saveCameraScene).toHaveBeenCalledTimes(1));
+    // Saved: nothing is left to save, and Save says so — from where the
+    // operator still is, not from a document that took their focus.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save revision' })).toHaveAttribute('aria-disabled', 'true'));
+    expect(screen.getByRole('button', { name: 'Save revision' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(saveCameraScene).toHaveBeenCalledTimes(1);
   });
 
   it('saves revision 1 from an expected revision number of zero', async () => {
@@ -1064,7 +1199,7 @@ describe('scene editor', () => {
 
     await waitFor(() => expect(queryObjectButton('Forecourt')).toBeNull());
     expect(objectButton('Gate')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save revision' })).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('keeps the draft when the reload is cancelled', async () => {
@@ -1108,7 +1243,7 @@ describe('scene editor', () => {
     await user.type(screen.getByLabelText('Name'), 'gate');
 
     expect(await screen.findByText('Another zone already uses this name.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save revision' })).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText('Fix the highlighted problems before saving.')).toBeInTheDocument();
   });
 
@@ -1503,7 +1638,7 @@ describe('scene editor', () => {
     await user.clear(screen.getByLabelText('Name'));
 
     expect(await screen.findByText('This zone needs a name.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save revision' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save revision' })).toHaveAttribute('aria-disabled', 'true');
     expect(saveCameraScene).not.toHaveBeenCalled();
   });
 
@@ -1520,7 +1655,7 @@ describe('scene editor', () => {
     await user.type(screen.getByLabelText('Name'), 'Kerb 2');
 
     // Different object kinds, so the names do not collide.
-    expect(screen.getByRole('button', { name: 'Save revision' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Save revision' })).not.toHaveAttribute('aria-disabled');
   });
 
   it('says why a refused drawing gesture did nothing', async () => {
@@ -1611,7 +1746,7 @@ describe('scene editor across the Tier C boundary (§25: below 768px it is the u
       live.set(tierB);
       await selectObject(user, 'Gate east');
       expect(screen.getByLabelText('Name')).toHaveValue('Gate east');
-      expect(screen.getByRole('button', { name: 'Save revision' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Save revision' })).not.toHaveAttribute('aria-disabled');
       expect(unloadBlocked()).toBe(true);
     } finally {
       live.restore();

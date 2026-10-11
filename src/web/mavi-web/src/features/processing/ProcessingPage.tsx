@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
 import { getCamera } from '../../api/cameras';
 import { ApiError, isGuid } from '../../api/client';
@@ -535,8 +535,32 @@ function SceneAnalyticsPanel({
   // retry, as the camera-wide re-analysis does.
   const sceneLink = isGuid(cameraId) ? `/cameras/${cameraId.toLowerCase()}/scene` : undefined;
 
+  // The panel's actions keep the operator's focus (X2). While one runs its
+  // button stays focusable (aria-disabled, not disabled: a disabled control
+  // drops focus to the document). When it has finished and the button has
+  // gone with the state it answered (Stale or Failed no longer), focus goes
+  // to what the action produced: its stated outcome, else the panel, which
+  // opens with the new readiness.
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const outcomeRef = useRef<HTMLDivElement | null>(null);
+  const actedRef = useRef(false);
+  const act = (busy: boolean, action: (() => void) | undefined) => () => {
+    if (busy || !action) return;
+    actedRef.current = true;
+    action();
+  };
+  useLayoutEffect(() => {
+    if (!actedRef.current || retrying || reanalysing) return;
+    // The action has finished: its claim on focus ends here, moved or not,
+    // so a later render (the panel polls) never pulls focus back to it.
+    actedRef.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    (outcomeRef.current?.childElementCount ? outcomeRef.current : panelRef.current)?.focus();
+  });
+
   return (
-    <div className="stack">
+    <div className="stack" ref={panelRef} tabIndex={-1}>
       <KeyValue
         items={[
           { label: 'Readiness', value: <span className="analytics-state" data-readiness={effective}>{analyticsReadinessText(effective)}</span> },
@@ -588,12 +612,11 @@ function SceneAnalyticsPanel({
           <Alert tone="error">Retrying starts a new attempt cycle on the same analysis; existing facts are kept until it succeeds.</Alert>
           {/* Secondary (§8.1): analytics exist only for a processed video, whose
               surface primary is the Context Bar's `Open results`. */}
-          <Button icon="refresh" onClick={onRetry} disabled={retrying}>
+          <Button icon="refresh" onClick={act(retrying, onRetry)} aria-disabled={retrying || undefined}>
             {retrying ? 'Retrying…' : 'Retry analytics'}
           </Button>
         </div>
       ) : null}
-      {retryError ? <Alert tone="error">{describeError(retryError, 'Scene analytics could not be retried.')}</Alert> : null}
 
       {effective === 'Stale' ? (
         <div className="inline-alert-actions">
@@ -602,18 +625,21 @@ function SceneAnalyticsPanel({
             {onReanalyse ? <> Re-analysing queues the latest completed run of <strong>every video of {cameraLabel}</strong> against the active revision, not just this one.</> : null}
           </Alert>
           {onReanalyse ? (
-            <Button variant="secondary" icon="refresh" onClick={onReanalyse} disabled={reanalysing}>
+            <Button variant="secondary" icon="refresh" onClick={act(reanalysing, onReanalyse)} aria-disabled={reanalysing || undefined}>
               {reanalysing ? 'Queueing…' : 'Re-analyse camera'}
             </Button>
           ) : null}
         </div>
       ) : null}
-      {reanalyseResult ? (
-        <Alert tone="info">
-          Re-analysis requested: {formatCount(reanalyseResult.created)} of {formatCount(reanalyseResult.runsInScope)} runs queued; the rest were already analysed, queued or need an explicit retry.
-        </Alert>
-      ) : null}
-      {reanalyseError ? <Alert tone="error">{describeError(reanalyseError, `Re-analysis of ${cameraLabel} could not be requested.`)}</Alert> : null}
+      <div className="stack" ref={outcomeRef} tabIndex={-1} hidden={!retryError && !reanalyseResult && !reanalyseError}>
+        {retryError ? <Alert tone="error">{describeError(retryError, 'Scene analytics could not be retried.')}</Alert> : null}
+        {reanalyseResult ? (
+          <Alert tone="info">
+            Re-analysis requested: {formatCount(reanalyseResult.created)} of {formatCount(reanalyseResult.runsInScope)} runs queued; the rest were already analysed, queued or need an explicit retry.
+          </Alert>
+        ) : null}
+        {reanalyseError ? <Alert tone="error">{describeError(reanalyseError, `Re-analysis of ${cameraLabel} could not be requested.`)}</Alert> : null}
+      </div>
 
       {effective === 'Disabled' ? (
         <div className="inline-alert-actions">

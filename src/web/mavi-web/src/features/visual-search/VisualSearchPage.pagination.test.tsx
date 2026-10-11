@@ -144,6 +144,58 @@ describe('VisualSearchPage pagination and navigation guards', () => {
     expect((await screen.findAllByText(/West Gate/)).length).toBeGreaterThan(0);
   });
 
+  it('hands nothing on from a continuation that failed: a later search does not take the operator\'s focus (X2)', async () => {
+    let release: (() => void) | undefined;
+    vi.mocked(searchTracks).mockImplementation(async (filters) => {
+      if (filters.cursor === 'page-two') throw new ApiError({ status: 503, code: 'search_unavailable', detail: 'Search backend unavailable.' });
+      if (filters.objectClass === 'Vehicle') {
+        await new Promise<void>((resolve) => { release = resolve; });
+        return { items: [A, B, C], nextCursor: null };
+      }
+      return { items: [A, B], nextCursor: 'page-two' };
+    });
+    const user = userEvent.setup();
+    renderWithApp(<Harness />, { route: '/search' });
+
+    (await screen.findByRole('button', { name: 'Load more' })).focus();
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('button', { name: 'Retry load more' }, { timeout: 4000 })).toHaveFocus();
+
+    // A new search, its answer still to come, and focus put down meanwhile.
+    await user.selectOptions(screen.getByLabelText('Object class'), 'Vehicle');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(release).toBeDefined());
+    (document.activeElement as HTMLElement | null)?.blur();
+    release!();
+    await screen.findByText(/South Gate/);
+    await settle();
+    // Three results, more than the two the failed continuation started from:
+    // focus is not moved onto the third.
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("keeps the operator's focus through a continuation they asked for, and hands it to the first new result when the snapshot ends (X2)", async () => {
+    const release = deferredSecondPage();
+    const user = userEvent.setup();
+    renderWithApp(<Harness />, { route: '/search' });
+    const more = await screen.findByRole('button', { name: 'Load more' });
+
+    more.focus();
+    await user.keyboard('{Enter}');
+    // Loading: the control says so and stays where the operator is — a
+    // disabled control would have dropped focus to the document.
+    const loading = await screen.findByRole('button', { name: 'Loading…' });
+    expect(loading).toHaveAttribute('aria-disabled', 'true');
+    expect(loading).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(vi.mocked(searchTracks).mock.calls.filter(([filters]) => filters.cursor === 'page-two')).toHaveLength(1);
+
+    release();
+    await screen.findByText('End of this result snapshot.');
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toHaveAttribute('data-track-id', D.id.toLowerCase());
+  });
+
   it('ignores a late next-page response when the committed filters changed meanwhile', async () => {
     const release = deferredSecondPage();
     const user = userEvent.setup();

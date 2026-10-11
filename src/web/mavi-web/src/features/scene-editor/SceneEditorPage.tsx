@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getCamera } from '../../api/cameras';
 import { isGuid } from '../../api/client';
@@ -20,7 +20,7 @@ import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
 import { ContextBar, WorkbenchLayout } from '../../shared/workspace';
-import { editorReducer, initialEditorState, NUDGE_STEP, type Selection } from './editorState';
+import { editorReducer, initialEditorState, NUDGE_COARSE_STEP, NUDGE_STEP, type Selection } from './editorState';
 import ReferenceFrameBar from './ReferenceFrameBar';
 import RevisionHistory from './RevisionHistory';
 import SceneCanvas from './SceneCanvas';
@@ -248,6 +248,26 @@ export default function SceneEditorPage() {
       ?? document.querySelector<HTMLElement>('[aria-label="Drawing tools"] [aria-pressed="true"]'))?.focus();
   }, [state.draft, state.selection]);
 
+  // Completing a drawing from the frame (Enter, or Space on a line's second
+  // end) returns the tool to Select, and the frame stops being a keyboard
+  // surface under the operator's focus. The object just drawn is selected;
+  // its entry in the navigator — which names it, and from which its
+  // properties follow — takes focus, before the document can hold it (X2).
+  // Set by a completion from the keyboard (Enter on a zone, Space on a line's
+  // second end); a pointer's completion leaves focus to the pointer.
+  const completedByKeyRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!completedByKeyRef.current) return;
+    completedByKeyRef.current = false;
+    const active = document.activeElement;
+    // Stranded: on the document (where Chromium puts it), or still on a frame
+    // that is no longer focusable (where some engines leave it).
+    const stranded = !active || active === document.body || !active.isConnected
+      || active.matches('.scene-stage__surface:not([tabindex])');
+    if (!stranded || state.selection.kind === 'none') return;
+    document.querySelector<HTMLElement>(`[aria-label="Scene objects"] [data-object-key="${CSS.escape(state.selection.key)}"] .scene-navigator__name`)?.focus();
+  }, [state.selection]);
+
   const issues = useMemo(() => (readOnly ? [] : validateDraft(state.draft)), [readOnly, state.draft]);
   const issuesForKey = useMemo(() => issuesByKey(issues), [issues]);
   const invalidKeys = useMemo(() => new Set(issuesForKey.keys()), [issuesForKey]);
@@ -294,14 +314,16 @@ export default function SceneEditorPage() {
     ? cameraVideos.find((video) => video.id === canvasVideoId)
     : undefined;
 
-  const handleFrameClick = useCallback((point: { x: number; y: number }) => {
+  const handleFrameClick = useCallback((point: { x: number; y: number }, via?: { keyboard: boolean }) => {
     if (state.tool === 'zone') {
       dispatch({ type: 'addDrawingVertex', point });
       return;
     }
     if (state.tool === 'line') {
-      if (state.drawing.kind === 'line') dispatch({ type: 'finishLine', point });
-      else dispatch({ type: 'startLine', point });
+      if (state.drawing.kind === 'line') {
+        if (via?.keyboard) completedByKeyRef.current = true;
+        dispatch({ type: 'finishLine', point });
+      } else dispatch({ type: 'startLine', point });
     }
   }, [state.tool, state.drawing.kind]);
 
@@ -332,6 +354,7 @@ export default function SceneEditorPage() {
       // else (the armed tool keeps focus after it is pressed) Enter finishes.
       if (event.key === 'Enter' && state.drawing.kind === 'zone' && !isGeometryControl(event.target as HTMLElement | null)) {
         event.preventDefault();
+        completedByKeyRef.current = true;
         dispatch({ type: 'closeZone' });
         return;
       }
@@ -345,7 +368,7 @@ export default function SceneEditorPage() {
         recoverFocusRef.current = true;
         return;
       }
-      const nudge = nudgeFor(event.key);
+      const nudge = nudgeFor(event.key, event.shiftKey);
       if (!nudge) return;
       const movable = (state.selection.kind === 'zone' && state.selection.vertexIndex !== null)
         || (state.selection.kind === 'line' && state.selection.endpoint !== null);
@@ -888,12 +911,14 @@ function isTextEntry(target: HTMLElement | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
-function nudgeFor(key: string): { dx: number; dy: number } | null {
+/** §22 Workbench: arrows nudge, Shift+arrows coarse nudge. */
+function nudgeFor(key: string, coarse = false): { dx: number; dy: number } | null {
+  const step = coarse ? NUDGE_COARSE_STEP : NUDGE_STEP;
   switch (key) {
-    case 'ArrowLeft': return { dx: -NUDGE_STEP, dy: 0 };
-    case 'ArrowRight': return { dx: NUDGE_STEP, dy: 0 };
-    case 'ArrowUp': return { dx: 0, dy: -NUDGE_STEP };
-    case 'ArrowDown': return { dx: 0, dy: NUDGE_STEP };
+    case 'ArrowLeft': return { dx: -step, dy: 0 };
+    case 'ArrowRight': return { dx: step, dy: 0 };
+    case 'ArrowUp': return { dx: 0, dy: -step };
+    case 'ArrowDown': return { dx: 0, dy: step };
     default: return null;
   }
 }

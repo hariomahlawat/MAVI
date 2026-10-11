@@ -159,10 +159,14 @@ export default function SceneContextBar({
           </Button>
           {/* A disabled button receives no pointer events, so a `title` on one
               is a tooltip nobody can open. Both explanations are rendered in
-              the notices region and referenced from here. */}
+              the notices region and referenced from here.
+              aria-disabled, not disabled: pressing Save makes it unavailable
+              (saving, then nothing left to save), and a disabled control
+              drops the operator's focus to the document (X2). The page's
+              submit refuses when it cannot save. */}
           <Button
             variant="primary"
-            disabled={!canSave}
+            aria-disabled={!canSave || undefined}
             aria-describedby={
               confirmingDisable
                 ? 'scene-disable-confirm'
