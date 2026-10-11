@@ -71,6 +71,11 @@
   .queue-counts__sep { display: none; }
   .queue-counts, .queue-counts--pending { display: flex; }
   .queue-reserve--counts { display: none; }
+  /* The folded values' reserve is a Tier B column width. A Tier C item lets
+     those values wrap under the identity when they do not fit beside it, and
+     whether they fit turns on a few pixels of the face: a reserve that guesses
+     the width can fit where the values then wrap (S6/X3), so it holds nothing. */
+  .ledger-folded .queue-reserve { display: none; }
 }
 .run-cell { display: grid; gap: var(--s-1); min-width: 160px; }
 /* In a Ledger the status cell is one column among six at 1366, so it takes the

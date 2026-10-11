@@ -568,4 +568,9 @@ describe('geometry held across states and platform faces (§38; X3)', () => {
   it('keeps the read-only note at the drawing tools\u2019 height', () => {
     expect(/\.scene-toolbar__readonly \{([^}]*)\}/.exec(featuresCss)?.[1]).toMatch(/min-height:\s*calc\(var\(--control-h\) \+ 2 \* var\(--stroke-hair\)\)/);
   });
+
+  it('holds the Queue\'s folded values\' width only at Tier B, never in a Tier C item that wraps them', () => {
+    const tierC = /@media \(width < 768px\) \{([^]*?)\n\}/.exec(featuresCss.slice(featuresCss.indexOf('.queue-reserve {')))?.[1] ?? '';
+    expect(tierC).toMatch(/\.ledger-folded \.queue-reserve \{ display: none; \}/);
+  });
 });
