@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,7 @@ from mavi_vision.runtime.progress import ProcessingProgress, ProcessingProgressS
 from mavi_vision.storage.integrity import SourceIntegrityError
 from mavi_vision.storage.local_media_store import LocalMediaStore
 from mavi_vision.worker.client import WorkerApiError
+from mavi_vision.worker import runner as runner_module
 from mavi_vision.worker.runner import WorkerRunner
 
 
@@ -116,7 +118,25 @@ class FailingCompletionWorkerApiClient(FakeWorkerApiClient):
         raise WorkerApiError("worker API request failed")
 
 
+class LeaseClock:
+    """Wall clock for LeaseGuard that a test can move past a lease deadline."""
+
+    def __init__(self) -> None:
+        self.offset = timedelta(0)
+
+    def now(self) -> datetime:
+        return datetime.now(timezone.utc) + self.offset
+
+
 class ExpiringAtCompletionPublicationApi(FakeWorkerApiClient):
+    # The lease outlives the test so the runner has no reason to renew it while
+    # processing; it then expires on the guard's clock during payload projection.
+    # A real sub-second lease would make the outcome depend on processing
+    # finishing before the runner's early renewal at half the lease lifetime.
+    def __init__(self, leased_job: VisionJobLease, lease_clock: LeaseClock) -> None:
+        super().__init__(leased_job)
+        self.lease_clock = lease_clock
+
     async def heartbeat(
         self, lease: VisionJobLease, progress_percent: float
     ) -> VisionJobHeartbeatResponse:
@@ -125,7 +145,7 @@ class ExpiringAtCompletionPublicationApi(FakeWorkerApiClient):
         return VisionJobHeartbeatResponse(
             schemaVersion="2.0",
             progressPercent=progress_percent,
-            leaseExpiresAtUtc=datetime.now(timezone.utc) + timedelta(seconds=0.03),
+            leaseExpiresAtUtc=self.lease_clock.now() + timedelta(minutes=10),
         )
 
     async def complete(
@@ -137,7 +157,7 @@ class ExpiringAtCompletionPublicationApi(FakeWorkerApiClient):
         *,
         authorize_publish=None,
     ) -> object:
-        await asyncio.sleep(0.05)
+        self.lease_clock.offset += timedelta(minutes=20)
         if authorize_publish is not None:
             authorize_publish()
         self.events.append("complete")
@@ -476,13 +496,19 @@ def test_processor_lease_loss_is_api_error_without_terminal_failure(tmp_path: Pa
 
 
 def test_completion_publication_rechecks_lease_after_payload_projection(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lease = make_lease()
     media = tmp_path / "videos" / "input.mp4"
     media.parent.mkdir()
     media.write_bytes(b"video")
-    client = ExpiringAtCompletionPublicationApi(lease)
+    lease_clock = LeaseClock()
+    monkeypatch.setattr(
+        runner_module,
+        "LeaseGuard",
+        functools.partial(LeaseGuard, now_utc=lease_clock.now),
+    )
+    client = ExpiringAtCompletionPublicationApi(lease, lease_clock)
     processor = RecordingProcessor(make_result(lease))
 
     with pytest.raises(WorkerApiError, match="lease ownership lost"):
