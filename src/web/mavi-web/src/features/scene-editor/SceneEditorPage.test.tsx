@@ -752,6 +752,77 @@ describe('scene editor', () => {
     expect(screen.getByRole('button', { name: /Vertex 1: x 0.200000, y 0.200000/ })).toBeInTheDocument();
   });
 
+  describe('drawing from the keyboard (§22 Workbench, X2)', () => {
+    /** Tab, as an operator does, until the frame has focus (bounded). */
+    async function tabTo(user: ReturnType<typeof userEvent.setup>, target: HTMLElement) {
+      for (let i = 0; i < 12 && document.activeElement !== target; i += 1) await user.tab();
+      expect(target).toHaveFocus();
+    }
+
+    it('draws a zone with the frame\'s cursor: arrows move it, Space places a vertex, Enter completes', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+      render();
+      await screen.findByText('No scene configured');
+
+      toolButton('Zone').focus();
+      await user.keyboard('{Enter}');
+      const frame = screen.getByRole('group', { name: /^Scene frame, drawing a zone/ });
+      await tabTo(user, frame);
+
+      // From the centre (0.5, 0.5): up 3 coarse, left 3 coarse → (0.2, 0.2).
+      await user.keyboard('{Shift>}{ArrowUp}{ArrowUp}{ArrowUp}{ArrowLeft}{ArrowLeft}{ArrowLeft}{/Shift}');
+      await user.keyboard(' ');
+      expect(screen.getByTestId('scene-canvas-placed')).toHaveTextContent('Vertex 1 placed at 0.200000, 0.200000.');
+      await user.keyboard('{Shift>}{ArrowRight}{ArrowRight}{ArrowRight}{/Shift}{ArrowRight}');
+      await user.keyboard(' ');
+      await user.keyboard('{Shift>}{ArrowDown}{ArrowDown}{ArrowDown}{/Shift}');
+      await user.keyboard(' ');
+      expect(screen.getByTestId('scene-canvas-placed')).toHaveTextContent('Vertex 3 placed at 0.510000, 0.500000.');
+      await user.keyboard('{Enter}');
+
+      expect(await screen.findByRole('button', { name: /^Zone 1/ })).toBeInTheDocument();
+      expect(screen.getByTestId(/^scene-zone-/)).toHaveAttribute('data-points', '0.200000,0.200000 0.510000,0.200000 0.510000,0.500000');
+    });
+
+    it('draws a trip line with two placements, and Escape abandons one half drawn', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+      render();
+      await screen.findByText('No scene configured');
+
+      toolButton('Trip line').focus();
+      await user.keyboard('{Enter}');
+      await tabTo(user, screen.getByRole('group', { name: /^Scene frame, drawing a trip line/ }));
+      await user.keyboard(' ');
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('button', { name: /^Line 1/ })).not.toBeInTheDocument();
+
+      await user.keyboard('{Shift>}{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}{/Shift} ');
+      await user.keyboard('{Shift>}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{/Shift} ');
+      expect(await screen.findByRole('button', { name: /^Line 1/ })).toBeInTheDocument();
+    });
+
+    it('is not a keyboard surface without a drawing tool armed', async () => {
+      render();
+      await screen.findByRole('button', { name: /^Gate/ });
+      expect(screen.getByTestId('scene-canvas')).not.toHaveAttribute('tabindex');
+      expect(screen.queryByRole('group', { name: /^Scene frame/ })).not.toBeInTheDocument();
+    });
+  });
+
+  it('nudges a selected vertex by one hundredth with Shift (§22 coarse nudge)', async () => {
+    const user = userEvent.setup();
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+
+    await selectObject(user, 'Gate');
+    await user.click(screen.getByRole('button', { name: /Vertex 1: x 0.200000/ }));
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}');
+
+    expect(await screen.findByRole('button', { name: /Vertex 1: x 0.210000, y 0.200000/ })).toBeInTheDocument();
+  });
+
   it('nudges a selected vertex by one thousandth', async () => {
     const user = userEvent.setup();
     render();

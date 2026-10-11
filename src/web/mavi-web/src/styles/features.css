@@ -726,6 +726,8 @@
 .scene-stage__overlay { position: absolute; inset: 0; filter: drop-shadow(0 0 var(--evidence-halo-blur) var(--evidence-halo)); }
 .scene-stage__surface.tool-zone, .scene-stage__surface.tool-line { cursor: crosshair; }
 .scene-stage__surface.is-drawing { box-shadow: inset 0 0 0 1px var(--accent); }
+.scene-stage__surface:focus-visible { outline: var(--focus-ring-w) solid var(--focus-ring); outline-offset: var(--s-px); }
+.scene-cursor line, .scene-cursor circle { stroke: var(--focus-ring); stroke-width: 1.5; fill: none; vector-effect: non-scaling-stroke; }
 .scene-stage__surface.is-readonly .scene-stage__overlay { cursor: default; }
 
 .scene-stage__banner {

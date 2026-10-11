@@ -20,7 +20,7 @@ import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
 import EmptyState from '../../shared/components/EmptyState';
 import { ContextBar, WorkbenchLayout } from '../../shared/workspace';
-import { editorReducer, initialEditorState, NUDGE_STEP, type Selection } from './editorState';
+import { editorReducer, initialEditorState, NUDGE_COARSE_STEP, NUDGE_STEP, type Selection } from './editorState';
 import ReferenceFrameBar from './ReferenceFrameBar';
 import RevisionHistory from './RevisionHistory';
 import SceneCanvas from './SceneCanvas';
@@ -345,7 +345,7 @@ export default function SceneEditorPage() {
         recoverFocusRef.current = true;
         return;
       }
-      const nudge = nudgeFor(event.key);
+      const nudge = nudgeFor(event.key, event.shiftKey);
       if (!nudge) return;
       const movable = (state.selection.kind === 'zone' && state.selection.vertexIndex !== null)
         || (state.selection.kind === 'line' && state.selection.endpoint !== null);
@@ -888,12 +888,14 @@ function isTextEntry(target: HTMLElement | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
 
-function nudgeFor(key: string): { dx: number; dy: number } | null {
+/** §22 Workbench: arrows nudge, Shift+arrows coarse nudge. */
+function nudgeFor(key: string, coarse = false): { dx: number; dy: number } | null {
+  const step = coarse ? NUDGE_COARSE_STEP : NUDGE_STEP;
   switch (key) {
-    case 'ArrowLeft': return { dx: -NUDGE_STEP, dy: 0 };
-    case 'ArrowRight': return { dx: NUDGE_STEP, dy: 0 };
-    case 'ArrowUp': return { dx: 0, dy: -NUDGE_STEP };
-    case 'ArrowDown': return { dx: 0, dy: NUDGE_STEP };
+    case 'ArrowLeft': return { dx: -step, dy: 0 };
+    case 'ArrowRight': return { dx: step, dy: 0 };
+    case 'ArrowUp': return { dx: 0, dy: -step };
+    case 'ArrowDown': return { dx: 0, dy: step };
     default: return null;
   }
 }

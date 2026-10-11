@@ -64,6 +64,30 @@ export type EditorAction =
 
 /** One arrow-key press, in normalised units, as the plan freezes it. */
 export const NUDGE_STEP = 0.001;
+/** One Shift+arrow press (§22: coarse nudge), ten fine steps. */
+export const NUDGE_COARSE_STEP = 0.01;
+
+/**
+ * The keyboard drawing cursor's steps, in normalised units (§22 Workbench:
+ * arrows, Shift+arrows coarse). Fine enough to place a point with intent,
+ * coarse enough to cross the frame in ten presses.
+ */
+export const CURSOR_STEP = 0.01;
+export const CURSOR_COARSE_STEP = 0.1;
+
+const clampUnit = (value: number) => Math.round(Math.min(1, Math.max(0, value)) * 1000) / 1000;
+
+/** Where an arrow key moves the drawing cursor, or null for any other key. */
+export function moveCursor(cursor: ScenePoint, key: string, coarse: boolean): ScenePoint | null {
+  const step = coarse ? CURSOR_COARSE_STEP : CURSOR_STEP;
+  switch (key) {
+    case 'ArrowLeft': return { x: clampUnit(cursor.x - step), y: cursor.y };
+    case 'ArrowRight': return { x: clampUnit(cursor.x + step), y: cursor.y };
+    case 'ArrowUp': return { x: cursor.x, y: clampUnit(cursor.y - step) };
+    case 'ArrowDown': return { x: cursor.x, y: clampUnit(cursor.y + step) };
+    default: return null;
+  }
+}
 
 export function initialEditorState(revision: SceneRevision | null): EditorState {
   const draft = revision ? draftFromRevision(revision) : emptyDraft();

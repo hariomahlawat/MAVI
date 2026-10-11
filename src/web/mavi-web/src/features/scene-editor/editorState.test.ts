@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SceneRevision } from '../../api/scene';
-import { editorReducer, initialEditorState, NUDGE_STEP, type EditorAction, type EditorState } from './editorState';
+import { editorReducer, initialEditorState, moveCursor, NUDGE_STEP, type EditorAction, type EditorState } from './editorState';
 import { draftAnalyticsEnabled, saveRequestFromDraft } from './sceneDraft';
 
 const square = [
@@ -385,5 +385,24 @@ describe('scene editor state', () => {
     const deleted = run(selected, { type: 'deleteObject', key: state.draft.tripLines[0].key });
 
     expect(deleted.selection).toEqual({ kind: 'zone', key: state.draft.zones[0].key, vertexIndex: null });
+  });
+});
+
+describe('the keyboard drawing cursor (§22)', () => {
+  it('moves one hundredth per arrow and one tenth with Shift', () => {
+    expect(moveCursor({ x: 0.5, y: 0.5 }, 'ArrowRight', false)).toEqual({ x: 0.51, y: 0.5 });
+    expect(moveCursor({ x: 0.5, y: 0.5 }, 'ArrowUp', true)).toEqual({ x: 0.5, y: 0.4 });
+  });
+
+  it('stays on the frame and at the stored precision', () => {
+    expect(moveCursor({ x: 0.95, y: 0.02 }, 'ArrowRight', true)).toEqual({ x: 1, y: 0.02 });
+    expect(moveCursor({ x: 0.3, y: 0.02 }, 'ArrowUp', true)).toEqual({ x: 0.3, y: 0 });
+    let point = { x: 0.5, y: 0.5 };
+    for (let i = 0; i < 7; i += 1) point = moveCursor(point, 'ArrowLeft', false)!;
+    expect(point).toEqual({ x: 0.43, y: 0.5 });
+  });
+
+  it('ignores every other key', () => {
+    expect(moveCursor({ x: 0.5, y: 0.5 }, 'Enter', false)).toBeNull();
   });
 });
