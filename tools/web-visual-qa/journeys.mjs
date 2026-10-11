@@ -246,13 +246,24 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
     step({ ...entry, observed: why, pass: false });
     throw new JourneyFailure(`${journeyId} @ ${viewport.label} step ${steps.length} (${entry.action}${entry.target ? ' ' + JSON.stringify(entry.target) : ''}): ${why}`);
   };
+  // Focus is read in two steps (the page tags it, the accessibility tree
+  // names it); a control the product re-renders between the two — a button
+  // turning into its own busy label — is gone by the second, which is the
+  // read's race, not the journey's finding: the whole read is retried, a
+  // bounded few times, then the CDP error stands as a harness fault.
   const focus = async () => {
-    const state = await browser.evaluate(toExpression(journeyFocusState));
-    if (!state.onBody) {
-      const [ax] = await browser.axNames('[data-vqa-journey-focus]');
-      state.name = ax?.name ?? ''; state.role = ax?.role ?? null;
+    for (let attempt = 1; ; attempt += 1) {
+      const state = await browser.evaluate(toExpression(journeyFocusState));
+      if (state.onBody) return state;
+      try {
+        const [ax] = await browser.axNames('[data-vqa-journey-focus]');
+        state.name = ax?.name ?? ''; state.role = ax?.role ?? null;
+        return state;
+      } catch (error) {
+        if (attempt >= 4 || !/Could not find node|No node with given id|Node with given id does not/i.test(String(error?.message ?? error))) throw error;
+        await tick(25);
+      }
     }
-    return state;
   };
   const guards = async () => {
     const g = await browser.evaluate('(() => { const g = window.__vqaJourneyGuard || {}; return { pointer: (g.pointer || []).slice(), synthetic: (g.synthetic || []).slice(), document: g.document }; })()');
