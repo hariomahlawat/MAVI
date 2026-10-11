@@ -550,3 +550,22 @@ describe('§38: fonts do not swap and nothing animates continuously but the two 
     expect(infinite.sort()).toEqual(['pulse', 'spin']);
   });
 });
+
+describe('geometry held across states and platform faces (§38; X3)', () => {
+  it('folds each Ledger from its first frame where its base table would not fit in the widest qualified face', () => {
+    const floor = (table: string) => new RegExp(`@container ledger \\(max-width: (\\d+)px\\) \\{\\s*\\.table--fold-${table} `).exec(featuresCss)?.[1];
+    // Segoe UI widths 968 / 1011 / 685; Verdana (which bounds DejaVu Sans) 1029 / 1076 / 708.
+    expect(floor('videos')).toBe('1030');
+    expect(floor('processing-queue')).toBe('1077');
+    expect(floor('cameras')).toBe('709');
+  });
+
+  it('gives the stacked analytics stage one geometry for every report and state', () => {
+    const block = /@media \(min-width: 768px\) and \(max-width: 1100px\) \{\s*\.analytics-stage \{([^}]*)\}/.exec(featuresCss);
+    expect(block?.[1]).toMatch(/aspect-ratio:\s*16 \/ 10/);
+  });
+
+  it('keeps the read-only note at the drawing tools\u2019 height', () => {
+    expect(/\.scene-toolbar__readonly \{([^}]*)\}/.exec(featuresCss)?.[1]).toMatch(/min-height:\s*calc\(var\(--control-h\) \+ 2 \* var\(--stroke-hair\)\)/);
+  });
+});

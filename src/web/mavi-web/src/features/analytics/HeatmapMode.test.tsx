@@ -120,6 +120,19 @@ beforeEach(() => {
 });
 
 describe('Heatmap mode', () => {
+  it('keeps the interval\u2019s place in the band without offering it (§38; X3)', async () => {
+    await openHeatmap();
+    await screen.findAllByText(/sample density/i);
+    // Not offered: no Interval control is reachable or named.
+    expect(screen.queryByLabelText('Interval')).not.toBeInTheDocument();
+    const reserve = document.querySelector('.analytics-window__reserve');
+    expect(reserve).toHaveAttribute('aria-hidden', 'true');
+    const held = reserve?.querySelector('select');
+    expect(held).toBeDisabled();
+    expect(held).toHaveAttribute('tabindex', '-1');
+    expect(held).not.toHaveAttribute('id');
+  });
+
   it('summarises the map instead of enumerating its cells', async () => {
     await openHeatmap();
 

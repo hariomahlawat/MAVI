@@ -137,8 +137,14 @@ export function useEvidenceTransport({
   // would not re-run, leaving the metadata listener and the resize observer
   // attached to the detached element. The overlay would then keep the old
   // element's geometry and misproject every box and path on the new one.
+  //
+  // The element's size is read when the browser lays it out — a
+  // ResizeObserver delivers its first observation after layout and before
+  // paint — never by reading it here, which would force the whole newly
+  // mounted surface (an inspector opening with its player) to lay out inside
+  // the operator's action, as one long task (§38 "no jank on interaction";
+  // X3). Without an observer it is read at once.
   useLayoutEffect(() => {
-    measure();
     const video = videoRef.current;
     if (!video) return;
     video.addEventListener('loadedmetadata', measure);
@@ -147,6 +153,7 @@ export function useEvidenceTransport({
       observer = new ResizeObserver(measure);
       observer.observe(video);
     } else {
+      measure();
       window.addEventListener('resize', measure);
     }
     return () => {

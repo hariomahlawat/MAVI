@@ -976,6 +976,8 @@
    beside their fields; the presets are one group; a refusal is the band's
    one-line hint, described by the field that repairs it. */
 .analytics-window__presets { display: flex; gap: var(--s-1); }
+/* The interval's kept place on the heatmap: its width, nothing else (X3). */
+.analytics-window__reserve { display: inline-flex; visibility: hidden; }
 .analytics-window__label { color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
 .toolbar-band .analytics-window__problem { color: var(--status-err); }
 /* A wall time in the product's format (§24), in tabular figures. Its width is
@@ -1014,6 +1016,16 @@
   min-height: 0;
   height: 100%;
   padding: var(--s-4);
+}
+/* Stacked (§25 Tier B), the page scrolls and the stage would take whatever
+   height its content has — the activity chart, the map, a loading row, an
+   empty state — so changing report or reading a map moved the inspector below
+   it (0.13 at 1024x768 where the first baseline measured 0.001; X3). One
+   geometry instead, from the stage's width, for every report and state: the
+   map letterboxes in it as it does at Tier A, the chart fills it, and its
+   states are said inside it (§36.3, §38). */
+@media (min-width: 768px) and (max-width: 1100px) {
+  .analytics-stage { height: auto; aspect-ratio: 16 / 10; }
 }
 
 .activity-chart {
@@ -1201,7 +1213,11 @@
  * priority into the primary cell"). Each Ledger folds where its own
  * container is narrower than its unfolded table — the base inventory's
  * measured natural width plus the frame's 2px border (T1, measured at 1366
- * with every column visible) — so the fold is derived from the composition
+ * with every column visible), in the widest platform face the product is
+ * qualified under: Verdana's metrics, which bound the Linux CI's DejaVu Sans
+ * (X3: a floor measured in Segoe UI alone left a Linux table overflowing by a
+ * few pixels, folding only when its rows arrived and moving the page by
+ * 0.49) — so the fold is derived from the composition
  * it separates, never from a viewport figure, and holds at any rail state.
  * Tier A's narrowest working width (1366 with the rail expanded) is 1110px,
  * above every threshold here, so nothing folds there (§4.1). These widths
@@ -1210,9 +1226,10 @@
  * font — the Ledger folds on measurement as well (`useOverflowFold`). Below
  * the folded table's own width the body scrolls sideways, which §4.1 permits.
  * ------------------------------------------------------------------ */
-/* Videos: 968px unfolded. Recorded and Duration fold into the File cell; the
-   sort they carried moves to the toolbar's select. */
-@container ledger (max-width: 969px) {
+/* Videos: 968px unfolded in Segoe UI, 1029px in Verdana. Recorded and
+   Duration fold into the File cell; the sort they carried moves to the
+   toolbar's select. */
+@container ledger (max-width: 1030px) {
   .table--fold-videos .ledger-fold { display: none; }
   .table--fold-videos .ledger-folded { display: inline-flex; }
   /* Only Videos carries a sort select: its folded columns are sort keys. */
@@ -1223,14 +1240,15 @@
      (§25 Tier B: the band wraps to two rows at most; §38: no layout shift). */
   .toolbar-band:has(.ledger-sort) .toolbar-band__hint { flex-basis: 100%; }
 }
-/* Processing queue: 1011px unfolded. Queued, Attempt and Tracks fold into the
-   Video cell. */
-@container ledger (max-width: 1012px) {
+/* Processing queue: 1011px unfolded in Segoe UI, 1076px in Verdana. Queued,
+   Attempt and Tracks fold into the Video cell. */
+@container ledger (max-width: 1077px) {
   .table--fold-processing-queue .ledger-fold { display: none; }
   .table--fold-processing-queue .ledger-folded { display: inline-flex; }
 }
-/* Cameras: 685px unfolded. Timezone folds into the Name cell. */
-@container ledger (max-width: 686px) {
+/* Cameras: 685px unfolded in Segoe UI, 708px in Verdana. Timezone folds into
+   the Name cell. */
+@container ledger (max-width: 709px) {
   .table--fold-cameras .ledger-fold { display: none; }
   .table--fold-cameras .ledger-folded { display: inline-flex; }
 }
