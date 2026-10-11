@@ -353,6 +353,9 @@ describe('CamerasPage', () => {
       const unavailable = renderWithApp(<CamerasPage />);
       await screen.findByText(/Camera store unavailable/);
       expect(unavailable.container.querySelector('.ledger-table')).toBeNull();
+      // S6/X3: the band stays when the inventory fails, so the Ledger below it
+      // does not move up as the failure arrives.
+      expect(unavailable.container.querySelector('.toolbar-band__hint')).toHaveTextContent('Not available');
       expect(unavailable.container.querySelector('.workspace__body--ledger > .state-region [role="alert"], .workspace__body--ledger > .state-region .alert')).not.toBeNull();
       unavailable.unmount();
 

@@ -310,21 +310,22 @@ export default function CamerasPage() {
       />
 
       <LedgerLayout
-        // No filters here, so the band exists only while it has something to
-        // say; an empty 32px strip is chrome, not a toolbar. While the
-        // inventory loads it names the Ledger without a count, so the table
-        // that follows arrives under it instead of below a band that appears
-        // with it (section 38); only an unavailable inventory has no band.
-        toolbar={cameras.data || cameras.isPending ? (
+        // No filters here; the band names the Ledger and says how much of it
+        // there is. While the inventory loads it names the Ledger without a
+        // count, so the table that follows arrives under it instead of below
+        // a band that appears with it (section 38). An unavailable inventory
+        // keeps the band too, saying so: withdrawing it moved the whole Ledger
+        // up when the failure arrived (S6/X3).
+        toolbar={(
           <Toolbar
             label="Camera inventory"
             // While loading, the band says so in the region's own words, which
             // also gives it the hint line's height the count will have.
             hint={cameras.data
               ? `${formatCount(cameras.data.length)} camera${cameras.data.length === 1 ? '' : 's'} registered`
-              : 'Loading cameras…'}
+              : cameras.isPending ? 'Loading cameras…' : 'Not available'}
           />
-        ) : undefined}
+        )}
         editor={creating ? createRegion : null}
       >
         <StateRegion

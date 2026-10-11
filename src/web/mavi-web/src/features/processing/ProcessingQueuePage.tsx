@@ -233,6 +233,18 @@ export default function ProcessingQueuePage() {
                                 <LedgerFoldedValue name="Tracks">{`${formatCount(run.tracksCreated)} tracks`}</LedgerFoldedValue>
                               ) : null}
                             </>
+                          ) : statusState.kind === 'loading' ? (
+                            // While the row's run loads, an invisible line of
+                            // the folded values' shape holds the width they
+                            // will take: drawn inline after the identity, they
+                            // otherwise widen the Video column on arrival and
+                            // push every column after it (S6/X3).
+                            <>
+                              <span className="ledger-folded__value queue-reserve" aria-hidden="true">
+                                {compactTimestamp(new Date().toISOString(), displayZone)}
+                              </span>
+                              <span className="ledger-folded__value queue-reserve" aria-hidden="true">#1</span>
+                            </>
                           ) : null}
                         />
                       </td>

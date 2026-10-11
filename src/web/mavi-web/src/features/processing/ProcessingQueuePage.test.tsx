@@ -293,6 +293,21 @@ describe('ProcessingQueuePage', () => {
     expect(await within(rows[1]).findByText('worker_watchdog_timeout')).toBeInTheDocument();
   });
 
+  it('holds the folded values\' width, hidden, while a row\'s run loads, and drops the reserve when it arrives (S6/X3)', async () => {
+    const pending: Array<(value: Awaited<ReturnType<typeof getProcessingStatus>>) => void> = [];
+    vi.mocked(getProcessingStatus).mockImplementation(() => new Promise((r) => { pending.push(r); }));
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    const row = within(table).getAllByRole('row')[1];
+    const reserve = row.querySelectorAll('.ledger-folded .queue-reserve');
+    expect(reserve).toHaveLength(2);
+    reserve.forEach((node) => expect(node).toHaveAttribute('aria-hidden', 'true'));
+
+    pending.forEach((r) => r({ videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) }));
+    await waitFor(() => expect(row.querySelector('.ledger-folded .queue-reserve')).toBeNull());
+    expect(row.querySelectorAll('.ledger-folded .ledger-folded__value').length).toBeGreaterThan(0);
+  });
+
   describe('M2: the run-status retry in the capped status cell', () => {
     it('retries a failed lookup with a compact control named for its video, by keyboard, for that video only', async () => {
       const user = userEvent.setup();
