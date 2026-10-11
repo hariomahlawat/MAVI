@@ -95,6 +95,15 @@
 .context-bar__crumbs a:hover { text-decoration: underline; text-underline-offset: 0.12em; }
 .context-bar__crumbs [aria-current="page"] { color: var(--text-primary); font-weight: 600; }
 .context-bar__status { display: flex; align-items: center; gap: var(--s-2); flex: 0 1 auto; min-width: 0; }
+/* §25: the identity gives way first. A full band shrinks its flexible items
+   in proportion to their size, so a long identity and a status group of
+   rigid parts (a badge, the zone note) used to share the shortfall, and the
+   group's parts spilled out of it — under WCAG 1.4.12 text spacing with a
+   wide font, off the page at 768. Such a group's floor is its parts' width,
+   so the trail absorbs the shortfall (the identity, down to 4ch). A group
+   that holds a subject (Review's Track) keeps the floor of 0: the subject is
+   what truncates there. */
+.context-bar__status:not(:has(.context-bar__subject)) { min-width: min-content; }
 /* The item a surface is reviewing, beside its state (Review's Track). Text,
    not a badge: it names the subject, it does not grade it. */
 .context-bar__subject { color: var(--text-secondary); font-size: var(--fs-2); white-space: nowrap; min-width: 0; flex: 0 1 auto; }

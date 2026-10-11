@@ -650,13 +650,40 @@
   .scene-context__revision, .scene-context__analytics { white-space: nowrap; }
   .context-bar__status:has(> .scene-context__revision) { flex-shrink: 0; }
 }
+/* Under WCAG 1.4.12 text spacing with a wide font (CI's DejaVu Sans) the
+   Workbench's band at 768 and 1024 was overfull past every give-way above —
+   the chips wrapped, the note at its floor, the identity at 4ch — and the
+   state chips painted over the "Scene" crumb. Below 1100px the trail's
+   ancestor ("Cameras ›") goes first, as it does in the narrow shell; the
+   object and the current crumb stay, and the way back is the rail's (§25). */
+@media (max-width: 1100px) {
+  .context-bar:has(.scene-context__revision) .context-bar__crumbs li.context-bar__crumb:not(.context-bar__crumb--object):not(:last-child) { display: none; }
+  .context-bar:has(.scene-context__revision) .context-bar__crumbs li.context-bar__crumb--object::before { content: none; }
+}
+/* And below 940px, where the chips already wrap, the two action labels may
+   wrap too — "Save and disable analytics" on two lines inside the 44px band —
+   rather than paint over the chips: a label whole on two lines loses nothing;
+   a chip under a button does (WCAG 1.4.12). */
+@media (max-width: 939px) {
+  /* The chips' floor is their wrapped width: squeezed below it they would
+     paint out of their group into the actions, while the trail still held a
+     long identity it could have truncated. With the floor, the shortfall goes
+     to the trail (the identity, down to 4ch) and to the note. */
+  .context-bar__status:has(> .scene-context__revision) { min-width: min-content; }
+  .context-bar__actions:has(.scene-context__note) .btn {
+    white-space: normal; height: auto; min-height: var(--control-h); max-height: 40px;
+    line-height: 1.15; padding-top: var(--s-1); padding-bottom: var(--s-1); text-align: center;
+  }
+}
 /* The revision note is optional and is what gives way on a full bar: the
-   actions group may shrink by it, down to a still-usable 120px, before the
+   actions group may shrink by it, down to a still-usable 80px, before the
    state chips are pushed back over the trail (§25 Tier B; measured under a
    wide CI-like font at 768 and 1024, where the rigid 220px field made the
-   chips paint over the "Scene" crumb). The buttons keep their labels. */
+   chips paint over the "Scene" crumb, and again under WCAG 1.4.12 text
+   spacing with that font, where a 120px floor still did — the field scrolls
+   what is typed, so 80px takes a note). The buttons keep their labels. */
 .context-bar__actions:has(.scene-context__note) { flex-shrink: 1; }
-.scene-context__note { flex: 0 1 220px; min-width: 120px; }
+.scene-context__note { flex: 0 1 220px; min-width: 80px; }
 .scene-context__note input { width: 100%; height: var(--control-h); }
 
 /* An explanation of a Context Bar control, stated in the notices region. */
