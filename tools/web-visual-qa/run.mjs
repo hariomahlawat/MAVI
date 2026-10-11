@@ -76,12 +76,12 @@ const [
   { launch },
   { caseKey, createLedger, exitStatus, HarnessError, partitionCases, planCases, settle, sweepChecks, zoomQualification },
   { CONDITIONS, ensureFootage },
-  { manifestSummary, OPERATOR_SURFACES, RULES, TEXT_SPACING_CONDITION, TIERS, validateManifest, ZOOM_CONDITION },
+  { manifestSummary, OPERATOR_SURFACES, REDUCED_MOTION_CONDITION, RULES, TEXT_SPACING_CONDITION, TIERS, validateManifest, ZOOM_CONDITION },
   { startServer },
   { OBSERVERS, perfCollect, TRANSIENT },
   { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM },
   { tierCLedgerSemantics },
-  { a11yAssertions, a11yLiveCheck, a11yLiveMark, a11yNamesJudge, a11yTextSpacingEnvironment },
+  { a11yAssertions, a11yLiveCheck, a11yLiveMark, a11yMotionEnvironment, a11yNamesJudge, a11yReducedMotion, a11yTextSpacingEnvironment, motionEnvironmentProblem },
   { probeHoverContent, probeShortcuts },
 ] = modules;
 
@@ -114,6 +114,9 @@ if (onlyZoom !== null && onlyZoom !== 'only' && onlyZoom !== 'none') fatal(`--zo
 // X1: the text-spacing lane (WCAG 1.4.12), `--text-spacing only|none` as `--zoom`.
 const onlyTextSpacing = arg('text-spacing', null);
 if (onlyTextSpacing !== null && onlyTextSpacing !== 'only' && onlyTextSpacing !== 'none') fatal(`--text-spacing takes "only" or "none", not "${onlyTextSpacing}"`);
+// X4: the reduced-motion lane (§13), `--reduced-motion only|none` as `--zoom`.
+const onlyReducedMotion = arg('reduced-motion', null);
+if (onlyReducedMotion !== null && onlyReducedMotion !== 'only' && onlyReducedMotion !== 'none') fatal(`--reduced-motion takes "only" or "none", not "${onlyReducedMotion}"`);
 // A count that is not a positive integer is refused: NaN would plan cases and
 // run none of them.
 const positiveInt = (name, fallback) => {
@@ -131,7 +134,7 @@ if (shardArg !== null) {
   shard = { index: Number(m[1]), count: Number(m[2]) };
 }
 // The whole plan, with nothing left out: the sweep-wide obligations hold here.
-const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom && !onlyTextSpacing && repeat === 1 && !STATES_MODULE;
+const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom && !onlyTextSpacing && !onlyReducedMotion && repeat === 1 && !STATES_MODULE;
 // A shard is never the full sweep by itself; aggregate.mjs is, over every shard.
 const fullSweep = completeSelection && !shard;
 const workers = positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
@@ -148,7 +151,7 @@ let plan;
 try {
   plan = planCases({
     states: STATES, anchors: ANCHORS, policies: TIER_POLICIES, stateKeys: STATE_KEYS, tierOf, zoom: ZOOM,
-    textSpacing: TEXT_SPACING_CONDITION, onlyStates, onlyTiers, onlyWidths, onlyZoom, onlyTextSpacing, repeat,
+    textSpacing: TEXT_SPACING_CONDITION, reducedMotion: REDUCED_MOTION_CONDITION, onlyStates, onlyTiers, onlyWidths, onlyZoom, onlyTextSpacing, onlyReducedMotion, repeat,
   });
 } catch (error) {
   fatal(String(error.message || error) + '\n');
@@ -265,6 +268,12 @@ async function runCase(lane, c) {
   lane.textSpacing = Boolean(viewport.textSpacing);
   lane.footage = state.footage ?? 'saturated';
   await browser.viewport(viewport.width, viewport.height);
+  // X4: the media preference this case runs under, set on the target before
+  // its first document and set by every case — `reduce` for the lane, pinned
+  // `no-preference` for every other case — so a reduced-motion case cannot
+  // leave its emulation to the next case on the lane, and no host setting
+  // can put an ordinary case under reduced motion.
+  await browser.reducedMotion(Boolean(viewport.reducedMotion));
   // A fresh document for a load: a blank document first (Chromium holds
   // media decoders across same-origin navigations), then storage cleared
   // from a same-origin page that boots nothing, so a stored preference
@@ -539,6 +548,39 @@ async function runCase(lane, c) {
     else markEvaluated(c, ['a11y.text-spacing']);
   }
 
+  // X4 (a11y.reduced-motion): every case proves the preference it ran under
+  // from the page — matchMedia and the CSS media evaluation agreeing: `reduce`
+  // in the lane, not `reduce` everywhere else — or it is not reached, never
+  // judged as if it were (the lane's isolation, gated).
+  let motionMedia = null;
+  let reducedMotion = null;
+  if (reached) {
+    motionMedia = await browser.evaluate(toExpression(a11yMotionEnvironment));
+    const problem = motionEnvironmentProblem(motionMedia, Boolean(viewport.reducedMotion));
+    if (viewport.reducedMotion) reducedMotion = { active: problem === null, media: motionMedia, condition: REDUCED_MOTION_CONDITION.media };
+    if (problem) {
+      unreach(viewport.reducedMotion ? 'reduced-motion environment' : 'motion environment', problem);
+      reached = false;
+    }
+  }
+
+  // The motion contract itself, on the settled state: every element and
+  // pseudo-element at a zero duration, no running animation with a positive
+  // one. Read before the focus pass and the probes move anything.
+  if (reducedMotion?.active && reached) {
+    const motion = await browser.evaluate(toExpression(a11yReducedMotion, { judge: true }));
+    reducedMotion.measured = motion.measured;
+    markEvaluated(c, motion.evaluated);
+    for (const finding of motion.findings) add(finding.rule, finding.message);
+  }
+  // The control (X4, §13): an ordinary case measures, without judging, the
+  // motion its page has under the normal preference — the sites that must
+  // keep their durations (the pulse, the spinner, the --dur transitions).
+  let normalMotion = null;
+  if (!viewport.reducedMotion && reached) {
+    normalMotion = (await browser.evaluate(toExpression(a11yReducedMotion, { judge: false }))).measured.sites;
+  }
+
   const input = {
     tier: viewport.tier, width: viewport.effective?.width ?? viewport.width, fullWidth: state.fullWidth ?? null,
     archetype: state.archetype ?? null, holds: state.holds ?? null,
@@ -767,6 +809,9 @@ async function runCase(lane, c) {
     surface: c.surface,
     ...(zoom ? { zoom: { path: zoom.path, effective: zoom.effective, qualified: zoom.qualified ?? false, evaluated: zoom.evaluated, steps: zoom.steps, environment: zoom.environment ?? null, measured: zoom.measured ?? null, text: zoom.text ?? null, textComparisons: zoom.textComparisons ?? [] } } : {}),
     ...(textSpacing ? { textSpacing } : {}),
+    ...(reducedMotion ? { reducedMotion } : {}),
+    motionMedia,
+    ...(normalMotion ? { normalMotion } : {}),
     a11y, hover, shortcuts,
     capture,
     pageWidth: page?.pageWidth ?? null,
@@ -848,11 +893,18 @@ const byTier = Object.fromEntries(TIERS.map((tier) => [tier, {
   anchorCaptures: valid.filter((r) => r.tier === tier && r.kind === 'anchor').length,
   probeCaptures: valid.filter((r) => r.tier === tier && r.kind === 'probe').length,
   spacingCaptures: valid.filter((r) => r.tier === tier && r.kind === 'text-spacing').length,
+  motionCaptures: valid.filter((r) => r.tier === tier && r.kind === 'reduced-motion').length,
   zoomCaptures: valid.filter((r) => r.tier === tier && (r.kind === 'zoom' || r.kind === 'zoom-transition')).length,
   invalid: results.filter((r) => r.tier === tier && !r.valid).length + errored.filter((e) => e.tier === tier).length,
   blocking: findings.filter((f) => f.tier === tier && f.severity === 'blocking').length,
   pending: findings.filter((f) => f.tier === tier && f.severity === 'measured/pending').length,
 }]));
+// The normal-preference control: per motion site, the ordinary cases it ran in and its longest duration.
+function normalMotionSites(list) {
+  const sites = {};
+  for (const r of list) for (const [key, s] of Object.entries(r.normalMotion ?? {})) { const e = (sites[key] ??= { cases: 0, maxMs: 0 }); e.cases += 1; e.maxMs = Math.max(e.maxMs, s.maxMs); }
+  return sites;
+}
 const measure = (key) => count(results.map((r) => ({ status: r.perf?.[key]?.status ?? 'failed' })), 'status');
 const clsValues = results.filter((r) => r.perf?.cls?.status === 'measured').map((r) => r.perf.cls.value);
 const report = {
@@ -902,6 +954,23 @@ const report = {
     for (const r of spacing) { (by[r.viewport] ??= { scheduled: 0, valid: 0, inForce: 0 }).scheduled += 1; if (r.valid) by[r.viewport].valid += 1; if (r.textSpacing?.inForce) by[r.viewport].inForce += 1; }
     return { condition: TEXT_SPACING_CONDITION, scheduled: cases.filter((c) => c.viewport.textSpacing).length, valid: spacing.filter((r) => r.valid).length, inForce: spacing.filter((r) => r.textSpacing?.inForce).length, byViewport: by };
   })(),
+  // X4: the reduced-motion lane by composition, and what it judged.
+  reducedMotion: (() => {
+    const motion = results.filter((r) => r.kind === 'reduced-motion');
+    const by = {};
+    for (const r of motion) { (by[r.viewport] ??= { scheduled: 0, valid: 0, active: 0 }).scheduled += 1; if (r.valid) by[r.viewport].valid += 1; if (r.reducedMotion?.active) by[r.viewport].active += 1; }
+    const sum = (key) => motion.reduce((n, r) => n + (r.reducedMotion?.measured?.[key] ?? 0), 0);
+    return {
+      condition: REDUCED_MOTION_CONDITION, scheduled: cases.filter((c) => c.viewport.reducedMotion).length,
+      valid: motion.filter((r) => r.valid).length, active: motion.filter((r) => r.reducedMotion?.active).length, byViewport: by,
+      elements: sum('elements'), pseudos: sum('pseudos'), transitionValues: sum('transitionValues'), animationValues: sum('animationValues'),
+      positiveTransitions: sum('positiveTransitions'), positiveAnimations: sum('positiveAnimations'), unparseable: sum('unparseable'),
+      browserAnimations: sum('browserAnimations'), browserRunning: sum('browserRunning'), browserRunningPositive: sum('browserRunningPositive'),
+      // The lane's isolation: no ordinary case ran under a reduced preference it did not ask for.
+      otherCasesUnderReduce: results.filter((r) => r.kind !== 'reduced-motion' && r.motionMedia?.matchMedia === true).length,
+      normalSites: normalMotionSites(results),
+    };
+  })(),
   a11y: {
     hover: { cases: results.filter((r) => r.hover?.judged).length, tooltips: results.reduce((n, r) => n + (r.hover?.judged ?? 0), 0), escapeSkipped: results.reduce((n, r) => n + (r.hover?.escapeSkipped ?? 0), 0), escapeClosedOverlay: results.reduce((n, r) => n + (r.hover?.escapeClosedOverlay ?? 0), 0) },
     shortcuts: { cases: results.filter((r) => r.shortcuts?.field).length },
@@ -928,11 +997,18 @@ line(`${valid.length} valid captures of ${cases.length} scheduled (${STATES.leng
   + (shard ? ` — shard ${shard.index}/${shard.count} of ${plan.cases.length} planned case(s); the sweep-wide checks are aggregate.mjs's` : ''));
 for (const tier of TIERS) {
   const t = byTier[tier];
-  line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe${t.zoomCaptures ? ` + ${t.zoomCaptures} zoom` : ''}${t.spacingCaptures ? ` + ${t.spacingCaptures} text-spacing` : ''} valid captures, ${t.invalid} invalid; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);
+  line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe${t.zoomCaptures ? ` + ${t.zoomCaptures} zoom` : ''}${t.spacingCaptures ? ` + ${t.spacingCaptures} text-spacing` : ''}${t.motionCaptures ? ` + ${t.motionCaptures} reduced-motion` : ''} valid captures, ${t.invalid} invalid; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);
 }
 if (report.textSpacing.scheduled) {
   const ts = report.textSpacing;
   line(`  text spacing (WCAG 1.4.12): ${ts.valid}/${ts.scheduled} valid with the overrides proven in force on ${ts.inForce}; ${Object.entries(ts.byViewport).map(([v, n]) => `${v} ${n.valid}/${n.scheduled}`).join(', ')}`);
+}
+if (report.reducedMotion.scheduled) {
+  const rm = report.reducedMotion;
+  line(`  reduced motion (§13): ${rm.valid}/${rm.scheduled} valid with prefers-reduced-motion: reduce proven in force on ${rm.active}; ${Object.entries(rm.byViewport).map(([v, n]) => `${v} ${n.valid}/${n.scheduled}`).join(', ')}`);
+  const ns = Object.entries(rm.normalSites).filter(([k]) => /^animation /.test(k)).map(([k, s]) => `${k.replace('animation ', '')} ${s.maxMs}ms in ${s.cases}`).join(', ');
+  if (ns) line(`  normal preference (control): ${ns} ordinary case(s); transitions in ${Object.entries(rm.normalSites).filter(([k]) => /^transition /.test(k)).reduce((n, [, s]) => Math.max(n, s.cases), 0)}`);
+  line(`  reduced motion judged: ${rm.elements} elements and ${rm.pseudos} pseudo-elements, ${rm.transitionValues} transition and ${rm.animationValues} animation durations; positive: ${rm.positiveTransitions} transition, ${rm.positiveAnimations} animation, ${rm.browserRunningPositive} running browser animation(s) of ${rm.browserAnimations}; ordinary cases under reduce: ${rm.otherCasesUnderReduce}`);
 }
 line(`  a11y (X1): ${report.a11y.names.controls} controls named, ${report.a11y.names.fields} fields, ${report.a11y.names.tooltips} tooltips classed, ${report.a11y.targets} pointer targets, ${report.a11y.hover.tooltips} tooltips driven in ${report.a11y.hover.cases} case(s), shortcuts typed in ${report.a11y.shortcuts.cases} case(s), reading order in ${report.a11y.readingOrder} case(s)`);
 {

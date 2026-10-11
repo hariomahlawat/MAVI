@@ -7,8 +7,9 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-// These runs count cases of the plan's anchors: the X1 text-spacing lane (its
-// own tests in a11y.test.mjs) is left out so the counts stay the anchors'.
+// These runs count cases of the plan's anchors: the X1 text-spacing and X4
+// reduced-motion lanes (their own tests in a11y.test.mjs and motion.test.mjs)
+// are left out so the counts stay the anchors'.
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -130,7 +131,7 @@ describe('shards and their aggregate, end to end', () => {
   let dir;
   before(() => { dir = mkdtempSync(join(tmpdir(), 'mavi-vqa-shard-')); });
   after(() => { rmSync(dir, { recursive: true, force: true }); });
-  const runShard = (index, count, out, extra = []) => spawnSync(process.execPath, [RUN, '--states', 'videos,videos-loading', '--tiers', 'C', '--widths', '390', '--workers', '1', '--text-spacing', 'none', '--shard', `${index}/${count}`, ...extra], {
+  const runShard = (index, count, out, extra = []) => spawnSync(process.execPath, [RUN, '--states', 'videos,videos-loading', '--tiers', 'C', '--widths', '390', '--workers', '1', '--text-spacing', 'none', '--reduced-motion', 'none', '--shard', `${index}/${count}`, ...extra], {
     env: { ...process.env, MAVI_VQA_OUT: out }, encoding: 'utf8', timeout: 180_000,
   });
   const aggregate = (out, files) => spawnSync(process.execPath, [AGGREGATE, '--out', out, ...files], { encoding: 'utf8', timeout: 60_000 });
@@ -157,7 +158,7 @@ describe('shards and their aggregate, end to end', () => {
 
   e2e('aggregates a two-state, two-shard plan: both cases exactly once, no fault, the sweep-wide checks applied', () => {
     // Two states with no pairing, so each shard holds one.
-    const run = (index, out) => spawnSync(process.execPath, [RUN, '--states', 'videos,cameras', '--tiers', 'C', '--widths', '390', '--workers', '1', '--text-spacing', 'none', '--shard', `${index}/2`], {
+    const run = (index, out) => spawnSync(process.execPath, [RUN, '--states', 'videos,cameras', '--tiers', 'C', '--widths', '390', '--workers', '1', '--text-spacing', 'none', '--reduced-motion', 'none', '--shard', `${index}/2`], {
       env: { ...process.env, MAVI_VQA_OUT: out }, encoding: 'utf8', timeout: 180_000,
     });
     const outs = [join(dir, 'p0'), join(dir, 'p1')];
