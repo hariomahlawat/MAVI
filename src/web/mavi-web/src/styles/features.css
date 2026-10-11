@@ -175,13 +175,20 @@
 .coverage__body { display: grid; gap: var(--stroke-2); flex: 1 1 auto; min-width: 0; container: coverage / inline-size; }
 .coverage__headline strong { color: var(--text-primary); font-weight: 600; }
 /* The identity — "Revision 4 · Engine v1", or the revision's short id when
-   the scene's names are withdrawn — is its own line, so the headline's line
-   count never turns on which of the two it says (S6/X3). It is at most about
-   30 characters; where the strip is narrower than that in its own face, the
-   revision and engine stack, so the identity cannot start to wrap either. */
+   the scene's names are withdrawn — must never change how many lines the
+   headline takes (S6/X3). Both texts are bounded: the count at most about 40
+   characters ("No processing runs in this search scope"), the identity about
+   30. A strip at least 80 characters wide in its own face holds both on one
+   line whichever the revision says, so there they share it; a narrower strip
+   gives the identity its own line, and one narrower than the identity itself
+   stacks revision over engine, so no text change can start a wrap. */
 .coverage__identity { display: flex; flex-wrap: wrap; column-gap: var(--s-2); }
 .coverage__identity > span { white-space: nowrap; }
 .coverage__engine::before { content: "·"; margin-right: var(--s-2); }
+@container coverage (width >= 80ch) {
+  .coverage__headline { display: flex; column-gap: var(--s-2); }
+  .coverage__identity::before { content: "·"; }
+}
 @container coverage (width < 34ch) {
   .coverage__identity { flex-direction: column; }
   .coverage__engine::before { content: none; }
