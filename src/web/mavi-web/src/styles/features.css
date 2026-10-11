@@ -172,8 +172,20 @@
   font-size: var(--fs-1); line-height: 1.45; color: var(--text-secondary);
 }
 .coverage > .icon { flex: 0 0 auto; margin-top: var(--stroke-2); }
-.coverage__body { display: grid; gap: var(--stroke-2); flex: 1 1 auto; min-width: 0; }
+.coverage__body { display: grid; gap: var(--stroke-2); flex: 1 1 auto; min-width: 0; container: coverage / inline-size; }
 .coverage__headline strong { color: var(--text-primary); font-weight: 600; }
+/* The identity — "Revision 4 · Engine v1", or the revision's short id when
+   the scene's names are withdrawn — is its own line, so the headline's line
+   count never turns on which of the two it says (S6/X3). It is at most about
+   30 characters; where the strip is narrower than that in its own face, the
+   revision and engine stack, so the identity cannot start to wrap either. */
+.coverage__identity { display: flex; flex-wrap: wrap; column-gap: var(--s-2); }
+.coverage__identity > span { white-space: nowrap; }
+.coverage__engine::before { content: "·"; margin-right: var(--s-2); }
+@container coverage (width < 34ch) {
+  .coverage__identity { flex-direction: column; }
+  .coverage__engine::before { content: none; }
+}
 .coverage__buckets { color: var(--text-primary); }
 .coverage--info { background: var(--status-info-soft); }
 .coverage--info > .icon { color: var(--status-info); }

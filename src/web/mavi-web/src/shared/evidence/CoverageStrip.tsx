@@ -71,7 +71,14 @@ export default function CoverageStrip({
       <div className="coverage__body">
         <span className="coverage__headline">
           <strong>{coverageHeadline(coverage, scopeNoun)}</strong>
-          <span className="faint"> · {revision} · {engineLabel(coverage.algorithmVersion)}</span>
+          {/* The identity is a line of its own, its revision and engine each
+              unbroken: when the scene's names are withdrawn, "Revision 4"
+              becomes the revision's short id, and that must not change how
+              many lines the headline takes (S6/X3). */}
+          <span className="faint coverage__identity">
+            <span className="coverage__revision">{revision}</span>
+            <span className="coverage__engine">{engineLabel(coverage.algorithmVersion)}</span>
+          </span>
         </span>
         {sentences.length > 0 ? <span className="coverage__buckets">{sentences.join(' · ')}</span> : null}
         <span className="coverage__tracks">
