@@ -151,7 +151,7 @@ const DETAIL_IN_WEIGHBRIDGE = {
 
 // --- The six journeys --------------------------------------------------------------
 
-export const JOURNEYS = [
+const REGISTERED = [
   {
     id: 'scene-analytic-why',
     title: 'Configure scene → analyse → search analytic → why matched → inspect',
@@ -439,3 +439,12 @@ export const JOURNEYS = [
     },
   },
 ];
+
+/** Plan §5.3's six journeys, in its order — frozen: never renamed, merged or dropped. */
+const PLAN_ORDER = ['import-process-results', 'search-inspect-evidence', 'vehicle-car-review', 'scene-analytic-why', 'monitoring', 'error-retry-recovery'];
+export const JOURNEYS = Object.freeze(PLAN_ORDER.map((id) => {
+  const journey = REGISTERED.find((j) => j.id === id);
+  if (!journey) throw new Error(`plan §5.3 journey ${id} is not registered`);
+  return journey;
+}));
+if (REGISTERED.length !== PLAN_ORDER.length) throw new Error('the registry holds a journey plan §5.3 does not name');

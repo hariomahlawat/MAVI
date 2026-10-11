@@ -645,6 +645,135 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  keyboard-journeys:
+    # Stage 3.5 S6/X2 (§23, plan §5.3): the six frozen operator journeys,
+    # keyboard-only, at the workstation compositions (Tier A 1366x768, Tier B
+    # 1024x768 and 768x1024; Tier C claims no workflow) — 18 executions in
+    # three deterministic shards of the one plan (journeys.mjs --shard i/n:
+    # execution k in shard k mod n). A shard fails on a failed journey (exit
+    # 1) or a harness fault (exit 2); the aggregate below proves the plan ran
+    # exactly once.
+    name: keyboard journeys shard ${{ matrix.shard }}
+    needs: scope
+    if: needs.scope.outputs.visual != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    env:
+      SHARD_COUNT: '3'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/web/mavi-web/package-lock.json
+      - name: Locate Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$browser"
+          "$browser" --version
+          echo "MAVI_CHROMIUM=$browser" >> "$GITHUB_ENV"
+      - name: Ensure FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+            exit 0
+          fi
+          if sudo apt-get install -y ffmpeg; then
+            exit 0
+          fi
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
+          sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y ffmpeg
+      - name: Install frontend dependencies
+        working-directory: src/web/mavi-web
+        run: npm ci
+      - name: Build frontend (production)
+        working-directory: src/web/mavi-web
+        run: npm run build
+      - name: Run the keyboard-journey shard
+        shell: bash
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: node tools/web-visual-qa/journeys.mjs --workers 2 --shard "$SHARD_INDEX/$SHARD_COUNT" --out tools/web-visual-qa/.journeys
+      # The shard's step evidence (journeys.json) for the aggregate, and with
+      # any failure's capture for a person to read — diagnostic, never
+      # qualification evidence.
+      - name: Retain shard journeys
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-journey-results-${{ matrix.shard }}
+          path: |
+            tools/web-visual-qa/.journeys/journeys.json
+            tools/web-visual-qa/.journeys/*.png
+          retention-days: 14
+          if-no-files-found: error
+
+  keyboard-journeys-aggregate:
+    # X2's verdict from its shards (journeys.mjs --aggregate): every shard at
+    # this head, the registry's whole plan (6 journeys x 3 viewports), each
+    # execution exactly once, none at Tier C, every pass carrying its evidence
+    # (keys alone, one document, the terminal checkpoint), no harness error.
+    name: keyboard journeys aggregate
+    needs:
+      - scope
+      - keyboard-journeys
+    if: needs.scope.outputs.visual != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect shard journeys
+        uses: actions/download-artifact@v4
+        with:
+          pattern: keyboard-journey-results-*
+          path: journey-shards/
+      - name: Aggregate the journeys
+        shell: bash
+        env:
+          SHARD_COUNT: '3'
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find journey-shards -name journeys.json | sort)
+          test "${#files[@]}" = "$SHARD_COUNT"
+          for f in "${files[@]}"; do
+            test "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).head))' "$f")" = "$MAVI_EXPECTED_SOURCE_SHA"
+          done
+          node tools/web-visual-qa/journeys.mjs --aggregate --out tools/web-visual-qa/.journeys "${files[@]}"
+      - name: Retain the aggregate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-journeys
+          path: tools/web-visual-qa/.journeys/journeys.json
+          retention-days: 14
+          if-no-files-found: warn
+
   quality:
     name: quality
     if: always()
@@ -660,6 +789,8 @@ jobs:
       - visual-harness-tests
       - visual-sweep
       - visual-aggregate
+      - keyboard-journeys
+      - keyboard-journeys-aggregate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -720,6 +851,8 @@ jobs:
           require visual-harness-tests '${{ needs.visual-harness-tests.result }}' '${{ needs.scope.outputs.visual }}'
           require visual-sweep '${{ needs.visual-sweep.result }}' '${{ needs.scope.outputs.visual }}'
           require visual-aggregate '${{ needs.visual-aggregate.result }}' '${{ needs.scope.outputs.visual }}'
+          require keyboard-journeys '${{ needs.keyboard-journeys.result }}' '${{ needs.scope.outputs.visual }}'
+          require keyboard-journeys-aggregate '${{ needs.keyboard-journeys-aggregate.result }}' '${{ needs.scope.outputs.visual }}'
       - name: Require one TRX per test project and the web JUnit
         shell: bash
         env:

@@ -29,7 +29,7 @@ const ACCEPTED_ROWS = {
 export function implementedRules() {
   const ids = new Set();
   const RULE = "'([a-z0-9]+(?:\\.[a-z0-9-]+)+)'";
-  for (const file of ['assertions.mjs', 'run.mjs', 'a11y.mjs']) {
+  for (const file of ['assertions.mjs', 'run.mjs', 'a11y.mjs', 'journeys.mjs']) {
     const text = source(file);
     for (const pattern of [
       new RegExp(`(?:fail|add|evaluated\\.add)\\(\\s*${RULE}`, 'g'),
@@ -89,8 +89,7 @@ describe('the assertion manifest', () => {
     // T1 (S5) promoted every rule that judges a Tier B composition, and T2 every
     // rule that judges a Tier C one; a rule a later slice owns at Tier A stays
     // measured against that owner at Tiers B and C.
-    const laterOwned = new Set(['perf.cls', 'perf.long-tasks', 'typography.resolved-font',
-      'a11y.keyboard-journeys']);
+    const laterOwned = new Set(['perf.cls', 'perf.long-tasks', 'typography.resolved-font']);
     for (const [rule, entry] of Object.entries(RULES)) {
       const atB = entry.tiers.B;
       if (laterOwned.has(rule)) {
@@ -161,7 +160,6 @@ describe('the assertion manifest', () => {
 
   it('keeps the later-slice rules measured with their owners named', () => {
     assert.match(severityOf('perf.cls', 'A').owner, /X3/);
-    assert.match(severityOf('a11y.keyboard-journeys', 'A').owner, /X2/);
     assert.match(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).owner, /R1/);
   });
 
@@ -203,8 +201,37 @@ describe('the assertion manifest', () => {
 
   it('rejects a future rule without an execution policy', () => {
     const rules = clone();
-    delete rules['a11y.keyboard-journeys'].execution;
-    assert.ok(validateManifest(rules).some((p) => p.includes('future rule without an execution policy')));
+    rules['perf.cls'] = { ...rules['perf.cls'], kind: 'future' };
+    delete rules['perf.cls'].execution;
+    assert.ok(validateManifest(rules).some((p) => p.includes('perf.cls: future rule without an execution policy')));
+  });
+
+  it('asserts the keyboard journeys through the journey runner (X2): blocking at A and B, not applicable at C, owned by nobody', () => {
+    const entry = RULES['a11y.keyboard-journeys'];
+    assert.equal(entry.kind, 'assertion');
+    assert.equal(entry.producer, 'journeys');
+    for (const tier of ['A', 'B']) assert.equal(entry.tiers[tier].status, 'blocking', tier);
+    assert.equal(entry.tiers.C.status, 'not-applicable');
+    assert.match(entry.tiers.C.reason, /no workflow acceptance is claimed/);
+    for (const [id, rule] of Object.entries(RULES)) {
+      for (const tier of ['A', 'B', 'C']) assert.doesNotMatch(rule.tiers[tier].owner ?? '', /X2/, `${id} @ ${tier}`);
+    }
+    // Refused back as future or pending, an X2-owned entry anywhere, at C as
+    // a claim, and under another producer.
+    const back = clone();
+    back['a11y.keyboard-journeys'] = { ...back['a11y.keyboard-journeys'], kind: 'future', execution: 'later' };
+    assert.ok(validateManifest(back).some((p) => p.includes('X2 asserts it through the journey runner')));
+    const pending = clone();
+    pending['a11y.keyboard-journeys'].tiers.B = { status: 'measured/pending', owner: 'S6 / X2' };
+    const problems = validateManifest(pending);
+    assert.ok(problems.some((p) => p.includes('still owned by X2 after X2')));
+    assert.ok(problems.some((p) => p.includes('X2 asserts it through the journey runner')));
+    const claimedAtC = clone();
+    claimedAtC['a11y.keyboard-journeys'].tiers.C = { status: 'blocking' };
+    assert.ok(validateManifest(claimedAtC).some((p) => p.includes('X2 asserts it through the journey runner')));
+    const otherProducer = clone();
+    otherProducer['a11y.keyboard-journeys'].producer = 'sweep';
+    assert.ok(validateManifest(otherProducer).some((p) => p.includes('unknown producer "sweep"')));
   });
 
   it('fails when a registered rule loses its implementation', () => {
@@ -226,7 +253,7 @@ describe('the assertion manifest', () => {
     }
     assert.ok(implemented.has('a11y.zoom-200'), 'the T3 zoom rule is not found in the code');
     assert.ok(implemented.has('a11y.reduced-motion'), 'the X4 reduced-motion rule is not found in the code');
-    assert.ok(!implemented.has('a11y.keyboard-journeys'), 'a future rule appears in the code');
+    assert.ok(implemented.has('a11y.keyboard-journeys'), 'the X2 journey rule is not found in the journey runner');
   });
 
   it('asserts reduced motion in its own lane, blocking at every tier, with nothing left owned by X4', () => {

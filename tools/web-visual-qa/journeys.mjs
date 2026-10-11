@@ -103,6 +103,18 @@ export function journeyAggregate(shards) {
   }
   for (const key of seen.keys()) if (!first.planned.includes(key)) faults.push(`a11y.keyboard-journeys: ${key} ran but was not planned`);
   for (const e of executions) if (e.tier === 'C') faults.push(`a11y.keyboard-journeys: ${e.key} ran at Tier C, where no workflow acceptance is claimed`);
+  // A pass is its evidence: keys alone (no pointer, nothing scripted), one
+  // document from the start, and the terminal checkpoint reached.
+  for (const e of executions.filter((x) => x.passed)) {
+    const missing = [
+      e.pointerEvents !== 0 && 'pointer events',
+      e.syntheticEvents !== 0 && 'scripted events',
+      e.documentLoadsAfterStart !== 0 && 'document loads after the start',
+      !e.terminal && 'a terminal checkpoint',
+      !(e.steps?.length) && 'steps',
+    ].filter(Boolean);
+    if (missing.length) faults.push(`a11y.keyboard-journeys: ${e.key} claims a pass without its evidence (${missing.join(', ')})`);
+  }
   for (const s of shards) faults.push(...(s.harnessErrors ?? []).map((h) => `${s.file}: ${h}`));
   const failed = executions.filter((e) => !e.passed);
   return { faults, executions, failed, planned: first.planned };
@@ -467,6 +479,8 @@ export async function runJourney(lane, item, { record, outDir } = {}) {
   }
   const guard = await browser.evaluate('(() => { const g = window.__vqaJourneyGuard || {}; return { pointer: (g.pointer || []).length, synthetic: (g.synthetic || []).length, document: g.document }; })()').catch(() => ({}));
   return {
+    // Every execution is the evidence of one rule (§23, plan §5.3).
+    rule: 'a11y.keyboard-journeys',
     key: item.key, journey: journey.id, title: journey.title, viewport: viewport.label, tier: viewport.tier,
     passed: !failure && Boolean(terminal()), failure, terminal: terminal(),
     steps, keyPresses: steps.reduce((n, s) => n + (s.action === 'tab-to' ? s.stops.length : s.action === 'type' ? JSON.parse(s.key).length : s.action === 'checkpoint' ? 0 : 1), 0),
@@ -488,6 +502,10 @@ async function main() {
     const files = process.argv.slice(2).filter((a, i, all) => !a.startsWith('--') && all[i - 1] !== '--out');
     const shards = files.map((file) => ({ file, ...JSON.parse(readFileSync(file, 'utf8')) }));
     const verdict = journeyAggregate(shards);
+    // The aggregate is of the whole registry: a subset is not X2's evidence.
+    const { JOURNEYS: registered } = await import('./journey-registry.mjs');
+    const full = planJourneys({ journeys: registered }).map((p) => p.key);
+    if (JSON.stringify(verdict.planned) !== JSON.stringify(full)) verdict.faults.push(`the shards planned ${verdict.planned?.length ?? 0} executions, not the registry's ${full.length}`);
     mkdirSync(OUT, { recursive: true });
     writeFileSync(join(OUT, 'journeys.json'), JSON.stringify({ aggregate: true, head: shards[0]?.head, planned: verdict.planned, faults: verdict.faults, executions: verdict.executions }, null, 2));
     report(verdict.executions, verdict.planned, verdict.faults, `${shards.length} shard(s)`);
