@@ -2304,11 +2304,17 @@ const BASE_REVISION = JSON.parse(
 );
 const HISTORICAL_REVISION_ID = '66666666-6666-7666-8666-666666666663';
 
-/** Revision 3, the one the historical facts were measured against. */
+/**
+ * Revision 3, the one the historical facts were measured against — as the
+ * camera's history lists it (one zone, one trip line): a revision's record and
+ * its summary agree, as the server's do, so a revision loading is reserved in
+ * the geometry it then has (X3).
+ */
 const HISTORICAL_REVISION = {
   ...BASE_REVISION,
   revisionId: HISTORICAL_REVISION_ID,
   revisionNumber: 3,
+  zones: BASE_REVISION.zones.slice(0, 1),
 };
 
 /**

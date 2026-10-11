@@ -81,6 +81,21 @@ function renderPlayer(overrides: Partial<React.ComponentProps<typeof EvidencePla
   );
 }
 
+describe('Evidence Player frame (§38: media reserve their aspect; X3)', () => {
+  it("keeps the declared aspect, before and after the metadata, whatever the file's own", () => {
+    renderPlayer({ declaredWidth: 1920, declaredHeight: 1080 });
+    expect(video()).toHaveAttribute('width', '1920');
+    expect(video()).toHaveAttribute('height', '1080');
+    // Inline, so the file's intrinsic aspect cannot replace it once loaded.
+    expect(video().style.aspectRatio).toBe('1920 / 1080');
+  });
+
+  it('declares no aspect it does not know', () => {
+    renderPlayer({ declaredWidth: 0, declaredHeight: 0 });
+    expect(video().style.aspectRatio).toBe('');
+  });
+});
+
 describe('Evidence Player transport', () => {
   it('uses no native browser controls', () => {
     renderPlayer();

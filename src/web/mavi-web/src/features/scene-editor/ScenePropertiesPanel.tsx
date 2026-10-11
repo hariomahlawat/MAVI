@@ -52,7 +52,7 @@ export default function ScenePropertiesPanel({
       label="Properties"
       title="Properties"
       isEmpty={nothingSelected}
-      summary={pending ? <p className="scene-inspector__hint">{pending}</p> : <SceneSummary draft={draft} />}
+      summary={<SceneSummary draft={pending ? null : draft} pending={pending} />}
     >
       {zone ? (
         <ZoneProperties
@@ -77,22 +77,29 @@ export default function ScenePropertiesPanel({
   );
 }
 
-function SceneSummary({ draft }: { draft: SceneDraft }) {
-  const enabledZones = draft.zones.filter((zone) => zone.enabled).length;
-  const enabledLines = draft.tripLines.filter((line) => line.enabled).length;
+/**
+ * The scene's readout. While a past revision loads or cannot be read
+ * (`pending`), the same structure says so in place of the selection line, its
+ * values not yet known — the panel keeps its height, so nothing below it moves
+ * when the revision arrives (§36.3, §38).
+ */
+function SceneSummary({ draft, pending = null }: { draft: SceneDraft | null; pending?: string | null }) {
+  const enabledZones = draft ? draft.zones.filter((zone) => zone.enabled).length : 0;
+  const enabledLines = draft ? draft.tripLines.filter((line) => line.enabled).length : 0;
+  const unknown = '—';
   return (
     <div className="scene-inspector">
       <header className="scene-inspector__head">
         <h3>Scene</h3>
-        <p>Nothing selected</p>
+        <p>{pending ?? 'Nothing selected'}</p>
       </header>
       <dl className="scene-readout">
         <dt>Zones</dt>
-        <dd>{draft.zones.length} ({enabledZones} enabled)</dd>
+        <dd>{draft ? `${draft.zones.length} (${enabledZones} enabled)` : unknown}</dd>
         <dt>Trip lines</dt>
-        <dd>{draft.tripLines.length} ({enabledLines} enabled)</dd>
+        <dd>{draft ? `${draft.tripLines.length} (${enabledLines} enabled)` : unknown}</dd>
         <dt>Analytics</dt>
-        <dd>{enabledZones + enabledLines > 0 ? 'Enabled by this scene' : 'Disabled by this scene'}</dd>
+        <dd>{draft ? (enabledZones + enabledLines > 0 ? 'Enabled by this scene' : 'Disabled by this scene') : unknown}</dd>
       </dl>
       <p className="scene-inspector__hint">Select an object on the frame or in the list to edit it.</p>
     </div>

@@ -527,3 +527,26 @@ describe('focus is never brought into view under a sticky band (WCAG 2.4.11, X2)
     expect(rule?.[1]).toMatch(/scroll-padding-top:\s*var\(--table-head-h\)/);
   });
 });
+
+describe('§38: fonts do not swap and nothing animates continuously but the two it allows (X3)', () => {
+  // The source, read as text: the platform stack is all the product renders
+  // with, so there is nothing to download and nothing to swap.
+  const sources = import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+  const html = import.meta.glob('../../index.html', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+
+  it('declares no web font: no @font-face, no FontFace, no font loading, no font link', () => {
+    for (const file of cssFiles) expect(withoutComments(read(file)), file).not.toMatch(/@font-face|@import/i);
+    expect(Object.keys(sources).length).toBeGreaterThan(50);
+    for (const [file, text] of Object.entries(sources)) expect(text, file).not.toMatch(/new FontFace\b|document\.fonts\b|fonts\.load\(/);
+    const page = Object.values(html).join('\n');
+    expect(page).toContain('<div id="root">');
+    expect(page).not.toMatch(/<link[^>]+(font|woff)|fonts\.googleapis/i);
+  });
+
+  it('animates continuously only the processing pulse and the indeterminate progress', () => {
+    const keyframes = cssFiles.flatMap((file) => Array.from(withoutComments(read(file)).matchAll(/@keyframes\s+([a-z0-9-]+)/gi), (m) => m[1]));
+    expect(keyframes.sort()).toEqual(['pulse', 'spin']);
+    const infinite = cssFiles.flatMap((file) => Array.from(withoutComments(read(file)).matchAll(/animation:\s*([a-z0-9-]+)[^;]*\binfinite\b/gi), (m) => m[1]));
+    expect(infinite.sort()).toEqual(['pulse', 'spin']);
+  });
+});

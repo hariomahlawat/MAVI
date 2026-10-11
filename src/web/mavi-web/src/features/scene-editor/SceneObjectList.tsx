@@ -14,6 +14,12 @@ type Props = {
   pending?: string | null;
   /** The pending revision is loading (said in the shared loading grammar), rather than unavailable. */
   pendingLoading?: boolean;
+  /**
+   * How many zones and trip lines the loading revision has, from its summary in
+   * the revision history: its rows are reserved in their own geometry while it
+   * loads, so nothing below the list moves when they arrive (§36.3, §38).
+   */
+  pendingCounts?: { zones: number; tripLines: number };
   invalidKeys: ReadonlySet<string>;
   onSelect: (selection: Selection) => void;
   onDelete: (key: string) => void;
@@ -52,11 +58,22 @@ export default function SceneObjectList({
   historical,
   pending = null,
   pendingLoading = false,
+  pendingCounts,
   invalidKeys,
   onSelect,
   onDelete,
 }: Props) {
   const empty = draft.zones.length === 0 && draft.tripLines.length === 0;
+
+  if (pending && pendingLoading && pendingCounts && pendingCounts.zones + pendingCounts.tripLines > 0) {
+    return (
+      <Inspector label="Scene objects" title="Scene objects">
+        <p className="visually-hidden">{pending}</p>
+        <PendingGroup kind="zones" count={pendingCounts.zones} />
+        <PendingGroup kind="lines" count={pendingCounts.tripLines} />
+      </Inspector>
+    );
+  }
 
   return (
     <Inspector label="Scene objects" title="Scene objects">
@@ -113,6 +130,35 @@ export default function SceneObjectList({
         </section>
       ) : null}
     </Inspector>
+  );
+}
+
+/** A group of a loading revision: its heading and count, and a row per object in the rows' geometry. */
+function PendingGroup({ kind, count }: { kind: 'zones' | 'lines'; count: number }) {
+  if (count === 0) return null;
+  return (
+    <section className={`scene-navigator__group scene-navigator__group--${kind}`} aria-hidden="true" data-testid={`scene-navigator-pending-${kind}`}>
+      <h3>{kind === 'zones' ? 'Zones' : 'Trip lines'}<span>{count}</span></h3>
+      <ul>
+        {Array.from({ length: count }, (_, index) => (
+          <li key={index} className="scene-navigator__item scene-navigator__item--pending">
+            <div className="scene-navigator__row">
+              <span className="scene-navigator__name">
+                <span className="scene-navigator__dot" />
+                <span className="scene-navigator__bar" />
+                {/* A name's own line box, so the row is a name's height. */}
+                {' '}
+              </span>
+            </div>
+            {kind === 'zones' ? (
+              <div className="scene-navigator__coordinates"><div className="scene-navigator__summary-space">{'\u00a0'}</div></div>
+            ) : (
+              <span className="scene-navigator__endpoints">{'\u00a0'}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

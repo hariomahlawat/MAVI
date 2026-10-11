@@ -311,7 +311,7 @@
 /* The frame is where the keyboard grammar acts, so its focus has to be as
    visible as any control's. */
 .evidence-player__frame:focus-visible { outline: var(--stroke-2) solid var(--focus-ring); outline-offset: var(--stroke-2); }
-.evidence-player__video { display: block; width: 100%; height: auto; max-height: 62vh; background: var(--evidence-matte); }
+.evidence-player__video { display: block; width: 100%; height: auto; max-height: 62vh; object-fit: contain; background: var(--evidence-matte); }
 .evidence-player--compact .evidence-player__video { max-height: 40vh; }
 
 /* Every overlay layer carries the halo (section 8.3). A violet box over bright
@@ -706,7 +706,13 @@
 
 /* What this surface puts in the shared toolbar band. */
 .scene-toolbar__refusal { color: var(--status-warn); font-size: var(--fs-1); }
-.scene-toolbar__readonly { color: var(--status-warn); font-size: var(--fs-1); }
+/* The note stands where the drawing tools stood and keeps their height (the
+   segmented control, hairline borders included), so the stage below does not
+   move when a past revision opens (§38; X3). */
+.scene-toolbar__readonly {
+  display: flex; align-items: center; min-height: calc(var(--control-h) + 2 * var(--stroke-hair));
+  color: var(--status-warn); font-size: var(--fs-1);
+}
 
 /* Stage */
 
@@ -885,8 +891,15 @@
   font: var(--fs-0)/1.5 var(--font-mono); overflow-wrap: anywhere;
 }
 .scene-navigator__item { min-width: 0; }
+/* A past revision loading (§36.3, §38): its rows, as many as the revision's
+   summary records, in the rows' own geometry, a bar where each name will be. */
+.scene-navigator__item--pending .scene-navigator__name { cursor: default; }
+.scene-navigator__item--pending .scene-navigator__name:hover { background: none; }
+.scene-navigator__bar { display: block; flex: 0 1 60%; height: 0.8em; border-radius: var(--r-1); background: var(--skeleton-bg); }
 .scene-navigator__coordinates { padding: 0 var(--s-2); color: var(--text-muted); font-size: var(--fs-0); }
 .scene-navigator__coordinates summary { cursor: pointer; min-height: var(--control-min-target); line-height: var(--control-min-target); }
+.scene-navigator__summary-space { min-height: var(--control-min-target); line-height: var(--control-min-target); }
+.scene-navigator__placeholder { visibility: hidden; }
 .scene-navigator__points { display: grid; gap: var(--s-px); padding: 0 0 var(--s-1) var(--s-3); list-style: none; font-family: var(--font-mono); line-height: 1.5; }
 
 /* The shared inspector body owns the padding; this owns the rhythm inside it. */
