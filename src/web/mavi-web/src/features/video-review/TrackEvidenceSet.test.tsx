@@ -221,7 +221,9 @@ describe('unavailable crops', () => {
     const box = thumb.parentElement!;
     fireEvent.error(thumb);
 
-    const failed = control('Near view · 00:14.6, no image');
+    // The name follows the visible order: the placeholder's word is painted
+    // before the role and offset (WCAG 2.5.3).
+    const failed = control('No image, Near view · 00:14.6');
     expect(failed).toHaveTextContent('No image');
     expect(failed).toHaveTextContent('Near view');
     expect(failed).toHaveTextContent('00:14.6');
@@ -245,7 +247,7 @@ describe('unavailable crops', () => {
     observations[1] = { ...observations[1], evidenceArtifactId: null, evidenceContentUrl: null };
     render(<Host detail={trackDetailWithEvidence(observations)} />);
 
-    const absent = control('Near view · 00:14.6, no image');
+    const absent = control('No image, Near view · 00:14.6');
     expect(absent.querySelector('img')).toBeNull();
     await user.click(absent);
     expect(within(inspection()).getByRole('img', { name: /^No image: no evidence image was persisted for this observation/ })).toBeInTheDocument();

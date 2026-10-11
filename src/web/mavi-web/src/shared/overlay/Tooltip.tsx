@@ -11,6 +11,9 @@ import { cloneElement, useEffect, useId, useLayoutEffect, useRef, useState, type
  * task depends on, and it never takes focus. Escape dismisses it without moving
  * focus; the key still reaches the surface, so on the inspector's controls the
  * same Escape also closes the inspector, as it would with no tooltip shown.
+ * While shown it takes the pointer (`pointer-events: auto`, WCAG 1.4.13
+ * hoverable): the pointer can move onto it to read it, and whatever it
+ * overlaps is reached once the pointer has left the trigger and the hint.
  */
 export default function Tooltip({
   content,
@@ -84,7 +87,12 @@ export default function Tooltip({
       const fitsAcross = rect.right - rect.left <= bounds.right - bounds.left;
       const fitsBelow = rect.bottom <= bounds.bottom;
       const fitsAbove = anchor.top - (rect.top - anchor.bottom) - height >= bounds.top;
-      if (fitsAcross && (fitsBelow || fitsAbove)) {
+      // Aligned to its trigger's edge, the hint is inside what clips it only
+      // if the trigger is: a cell scrolled half out of its Ledger frame (focus
+      // scrolled the row's action into view) would take the hint out with it,
+      // so that hint floats instead (WCAG 1.4.13: the whole hint hoverable).
+      const anchorInside = anchor.left >= bounds.left - 0.5 && anchor.right <= bounds.right + 0.5;
+      if (fitsAcross && anchorInside && (fitsBelow || fitsAbove)) {
         if (rect.right > bounds.right) tip.setAttribute('data-align', 'end');
         else if (rect.left < bounds.left) tip.setAttribute('data-align', 'start');
         // Below the trigger unless that is cut off — the last row of a
@@ -95,17 +103,19 @@ export default function Tooltip({
       // A hint that cannot fit inside what clips it on either side — the full
       // value of a long truncated file name inside a Ledger frame — would be
       // cut off wherever it is aligned, so it leaves that box: it wraps, and is
-      // placed against the viewport beside its trigger (§16: the full value
+      // placed beside its trigger, inside the frame it belongs to where it
+      // fits there and against the viewport otherwise (§16: the full value
       // must be readable).
       tip.setAttribute('data-float', '');
       const floated = tip.getBoundingClientRect();
       const width = floated.right - floated.left;
       const tall = floated.bottom - floated.top;
       const margin = FLOAT_MARGIN_PX;
-      const left = Math.min(
-        Math.max(anchor.left + (anchor.right - anchor.left) / 2 - width / 2, margin),
-        Math.max(margin, window.innerWidth - margin - width),
-      );
+      const centred = anchor.left + (anchor.right - anchor.left) / 2 - width / 2;
+      const inFrame = { min: Math.max(margin, bounds.left), max: Math.min(window.innerWidth, bounds.right) - margin - width };
+      const inViewport = { min: margin, max: Math.max(margin, window.innerWidth - margin - width) };
+      const span = inFrame.max >= inFrame.min ? inFrame : inViewport;
+      const left = Math.min(Math.max(centred, span.min), span.max);
       const below = anchor.bottom + margin / 2;
       const top = below + tall <= window.innerHeight - margin
         ? below
@@ -130,8 +140,14 @@ export default function Tooltip({
       disarm('hover', setHovered);
       disarm('focus', setFocused);
     };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
+    // Captured at the window: an open Drawer takes Escape at the window in
+    // the capture phase and stops it there, and a hint over the shell's own
+    // controls (the navigation toggle beside an open drawer) must still be
+    // dismissible by the same key (WCAG 1.4.13). Stopping propagation does
+    // not reach another listener on the same target, so the drawer still
+    // closes as it did.
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [shown]);
 
   const existing = children.props['aria-describedby'];

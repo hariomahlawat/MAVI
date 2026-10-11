@@ -63,7 +63,7 @@ try {
   modules = await Promise.all([
     import('./assertions.mjs'), import('./cdp.mjs'), import('./engine.mjs'), import('./footage.mjs'),
     import('./manifest.mjs'), import('./server.mjs'), import('./settle.mjs'),
-    import(STATES_MODULE ? pathToFileURL(STATES_MODULE).href : './states.mjs'), import('./semantics.mjs'),
+    import(STATES_MODULE ? pathToFileURL(STATES_MODULE).href : './states.mjs'), import('./semantics.mjs'), import('./a11y.mjs'), import('./probes.mjs'),
   ]);
 } catch (error) {
   fatal(`HARNESS ERROR: a harness module did not load: ${error.stack || error}\n`);
@@ -76,11 +76,13 @@ const [
   { launch },
   { caseKey, createLedger, exitStatus, HarnessError, partitionCases, planCases, settle, sweepChecks, zoomQualification },
   { CONDITIONS, ensureFootage },
-  { manifestSummary, OPERATOR_SURFACES, RULES, TIERS, validateManifest, ZOOM_CONDITION },
+  { manifestSummary, OPERATOR_SURFACES, RULES, TEXT_SPACING_CONDITION, TIERS, validateManifest, ZOOM_CONDITION },
   { startServer },
   { OBSERVERS, perfCollect, TRANSIENT },
   { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM },
   { tierCLedgerSemantics },
+  { a11yAssertions, a11yLiveCheck, a11yLiveMark, a11yNamesJudge, a11yTextSpacingEnvironment },
+  { probeHoverContent, probeShortcuts },
 ] = modules;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -109,6 +111,9 @@ const onlyTiers = list('tiers');
 const onlyWidths = list('widths')?.map(Number) ?? null;
 const onlyZoom = arg('zoom', null);
 if (onlyZoom !== null && onlyZoom !== 'only' && onlyZoom !== 'none') fatal(`--zoom takes "only" or "none", not "${onlyZoom}"`);
+// X1: the text-spacing lane (WCAG 1.4.12), `--text-spacing only|none` as `--zoom`.
+const onlyTextSpacing = arg('text-spacing', null);
+if (onlyTextSpacing !== null && onlyTextSpacing !== 'only' && onlyTextSpacing !== 'none') fatal(`--text-spacing takes "only" or "none", not "${onlyTextSpacing}"`);
 // A count that is not a positive integer is refused: NaN would plan cases and
 // run none of them.
 const positiveInt = (name, fallback) => {
@@ -126,7 +131,7 @@ if (shardArg !== null) {
   shard = { index: Number(m[1]), count: Number(m[2]) };
 }
 // The whole plan, with nothing left out: the sweep-wide obligations hold here.
-const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom && repeat === 1 && !STATES_MODULE;
+const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom && !onlyTextSpacing && repeat === 1 && !STATES_MODULE;
 // A shard is never the full sweep by itself; aggregate.mjs is, over every shard.
 const fullSweep = completeSelection && !shard;
 const workers = positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
@@ -143,7 +148,7 @@ let plan;
 try {
   plan = planCases({
     states: STATES, anchors: ANCHORS, policies: TIER_POLICIES, stateKeys: STATE_KEYS, tierOf, zoom: ZOOM,
-    onlyStates, onlyTiers, onlyWidths, onlyZoom, repeat,
+    textSpacing: TEXT_SPACING_CONDITION, onlyStates, onlyTiers, onlyWidths, onlyZoom, onlyTextSpacing, repeat,
   });
 } catch (error) {
   fatal(String(error.message || error) + '\n');
@@ -188,12 +193,15 @@ for (const condition of needed) {
 async function openLane(index) {
   // `zoom`: the page zoom the lane's browser is at — its fresh profile's 100%
   // until a zoom case sets it, and set back before any other case runs.
-  const lane = { index, scenario: {}, footage: 'saturated', zoom: 1 };
+  // `textSpacing`: whether the lane's server serves the WCAG 1.4.12 overrides
+  // in the document head — set per case, before its document is requested.
+  const lane = { index, scenario: {}, footage: 'saturated', zoom: 1, textSpacing: false };
   lane.server = await startServer({
     distDir: join(WEB, 'dist'),
     fixtureDir: join(HERE, 'fixtures'),
     scenario: () => lane.scenario,
     footage: () => ensureFootage(MEDIA, lane.footage),
+    textSpacing: () => lane.textSpacing,
   });
   // A lane that fails part-way closes what it opened: a listening server left
   // behind would keep the process alive past the harness fault it reports.
@@ -254,6 +262,7 @@ async function runCase(lane, c) {
   lane.server.releaseHung();
   lane.scenario = state.api ?? {};
   lane.server.resetSequences();
+  lane.textSpacing = Boolean(viewport.textSpacing);
   lane.footage = state.footage ?? 'saturated';
   await browser.viewport(viewport.width, viewport.height);
   // A fresh document for a load: a blank document first (Chromium holds
@@ -341,6 +350,9 @@ async function runCase(lane, c) {
   let afterPrepare = null;
   if (start.prepare && reached) {
     prepareStart = await browser.evaluate('window.__vqa.mark("prepare-start")');
+    // X1 (a11y.live-regions): the live regions the page has before its
+    // preparation, so a region that appears already populated is caught.
+    await browser.evaluate(toExpression(a11yLiveMark));
     let prepared = false;
     try {
       // An interaction's long tasks are read from the action (its
@@ -353,8 +365,12 @@ async function runCase(lane, c) {
     }
     if (prepared) {
       afterPrepare = await settle(lane, start, { timeoutMs: SETTLE_TIMEOUT_MS });
-      if (afterPrepare.ok) preparedAt = await browser.evaluate('performance.now()');
-      else unreach('settle after preparation', `did not settle after its preparation within ${SETTLE_TIMEOUT_MS}ms: ${afterPrepare.why.join('; ')}`);
+      if (afterPrepare.ok) {
+        preparedAt = await browser.evaluate('performance.now()');
+        const live = await browser.evaluate(toExpression(a11yLiveCheck));
+        if (live.judged) markEvaluated(c, ['a11y.live-regions']);
+        for (const finding of live.findings) add(finding.rule, finding.message);
+      } else unreach('settle after preparation', `did not settle after its preparation within ${SETTLE_TIMEOUT_MS}ms: ${afterPrepare.why.join('; ')}`);
     } else {
       unreach('preparation', 'preparation reported that the state was not reached');
     }
@@ -513,6 +529,16 @@ async function runCase(lane, c) {
     }
   }
 
+  // X1 (a11y.text-spacing): a spacing case proves the overrides are in force
+  // from computed style, or it is not reached — never judged as if they were.
+  let textSpacing = null;
+  if (viewport.textSpacing && reached) {
+    const env = await browser.evaluate(toExpression(a11yTextSpacingEnvironment));
+    textSpacing = { ...env, inForce: env.problems.length === 0, overrides: TEXT_SPACING_CONDITION.overrides };
+    if (env.problems.length) { unreach('text-spacing environment', `the overrides are not in force: ${env.problems.join('; ')}`); reached = false; }
+    else markEvaluated(c, ['a11y.text-spacing']);
+  }
+
   const input = {
     tier: viewport.tier, width: viewport.effective?.width ?? viewport.width, fullWidth: state.fullWidth ?? null,
     archetype: state.archetype ?? null, holds: state.holds ?? null,
@@ -522,6 +548,7 @@ async function runCase(lane, c) {
   let page = null;
   let focus = null;
   let workspace = null;
+  let a11y = null;
   if (reached) {
     // Order matters: the page rules read the resting state; the focus pass
     // then moves focus through every control and puts focus and scroll back.
@@ -534,6 +561,31 @@ async function runCase(lane, c) {
       if (part.foundationEvaluated) markEvaluated(c, part.foundationEvaluated, 'foundation');
       for (const finding of part.findings) add(finding.rule, finding.message, finding.scope ?? null);
     }
+    // X1 (§23): the page rules of a11y.mjs, then the names Chromium computes
+    // for the controls they tagged (cdp.axNames) and the verdicts that need them.
+    const x1 = await browser.evaluate(toExpression(a11yAssertions, input));
+    markEvaluated(c, x1.evaluated);
+    for (const finding of x1.findings) add(finding.rule, finding.message);
+    // Chromium names the tagged controls. A control the page replaced in
+    // between (a re-render) carries no tag: the pass is taken once more for
+    // those, and what is still unresolved is counted, never judged.
+    let names = await browser.axNames('[data-vqa-ax]');
+    if (names.length < x1.controls.length) {
+      await browser.evaluate(`(() => { for (const el of document.querySelectorAll('[data-vqa-ax]')) el.removeAttribute('data-vqa-ax'); return true; })()`);
+      const again = await browser.evaluate(toExpression(a11yAssertions, { ...input, namesOnly: true }));
+      x1.controls = again.controls; x1.measured.tooltipList = again.measured.tooltipList;
+      names = await browser.axNames('[data-vqa-ax]');
+    }
+    const judged = await browser.evaluate(toExpression(a11yNamesJudge, { controls: x1.controls, names, tooltips: x1.measured.tooltipList }));
+    // Controls still unnamed after the second pass were replaced again: the
+    // names rules did not run on them — a fault of the case, never a pass.
+    if (judged.measured.unresolved > 0) {
+      unreach('accessible names', `${judged.measured.unresolved} control(s) re-rendered between tagging and the accessibility-tree read, twice`);
+      reached = false;
+    }
+    markEvaluated(c, judged.evaluated);
+    for (const finding of judged.findings) add(finding.rule, finding.message);
+    a11y = { ...x1.measured, tooltipList: undefined, names: judged.measured };
     // §25 Tier C Ledger: the list is still a table to assistive technology.
     if (viewport.tier === 'C' && state.archetype === 'ledger') {
       const semantics = await tierCLedgerSemantics(browser);
@@ -628,6 +680,22 @@ async function runCase(lane, c) {
       }
     }
   }
+  // X1 (probes.mjs): the page's custom tooltips driven through the input
+  // pipeline (a11y.hover-content, WCAG 1.4.13), then a shortcut typed into
+  // the first text field (a11y.shortcuts-in-text-entry, WCAG 2.1.4) — before
+  // the overlay exit, which closes what the tooltips may live in.
+  let hover = null;
+  let shortcuts = null;
+  if (reached) {
+    const h = await probeHoverContent(browser);
+    for (const message of h.findings) add('a11y.hover-content', message);
+    if (h.judged) markEvaluated(c, ['a11y.hover-content']);
+    hover = h.measured;
+    const s = await probeShortcuts(browser);
+    markEvaluated(c, s.evaluated);
+    for (const finding of s.findings) add(finding.rule, finding.message);
+    shortcuts = s.measured;
+  }
   let overlayExit = null;
   if (reached && page?.shell?.modals) {
     // §15, §20: Escape leaves the overlay and focus goes back to the control
@@ -698,6 +766,8 @@ async function runCase(lane, c) {
     unreached,
     surface: c.surface,
     ...(zoom ? { zoom: { path: zoom.path, effective: zoom.effective, qualified: zoom.qualified ?? false, evaluated: zoom.evaluated, steps: zoom.steps, environment: zoom.environment ?? null, measured: zoom.measured ?? null, text: zoom.text ?? null, textComparisons: zoom.textComparisons ?? [] } } : {}),
+    ...(textSpacing ? { textSpacing } : {}),
+    a11y, hover, shortcuts,
     capture,
     pageWidth: page?.pageWidth ?? null,
     shell: page?.shell ?? null,
@@ -765,7 +835,7 @@ if (repeat > 1) {
 // is the aggregate's, over every shard.
 const sweep = sweepChecks({
   results, cases, errored, ledger, surfaces: OPERATOR_SURFACES,
-  loadingPairs: shard ? [] : LOADING_PAIRS, fullSweep,
+  loadingPairs: shard ? [] : LOADING_PAIRS, fullSweep, plannedKeys: cases.map(caseKey),
 });
 harnessErrors.push(...sweep.faults);
 const pressedUnproven = sweep.pressedUnproven;
@@ -777,6 +847,7 @@ const valid = results.filter((r) => r.valid);
 const byTier = Object.fromEntries(TIERS.map((tier) => [tier, {
   anchorCaptures: valid.filter((r) => r.tier === tier && r.kind === 'anchor').length,
   probeCaptures: valid.filter((r) => r.tier === tier && r.kind === 'probe').length,
+  spacingCaptures: valid.filter((r) => r.tier === tier && r.kind === 'text-spacing').length,
   zoomCaptures: valid.filter((r) => r.tier === tier && (r.kind === 'zoom' || r.kind === 'zoom-transition')).length,
   invalid: results.filter((r) => r.tier === tier && !r.valid).length + errored.filter((e) => e.tier === tier).length,
   blocking: findings.filter((f) => f.tier === tier && f.severity === 'blocking').length,
@@ -824,6 +895,20 @@ const report = {
     })(),
   },
   findings: { blocking: findings.filter((f) => f.severity === 'blocking').length, pending: findings.filter((f) => f.severity === 'measured/pending').length, byRule: count(findings, 'rule') },
+  // X1: the text-spacing lane by composition, and the rules driven through the input pipeline.
+  textSpacing: (() => {
+    const spacing = results.filter((r) => r.kind === 'text-spacing');
+    const by = {};
+    for (const r of spacing) { (by[r.viewport] ??= { scheduled: 0, valid: 0, inForce: 0 }).scheduled += 1; if (r.valid) by[r.viewport].valid += 1; if (r.textSpacing?.inForce) by[r.viewport].inForce += 1; }
+    return { condition: TEXT_SPACING_CONDITION, scheduled: cases.filter((c) => c.viewport.textSpacing).length, valid: spacing.filter((r) => r.valid).length, inForce: spacing.filter((r) => r.textSpacing?.inForce).length, byViewport: by };
+  })(),
+  a11y: {
+    hover: { cases: results.filter((r) => r.hover?.judged).length, tooltips: results.reduce((n, r) => n + (r.hover?.judged ?? 0), 0), escapeSkipped: results.reduce((n, r) => n + (r.hover?.escapeSkipped ?? 0), 0), escapeClosedOverlay: results.reduce((n, r) => n + (r.hover?.escapeClosedOverlay ?? 0), 0) },
+    shortcuts: { cases: results.filter((r) => r.shortcuts?.field).length },
+    names: { controls: results.reduce((n, r) => n + (r.a11y?.names?.controls ?? 0), 0), fields: results.reduce((n, r) => n + (r.a11y?.names?.fields ?? 0), 0), tooltips: results.reduce((n, r) => n + (r.a11y?.names?.tooltips ?? 0), 0) },
+    targets: results.reduce((n, r) => n + (r.a11y?.targets?.judged ?? 0), 0),
+    readingOrder: results.filter((r) => r.a11y?.readingOrder?.containers).length,
+  },
   coverage,
   perf: {
     cls: { statuses: measure('cls'), measured: clsValues.length, min: clsValues.length ? Math.min(...clsValues) : null, max: clsValues.length ? Math.max(...clsValues) : null, nonZero: clsValues.filter((v) => v > 0).length },
@@ -843,8 +928,13 @@ line(`${valid.length} valid captures of ${cases.length} scheduled (${STATES.leng
   + (shard ? ` — shard ${shard.index}/${shard.count} of ${plan.cases.length} planned case(s); the sweep-wide checks are aggregate.mjs's` : ''));
 for (const tier of TIERS) {
   const t = byTier[tier];
-  line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe${t.zoomCaptures ? ` + ${t.zoomCaptures} zoom` : ''} valid captures, ${t.invalid} invalid; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);
+  line(`  Tier ${tier}: ${t.anchorCaptures} anchor + ${t.probeCaptures} probe${t.zoomCaptures ? ` + ${t.zoomCaptures} zoom` : ''}${t.spacingCaptures ? ` + ${t.spacingCaptures} text-spacing` : ''} valid captures, ${t.invalid} invalid; ${t.blocking} blocking, ${t.pending} measured/pending finding(s)`);
 }
+if (report.textSpacing.scheduled) {
+  const ts = report.textSpacing;
+  line(`  text spacing (WCAG 1.4.12): ${ts.valid}/${ts.scheduled} valid with the overrides proven in force on ${ts.inForce}; ${Object.entries(ts.byViewport).map(([v, n]) => `${v} ${n.valid}/${n.scheduled}`).join(', ')}`);
+}
+line(`  a11y (X1): ${report.a11y.names.controls} controls named, ${report.a11y.names.fields} fields, ${report.a11y.names.tooltips} tooltips classed, ${report.a11y.targets} pointer targets, ${report.a11y.hover.tooltips} tooltips driven in ${report.a11y.hover.cases} case(s), shortcuts typed in ${report.a11y.shortcuts.cases} case(s), reading order in ${report.a11y.readingOrder} case(s)`);
 {
   const z = report.executions.zoom;
   if (z.scheduled.loads + z.scheduled.transitions) {

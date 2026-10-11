@@ -453,9 +453,17 @@ describe('VisualSearchPage', () => {
       });
 
     renderWithApp(<VisualSearchPage />, { route: '/search' });
-    await user.click(await screen.findByRole('button', { name: 'Load more' }));
+    const loadMore = await screen.findByRole('button', { name: 'Load more' });
+    // The notice's region is in the foot before there is anything to say (§23).
+    const live = document.querySelector('.results__foot .status-slot__announcer') as HTMLElement;
+    expect(live).toHaveAttribute('role', 'status');
+    expect(live).toBeEmptyDOMElement();
+    await user.click(loadMore);
 
     expect(await screen.findByText(/snapshot can no longer continue/i)).toBeInTheDocument();
+    expect(document.querySelector('.results__foot .status-slot__announcer')).toBe(live);
+    await waitFor(() => expect(live).toHaveTextContent(/snapshot can no longer continue/));
+    expect(screen.getByText(/snapshot can no longer continue/i).closest('.alert')).not.toHaveAttribute('role');
     expect(screen.getAllByRole('link', { name: 'Review evidence' })).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: 'Refresh results' }));

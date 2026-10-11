@@ -4,6 +4,7 @@ import Button from '../components/Button';
 import EmptyState from '../components/EmptyState';
 import type { IconName } from '../components/Icon';
 import LoadingState from '../components/LoadingState';
+import StatusSlot from '../components/StatusSlot';
 import EvidencePlaceholder from '../evidence/EvidencePlaceholder';
 import TruncatedText from '../overlay/Truncated';
 import type { AsyncState } from './asyncState';
@@ -33,6 +34,13 @@ import type { AsyncState } from './asyncState';
  * can carry are rendered by the caller inside `children`, with their own
  * words — the region's four outcomes are about the request, not about what
  * the answer means.
+ *
+ * Every presentation is said through one live region per region instance —
+ * a `StatusSlot`, mounted on the first render and kept across every branch
+ * (loading, content, degraded, empty), so what a later state says is a change
+ * in a region that already existed and is announced (§23). A domain state the
+ * caller renders inside `children` (not configured, too much to map) reports
+ * to the same slot. A failure keeps its `role="alert"`.
  *
  * It knows nothing about TanStack Query (§14.1).
  */
@@ -117,7 +125,15 @@ function isEmptySpec(value: unknown): value is EmptySpec {
   return typeof value === 'object' && value !== null && 'title' in value && typeof (value as EmptySpec).title === 'string';
 }
 
-export default function StateRegion<T>({
+export default function StateRegion<T>(props: StateRegionProps<T>) {
+  return (
+    <StatusSlot>
+      <Presentation {...props} />
+    </StatusSlot>
+  );
+}
+
+function Presentation<T>({
   kind,
   state,
   label,
@@ -246,15 +262,18 @@ export default function StateRegion<T>({
  * is one warning at the top of the workspace with its retry trailing — and,
  * once the data has arrived, a failed refresh says the values may be stale
  * rather than claiming they are missing. Same selector, same alert grammar as
- * a region; nothing at all while the request loads or is current.
+ * a region; nothing but its (empty) announcer while the request loads or is
+ * current, so that a warning that arrives later is announced (§23).
  */
-export function SupportingRequestNotice<T>({
-  state,
-  unavailableMessage,
-  degradedMessage,
-  onRetry,
-  retryLabel = 'Retry',
-}: {
+export function SupportingRequestNotice<T>(props: SupportingRequestNoticeProps<T>) {
+  return (
+    <StatusSlot>
+      <SupportingNotice {...props} />
+    </StatusSlot>
+  );
+}
+
+type SupportingRequestNoticeProps<T> = {
   state: AsyncState<T>;
   /** What the surface does without the data, in the operator's words. */
   unavailableMessage: ReactNode;
@@ -263,7 +282,15 @@ export function SupportingRequestNotice<T>({
   onRetry?: () => void;
   /** Names the request when several notices can be on screen together. */
   retryLabel?: string;
-}) {
+};
+
+function SupportingNotice<T>({
+  state,
+  unavailableMessage,
+  degradedMessage,
+  onRetry,
+  retryLabel = 'Retry',
+}: SupportingRequestNoticeProps<T>) {
   if (state.kind === 'loading') return null;
   if (state.kind === 'ready' && state.degraded === undefined) return null;
   return (

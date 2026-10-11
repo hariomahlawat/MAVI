@@ -17,6 +17,7 @@ import { formatCount } from '../../shared/format/format';
 import Icon from '../../shared/components/Icon';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
 import StatusBadge from '../../shared/components/StatusBadge';
+import StatusSlot from '../../shared/components/StatusSlot';
 import { configuredUtcToWallTimeText } from '../../shared/time/wallTime';
 import { ContextBar, InvestigationLayout, InvestigationRailToggle, Segmented } from '../../shared/workspace';
 import { isDismissTarget, isNavigationTarget, nearEnd, neighbourId, selectedIndex } from './resultNavigation';
@@ -807,13 +808,17 @@ export default function VisualSearchPage() {
             )}
 
             <div className="results__foot">
-              {tracks.isFetchNextPageError ? (
-                <Alert tone={continuationInvalid ? 'warning' : 'error'}>
-                  {continuationInvalid
-                    ? 'This result snapshot can no longer continue. Refresh results to start a new snapshot with the same committed filters.'
-                    : 'The next page could not be loaded. Existing results remain available.'}
-                </Alert>
-              ) : null}
+              {/* The snapshot notice is polite, so it is said from a region
+                  mounted before it appears (§23); the load failure is an alert. */}
+              <StatusSlot>
+                {tracks.isFetchNextPageError ? (
+                  <Alert tone={continuationInvalid ? 'warning' : 'error'}>
+                    {continuationInvalid
+                      ? 'This result snapshot can no longer continue. Refresh results to start a new snapshot with the same committed filters.'
+                      : 'The next page could not be loaded. Existing results remain available.'}
+                  </Alert>
+                ) : null}
+              </StatusSlot>
               {continuationInvalid ? (
                 <Button icon="refresh" onClick={() => void queryClient.resetQueries({ queryKey: trackQueryKey, exact: true })}>
                   Refresh results

@@ -114,9 +114,21 @@ export default function ProcessingQueuePage() {
                 ) : videos.isPending ? (
                   // At Tier C the counts are the band's own second line, so
                   // the line is there while they load: the list arriving below
-                  // it moves nothing (§36.3). Above Tier C it is not drawn,
-                  // and a failed inventory claims no counting at all.
-                  <span className="queue-counts queue-counts--pending">Counting runs…</span>
+                  // it moves nothing (§36.3). Above Tier C the counts follow
+                  // the sentence, and where the band is short (768px under
+                  // WCAG 1.4.12 text spacing) they wrap to a second line: an
+                  // invisible reserve of the same shape holds that wrap while
+                  // they load, so the rows land where the skeleton drew them.
+                  // A failed inventory claims no counting at all.
+                  <>
+                    <span className="queue-counts__sep queue-reserve" aria-hidden="true">{' · '}</span>
+                    <span className="queue-reserve queue-reserve--counts" aria-hidden="true">
+                      <span>0 active</span>
+                      <span>0 failed</span>
+                      <span>0 completed</span>
+                    </span>
+                    <span className="queue-counts queue-counts--pending">Counting runs…</span>
+                  </>
                 ) : null}
               </>
             )}
@@ -171,12 +183,14 @@ export default function ProcessingQueuePage() {
                       queue's order is its operational statement). */}
                   <th scope="col" className="num ledger-fold">Queued</th>
                   <th scope="col" className="num ledger-fold">Attempt</th>
-                  <th scope="col" className="num ledger-fold" title="Final count, recorded when the run completed">Tracks</th>
+                  {/* §23: a column's definition is not carried in a tooltip; the
+                      Processing Detail Record states what the count is. */}
+                  <th scope="col" className="num ledger-fold">Tracks</th>
                   {/* Slice 4: a separate compact column, as text. The Status
                       column keeps its one badge (§16); analytics readiness is a
                       second fact about the row, not a second opinion about the
                       same one, and is never a second badge. */}
-                  <th scope="col" title="Scene analytics readiness for the latest run">Analytics</th>
+                  <th scope="col">Analytics</th>
                   <th scope="col"><span className="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
@@ -202,7 +216,10 @@ export default function ProcessingQueuePage() {
                       <td>
                         <LedgerPrimary
                           identity={(
-                            <TruncatedText text={`${row.originalFileName} · ${row.cameraCode} · ${row.cameraName}`} className="cap-lg">
+                            // The full value of what is drawn (§16): the file and the
+                            // camera code. The camera's name is the Videos Ledger's and the
+                            // Record's, never only a tooltip's (§23).
+                            <TruncatedText text={`${row.originalFileName} · ${row.cameraCode}`} className="cap-lg">
                               {row.originalFileName} <span className="faint">{row.cameraCode}</span>
                             </TruncatedText>
                           )}

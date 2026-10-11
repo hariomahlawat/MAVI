@@ -111,7 +111,7 @@
    stale takes a dashed edge, unavailable takes a diagonal hatch. */
 .badge--stale {
   color: var(--status-stale); background: var(--status-stale-soft);
-  border-color: var(--status-stale-border); border-style: dashed;
+  border-color: var(--status-stale); border-style: dashed;
 }
 .badge--unavailable {
   color: var(--status-unavailable); background: var(--status-unavailable-soft);
@@ -133,6 +133,14 @@
 }
 .alert > .icon { flex: 0 0 auto; margin-top: var(--s-hair); }
 .alert__body { flex: 1; min-width: 0; }
+/* A StatusSlot's announcer (visually hidden, absolutely positioned) sits at
+   its containing block's origin: left at its static position it is a 1px box
+   wherever its presentation is — below the fold, scrollable overflow that
+   made a Ledger page scroll at 200% zoom. Where it is drawn is nothing to a
+   screen reader, which reads it at its place in the document. */
+.status-slot__announcer { top: 0; left: 0; }
+/* A failure code is one unbreakable token; under WCAG 1.4.12 text spacing at 390px it must wrap rather than widen the column. */
+.alert__body code { overflow-wrap: anywhere; }
 .alert--info { border-color: var(--status-info-border); background: var(--status-info-soft); }
 .alert--info > .icon { color: var(--status-info); }
 .alert--success { border-color: var(--status-ok-border); background: var(--status-ok-soft); }
@@ -142,7 +150,7 @@
 .alert--error { border-color: var(--status-err-border); background: var(--status-err-soft); }
 .alert--error > .icon { color: var(--status-err); }
 .alert--stale {
-  border-color: var(--status-stale-border); border-style: dashed; background: var(--status-stale-soft);
+  border-color: var(--status-stale); border-style: dashed; background: var(--status-stale-soft);
 }
 .alert--stale > .icon { color: var(--status-stale); }
 /* The action slot keeps a retry beside the sentence that explains it, rather
@@ -242,7 +250,10 @@ input:disabled, select:disabled, textarea:disabled {
    calc(100% - 14px) and calc(100% - 9px). It follows that geometry, not the
    spacing scale, and must not be tied to a spacing step. */
 select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%); background-position: calc(100% - 14px) 13px, calc(100% - 9px) 13px; background-size: 5px 5px; background-repeat: no-repeat; padding-right: 26px; }
-.checkbox { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--fs-2); color: var(--text-secondary); }
+/* The mark stays at the icon size; the label is the target. Clicking anywhere
+   on the label toggles the input, so the label's box is the effective target
+   (section 10.1) and is held at the minimum, not the 14px mark. */
+.checkbox { display: inline-flex; align-items: center; gap: var(--s-2); min-height: var(--control-min-target); font-size: var(--fs-2); color: var(--text-secondary); }
 .checkbox input { width: var(--icon-sm); height: var(--icon-sm); margin: 0; accent-color: var(--accent); }
 
 /* A grouped set of controls inside a band. The `.toolbar` container it used to
@@ -461,7 +472,7 @@ table.table--ledger { width: 100%; max-width: max-content; }
 /* The rule separates a disclosure from content above it; as the first thing in
    a panel there is nothing to separate, and the line is an empty band. */
 .panel__body > .disclosure:first-child { border-top: 0; }
-.disclosure summary { cursor: pointer; padding: var(--s-2) 0; color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; list-style: none; display: flex; align-items: center; gap: var(--s-2); }
+.disclosure summary { cursor: pointer; min-height: var(--control-min-target); padding: var(--s-2) 0; color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; list-style: none; display: flex; align-items: center; gap: var(--s-2); }
 .disclosure summary::-webkit-details-marker { display: none; }
 .disclosure summary::before { content: "▸"; color: var(--text-muted); font-size: var(--fs-0); }
 .disclosure[open] summary::before { content: "▾"; }
@@ -493,7 +504,10 @@ a.summary-band__item:hover .summary-band__value { text-decoration: underline; te
   border: var(--stroke-hair) solid var(--border-subtle); border-radius: var(--r-1); background: var(--surface-raised); color: var(--text-secondary); font-size: var(--fs-1);
 }
 .chip code { color: var(--text-secondary); }
-.chip button { width: var(--control-min-target); height: var(--control-min-target); padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text-muted); line-height: 1; }
+/* The text yields, never the control: a long value shrinks the truncating
+   span, and the remove button keeps its full target (section 10.1). */
+.chip .truncate { min-width: 0; }
+.chip button { flex: 0 0 auto; width: var(--control-min-target); height: var(--control-min-target); padding: 0; border: 0; border-radius: var(--r-1); background: transparent; color: var(--text-muted); line-height: 1; }
 .chip button:hover { background: var(--surface-raised-2); }
 .chip-row { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 /* Thumbnails */
@@ -531,7 +545,7 @@ a.summary-band__item:hover .summary-band__value { text-decoration: underline; te
 .tooltip-anchor { position: relative; display: inline-flex; }
 .tooltip {
   position: absolute; top: calc(100% + var(--s-1)); left: 50%; transform: translateX(-50%);
-  z-index: var(--z-tooltip); padding: var(--s-1) var(--s-2); white-space: nowrap; pointer-events: none;
+  z-index: var(--z-tooltip); padding: var(--s-1) var(--s-2); white-space: nowrap; pointer-events: auto;
   border: var(--stroke-hair) solid var(--border-panel); border-radius: var(--r-1);
   background: var(--surface-raised-2); color: var(--text-primary); font-size: var(--fs-1);
   box-shadow: var(--elevation-floating);

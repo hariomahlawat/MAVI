@@ -22,7 +22,10 @@
   padding: 0 var(--s-5);
   border-bottom: var(--stroke-hair) solid var(--border-subtle);
   background: var(--surface-base);
-  position: sticky; top: 0; z-index: var(--z-sticky);
+  /* One above a Ledger's sticky column headers (`.table th`): a hint hanging
+     below the bar — a crumb's full identity — is painted over them, not under
+     them, once the table has scrolled beneath the bar (WCAG 1.4.13). */
+  position: sticky; top: 0; z-index: calc(var(--z-sticky) + 1);
 }
 /* A surface that is not the live thing it usually is — a past revision open
    for reading. One chip was judged too quiet for the mistake it prevents. */
@@ -60,14 +63,40 @@
 /* A crumb that is the way back (Review's Search, to the Investigation it was
    opened from) is kept, first and whole: the menu's Search is a fresh one. */
 .shell--narrow .context-bar__crumbs li.context-bar__crumb--return { display: flex; flex: none; }
+/* The trail's floor then covers that whole crumb ("Search" is 6ch, 7 under
+   WCAG 1.4.12 text spacing), its separator and the 4ch of identity: narrower,
+   the way back would overflow the trail into the status group beside it. */
+.shell--narrow .context-bar__crumbs:has(> ol > .context-bar__crumb--return) { min-width: 13ch; }
 .shell--narrow .context-bar__crumbs li.context-bar__crumb--return + li::before { content: "›"; }
 /* The time zone the surface states (§24) stays drawn, and gives way after
    the identity: truncated to no less than 6ch, its full value on hover and
    focus (DisplayTimeZone's TruncatedText). */
-.shell--narrow .context-bar__status > .zone-note { flex: 0 1 auto; min-width: 6ch; }
+/* §25 Tier C, inside the one 44px band (§5): the identity gives way first
+   (to its 4ch), then the zone note (to its 6ch), then the status badge — "a
+   shortened badge still reads" — and never the actions. The badge was rigid,
+   so where the band was short the group's parts spilled out of it and the
+   zone note was drawn under the primary action: hidden at normal spacing
+   behind the button, painted over it under WCAG 1.4.12 text spacing (its
+   tooltip anchor is positioned). The zone note's shrink weight makes it reach
+   its floor before the badge gives anything; the badge then truncates with
+   an ellipsis (its full text stays in the accessibility tree, and a Record
+   states the same state in its body). */
+.shell--narrow .context-bar__status > .zone-note { flex: 0 100 auto; min-width: 6ch; }
 .shell--narrow .context-bar__status > .zone-note code { min-width: 0; overflow: hidden; }
 .shell--narrow .context-bar__status > .zone-note .tooltip-anchor { min-width: 0; max-width: 100%; }
+/* An ellipsis needs a block container: the badge's label is its own text, so
+   the narrow badge is an inline block (its height as a line), its dot inline. */
+.shell--narrow .context-bar__status > .badge {
+  display: inline-block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  line-height: calc(var(--s-5) - 2 * var(--stroke-hair));
+}
+.shell--narrow .context-bar__status > .badge::before { display: inline-block; margin-right: var(--s-1); vertical-align: middle; }
 .context-bar__crumbs .tooltip-anchor { min-width: 0; max-width: 100%; }
+/* The identity's own control keeps the 24px target (§10.1) when the trail is
+   at its 4ch floor: that floor is the item's, separator and gap included,
+   and left the link itself at 20px under WCAG 1.4.12 text spacing at 768. */
+.context-bar__crumbs li.context-bar__crumb--object > a,
+.context-bar__crumbs li.context-bar__crumb--object > .tooltip-anchor { min-width: var(--control-min-target); }
 .context-bar__crumbs li a, .context-bar__crumbs li span:not(.tooltip-anchor):not(.tooltip) {
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
 }
@@ -88,6 +117,16 @@
 .context-bar__crumbs a:hover { text-decoration: underline; text-underline-offset: 0.12em; }
 .context-bar__crumbs [aria-current="page"] { color: var(--text-primary); font-weight: 600; }
 .context-bar__status { display: flex; align-items: center; gap: var(--s-2); flex: 0 1 auto; min-width: 0; }
+/* §25: the identity gives way first. A full band shrinks its flexible items
+   in proportion to their size, so a long identity and a status group of
+   rigid parts (a badge, the zone note) used to share the shortfall, and the
+   group's parts spilled out of it — under WCAG 1.4.12 text spacing with a
+   wide font, off the page at 768. Such a group's floor is its parts' width,
+   so the trail absorbs the shortfall (the identity, down to 4ch). A group
+   that holds a subject (Review's Track) keeps the floor of 0: the subject is
+   what truncates there — and so does every group in the narrow shell, where
+   the zone note is the text that gives way (§25 Tier C). */
+.shell:not(.shell--narrow) .context-bar__status:not(:has(.context-bar__subject)) { min-width: min-content; }
 /* The item a surface is reviewing, beside its state (Review's Track). Text,
    not a badge: it names the subject, it does not grade it. */
 .context-bar__subject { color: var(--text-secondary); font-size: var(--fs-2); white-space: nowrap; min-width: 0; flex: 0 1 auto; }
@@ -99,6 +138,10 @@
 .context-bar__status > .tooltip-anchor { min-width: 0; flex: 0 1 auto; }
 .context-bar__spacer { flex: 1 1 auto; min-width: 0; }
 .context-bar__actions { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
+/* An action never shrinks: an icon-only button squeezed to its glyph is
+   under the 24px target (§10.1). What gives way in a full actions group is
+   the note beside them (features.css). */
+.context-bar__actions > .btn { flex-shrink: 0; }
 
 /* ------------------------------------------------------------------ *
  * Toolbar band — the row that acts on what is below it (section 10).

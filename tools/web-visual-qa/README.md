@@ -467,9 +467,41 @@ between two things nobody can see at once. Each element is therefore clipped by
 every scrolling ancestor and by the viewport first, and one clipped to nothing
 takes no part in the comparison.
 
-Effective target sizes below 24×24 are reported as the `a11y.target-size` rule,
-`measured/pending` against S6 / X1, because §10.1 allows small canvas handles with
-a large hit area and requires a documented exception, not an automatic failure.
+Effective target sizes below 24×24 CSS px fail the `a11y.target-size` rule
+(blocking at every tier since S6/X1): one discovery of what a pointer presses
+(`a11y.mjs` `a11yPointerTargets` — native controls, a disclosure's summary,
+widget roles, editable regions, the Scene Editor's `.scene-handle__hit`; never a
+bare `[tabindex]`, which is a keyboard target), each measured by its effective
+hit area — a checkbox or radio by the label that toggles it, a canvas handle by
+its invisible hit circle (its 3.5px mark exempt, §10.1), everything else by its
+own box — with the reading named in the finding.
+
+## X1 (§23): the accessibility rules
+
+Stage 3.5 S6/X1 closes the frozen §23 obligations as named rules in
+`a11y.mjs`, each built on the T3 primitives (`zoomVisibility`, `zoomPaintsAt`,
+`zoomOwn`) and, where a name or a role is the question, on Chromium's own
+accessibility tree (`cdp.mjs` `axNames`: `Accessibility.getPartialAXTree`
+per control — the computed name and the source that gave it). Nothing here is
+an accessibility engine; every rule is one obligation.
+
+| Rule | What it holds | Negative in `test/a11y.test.mjs` |
+|---|---|---|
+| `a11y.names` | every control has a computed name; where it shows a label, the name contains it (2.5.3, normalised: case, punctuation, whitespace); a `title` is never the only name — except the collapsed rail item (§23's one exception) | a label the name does not contain; an unnamed icon button; a title-only button |
+| `a11y.form-fields` | every field labelled, never by its placeholder alone; an invalid field's error associated (`aria-describedby`/`aria-errormessage`) to rendered text and announced (`role=alert`/live) or focused | placeholder-only; unassociated; associated but silent |
+| `a11y.role-contract` | referenced ids resolve; `aria-expanded` names a rendered region (or is a `summary`); an option holds nothing focusable; a listbox holds options; no native-equivalent role on a generic element, no native control re-roled; no naming is invented for `group`/`region` | each |
+| `a11y.live-regions` | every live region rendered and outside `aria-hidden`; across a state's preparation no polite region appears already holding its message: a region the preparation inserts passes only if its text arrived in a later task than its insertion (a `MutationObserver` installed by `a11yLiveMark`, one callback per task, read by `a11yLiveCheck`) — a region that appears with its text in one task is an insertion to the accessibility tree, not a change; `role=alert`/assertive insert by contract; a region inside an overlay the preparation opened is mounted with it | a status inserted with its text; one mounted empty and filled in the same task |
+| `a11y.tooltips` | a tooltip or `title` carries nothing required to operate: its control's name (N), the name with a key hint (K), a truncated value (V, §16), a timestamp's full form (F, §24), or text stated elsewhere on the page (S) | an instruction only in a tooltip |
+| `a11y.shortcuts-in-text-entry` | the first text field focused, `?` (and Delete on the Scene Editor) pressed as real keys: no overlay opens, nothing is deleted, the key reaches the field (`probes.mjs`) | a handler that ignores the field; one that consumes the key |
+| `a11y.tab-order` | per container, the keyboard visits the tab stops in the container's reading order (rows by overlap, left to right; a column-flow container down its column); adjacent stops never step back along a line, nor up a column where the composition is one; side-by-side containers are read one after another; a control placed by its data (an inline inset) follows the data (`a11yOrderFindings`, shared with the zoom lane) | reversed row; reversed column; an `order`-scattered grid |
+| `a11y.state-cues` | a selected/current item differs from its peers by a non-colour property, a glyph, or a 3:1 luminance step (WCAG 1.4.1); invalid geometry is dashed; every badge has text and no two badges share text across tones; marker kinds differ in tick shape; an SVG mark by stroke width, dash, radius, or fill/stroke luminance | a same-lightness tint; solid invalid stroke; an empty badge; one tick shape |
+| `a11y.focus-not-obscured` | after focus, a control's middle is not under a fixed or sticky painted layer (2.4.11 at the anchors; the zoom lane proves it at 200%) | a control under a fixed band |
+| `a11y.spatial-twin` | every drawn `.scene-zone`/`.scene-line` has its `li[data-object-key]`, offering a control, naming a state, listing its actual coordinates (a zone: one per polygon vertex; a line: both endpoints); every timeline interval and marker is a named entry with its control | an object without a row; a row without coordinates; the wrong count; a marker without a control |
+| `a11y.reading-order` | in a `tbody`, list, `dl`, the page's regions, a state region or the Context Bar, the document order of the rendered children is their visual order (1.3.2, non-focusable content included; absolutely positioned and data-placed children aside) | a reversed facts list; swapped regions |
+| `a11y.text-spacing` | the lane (`--text-spacing only|none`): the WCAG 1.4.12 overrides served in the document head before first paint (`server.mjs` `TEXT_SPACING_CSS`), proven from computed style on every capture, at one canonical anchor of every distinct composition (`TEXT_SPACING_CONDITION`: 1366×768, 1024×768, 768×1024, 390×844) and each state's probe widths; every rule of the tier judges the case; the full sweep faults a planned spacing case missing or not in force (`engine.textSpacingCoverageFaults`) | content that clips only under the overrides |
+| `a11y.hover-content` | the custom `Tooltip` driven through the input pipeline (`probes.mjs`): shown on focus and on hover, persistent while held, hoverable (the pointer moves onto it), dismissed by Escape without moving focus (not pressed while an overlay or inspector is open, whose Escape the exit probe judges), hidden once both leave; native `title` is the browser's and not driven | not hoverable; ignores Escape; fades under focus |
+
+Stated limits: the names rule compares the computed name with the control's rendered text after a bounded normalisation (case, punctuation, whitespace); the state-cue luminance step composites every layer behind an element down to white, and reads only colours Chromium serialises as rgb/rgba (a `color()` result is never credited); a marked control with no sibling of its kind, in a row with no sibling row, is counted as unjudged (`measured.stateCues.unjudged`), never passed; the live-region rule judges mounting only across a state's preparation (the first load's loading → content transition is not judged) and counts frames by `requestAnimationFrame`; the tooltip rule's key hint is a bounded grammar (up to four words, no sentence punctuation, after the control's name); the spatial twin is held to the coordinates the drawing states in `data-points`/`data-endpoints`, in the list's own format; the hover probe does not press Escape on a trigger inside a closable overlay (its Escape is the exit probe's) and does not charge a focus move that came with an overlay closing; the shortcuts probe types into the first text-entry field only (number fields refuse the character by their nature); the reading-order and tab-order rules judge declared containers only, and treat a column-flow container as read down its columns.
 
 ## What still needs a person
 

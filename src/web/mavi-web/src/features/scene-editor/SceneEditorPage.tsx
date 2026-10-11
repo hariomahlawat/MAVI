@@ -564,15 +564,18 @@ export default function SceneEditorPage() {
       {blockedReason && !narrow ? (
         <p className="scene-notice" id="scene-save-blocked">{blockedReason}</p>
       ) : null}
-      {confirmingDisable && !narrow ? (
+      {narrow ? null : (
         // Stated once, plainly, in the place the operator is already looking.
         // Nothing about this is an emergency, so nothing about it is red; it is
-        // simply a consequence worth reading before it happens.
+        // simply a consequence worth reading before it happens. The region is
+        // mounted before it has anything to say: a live region inserted already
+        // populated is not announced, one that changes is.
         <p className="scene-notice scene-notice--confirm" id="scene-disable-confirm" role="status">
-          Nothing here is enabled, so saving stops future runs of this camera being analysed. Earlier
-          revisions are unchanged.
+          {confirmingDisable
+            ? 'Nothing here is enabled, so saving stops future runs of this camera being analysed. Earlier revisions are unchanged.'
+            : null}
         </p>
-      ) : null}
+      )}
     </>
   );
 
@@ -650,13 +653,15 @@ export default function SceneEditorPage() {
                 <dd>{shownDraft.tripLines.length ? shownDraft.tripLines.map((line) => line.name).join(', ') : 'None'}</dd>
               </dl>
               )}
-              {!readOnly && (state.dirty || noteRetained) ? (
+              {readOnly ? null : (
                 // Said plainly, not as an alarm: nothing has been lost or sent.
+                // Mounted empty so the change to "unsaved" is announced.
                 <p className="scene-notice" role="status">
-                  This scene has unsaved changes. They are kept while this page stays open; review and save them on a
-                  display at least 768px wide.
+                  {state.dirty || noteRetained
+                    ? 'This scene has unsaved changes. They are kept while this page stays open; review and save them on a display at least 768px wide.'
+                    : null}
                 </p>
-              ) : null}
+              )}
             </Panel>
           ),
         }}
@@ -726,11 +731,12 @@ export default function SceneEditorPage() {
                       </Alert>
                     </div>
                   ) : null}
-                  {mediaFailed && !revisionUnavailable ? (
+                  {revisionUnavailable ? null : (
+                    // Mounted empty so the failure, when it comes, is announced.
                     <p className="scene-stage__media-note" role="status">
-                      Reference video unavailable · geometry is shown on a blank frame and is unchanged
+                      {mediaFailed ? 'Reference video unavailable · geometry is shown on a blank frame and is unchanged' : null}
                     </p>
-                  ) : null}
+                  )}
                   {/* The empty state invites the first object; once a tool is armed the
                       operator has accepted the invitation, so it gets out of the way of
                       the surface they are drawing on. */}

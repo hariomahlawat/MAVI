@@ -155,7 +155,7 @@ export default function AnalyticsControls({
   return (
     <Toolbar
       label="Analytics window"
-      hint={message ? <span id={ids.problem} className="analytics-window__problem">{message}</span> : undefined}
+      hint={message ? <span id={ids.problem} className="analytics-window__problem" role="alert">{message}</span> : undefined}
     >
       <div className="analytics-window__presets" role="group" aria-label="Window presets">
         {WINDOW_PRESETS.map((preset) => (

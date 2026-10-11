@@ -31,8 +31,12 @@ const TYPES = {
  * @param {string} options.fixtureDir  directory of `<name>.json` API fixtures
  * @param {() => Record<string, unknown>} options.scenario  current fixture overrides
  * @param {() => string} options.footage  path to the clip the current state uses
+ * @param {() => boolean} [options.textSpacing]  whether the text-spacing lane's overrides are served (X1)
  */
-export function startServer({ distDir, fixtureDir, scenario, footage }) {
+/** WCAG 1.4.12's overrides, as a user would apply them: no author style outranks them. */
+export const TEXT_SPACING_CSS = '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }';
+
+export function startServer({ distDir, fixtureDir, scenario, footage, textSpacing = () => false }) {
   /**
    * Responses deliberately left unanswered to hold a loading state. They must
    * be released when that state ends: the browser allows only a handful of
@@ -288,6 +292,16 @@ export function startServer({ distDir, fixtureDir, scenario, footage }) {
       return;
     }
     res.writeHead(200, { 'content-type': TYPES['.html'] });
+    // The text-spacing lane (X1, WCAG 1.4.12): the operator's overrides are a
+    // stylesheet in the document's head, in force before the first paint — as
+    // a user stylesheet would be — and read back from computed style by the
+    // lane's environment check, never assumed.
+    if (textSpacing()) {
+      const html = readFileSync(join(distDir, 'index.html'), 'utf8');
+      const style = '<style id="vqa-text-spacing">' + TEXT_SPACING_CSS + '</style>';
+      res.end(html.includes('</head>') ? html.replace('</head>', style + '</head>') : style + html);
+      return;
+    }
     createReadStream(join(distDir, 'index.html')).pipe(res);
   }
 

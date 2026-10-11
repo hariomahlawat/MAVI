@@ -109,6 +109,8 @@ export const SURFACES = {
  * viewport, or leave the zoom at 100%, and still pass the rule.
  */
 export const ZOOM_CONDITION = Object.freeze({ width: 1366, height: 768, factor: 2 });
+/** The lanes a rule may be confined to: a case of that lane alone evaluates it. */
+export const LANES = Object.freeze(['zoom', 'text-spacing']);
 
 /** The ten operator surfaces (§23 "every other surface keeps its function"). */
 export const OPERATOR_SURFACES = Object.keys(SURFACES).filter((name) => name !== 'foundation' && name !== 'not-found');
@@ -244,9 +246,12 @@ export const RULES = {
     // R6 (S3e) fixed the rendered pin and flipped this to blocking at Tier A.
     tiers: { A: blocking(), B, C: na('the pin is released at 1100px and below (§4.5.1); at Tier C tier.c-composition asserts the player is not sticky') },
   },
-  // Owned by S6/X1 at every tier, as at Tier A: a canvas handle and a dense
-  // checkbox are legitimately small until S6 settles the exceptions.
-  'a11y.target-size': { section: '§10.1, §23', kind: 'assertion', summary: 'Pointer targets at least 24x24 wherever practical.', tiers: { A: pending('S6 / X1'), B: pending('S6 / X1'), C: pending('S6 / X1') } },
+  // X1 (S6): every pointer target measured by its effective hit area through
+  // one discovery (a11y.mjs a11yPointerTargets): a checkbox by the label that
+  // toggles it, a canvas handle by its invisible hit circle, a disclosure by
+  // its summary. The four root causes of the T3 sweep's 87 findings are fixed
+  // in the product; the rule blocks at every tier.
+  'a11y.target-size': { section: '§10.1, §23', kind: 'assertion', summary: 'Every pointer-operated control offers an effective target of at least 24x24 CSS px (its own box; a checkbox or radio by its label; a canvas handle by its hit circle).', tiers: s1() },
   'tier.b-shell': {
     section: '§25 (Tier B shell)', kind: 'assertion',
     summary: 'At Tier B the rail never takes the workspace\'s width (collapsed by default, expanded only as the modal overlay), its control stays visible and labelled, and the Context Bar\'s actions stay inside it with the primary keeping its label.',
@@ -335,12 +340,98 @@ export const RULES = {
     summary: 'The six operator journeys complete keyboard-only.',
     tiers: { A: pending('S6 / X2'), B: pending('S6 / X2'), C: pending('S6 / X2') },
   },
-  'a11y.section23-remaining': {
-    section: '§23', kind: 'future', execution: 'not evaluated until S6 asserts the remaining §23 rows (harness or contrast.test.ts)',
-    summary: 'Every remaining §23 obligation asserted on every surface.',
-    tiers: { A: pending('S6 / X1'), B: pending('S6 / X1'), C: pending('S6 / X1') },
+
+  // --- X1 (S6): the §23 obligations, each a named rule (a11y.mjs) ------------
+  // Names and roles are read from Chromium's accessibility tree (cdp.mjs
+  // axNames); seeing is zoomVisibility's account; nothing here is an engine.
+  'a11y.names': {
+    section: '§23', kind: 'assertion',
+    summary: 'Every control has a computed accessible name; where it shows a label the name contains it (WCAG 2.5.3); a title is never the only name, except the collapsed rail item.',
+    tiers: s1(),
+  },
+  'a11y.form-fields': {
+    section: '§23', kind: 'assertion',
+    summary: 'Every form field is labelled (not by its placeholder alone); an invalid field has its rendered error message associated and announced, or focused.',
+    tiers: s1(),
+  },
+  'a11y.role-contract': {
+    section: '§23', kind: 'assertion',
+    summary: "A role's contract is honoured or not claimed: aria-expanded names a rendered region, referenced ids resolve, an option holds nothing focusable, a listbox holds options, native semantics are not re-roled or re-invented on generic elements.",
+    tiers: s1(),
+  },
+  'a11y.live-regions': {
+    section: '§23', kind: 'assertion',
+    summary: 'Every live region is rendered, and a status region is mounted before it is populated: across a state\'s preparation no region appears already holding its message (one inserted passes only if its text arrived in a later task).',
+    tiers: s1(),
+  },
+  'a11y.tooltips': {
+    section: '§23', kind: 'assertion',
+    summary: "A tooltip or title carries no information required to operate the product: its text is its control's name (with a key hint at most), a truncated value, a timestamp's full form, or stated elsewhere on the page.",
+    tiers: s1(),
+  },
+  'a11y.shortcuts-in-text-entry': {
+    section: '§23', kind: 'assertion',
+    summary: 'Keyboard shortcuts (the shell\'s "?", the Scene Editor\'s Delete) do not fire while a text field is being typed in; the key reaches the field.',
+    tiers: s1(),
+  },
+  'a11y.tab-order': {
+    section: '§23', kind: 'assertion',
+    summary: 'The keyboard reaches the controls of the Context Bar, the workspace and an open overlay in their reading order, per container; a control placed by its data follows the data.',
+    tiers: s1(),
+  },
+  'a11y.state-cues': {
+    section: '§23', kind: 'assertion',
+    summary: 'Every state carries a cue that is not colour alone: a selected or current item differs from its peers in border, bar, shadow, weight, glyph or a 3:1 luminance step; invalid geometry is dashed; a status badge has text; timeline marker kinds differ in shape.',
+    tiers: s1(),
+  },
+  'a11y.focus-not-obscured': {
+    section: '§23 (WCAG 2.4.11)', kind: 'assertion',
+    summary: 'A focused control is not hidden under a fixed or sticky layer at its middle.',
+    tiers: s1(),
+  },
+  'a11y.spatial-twin': {
+    section: '§23', kind: 'assertion',
+    summary: 'Every drawn scene object has its entry in the object list, naming it, its state and its actual coordinates, through the control the pointer uses; every timeline interval and marker has its named entry.',
+    tiers: { A: blocking(), B, C: blocking() },
+  },
+  'a11y.reading-order': {
+    section: '§23 (WCAG 1.3.2)', kind: 'assertion',
+    summary: 'In every sequential region — a table body, a list, a definition list, the page\'s regions, a state region, the Context Bar — the document order of the content is the visual order.',
+    tiers: s1(),
+  },
+  // The text-spacing lane (WCAG 1.4.12): a case of the lane loads the state
+  // with the user\'s spacing overrides in force (server.mjs TEXT_SPACING_CSS)
+  // at one canonical anchor per distinct composition (TEXT_SPACING_CONDITION)
+  // and is judged by every rule of its tier; this rule holds that the
+  // overrides were in force (engine.textSpacingCoverageFaults on the full
+  // sweep). Evaluated only in a spacing case (`lane`).
+  'a11y.text-spacing': {
+    section: '§23 (WCAG 1.4.12)', kind: 'assertion', lane: 'text-spacing',
+    summary: 'With line height 1.5×, paragraph spacing 2×, letter spacing 0.12em and word spacing 0.16em in force before first paint, every composition keeps its content and controls: no clipped or overlapping text, no overflow, every control reachable and unobscured.',
+    tiers: s1(),
+  },
+  'a11y.hover-content': {
+    section: '§23 (WCAG 1.4.13)', kind: 'assertion',
+    summary: 'The custom tooltip is shown on focus and on hover, stays while either holds, can be hovered itself, is dismissed by Escape without moving focus, and hides when both leave.',
+    tiers: s1(),
   },
 };
+
+/**
+ * X1 (§23, WCAG 1.4.12): the text-spacing lane's frozen anchors — one
+ * canonical anchor of every distinct responsive composition (§25): the
+ * narrowest Tier A anchor, both Tier B orientations, the narrowest Tier C
+ * anchor. A state's probe widths are added by the plan.
+ */
+export const TEXT_SPACING_CONDITION = Object.freeze({
+  anchors: Object.freeze([
+    Object.freeze({ width: 1366, height: 768, tier: 'A' }),
+    Object.freeze({ width: 1024, height: 768, tier: 'B' }),
+    Object.freeze({ width: 768, height: 1024, tier: 'B' }),
+    Object.freeze({ width: 390, height: 844, tier: 'C' }),
+  ]),
+  overrides: Object.freeze({ lineHeight: 1.5, paragraphSpacing: 2, letterSpacing: 0.12, wordSpacing: 0.16 }),
+});
 
 /**
  * The status of a rule at a tier — for a surface-scoped rule, on the surface
@@ -385,11 +476,14 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
     }
     if (entry.kind === 'future' && !entry.execution) problems.push(`${id}: future rule without an execution policy`);
     if (entry.scope !== undefined && entry.scope !== 'surface') problems.push(`${id}: unknown scope "${entry.scope}"`);
-    if (entry.lane !== undefined && entry.lane !== 'zoom') problems.push(`${id}: unknown lane "${entry.lane}"`);
+    if (entry.lane !== undefined && !LANES.includes(entry.lane)) problems.push(`${id}: unknown lane "${entry.lane}"`);
     // T3: 200% zoom is §23 MUST, owned by T3 alone; T3 is done or it is not.
+    // X1: every §23 obligation is asserted; nothing stays owned by X1.
     for (const tier of TIERS) {
       if (entry.tiers?.[tier]?.status === 'measured/pending' && /T3/.test(entry.tiers[tier].owner ?? '')) problems.push(`${id} @ ${tier}: still owned by T3 after T3`);
+      if (entry.tiers?.[tier]?.status === 'measured/pending' && /X1/.test(entry.tiers[tier].owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X1 after X1`);
     }
+    if (id === 'a11y.section23-remaining') problems.push(`${id}: the X1 placeholder is retired; every §23 obligation has its own rule`);
     if (entry.scope === 'surface' && entry.tiers?.A?.status !== 'blocking') problems.push(`${id}: a surface-scoped rule must block at Tier A, where S1 owns it`);
     if (implemented) {
       const isImplemented = implemented.has(id);

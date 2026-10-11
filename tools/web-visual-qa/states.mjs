@@ -2510,8 +2510,11 @@ const REFUSE_WINDOW = `(async () => {
   await until(() => select.getAttribute('aria-invalid') === 'true', 'the interval marked invalid');
   const described = document.getElementById(select.getAttribute('aria-describedby') || '');
   if (!described || !/the most that can be shown is 512/.test(described.textContent)) return false;
+  // The reason is the band's alert on the field (X1, §23: never a tooltip);
+  // Refresh is disabled and carries no title.
+  if (described.getAttribute('role') !== 'alert') return false;
   const refresh = Array.from(document.querySelectorAll('button')).find((button) => /Refresh/.test(button.textContent));
-  return Boolean(refresh && refresh.disabled && refresh.title);
+  return Boolean(refresh && refresh.disabled && !refresh.title);
 })()`;
 
 /** Arms the Heatmap mode, which is a click rather than a route. */
@@ -2651,7 +2654,8 @@ const R4_CONFIRM_DISABLE = `(async () => {
   save.focus();
   window.__vqa.mark('interaction-start');
   save.click();
-  return Boolean(await until(() => Array.from(document.querySelectorAll('button')).some((b) => b.textContent.trim() === 'Save and disable analytics'), 'the in-band confirmation'));
+  // "Save and disable analytics", or its shorter form below 940px (X1: the band under text spacing).
+  return Boolean(await until(() => Array.from(document.querySelectorAll('button')).some((b) => /^Save and disable( analytics)?$/.test(b.textContent.trim())), 'the in-band confirmation'));
 })()`;
 
 /** R4: the scene's camera (fixture), for states that vary one thing about it. */
@@ -3567,7 +3571,7 @@ export const STATES = [
     archetype: 'workbench',
     api: R4_LONG_CAMERA,
     prepare: R4_CONFIRM_DISABLE,
-    expectText: ['Save and disable analytics', 'Nothing here is enabled'],
+    expectText: ['Save and disable', 'Nothing here is enabled'],
   },
   {
     // The same state at the widths that settle where the Scene's no-wrap
@@ -3578,7 +3582,7 @@ export const STATES = [
     archetype: 'workbench',
     api: R4_LONG_CAMERA,
     prepare: R4_CONFIRM_DISABLE,
-    expectText: ['Save and disable analytics', 'Nothing here is enabled'],
+    expectText: ['Save and disable', 'Nothing here is enabled'],
     tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor-confirm-disable', probeWidths: [1150, 1180, 1200, 1230],
   },
   {

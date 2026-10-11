@@ -750,6 +750,23 @@ describe('dense evidence costs a fixed number of controls', () => {
     expect(mentions.length).toBeLessThanOrEqual(1);
   });
 
+  it('announces each step from a status region that was there before the first step', async () => {
+    const user = userEvent.setup();
+    renderTimeline(vi.fn(), { intervals: crowd(100), markers: [] });
+    const disclosure = document.querySelector('.evidence-timeline__dense') as HTMLDetailsElement;
+    fireEvent.click(disclosure.querySelector('summary')!);
+
+    // The region exists, with the instruction, before any member is named: a
+    // live region inserted already populated with the member would not be
+    // announced, one whose text changes is.
+    const status = disclosure.querySelector('[role="status"]') as HTMLElement;
+    expect(status).toHaveTextContent(/^Step through \d+ items one at a time\.$/);
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(disclosure.querySelector('[role="status"]')).toBe(status);
+    expect(status).toHaveTextContent(/^1 of \d+ /);
+  });
+
   it('reaches an arbitrary member of a hundred at its exact offsets', async () => {
     const user = userEvent.setup();
     const onSeek = renderTimeline(vi.fn(), { intervals: crowd(100), markers: [] });

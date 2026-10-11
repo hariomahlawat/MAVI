@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { SCENE_LIMITS, SCENE_ZONE_KINDS, type SceneZoneKind } from '../../api/scene';
 import { Inspector } from '../../shared/workspace';
 import { findLine, findZone, type Selection } from './editorState';
-import type { DraftTripLine, DraftZone, SceneDraft } from './sceneDraft';
+import { formatCoordinate as coordinate, type DraftTripLine, type DraftZone, type SceneDraft } from './sceneDraft';
 import type { SceneIssue } from './sceneValidation';
 
 type Props = {
@@ -16,10 +16,6 @@ type Props = {
   onUpdateLine: (key: string, changes: Partial<Omit<DraftTripLine, 'key' | 'lineId' | 'a' | 'b'>>) => void;
   onSelect: (selection: Selection) => void;
 };
-
-function coordinate(value: number): string {
-  return value.toFixed(SCENE_LIMITS.coordinateDecimals);
-}
 
 /**
  * The inspector: everything about the selected object that is not its shape.

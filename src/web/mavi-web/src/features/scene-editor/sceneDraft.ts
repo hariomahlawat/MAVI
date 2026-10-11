@@ -76,6 +76,11 @@ export function roundPoint(point: ScenePoint): ScenePoint {
   return { x: roundCoordinate(point.x), y: roundCoordinate(point.y) };
 }
 
+/** A stored coordinate as text, at the precision the scene keeps (one form everywhere it is read). */
+export function formatCoordinate(value: number): string {
+  return value.toFixed(SCENE_LIMITS.coordinateDecimals);
+}
+
 export function clampUnit(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));

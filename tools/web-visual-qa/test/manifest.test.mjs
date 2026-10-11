@@ -29,7 +29,7 @@ const ACCEPTED_ROWS = {
 export function implementedRules() {
   const ids = new Set();
   const RULE = "'([a-z0-9]+(?:\\.[a-z0-9-]+)+)'";
-  for (const file of ['assertions.mjs', 'run.mjs']) {
+  for (const file of ['assertions.mjs', 'run.mjs', 'a11y.mjs']) {
     const text = source(file);
     for (const pattern of [
       new RegExp(`(?:fail|add|evaluated\\.add)\\(\\s*${RULE}`, 'g'),
@@ -89,8 +89,8 @@ describe('the assertion manifest', () => {
     // T1 (S5) promoted every rule that judges a Tier B composition, and T2 every
     // rule that judges a Tier C one; a rule a later slice owns at Tier A stays
     // measured against that owner at Tiers B and C.
-    const laterOwned = new Set(['a11y.target-size', 'perf.cls', 'perf.long-tasks', 'typography.resolved-font',
-      'a11y.reduced-motion', 'a11y.keyboard-journeys', 'a11y.section23-remaining']);
+    const laterOwned = new Set(['perf.cls', 'perf.long-tasks', 'typography.resolved-font',
+      'a11y.reduced-motion', 'a11y.keyboard-journeys']);
     for (const [rule, entry] of Object.entries(RULES)) {
       const atB = entry.tiers.B;
       if (laterOwned.has(rule)) {
@@ -123,6 +123,14 @@ describe('the assertion manifest', () => {
     }
     // The Ledger fold (Codex P1 on #199): blocks at every tier.
     for (const tier of ['A', 'B', 'C']) assert.equal(RULES['ledger.column-fold'].tiers[tier].status, 'blocking', tier);
+  });
+
+  it('makes every X1 entry blocking at Tier A (§15.1), and the text-spacing rule a lane rule', () => {
+    for (const rule of ['a11y.target-size', 'a11y.names', 'a11y.form-fields', 'a11y.role-contract', 'a11y.live-regions', 'a11y.tooltips', 'a11y.shortcuts-in-text-entry', 'a11y.tab-order', 'a11y.state-cues', 'a11y.focus-not-obscured', 'a11y.spatial-twin', 'a11y.reading-order', 'a11y.text-spacing', 'a11y.hover-content']) {
+      assert.equal(RULES[rule].tiers.A.status, 'blocking', rule);
+      assert.equal(RULES[rule].kind, 'assertion', rule);
+    }
+    assert.equal(RULES['a11y.text-spacing'].lane, 'text-spacing');
   });
 
   it('blocks the 200% zoom rule (T3) where a zoom case lands — Tier C at 200%, Tier A zoomed back out — and nowhere else', () => {

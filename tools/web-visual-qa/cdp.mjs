@@ -318,16 +318,48 @@ async function connect(child, profile) {
       return node?.role?.value ?? null;
     },
     /**
+     * The accessible name Chromium computes for every element matching
+     * `selector` (Accessibility.getPartialAXTree, per node): the name itself
+     * and the source that gave it — `title`, `placeholder`, `contents`,
+     * `attribute` (aria-label), `relatedElement` (aria-labelledby, a label) —
+     * which the DOM alone cannot say and no local approximation should. Each
+     * entry carries the element's `data-vqa-ax` index so the page can match
+     * it back. X1 (§23): a11y.names, a11y.form-fields.
+     */
+    async axNames(selector) {
+      const { root } = await call('DOM.getDocument', { depth: 0 });
+      const { nodeIds } = await call('DOM.querySelectorAll', { nodeId: root.nodeId, selector });
+      const out = [];
+      for (const nodeId of nodeIds) {
+        const { attributes } = await call('DOM.getAttributes', { nodeId });
+        const at = attributes.indexOf('data-vqa-ax');
+        const index = at === -1 ? null : Number(attributes[at + 1]);
+        const { nodes } = await call('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+        const node = nodes.find((candidate) => !candidate.ignored) ?? nodes[0];
+        const name = node?.name?.value ?? '';
+        // The winning source: the first not superseded, by Chromium's own account.
+        const winner = (node?.name?.sources ?? []).find((s) => !s.superseded && (s.value?.value ?? '') !== '') ?? null;
+        const source = winner ? (winner.type === 'attribute' ? (winner.attribute ?? winner.type) : winner.type) : null;
+        out.push({ index, name, source, role: node?.role?.value ?? null, ignored: Boolean(node?.ignored), ignoredReasons: node?.ignored ? (node.ignoredReasons ?? []).map((r) => r.name) : [] });
+      }
+      return out;
+    },
+    /** A pointer move to viewport coordinates, through the input pipeline (hover, 1.4.13). */
+    async mouseMove(x, y) {
+      await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+    },
+    /**
      * A real key press through the input pipeline, as an operator makes it.
      * `shift` holds Shift for the press (Shift+Tab: the browser's own reverse
      * focus navigation, which a synthetic event cannot cause).
      */
     async press(key, code = key, { shift = false } = {}) {
-      const keyCode = { Escape: 27, Tab: 9, Enter: 13 }[key] ?? 0;
+      const keyCode = { Escape: 27, Tab: 9, Enter: 13, Delete: 46 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
       const modifiers = shift ? 8 : 0;
       // Enter activates a focused button through the keypress its text makes;
-      // a key event without text never reaches it.
-      const text = key === 'Enter' ? '\r' : undefined;
+      // a key event without text never reaches it. A character key ("?",
+      // "j") carries itself as text, so a focused field receives it.
+      const text = key === 'Enter' ? '\r' : key.length === 1 ? key : undefined;
       if (shift) await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16, modifiers });
       await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode, modifiers, ...(text ? { text, unmodifiedText: text } : {}) });
       await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode, modifiers });

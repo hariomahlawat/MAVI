@@ -27,7 +27,7 @@ describe('severity routing', () => {
     assert.throws(() => ledger.record(at('C', 390), 'ledger.row-pitch', 'x'), /not applicable/);
     assert.equal(ledger.record(at('C', 390), 'page.horizontal-overflow', 'x').severity, 'blocking');
     // A later slice's rule stays its owner's at Tier C.
-    assert.equal(ledger.record(at('C', 390), 'a11y.target-size', 'x').severity, 'measured/pending');
+    assert.equal(ledger.record(at('C', 390), 'perf.cls', 'x').severity, 'measured/pending');
     // R6 fixed the rendered pin and made it blocking at Tier A; T1 at Tier B.
     // At Tier C the pin is released (§4.5.1), so it is not a rule there.
     assert.equal(ledger.record(at('A'), 'review.sticky-rendered', 'x').severity, 'blocking');
@@ -49,7 +49,7 @@ describe('severity routing', () => {
 
   it('fails the run on a blocking finding and never on a measured/pending one', () => {
     const ledger = createLedger(RULES, notAccepted('overview'));
-    ledger.record(at('C', 390), 'a11y.target-size', 'x');
+    ledger.record(at('C', 390), 'perf.cls', 'x');
     ledger.record({ ...at('A'), surface: 'overview' }, 'containment.depth', 'x');
     assert.equal(exitStatus({ harnessErrors: [], blocking: ledger.blocking() }), 0);
     assert.equal(ledger.pending().length, 2);
