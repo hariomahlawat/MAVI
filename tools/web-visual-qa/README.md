@@ -119,8 +119,9 @@ measurements; `review.sticky-rendered` was too until R6 made the pin render,
 and now blocks at Tier A: the player still on screen after the page scrolls,
 and clear of the Context Bar) and declared
 `future` with an execution policy where
-it does not yet (reduced motion, keyboard journeys, the remaining §23 rows;
-200% zoom was until T3).
+it does not yet (none remains: 200% zoom was until T3, reduced motion until
+X4, and the keyboard journeys until X2, which asserts them through its own
+producer, `journeys.mjs`).
 
 **Tiers and states** (`states.mjs`, V2). The default sweep is every §25 anchor:
 1366×768, 1440×900, 1920×1080, 2560×1080 and 2560×1440 (Tier A); 1024×768 and
@@ -555,6 +556,97 @@ delayed zero-duration animation moves nothing). Strict, as §13 reads: a non-zer
 duration fails even where no property or keyframes use it. Only the DOM present
 at the settled state is judged; tooltips and overlays the later probes open are
 covered by the universal `*` rule but not read.
+
+## X2 (§23, plan §5.3): keyboard-only operator journeys
+
+`a11y.keyboard-journeys` is an assertion with its own producer (`producer:
+'journeys'`): blocking at Tier A and Tier B, not applicable at Tier C (no
+workflow acceptance is claimed there — §25, T2). A journey crosses routes, so
+it is never a sweep case: the sweep neither evaluates the rule nor faults for
+not having done so (`engine.mjs` `vacuous` skips producer rules, `resolve`
+refuses them in a case), and the journey aggregate is its evidence.
+
+`journeys.mjs` runs the six frozen journeys of plan §5.3, registered in
+`journey-registry.mjs` in the plan's order, at the workstation compositions
+(`JOURNEY_CONDITION`: 1366×768 Tier A, 1024×768 and 768×1024 Tier B) — 18
+executions — with the locale pinned (`en-GB`, the order of a `datetime-local`'s
+segments):
+
+| # | Journey (`id`) | Starts at | What the operator does, by keyboard |
+|---|---|---|---|
+| 1 | Import → Process → Status → Results (`import-process-results`) | `/import` | camera, recording date and time, the MP4 by the file chooser, Import and process; the run's status while it runs and when done; Open results |
+| 2 | Search → filter → scan → inspect → evidence → return (`search-inspect-evidence`) | `/search` | Object class Person, Search (the Filters drawer at Tier B); select a result, `j` `j` `k` `k`; the Evidence Player's `End`, `Home`, `→`; Open the review; the breadcrumb back; `Esc` — focus on the same result |
+| 3 | Vehicle search → Car refinement → inspect → Review (`vehicle-car-review`) | `/search` | Vehicle, Search; Vehicle type Car, Search (the server's `objectSubclass=car`); inspect; Open — the review of that car |
+| 4 | Configure scene → analyse → search analytic → why matched → inspect (`scene-analytic-why`) | `/cameras/{id}/scene` | Zone tool; on the frame, Shift+arrows and Space place four vertices, Enter completes; name it; Save revision; Processing → the video's detail → Re-analyse camera; Open results; Zone the new zone, Search; inspect — Scene analytics names the zone and revision 5 |
+| 5 | Cameras / Videos / Processing monitoring (`monitoring`) | `/` | the rail to Cameras (24 cameras), a row's action; Videos (24), the failed video's Retry; Processing, the failed run's detail and its Retry processing |
+| 6 | Error / retry / recovery (`error-retry-recovery`) | `/search` | Load more; the continuation fails (its own retry too); Retry load more; page two arrives, the snapshot ends — focus on its first new result |
+
+**Real keys only.** After the one direct load of the journey's start, every
+action is a key through the input pipeline (`cdp.mjs` `press`: `rawKeyDown`,
+`char`, `keyUp`) — Tab, Shift+Tab, Enter, Space, Escape, arrows, Home/End,
+`j`/`k`, the Evidence Player's grammar and the Scene Editor's. The operator
+object (`createOperator`) is all a journey is given: `press`, `type`, `tabTo`,
+`until`, `route`, `requested`, `chooseFile`, `done`. `tabTo` presses Tab (or
+Shift+Tab) up to a strict bound and matches the focused control by its
+accessible name and role from Chromium's accessibility tree (`axNames`), and,
+where names repeat, by its row's text or its labelled landmark or group
+(`within`); each stop is recorded; never reached is a failure.
+
+**The file chooser.** `chooseFile` requires focus on an `input[type=file]`,
+presses its key (Enter), waits for `Page.fileChooserOpened` from the
+interception the lane enabled, requires the chooser to belong to the focused
+node, and only then answers it with the lane's upload fixture
+(`DOM.setFileInputFiles` on that node). The boundary — the OS dialog is
+outside the product — is recorded on the step.
+
+**What is judged at every step** (`journeyFocusState`, the page guard): focus
+exists, is not the document, is rendered and in view, is not under another
+element at its middle, is inside an open modal overlay when there is one, is
+not inert; a control not itself drawn (the FileInput's transparent input) is
+shown by its own visible label, judged in its place — X1's rule. The guard
+(`JOURNEY_GUARD`, before every document) records trusted pointer, touch and
+wheel input, scripted clicks and key events, and numbers each document: a
+pointer event, a scripted event or a document after the start (a direct
+navigation) fails the step. A keyboard-activated control's trusted `click` is
+keyboard input and passes. Waits poll conditions (no fixed sleep); a bound
+passed is a failure naming the step.
+
+**The backend answers the operator.** The fixture server's scenario forms
+`{ after: 'METHOD /path', before, then }` (an answer that changes only once
+that request was received; nestable) and `{ query: [{ match, then }],
+otherwise }` (by the request's query) make each journey's backend respond to
+what the operator caused: the import exists after the operator's import,
+revision 5 after their save — whose JSON body the request log keeps and the
+journey checks (`requested(..., { body })`) — the continuation fails because
+the operator asked for it. Setup before the start replaces no operator action.
+
+**Evidence.** Each execution writes its steps — journey, step, action and key,
+focus before and after (role, name, landmark), route before and after, the
+expected and observed checkpoint, the Tab stops, pass — and its terminal
+checkpoint, key count, pointer and scripted event counts, documents after the
+start; a failure keeps the page's route, text, the request log and a capture
+(diagnostic, never qualification evidence).
+
+```bash
+node tools/web-visual-qa/journeys.mjs --workers 3
+```
+
+`--journeys a,b` and `--viewports 1366x768` select (a selection is never X2's
+evidence); `--shard i/n` runs execution k where k mod n = i;
+`--aggregate --out DIR file…` proves the shards whole: same head and plan, the
+registry's whole plan, every execution exactly once, none at Tier C, every pass
+carrying its evidence (no pointer, nothing scripted, one document, a terminal
+checkpoint), no harness error. Exit 0 all passed, 1 a journey failed, 2 a
+harness fault. CI: `keyboard journeys shard 0–2` and `keyboard journeys
+aggregate`, required by `quality`.
+
+Stated limits: the journeys run against the fixture server and the production
+build, not a live API; what the OS file chooser shows is outside the product
+and is not driven (it is intercepted and answered). The journeys prove the
+paths operators take complete by keyboard with focus valid throughout; they do
+not prove every control on every surface is keyboard-operable (the X1 rules and
+the sweep's focus checks do that per state), nor screen-reader announcements
+beyond the accessible names they match. Tier C is not run.
 
 ## What still needs a person
 
