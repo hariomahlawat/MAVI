@@ -84,9 +84,73 @@ const PEOPLE_DETAILS = Object.fromEntries(PEOPLE.map((t, i) => [
   t.id === TRACK_ONE ? 'fixture' : { ...DETAIL_ONE, id: t.id, localTrackNumber: DETAIL_ONE.localTrackNumber + i * 2 },
 ]));
 
+// --- Journey 3's backend: vehicles, two of which the server refines as cars -------
+
+const CAR_ONE = '55555551-5555-7555-8555-555555555551';
+const CAR_TWO = '55555555-5555-7555-8555-555555555555';
+const WITH_CARS = TRACKS.items.map((t) => ([CAR_ONE, CAR_TWO].includes(t.id) ? { ...t, objectSubclass: 'car' } : t));
+const VEHICLES = WITH_CARS.filter((t) => t.objectClass === 'Vehicle');
+const CARS = VEHICLES.filter((t) => t.objectSubclass === 'car');
+const page = (items) => ({ ...TRACKS, items, totalCount: items.length });
+const CAR_DETAILS = Object.fromEntries(CARS.map((t, i) => [
+  `/api/tracks/${t.id}`,
+  { ...DETAIL_ONE, id: t.id, objectClass: 'Vehicle', objectSubclass: 'car', localTrackNumber: 2 + i * 4 },
+]));
+
 // --- The six journeys --------------------------------------------------------------
 
 export const JOURNEYS = [
+  {
+    id: 'vehicle-car-review',
+    title: 'Vehicle search → Car refinement → inspect → Review',
+    start: '/search',
+    // The server's answer follows the committed filter: the refinement to cars
+    // is the server's own (`objectSubclass=car`), never a client-side filter.
+    api: {
+      '/api/tracks': {
+        query: [
+          { match: { objectClass: 'Vehicle', objectSubclass: 'car' }, then: page(CARS) },
+          { match: { objectClass: 'Vehicle' }, then: page(VEHICLES) },
+        ],
+        otherwise: page(WITH_CARS),
+      },
+      ...CAR_DETAILS,
+    },
+    ready: 'document.querySelectorAll(".result-select").length === 6',
+    async run(op) {
+      const drawerFilters = op.viewport.width <= 1100;
+      if (drawerFilters) {
+        await op.tabTo({ name: 'Filters', role: 'button' }, { note: 'the results header opens the filter drawer (§25 Tier B)' });
+        await op.press('Enter', { expectFocus: { name: 'Filters', role: 'heading' } });
+      }
+      // Vehicles.
+      await op.tabTo({ name: 'Object class', role: 'combobox' }, { max: 40 });
+      await op.type('V');
+      await op.tabTo({ name: 'Search', role: 'button' }, { max: 40, note: 'the form\'s submit' });
+      await op.press('Enter', { note: 'search for vehicles' });
+      await op.requested('the search asked for vehicles', 'GET', /^\/api\/tracks$/, { query: { objectClass: 'Vehicle' } });
+      await op.until('the results are the three vehicles', '(() => { const s = Array.from(document.querySelectorAll(".result-select")); return s.length === 3 && s.every((b) => /^Select Vehicle/.test(b.getAttribute("aria-label"))) && "3 vehicles"; })()');
+      // Refined to cars, back up the same form.
+      await op.tabTo({ name: 'Vehicle type', role: 'combobox' }, { reverse: true, max: 40 });
+      await op.type('C');
+      await op.until('Vehicle type reads Car', 'Array.from(document.querySelectorAll("select")).some((s) => s.labels?.[0]?.textContent.trim() === "Vehicle type" && s.selectedOptions[0]?.textContent.trim() === "Car") && "Car"');
+      await op.tabTo({ name: 'Search', role: 'button' }, { max: 40 });
+      await op.press('Enter', { note: 'refine to cars' });
+      await op.requested('the search asked the server for cars', 'GET', /^\/api\/tracks$/, { query: { objectClass: 'Vehicle', objectSubclass: 'car' } });
+      await op.until('the results are the two cars, named as cars', '(() => { const s = Array.from(document.querySelectorAll(".result-select")); return s.length === 2 && s.every((b) => /^Select Vehicle · Car /.test(b.getAttribute("aria-label"))) && /objectSubclass=car/.test(location.search) && "2 cars"; })()');
+      if (drawerFilters) await op.press('Escape', { expectFocus: { name: 'Filters', role: 'button' } });
+      // Inspect the first car.
+      await op.tabTo({ name: /^Select Vehicle · Car /, role: 'button' }, { max: 40 });
+      await op.press('Enter', { note: 'select it; the inspector opens' });
+      await op.route('the first car is selected', new RegExp(`[?&]track=${CAR_ONE}`));
+      await op.until('the inspector names it Vehicle · Car', '/Vehicle · Car · Track 2/i.test(document.body.innerText) && "Vehicle · Car · Track 2"');
+      // Its review.
+      await op.tabTo({ name: 'Open', role: 'link' }, { max: 30, note: 'the inspector\'s Open' });
+      await op.press('Enter');
+      await op.route('the review of that car is open', new RegExp(`^/review/video/${PROCESSED}\?.*trackId=${CAR_ONE}`));
+      await op.done('the review is of the car that was inspected', `(() => { const t = document.body.innerText; return new URLSearchParams(location.search).get("trackId") === "${CAR_ONE}" && /Track summary/.test(t) && /Vehicle · Car/i.test(t) && "Review: Vehicle · Car, track ${CAR_ONE}"; })()`);
+    },
+  },
   {
     id: 'search-inspect-evidence',
     title: 'Search → filter → scan → inspect → evidence → return',
