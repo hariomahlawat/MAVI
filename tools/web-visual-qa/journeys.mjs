@@ -170,9 +170,10 @@ export function journeyFocusState() {
   // text: row actions share names ("Detail"), the row says which.
   const rowEl = el.closest('tr, li, [role="row"], [role="listitem"]');
   const row = rowEl ? (rowEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 240) : '';
-  // The labelled landmark it sits in: two links may share a name ("Search" in
-  // the rail and in a breadcrumb), the landmark says which.
-  const landmarkEl = el.closest('nav[aria-label], aside[aria-label], section[aria-label], [role="navigation"][aria-label], [role="region"][aria-label], [role="dialog"][aria-label]');
+  // The labelled landmark or group it sits in: two controls may share a name
+  // ("Search" in the rail and in a breadcrumb; "Zone" the tool and the
+  // filter), the landmark or group says which.
+  const landmarkEl = el.closest('nav[aria-label], aside[aria-label], section[aria-label], [role="navigation"][aria-label], [role="region"][aria-label], [role="dialog"][aria-label], [role="group"][aria-label]');
   const within = landmarkEl ? landmarkEl.getAttribute('aria-label') : '';
   return {
     route, row, within, description: zoomDescribe(el) + (facedBy ? ' (shown by ' + facedBy + ')' : ''), tag: el.tagName.toLowerCase(), type: el.getAttribute('type'),
@@ -326,11 +327,14 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
       return op.until(description, `${pattern.toString()}.test(location.pathname + location.search) && (location.pathname + location.search)`);
     },
     /** The operator's action reached the backend: the request is in the server's log. */
-    async requested(description, method, pathPattern, { query } = {}) {
+    async requested(description, method, pathPattern, { query, body } = {}) {
       const started = Date.now();
       let found = null;
       while (Date.now() - started < timeout && !found) {
-        found = server.requests().find((r) => r.method === method && pathPattern.test(r.path) && (!query || Object.entries(query).every(([k, v]) => new URLSearchParams(r.search).get(k) === String(v)))) ?? null;
+        found = server.requests().find((r) => r.method === method && pathPattern.test(r.path)
+          && (!query || Object.entries(query).every(([k, v]) => new URLSearchParams(r.search).get(k) === String(v)))
+          // `body`: a predicate over the parsed JSON the application sent.
+          && (!body || (() => { try { return r.body !== undefined && body(JSON.parse(r.body)); } catch { return false; } })())) ?? null;
         if (!found) await tick(50);
       }
       const entry = { action: 'checkpoint', expect: description };

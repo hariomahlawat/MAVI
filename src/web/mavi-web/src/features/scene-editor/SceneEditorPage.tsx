@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getCamera } from '../../api/cameras';
 import { isGuid } from '../../api/client';
@@ -247,6 +247,21 @@ export default function SceneEditorPage() {
     (document.querySelector<HTMLElement>('[aria-label="Scene objects"] .scene-navigator__name')
       ?? document.querySelector<HTMLElement>('[aria-label="Drawing tools"] [aria-pressed="true"]'))?.focus();
   }, [state.draft, state.selection]);
+
+  // Completing a drawing from the frame (Enter, or Space on a line's second
+  // end) returns the tool to Select, and the frame stops being a keyboard
+  // surface under the operator's focus. The object just drawn is selected;
+  // its entry in the navigator — which names it, and from which its
+  // properties follow — takes focus, before the document can hold it (X2).
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    // Stranded: on the document (where Chromium puts it), or still on a frame
+    // that is no longer focusable (where some engines leave it).
+    const stranded = !active || active === document.body || !active.isConnected
+      || active.matches('.scene-stage__surface:not([tabindex])');
+    if (!stranded || state.selection.kind === 'none') return;
+    document.querySelector<HTMLElement>(`[aria-label="Scene objects"] [data-object-key="${CSS.escape(state.selection.key)}"] .scene-navigator__name`)?.focus();
+  }, [state.selection]);
 
   const issues = useMemo(() => (readOnly ? [] : validateDraft(state.draft)), [readOnly, state.draft]);
   const issuesForKey = useMemo(() => issuesByKey(issues), [issues]);

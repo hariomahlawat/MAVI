@@ -108,9 +108,132 @@ const RUNNING_RUN = { videoStatus: 'Processing', latestRun: { ...COMPLETED_RUN.l
 const DONE_RUN = { ...COMPLETED_RUN, latestRun: { ...COMPLETED_RUN.latestRun, processingRunId: NEW_RUN } };
 const IMPORTED_TRACKS = { ...TRACKS, items: TRACKS.items.map((t) => ({ ...t, videoAssetId: IMPORTED, videoContentUrl: `/api/videos/${IMPORTED}/content` })) };
 
+// --- Journey 4's backend: a scene revision, its analysis, its analytic results ----
+
+const SCENE = fixture(`cameras_${CAM}_scene`);
+const REV4 = SCENE.activeRevision;
+const REV5_ID = '66666666-6666-7666-8666-666666666667';
+const WEIGHBRIDGE = 'abababab-abab-7bab-8bab-abababababab';
+/** Where the operator's keys place the zone: from the frame's centre, Shift+arrows (0.1). */
+const WEIGHBRIDGE_VERTICES = [{ x: 0.7, y: 0.5 }, { x: 0.8, y: 0.5 }, { x: 0.8, y: 0.6 }, { x: 0.7, y: 0.6 }];
+const REV5 = {
+  ...REV4, revisionId: REV5_ID, revisionNumber: 5, createdAtUtc: '2026-10-11T06:00:00Z', note: null,
+  zones: [...REV4.zones, { zoneId: WEIGHBRIDGE, name: 'Weighbridge', kind: 'General', enabled: true, loiteringThresholdSeconds: null, vertices: WEIGHBRIDGE_VERTICES }],
+};
+const SCENE5 = {
+  ...SCENE, activeRevision: REV5,
+  history: [{ revisionId: REV5_ID, revisionNumber: 5, createdAtUtc: REV5.createdAtUtc, createdBy: 'operator', note: null, analyticsEnabled: true, zoneCount: REV5.zones.length, tripLineCount: REV5.tripLines.length }, ...SCENE.history],
+};
+const SAVE = `PUT /api/cameras/${CAM}/scene`;
+const ANALYSE = `POST /api/cameras/${CAM}/scene/analyses`;
+const RUN = COMPLETED_RUN.latestRun.processingRunId;
+const RUN_ANALYTICS = fixture(`processing_runs_${RUN}_analytics`);
+const runWith = (readiness) => ({ ...COMPLETED_RUN, latestRun: { ...COMPLETED_RUN.latestRun, analyticsReadiness: readiness } });
+const analysis = (status, extra = {}) => ({ ...RUN_ANALYTICS.analyses[0], analysisId: 'aaaaaaa5-aaaa-7aaa-8aaa-aaaaaaaaaaa5', sceneRevisionId: REV5_ID, sceneRevisionNumber: 5, status, ...extra });
+const RUN_STALE = { ...RUN_ANALYTICS, readiness: 'Stale', activeSceneRevisionId: REV5_ID, analyses: [{ ...RUN_ANALYTICS.analyses[0], status: 'Superseded' }] };
+const RUN_PENDING = { ...RUN_ANALYTICS, readiness: 'Pending', activeSceneRevisionId: REV5_ID, analyses: [analysis('Running', { completedAtUtc: null })] };
+const RUN_READY = { ...RUN_ANALYTICS, readiness: 'Ready', activeSceneRevisionId: REV5_ID, analyses: [analysis('Completed', { completedAtUtc: '2026-10-11T06:01:00Z' })] };
+const COVERAGE5 = { sceneRevisionId: REV5_ID, algorithmVersion: 'scene-analytics-v1', evaluatedRuns: 1, pendingRuns: 0, failedRuns: 0, notConfiguredRuns: 0, disabledRuns: 0, staleRuns: 0, analysedTracks: 6, unavailableTracks: 0, complete: true };
+const IN_WEIGHBRIDGE = {
+  ...TRACKS, totalCount: 1, nextCursor: null, analyticsCoverage: COVERAGE5,
+  items: [{ ...TRACKS.items[0], analytics: { sceneRevisionId: REV5_ID, algorithmVersion: 'scene-analytics-v1', zones: [{ zoneId: WEIGHBRIDGE, visitCount: 1, totalDwellMs: 1800, loitering: false }], lines: [], motion: null } }],
+};
+const ANALYTICS_ONE = DETAIL_ONE.analytics;
+const DETAIL_IN_WEIGHBRIDGE = {
+  ...DETAIL_ONE,
+  analytics: {
+    ...ANALYTICS_ONE, sceneRevisionId: REV5_ID, sceneRevisionNumber: 5,
+    zoneSummaries: [{ ...ANALYTICS_ONE.zoneSummaries[0], zoneId: WEIGHBRIDGE, totalDwellMs: 1800, loiteringThresholdSeconds: null }],
+    zoneVisits: [{ ...ANALYTICS_ONE.zoneVisits[0], zoneId: WEIGHBRIDGE, dwellMs: 1800, exitOffsetMs: 2400 }],
+    lineCrossings: [],
+  },
+};
+
 // --- The six journeys --------------------------------------------------------------
 
 export const JOURNEYS = [
+  {
+    id: 'scene-analytic-why',
+    title: 'Configure scene → analyse → search analytic → why matched → inspect',
+    start: `/cameras/${CAM}/scene`,
+    // Revision 5 exists only once the operator's save reached the backend;
+    // the camera's runs go stale with it, and are analysed only once the
+    // operator asks; the analytic answer is the request their filter caused.
+    api: {
+      [SAVE]: REV5,
+      [ANALYSE]: { cameraId: CAM, sceneRevisionId: REV5_ID, algorithmVersion: 'scene-analytics-v1', scope: 'latestRuns', created: 1, alreadyQueued: 0, alreadyRunning: 0, alreadyReady: 0, failedRequiresRetry: 0, alreadySuperseded: 0, runsInScope: 1 },
+      [`/api/cameras/${CAM}/scene`]: { after: SAVE, before: 'fixture', then: SCENE5 },
+      [`/api/cameras/${CAM}/scene/revisions/4`]: 'fixture',
+      [`/api/cameras/${CAM}/scene/revisions/5`]: { after: SAVE, before: { status: 404, body: {} }, then: REV5 },
+      [`/api/videos/${PROCESSED}/processing`]: { after: SAVE, before: 'fixture', then: { after: ANALYSE, before: runWith('Stale'), then: { sequence: [runWith('Pending'), runWith('Ready')] } } },
+      [`/api/processing/runs/${RUN}/analytics`]: { after: SAVE, before: 'fixture', then: { after: ANALYSE, before: RUN_STALE, then: { sequence: [RUN_PENDING, RUN_READY] } } },
+      '/api/tracks': { query: [{ match: { zoneId: WEIGHBRIDGE }, then: IN_WEIGHBRIDGE }], otherwise: TRACKS },
+      [`/api/tracks/${TRACK_ONE}`]: { after: ANALYSE, before: 'fixture', then: DETAIL_IN_WEIGHBRIDGE },
+    },
+    ready: 'Boolean(document.querySelector("[data-testid=scene-canvas]")) && /Loading bay/.test(document.body.innerText) && Array.from(document.querySelectorAll("button")).some((b) => b.textContent.trim() === "Zone")',
+    async run(op) {
+      // Configure: a new zone, drawn and named from the keyboard.
+      await op.tabTo({ name: 'Zone', within: 'Drawing tools' }, { max: 60, note: 'the drawing tools\' Zone' });
+      await op.press('Enter', { note: 'arm the Zone tool' });
+      await op.tabTo({ name: /^Scene frame, drawing a zone/, role: 'group' }, { max: 20, note: 'the frame, a keyboard surface with a tool armed' });
+      await op.press('ArrowRight', { shift: true });
+      await op.press('ArrowRight', { shift: true });
+      await op.press(' ', { note: 'vertex 1 at (0.7, 0.5)' });
+      await op.press('ArrowRight', { shift: true });
+      await op.press(' ', { note: 'vertex 2 at (0.8, 0.5)' });
+      await op.press('ArrowDown', { shift: true });
+      await op.press(' ', { note: 'vertex 3 at (0.8, 0.6)' });
+      await op.press('ArrowLeft', { shift: true });
+      await op.press(' ', { note: 'vertex 4 at (0.7, 0.6)' });
+      await op.press('Enter', { note: 'complete the zone' });
+      await op.until('the zone is drawn where the keys put it, and selected', '(() => { const z = Array.from(document.querySelectorAll("[data-testid^=scene-zone-]")).find((g) => g.getAttribute("data-points") === "0.700000,0.500000 0.800000,0.500000 0.800000,0.600000 0.700000,0.600000"); return z && z.classList.contains("is-selected") && "zone at (0.7,0.5)-(0.8,0.6), selected"; })()');
+      await op.tabTo({ name: 'Name', role: 'textbox' }, { max: 40, note: 'the zone\'s name' });
+      for (let i = 0; i < 12; i += 1) await op.press('End');
+      for (let i = 0; i < 12; i += 1) await op.press('Backspace');
+      await op.type('Weighbridge');
+      await op.until('the zone is named Weighbridge', '/Weighbridge/.test(document.body.innerText) && "Weighbridge"');
+      await op.tabTo({ name: 'Save revision', role: 'button' }, { reverse: true, max: 60, note: 'the Context Bar\'s save' });
+      await op.press('Enter', { note: 'save the revision' });
+      await op.requested('the save carried the operator\'s zone, as drawn and named', 'PUT', new RegExp(`^/api/cameras/${CAM}/scene$`), {
+        body: (b) => b.expectedRevisionNumber === 4 && b.zones.some((z) => z.name === 'Weighbridge' && !z.zoneId && JSON.stringify(z.vertices) === JSON.stringify(WEIGHBRIDGE_VERTICES)),
+      });
+      await op.until('revision 5 is the saved revision', '/Revision 5/.test(document.body.innerText) && /Saved/.test(document.body.innerText) && "Revision 5 · Saved"');
+      // Analyse: the camera's processed video, re-analysed under revision 5.
+      await op.tabTo({ name: 'Processing', role: 'link' }, { reverse: true, max: 80, note: 'the rail\'s Processing' });
+      await op.press('Enter');
+      await op.route('Processing is open', /^\/processing$/);
+      await op.tabTo({ name: 'Processing detail for north-gate-0800.mp4', role: 'link' }, { max: 80, note: 'the processed video\'s detail' });
+      await op.press('Enter');
+      await op.route('its detail is open', new RegExp(`^/processing/${PROCESSED}$`));
+      await op.until('its analytics are stale under the new revision', '/Stale/.test(document.body.innerText) && Array.from(document.querySelectorAll("button")).some((b) => b.textContent.trim() === "Re-analyse camera") && "Stale · Re-analyse camera offered"');
+      await op.tabTo({ name: 'Re-analyse camera', role: 'button' }, { max: 40 });
+      await op.press('Enter', { note: 're-analyse the camera' });
+      await op.requested('the re-analysis was requested', 'POST', new RegExp(`^/api/cameras/${CAM}/scene/analyses$`));
+      await op.until('the analysis ran under revision 5', '(() => { const t = document.body.innerText; return /Re-analysis requested/.test(t) && /Revision 5/.test(t) && !/Stale/.test(t) && "analysed with revision 5"; })()');
+      // Search on the analytic: the new zone.
+      await op.tabTo({ name: 'Open results', role: 'link' }, { reverse: true, max: 60 });
+      await op.press('Enter');
+      await op.route('Search opens on the video', new RegExp(`^/search\\?videoAssetId=${PROCESSED}`));
+      await op.until('the zone filter offers the new zone', 'Array.from(document.querySelectorAll("select option")).some((o) => o.textContent.trim() === "Weighbridge" && !o.closest("select").disabled) && "Weighbridge offered"');
+      const drawerFilters = op.viewport.width <= 1100;
+      if (drawerFilters) {
+        await op.tabTo({ name: 'Filters', role: 'button' }, { max: 40 });
+        await op.press('Enter', { expectFocus: { name: 'Filters', role: 'heading' } });
+      }
+      await op.tabTo({ name: 'Zone', role: 'combobox' }, { max: 40 });
+      await op.type('W');
+      await op.tabTo({ name: 'Search', role: 'button' }, { max: 40 });
+      await op.press('Enter', { note: 'search on the zone' });
+      await op.requested('the search asked for Tracks in the new zone', 'GET', /^\/api\/tracks$/, { query: { zoneId: WEIGHBRIDGE } });
+      await op.until('one Track matched', 'document.querySelectorAll(".result-select").length === 1 && "1 match"');
+      if (drawerFilters) await op.press('Escape', { expectFocus: { name: 'Filters', role: 'button' } });
+      // Why it matched, in the inspector.
+      await op.tabTo({ name: /^Select Person · CAM-01/, role: 'button' }, { max: 40 });
+      await op.press('Enter', { note: 'inspect the match' });
+      await op.route('the match is selected', new RegExp(`[?&]track=${TRACK_ONE}`));
+      await op.done('the inspector says why it matched: Weighbridge, under revision 5', '(() => { const s = Array.from(document.querySelectorAll("section, [role=region]")).find((e) => /^Scene analytics/i.test((e.querySelector("h2, h3")?.textContent ?? "").trim())); const t = s ? s.innerText : ""; return /Weighbridge/.test(t) && /revision 5/i.test(t) && "Scene analytics: Weighbridge, revision 5"; })()');
+    },
+  },
   {
     id: 'import-process-results',
     title: 'Import → Process → Status → Results',

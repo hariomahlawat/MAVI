@@ -93,7 +93,15 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
 
     if (path.startsWith('/api/')) {
       const overrides = scenario();
-      requests.push({ method: req.method, path, search: url.search });
+      const logged = { method: req.method, path, search: url.search };
+      requests.push(logged);
+      // A mutation's JSON body is kept (bounded), so a journey can show the
+      // operator's own work reached the backend — the zone they drew, named.
+      if (req.method !== 'GET' && /json/.test(req.headers['content-type'] ?? '')) {
+        let body = '';
+        req.on('data', (chunk) => { if (body.length < 65536) body += chunk; });
+        req.on('end', () => { logged.body = body; });
+      }
       received.add(`${req.method} ${path}`);
       // An exact override wins over a prefix one, and the longest prefix wins
       // over a shorter one. Declaration order used to decide it, so overriding
@@ -129,9 +137,10 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
       // operator caused, not the order requests happen to arrive in.
       // Either may hold any of the forms below, a sequence included, counted
       // per branch.
-      if (value !== null && typeof value === 'object' && typeof value.after === 'string') {
+      // An `after` may hold another (save, then re-analyse): resolved in turn.
+      while (value !== null && typeof value === 'object' && typeof value.after === 'string') {
         const flipped = received.has(value.after);
-        counter = `${match}#${flipped ? 'then' : 'before'}`;
+        counter = `${counter}#${flipped ? 'then' : 'before'}`;
         value = flipped ? value.then : value.before;
       }
       if (value !== null && typeof value === 'object' && Array.isArray(value.query)) {
