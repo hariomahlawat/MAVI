@@ -122,6 +122,29 @@ export function useStatusReport(
   return routed;
 }
 
+/**
+ * A polite region's text, one rendering frame after it is rendered: empty on
+ * the frame a readout mounts (an insertion to the accessibility tree says
+ * nothing), its value from the next (a change in a region that is there).
+ * For a region that is not a StatusSlot presentation — the inspector's
+ * "n / total" position.
+ */
+export function useSaidLater(text: string): string {
+  const [said, setSaid] = useState('');
+  useEffect(() => {
+    let handle: number | undefined;
+    const raf = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame.bind(window)
+      : (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 16);
+    const frame = raf(() => { handle = window.setTimeout(() => setSaid(text), 0); });
+    return () => {
+      if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(frame); else window.clearTimeout(frame);
+      if (handle !== undefined) window.clearTimeout(handle);
+    };
+  }, [text]);
+  return said;
+}
+
 function Announcer({ store }: { store: SlotStore }) {
   const text = useSyncExternalStore(store.subscribe, () => store.current?.text ?? '');
   return <span className="visually-hidden status-slot__announcer" role="status">{text}</span>;

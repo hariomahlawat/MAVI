@@ -847,9 +847,10 @@
    selects it (section 23): a trip line's two endpoints inline, a zone's
    vertices one disclosure away so the navigator stays the size of the scene. */
 .scene-navigator__endpoints {
-  display: block; padding: 0 var(--s-2) var(--s-1); color: var(--text-muted);
-  font: var(--fs-0)/1.5 var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: block; min-width: 0; padding: 0 var(--s-2) var(--s-1); color: var(--text-muted);
+  font: var(--fs-0)/1.5 var(--font-mono); overflow-wrap: anywhere;
 }
+.scene-navigator__item { min-width: 0; }
 .scene-navigator__coordinates { padding: 0 var(--s-2); color: var(--text-muted); font-size: var(--fs-0); }
 .scene-navigator__coordinates summary { cursor: pointer; min-height: var(--control-min-target); line-height: var(--control-min-target); }
 .scene-navigator__points { display: grid; gap: var(--s-px); padding: 0 0 var(--s-1) var(--s-3); list-style: none; font-family: var(--font-mono); line-height: 1.5; }

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
+import { useSaidLater } from '../../shared/components/StatusSlot';
 import { ApiError } from '../../api/client';
 import { getTrack, objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
@@ -88,6 +89,8 @@ export default function TrackInspector({
   );
 
   const title = detail ? `${objectClassLabel(detail)} · Track ${detail.localTrackNumber}` : summary ? objectClassLabel(summary) : 'Track';
+  const positionText = position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total;
+  const positionSaid = useSaidLater(positionText);
   const canPrevious = position > 0;
   const canNext = position >= 0 && (position < total - 1 || hasMore);
 
@@ -102,7 +105,11 @@ export default function TrackInspector({
       actions={(
         <div className="track-inspector__nav">
           <Tooltip content="Previous result · k or ↑"><Button size="sm" iconOnly icon="chevronLeft" onClick={onPrevious} disabled={!canPrevious}>Previous result</Button></Tooltip>
-          <span className="track-inspector__pos" aria-live="polite">{position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total}</span>
+          {/* The readout is drawn at once; what is announced is a polite region
+              mounted empty and said one frame later (§23), so the inspector
+              opening does not insert a populated region. */}
+          <span className="track-inspector__pos" aria-hidden="true">{positionText}</span>
+          <span className="visually-hidden status-slot__announcer" aria-live="polite">{positionSaid}</span>
           <Tooltip content="Next result · j or ↓"><Button size="sm" iconOnly icon="chevronRight" onClick={onNext} disabled={!canNext}>Next result</Button></Tooltip>
           {detail ? (
             <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext, analyticsIdentity)} icon="external" title="Open (Enter)">

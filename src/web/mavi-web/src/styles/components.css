@@ -133,6 +133,12 @@
 }
 .alert > .icon { flex: 0 0 auto; margin-top: var(--s-hair); }
 .alert__body { flex: 1; min-width: 0; }
+/* A StatusSlot's announcer (visually hidden, absolutely positioned) sits at
+   its containing block's origin: left at its static position it is a 1px box
+   wherever its presentation is — below the fold, scrollable overflow that
+   made a Ledger page scroll at 200% zoom. Where it is drawn is nothing to a
+   screen reader, which reads it at its place in the document. */
+.status-slot__announcer { top: 0; left: 0; }
 /* A failure code is one unbreakable token; under WCAG 1.4.12 text spacing at 390px it must wrap rather than widen the column. */
 .alert__body code { overflow-wrap: anywhere; }
 .alert--info { border-color: var(--status-info-border); background: var(--status-info-soft); }
