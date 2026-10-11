@@ -77,6 +77,11 @@ export type TrackAnalyticsEvidenceModel = {
   markers: EvidenceTimelineMarker[];
   matchedZoneIds: ReadonlySet<string>;
   matchedLineIds: ReadonlySet<string>;
+  /**
+   * The pinned revision is still loading: no outline is drawn yet, and that is
+   * said as loading — not as a revision with no geometry or one that failed.
+   */
+  geometryLoading?: boolean;
 };
 
 export const EMPTY_ANALYTICS_EVIDENCE: TrackAnalyticsEvidenceModel = {
@@ -320,6 +325,7 @@ export function hasOverlappingStationary(intervals: readonly EvidenceTimelineInt
 export function buildAnalyticsEvidence(
   analytics: TrackDetailAnalytics | undefined,
   revision: SceneRevision | undefined,
+  geometryLoading = false,
 ): TrackAnalyticsEvidenceModel {
   if (!analytics) return EMPTY_ANALYTICS_EVIDENCE;
 
@@ -402,5 +408,5 @@ export function buildAnalyticsEvidence(
     ...analytics.lineCrossings.map((crossing) => crossingMarker(crossing, names)),
   ];
 
-  return { zones, lines, crossings, intervals, markers, matchedZoneIds: zoneIds, matchedLineIds: lineIds };
+  return { zones, lines, crossings, intervals, markers, matchedZoneIds: zoneIds, matchedLineIds: lineIds, geometryLoading: geometryLoading && !revision };
 }

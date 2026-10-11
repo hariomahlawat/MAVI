@@ -84,7 +84,7 @@ export default function TrackInspector({
   // able to draw different geometry for one Track under one identity.
   const scene = useAnalyticsScene(detail?.camera.id, detail?.analytics);
   const analyticsEvidence = useMemo(
-    () => buildAnalyticsEvidence(detail?.analytics, pinnedRevision(scene)),
+    () => buildAnalyticsEvidence(detail?.analytics, pinnedRevision(scene), scene?.status === 'loading'),
     [detail?.analytics, scene],
   );
 

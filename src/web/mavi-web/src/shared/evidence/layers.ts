@@ -44,6 +44,12 @@ type EvidenceLayerBase = {
   available: boolean;
   /** Why the layer is unavailable, in operator wording. Shown next to the control. */
   unavailableReason?: string;
+  /**
+   * The reason is transient (its data is loading) and stated visibly where the
+   * load is said: it stays bound to the control for assistive technology but
+   * takes no room in the row, so the row keeps the geometry it will have (X3).
+   */
+  unavailableReasonQuiet?: boolean;
   /** Whether the layer starts visible when the operator has expressed no preference. */
   defaultVisible?: boolean;
   /** Draw into the stage. `frame` is the true video content rectangle. */

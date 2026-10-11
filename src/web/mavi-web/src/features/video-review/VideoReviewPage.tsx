@@ -150,7 +150,7 @@ export default function VideoReviewPage() {
   const usable = detail && !identityMismatch ? detail : undefined;
   const scene = useAnalyticsScene(usable?.camera.id, usable?.analytics);
   const analyticsEvidence = useMemo(
-    () => buildAnalyticsEvidence(usable?.analytics, pinnedRevision(scene)),
+    () => buildAnalyticsEvidence(usable?.analytics, pinnedRevision(scene), scene?.status === 'loading'),
     [usable?.analytics, scene],
   );
 

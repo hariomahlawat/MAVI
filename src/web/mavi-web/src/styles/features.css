@@ -711,6 +711,10 @@
    move when a past revision opens (§38; X3). */
 .scene-toolbar__readonly {
   display: flex; align-items: center; min-height: calc(var(--control-h) + 2 * var(--stroke-hair));
+  /* It takes the row's remaining width and wraps there, never pushing the
+     band's actions to a row of their own: two lines fit the height it holds,
+     so two reasons (a past revision, an inactive camera) move nothing (X3). */
+  flex: 100 1 0; min-width: 0; line-height: 1.3;
   color: var(--status-warn); font-size: var(--fs-1);
 }
 

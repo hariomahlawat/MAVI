@@ -427,7 +427,7 @@ export default function EvidencePlayer({
                 {layer.label}
               </ToggleChip>
               {showReason ? (
-                <span className="evidence-layers__reason" id={reasonId}>{layer.unavailableReason}</span>
+                <span className={layer.unavailableReasonQuiet ? 'visually-hidden' : 'evidence-layers__reason'} id={reasonId}>{layer.unavailableReason}</span>
               ) : null}
               {layer.available ? (
                 // Visually hidden because the geometry is already on the frame

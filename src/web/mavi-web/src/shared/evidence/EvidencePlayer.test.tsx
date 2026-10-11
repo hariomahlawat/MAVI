@@ -379,6 +379,17 @@ describe('Evidence Player layers', () => {
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 
+  it('binds a transient reason without taking room in the row: the row keeps the geometry it will have (§12, §38; X3)', () => {
+    const quiet = layers.map((layer) => (layer.id === 'path'
+      ? { ...layer, unavailableReason: 'The pinned scene revision is loading.', unavailableReasonQuiet: true }
+      : layer));
+    renderPlayer({ layers: quiet });
+    const reason = descriptionOf('Trajectory').find((element) => element.textContent === 'The pinned scene revision is loading.');
+    expect(reason).toBeDefined();
+    expect(reason).toHaveClass('visually-hidden');
+    expect(reason).not.toHaveClass('evidence-layers__reason');
+  });
+
   it('toggles a layer, marks the control pressed and remembers the choice', async () => {
     const user = userEvent.setup();
     const view = renderPlayer({ layers });

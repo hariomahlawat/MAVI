@@ -54,7 +54,11 @@ function zoneLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
     id: 'analytics-zones',
     label: 'Zones',
     available: model.zones.length > 0,
-    unavailableReason: 'The pinned scene revision has no zones, or could not be loaded.',
+    // While the revision loads its reason is that, bound to the control and
+    // said visibly in the analytics identity ("geometry loading"); the row
+    // keeps its geometry, so nothing below moves when the outlines arrive (X3).
+    unavailableReason: model.geometryLoading ? 'The pinned scene revision is loading.' : 'The pinned scene revision has no zones, or could not be loaded.',
+    unavailableReasonQuiet: model.geometryLoading,
     render: perFrameRect((frame) => (
       <>
         {model.zones.map((entry) => {
@@ -90,7 +94,8 @@ function lineLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
     id: 'analytics-lines',
     label: 'Trip lines',
     available: model.lines.length > 0,
-    unavailableReason: 'The pinned scene revision has no trip lines, or could not be loaded.',
+    unavailableReason: model.geometryLoading ? 'The pinned scene revision is loading.' : 'The pinned scene revision has no trip lines, or could not be loaded.',
+    unavailableReasonQuiet: model.geometryLoading,
     render: perFrameRect((frame) => (
       <>
         {model.lines.map((entry) => {
