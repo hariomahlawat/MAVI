@@ -822,6 +822,29 @@ describe('scene editor', () => {
       expect(objectButton('Line 1')).not.toHaveFocus();
     });
 
+    it('announces only a placement the editor accepted, never one it refused', async () => {
+      const user = userEvent.setup();
+      vi.mocked(getCameraScene).mockResolvedValue(unconfigured());
+      render();
+      await screen.findByText('No scene configured');
+
+      toolButton('Trip line').focus();
+      await user.keyboard('{Enter}');
+      await tabTo(user, screen.getByRole('group', { name: /^Scene frame, drawing a trip line/ }));
+      await user.keyboard(' ');
+      const placed = screen.getByTestId('scene-canvas-placed');
+      await waitFor(() => expect(placed).toHaveTextContent('Line end A placed at 0.500000, 0.500000.'));
+      // The second end on the first: too close to have a direction, refused.
+      await user.keyboard(' ');
+      expect(await screen.findByText(/must be further apart/)).toBeInTheDocument();
+      expect(placed).toHaveTextContent('Line end A placed at 0.500000, 0.500000.');
+      expect(placed).not.toHaveTextContent('Line end B');
+      expect(screen.queryByRole('button', { name: /^Line 1/ })).not.toBeInTheDocument();
+      // Moved away, it is accepted, and only then said.
+      await user.keyboard('{Shift>}{ArrowRight}{ArrowRight}{/Shift} ');
+      await waitFor(() => expect(placed).toHaveTextContent('Line end B placed at 0.700000, 0.500000.'));
+    });
+
     it('is not a keyboard surface without a drawing tool armed', async () => {
       render();
       await screen.findByRole('button', { name: /^Gate/ });

@@ -722,6 +722,8 @@ jobs:
           path: |
             tools/web-visual-qa/.journeys/journeys.json
             tools/web-visual-qa/.journeys/*.png
+          # .journeys is a dot directory: upload-artifact skips it otherwise.
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: error
 
@@ -771,6 +773,7 @@ jobs:
         with:
           name: keyboard-journeys
           path: tools/web-visual-qa/.journeys/journeys.json
+          include-hidden-files: true
           retention-days: 14
           if-no-files-found: warn
 

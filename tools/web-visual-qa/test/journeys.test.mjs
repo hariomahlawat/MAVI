@@ -338,6 +338,17 @@ describe('the keyboard-journey runner', { timeout: 300_000 }, () => {
     assert.doesNotMatch(result.snapshot.text, /Saved/);
   });
 
+  it('keeps an error of the runner or the registry apart, as a harness fault, not a journey finding', async () => {
+    const result = await run({
+      id: 'broken', title: 'broken', start: '/plain', ready: 'Boolean(document.querySelector("button"))',
+      async run(op) { await op.tabTo({ name: 'Alpha', role: 'button' }); undefinedHelper(); },
+    });
+    assert.equal(result.passed, false);
+    assert.match(result.harnessError, /ReferenceError: undefinedHelper is not defined/);
+    const agg = journeyAggregate([{ file: 'a', head: 'h', planned: [result.key], executions: [result], harnessErrors: [] }]);
+    assert.ok(agg.faults.some((f) => /broken@1366x768 ended on a harness error, not a journey finding/.test(f)));
+  });
+
   it('fails a journey that ends without its terminal checkpoint', async () => {
     const result = await run({
       id: 'unfinished', title: 'unfinished', start: '/plain', ready: 'Boolean(document.querySelector("button"))',

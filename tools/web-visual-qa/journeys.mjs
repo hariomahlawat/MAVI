@@ -103,6 +103,7 @@ export function journeyAggregate(shards) {
     if (n > 1) faults.push(`a11y.keyboard-journeys: ${key} ran ${n} times`);
   }
   for (const key of seen.keys()) if (!first.planned.includes(key)) faults.push(`a11y.keyboard-journeys: ${key} ran but was not planned`);
+  for (const e of executions) if (e.harnessError) faults.push(`a11y.keyboard-journeys: ${e.key} ended on a harness error, not a journey finding: ${String(e.harnessError).split('\n')[0]}`);
   for (const e of executions) if (e.tier === 'C') faults.push(`a11y.keyboard-journeys: ${e.key} ran at Tier C, where no workflow acceptance is claimed`);
   // A pass is its evidence: keys alone (no pointer, nothing scripted), one
   // document from the start, and the terminal checkpoint reached.
@@ -554,12 +555,16 @@ export async function runJourney(lane, item, { record, outDir } = {}) {
   const documentIndex = await browser.evaluate('window.__vqaJourneyGuard ? window.__vqaJourneyGuard.document : null');
   const { op, steps, terminal } = createOperator({ browser, server, record, journeyId: journey.id, viewport, documentIndex, uploads: lane.uploads });
   let failure = null;
+  let harnessError = null;
   try {
     await op.until(`the start, ${journey.start}, has rendered`, journey.ready ?? 'Boolean(document.querySelector("main"))', { judgeFocus: false });
     await journey.run(op, { viewport });
     if (!terminal()) throw new JourneyFailure(`${journey.id} @ ${viewport.label}: the journey ended without its terminal checkpoint`);
   } catch (error) {
     failure = error instanceof JourneyFailure ? error.message : `${journey.id} @ ${viewport.label}: harness error: ${String(error.stack || error)}`;
+    // A CDP call, the runner or a registry entry that throws is not a
+    // keyboard finding: it is kept apart as a harness fault (exit 2).
+    if (!(error instanceof JourneyFailure)) harnessError = String(error.stack || error);
   }
   // A failed journey keeps what the operator was looking at: the page's text
   // and a capture (diagnostic artefacts, never committed — §26).
@@ -577,7 +582,7 @@ export async function runJourney(lane, item, { record, outDir } = {}) {
     // Every execution is the evidence of one rule (§23, plan §5.3).
     rule: 'a11y.keyboard-journeys',
     key: item.key, journey: journey.id, title: journey.title, viewport: viewport.label, tier: viewport.tier,
-    passed: !failure && Boolean(terminal()), failure, terminal: terminal(),
+    passed: !failure && Boolean(terminal()), failure, harnessError, terminal: terminal(),
     steps, keyPresses: steps.reduce((n, s) => n + (s.action === 'tab-to' ? s.stops.length : s.presses ?? (s.action === 'type' ? JSON.parse(s.key).length : s.action === 'checkpoint' ? 0 : 1)), 0),
     pointerEvents: guard.pointer ?? null, syntheticEvents: guard.synthetic ?? null, documentLoadsAfterStart: guard.document != null && documentIndex != null ? guard.document - documentIndex : null,
     pageProblems: browser.problems(), durationMs: Date.now() - startedAt, snapshot,
@@ -642,6 +647,7 @@ async function main() {
     for (const lane of lanes) { await lane.browser.close().catch(() => {}); await lane.server.close().catch(() => {}); }
   }
   executions.sort((a, b) => a.key.localeCompare(b.key));
+  for (const e of executions) if (e.harnessError) harnessErrors.push(`${e.key}: ${e.harnessError.split('\n')[0]}`);
   const result = { head: gitHead(), registry: registryHash(registryFile), shard, planned: plan.map((p) => p.key), selected: selected.map((p) => p.key), executions, harnessErrors };
   writeFileSync(join(OUT, 'journeys.json'), JSON.stringify(result, null, 2));
   const faults = [...harnessErrors];

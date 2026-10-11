@@ -92,6 +92,20 @@ export default function SceneCanvas({
   const [cursor, setCursor] = useState<ScenePoint>({ x: 0.5, y: 0.5 });
   const [keyboardDrawing, setKeyboardDrawing] = useState(false);
   const [placed, setPlaced] = useState('');
+  // A Space placement waits for the editor's answer: announced once the
+  // drawing shows it was accepted, never for a point the editor refused (a
+  // line's ends too close, a zone at its vertex limit).
+  const pendingPlacement = useRef<{ message: string; kind: Drawing['kind']; vertices: number; lines: number } | null>(null);
+  useEffect(() => {
+    const pending = pendingPlacement.current;
+    if (!pending) return;
+    const accepted = pending.kind === 'zone' || (tool === 'zone' && pending.kind === 'none')
+      ? drawing.kind === 'zone' && drawing.vertices.length === pending.vertices + 1
+      : pending.kind === 'none' ? drawing.kind === 'line' : draft.tripLines.length === pending.lines + 1;
+    if (!accepted) return;
+    pendingPlacement.current = null;
+    setPlaced(pending.message);
+  }, [drawing, draft.tripLines.length, tool]);
   const drawable = !readOnly && tool !== 'select';
 
   // Overlay geometry follows the rendered surface, which the video fills exactly.
@@ -265,11 +279,14 @@ export default function SceneCanvas({
         ? `Vertex ${drawing.kind === 'zone' ? drawing.vertices.length + 1 : 1}`
         : drawing.kind === 'line' ? 'Line end B' : 'Line end A';
       setKeyboardDrawing(true);
+      pendingPlacement.current = {
+        message: `${label} placed at ${formatCoordinate(cursor.x)}, ${formatCoordinate(cursor.y)}.`,
+        kind: drawing.kind, vertices: drawing.kind === 'zone' ? drawing.vertices.length : 0, lines: draft.tripLines.length,
+      };
       onFrameClick?.(cursor, { keyboard: true });
       setPointer(cursor);
-      setPlaced(`${label} placed at ${formatCoordinate(cursor.x)}, ${formatCoordinate(cursor.y)}.`);
     }
-  }, [drawable, cursor, drawing, tool, onFrameClick]);
+  }, [drawable, cursor, drawing, draft.tripLines.length, tool, onFrameClick]);
 
   return (
     <div
@@ -365,7 +382,10 @@ export default function SceneCanvas({
         </svg>
       ) : null}
 
-      {drawable ? <span className="visually-hidden" aria-live="polite" data-testid="scene-canvas-placed">{placed}</span> : null}
+      {/* Mounted while the scene is editable, not only while a tool is armed:
+          the placement that completes a line returns the tool to Select, and
+          its announcement must outlive that. */}
+      {!readOnly ? <span className="visually-hidden" aria-live="polite" data-testid="scene-canvas-placed">{placed}</span> : null}
 
       {overlay}
     </div>
