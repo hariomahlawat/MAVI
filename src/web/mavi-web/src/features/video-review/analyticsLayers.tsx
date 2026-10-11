@@ -190,7 +190,10 @@ function crossingLayer(model: TrackAnalyticsEvidenceModel): EvidenceLayer {
     id: 'analytics-crossings',
     label: 'Crossings',
     available: model.crossings.length > 0,
-    unavailableReason: 'This Track has no persisted line crossing.',
+    // Its crossings are placed on the revision's lines: while that revision
+    // loads, the reason is the load, quiet in the row (as zones and lines).
+    unavailableReason: model.geometryLoading ? 'The pinned scene revision is loading.' : 'This Track has no persisted line crossing.',
+    unavailableReasonQuiet: model.geometryLoading,
     render: perFrameRect((frame) => (
       <>
         {model.crossings.map((crossing) => {

@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client';
 import { getTrack, objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import { queryKeys } from '../../app/queryClient';
 import Button, { ButtonLink } from '../../shared/components/Button';
+import Icon from '../../shared/components/Icon';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
 import Tooltip from '../../shared/overlay/Tooltip';
 import StateRegion from '../../shared/async/StateRegion';
@@ -88,7 +89,10 @@ export default function TrackInspector({
     [detail?.analytics, scene],
   );
 
-  const title = detail ? `${objectClassLabel(detail)} · Track ${detail.localTrackNumber}` : summary ? objectClassLabel(summary) : 'Track';
+  // Before the detail arrives the Track's number is not known: it is said as
+  // pending in the title it will complete, so the heading keeps its width and
+  // does not rewrap the header when the detail lands (§38; X3).
+  const title = detail ? `${objectClassLabel(detail)} · Track ${detail.localTrackNumber}` : summary ? `${objectClassLabel(summary)} · Track …` : 'Track';
   const positionText = position >= 0 ? `${position + 1} / ${total}${hasMore ? '+' : ''}` : '— / ' + total;
   const positionSaid = useSaidLater(positionText);
   const canPrevious = position > 0;
@@ -115,7 +119,11 @@ export default function TrackInspector({
             <ButtonLink size="sm" to={reviewPath({ id: detail.id, videoAssetId: detail.videoAssetId }, searchContext, analyticsIdentity)} icon="external" title="Open (Enter)">
               Open
             </ButtonLink>
-          ) : null}
+          ) : (
+            // Its place, unseen and inert, until the detail it opens is here:
+            // the header keeps its composition (§38; X3).
+            <span className="btn btn--sm track-inspector__open-reserve" aria-hidden="true"><Icon name="external" size="sm" />Open</span>
+          )}
           <Tooltip content="Close inspector · Esc"><Button size="sm" iconOnly icon="x" onClick={onClose}>Close inspector</Button></Tooltip>
         </div>
       )}

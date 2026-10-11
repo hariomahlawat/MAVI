@@ -76,6 +76,10 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
   // to see. What one sample cannot support is a *line*: a polyline needs two
   // points, and interpolation needs two to sit between.
   const hasTrajectoryEvidence = Boolean(trajectory && trajectory.length > 0);
+  // Persisted but not yet here: loading — not "no samples", which it is not
+  // known to be, and whose wider reason would wrap the layer row until the
+  // trajectory arrived and then leave it (§38; X3).
+  const trajectoryLoading = Boolean(detail.trajectoryArtifactId) && trajectory === undefined && !trajectoryError;
   const canDrawTrajectoryPath = Boolean(trajectory && trajectory.length > 1);
 
   const layers: EvidenceLayer[] = useMemo(() => [
@@ -133,11 +137,14 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
       available: hasTrajectoryEvidence,
       unavailableReason: !detail.trajectoryArtifactId
         ? 'No trajectory was persisted for this Track.'
-        : trajectoryError
+        : trajectoryLoading
+          ? 'The persisted trajectory is loading.'
+          : trajectoryError
           ? 'The persisted trajectory could not be loaded.'
           : !hasTrajectoryEvidence
             ? 'The persisted trajectory contains no samples.'
             : undefined,
+      unavailableReasonQuiet: trajectoryLoading,
       render: (frame, currentOffsetMs) => {
         if (!trajectory || trajectory.length === 0) return null;
         const projected = trajectory.map((point) => projectPoint(point.centerX, point.centerY, frame));
@@ -245,7 +252,7 @@ export default function TrackEvidence({ detail, analytics, trajectory, trajector
         return items;
       },
     },
-  ], [detail.objectClass, detail.trajectoryArtifactId, representative, trajectory, trajectoryError, hasTrajectoryEvidence, canDrawTrajectoryPath]);
+  ], [detail.objectClass, detail.trajectoryArtifactId, representative, trajectory, trajectoryError, trajectoryLoading, hasTrajectoryEvidence, canDrawTrajectoryPath]);
 
   /*
     Analytical context is drawn beneath the raw evidence: the zones and lines

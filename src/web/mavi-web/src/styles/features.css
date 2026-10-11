@@ -861,6 +861,8 @@
 .scene-reference__badge { display: inline-grid; }
 .scene-reference__badge-face { grid-area: 1 / 1; }
 .scene-reference__badge-ghost { visibility: hidden; }
+/* The inspector's Open, held while the Track's detail loads (X3). */
+.track-inspector__open-reserve { visibility: hidden; }
 
 .scene-navigator__empty { padding: var(--s-3); color: var(--text-muted); font-size: var(--fs-1); }
 .scene-navigator__group { padding: var(--s-2) var(--s-2) var(--s-1); }

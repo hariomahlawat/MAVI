@@ -323,7 +323,7 @@ describe('malformed stationary facts are reported, not tidied away', () => {
 describe('a revision still loading is said as loading (§38; X3)', () => {
   it('binds a quiet loading reason to the zone and line layers, and the visible fuller one only once it is true', () => {
     const loading = analyticsLayers({ ...EMPTY_ANALYTICS_EVIDENCE, geometryLoading: true });
-    for (const id of ['analytics-zones', 'analytics-lines']) {
+    for (const id of ['analytics-zones', 'analytics-lines', 'analytics-crossings']) {
       const layer = loading.find((l) => l.id === id);
       expect(layer?.unavailableReason).toBe('The pinned scene revision is loading.');
       expect(layer?.unavailableReasonQuiet).toBe(true);
