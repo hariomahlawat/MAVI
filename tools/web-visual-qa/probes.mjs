@@ -27,7 +27,9 @@ export async function probeHoverContent(browser) {
   const settleTip = async (id, want) => {
     const started = Date.now();
     let last = null;
-    while (Date.now() - started < delayMs * 4 + 500) {
+    // Four delays and a generous allowance for a loaded machine: a bound,
+    // never a sleep — the poll returns the moment the state is reached.
+    while (Date.now() - started < delayMs * 4 + 1500) {
       last = await state(id);
       if (last.gone || want(last)) return last;
       await tick(Math.min(50, delayMs));

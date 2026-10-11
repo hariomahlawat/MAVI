@@ -75,6 +75,11 @@
 .shell--narrow .context-bar__status > .zone-note code { min-width: 0; overflow: hidden; }
 .shell--narrow .context-bar__status > .zone-note .tooltip-anchor { min-width: 0; max-width: 100%; }
 .context-bar__crumbs .tooltip-anchor { min-width: 0; max-width: 100%; }
+/* The identity's own control keeps the 24px target (§10.1) when the trail is
+   at its 4ch floor: that floor is the item's, separator and gap included,
+   and left the link itself at 20px under WCAG 1.4.12 text spacing at 768. */
+.context-bar__crumbs li.context-bar__crumb--object > a,
+.context-bar__crumbs li.context-bar__crumb--object > .tooltip-anchor { min-width: var(--control-min-target); }
 .context-bar__crumbs li a, .context-bar__crumbs li span:not(.tooltip-anchor):not(.tooltip) {
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0;
 }
@@ -102,8 +107,9 @@
    wide font, off the page at 768. Such a group's floor is its parts' width,
    so the trail absorbs the shortfall (the identity, down to 4ch). A group
    that holds a subject (Review's Track) keeps the floor of 0: the subject is
-   what truncates there. */
-.context-bar__status:not(:has(.context-bar__subject)) { min-width: min-content; }
+   what truncates there — and so does every group in the narrow shell, where
+   the zone note is the text that gives way (§25 Tier C). */
+.shell:not(.shell--narrow) .context-bar__status:not(:has(.context-bar__subject)) { min-width: min-content; }
 /* The item a surface is reviewing, beside its state (Review's Track). Text,
    not a badge: it names the subject, it does not grade it. */
 .context-bar__subject { color: var(--text-secondary); font-size: var(--fs-2); white-space: nowrap; min-width: 0; flex: 0 1 auto; }
@@ -115,6 +121,10 @@
 .context-bar__status > .tooltip-anchor { min-width: 0; flex: 0 1 auto; }
 .context-bar__spacer { flex: 1 1 auto; min-width: 0; }
 .context-bar__actions { display: flex; align-items: center; gap: var(--s-2); flex: 0 0 auto; }
+/* An action never shrinks: an icon-only button squeezed to its glyph is
+   under the 24px target (§10.1). What gives way in a full actions group is
+   the note beside them (features.css). */
+.context-bar__actions > .btn { flex-shrink: 0; }
 
 /* ------------------------------------------------------------------ *
  * Toolbar band — the row that acts on what is below it (section 10).

@@ -2654,7 +2654,8 @@ const R4_CONFIRM_DISABLE = `(async () => {
   save.focus();
   window.__vqa.mark('interaction-start');
   save.click();
-  return Boolean(await until(() => Array.from(document.querySelectorAll('button')).some((b) => b.textContent.trim() === 'Save and disable analytics'), 'the in-band confirmation'));
+  // "Save and disable analytics", or its shorter form below 940px (X1: the band under text spacing).
+  return Boolean(await until(() => Array.from(document.querySelectorAll('button')).some((b) => /^Save and disable( analytics)?$/.test(b.textContent.trim())), 'the in-band confirmation'));
 })()`;
 
 /** R4: the scene's camera (fixture), for states that vary one thing about it. */
@@ -3570,7 +3571,7 @@ export const STATES = [
     archetype: 'workbench',
     api: R4_LONG_CAMERA,
     prepare: R4_CONFIRM_DISABLE,
-    expectText: ['Save and disable analytics', 'Nothing here is enabled'],
+    expectText: ['Save and disable', 'Nothing here is enabled'],
   },
   {
     // The same state at the widths that settle where the Scene's no-wrap
@@ -3581,7 +3582,7 @@ export const STATES = [
     archetype: 'workbench',
     api: R4_LONG_CAMERA,
     prepare: R4_CONFIRM_DISABLE,
-    expectText: ['Save and disable analytics', 'Nothing here is enabled'],
+    expectText: ['Save and disable', 'Nothing here is enabled'],
     tierPolicy: 'breakpoint-probe', probeOf: 'scene-editor-confirm-disable', probeWidths: [1150, 1180, 1200, 1230],
   },
   {

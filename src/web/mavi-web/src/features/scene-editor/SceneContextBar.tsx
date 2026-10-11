@@ -76,6 +76,11 @@ export default function SceneContextBar({
 }: Props) {
   const readOnly = saveState === 'readonly';
   const narrow = useMediaQuery(SHELL_QUERIES.narrow);
+  // Below 940px (features.css: where the band's chips wrap) the confirmation's
+  // primary takes its shorter label: under WCAG 1.4.12 text spacing with a
+  // wide font the full one left the band overfull past every other give-way.
+  // What saving disables is stated by the notice the button is described by.
+  const tight = useMediaQuery('(width < 940px)');
   // Reset returns the draft — and its note — to the active revision; with no
   // changes and no note it has nothing to do, so it is not offered as if it
   // did (§12, F7). A note left behind when the geometry returns to its
@@ -143,6 +148,10 @@ export default function SceneContextBar({
           ) : null}
           <Button
             variant="ghost"
+            // The confirmation's Cancel is drawn icon-only below 940px, its
+            // name kept (the same shorter band as the primary's label).
+            icon={confirmingDisable ? 'x' : undefined}
+            iconOnly={confirmingDisable && tight}
             disabled={saveState === 'saving' || (!confirmingDisable && nothingToReset)}
             onClick={confirmingDisable ? onCancelDisable : onReset}
           >
@@ -163,7 +172,7 @@ export default function SceneContextBar({
           >
             {saveState === 'saving'
               ? 'Saving…'
-              : confirmingDisable ? 'Save and disable analytics' : 'Save revision'}
+              : confirmingDisable ? (tight ? 'Save and disable' : 'Save and disable analytics') : 'Save revision'}
           </Button>
         </>
       )}
