@@ -114,9 +114,21 @@ export default function ProcessingQueuePage() {
                 ) : videos.isPending ? (
                   // At Tier C the counts are the band's own second line, so
                   // the line is there while they load: the list arriving below
-                  // it moves nothing (§36.3). Above Tier C it is not drawn,
-                  // and a failed inventory claims no counting at all.
-                  <span className="queue-counts queue-counts--pending">Counting runs…</span>
+                  // it moves nothing (§36.3). Above Tier C the counts follow
+                  // the sentence, and where the band is short (768px under
+                  // WCAG 1.4.12 text spacing) they wrap to a second line: an
+                  // invisible reserve of the same shape holds that wrap while
+                  // they load, so the rows land where the skeleton drew them.
+                  // A failed inventory claims no counting at all.
+                  <>
+                    <span className="queue-counts__sep queue-reserve" aria-hidden="true">{' · '}</span>
+                    <span className="queue-reserve queue-reserve--counts" aria-hidden="true">
+                      <span>0 active</span>
+                      <span>0 failed</span>
+                      <span>0 completed</span>
+                    </span>
+                    <span className="queue-counts queue-counts--pending">Counting runs…</span>
+                  </>
                 ) : null}
               </>
             )}
