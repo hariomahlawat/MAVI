@@ -144,6 +144,28 @@ describe('VisualSearchPage pagination and navigation guards', () => {
     expect((await screen.findAllByText(/West Gate/)).length).toBeGreaterThan(0);
   });
 
+  it("keeps the operator's focus through a continuation they asked for, and hands it to the first new result when the snapshot ends (X2)", async () => {
+    const release = deferredSecondPage();
+    const user = userEvent.setup();
+    renderWithApp(<Harness />, { route: '/search' });
+    const more = await screen.findByRole('button', { name: 'Load more' });
+
+    more.focus();
+    await user.keyboard('{Enter}');
+    // Loading: the control says so and stays where the operator is — a
+    // disabled control would have dropped focus to the document.
+    const loading = await screen.findByRole('button', { name: 'Loading…' });
+    expect(loading).toHaveAttribute('aria-disabled', 'true');
+    expect(loading).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(vi.mocked(searchTracks).mock.calls.filter(([filters]) => filters.cursor === 'page-two')).toHaveLength(1);
+
+    release();
+    await screen.findByText('End of this result snapshot.');
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toHaveAttribute('data-track-id', D.id.toLowerCase());
+  });
+
   it('ignores a late next-page response when the committed filters changed meanwhile', async () => {
     const release = deferredSecondPage();
     const user = userEvent.setup();

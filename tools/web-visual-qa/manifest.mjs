@@ -345,10 +345,19 @@ export const RULES = {
     tiers: s1(),
   },
   // --- Known rules not yet evaluated by any code ------------------------------
+  // X2 (§23, plan §5.3): the six operator journeys, completed keyboard-only.
+  // Not a per-state rule: a journey crosses routes, so its producer is the
+  // journey runner (journeys.mjs, JOURNEY_CONDITION), never the sweep — the
+  // sweep neither evaluates it nor faults for not having done so; the journey
+  // aggregate proves every planned execution ran once and passed.
   'a11y.keyboard-journeys': {
-    section: '§23', kind: 'future', execution: 'not evaluated until S6 scripts the six keyboard-only operator journeys',
-    summary: 'The six operator journeys complete keyboard-only.',
-    tiers: { A: pending('S6 / X2'), B: pending('S6 / X2'), C: pending('S6 / X2') },
+    section: '§23 (plan §5.3)', kind: 'assertion', producer: 'journeys',
+    summary: 'Each of the six frozen operator journeys completes keyboard-only — every action a key through the input pipeline, every target reached by Tab and named by the accessibility tree, focus valid after every action, every step on an observable checkpoint, the journey on a terminal one — at every workstation composition.',
+    tiers: {
+      A: blocking(),
+      B: blocking(),
+      C: na('§25 / T2: Tier C is the designed reading and degraded composition, and no workflow acceptance is claimed below Tier A — the programme\'s non-claim; the journeys are not run there'),
+    },
   },
 
   // --- X1 (S6): the §23 obligations, each a named rule (a11y.mjs) ------------
@@ -444,6 +453,21 @@ export const TEXT_SPACING_CONDITION = Object.freeze({
 });
 
 /**
+ * X2 (§23, plan §5.3): where the keyboard journeys run — the workstation
+ * compositions only (§25: Tier A and both Tier B orientations; Tier C claims
+ * no workflow) — and the locale their segmented fields are read in.
+ */
+export const JOURNEY_CONDITION = Object.freeze({
+  viewports: Object.freeze([
+    Object.freeze({ width: 1366, height: 768, tier: 'A' }),
+    Object.freeze({ width: 1024, height: 768, tier: 'B' }),
+    Object.freeze({ width: 768, height: 1024, tier: 'B' }),
+  ]),
+  locale: 'en-GB',
+  tierC: 'Tier C is the designed reading and degraded composition; no workflow acceptance is claimed below Tier A (§25, T2)',
+});
+
+/**
  * X4 (§13, §23): the reduced-motion lane's frozen condition — the media
  * feature Chromium emulates and the same canonical anchors as the
  * text-spacing lane (one per distinct composition, §25). A state's probe
@@ -505,6 +529,12 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
       if (entry.tiers?.[tier]?.status === 'measured/pending' && /X1/.test(entry.tiers[tier].owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X1 after X1`);
       // X4: reduced motion is asserted; nothing stays owned by X4.
       if (/X4/.test(entry.tiers?.[tier]?.owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X4 after X4`);
+      // X2: the journeys are asserted; nothing stays owned by X2.
+      if (/X2/.test(entry.tiers?.[tier]?.owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X2 after X2`);
+    }
+    if (entry.producer !== undefined && entry.producer !== 'journeys') problems.push(`${id}: unknown producer "${entry.producer}"`);
+    if (id === 'a11y.keyboard-journeys' && (entry.kind !== 'assertion' || entry.producer !== 'journeys' || entry.tiers?.A?.status !== 'blocking' || entry.tiers?.B?.status !== 'blocking' || entry.tiers?.C?.status !== 'not-applicable')) {
+      problems.push(`${id}: X2 asserts it through the journey runner, blocking at A and B, not applicable at C`);
     }
     if (id === 'a11y.reduced-motion' && (entry.kind !== 'assertion' || entry.lane !== 'reduced-motion' || !TIERS.every((t) => entry.tiers?.[t]?.status === 'blocking'))) problems.push(`${id}: X4 asserts it in the reduced-motion lane, blocking at every tier`);
     if (id === 'a11y.section23-remaining') problems.push(`${id}: the X1 placeholder is retired; every §23 obligation has its own rule`);

@@ -41,6 +41,16 @@ function findChromium() {
   return found;
 }
 
+/**
+ * Windows virtual key codes for the keys an operator presses. Chromium runs a
+ * key's default action (Space activating a button, an arrow moving a select's
+ * value, Home/End in a list) only when the event carries its code.
+ */
+const KEY_CODES = Object.freeze({
+  Backspace: 8, Tab: 9, Enter: 13, Escape: 27, ' ': 32, PageUp: 33, PageDown: 34, End: 35, Home: 36,
+  ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46,
+});
+
 export async function launch() {
   const binary = findChromium();
   const profile = mkdtempSync(join(tmpdir(), 'mavi-visual-qa-'));
@@ -369,16 +379,43 @@ async function connect(child, profile) {
      * focus navigation, which a synthetic event cannot cause).
      */
     async press(key, code = key, { shift = false } = {}) {
-      const keyCode = { Escape: 27, Tab: 9, Enter: 13, Delete: 46 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
+      const keyCode = KEY_CODES[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
       const modifiers = shift ? 8 : 0;
       // Enter activates a focused button through the keypress its text makes;
       // a key event without text never reaches it. A character key ("?",
       // "j") carries itself as text, so a focused field receives it.
-      const text = key === 'Enter' ? '\r' : key.length === 1 ? key : undefined;
+      const text = key === 'Enter' ? '\r' : key === ' ' ? ' ' : key.length === 1 ? key : undefined;
       if (shift) await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16, modifiers });
-      await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: keyCode, modifiers, ...(text ? { text, unmodifiedText: text } : {}) });
+      // As a keyboard sends it: the key goes down, its character (if it makes
+      // one) follows as its own event, the key comes up. A combined `keyDown`
+      // carrying text is ignored by segmented fields (a datetime-local's day,
+      // month, year), which act on the character event alone.
+      await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code, windowsVirtualKeyCode: keyCode, modifiers });
+      if (text) await call('Input.dispatchKeyEvent', { type: 'char', key, code, windowsVirtualKeyCode: keyCode, modifiers, text, unmodifiedText: text });
       await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: keyCode, modifiers });
       if (shift) await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Shift', code: 'ShiftLeft', windowsVirtualKeyCode: 16, modifiers: 0 });
+    },
+    /**
+     * X2: a CDP event of this page's session, `fn(params)` for each; returns
+     * the unsubscribe. The journeys' file-chooser boundary listens for
+     * `Page.fileChooserOpened` — the browser's own report that a keypress
+     * opened the chooser.
+     */
+    onEvent(method, fn) {
+      const listener = (message) => { if (message.sessionId === sessionId && message.method === method) fn(message.params); };
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    /**
+     * X2: the native file chooser, intercepted. `intercept(true)` makes the
+     * browser report the chooser instead of opening the OS dialog;
+     * `supply(backendNodeId, paths)` answers the chooser the browser reported
+     * — only ever for a node it named, so a file is never set on an input the
+     * operator did not activate.
+     */
+    fileChooser: {
+      intercept: (enabled) => call('Page.setInterceptFileChooserDialog', { enabled }),
+      supply: (backendNodeId, files) => call('DOM.setFileInputFiles', { backendNodeId, files }),
     },
     problems: () => problems.slice(),
     resourceErrors: () => resourceErrors.slice(),

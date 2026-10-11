@@ -625,6 +625,26 @@ export default function VisualSearchPage() {
     resultsRef.current?.focus();
   }, [committed.isValid]);
 
+  // The continuation the operator asked for keeps their focus (X2). While it
+  // loads, its control stays focusable (aria-disabled, not disabled: a
+  // disabled control drops focus to the document). When the page lands and
+  // that control has gone — the snapshot ended — focus goes to the first
+  // Track the page brought, the place the operator asked to go next.
+  const continuationFrom = useRef<number | null>(null);
+  const continueResults = () => {
+    if (tracks.isFetchingNextPage) return;
+    continuationFrom.current = items.length;
+    void tracks.fetchNextPage();
+  };
+  useLayoutEffect(() => {
+    const from = continuationFrom.current;
+    if (from === null || items.length <= from) return;
+    continuationFrom.current = null;
+    const now = document.activeElement;
+    if (now && now !== document.body && now !== document.documentElement) return;
+    findSelectControl(items[from].id.toLowerCase())?.focus();
+  }, [items]);
+
   const continuationInvalid = tracks.isFetchNextPageError
     && tracks.error instanceof ApiError
     && tracks.error.code === 'track_search_invalid';
@@ -824,7 +844,7 @@ export default function VisualSearchPage() {
                   Refresh results
                 </Button>
               ) : tracks.hasNextPage ? (
-                <Button disabled={tracks.isFetchingNextPage} onClick={() => void tracks.fetchNextPage()}>
+                <Button aria-disabled={tracks.isFetchingNextPage || undefined} onClick={continueResults}>
                   {tracks.isFetchingNextPage
                     ? 'Loading…'
                     : tracks.isFetchNextPageError ? 'Retry load more' : 'Load more'}

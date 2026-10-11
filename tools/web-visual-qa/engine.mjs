@@ -290,6 +290,8 @@ export function createLedger(rules = RULES, surfaces = SURFACES) {
     if (rules[rule].lane === 'zoom' && !c?.viewport?.zoom) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}, which is not a zoom case`);
     if (rules[rule].lane === 'text-spacing' && !c?.viewport?.textSpacing) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}, which is not a text-spacing case`);
     if (rules[rule].lane === 'reduced-motion' && !c?.viewport?.reducedMotion) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}, which is not a reduced-motion case`);
+    // X2: the sweep cannot claim a journey it did not run.
+    if (rules[rule].producer) throw new HarnessError(`${rule} ${what} in ${c?.state?.name} @ ${c?.viewport?.label}: it is produced by the ${rules[rule].producer} runner, never by a sweep case`);
     let at;
     try { at = severityOf(rule, tier, surface, { rules, surfaces }); } catch (error) { throw new HarnessError(`${rule} ${what}: ${error.message}`); }
     if (at.status === 'not-applicable') {
@@ -332,6 +334,9 @@ export function createLedger(rules = RULES, surfaces = SURFACES) {
       const missing = [];
       for (const [rule, entry] of Object.entries(rules)) {
         if (entry.kind !== 'assertion') continue;
+        // A rule another runner produces (X2's journeys) is that runner's to
+        // prove, by its own aggregate; the sweep never evaluates it.
+        if (entry.producer) continue;
         for (const tier of TIERS) {
           if (entry.tiers[tier].status === 'blocking' && coverage[rule][tier].blockingEvaluated === 0) missing.push(`${rule} @ Tier ${tier}`);
         }

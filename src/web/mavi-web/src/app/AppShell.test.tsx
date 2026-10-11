@@ -545,6 +545,37 @@ describe('global keys (§5, §22)', () => {
     expect(expand).toHaveAccessibleDescription('Expand navigation');
   });
 
+  it('gives focus to the workspace when a route change unmounts the control that held it (X2)', async () => {
+    const { router } = renderAt('/');
+    const action = await screen.findByRole('button', { name: 'Overview action' });
+    // The first load leaves focus where the browser put it.
+    expect(document.activeElement).toBe(document.body);
+    act(() => action.focus());
+    // A workspace control navigates (a row's Detail link): it unmounts with the page.
+    await act(() => router.navigate('/cameras'));
+    await screen.findByRole('heading', { name: 'Cameras route' });
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('main')));
+  });
+
+  it('leaves focus where it is when it survives the route change, and on a query change', async () => {
+    const { router } = renderAt('/');
+    await screen.findByRole('heading', { name: 'Overview route' });
+    const link = within(rail()).getByRole('link', { name: 'Cameras' });
+    act(() => link.focus());
+    await act(() => router.navigate('/cameras'));
+    await screen.findByRole('heading', { name: 'Cameras route' });
+    await new Promise((done) => requestAnimationFrame(() => done(null)));
+    expect(document.activeElement).toBe(link);
+    // A query change is the surface's own: nothing is moved.
+    const search = within(rail()).getByRole('link', { name: 'Search' });
+    await act(() => router.navigate('/search'));
+    await screen.findByRole('heading', { name: 'Search route' });
+    act(() => search.focus());
+    await act(() => router.navigate('/search?track=1'));
+    await new Promise((done) => requestAnimationFrame(() => done(null)));
+    expect(document.activeElement).toBe(search);
+  });
+
   it('does not navigate behind an open modal overlay', async () => {
     const user = userEvent.setup();
     const { router } = renderAt('/');

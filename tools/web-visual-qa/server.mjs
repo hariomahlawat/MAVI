@@ -48,6 +48,14 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
   /** How many times each sequenced override has answered, per scenario. */
   const sequenceCounts = new Map();
   /**
+   * X2: the requests the application has made since the last reset, in
+   * order — a journey proves its operator action reached the backend from
+   * this, never assumes it — and the mutations already received, which flip a
+   * `{ after, before, then }` override from its before-state to its after-state.
+   */
+  const requests = [];
+  const received = new Set();
+  /**
    * Request accounting for deterministic settling (V3): how many requests are
    * in flight and how many have started. A request deliberately held to keep
    * a loading state open is not "in flight" — it will never complete, by
@@ -85,6 +93,8 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
 
     if (path.startsWith('/api/')) {
       const overrides = scenario();
+      requests.push({ method: req.method, path, search: url.search });
+      received.add(`${req.method} ${path}`);
       // An exact override wins over a prefix one, and the longest prefix wins
       // over a shorter one. Declaration order used to decide it, so overriding
       // `/api/cameras/{id}` silently answered `/api/cameras/{id}/scene` with a
@@ -105,7 +115,30 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         // A method-qualified key is more specific than a bare one of the same
         // length, and a longer path beats a shorter one.
         .sort((a, b) => (b.includes(' ') ? 1 : 0) - (a.includes(' ') ? 1 : 0) || b.length - a.length)[0];
-      const value = match ? overrides[match] : undefined;
+      let value = match ? overrides[match] : undefined;
+      let counter = match;
+      // X2 — the backend's own state, answered as the operator's requests make
+      // it, never ahead of them:
+      // `{ after: 'METHOD /path', before, then }` answers `before` until the
+      // application has sent that request (an import, a scene save), and
+      // `then` from it on, so what follows an operator's action appears only
+      // if the action really reached the backend;
+      // `{ query: [{ match: { param: value | true }, then }], otherwise }`
+      // answers by the request's query string (`true` for a parameter that is
+      // present): a cursor continuation, a Car refinement — the request the
+      // operator caused, not the order requests happen to arrive in.
+      // Either may hold any of the forms below, a sequence included, counted
+      // per branch.
+      if (value !== null && typeof value === 'object' && typeof value.after === 'string') {
+        const flipped = received.has(value.after);
+        counter = `${match}#${flipped ? 'then' : 'before'}`;
+        value = flipped ? value.then : value.before;
+      }
+      if (value !== null && typeof value === 'object' && Array.isArray(value.query)) {
+        const index = value.query.findIndex((branch) => Object.entries(branch.match ?? {}).every(([param, want]) => (want === true ? url.searchParams.has(param) : url.searchParams.get(param) === String(want))));
+        counter = `${counter}#q${index}`;
+        value = index === -1 ? value.otherwise : value.query[index].then;
+      }
 
       // `'fixture'` re-exposes the normal fixture for a path that a broader
       // override would otherwise have swallowed, so it deliberately answers
@@ -130,8 +163,8 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
       // state reaches a conflict rather than a generic failure.
       let resolved = value;
       if (value !== null && typeof value === 'object' && Array.isArray(value.sequence)) {
-        const seen = sequenceCounts.get(match) ?? 0;
-        sequenceCounts.set(match, seen + 1);
+        const seen = sequenceCounts.get(counter) ?? 0;
+        sequenceCounts.set(counter, seen + 1);
         resolved = value.sequence[Math.min(seen, value.sequence.length - 1)];
         if (resolved === 'unavailable') {
           res.writeHead(503, { 'content-type': 'application/problem+json' });
@@ -322,7 +355,9 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
          * the failure instead of page one — which looks exactly like the state
          * failing at that width and is not.
          */
-        resetSequences() { sequenceCounts.clear(); },
+        resetSequences() { sequenceCounts.clear(); requests.length = 0; received.clear(); },
+        /** X2: the API requests made since the last reset, oldest first. */
+        requests: () => requests.map((r) => ({ ...r })),
         /** In-flight and started request counts, for the settle loop. */
         network: () => ({ ...network }),
         close: () => new Promise((done) => { for (const res of hung) { try { res.destroy(); } catch { /* gone */ } } server.close(done); }),
