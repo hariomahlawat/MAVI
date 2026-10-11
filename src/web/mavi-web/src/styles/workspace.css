@@ -71,9 +71,26 @@
 /* The time zone the surface states (§24) stays drawn, and gives way after
    the identity: truncated to no less than 6ch, its full value on hover and
    focus (DisplayTimeZone's TruncatedText). */
-.shell--narrow .context-bar__status > .zone-note { flex: 0 1 auto; min-width: 6ch; }
+/* §25 Tier C, inside the one 44px band (§5): the identity gives way first
+   (to its 4ch), then the zone note (to its 6ch), then the status badge — "a
+   shortened badge still reads" — and never the actions. The badge was rigid,
+   so where the band was short the group's parts spilled out of it and the
+   zone note was drawn under the primary action: hidden at normal spacing
+   behind the button, painted over it under WCAG 1.4.12 text spacing (its
+   tooltip anchor is positioned). The zone note's shrink weight makes it reach
+   its floor before the badge gives anything; the badge then truncates with
+   an ellipsis (its full text stays in the accessibility tree, and a Record
+   states the same state in its body). */
+.shell--narrow .context-bar__status > .zone-note { flex: 0 100 auto; min-width: 6ch; }
 .shell--narrow .context-bar__status > .zone-note code { min-width: 0; overflow: hidden; }
 .shell--narrow .context-bar__status > .zone-note .tooltip-anchor { min-width: 0; max-width: 100%; }
+/* An ellipsis needs a block container: the badge's label is its own text, so
+   the narrow badge is an inline block (its height as a line), its dot inline. */
+.shell--narrow .context-bar__status > .badge {
+  display: inline-block; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  line-height: calc(var(--s-5) - 2 * var(--stroke-hair));
+}
+.shell--narrow .context-bar__status > .badge::before { display: inline-block; margin-right: var(--s-1); vertical-align: middle; }
 .context-bar__crumbs .tooltip-anchor { min-width: 0; max-width: 100%; }
 /* The identity's own control keeps the 24px target (§10.1) when the trail is
    at its 4ch floor: that floor is the item's, separator and gap included,
