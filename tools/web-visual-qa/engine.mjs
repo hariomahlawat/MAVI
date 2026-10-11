@@ -182,6 +182,23 @@ export function reducedMotionCoverageFaults(results, plannedKeys) {
 }
 
 /**
+ * The reduced-motion lane's control (X4, §13): on the full sweep the
+ * ordinary cases, under the pinned normal preference, show the motion the
+ * lane proves suppressed — the activity pulse, the spinner and a `--dur`
+ * transition, each at a positive duration — so the lane's zeroes are of
+ * motion that exists. A sweep whose control saw none of a site is a fault.
+ */
+export const NORMAL_MOTION_SITES = Object.freeze(['animation pulse', 'animation spin']);
+export function normalMotionControlFaults(results) {
+  const faults = [];
+  const seen = {};
+  for (const r of results) for (const [key, s] of Object.entries(r.normalMotion ?? {})) if (s.maxMs > 0) seen[key] = Math.max(seen[key] ?? 0, s.maxMs);
+  for (const site of NORMAL_MOTION_SITES) if (!seen[site]) faults.push(`a11y.reduced-motion: the normal-preference control never saw the ${site.replace('animation ', '')} animation run, so the lane's zero for it is unproven`);
+  if (!Object.keys(seen).some((key) => key.startsWith('transition '))) faults.push('a11y.reduced-motion: the normal-preference control never saw a transition run, so the lane\'s zero for them is unproven');
+  return faults;
+}
+
+/**
  * The text-spacing lane's coverage (X1): on the full sweep every planned
  * spacing case produced a valid capture with the overrides proven in force
  * and the rule evaluated — a state the lane never judged at one of its
@@ -485,6 +502,7 @@ export function sweepChecks({ results, cases, errored, ledger, surfaces, loading
   if (fullSweep) faults.push(...zoomCoverageFaults(results, surfaces));
   if (fullSweep && plannedKeys) faults.push(...textSpacingCoverageFaults(results, plannedKeys));
   if (fullSweep && plannedKeys) faults.push(...reducedMotionCoverageFaults(results, plannedKeys));
+  if (fullSweep && plannedKeys && plannedKeys.some((k) => /@reduced-motion#\d+$/.test(k))) faults.push(...normalMotionControlFaults(results));
   const vacuous = fullSweep && !faults.length ? ledger.vacuous() : [];
   if (vacuous.length) faults.push('blocking rules the full sweep never evaluated: ' + vacuous.join(', '));
   if (fullSweep && !faults.length) {

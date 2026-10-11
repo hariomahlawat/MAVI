@@ -81,7 +81,7 @@ const [
   { OBSERVERS, perfCollect, TRANSIENT },
   { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM },
   { tierCLedgerSemantics },
-  { a11yAssertions, a11yLiveCheck, a11yLiveMark, a11yMotionEnvironment, a11yNamesJudge, a11yReducedMotion, a11yTextSpacingEnvironment },
+  { a11yAssertions, a11yLiveCheck, a11yLiveMark, a11yMotionEnvironment, a11yNamesJudge, a11yReducedMotion, a11yTextSpacingEnvironment, motionEnvironmentProblem },
   { probeHoverContent, probeShortcuts },
 ] = modules;
 
@@ -269,10 +269,11 @@ async function runCase(lane, c) {
   lane.footage = state.footage ?? 'saturated';
   await browser.viewport(viewport.width, viewport.height);
   // X4: the media preference this case runs under, set on the target before
-  // its first document and set by every case — a reduced-motion case cannot
-  // leave its emulation to the next case on the lane.
+  // its first document and set by every case — `reduce` for the lane, pinned
+  // `no-preference` for every other case — so a reduced-motion case cannot
+  // leave its emulation to the next case on the lane, and no host setting
+  // can put an ordinary case under reduced motion.
   await browser.reducedMotion(Boolean(viewport.reducedMotion));
-  lane.reducedMotion = Boolean(viewport.reducedMotion);
   // A fresh document for a load: a blank document first (Chromium holds
   // media decoders across same-origin navigations), then storage cleared
   // from a same-origin page that boots nothing, so a stored preference
@@ -547,23 +548,18 @@ async function runCase(lane, c) {
     else markEvaluated(c, ['a11y.text-spacing']);
   }
 
-  // X4 (a11y.reduced-motion): every case reads the preference it ran under
-  // (the lane's isolation, recorded); a reduced-motion case proves it from the
-  // page — matchMedia and the CSS media evaluation agreeing on `reduce` — or
-  // it is not reached, never judged as if it were.
+  // X4 (a11y.reduced-motion): every case proves the preference it ran under
+  // from the page — matchMedia and the CSS media evaluation agreeing: `reduce`
+  // in the lane, not `reduce` everywhere else — or it is not reached, never
+  // judged as if it were (the lane's isolation, gated).
   let motionMedia = null;
   let reducedMotion = null;
   if (reached) {
     motionMedia = await browser.evaluate(toExpression(a11yMotionEnvironment));
-    if (viewport.reducedMotion) {
-      const active = motionMedia.matchMedia === true && motionMedia.css === true;
-      reducedMotion = { active, media: motionMedia, condition: REDUCED_MOTION_CONDITION.media };
-      if (!active) {
-        unreach('reduced-motion environment', `prefers-reduced-motion: reduce is not in force (matchMedia ${motionMedia.matchMedia}, CSS media ${motionMedia.css})`);
-        reached = false;
-      }
-    } else if (motionMedia.matchMedia !== motionMedia.css) {
-      unreach('motion environment', `the page and its stylesheet disagree on prefers-reduced-motion (matchMedia ${motionMedia.matchMedia}, CSS media ${motionMedia.css})`);
+    const problem = motionEnvironmentProblem(motionMedia, Boolean(viewport.reducedMotion));
+    if (viewport.reducedMotion) reducedMotion = { active: problem === null, media: motionMedia, condition: REDUCED_MOTION_CONDITION.media };
+    if (problem) {
+      unreach(viewport.reducedMotion ? 'reduced-motion environment' : 'motion environment', problem);
       reached = false;
     }
   }
@@ -581,7 +577,7 @@ async function runCase(lane, c) {
   // motion its page has under the normal preference — the sites that must
   // keep their durations (the pulse, the spinner, the --dur transitions).
   let normalMotion = null;
-  if (!viewport.reducedMotion && reached && motionMedia?.matchMedia === false) {
+  if (!viewport.reducedMotion && reached) {
     normalMotion = (await browser.evaluate(toExpression(a11yReducedMotion, { judge: false }))).measured.sites;
   }
 

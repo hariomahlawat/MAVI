@@ -205,7 +205,7 @@ for (const tier of TIERS) {
   if (rm.planned) {
     line(`  reduced motion (§13): ${rm.valid}/${rm.planned} valid with prefers-reduced-motion: reduce proven in force on ${rm.active}; ${Object.entries(rm.byViewport).map(([v, n]) => `${v} ${n.valid}/${n.cases}`).join(', ')}`);
     const ns = Object.entries(rm.normalSites).filter(([k]) => /^animation /.test(k)).map(([k, s]) => `${k.replace('animation ', '')} ${s.maxMs}ms in ${s.cases}`).join(', ');
-    if (ns) line(`  normal preference (control): ${ns} ordinary case(s)`);
+    if (ns) line(`  normal preference (control): ${ns} ordinary case(s); transitions in ${Object.entries(rm.normalSites).filter(([k]) => /^transition /.test(k)).reduce((n, [, s]) => Math.max(n, s.cases), 0)}`);
     line(`  reduced motion judged: ${rm.elements} elements and ${rm.pseudos} pseudo-elements, ${rm.transitionValues} transition and ${rm.animationValues} animation durations; positive: ${rm.positiveTransitions} transition, ${rm.positiveAnimations} animation, ${rm.browserRunningPositive} running browser animation(s) of ${rm.browserAnimations}; ordinary cases under reduce: ${rm.otherCasesUnderReduce}`);
   }
 }

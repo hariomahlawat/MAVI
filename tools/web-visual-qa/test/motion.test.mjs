@@ -13,8 +13,8 @@ import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { toExpression } from '../assertions.mjs';
-import { a11yMotionEnvironment, a11yReducedMotion } from '../a11y.mjs';
-import { caseKey, createLedger, HarnessError, planCases, reducedMotionCoverageFaults, sweepChecks } from '../engine.mjs';
+import { a11yMotionEnvironment, a11yReducedMotion, motionDurations, motionEnvironmentProblem } from '../a11y.mjs';
+import { caseKey, createLedger, HarnessError, normalMotionControlFaults, planCases, reducedMotionCoverageFaults, sweepChecks } from '../engine.mjs';
 import { REDUCED_MOTION_CONDITION, RULES, TEXT_SPACING_CONDITION } from '../manifest.mjs';
 import { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM } from '../states.mjs';
 import { e2eIt, openBrowser, unitBlock } from './browser.mjs';
@@ -48,10 +48,29 @@ describe('a11y.reduced-motion: the preference, emulated and proven', unitBlock()
     await lane.browser.reducedMotion(true);
     await lane.page('<main>a</main>');
     assert.deepEqual(await lane.browser.evaluate(toExpression(a11yMotionEnvironment)), { matchMedia: true, css: true });
-    // The next case on the same browser, without the emulation: nothing leaks.
+    // The next case on the same browser, pinned to the normal preference: nothing leaks.
     await lane.browser.reducedMotion(false);
     await lane.page('<main>b</main>');
     assert.deepEqual(await lane.browser.evaluate(toExpression(a11yMotionEnvironment)), { matchMedia: false, css: false });
+    // Pinned means `no-preference`, not whatever the host says.
+    assert.equal(await lane.browser.evaluate("matchMedia('(prefers-reduced-motion: no-preference)').matches"), true);
+    // And the emulation clears (back to the browser's default) on request.
+    await lane.browser.reducedMotion(true);
+    await lane.browser.reducedMotion(null);
+    await lane.page('<main>c</main>');
+    assert.equal(await lane.browser.evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches"), false);
+  });
+
+  it('decides what the preference reading of a case means: the lane needs both readings reduce, every other case neither', () => {
+    assert.equal(motionEnvironmentProblem({ matchMedia: true, css: true }, true), null);
+    assert.match(motionEnvironmentProblem({ matchMedia: false, css: true }, true), /prefers-reduced-motion: reduce is not in force \(matchMedia false, CSS media true\)/);
+    assert.match(motionEnvironmentProblem({ matchMedia: true, css: false }, true), /not in force/);
+    assert.equal(motionEnvironmentProblem({ matchMedia: false, css: false }, false), null);
+    // An ordinary case under a reduced preference it did not ask for — a
+    // host setting, a leaked emulation — is not reached, never judged.
+    assert.match(motionEnvironmentProblem({ matchMedia: true, css: true }, false), /an ordinary case ran under prefers-reduced-motion: reduce it did not ask for/);
+    assert.match(motionEnvironmentProblem({ matchMedia: true, css: false }, false), /disagree/);
+    assert.match(motionEnvironmentProblem(null, false), /not read/);
   });
 
   it('cannot be fooled by a page that replaces matchMedia: the CSS media evaluation disagrees', async () => {
@@ -65,6 +84,19 @@ describe('a11y.reduced-motion: the preference, emulated and proven', unitBlock()
 });
 
 describe('a11y.reduced-motion: every duration, every element and pseudo-element', unitBlock(), () => {
+  it('parses every entry of a computed time list, in s and ms, and refuses what is not a time', () => {
+    assert.deepEqual(motionDurations('0s'), [0]);
+    assert.deepEqual(motionDurations('0ms'), [0]);
+    assert.deepEqual(motionDurations('1.2s'), [1200]);
+    assert.deepEqual(motionDurations('0s, 0.12s, 120ms'), [0, 120, 120]);
+    assert.deepEqual(motionDurations('.5s'), [500]);
+    assert.ok(Math.abs(motionDurations('1e-08s')[0] - 1e-5) < 1e-12);
+    assert.deepEqual(motionDurations('-1s'), [-1000]);
+    assert.ok(Number.isNaN(motionDurations('auto')[0]));
+    assert.ok(Number.isNaN(motionDurations('0s, fast')[1]));
+    assert.deepEqual(motionDurations(''), []);
+  });
+
   it('finds a transition left at 600ms, and passes it under the product rule', async () => {
     const BOX = '<style>.box { width: 40px; height: 20px; transition: width 600ms linear; }</style><main><div class="box">x</div></main>';
     let r = await judge(BOX);
@@ -126,6 +158,11 @@ describe('a11y.reduced-motion: every duration, every element and pseudo-element'
     assert.equal(normal.measured.sites['animation pulse']?.maxMs, 1200);
     assert.equal(normal.measured.sites['animation spin']?.maxMs, 800);
     assert.equal(normal.measured.sites['transition background']?.maxMs, 120);
+    // A shorter duration list repeats to the property list (CSS Transitions):
+    // both properties are sited.
+    const CYCLE = await judge('<style>.c { transition-property: opacity, color; transition-duration: 0.12s; }</style><main><span class="c">c</span></main>', { reduce: false, judge: false });
+    assert.equal(CYCLE.measured.sites['transition opacity']?.maxMs, 120);
+    assert.equal(CYCLE.measured.sites['transition color']?.maxMs, 120);
   });
 });
 
@@ -156,6 +193,24 @@ describe('a11y.reduced-motion: the lane, planned, scoped and covered', unitBlock
     // The workbench variants are not swept at Tier C: no 390 case for them.
     const wb = plan({ onlyStates: ['scene-editor-object-selected'] }).cases.filter((c) => c.viewport.reducedMotion).map((c) => c.viewport.label);
     assert.deepEqual(wb, ['1366x768@reduced-motion', '1024x768@reduced-motion', '768x1024@reduced-motion']);
+  });
+
+  it('gates the normal-preference control on the full sweep: the pulse, the spinner and a transition must be seen running', () => {
+    const control = (sites) => [{ state: 's', viewport: '1366x768', kind: 'anchor', valid: true, normalMotion: sites }];
+    const ALL = { 'animation pulse': { count: 1, maxMs: 1200 }, 'animation spin': { count: 1, maxMs: 800 }, 'transition background': { count: 3, maxMs: 120 } };
+    assert.deepEqual(normalMotionControlFaults(control(ALL)), []);
+    const { 'animation spin': _spin, ...noSpin } = ALL;
+    assert.match(normalMotionControlFaults(control(noSpin))[0], /never saw the spin animation run/);
+    const { 'transition background': _t, ...noTransition } = ALL;
+    assert.match(normalMotionControlFaults(control(noTransition))[0], /never saw a transition run/);
+    // A site seen only at zero (an ordinary case under a reduced preference) is not seen.
+    assert.equal(normalMotionControlFaults(control({ ...ALL, 'animation pulse': { count: 1, maxMs: 0 } })).length, 1);
+    // Wired into the full sweep when the plan holds the lane.
+    const ledger = createLedger(RULES);
+    const key = 'videos@1366x768@reduced-motion#1';
+    const lanes = [{ state: 'videos', viewport: '1366x768@reduced-motion', attempt: 1, valid: true, reducedMotion: { active: true, measured: { elements: 9 } } }];
+    let { faults } = sweepChecks({ results: [...lanes, ...control(noSpin)], cases: [{ key }, { key: 's@1366x768#1' }], errored: [], ledger, surfaces: [], fullSweep: true, plannedKeys: [key, 's@1366x768#1'] });
+    assert.ok(faults.some((f) => /never saw the spin animation run/.test(f)), faults.join(' | '));
   });
 
   it('refuses the rule outside a reduced-motion case', () => {

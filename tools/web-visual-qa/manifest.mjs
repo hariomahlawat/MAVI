@@ -329,7 +329,6 @@ export const RULES = {
       C: blocking(),
     },
   },
-  // --- Known rules not yet evaluated by any code ------------------------------
   // The reduced-motion lane (X4, §13): a case of the lane loads the state
   // with Chromium emulating `prefers-reduced-motion: reduce` from before its
   // first document (cdp.mjs reducedMotion, Emulation.setEmulatedMedia) at one
@@ -345,6 +344,7 @@ export const RULES = {
     summary: 'With prefers-reduced-motion: reduce emulated before first paint, every element and pseudo-element computes a zero transition and animation duration, and no running animation has a positive duration.',
     tiers: s1(),
   },
+  // --- Known rules not yet evaluated by any code ------------------------------
   'a11y.keyboard-journeys': {
     section: '§23', kind: 'future', execution: 'not evaluated until S6 scripts the six keyboard-only operator journeys',
     summary: 'The six operator journeys complete keyboard-only.',
@@ -506,7 +506,7 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
       // X4: reduced motion is asserted; nothing stays owned by X4.
       if (/X4/.test(entry.tiers?.[tier]?.owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X4 after X4`);
     }
-    if (id === 'a11y.reduced-motion' && (entry.kind !== 'assertion' || entry.lane !== 'reduced-motion')) problems.push(`${id}: X4 asserts it in the reduced-motion lane`);
+    if (id === 'a11y.reduced-motion' && (entry.kind !== 'assertion' || entry.lane !== 'reduced-motion' || !TIERS.every((t) => entry.tiers?.[t]?.status === 'blocking'))) problems.push(`${id}: X4 asserts it in the reduced-motion lane, blocking at every tier`);
     if (id === 'a11y.section23-remaining') problems.push(`${id}: the X1 placeholder is retired; every §23 obligation has its own rule`);
     if (entry.scope === 'surface' && entry.tiers?.A?.status !== 'blocking') problems.push(`${id}: a surface-scoped rule must block at Tier A, where S1 owns it`);
     if (implemented) {

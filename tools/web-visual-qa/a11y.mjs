@@ -884,6 +884,36 @@ export function a11yTextSpacingEnvironment() {
 }
 
 /**
+ * X4: a computed CSS time list (`transition-duration`, `animation-duration`)
+ * in ms, one entry per comma; NaN for an entry that is not a CSS time.
+ */
+export function motionDurations(value) {
+  return String(value || '').split(',').map((t) => t.trim()).filter(Boolean).map((t) => {
+    const m = /^(-?\d*\.?\d+(?:e[-+]?\d+)?)(ms|s)$/i.exec(t);
+    if (!m) return NaN;
+    const n = parseFloat(m[1]);
+    return m[2].toLowerCase() === 's' ? n * 1000 : n;
+  });
+}
+
+/**
+ * X4: what a case's preference reading means — null when it is the
+ * preference the case asked for, else why not. A reduced-motion case needs
+ * both readings `reduce`; an ordinary case needs both not `reduce` (its
+ * emulation pins `no-preference`): a case that ran under a preference it did
+ * not ask for is not reached, never judged as if it had.
+ */
+export function motionEnvironmentProblem(media, wantReduce) {
+  if (!media) return 'the preference was not read';
+  if (wantReduce) {
+    return media.matchMedia === true && media.css === true ? null
+      : `prefers-reduced-motion: reduce is not in force (matchMedia ${media.matchMedia}, CSS media ${media.css})`;
+  }
+  return media.matchMedia === false && media.css === false ? null
+    : `an ordinary case ran under prefers-reduced-motion: reduce it did not ask for, or the page and its stylesheet disagree (matchMedia ${media.matchMedia}, CSS media ${media.css})`;
+}
+
+/**
  * X4 (a11y.reduced-motion): whether the page is under
  * `prefers-reduced-motion: reduce`, read two ways that must agree — the
  * MediaQueryList the page's scripts see, and the CSS media evaluation the
@@ -920,13 +950,7 @@ export function a11yReducedMotion(input = {}) {
   const judge = input.judge !== false;
   const findings = [];
   const fail = (message) => findings.push({ rule: 'a11y.reduced-motion', message });
-  // A duration list in CSS time units, in ms; NaN for a token that is not one.
-  const durations = (value) => String(value || '').split(',').map((t) => t.trim()).filter(Boolean).map((t) => {
-    const m = /^(-?\d*\.?\d+(?:e[-+]?\d+)?)(ms|s)$/i.exec(t);
-    if (!m) return NaN;
-    const n = parseFloat(m[1]);
-    return m[2].toLowerCase() === 's' ? n * 1000 : n;
-  });
+  const durations = motionDurations;
   const names = (value) => String(value || '').split(',').map((t) => t.trim());
   const measured = {
     elements: 0, pseudos: 0, transitionValues: 0, animationValues: 0,
@@ -940,7 +964,6 @@ export function a11yReducedMotion(input = {}) {
   };
   const reported = [];
   for (const el of Array.from(document.querySelectorAll('*'))) {
-    if (el.id === 'vqa-motion-probe') continue;
     measured.elements += 1;
     for (const pseudo of [null, '::before', '::after']) {
       const s = getComputedStyle(el, pseudo);
@@ -955,8 +978,11 @@ export function a11yReducedMotion(input = {}) {
       measured.animationValues += animation.length;
       const props = names(s.transitionProperty);
       const anims = names(s.animationName);
-      transition.forEach((ms, i) => { if (ms > 0) site('transition ' + (props[i] ?? props[props.length - 1] ?? 'all'), ms); });
-      animation.forEach((ms, i) => { if (ms > 0 && (anims[i] ?? 'none') !== 'none') site('animation ' + anims[i], ms); });
+      // Durations repeat to the length of the property (or name) list (CSS
+      // Transitions §2, Animations §4): each property's own duration is the
+      // list's entry at its index, cycled.
+      if (transition.length) props.forEach((prop, i) => { const ms = transition[i % transition.length]; if (ms > 0) site('transition ' + prop, ms); });
+      if (animation.length) anims.forEach((name, i) => { const ms = animation[i % animation.length]; if (ms > 0 && name !== 'none') site('animation ' + name, ms); });
       const badT = transition.some((ms) => ms > 0);
       // Strict, as §13 reads: every computed duration is zero, whether or not
       // keyframes are named for it.
@@ -985,7 +1011,14 @@ export function a11yReducedMotion(input = {}) {
     if (animation.playState !== 'running' || animation.playbackRate === 0) continue;
     measured.browserRunning += 1;
     const timing = animation.effect?.getComputedTiming?.() ?? {};
-    const duration = typeof timing.duration === 'number' ? timing.duration : Number(timing.duration);
+    // A duration that is not a number (a timeline-relative one, a CSS unit
+    // value) is unreadable here: a fault, as an unreadable computed one is.
+    if (typeof timing.duration !== 'number') {
+      measured.unparseable += 1;
+      if (judge) fail((animation.effect?.target ? zoomDescribe(animation.effect.target) + (animation.effect.pseudoElement ?? '') : 'the document') + ': a running animation whose duration the harness cannot read (' + String(timing.duration) + ') under prefers-reduced-motion: reduce');
+      continue;
+    }
+    const duration = timing.duration;
     if (!(duration > 0)) continue;
     measured.browserRunningPositive += 1;
     if (!judge) continue;
@@ -997,4 +1030,4 @@ export function a11yReducedMotion(input = {}) {
   }
   return { findings, evaluated: judge && measured.elements > 0 ? ['a11y.reduced-motion'] : [], measured };
 }
-a11yReducedMotion.helpers = [zoomDescribe];
+a11yReducedMotion.helpers = [zoomDescribe, motionDurations];

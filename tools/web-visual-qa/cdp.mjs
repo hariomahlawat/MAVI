@@ -223,15 +223,18 @@ async function connect(child, profile) {
     },
     /**
      * X4: Chromium's own media emulation of `prefers-reduced-motion`
-     * (Emulation.setEmulatedMedia) — `true` emulates `reduce`, `false` clears
-     * every emulated media feature, so the page sees the browser's default
-     * again. Set before a case's first document and kept by the target across
-     * its navigations; every case sets it, so no case inherits another's.
+     * (Emulation.setEmulatedMedia) — `true` emulates `reduce`; `false` pins
+     * `no-preference`, so an ordinary case is the normal preference whatever
+     * the host's own setting (an OS with animations turned off reports
+     * `reduce` to the browser); `null` clears every emulated feature, back to
+     * the browser's default. Set before a case's first document and kept by
+     * the target across its navigations; every case sets it, so no case
+     * inherits another's.
      */
     async reducedMotion(on) {
-      await call('Emulation.setEmulatedMedia', on
-        ? { media: '', features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }
-        : { media: '', features: [] });
+      await call('Emulation.setEmulatedMedia', on === null
+        ? { media: '', features: [] }
+        : { media: '', features: [{ name: 'prefers-reduced-motion', value: on ? 'reduce' : 'no-preference' }] });
     },
     /**
      * Sets the browser's page zoom and returns the factor the browser then

@@ -512,9 +512,13 @@ Stated limits: the names rule compares the computed name with the control's rend
 'reduced-motion'`, blocking at A, B and C). A case of the lane loads the state
 with Chromium emulating the preference itself — `cdp.mjs` `reducedMotion(true)`,
 `Emulation.setEmulatedMedia` with `prefers-reduced-motion: reduce` — set on the
-target before the case's first document; every case sets it (`false` clears the
-emulated features), so no case inherits another's, and every case records the
-preference it ran under (`motionMedia`). The lane's cases are the text-spacing
+target before the case's first document. Every case sets it: `reduce` for the
+lane, and `no-preference` pinned for every other case (`reducedMotion(false)`;
+`null` clears the emulation), so no case inherits another's and no host setting
+(an OS with animations off reports `reduce`) puts an ordinary case under reduced
+motion. Every case proves the preference it ran under (`motionMedia`,
+`a11y.mjs` `motionEnvironmentProblem`): a lane case that is not under `reduce`,
+or an ordinary case that is, is not reached — a harness fault, never a pass. The lane's cases are the text-spacing
 lane's: one canonical anchor per distinct composition (`REDUCED_MOTION_CONDITION`:
 1366×768, 1024×768, 768×1024, 390×844 — 1440, 1920 and 2560 render Tier A's
 composition again) plus each state's declared probe widths, judged by every rule
@@ -523,24 +527,34 @@ never fires).
 
 | Part | What it checks | Fails on |
 |---|---|---|
-| the environment (`a11yMotionEnvironment`) | the preference read two ways that must agree: `matchMedia('(prefers-reduced-motion: reduce)')` and the CSS media evaluation of a probe element; a lane case where either is false is not reached (a harness fault, never a pass); an ordinary case where they disagree likewise | a page that replaces `matchMedia`; emulation not applied |
+| the environment (`a11yMotionEnvironment`) | the preference read two ways that must agree: `matchMedia('(prefers-reduced-motion: reduce)')` and the CSS media evaluation of a probe element; a lane case where either is false is not reached (a harness fault, never a pass); an ordinary case where either is true likewise | a page that replaces `matchMedia`; emulation not applied; a reduced preference leaking into an ordinary case |
 | the durations (`a11yReducedMotion`) | every element (rendered or not: a hidden element's transition runs when it is shown) and every `::before`/`::after` that generates a box: each entry of `transition-duration` and `animation-duration`, comma lists parsed, `s` and `ms`, must be 0 — strictly, whether or not keyframes or properties are named | a transition or animation left running; one non-zero entry in a list; a duration the harness cannot read |
-| running animations | `document.getAnimations()`: an animation `running` at a non-zero rate whose iteration duration is positive — a CSS animation or transition the stylesheet missed, or a script-driven Web Animation the stylesheet cannot reach; a zero-duration, paused or finished one moves nothing and passes | a script `element.animate()` with a duration |
+| running animations | `document.getAnimations()`: an animation `running` at a non-zero rate whose iteration duration is positive — a CSS animation or transition the stylesheet missed (on any pseudo-element, `::marker` included), or a script-driven Web Animation the stylesheet cannot reach; a zero-duration, paused or finished one moves nothing and passes; a duration that is not a number (a timeline-relative one) is unreadable, a fault | a script `element.animate()` with a duration |
 | coverage (`engine.reducedMotionCoverageFaults`, full sweep and aggregate) | every planned lane case ran, was reached, had the preference proven and judged at least one element | a composition or probe width missing; a case not reached, not proven or judging nothing |
+| the control (`engine.normalMotionControlFaults`, full sweep and aggregate) | the ordinary cases, under the pinned normal preference, saw the activity pulse, the spinner and a transition run at a positive duration | a control that saw none of a site — the lane's zero for it would be unproven |
 
 The control: every ordinary case measures, without judging, the motion its page
 has under the normal preference (`normalMotion`: per site, the longest duration)
 — the activity pulse at `--dur-pulse` (1.2s), the spinner at `--dur-spin` (0.8s),
 the `--dur` (120ms) transitions — so the contract is proven to suppress motion
-that exists, not motion that was never there. The report states both.
+that exists, not motion that was never there; the full sweep faults if the
+control saw the pulse, the spinner or a transition nowhere. The report states
+both.
 
-Stated limits: the pseudo-elements judged are `::before` and `::after` (the
-product animates no other; `::marker`, `::placeholder` and `::selection` are not
-read); `getAnimations()` is the document's own (no iframes exist); smooth
-scrolling (`scroll-behavior`, `behavior: 'smooth'`) is not a duration and is not
-read — the product uses neither; delays are not judged (a delayed zero-duration
-animation moves nothing); the preference is judged on the settled state of each
-case and its preparation, not on every intermediate frame.
+Stated limits: the computed durations read are each element's and its
+`::before`'s and `::after`'s (the product styles no other pseudo-element with
+motion); a `::marker`, `::placeholder` or `::selection` transition is not read
+from computed style, though one *running* is caught by `getAnimations()`.
+`getAnimations()` is a snapshot of the settled state, the document's own (no
+iframes exist): a script animation that started and finished before it, motion
+driven by `requestAnimationFrame` writing styles, and SMIL `<animate>` are not
+seen — the product has none (its `requestAnimationFrame` uses are announcer and
+layout timing). Smooth scrolling (`scroll-behavior`, `behavior: 'smooth'`) is not
+a duration and is not read — the product uses neither. Delays are not judged (a
+delayed zero-duration animation moves nothing). Strict, as §13 reads: a non-zero
+duration fails even where no property or keyframes use it. Only the DOM present
+at the settled state is judged; tooltips and overlays the later probes open are
+covered by the universal `*` rule but not read.
 
 ## What still needs a person
 
