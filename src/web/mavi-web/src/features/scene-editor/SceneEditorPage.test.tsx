@@ -1269,6 +1269,19 @@ describe('scene editor', () => {
   });
 
   // Reference frame
+  it('keeps the reference slot one geometry, pinned or not: both badge texts in one cell, the file’s width held (§38; X3)', async () => {
+    render();
+    await screen.findByRole('button', { name: /^Gate/ });
+    const badge = document.querySelector('.scene-reference__badge') as HTMLElement;
+    const faces = Array.from(badge.querySelectorAll('.scene-reference__badge-face'));
+    expect(faces).toHaveLength(2);
+    const ghost = badge.querySelector('.scene-reference__badge-ghost');
+    expect(ghost).toHaveAttribute('aria-hidden', 'true');
+    // Whichever text is shown, the other is there unseen.
+    expect(faces.map((f) => f.textContent).sort()).toEqual(expect.arrayContaining(['No reference frame']));
+    expect(document.querySelector('.scene-reference__file')).toBeInTheDocument();
+  });
+
   it('records the chosen instant and not a later playhead position', async () => {
     const user = userEvent.setup();
     vi.mocked(saveCameraScene).mockResolvedValue(revision({ revisionNumber: 3 }));
@@ -1280,7 +1293,7 @@ describe('scene editor', () => {
     Object.defineProperty(media, 'currentTime', { configurable: true, writable: true, value: 12.5 });
     await user.click(screen.getByRole('button', { name: 'Use current frame' }));
 
-    expect(await screen.findByText(/Reference · /)).toBeInTheDocument();
+    expect(await screen.findByText('Reference · 00:12.5')).toBeInTheDocument();
 
     // Scrubbing afterwards must not move what will be saved.
     (media as unknown as { currentTime: number }).currentTime = 90;
