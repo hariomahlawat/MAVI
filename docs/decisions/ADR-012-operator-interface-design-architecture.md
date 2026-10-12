@@ -1,9 +1,9 @@
 # ADR-012 — Operator Interface Design Architecture
 
-**Status:** Accepted; amended 2026-10-07 (Stage 3.5 — see *Amendment 2026-10-07* below)  
+**Status:** Accepted; amended 2026-10-07 (Stage 3.5) and 2026-10-12 (Capability query interfaces — see amendments below)  
 **Date:** 2026-09-20  
 **Context:** Operator plane (React/TypeScript), following the independent UI/UX audit of `main@b99ce26f`  
-**Specification:** `docs/architecture/ui-ux-design-specification.md` (v1.0 accepted here; v2.0 accepted by the 2026-10-07 amendment)
+**Specification:** `docs/architecture/ui-ux-design-specification.md` (v1.0 accepted here; v2.0 accepted by the 2026-10-07 amendment; v2.1 accepted by the 2026-10-12 amendment)
 
 > ADR-010 is reserved by `docs/superpowers/plans/2026-09-20-audited-review-and-cases-plan.md` for operator identity, authorization and audit. ADR-011 freezes the scene-analytics lifecycle. This ADR takes the next number.
 
@@ -123,3 +123,27 @@ Decisions 1–4 and 6 stand as written. Decision 5's programme is complete and i
 ### Not decided here
 
 Budgets for §38 (set from the first measured baseline in the register, never invented); the exact Tier B and C compositions beyond the §25 table (settled in the reference-surface slices by inspection); open decisions 2b and 6 (unchanged); any light palette, density preference, resizable pane, command palette or mobile experience (still deferred, §31). Nothing in this amendment changes a domain model, contract, persistence, qualification or capability-stage decision, and capability Stage 4 is gated on the register's closure of this programme.
+
+## Amendment 2026-10-12 (Capability query interfaces)
+
+**Context.** The forward capability rebaseline adds deterministic structured aggregations (Stage 8) and an ordinary-language operator surface, **Ask MAVI** (Stage 9). The existing Search/Investigation surface is intentionally precise and evidence-oriented; simplifying it into a chat interface would remove reproducibility and make expert investigation worse. Conversely, requiring every operator to construct technical predicates and aggregation controls would make routine questions unnecessarily difficult. The architecture therefore needs two interfaces over one query authority, not one interface forced to serve both jobs.
+
+### Decision 13 — Ask MAVI and Advanced Search are separate interfaces over one deterministic query contract
+
+**Advanced Search** remains the precise Investigation query builder and evidence surface. **Ask MAVI** is a separate top-level Investigation surface; it does not introduce a sixth archetype.
+
+Ask MAVI's authority boundary is fixed:
+
+`operator question → local language-model translation/function call → Stage-8 whitelisted structured-query validation → deterministic application/database execution → typed result envelope → factual answer rendering`.
+
+The language model interprets the request but **does not compute or invent analytical facts**, does not run unrestricted SQL, does not inspect media in place of specialist vision capabilities, and does not expand the caller's data authority. Counts, groups, first/last observations, plate/face result sets and charts come from the deterministic query engine. The UI exposes a concise **Interpreted as** representation and links consequential answers to their supporting Tracks/events/evidence. Follow-up questions transform the explicit prior structured query; ambiguity is clarified/refused rather than guessed.
+
+The answer vocabulary must preserve MAVI's evidence semantics. A Track count is not silently labelled a count of unique people; before confirmed Entity semantics support that claim, Ask MAVI reports Person Tracks and event/crossing counts explicitly.
+
+**Rejected:** replacing Advanced Search with chat. It removes a stable, reproducible expert interface and makes forensic query state opaque.
+
+**Rejected:** allowing the language model to formulate arbitrary SQL or produce free-form factual answers from prompt context. It creates a second analytical engine whose outputs cannot be reproduced from MAVI's typed evidence contracts.
+
+**Consequences accepted:** Stage 8 must define the structured aggregation/cardinality contract before Stage 9; Ask MAVI needs its own future surface and translation/grounding qualification; the existing Stage-3.5 Search work remains valuable as the Advanced Search/evidence path rather than being redesigned again.
+
+This amendment changes operator-interface direction only. It does not choose a language model, alter current Search behaviour, add a dependency, or implement Stage 8/9.

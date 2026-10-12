@@ -1,14 +1,16 @@
 # MAVI UI/UX Design Specification
 
-**Version:** 2.0 (Stage 3.5 architecture freeze, 2026-10-07)
-**Status:** Adopted. Normative for all frontend work. Full conformance (§34) is the baseline from Stage 3.5 closure; during the Stage 3.5 programme the staged-conformance rule §34.2 states exactly what each slice must meet. The UI-1 → UI-5 transitional clause (§34.1) is closed.
+**Version:** 2.1 (capability-interface amendment, 2026-10-12; v2.0 remains the Stage 3.5 architecture freeze)
+**Status:** Adopted. Normative for all frontend work. Stage 3.5 closed on 2026-10-12 (PR #209 + closure PR #210, `main@1468286d`); full conformance (§34 items 1–17) is the normal frontend baseline. The Stage 3.5 staged-conformance rule §34.2 has expired, and the UI-1 → UI-5 transitional clause (§34.1) is closed.
 **Design baseline (v1.0):** `main@b99ce26f041b3fff25094b8a5ac6a84f7305fc87`
 **Audit baseline (v2.0):** `main@98e5cd3f3ae8ca636ffbe2115c6b74b4ebcb2b16` (Stage 3 closed; UI-1 → UI-5 and Scene Analytics Slices 0–7 merged)
 **Scope of authority:** the MAVI operator UI (`src/web/mavi-web`).
-**Decision record:** `docs/decisions/ADR-012-operator-interface-design-architecture.md` accepts the architecture this document specifies; its **Amendment 2026-10-07 (Stage 3.5)** accepts the v2.0 changes. The ADR records the decisions and the trade-offs; this document is the normative detail.
+**Decision record:** `docs/decisions/ADR-012-operator-interface-design-architecture.md` accepts the architecture this document specifies; its **Amendment 2026-10-07 (Stage 3.5)** accepts v2.0 and its **Amendment 2026-10-12 (Capability query interfaces)** accepts the v2.1 Ask MAVI/Advanced Search boundary. The ADR records the decisions and trade-offs; this document is the normative detail.
 **Programme record:** the Stage 3.5 audit, decisions and slice sequence are in `docs/superpowers/plans/2026-10-07-stage3-5-ui-ux-professionalisation.md`; the exit gate is `docs/reviews/2026-10-07-stage3-5-ui-ux-professionalisation-acceptance.md`.
 
 **What changed in 2.0.** Version 1.0 froze the architecture (archetypes, tokens, colour roles, state taxonomy, accessibility, visual QA) and the UI-1 → UI-5 programme that built it. Every surface now sits on that architecture, and the Stage 3.5 audit of the real application found that the architecture holds but the *product quality* on top of it does not yet: containment that reads as empty frames, a primary-action accent repeated on every row, four different placements of the same "unavailable" state, drawers that move no focus, native confirms still in use, responsive behaviour defined only at desktop snapshots, and a visual-QA method with no automated layout assertions beyond overflow and overlap. Version 2.0 therefore adds a quality direction (§2), the **product craftsmanship standard** (§36), the **edge-state and progressive-disclosure catalogue** (§37), **performance as UX** (§38), explicit **support tiers** replacing the v1.0 viewport table (§25), a revised **visual-regression strategy** (§26), a WCAG 2.2 AA target with harness-asserted obligations (§23), amended archetype, colour, state, shell, interaction, table, search, inspector and component rules where the audit found them insufficient (each marked *Amended in v2.0*), a conformance definition (§34) under which a surface is not complete merely because its functional tests pass, a staged-conformance rule for the programme that implements v2.0 (§34.2), and the programme pointer (§39). The UI-1 → UI-5 roadmap (§33) and its transitional clause (§34.1) are marked **Historical**, the mobile deferral (§31) is clarified, and v1.0 text that is no longer normative is kept rather than rewritten out of the record.
+
+**What changed in 2.1.** The capability roadmap now distinguishes the expert/evidence query builder from the future ordinary-language operator surface. §17 freezes **Advanced Search** as the existing precise, reproducible query builder and **Ask MAVI** as a separate future top-level Investigation surface. Ask MAVI translates an operator question into the Stage-8 whitelisted structured query/aggregation contract; factual counts, rows and charts come only from deterministic query results, never from language-model generation. §29 records Face Intelligence (Stage 5A), Structured Intelligence Query (Stage 8) and Ask MAVI (Stage 9) as future capability integrations. No existing Stage-3.5 surface or component is redesigned by v2.1.
 
 Status markers used throughout:
 
@@ -30,14 +32,14 @@ This document governs the visual design, layout architecture, interaction gramma
 
 **Does not govern:** backend contracts, API shape, analytics semantics, worker behaviour, or the capability roadmap sequence. Where a UI rule and an ADR conflict, the ADR wins and this document is amended.
 
-**Conformance:** §34 defines what a frontend PR must satisfy. §34.1, which governed the UI-1 → UI-5 migration period, is closed; no surface may rely on it. §34.2 governs the Stage 3.5 programme slices S1–S6 and expires at S7 closure.
+**Conformance:** §34 defines what a frontend PR must satisfy. §34.1 is closed. §34.2 governed the Stage 3.5 programme and expired at S7 closure; no surface may rely on either transitional clause. Full §34 items 1–17 now apply without a Stage 3.5 exception.
 
 **Precedence:** `AGENTS.md` and accepted ADRs > this specification > individual PR judgement.
 
 **Two numbering schemes appear in this document and MUST NOT be conflated:**
 
 - **Scene Analytics slices 0–7** — the eight slices of the Spatial & Temporal Track Analytics plan (`docs/superpowers/plans/2026-09-20-spatial-temporal-track-analytics.md`), which is capability stage 1. Slice 0 architecture/contracts, 1 geometry engine + scene configuration backend, 2 Scene Editor UI, 3 analytics lifecycle + derived-fact persistence, 4 Search integration + analytics readiness, 5 evidence overlays + explanation, 6 aggregates + heatmap, 7 hardening/performance/acceptance/qualification/docs closure.
-- **Capability roadmap stages 1–11** — the product capability sequence in `docs/superpowers/plans/capability-roadmap.md` (stage 1 Spatial & Temporal Analytics, 2 Visual Attributes, 3 expanded classes, 4 ANPR/OCR, 5 Visual Similarity, 6 ReID, 7 Event/Behaviour Analytics, 8 richer structured search, 9 NL query, 10 audited review/cases, 11 live RTSP).
+- **Capability roadmap stages 1–11, plus inserted Stage 5A** — the product capability sequence in `docs/superpowers/plans/capability-roadmap.md` (stage 1 Spatial & Temporal Analytics, 2 Visual Attributes, 3 expanded classes, 4 ANPR/OCR, 5 Visual Similarity, **5A Face Intelligence**, 6 ReID, 7 Event/Behaviour Analytics, 8 Structured Intelligence Query + aggregations, 9 **Ask MAVI**, 10 audited review/cases, 11 live RTSP).
 
 Where this document says "Slice *n*" it always means a Scene Analytics slice. This specification does not renumber either scheme.
 
@@ -538,6 +540,16 @@ Confirmations state the **consequence**, not the question: "Saving disables anal
 - **Amended in v2.0.** The keyboard legend (`j`/`k` move · `Enter` open · `Esc` close) is not standing header chrome; it lives in the `?` shortcut sheet (§22) and MAY appear once as a dismissible hint on first use. The per-row ordinal (`#1`, `#2`) is removed: position in a snapshot is not operator information. A result row's missing thumbnail is the §37 evidence placeholder, in one vocabulary shared with the grid card. A long camera or video name in a row truncates at the row's identity width; it never wraps the row to two lines (§16).
 - **Reaffirmed in v2.0 (open decision 4).** With nothing selected at ≥1600px, the results column keeps its cap and the in-place inspector slot stays empty base surface — unbordered, with no placeholder panel. The alternative, widening the results until a selection is made, moves the scan column every time the operator opens or closes a Track, and a column that moves is worse than a column with space beside it.
 
+### 17.1 Advanced Search and Ask MAVI (v2.1 prospective capability boundary)
+
+**Advanced Search** is the existing Investigation surface evolved by Stage 8. It remains the exact, reproducible evidence-query builder: explicit predicates, committed state, aggregations, result explanation, drill-through and evidence. It is appropriate for power users, investigation and forensic reproducibility; Stage 9 MUST NOT replace it with a chat-only interface.
+
+**Ask MAVI** is a separate future top-level **Investigation** surface, not a sixth archetype and not a conversational skin over unrestricted database access. Its initial composition is deliberately simple: one prominent question input; concise answer/result summary; chart/table only when the typed result warrants one; evidence/drill-through actions; and a compact **Interpreted as** disclosure of the validated structured query. Standing instructions, model branding, prompt/debug text and implementation detail are prohibited.
+
+The interaction contract is `question → local language translation → whitelisted structured query/aggregation validation → deterministic execution → typed result → factual rendering`. The language model never owns an analytical number, identity, plate reading or event fact. A follow-up question edits an explicit prior structured query. Ambiguous/out-of-contract questions are clarified or refused rather than guessed. Every answer that can affect an operator judgement provides a route to the Tracks/events/evidence that produced it.
+
+Where the operator uses ordinary language such as "how many people", the answer label follows the data MAVI actually owns. Before confirmed Entity semantics support a unique-person count, the surface says **Person Tracks** and, when relevant, **crossing/events**, rather than silently presenting Track count as unique people.
+
 ---
 
 ## 18. Media and evidence
@@ -821,8 +833,11 @@ Scene Analytics slices are numbered 0–7; capability roadmap stages are numbere
 | Visual attributes | Capability stage 2 | Investigation filter section + committed-filter chips; inspector key/value + Evidence Set viewer; Review evidence rail | committed-filter chips (§17), explicit `unknown` state (§14), one-badge-per-row rule (§16) — a matched attribute value may appear on a result row only as plain secondary text, never as an additional badge or chip — bounded observations[] evidence presentation (§4.5/§20) |
 | ANPR / OCR | Capability stage 4 | Investigation | none beyond §17 |
 | Visual similarity | Capability stage 5 | Investigation | candidate styling and rank numeral (§19) |
+| **Face Intelligence** | **Capability stage 5A** | Investigation + bounded enrolled-person management surface | candidate-match styling (§19); observed/reference face evidence; Unknown when no usable face; authorised-person match never styled as confirmed identity solely from similarity |
 | ReID / entity candidates | Capability stage 6 | Ledger to Record, plus canvas link glyph | candidate is not confirmed styling (§19) |
 | Event / behaviour analytics | Capability stage 7 | Evidence Player timeline lane and Ledger (Events) | player lane extension points (§18) |
+| **Structured Intelligence Query** | **Capability stage 8** | Advanced Search / Investigation | §17 committed state and result explanation; aggregation result units must distinguish events, Tracks and Entities |
+| **Ask MAVI** | **Capability stage 9** | Separate top-level Investigation surface | §17.1; question → interpreted query → deterministic result → evidence; not a chat-only replacement for Search |
 | Entities / Cases | Capability stage 10 | Ledger to Record with tabs | Record archetype and existing Tabs (§4.2) |
 | Live cameras / multi-camera | Capability stage 11 | **A sixth "Wall" archetype, not designed now** | the Evidence Player must already be a self-contained component (§18) |
 
@@ -853,6 +868,7 @@ MAVI MUST NOT drift into:
 - Artificially capping spatial or investigative workspaces on wide displays.
 - Abstracting shared components on visual similarity alone (§27.1).
 - Inflating dense desktop controls to mobile touch sizes (§10.1).
+- LLM-generated analytical facts, unrestricted natural-language-to-SQL, or a chat surface that hides the structured interpretation/evidence behind an answer (§17.1).
 
 ---
 
