@@ -568,7 +568,10 @@ def test_the_quality_aggregate_accounts_for_every_lane() -> None:
     scope_outputs = set(re.findall(r"^      ([a-z]+): \$\{\{ steps\.scope\.outputs\.\1 \}\}$", blocks["scope"], re.M))
     gated = {}
     for job, block in blocks.items():
-        m = re.search(r"^    if: needs\.scope\.outputs\.([a-z]+) != 'false'$", block, re.M)
+        # A lane that must report even when a lane it reads failed (S6/X3's
+        # performance gate beside a failed visual aggregate) is `always() &&`
+        # its scope, then conditions on its inputs; still gated by one output.
+        m = re.search(r"^    if: (?:always\(\) && )?needs\.scope\.outputs\.([a-z]+) != 'false'(?: && .+)?$", block, re.M)
         if m:
             gated[job] = m.group(1)
     assert set(gated) == set(needs) - {"scope", "repo-contracts"}, gated
