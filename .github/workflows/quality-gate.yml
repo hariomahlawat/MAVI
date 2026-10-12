@@ -858,7 +858,12 @@ jobs:
       - scope
       - visual-aggregate
       - performance-long-tasks
-    if: needs.scope.outputs.visual != 'false'
+    # Judged even when the visual aggregate or the lane failed (a blocking
+    # visual finding fails both): a performance regression landing beside a
+    # visual one is still reported, never hidden behind it. Both upload their
+    # results with if: always(); missing or partial evidence is the gate's own
+    # fault (plan, full sweep, head), never a pass.
+    if: always() && needs.scope.outputs.visual != 'false' && needs.visual-aggregate.result != 'cancelled' && needs.visual-aggregate.result != 'skipped' && needs.performance-long-tasks.result != 'cancelled' && needs.performance-long-tasks.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

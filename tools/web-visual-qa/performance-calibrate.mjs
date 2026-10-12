@@ -75,13 +75,35 @@ export const DECISIONS = Object.freeze({
       'A larger tolerance to absorb the mode was rejected: the mode is systematic, not repeatability noise (the 0.0225 class tolerance once proposed is retired).',
       'So this is an explicit failure-path class with an evidence-derived reference above the P1 Tier A observation, split out of ordinary Search; not a relaxation of Search or of Tier A.',
     ].join(' '),
+  }, {
+    name: 'review: scene geometry unavailable',
+    surface: 'review',
+    states: ['review-geometry-unavailable'],
+    why: 'The pinned scene revision cannot be loaded, so the zones, trip-line and crossing layer chips each state why beside the control and their row wraps (0.1247 at 768x1024, identical across samples). The normal path is the one kept still: X3 says loading quietly, so a review whose geometry arrives moves nothing (review@1024x768 0.0565-0.0748 to 0.0050); reserving three failure sentences on every load would undo that, and moving the reason off its chip would separate a statement from its control. A P1-ratcheted failure-path class (Linux 0.0559/0.1247/0.1205 against P1 0.1295/0.3087/0.1476), split out so it no longer sets the ordinary Review ceilings.',
   }],
+  // Every preparation transition P1 never measured is qualified here, by
+  // state, with its reason; the calibration refuses one that is not.
   explicitPreparation: [{
     name: 'search: scene refresh failure (names withdrawn)',
     surface: 'search',
     states: ['search-analytics-scene-degraded'],
     aboveP1: true,
     why: 'After a failed scene refresh the zone and line names are withdrawn (raw ids shown, correctly) and the rail states the failure with its Retry: an actionable alert that cannot be reserved while the scene is healthy. The coverage strip keeps its geometry through it (db619129). Approved as an explicit failure-path class.',
+  }, {
+    name: 'review: refresh failure on returning to a stale Review',
+    surface: 'review',
+    states: ['review-refresh-degraded'],
+    why: 'New since P1. Returning to a stale Review, its refresh fails and the failure is stated with its Retry above the evidence: the review grid moves once as the statement arrives (0.0827 at 390x844, identical in every Linux and Windows sample). The statement arrives with the failure; there is nothing to reserve while the refresh may still succeed.',
+  }, {
+    name: 'scene-editor: stacked failure notices (dense workbench)',
+    surface: 'scene-editor',
+    states: ['scene-editor-dense'],
+    why: 'New since P1 as a preparation (P1 measured this state’s navigation only). The dense-workbench fixture stacks genuine failures: the revision the operator asks for is refused and the video list is unavailable after its retry; each notice arrives when its request fails (about 1.25s and 2.27s) and moves the inspector and the footer (0.0911 at 768x1024, identical across samples). X3 removed the avoidable part, the two-reason note (0.30/0.47 to 0.09); what remains is failure statements arriving. Keyed by this state, never by the shared label "fixture preparation".',
+  }, {
+    name: 'review: open the runtime attestation and the record detail',
+    surface: 'review',
+    states: ['review-provenance-open'],
+    why: 'New since P1. Opening the attestation disclosure expands it in place: at most 0.0005 (2560x1440), 0 elsewhere.',
   }],
   environmentCalibrated: [{
     name: 'processing-queue @ B',
@@ -182,6 +204,9 @@ export function deriveBudgets({ linux, windows, p1, stateSurface, linuxLongTasks
   const labels = new Map();
   for (const c of [...L1, ...L2]) if (prep(c) !== null && !explicitPrep.has(c.state)) labels.set(`${c.surface}: ${c.perf.clsPreparation.by}`, { surface: c.surface, by: c.perf.clsPreparation.by });
   for (const [name, { surface, by }] of [...labels].sort()) {
+    if (!p1.cases.some((c) => stateSurface[c.state] === surface && p1prep(c) !== null && c.clsPreparation.by === by)) {
+      problems.push(`the preparation transition "${by}" on ${surface} has no P1 measurement and no decision: qualify it in DECISIONS.explicitPreparation (by state, with its reason)`);
+    }
     const cls = build({
       name, family: 'preparation', surface, by: [by], f: prep, p1f: p1prep, tolerance: decisions.tolerance.preparation,
       inClass: (c) => c.surface === surface && c.perf?.clsPreparation?.by === by && !explicitPrep.has(c.state),
@@ -208,7 +233,24 @@ export function deriveBudgets({ linux, windows, p1, stateSurface, linuxLongTasks
     return { head: r.head, measured: ord(r).filter((c) => c.perf?.longTasks?.status === 'measured').length, tasks: tasks.map((c) => ({ at: where(c), interaction: c.perf.longTasks.interaction, count: c.perf.longTasks.count, maxMs: c.perf.longTasks.maxMs })) };
   });
   const longTasks = { linux: lt(linuxLongTasks, 'Linux'), windows: lt(windowsLongTasks, 'Windows') };
-  return { head: linux[0].head, navigation, preparation, longTasks, problems };
+  // What the calibration measured, in both Linux samples: a case that stops
+  // being measured (a loading presentation renamed or removed, an interaction
+  // that no longer applies) is a fault at the gate, never a silent pass. Both
+  // samples agree on this set exactly (and six samples across three heads did).
+  const both = (rows1, rows2, f) => {
+    const second = new Set(rows2.filter((c) => f(c) !== null).map(key));
+    const firstSet = new Set(rows1.filter((c) => f(c) !== null).map(key));
+    for (const k of second) if (!firstSet.has(k)) problems.push(`${k}: measured in one Linux sample and not the other`);
+    return [...firstSet].filter((k) => second.has(k)).sort();
+  };
+  const ltMeasured = (c) => (c?.perf?.longTasks?.status === 'measured' ? c.perf.longTasks.count : null);
+  const measured = {
+    navigation: both(L1, L2, nav),
+    preparation: both(L1, L2, prep),
+    longTasks: linuxLongTasks.length === 2 ? both(ord(linuxLongTasks[0]), ord(linuxLongTasks[1]), ltMeasured) : [],
+  };
+  if (!measured.longTasks.length) problems.push('the calibration has no two single-lane Linux long-task runs');
+  return { head: linux[0].head, navigation, preparation, longTasks, measured, problems };
 }
 
 /** The budget module's source: the one canonical table. */
@@ -231,6 +273,7 @@ export function budgetModule(derived, { decisions = DECISIONS, calibration }) {
       evidence: derived.longTasks,
     },
     fonts: decisions.fonts,
+    measured: derived.measured,
   };
   return `/**
  * Stage 3.5 S6/X3 (§38): the performance budgets — the one canonical source.

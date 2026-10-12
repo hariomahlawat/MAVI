@@ -60,6 +60,7 @@ export function validateBudgets(budgets = PERFORMANCE_BUDGETS) {
     if (cls.tolerance !== undefined) number(cls.tolerance, `"${cls.name}".tolerance`);
     if (!cls.definedBy) problems.push(`"${cls.name}": no defining case`);
     if (!['mapped', 'inherited-new', 'explicit-new'].includes(cls.kind)) problems.push(`"${cls.name}": kind "${cls.kind}" is not mapped, inherited-new or explicit-new`);
+    if (cls.kind === 'explicit-new' && !cls.why) problems.push(`"${cls.name}": an explicit class states why it is qualified`);
     if (cls.environment && (!cls.environment.rationale || !Array.isArray(cls.environment.linux))) problems.push(`"${cls.name}": an environment-calibrated class states its Linux evidence and why`);
     return true;
   };
@@ -99,6 +100,9 @@ export function validateBudgets(budgets = PERFORMANCE_BUDGETS) {
     }
   }
   if (!Number.isInteger(budgets?.fonts?.documentFaces) || budgets.fonts.documentFaces < 0) problems.push('fonts.documentFaces: not a non-negative integer');
+  for (const family of ['navigation', 'preparation', 'longTasks']) {
+    if (!Array.isArray(budgets?.measured?.[family]) || !budgets.measured[family].length) problems.push(`measured.${family}: the calibration's measured cases are the floor of what is judged`);
+  }
   return problems;
 }
 
@@ -206,9 +210,19 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
   const budgetProblems = validateBudgets(budgets);
   if (budgetProblems.length) return { faults: budgetProblems.map((p) => `the budget table is malformed: ${p}`), findings, rows, longTaskRows: ltRows, summary: null };
 
+  // What the calibration measured: such a case answering not-applicable has
+  // stopped being judged (its loading presentation renamed or removed, its
+  // interaction gone) — a fault until it is requalified, never a silent pass.
+  const wasMeasured = {
+    navigation: new Set(budgets.measured.navigation),
+    preparation: new Set(budgets.measured.preparation),
+    longTasks: new Set(budgets.measured.longTasks),
+  };
+  const stopped = (key, what) => `${key}: ${what} was measured at calibration and is now not-applicable — what it measured no longer happens or is no longer seen; requalify it`;
   // The sweep: the full sweep, each planned ordinary case exactly once.
   if (!sweep) faults.push('no sweep results to judge');
   else if (sweep.fullSweep !== true) faults.push('the sweep results are not the full sweep: X3 is judged on the whole product');
+  if (sweep && !sweep.head) faults.push('the sweep results name no head');
   const ordinary = (sweep?.cases ?? []).filter(isOrdinary);
   const seen = new Map();
   for (const c of ordinary) seen.set(caseKey(c), (seen.get(caseKey(c)) ?? 0) + 1);
@@ -226,6 +240,7 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
     // Navigation CLS.
     const nav = c.perf?.cls;
     if (!nav || nav.status !== 'measured' && nav.status !== 'not-applicable') faults.push(measurementFault(key, 'navigation CLS', nav));
+    else if (nav.status === 'not-applicable' && wasMeasured.navigation.has(key)) faults.push(stopped(key, 'navigation CLS'));
     else if (nav.status === 'measured') {
       const limit = navigationLimit(c, budgets);
       if (!limit) faults.push(`${key}: no navigation budget class for ${c.surface} @ ${c.tier}, and nothing to inherit one from`);
@@ -238,6 +253,7 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
     // Preparation CLS — its own family: a good navigation never excuses it.
     const prep = c.perf?.clsPreparation;
     if (!prep || prep.status !== 'measured' && prep.status !== 'not-applicable') faults.push(measurementFault(key, 'preparation CLS', prep));
+    else if (prep.status === 'not-applicable' && wasMeasured.preparation.has(key)) faults.push(stopped(key, 'preparation CLS'));
     else if (prep.status === 'measured') {
       const limit = preparationLimit(c, budgets);
       if (!limit) faults.push(`${key}: the preparation transition "${prep.by}" on ${c.surface} belongs to no preparation budget class; it needs one, with its evidence (a navigation budget is never inherited)`);
@@ -267,12 +283,16 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
   else {
     if (longTasks.longTaskLane !== true) faults.push('the long-task results are not the long-task lane (run.mjs --long-tasks)');
     if (longTasks.workers !== 1) faults.push(`the long-task results were measured on ${longTasks.workers} lanes: only a single-lane run is evidence (lanes contend for the CPU)`);
-    if (sweep?.head && longTasks.head && longTasks.head !== sweep.head) faults.push(`the long-task run (${longTasks.head}) and the sweep (${sweep.head}) are of different heads`);
+    if (!longTasks.head) faults.push('the long-task results name no head');
+    else if (sweep?.head && longTasks.head !== sweep.head) faults.push(`the long-task run (${longTasks.head}) and the sweep (${sweep.head}) are of different heads`);
     const lt = (longTasks.cases ?? []).filter(isOrdinary);
     const ltSeen = new Map();
     for (const c of lt) ltSeen.set(caseKey(c), (ltSeen.get(caseKey(c)) ?? 0) + 1);
     for (const [key, n] of ltSeen) if (n > 1) faults.push(`${key}: in the long-task run ${n} times`);
-    if (plan) for (const key of plan.longTasks) if (!ltSeen.has(key)) faults.push(`${key}: declares an interaction but the long-task run did not measure it`);
+    if (plan) {
+      for (const key of plan.longTasks) if (!ltSeen.has(key)) faults.push(`${key}: declares an interaction but the long-task run did not measure it`);
+      for (const key of ltSeen.keys()) if (!plan.longTasks.has(key)) faults.push(`${key}: in the long-task run but not in its plan`);
+    }
     for (const c of lt) {
       const key = caseKey(c);
       const m = c.perf?.longTasks;
@@ -280,11 +300,16 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
       // A case of an interaction state where the interaction does not apply
       // (a rendered composition, said so with its reason) measures nothing,
       // as in P1; missing, failed or unsupported is a fault.
-      if (m?.status === 'not-applicable' && m.why) continue;
+      if (m?.status === 'not-applicable' && m.why) {
+        if (wasMeasured.longTasks.has(key)) faults.push(stopped(key, 'its interaction’s long tasks'));
+        continue;
+      }
       if (!m || m.status !== 'measured') { faults.push(measurementFault(key, 'long tasks', m)); continue; }
       const limit = longTaskLimit(m.interaction, budgets);
       const pass = m.count <= limit.count && m.maxMs <= limit.maxMs;
-      ltRows.push({ key, tier: c.tier, interaction: m.interaction, count: m.count, maxMs: m.maxMs, totalMs: m.totalMs, ...limit, pass });
+      // The measurement and what its class permits, apart: a permitted value
+      // never stands in for a measured one in the evidence.
+      ltRows.push({ key, tier: c.tier, interaction: m.interaction, count: m.count, maxMs: m.maxMs, totalMs: m.totalMs, class: limit.class, permitted: { count: limit.count, maxMs: limit.maxMs }, pass });
       if (!pass) findings.push({ rule: 'perf.long-tasks', key, tier: c.tier, message: `"${m.interaction}": ${m.count} long task(s), longest ${m.maxMs}ms, total ${m.totalMs}ms; its class "${limit.class}" permits ${limit.count}, each at most ${limit.maxMs}ms` });
     }
   }

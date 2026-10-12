@@ -39,26 +39,52 @@ export function stateMapping(p1, states) {
   };
 }
 
-/** P1 against the current product, per family and tier, and P1's largest outliers now. */
-export function p1ToCurrent(p1, sweep, longTasks) {
+/**
+ * P1 against the current product, case by case: only case keys both measured
+ * are compared (a distribution over different case sets would read a de-planned
+ * or newly not-applicable case as an improvement). P1 cases no longer planned,
+ * P1 cases now not-applicable, and current cases P1 never had are their own
+ * categories.
+ */
+export function p1ToCurrent(p1, sweep, longTasks, plannedKeys = null) {
   const cur = sweep.cases.filter(isOrdinary);
-  const curBy = new Map(cur.map((c) => [`${c.state}|${c.viewport}|${c.kind}`, c]));
-  const fam = (p1f, curf) => Object.fromEntries(TIERS.map((t) => [t, {
-    p1: distribution(p1.cases.filter((c) => c.tier === t).map(p1f).filter((v) => v !== null)),
-    current: distribution(cur.filter((c) => c.tier === t).map(curf).filter((v) => v !== null)),
-  }]));
+  const keyOf = (c) => `${c.state}|${c.viewport}|${c.kind}`;
+  const curBy = new Map(cur.map((c) => [keyOf(c), c]));
+  const planned = plannedKeys ?? new Set(curBy.keys());
   const p1nav = (c) => num(c.cls);
   const p1prep = (c) => num(c.clsPreparation?.value);
-  const curnav = (c) => (c.perf?.cls?.status === 'measured' ? c.perf.cls.value : null);
-  const curprep = (c) => (c.perf?.clsPreparation?.status === 'measured' ? c.perf.clsPreparation.value : null);
-  const outliers = (p1f, curf, n) => p1.cases.filter((c) => p1f(c) !== null).sort((a, b) => p1f(b) - p1f(a)).slice(0, n)
-    .map((c) => { const now = curBy.get(`${c.state}|${c.viewport}|${c.kind}`); return { at: where(c), p1: p1f(c), current: now ? curf(now) : 'retired' }; });
+  const curnav = (c) => (c?.perf?.cls?.status === 'measured' ? c.perf.cls.value : null);
+  const curprep = (c) => (c?.perf?.clsPreparation?.status === 'measured' ? c.perf.clsPreparation.value : null);
+  const family = (p1f, curf) => {
+    const matched = []; const dePlanned = []; const nowNotApplicable = [];
+    for (const c of p1.cases) {
+      const before = p1f(c); if (before === null) continue;
+      const k = keyOf(c);
+      if (!planned.has(k)) { dePlanned.push({ at: where(c), p1: before }); continue; }
+      const now = curf(curBy.get(k));
+      if (now === null) { nowNotApplicable.push({ at: where(c), p1: before, status: curBy.get(k)?.perf ? 'not-applicable' : 'missing' }); continue; }
+      matched.push({ at: where(c), tier: c.tier, p1: before, current: now });
+    }
+    const p1Keys = new Set(p1.cases.filter((c) => p1f(c) !== null).map(keyOf));
+    const newlyMeasured = cur.filter((c) => curf(c) !== null && !p1Keys.has(keyOf(c))).length;
+    const byTier = Object.fromEntries(TIERS.map((t) => {
+      const m = matched.filter((x) => x.tier === t);
+      return [t, { matched: m.length, p1: distribution(m.map((x) => x.p1)), current: distribution(m.map((x) => x.current)), worse: m.filter((x) => clsUnits(x.current) > clsUnits(x.p1)).length }];
+    }));
+    return {
+      byTier,
+      largestP1Outliers: [...matched].sort((a, b) => b.p1 - a.p1).slice(0, 15),
+      largestRegressions: matched.filter((x) => clsUnits(x.current) > clsUnits(x.p1)).sort((a, b) => (b.current - b.p1) - (a.current - a.p1)).slice(0, 15).map((x) => ({ ...x, delta: fromUnits(clsUnits(x.current) - clsUnits(x.p1)) })),
+      dePlannedP1Cases: dePlanned,
+      p1MeasuredNowNotApplicable: nowNotApplicable,
+      currentCasesWithoutP1: newlyMeasured,
+    };
+  };
   const p1Tasks = p1.cases.filter((c) => c.longTasks && typeof c.longTasks === 'object' && c.longTasks.count > 0).map((c) => ({ at: where(c), interaction: c.interaction, count: c.longTasks.count, maxMs: c.longTasks.maxMs }));
   const curTasks = longTasks.cases.filter((c) => isOrdinary(c) && c.perf?.longTasks?.status === 'measured' && c.perf.longTasks.count > 0).map((c) => ({ at: where(c), interaction: c.perf.longTasks.interaction, count: c.perf.longTasks.count, maxMs: c.perf.longTasks.maxMs }));
   return {
-    navigation: fam(p1nav, curnav),
-    preparation: fam(p1prep, curprep),
-    largestP1Outliers: { navigation: outliers(p1nav, curnav, 15), preparation: outliers(p1prep, curprep, 10) },
+    navigation: family(p1nav, curnav),
+    preparation: family(p1prep, curprep),
     longTasks: {
       p1: { measured: p1.cases.filter((c) => c.longTasks && typeof c.longTasks === 'object').length, withTasks: p1Tasks },
       current: { measured: longTasks.cases.filter((c) => isOrdinary(c) && c.perf?.longTasks?.status === 'measured').length, withTasks: curTasks },
@@ -130,7 +156,13 @@ export function qualification({ sweep, longTasks, windows, windowsLongTasks, p1,
       longTasks: { measured: verdict.summary.longTasks.measured, withTasks: verdict.summary.longTasks.withTasks, nearest: verdict.longTaskRows.filter((r) => r.count > 0) },
       fonts: { families: verdict.summary.fonts.families, documentFaces: verdict.summary.fonts.documentFaces, custom: verdict.rows.filter((r) => r.font?.custom).length },
     },
-    p1ToCurrent: p1ToCurrent(p1, sweep, longTasks),
+    // Case by case against P1 in P1's own environment (Windows) where the
+    // continuity run is given — a Linux value against a Windows one mixes the
+    // product with the platform's font metrics — and on Linux, labelled so.
+    p1ToCurrent: {
+      ...(windows ? { windows: { environment: 'Windows 11, the environment P1 was measured in: the like-for-like comparison', ...p1ToCurrent(p1, windows, windowsLongTasks ?? longTasks, plan?.sweep ?? null) } } : {}),
+      linux: { environment: 'Linux CI, the enforcement environment: against P1’s Windows values, so platform font metrics are part of every difference', ...p1ToCurrent(p1, sweep, longTasks, plan?.sweep ?? null) },
+    },
     windowsContinuity: continuity,
     verdict: pass ? 'PASS' : 'FAIL',
   };

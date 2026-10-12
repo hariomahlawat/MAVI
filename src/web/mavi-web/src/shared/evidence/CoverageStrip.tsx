@@ -77,6 +77,10 @@ export default function CoverageStrip({
               many lines the headline takes (S6/X3). */}
           <span className="faint coverage__identity">
             <span className="coverage__revision">{revision}</span>
+            {/* A word break for assistive technology where the stacked
+                identity draws no separator; a flex container lays it out as
+                nothing. */}
+            {' '}
             <span className="coverage__engine">{engineLabel(coverage.algorithmVersion)}</span>
           </span>
         </span>

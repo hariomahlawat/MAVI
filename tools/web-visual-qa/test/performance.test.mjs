@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { PERFORMANCE_BUDGETS } from '../performance-budgets.mjs';
+import { DECISIONS } from '../performance-calibrate.mjs';
 import {
   caseKey, clsUnits, evaluatePerformance, longTaskLimit, navigationLimit, ordinaryPlan, preparationLimit,
   registerBlock, registerDisagreements, REGISTER_MARKERS, validateBudgets,
@@ -20,12 +21,12 @@ const BUDGETS = Object.freeze({
     navigation: [
       { name: 'search @ A', surface: 'search', tier: 'A', reference: 0.0359, definedBy: 'search-no-timezone@1366x768', kind: 'mapped' },
       { name: 'search @ B', surface: 'search', tier: 'B', reference: 0.052, definedBy: 'search-no-timezone@1024x768', kind: 'mapped' },
-      { name: 'search: filter names unresolved @ A', surface: 'search', tier: 'A', states: ['search-filtered-unresolved'], reference: 0.0876, definedBy: 'evidence: the two-frame mode', kind: 'explicit-new' },
+      { name: 'search: filter names unresolved @ A', surface: 'search', tier: 'A', states: ['search-filtered-unresolved'], reference: 0.0876, definedBy: 'evidence: the two-frame mode', kind: 'explicit-new', why: 'test' },
       { name: 'processing-queue @ B', surface: 'processing-queue', tier: 'B', reference: 0.0099, definedBy: 'processing-queue-row-unavailable@1024x768', kind: 'mapped', environment: { p1: 0.0078, windows: 0.0079, linux: [0.0099, 0.0099], rationale: 'test' } },
     ],
     preparation: [
       { name: 'search: select a result to inspect it', surface: 'search', by: ['select a result to inspect it'], reference: 0.0124, definedBy: 'search-inspector-opened-narrow-band@600x900', kind: 'mapped' },
-      { name: 'search: scene refresh failure', surface: 'search', states: ['search-analytics-scene-degraded'], reference: 0.017, definedBy: 'search-analytics-scene-degraded@430x932', kind: 'explicit-new' },
+      { name: 'search: scene refresh failure', surface: 'search', states: ['search-analytics-scene-degraded'], reference: 0.017, definedBy: 'search-analytics-scene-degraded@430x932', kind: 'explicit-new', why: 'test' },
     ],
   },
   longTasks: {
@@ -33,6 +34,12 @@ const BUDGETS = Object.freeze({
     classes: [{ name: 'Search result selection', interactions: ['select a result to inspect it'], count: 1, maxMs: 65 }],
   },
   fonts: { documentFaces: 0 },
+  // What the calibration measured: the floor of what is judged.
+  measured: {
+    navigation: ['search|1024x768|anchor'],
+    preparation: ['search-inspector-opened|1024x768|anchor'],
+    longTasks: ['search-inspector-opened|1024x768|anchor'],
+  },
 });
 
 const measured = (value, extra = {}) => ({ status: 'measured', value, ...extra });
@@ -78,6 +85,28 @@ describe('the performance gate (X3)', () => {
     });
   });
 
+  it('faults a case the calibration measured that now answers not-applicable: nothing stops being judged silently', () => {
+    const navGone = sweepCase({ viewport: '1024x768', tier: 'B', cls: { status: 'not-applicable', why: 'no loading presentation was observed' } });
+    const prepGone = sweepCase({ state: 'search-inspector-opened', viewport: '1024x768', tier: 'B', prep: { status: 'not-applicable', why: 'no preparation' } });
+    const ltGone = { ...ltCase({ viewport: '1024x768', tier: 'B' }), perf: { longTasks: { status: 'not-applicable', why: 'the state has no interaction' } } };
+    const v = judge({ sweep: [navGone, prepGone], lt: [ltGone] });
+    assert.deepEqual(v.findings, []);
+    assert.ok(v.faults.some((f) => f.startsWith('search|1024x768|anchor: navigation CLS was measured at calibration and is now not-applicable')));
+    assert.ok(v.faults.some((f) => f.startsWith('search-inspector-opened|1024x768|anchor: preparation CLS was measured at calibration')));
+    assert.ok(v.faults.some((f) => f.includes('long tasks was measured at calibration')));
+    // A case the calibration never measured may be not-applicable.
+    assert.deepEqual(judge({ sweep: [sweepCase({ viewport: '1440x900', cls: { status: 'not-applicable', why: 'none shown' } })] }).faults, []);
+  });
+
+  it('faults an unreached or invalid capture, and results that name no head', () => {
+    const unreached = { ...sweepCase(), valid: false, reached: false };
+    assert.ok(judge({ sweep: [unreached] }).faults.some((f) => f.includes('not a valid capture')));
+    const ltUnreached = { ...ltCase(), valid: false };
+    assert.ok(judge({ lt: [ltUnreached] }).faults.some((f) => f.includes('not a valid capture in the long-task run')));
+    assert.ok(judge({ sweepExtra: { head: null } }).faults.includes('the sweep results name no head'));
+    assert.ok(judge({ ltExtra: { head: undefined } }).faults.includes('the long-task results name no head'));
+  });
+
   it('1. fails navigation CLS above its budget, naming the class and the case that defines it', () => {
     const v = judge({ sweep: [sweepCase({ cls: measured(0.0521) })] });
     assert.deepEqual(rules(v), ['perf.cls']);
@@ -96,6 +125,12 @@ describe('the performance gate (X3)', () => {
     assert.equal(v.rows[0].navigation.pass, true);
     assert.equal(v.rows[0].preparation.pass, false);
     assert.deepEqual(rules(v), ['perf.cls']);
+  });
+
+  it('records the measured long tasks, and what the class permits, apart', () => {
+    const v = judge({ lt: [ltCase({ count: 0, maxMs: 0 }), ltCase({ viewport: '1440x900', count: 1, maxMs: 52 })] });
+    assert.deepEqual(v.longTaskRows.map((r) => [r.count, r.maxMs, r.permitted.count, r.permitted.maxMs]), [[0, 0, 1, 65], [1, 52, 1, 65]]);
+    assert.deepEqual(v.summary.longTasks.withTasks.map((r) => [r.key, r.count, r.maxMs]), [['search-inspector-opened|1440x900|anchor', 1, 52]]);
   });
 
   it('4. fails a long task on an interaction whose baseline is zero', () => {
@@ -161,6 +196,10 @@ describe('the performance gate (X3)', () => {
     assert.ok(validateBudgets(both).some((p) => p.includes('either transitions (by) or named states, exactly one')));
     const shared = structuredClone(BUDGETS); shared.longTasks.classes.push({ name: 'again', interactions: ['select a result to inspect it'], count: 1, maxMs: 65 });
     assert.ok(validateBudgets(shared).some((p) => p.includes('belongs to "Search result selection" and "again"')));
+    const unexplained = structuredClone(BUDGETS); delete unexplained.cls.preparation[1].why;
+    assert.ok(validateBudgets(unexplained).some((p) => p.includes('"search: scene refresh failure": an explicit class states why')));
+    const floorless = structuredClone(BUDGETS); floorless.measured.navigation = [];
+    assert.ok(validateBudgets(floorless).some((p) => p.includes('measured.navigation')));
     const undefined_ = structuredClone(BUDGETS); delete undefined_.cls.navigation[0].definedBy;
     assert.ok(validateBudgets(undefined_).some((p) => p.includes('"search @ A": no defining case')));
     const env = structuredClone(BUDGETS); env.cls.navigation[3].environment = { linux: [0.0099] };
@@ -203,6 +242,8 @@ describe('the performance gate (X3)', () => {
     assert.ok(v.faults.includes('search|1024x768|anchor: planned but missing from the sweep'));
     assert.ok(v.faults.includes('search|2560x1440|anchor: in the sweep but not in the plan'));
     assert.ok(v.faults.includes('search-inspector-opened|390x844|anchor: declares an interaction but the long-task run did not measure it'));
+    const extra = judge({ plan, sweep: [sweepCase(), sweepCase({ viewport: '1024x768' })], lt: [ltCase(), ltCase({ viewport: '390x844' }), ltCase({ viewport: '2560x1440' })] });
+    assert.ok(extra.faults.includes('search-inspector-opened|2560x1440|anchor: in the long-task run but not in its plan'));
     assert.ok(judge({ sweepExtra: { fullSweep: false } }).faults.some((f) => f.includes('not the full sweep')));
   });
 
@@ -232,7 +273,7 @@ describe('the frozen budget table (performance-budgets.mjs)', () => {
     assert.deepEqual(validateBudgets(PERFORMANCE_BUDGETS), []);
   });
 
-  it('covers every surface at every tier the ordinary plan reaches, and every planned preparation transition', async () => {
+  it('covers every surface at every tier the ordinary plan reaches with a navigation class', async () => {
     const states = await import('../states.mjs');
     const { STATES } = states;
     const plan = ordinaryPlan(states);
@@ -257,10 +298,37 @@ describe('the frozen budget table (performance-budgets.mjs)', () => {
     assert.deepEqual([...missing].filter((m) => !unmeasured[m]), []);
   });
 
-  it('keeps every long-task budget at zero but Search selection, at the P1 envelope', () => {
-    assert.equal(PERFORMANCE_BUDGETS.longTasks.default.count, 0);
-    assert.equal(PERFORMANCE_BUDGETS.longTasks.default.maxMs, 0);
-    assert.deepEqual(PERFORMANCE_BUDGETS.longTasks.classes.map((c) => [c.interactions, c.count, c.maxMs]), [[['select a result to inspect it'], 1, 65]]);
+  it('is the owner’s decisions, exactly: no value DECISIONS did not set or the calibration derive', () => {
+    const b = PERFORMANCE_BUDGETS;
+    const { tolerance } = DECISIONS;
+    assert.deepEqual(b.cls.tolerance, { A: tolerance.A, B: tolerance.B, C: tolerance.C, preparation: tolerance.preparation });
+    assert.deepEqual(b.baseline, DECISIONS.baseline);
+    assert.deepEqual(b.longTasks.default, DECISIONS.longTasks.default);
+    assert.deepEqual(b.longTasks.classes, DECISIONS.longTasks.classes);
+    assert.deepEqual(b.fonts, DECISIONS.fonts);
+    // No class carries a tolerance of its own: the tiers' are the only ones.
+    for (const c of [...b.cls.navigation, ...b.cls.preparation]) assert.equal(c.tolerance, undefined, c.name);
+    // Environment calibration only where decided.
+    assert.deepEqual(b.cls.navigation.filter((c) => c.environment).map((c) => c.name), DECISIONS.environmentCalibrated.map((d) => d.name));
+    // Every explicit class is a decision, with its reason; its references as decided.
+    for (const d of DECISIONS.explicitNavigation) {
+      for (const t of ['A', 'B', 'C']) {
+        const c = b.cls.navigation.find((k) => k.name === `${d.name} @ ${t}`);
+        assert.ok(c, `${d.name} @ ${t}`);
+        assert.deepEqual(c.states, d.states);
+        assert.equal(c.why, d.why);
+        if (d.references) assert.equal(c.reference, d.references[t], `${d.name} @ ${t}`);
+      }
+    }
+    const explicitPrep = new Map(DECISIONS.explicitPreparation.map((d) => [d.name, d]));
+    for (const c of [...b.cls.navigation, ...b.cls.preparation].filter((k) => k.kind === 'explicit-new')) {
+      const d = explicitPrep.get(c.name) ?? DECISIONS.explicitNavigation.find((n) => c.name.startsWith(`${n.name} @ `));
+      assert.ok(d, `${c.name} is explicit but no decision qualifies it`);
+      assert.deepEqual(c.states, d.states, c.name);
+    }
+    // A preparation class keyed by a shared label is P1-measured; anything new
+    // is keyed by its state.
+    for (const c of b.cls.preparation.filter((k) => k.by)) assert.equal(c.kind, 'mapped', c.name);
   });
 
   it('agrees with the register', () => {

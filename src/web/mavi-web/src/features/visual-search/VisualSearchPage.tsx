@@ -361,15 +361,21 @@ export default function VisualSearchPage() {
   // in the list — the region it belonged to, rather than the document.
   const resultsRef = useRef<HTMLElement | null>(null);
 
+  // §38: one identity for the page's lifetime, so the memoised results
+  // re-render only where their selection changed. The router's setter is
+  // re-created whenever the search params change (a selection is one), so
+  // the callback reads the latest through a ref rather than depending on it.
+  const setSearchParamsRef = useRef(setSearchParams);
+  useLayoutEffect(() => { setSearchParamsRef.current = setSearchParams; });
   const selectTrack = useCallback((id: string | null) => {
     if (id === null) pendingAdvance.current = null;
-    setSearchParams((current) => {
+    setSearchParamsRef.current((current) => {
       const next = new URLSearchParams(current);
       if (id) next.set(SELECTION_PARAM, id);
       else next.delete(SELECTION_PARAM);
       return next;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, []);
 
   /**
    * Close the inspector and put focus back where the operator left it.

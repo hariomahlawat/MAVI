@@ -576,14 +576,20 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   navigation budget is never lent to a preparation.
 - **Long tasks**: the single-lane run (`run.mjs --long-tasks`, one worker:
   every state that declares an interaction, at its ordinary anchors and
-  probes). Zero for every interaction but Search result selection (at most
-  one task of at most 65ms, P1's band). A run on more lanes, or not the lane,
-  is a fault.
+  probes). A default class for every interaction and one for Search result
+  selection, P1's only interaction with a long task; their counts and
+  durations are the budget source's, never restated here. A run on more
+  lanes, or not the lane, is a fault.
 - **Fonts**: the text renders in a platform font and the document holds no
   font face (`document.fonts.size`), so nothing can arrive late and swap. The
   resolved family is a diagnostic; no family is required across systems.
 - Comparison in integer units (CLS in 1e-4, milliseconds whole): a value at
   `reference + tolerance` passes, one unit over fails.
+- **The calibration's measured cases are the floor**: the budget source lists
+  every case the calibration measured (both Linux samples agreed exactly); one
+  that now answers `not-applicable` — its loading presentation renamed or
+  removed, its interaction gone — is a fault, so nothing stops being judged
+  without a person requalifying it.
 - **Faults, not findings**: a measurement missing, `failed` or `unsupported`; a
   planned case missing, unplanned or twice (the plan is derived from
   `states.mjs`, not from the results); a case no class covers; a malformed
@@ -603,7 +609,8 @@ why, the explicit and environment-calibrated classes and why). Reference =
 min(P1 class maximum, Linux class maximum), the ratchet; tolerance from
 same-head repeatability per tier. It prints the review table and, with
 `--write`, regenerates `performance-budgets.mjs`; it refuses to write while
-the calibration contradicts a decision. The register's P1 row carries the
+the calibration contradicts a decision, or when a preparation transition P1
+never measured has no decision (each is qualified by state, with its reason). The register's P1 row carries the
 budget block, and `test/performance.test.mjs` fails if they disagree.
 
 In CI, `performance-long-tasks` runs the lane in parallel with the sweep, and
