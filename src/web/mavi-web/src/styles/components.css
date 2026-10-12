@@ -405,6 +405,17 @@ table.table--ledger { width: 100%; max-width: max-content; }
 .skeleton--list .skeleton__row { height: var(--c-result-row-h); padding: var(--s-2) var(--s-4); }
 .skeleton--list .skeleton__row::before { width: 96px; height: 60px; }
 .skeleton--compact-list .skeleton__row { height: var(--c-recent-row-h); padding: var(--s-2) var(--s-4); }
+/* A result Grid's cards (S6/X3, section 38: a list loads as skeletons, never
+   a spinner): the grid's own columns, gap and inset; each card its 16:10
+   evidence matte over the extent of its facts and action. */
+.skeleton--grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-3); padding: var(--s-3); }
+.skeleton--grid .skeleton__row {
+  height: auto; padding: 0; border-bottom: 0; overflow: hidden;
+  display: grid; grid-template-rows: auto var(--c-result-card-text-h);
+  border-radius: var(--r-3); background: var(--surface-raised);
+}
+.skeleton--grid .skeleton__row::before,
+.skeleton--grid .skeleton__row:nth-of-type(even)::before { width: 100%; height: auto; aspect-ratio: 16 / 10; border-radius: inherit; }
 /* A Ledger skeleton reserves the table's header before its rows: the frame's
    top border and one --table-head-h row, with the header's divider drawn where
    the header's will be. It is not a table and draws no frame (section 4.1):

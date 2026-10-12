@@ -804,7 +804,8 @@ export default function VisualSearchPage() {
             state={fromInfiniteQuery(tracks, (pages) => pages.flatMap((page) => page.items))}
             label="results"
             loadingLabel="Searching…"
-            skeleton={shownView === 'list' ? { rows: 'default', pitch: 'list' } : undefined}
+            // Either view loads as its own skeleton, never a spinner (§38).
+            skeleton={{ rows: 'default', pitch: shownView === 'list' ? 'list' : 'grid' }}
             isEmpty={(found) => found.length === 0}
             empty={resultsEmpty(coverage)}
             unavailableMessage={(error) => describeError(error, 'The search could not be completed.')}

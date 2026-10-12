@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import Icon from '../../shared/components/Icon';
@@ -47,7 +47,10 @@ export function reviewPath(
  * The select button's identity comes from `resultSelection`, shared with the
  * Grid: the page's key handler knows that contract rather than this markup.
  */
-function ResultRow({
+// §38: memoised, so selecting a result re-renders the two rows whose
+// `selected` changed, not every row of every page loaded (its props are the
+// row's own data, a per-row boolean, and the page's stable callbacks).
+const ResultRow = memo(function ResultRow({
   track,
   selected,
   displayTimeZoneId,
@@ -107,7 +110,7 @@ function ResultRow({
       </div>
     </li>
   );
-}
+});
 
 export default function TrackResultList({
   items,

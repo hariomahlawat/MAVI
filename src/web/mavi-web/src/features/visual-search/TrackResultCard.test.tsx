@@ -29,6 +29,10 @@ const base: TrackSearchItem = {
 };
 
 describe('TrackResultCard', () => {
+  it('is memoised, so selecting one card re-renders the two whose selection changed, not the grid (§38)', () => {
+    expect((TrackResultCard as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for('react.memo'));
+  });
+
   it('offers selection as a real control rather than a click handler on the card', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

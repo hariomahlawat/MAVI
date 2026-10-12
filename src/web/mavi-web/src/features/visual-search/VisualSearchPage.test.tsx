@@ -158,6 +158,14 @@ describe('VisualSearchPage', () => {
     ));
   });
 
+  it('loads the grid view as card skeletons, not a spinner (S6/X3, §38)', async () => {
+    window.localStorage.setItem('mavi.search.view', 'grid');
+    vi.mocked(searchTracks).mockReturnValue(new Promise(() => {}));
+    const { container } = renderWithApp(<VisualSearchPage />, { route: '/search' });
+    await waitFor(() => expect(container.querySelector('.skeleton--grid')).not.toBeNull());
+    expect(container.querySelector('.results .spinner')).toBeNull();
+  });
+
   it('is an Investigation rather than a page with its own three-column grid', async () => {
     const { container } = renderWithApp(<VisualSearchPage />, { route: '/search' });
     await screen.findByRole('link', { name: 'Review evidence' });

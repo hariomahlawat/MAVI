@@ -399,6 +399,11 @@
      where it was (section 38); it is a geometry constant of one archetype's
      row, not a spacing step. */
   --c-result-row-h: 77px;
+  /* A Grid card below its 16:10 evidence: its facts (137px) and its action
+     (38px), measured alike under Segoe UI Variable and Verdana — each line is
+     on a fixed token, so the text cannot change it. The card skeleton
+     reserves exactly this (section 38). */
+  --c-result-card-text-h: 175px;
   /* The Overview recent-Track row's pitch, measured the same way: a 40px
      thumbnail frame, 8px above and below, and the 1px rule — 57px. */
   --c-recent-row-h: 57px;

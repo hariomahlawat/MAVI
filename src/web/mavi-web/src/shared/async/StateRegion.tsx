@@ -82,7 +82,7 @@ export type StateRegionProps<T> = {
    * presentation, which is honest for a region whose shape is not known in
    * advance — §37.1 asks for a skeleton only where the shape is.
    */
-  skeleton?: { rows: number | 'default'; pitch?: 'table' | 'ledger' | 'list' | 'compactList' | 'keyValue' };
+  skeleton?: { rows: number | 'default'; pitch?: 'table' | 'ledger' | 'list' | 'compactList' | 'keyValue' | 'grid' };
   /** The operator sentence for a first-load failure. Defaults to "{Label} could not be loaded." */
   unavailableMessage?: (error: unknown) => string;
   /**
