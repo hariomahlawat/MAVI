@@ -1,0 +1,2856 @@
+{
+  "schema": "mavi.stage3-5.x3-performance-qualification.v1",
+  "generatedBy": "tools/web-visual-qa/performance-qualification.mjs",
+  "implementationHead": "abccc6744be6bd28b79c1c08f5ddcd8d11590e07",
+  "p1": {
+    "file": "docs/qualification/stage3-5/s2-p1-performance-baseline.json",
+    "schema": "mavi.stage3-5.p1-baseline.v2",
+    "sha": "db20f3e736d9be36be1eee3f1641cc42452c7a55",
+    "measurementCode": "db20f3e736d9be36be1eee3f1641cc42452c7a55",
+    "environment": {
+      "os": "Windows 11 (10.0.26200)",
+      "browser": "Chromium headless via CDP (no npm dependency)",
+      "build": "production build of src/web/mavi-web served with API fixtures"
+    }
+  },
+  "environment": {
+    "enforcement": {
+      "where": "GitHub Actions ubuntu-latest, the Quality Gate (visual sweep aggregate + performance long tasks)",
+      "ciRun": "MAVI Quality Gate run 38196746332 (abccc674), attempt 1",
+      "sweep": {
+        "fullSweep": true,
+        "executions": {
+          "planned": 3746,
+          "scheduled": 3746,
+          "validCaptures": 3746,
+          "byTier": {
+            "A": {
+              "anchorCaptures": 980,
+              "probeCaptures": 13,
+              "zoomCaptures": 11,
+              "spacingCaptures": 209,
+              "motionCaptures": 209,
+              "invalid": 0,
+              "blocking": 0,
+              "pending": 0
+            },
+            "B": {
+              "anchorCaptures": 376,
+              "probeCaptures": 67,
+              "zoomCaptures": 0,
+              "spacingCaptures": 443,
+              "motionCaptures": 443,
+              "invalid": 0,
+              "blocking": 0,
+              "pending": 0
+            },
+            "C": {
+              "anchorCaptures": 328,
+              "probeCaptures": 56,
+              "zoomCaptures": 171,
+              "spacingCaptures": 220,
+              "motionCaptures": 220,
+              "invalid": 0,
+              "blocking": 0,
+              "pending": 0
+            }
+          },
+          "notReached": [],
+          "errored": [],
+          "zoom": {
+            "valid": {
+              "loads": 166,
+              "transitions": 16
+            },
+            "qualified": 182,
+            "workbenchException": [
+              {
+                "surface": "scene-editor",
+                "captures": 7,
+                "statement": "Editing a scene needs a display at least 768px wide. This is a read-only summary of it."
+              },
+              {
+                "surface": "camera-analytics",
+                "captures": 4,
+                "statement": "Camera analytics — its activity chart, heatmap and figures — needs a display at least 768px wide. This is a read-only summary of the camera."
+              }
+            ]
+          }
+        }
+      },
+      "longTasks": {
+        "workers": 1,
+        "longTaskLane": true
+      }
+    },
+    "continuity": {
+      "where": "Windows 11, uncontended local run (P1's environment)",
+      "sweepWorkers": 3,
+      "longTaskWorkers": 1
+    },
+    "measurementCode": "settle.mjs perfCollect, unchanged in method from the P1 measurement code"
+  },
+  "budgets": {
+    "schema": "mavi.stage3-5.x3-performance-budgets.v1",
+    "source": "tools/web-visual-qa/performance-budgets.mjs",
+    "calibration": {
+      "head": "9175214703d3e55e78d7c10904f66ef2065b7c7d",
+      "linux": "GitHub Actions run 38177391297, attempts 1 and 2",
+      "windows": "one uncontended sweep and two single-lane long-task runs of the head"
+    },
+    "comparison": "integer units: CLS in 1e-4, long tasks in whole milliseconds; a value at its limit passes",
+    "tolerance": {
+      "A": 0.004,
+      "B": 0.002,
+      "C": 0.0075,
+      "preparation": 0.0035
+    },
+    "toleranceDerivation": "Same-head per-case differences: Tier A max 0.0033 (Linux) / 0.0004 (Windows); Tier B 0.0013 / 0.0012; Tier C 0.0060 / 0 (excluding search-analytics-inspecting@390x844, a two-mode arrival-order race reported, not budgeted); preparation 0.0027 / 0.0022.",
+    "navigation": [
+      {
+        "class": "camera-analytics @ A",
+        "surface": "camera-analytics",
+        "tier": "A",
+        "reference": 0.0112,
+        "tolerance": 0.004,
+        "limit": 0.0152,
+        "definedBy": "Linux analytics-occupancy@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.4325,
+          "at": "analytics-unavailable@1440x900"
+        }
+      },
+      {
+        "class": "camera-analytics @ B",
+        "surface": "camera-analytics",
+        "tier": "B",
+        "reference": 0.0224,
+        "tolerance": 0.002,
+        "limit": 0.0244,
+        "definedBy": "Linux analytics-activity-narrow-band@768x900",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.3012,
+          "at": "analytics-activity@1024x768"
+        }
+      },
+      {
+        "class": "camera-analytics @ C",
+        "surface": "camera-analytics",
+        "tier": "C",
+        "reference": 0,
+        "tolerance": 0.0075,
+        "limit": 0.0075,
+        "definedBy": "Linux analytics-activity-narrow-band@600x900",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0624,
+          "at": "analytics-complete-zero@430x932"
+        }
+      },
+      {
+        "class": "cameras @ A",
+        "surface": "cameras",
+        "tier": "A",
+        "reference": 0,
+        "tolerance": 0.004,
+        "limit": 0.004,
+        "definedBy": "Linux shell-rail-collapsed@1440x900",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.024,
+          "at": "cameras-unavailable@1366x768"
+        }
+      },
+      {
+        "class": "cameras @ B",
+        "surface": "cameras",
+        "tier": "B",
+        "reference": 0,
+        "tolerance": 0.002,
+        "limit": 0.002,
+        "definedBy": "Linux cameras-empty@1024x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0296,
+          "at": "cameras-unavailable@1024x768"
+        }
+      },
+      {
+        "class": "cameras @ C",
+        "surface": "cameras",
+        "tier": "C",
+        "reference": 0,
+        "tolerance": 0.0075,
+        "limit": 0.0075,
+        "definedBy": "Linux cameras-empty@430x932",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0393,
+          "at": "cameras-unavailable@390x844"
+        }
+      },
+      {
+        "class": "import @ A",
+        "surface": "import",
+        "tier": "A",
+        "reference": 0,
+        "tolerance": 0.004,
+        "limit": 0.004,
+        "definedBy": "Linux import@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0,
+          "at": "import@1366x768"
+        }
+      },
+      {
+        "class": "import @ B",
+        "surface": "import",
+        "tier": "B",
+        "reference": 0.0677,
+        "tolerance": 0.002,
+        "limit": 0.0697,
+        "definedBy": "Linux import@1024x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0762,
+          "at": "import@1024x768"
+        }
+      },
+      {
+        "class": "import @ C",
+        "surface": "import",
+        "tier": "C",
+        "reference": 0.0944,
+        "tolerance": 0.0075,
+        "limit": 0.1019,
+        "definedBy": "Linux import@390x844",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1056,
+          "at": "import@390x844"
+        }
+      },
+      {
+        "class": "overview @ A",
+        "surface": "overview",
+        "tier": "A",
+        "reference": 0.0297,
+        "tolerance": 0.004,
+        "limit": 0.0337,
+        "definedBy": "Linux overview-partial-failure@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0297,
+          "at": "overview-partial-failure@1366x768"
+        }
+      },
+      {
+        "class": "overview @ B",
+        "surface": "overview",
+        "tier": "B",
+        "reference": 0.0441,
+        "tolerance": 0.002,
+        "limit": 0.0461,
+        "definedBy": "Linux overview-partial-failure@1024x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1236,
+          "at": "overview-empty@1024x768"
+        }
+      },
+      {
+        "class": "overview @ C",
+        "surface": "overview",
+        "tier": "C",
+        "reference": 0.0692,
+        "tolerance": 0.0075,
+        "limit": 0.0767,
+        "definedBy": "Linux overview-partial-failure@390x844",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.2085,
+          "at": "overview-partial-failure@430x932"
+        }
+      },
+      {
+        "class": "processing-detail @ A",
+        "surface": "processing-detail",
+        "tier": "A",
+        "reference": 0.0052,
+        "tolerance": 0.004,
+        "limit": 0.0092,
+        "definedBy": "Linux processing-detail-analytics-stale@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0489,
+          "at": "processing-detail-analytics-stale@1366x768"
+        }
+      },
+      {
+        "class": "processing-detail @ B",
+        "surface": "processing-detail",
+        "tier": "B",
+        "reference": 0.216,
+        "tolerance": 0.002,
+        "limit": 0.218,
+        "definedBy": "Linux processing-detail-analytics-stale@1024x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.386,
+          "at": "processing-detail-analytics-stale@1024x768"
+        }
+      },
+      {
+        "class": "processing-detail @ C",
+        "surface": "processing-detail",
+        "tier": "C",
+        "reference": 0.1038,
+        "tolerance": 0.0075,
+        "limit": 0.1113,
+        "definedBy": "Linux processing-detail-diagnostics@390x844",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.2574,
+          "at": "processing-detail-completed@390x844"
+        }
+      },
+      {
+        "class": "processing-queue @ A",
+        "surface": "processing-queue",
+        "tier": "A",
+        "reference": 0.0057,
+        "tolerance": 0.004,
+        "limit": 0.0097,
+        "definedBy": "Linux processing-queue-row-degraded@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0061,
+          "at": "processing-queue-row-unavailable@1366x768"
+        }
+      },
+      {
+        "class": "processing-queue @ B",
+        "surface": "processing-queue",
+        "tier": "B",
+        "reference": 0.0099,
+        "tolerance": 0.002,
+        "limit": 0.0119,
+        "definedBy": "Linux processing-queue-row-unavailable@1024x768",
+        "kind": "mapped",
+        "environmentCalibrated": true,
+        "p1": {
+          "value": 0.0078,
+          "at": "processing-queue-row-unavailable@1024x768"
+        }
+      },
+      {
+        "class": "processing-queue @ C",
+        "surface": "processing-queue",
+        "tier": "C",
+        "reference": 0.0189,
+        "tolerance": 0.0075,
+        "limit": 0.0264,
+        "definedBy": "Linux processing-queue-row-degraded@390x844",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0207,
+          "at": "processing-queue@390x844"
+        }
+      },
+      {
+        "class": "review @ A",
+        "surface": "review",
+        "tier": "A",
+        "reference": 0.0045,
+        "tolerance": 0.004,
+        "limit": 0.0085,
+        "definedBy": "Linux review-overflow-bridging@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1141,
+          "at": "review-overflow-crowd@1920x1080"
+        }
+      },
+      {
+        "class": "review @ B",
+        "surface": "review",
+        "tier": "B",
+        "reference": 0.0206,
+        "tolerance": 0.002,
+        "limit": 0.0226,
+        "definedBy": "Linux review-overflow-bridging@768x1024",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.285,
+          "at": "review-dense-markers@1024x768"
+        }
+      },
+      {
+        "class": "review @ C",
+        "surface": "review",
+        "tier": "C",
+        "reference": 0.0134,
+        "tolerance": 0.0075,
+        "limit": 0.0209,
+        "definedBy": "Linux review-narrow-band@600x900",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.2792,
+          "at": "review-direction-pillarbox@430x932"
+        }
+      },
+      {
+        "class": "scene-editor @ A",
+        "surface": "scene-editor",
+        "tier": "A",
+        "reference": 0.0009,
+        "tolerance": 0.004,
+        "limit": 0.0049,
+        "definedBy": "Linux scene-editor-dense@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0187,
+          "at": "scene-editor-dense@1440x900"
+        }
+      },
+      {
+        "class": "scene-editor @ B",
+        "surface": "scene-editor",
+        "tier": "B",
+        "reference": 0.0082,
+        "tolerance": 0.002,
+        "limit": 0.0102,
+        "definedBy": "Linux scene-editor-dense@768x1024",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.032,
+          "at": "scene-editor-dense@768x1024"
+        }
+      },
+      {
+        "class": "scene-editor @ C",
+        "surface": "scene-editor",
+        "tier": "C",
+        "reference": 0,
+        "tolerance": 0.0075,
+        "limit": 0.0075,
+        "definedBy": "Linux scene-editor-unconfigured@430x932",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0604,
+          "at": "scene-editor-dense@390x844"
+        }
+      },
+      {
+        "class": "search @ A",
+        "surface": "search",
+        "tier": "A",
+        "reference": 0.0359,
+        "tolerance": 0.004,
+        "limit": 0.0399,
+        "definedBy": "Linux search-no-timezone@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.081,
+          "at": "search-inspecting@2560x1440"
+        }
+      },
+      {
+        "class": "search @ B",
+        "surface": "search",
+        "tier": "B",
+        "reference": 0.052,
+        "tolerance": 0.002,
+        "limit": 0.054,
+        "definedBy": "Linux search-no-timezone@1024x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1136,
+          "at": "search-long-names@1024x768"
+        }
+      },
+      {
+        "class": "search @ C",
+        "surface": "search",
+        "tier": "C",
+        "reference": 0.1681,
+        "tolerance": 0.0075,
+        "limit": 0.1756,
+        "definedBy": "Linux search-no-timezone@390x844",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1757,
+          "at": "search-no-timezone@390x844"
+        }
+      },
+      {
+        "class": "videos @ A",
+        "surface": "videos",
+        "tier": "A",
+        "reference": 0.0294,
+        "tolerance": 0.004,
+        "limit": 0.0334,
+        "definedBy": "Linux videos-cameras-unavailable@1366x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0296,
+          "at": "videos-cameras-unavailable@1366x768"
+        }
+      },
+      {
+        "class": "videos @ B",
+        "surface": "videos",
+        "tier": "B",
+        "reference": 0.0414,
+        "tolerance": 0.002,
+        "limit": 0.0434,
+        "definedBy": "Linux videos-cameras-unavailable@1024x768",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1781,
+          "at": "shell-shortcut-sheet@768x1024"
+        }
+      },
+      {
+        "class": "videos @ C",
+        "surface": "videos",
+        "tier": "C",
+        "reference": 0.0614,
+        "tolerance": 0.0075,
+        "limit": 0.0689,
+        "definedBy": "Linux videos-cameras-unavailable@390x844",
+        "kind": "mapped",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1335,
+          "at": "shell-shortcut-sheet@390x844"
+        }
+      },
+      {
+        "class": "search: filter names unresolved @ A",
+        "surface": "search",
+        "tier": "A",
+        "states": [
+          "search-filtered-unresolved"
+        ],
+        "reference": 0.0876,
+        "tolerance": 0.004,
+        "limit": 0.0916,
+        "definedBy": "evidence: 0.0876 = search-filtered-unresolved@1920x1080 in two consecutive frames (0.0282 + 0.0585), identically on 961ff8eb (both samples) and db619129 (sample 1); the same viewport measures 0.0512 or 0.0637 when the two statements land in one frame. P1 measured 0.0637 there (0.0646 at 1366x768).",
+        "kind": "explicit-new",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.0646,
+          "at": "search-filtered-unresolved@1366x768"
+        }
+      },
+      {
+        "class": "search: filter names unresolved @ B",
+        "surface": "search",
+        "tier": "B",
+        "states": [
+          "search-filtered-unresolved"
+        ],
+        "reference": 0.0971,
+        "tolerance": 0.002,
+        "limit": 0.0991,
+        "definedBy": "evidence: 0.0971 = search-filtered-unresolved@1024x768 (two-frame mode; 0.0901 in one), below P1 0.1513.",
+        "kind": "explicit-new",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1513,
+          "at": "search-filtered-unresolved@768x1024"
+        }
+      },
+      {
+        "class": "search: filter names unresolved @ C",
+        "surface": "search",
+        "tier": "C",
+        "states": [
+          "search-filtered-unresolved"
+        ],
+        "reference": 0.2538,
+        "tolerance": 0.0075,
+        "limit": 0.2613,
+        "definedBy": "evidence: 0.2538 = search-filtered-unresolved@390x844 (one-frame mode; 0.2347 in two), below P1 0.2661.",
+        "kind": "explicit-new",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.2661,
+          "at": "search-filtered-unresolved@430x932"
+        }
+      },
+      {
+        "class": "review: scene geometry unavailable @ A",
+        "surface": "review",
+        "tier": "A",
+        "states": [
+          "review-geometry-unavailable"
+        ],
+        "reference": 0.0559,
+        "tolerance": 0.004,
+        "limit": 0.0599,
+        "definedBy": "Linux review-geometry-unavailable@1920x1080",
+        "kind": "explicit-new",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1295,
+          "at": "review-geometry-unavailable@1920x1080"
+        }
+      },
+      {
+        "class": "review: scene geometry unavailable @ B",
+        "surface": "review",
+        "tier": "B",
+        "states": [
+          "review-geometry-unavailable"
+        ],
+        "reference": 0.1247,
+        "tolerance": 0.002,
+        "limit": 0.1267,
+        "definedBy": "Linux review-geometry-unavailable@768x1024",
+        "kind": "explicit-new",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.3087,
+          "at": "review-geometry-unavailable@1024x768"
+        }
+      },
+      {
+        "class": "review: scene geometry unavailable @ C",
+        "surface": "review",
+        "tier": "C",
+        "states": [
+          "review-geometry-unavailable"
+        ],
+        "reference": 0.1205,
+        "tolerance": 0.0075,
+        "limit": 0.128,
+        "definedBy": "Linux review-geometry-unavailable@430x932",
+        "kind": "explicit-new",
+        "environmentCalibrated": false,
+        "p1": {
+          "value": 0.1476,
+          "at": "review-geometry-unavailable@390x844"
+        }
+      }
+    ],
+    "preparation": [
+      {
+        "class": "camera-analytics: switch to the heatmap",
+        "surface": "camera-analytics",
+        "by": [
+          "switch to the heatmap"
+        ],
+        "reference": 0.0027,
+        "tolerance": 0.0035,
+        "limit": 0.0062,
+        "definedBy": "Linux analytics-heatmap-unconfirmed-scene-unavailable@1024x768",
+        "kind": "mapped",
+        "p1": {
+          "value": 0.4183,
+          "at": "analytics-heatmap-sparse@1440x900"
+        }
+      },
+      {
+        "class": "scene-editor: view revision 3 from the revision strip",
+        "surface": "scene-editor",
+        "by": [
+          "view revision 3 from the revision strip"
+        ],
+        "reference": 0.0676,
+        "tolerance": 0.0035,
+        "limit": 0.0711,
+        "definedBy": "Linux scene-editor-viewing-revision@1024x768",
+        "kind": "mapped",
+        "p1": {
+          "value": 0.6472,
+          "at": "scene-editor-viewing-revision@1440x900"
+        }
+      },
+      {
+        "class": "search: select a result to inspect it",
+        "surface": "search",
+        "by": [
+          "select a result to inspect it"
+        ],
+        "reference": 0.0124,
+        "tolerance": 0.0035,
+        "limit": 0.0159,
+        "definedBy": "Linux search-inspector-opened-narrow-band@600x900",
+        "kind": "mapped",
+        "p1": {
+          "value": 0.1432,
+          "at": "search-inspector-opened@430x932"
+        }
+      },
+      {
+        "class": "search: scene refresh failure (names withdrawn)",
+        "surface": "search",
+        "states": [
+          "search-analytics-scene-degraded"
+        ],
+        "reference": 0.0162,
+        "tolerance": 0.0035,
+        "limit": 0.0197,
+        "definedBy": "Linux search-analytics-scene-degraded@430x932",
+        "kind": "explicit-new",
+        "p1": {
+          "value": 0.015,
+          "at": "search-analytics-scene-degraded@390x844"
+        }
+      },
+      {
+        "class": "review: refresh failure on returning to a stale Review",
+        "surface": "review",
+        "states": [
+          "review-refresh-degraded"
+        ],
+        "reference": 0.0827,
+        "tolerance": 0.0035,
+        "limit": 0.0862,
+        "definedBy": "Linux review-refresh-degraded@390x844",
+        "kind": "explicit-new",
+        "p1": null
+      },
+      {
+        "class": "scene-editor: stacked failure notices (dense workbench)",
+        "surface": "scene-editor",
+        "states": [
+          "scene-editor-dense"
+        ],
+        "reference": 0.0911,
+        "tolerance": 0.0035,
+        "limit": 0.0946,
+        "definedBy": "Linux scene-editor-dense@768x1024",
+        "kind": "explicit-new",
+        "p1": null
+      },
+      {
+        "class": "review: open the runtime attestation and the record detail",
+        "surface": "review",
+        "states": [
+          "review-provenance-open"
+        ],
+        "reference": 0.0005,
+        "tolerance": 0.0035,
+        "limit": 0.004,
+        "definedBy": "Linux review-provenance-open@2560x1440",
+        "kind": "explicit-new",
+        "p1": null
+      }
+    ],
+    "longTasks": {
+      "default": {
+        "name": "no long task",
+        "count": 0,
+        "maxMs": 0,
+        "why": "P1: every declared interaction but Search selection raised none; the final head raised none on Linux or Windows."
+      },
+      "classes": [
+        {
+          "name": "Search result selection",
+          "interactions": [
+            "select a result to inspect it"
+          ],
+          "count": 1,
+          "maxMs": 65,
+          "why": "P1: one sporadic task in the 50-65ms band. Kept at the P1 envelope (not tightened to the latest 50-58ms): it has historical support."
+        }
+      ]
+    },
+    "fonts": {
+      "documentFaces": 0,
+      "why": "§38 \"fonts do not swap\": the document holds no font face (no @font-face, no FontFace), so the platform stack resolves at layout and nothing can arrive late."
+    }
+  },
+  "mapping": {
+    "mapped": 142,
+    "new": [
+      "analytics-activity-compact-band",
+      "analytics-activity-narrow-band",
+      "analytics-bucket-table-scrolled",
+      "analytics-disabled",
+      "analytics-disabled-empty-window",
+      "analytics-enabled-empty-window",
+      "analytics-heatmap-no-scene",
+      "analytics-heatmap-unconfirmed-scene-unavailable",
+      "analytics-line-crossings-wide-font",
+      "analytics-unconfirmed-scene-loading",
+      "analytics-unconfirmed-scene-unavailable",
+      "analytics-window-invalid-draft",
+      "analytics-window-refused",
+      "cameras-compact-band",
+      "cameras-config-unavailable",
+      "cameras-create-error",
+      "cameras-long-identity",
+      "cameras-narrow-band",
+      "cameras-refresh-degraded",
+      "import-compact-band",
+      "import-loading",
+      "import-long-identity",
+      "import-narrow-band",
+      "import-submit-error",
+      "overview-analytics",
+      "overview-attention-many",
+      "overview-awaiting",
+      "overview-clear",
+      "overview-compact-band",
+      "overview-loading",
+      "overview-lookup-unavailable",
+      "overview-narrow-band",
+      "processing-detail-analytics-disabled",
+      "processing-detail-analytics-not-configured",
+      "processing-detail-analytics-retry-error",
+      "processing-detail-analytics-unavailable",
+      "processing-detail-completed-compact-band",
+      "processing-detail-degraded",
+      "processing-detail-diagnostics",
+      "processing-detail-failed-narrow-band",
+      "processing-detail-invalid",
+      "processing-detail-long-identity",
+      "processing-detail-long-identity-compact-band",
+      "processing-detail-metadata-unavailable",
+      "processing-detail-metadata-unavailable-unconfigured",
+      "processing-detail-not-queued",
+      "processing-detail-queued",
+      "processing-detail-retry-error",
+      "processing-queue-compact-band",
+      "processing-queue-narrow-band",
+      "processing-queue-row-degraded",
+      "processing-queue-row-degraded-wide-font",
+      "review-compact-band",
+      "review-dense-facts",
+      "review-long-identity",
+      "review-long-identity-compact-band",
+      "review-long-identity-narrow-band",
+      "review-narrow-band",
+      "review-provenance-open",
+      "review-refresh-degraded",
+      "review-return-to-search",
+      "scene-editor-confirm-disable",
+      "scene-editor-confirm-disable-probe",
+      "scene-editor-drawer-boundaries",
+      "scene-editor-drawing",
+      "scene-editor-inactive",
+      "scene-editor-media-unavailable",
+      "scene-editor-narrow-band",
+      "scene-editor-object-selected",
+      "scene-editor-save-error",
+      "search-compact-band",
+      "search-field-errors-above",
+      "search-inspecting-compact-band",
+      "search-inspector-opened-narrow-band",
+      "search-narrow-band",
+      "search-shortcut-sheet",
+      "shell-menu-overlay",
+      "shell-rail-overlay",
+      "videos-compact-band",
+      "videos-filtered",
+      "videos-filters-drawer",
+      "videos-narrow-band",
+      "videos-queue-error",
+      "videos-row-degraded",
+      "videos-run-states",
+      "videos-sort-folded"
+    ],
+    "retired": [],
+    "surfaces": [
+      "camera-analytics",
+      "cameras",
+      "import",
+      "not-found",
+      "overview",
+      "processing-detail",
+      "processing-queue",
+      "review",
+      "scene-editor",
+      "search",
+      "videos"
+    ]
+  },
+  "results": {
+    "faults": [],
+    "findings": [],
+    "cases": {
+      "sweep": 1820,
+      "longTasks": 413
+    },
+    "navigation": {
+      "byTier": {
+        "A": {
+          "n": 943,
+          "median": 0.0007,
+          "p90": 0.0043,
+          "max": 0.0646
+        },
+        "B": {
+          "n": 423,
+          "median": 0.0004,
+          "p90": 0.0634,
+          "max": 0.216
+        },
+        "C": {
+          "n": 364,
+          "median": 0,
+          "p90": 0.0572,
+          "max": 0.2516
+        }
+      },
+      "bySurface": {
+        "camera-analytics": {
+          "n": 166,
+          "median": 0.0001,
+          "p90": 0.0163,
+          "max": 0.0224
+        },
+        "cameras": {
+          "n": 115,
+          "median": 0,
+          "p90": 0,
+          "max": 0
+        },
+        "import": {
+          "n": 62,
+          "median": 0,
+          "p90": 0.0702,
+          "max": 0.0944
+        },
+        "overview": {
+          "n": 80,
+          "median": 0,
+          "p90": 0.0123,
+          "max": 0.0692
+        },
+        "processing-detail": {
+          "n": 227,
+          "median": 0.0013,
+          "p90": 0.1038,
+          "max": 0.216
+        },
+        "processing-queue": {
+          "n": 80,
+          "median": 0.0017,
+          "p90": 0.0143,
+          "max": 0.0189
+        },
+        "review": {
+          "n": 386,
+          "median": 0.0012,
+          "p90": 0.005,
+          "max": 0.1247
+        },
+        "scene-editor": {
+          "n": 160,
+          "median": 0,
+          "p90": 0,
+          "max": 0.0082
+        },
+        "search": {
+          "n": 337,
+          "median": 0.0011,
+          "p90": 0.0254,
+          "max": 0.2516
+        },
+        "videos": {
+          "n": 117,
+          "median": 0.0008,
+          "p90": 0.0181,
+          "max": 0.0614
+        }
+      },
+      "nearest": [
+        {
+          "key": "analytics-activity-narrow-band|768x900|probe",
+          "value": 0.0224,
+          "limit": 0.0244,
+          "class": "camera-analytics @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-compact-band|1101x900|probe",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-compact-band|1200x900|probe",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-compact-band|1365x900|probe",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-config-unavailable|1024x768|anchor",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-config-unavailable|768x1024|anchor",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-create-conflict|1024x768|anchor",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-create-conflict|768x1024|anchor",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-create-error|1024x768|anchor",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        },
+        {
+          "key": "cameras-create-error|768x1024|anchor",
+          "value": 0,
+          "limit": 0.002,
+          "class": "cameras @ B",
+          "headroom": 0.002
+        }
+      ]
+    },
+    "preparation": {
+      "byTier": {
+        "A": {
+          "n": 60,
+          "median": 0.0005,
+          "p90": 0.0316,
+          "max": 0.0668
+        },
+        "B": {
+          "n": 25,
+          "median": 0.0014,
+          "p90": 0.0652,
+          "max": 0.0911
+        },
+        "C": {
+          "n": 12,
+          "median": 0.0115,
+          "p90": 0.0759,
+          "max": 0.0827
+        }
+      },
+      "bySurface": {
+        "camera-analytics": {
+          "n": 42,
+          "median": 0.0003,
+          "p90": 0.0025,
+          "max": 0.0026
+        },
+        "review": {
+          "n": 18,
+          "median": 0.0005,
+          "p90": 0.0759,
+          "max": 0.0827
+        },
+        "scene-editor": {
+          "n": 14,
+          "median": 0.0316,
+          "p90": 0.0676,
+          "max": 0.0911
+        },
+        "search": {
+          "n": 23,
+          "median": 0.0013,
+          "p90": 0.0115,
+          "max": 0.0162
+        }
+      },
+      "nearest": [
+        {
+          "key": "review-provenance-open|2560x1440|anchor",
+          "value": 0.0005,
+          "limit": 0.004,
+          "class": "review: open the runtime attestation and the record detail",
+          "headroom": 0.0035
+        },
+        {
+          "key": "review-refresh-degraded|390x844|anchor",
+          "value": 0.0827,
+          "limit": 0.0862,
+          "class": "review: refresh failure on returning to a stale Review",
+          "headroom": 0.0035
+        },
+        {
+          "key": "scene-editor-dense|768x1024|anchor",
+          "value": 0.0911,
+          "limit": 0.0946,
+          "class": "scene-editor: stacked failure notices (dense workbench)",
+          "headroom": 0.0035
+        },
+        {
+          "key": "scene-editor-viewing-revision|1024x768|anchor",
+          "value": 0.0676,
+          "limit": 0.0711,
+          "class": "scene-editor: view revision 3 from the revision strip",
+          "headroom": 0.0035
+        },
+        {
+          "key": "search-analytics-scene-degraded|430x932|anchor",
+          "value": 0.0162,
+          "limit": 0.0197,
+          "class": "search: scene refresh failure (names withdrawn)",
+          "headroom": 0.0035
+        },
+        {
+          "key": "search-inspector-opened-narrow-band|600x900|probe",
+          "value": 0.0124,
+          "limit": 0.0159,
+          "class": "search: select a result to inspect it",
+          "headroom": 0.0035
+        },
+        {
+          "key": "analytics-heatmap-no-scene|1024x768|anchor",
+          "value": 0.0026,
+          "limit": 0.0062,
+          "class": "camera-analytics: switch to the heatmap",
+          "headroom": 0.0036
+        },
+        {
+          "key": "analytics-heatmap-sparse|1024x768|anchor",
+          "value": 0.0025,
+          "limit": 0.0062,
+          "class": "camera-analytics: switch to the heatmap",
+          "headroom": 0.0037
+        },
+        {
+          "key": "analytics-heatmap-sparse|768x1024|anchor",
+          "value": 0.0025,
+          "limit": 0.0062,
+          "class": "camera-analytics: switch to the heatmap",
+          "headroom": 0.0037
+        },
+        {
+          "key": "analytics-heatmap|1024x768|anchor",
+          "value": 0.0025,
+          "limit": 0.0062,
+          "class": "camera-analytics: switch to the heatmap",
+          "headroom": 0.0037
+        }
+      ]
+    },
+    "longTasks": {
+      "measured": 413,
+      "withTasks": [],
+      "nearest": []
+    },
+    "fonts": {
+      "families": {
+        "DejaVu Sans": 1820
+      },
+      "documentFaces": 0,
+      "custom": 0
+    }
+  },
+  "p1ToCurrent": {
+    "windows": {
+      "environment": "Windows 11, the environment P1 was measured in: the like-for-like comparison",
+      "navigation": {
+        "byTier": {
+          "A": {
+            "matched": 682,
+            "p1": {
+              "n": 682,
+              "median": 0.0039,
+              "p90": 0.083,
+              "max": 0.4325
+            },
+            "current": {
+              "n": 682,
+              "median": 0.0006,
+              "p90": 0.0047,
+              "max": 0.0646
+            },
+            "worse": 29
+          },
+          "B": {
+            "matched": 255,
+            "p1": {
+              "n": 255,
+              "median": 0.0597,
+              "p90": 0.1922,
+              "max": 0.386
+            },
+            "current": {
+              "n": 255,
+              "median": 0.0005,
+              "p90": 0.0439,
+              "max": 0.2092
+            },
+            "worse": 37
+          },
+          "C": {
+            "matched": 220,
+            "p1": {
+              "n": 220,
+              "median": 0.0887,
+              "p90": 0.1476,
+              "max": 0.2792
+            },
+            "current": {
+              "n": 220,
+              "median": 0,
+              "p90": 0.0489,
+              "max": 0.2146
+            },
+            "worse": 12
+          }
+        },
+        "largestP1Outliers": [
+          {
+            "at": "analytics-unavailable@1440x900",
+            "tier": "A",
+            "p1": 0.4325,
+            "current": 0.0112
+          },
+          {
+            "at": "analytics-activity@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-occupancy@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-line-crossings@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-incomplete@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-complete-zero@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-no-scene@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-heatmap@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-heatmap-too-large@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-heatmap-sparse@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0.012
+          },
+          {
+            "at": "analytics-camera-unavailable@1440x900",
+            "tier": "A",
+            "p1": 0.4314,
+            "current": 0.0112
+          },
+          {
+            "at": "processing-detail-analytics-stale@1024x768",
+            "tier": "B",
+            "p1": 0.386,
+            "current": 0.2092
+          },
+          {
+            "at": "analytics-activity@1366x768",
+            "tier": "A",
+            "p1": 0.3579,
+            "current": 0.0119
+          },
+          {
+            "at": "analytics-occupancy@1366x768",
+            "tier": "A",
+            "p1": 0.3579,
+            "current": 0.0119
+          }
+        ],
+        "largestRegressions": [
+          {
+            "at": "search-analytics-not-analysed@390x844",
+            "tier": "C",
+            "p1": 0.036,
+            "current": 0.1253,
+            "delta": 0.0893
+          },
+          {
+            "at": "review-geometry-unavailable@768x1024",
+            "tier": "B",
+            "p1": 0.107,
+            "current": 0.1649,
+            "delta": 0.0579
+          },
+          {
+            "at": "processing-detail-not-found@390x844",
+            "tier": "C",
+            "p1": 0,
+            "current": 0.0489,
+            "delta": 0.0489
+          },
+          {
+            "at": "processing-detail-analytics-stale@768x1024",
+            "tier": "B",
+            "p1": 0.1303,
+            "current": 0.1776,
+            "delta": 0.0473
+          },
+          {
+            "at": "processing-detail-not-found@430x932",
+            "tier": "C",
+            "p1": 0,
+            "current": 0.0403,
+            "delta": 0.0403
+          },
+          {
+            "at": "processing-detail-analytics-degraded@1024x768",
+            "tier": "B",
+            "p1": 0.1352,
+            "current": 0.1733,
+            "delta": 0.0381
+          },
+          {
+            "at": "search-analytics-not-analysed@1024x768",
+            "tier": "B",
+            "p1": 0.016,
+            "current": 0.0516,
+            "delta": 0.0356
+          },
+          {
+            "at": "processing-detail-completed@1024x768",
+            "tier": "B",
+            "p1": 0.1293,
+            "current": 0.1647,
+            "delta": 0.0354
+          },
+          {
+            "at": "processing-detail-analytics-ready@1024x768",
+            "tier": "B",
+            "p1": 0.1293,
+            "current": 0.1647,
+            "delta": 0.0354
+          },
+          {
+            "at": "processing-detail-completed@768x1024",
+            "tier": "B",
+            "p1": 0.0872,
+            "current": 0.1215,
+            "delta": 0.0343
+          },
+          {
+            "at": "processing-detail-analytics-ready@768x1024",
+            "tier": "B",
+            "p1": 0.0872,
+            "current": 0.1215,
+            "delta": 0.0343
+          },
+          {
+            "at": "processing-detail-analytics-failed@768x1024",
+            "tier": "B",
+            "p1": 0.1214,
+            "current": 0.1556,
+            "delta": 0.0342
+          },
+          {
+            "at": "processing-detail-video-unavailable@390x844",
+            "tier": "C",
+            "p1": 0.0035,
+            "current": 0.0359,
+            "delta": 0.0324
+          },
+          {
+            "at": "processing-detail-video-unavailable@430x932",
+            "tier": "C",
+            "p1": 0.0011,
+            "current": 0.0284,
+            "delta": 0.0273
+          },
+          {
+            "at": "processing-detail-analytics-degraded@768x1024",
+            "tier": "B",
+            "p1": 0.0992,
+            "current": 0.1264,
+            "delta": 0.0272
+          }
+        ],
+        "dePlannedP1Cases": [
+          {
+            "at": "shell-rail-collapsed@1024x768",
+            "p1": 0
+          },
+          {
+            "at": "shell-rail-collapsed@768x1024",
+            "p1": 0
+          },
+          {
+            "at": "shell-rail-collapsed@430x932",
+            "p1": 0
+          },
+          {
+            "at": "shell-rail-collapsed@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-dirty@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-dirty@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-discard-dialog@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-discard-dialog@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-reload-dialog@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-reload-dialog@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-viewing-revision@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-viewing-revision@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-vertex-selected@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-vertex-selected@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-dense@430x932",
+            "p1": 0.0456
+          },
+          {
+            "at": "scene-editor-dense@390x844",
+            "p1": 0.0604
+          },
+          {
+            "at": "search-inspecting-grid@430x932",
+            "p1": 0.0908
+          },
+          {
+            "at": "search-inspecting-grid@390x844",
+            "p1": 0.081
+          },
+          {
+            "at": "analytics-occupancy@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-occupancy@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-line-crossings@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-line-crossings@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-incomplete@430x932",
+            "p1": 0.0238
+          },
+          {
+            "at": "analytics-incomplete@390x844",
+            "p1": 0.0251
+          },
+          {
+            "at": "analytics-complete-zero@430x932",
+            "p1": 0.0624
+          },
+          {
+            "at": "analytics-complete-zero@390x844",
+            "p1": 0.0435
+          },
+          {
+            "at": "analytics-no-scene@430x932",
+            "p1": 0.0287
+          },
+          {
+            "at": "analytics-no-scene@390x844",
+            "p1": 0.0251
+          },
+          {
+            "at": "analytics-unavailable@430x932",
+            "p1": 0.0254
+          },
+          {
+            "at": "analytics-unavailable@390x844",
+            "p1": 0.0268
+          },
+          {
+            "at": "analytics-heatmap@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-heatmap@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-heatmap-too-large@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-heatmap-too-large@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-heatmap-sparse@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-heatmap-sparse@390x844",
+            "p1": 0.0256
+          }
+        ],
+        "p1MeasuredNowNotApplicable": [],
+        "currentCasesWithoutP1": 573
+      },
+      "preparation": {
+        "byTier": {
+          "A": {
+            "matched": 35,
+            "p1": {
+              "n": 35,
+              "median": 0.0156,
+              "p90": 0.4179,
+              "max": 0.6472
+            },
+            "current": {
+              "n": 35,
+              "median": 0.0002,
+              "p90": 0.0126,
+              "max": 0.0302
+            },
+            "worse": 2
+          },
+          "B": {
+            "matched": 14,
+            "p1": {
+              "n": 14,
+              "median": 0.0565,
+              "p90": 0.1288,
+              "max": 0.1438
+            },
+            "current": {
+              "n": 14,
+              "median": 0.0006,
+              "p90": 0.0442,
+              "max": 0.0604
+            },
+            "worse": 0
+          },
+          "C": {
+            "matched": 4,
+            "p1": {
+              "n": 4,
+              "median": 0.015,
+              "p90": 0.1432,
+              "max": 0.1432
+            },
+            "current": {
+              "n": 4,
+              "median": 0,
+              "p90": 0.017,
+              "max": 0.017
+            },
+            "worse": 1
+          }
+        },
+        "largestP1Outliers": [
+          {
+            "at": "scene-editor-viewing-revision@1440x900",
+            "tier": "A",
+            "p1": 0.6472,
+            "current": 0.0282
+          },
+          {
+            "at": "scene-editor-viewing-revision@1366x768",
+            "tier": "A",
+            "p1": 0.5778,
+            "current": 0.0302
+          },
+          {
+            "at": "analytics-heatmap-sparse@1440x900",
+            "tier": "A",
+            "p1": 0.4183,
+            "current": 0
+          },
+          {
+            "at": "analytics-heatmap@1440x900",
+            "tier": "A",
+            "p1": 0.4179,
+            "current": 0.0009
+          },
+          {
+            "at": "analytics-heatmap-too-large@1440x900",
+            "tier": "A",
+            "p1": 0.4179,
+            "current": 0.0005
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@1440x900",
+            "tier": "A",
+            "p1": 0.4179,
+            "current": 0.0002
+          },
+          {
+            "at": "analytics-heatmap@1366x768",
+            "tier": "A",
+            "p1": 0.3362,
+            "current": 0
+          },
+          {
+            "at": "analytics-heatmap-too-large@1366x768",
+            "tier": "A",
+            "p1": 0.3362,
+            "current": 0.0003
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@1366x768",
+            "tier": "A",
+            "p1": 0.3362,
+            "current": 0.0003
+          },
+          {
+            "at": "analytics-heatmap-sparse@1366x768",
+            "tier": "A",
+            "p1": 0.3362,
+            "current": 0
+          },
+          {
+            "at": "scene-editor-viewing-revision@1920x1080",
+            "tier": "A",
+            "p1": 0.1452,
+            "current": 0.019
+          },
+          {
+            "at": "scene-editor-viewing-revision@768x1024",
+            "tier": "B",
+            "p1": 0.1438,
+            "current": 0.0442
+          },
+          {
+            "at": "search-inspector-opened@430x932",
+            "tier": "C",
+            "p1": 0.1432,
+            "current": 0
+          },
+          {
+            "at": "search-inspector-opened@390x844",
+            "tier": "C",
+            "p1": 0.1377,
+            "current": 0
+          },
+          {
+            "at": "scene-editor-viewing-revision@1024x768",
+            "tier": "B",
+            "p1": 0.1288,
+            "current": 0.0604
+          }
+        ],
+        "largestRegressions": [
+          {
+            "at": "search-analytics-scene-degraded@430x932",
+            "tier": "C",
+            "p1": 0.014,
+            "current": 0.017,
+            "delta": 0.003
+          },
+          {
+            "at": "analytics-heatmap-sparse@1920x1080",
+            "tier": "A",
+            "p1": 0.0002,
+            "current": 0.0004,
+            "delta": 0.0002
+          },
+          {
+            "at": "analytics-heatmap@2560x1440",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0002,
+            "delta": 0.0001
+          }
+        ],
+        "dePlannedP1Cases": [
+          {
+            "at": "scene-editor-viewing-revision@430x932",
+            "p1": 0.2855
+          },
+          {
+            "at": "scene-editor-viewing-revision@390x844",
+            "p1": 0.2103
+          },
+          {
+            "at": "analytics-heatmap@430x932",
+            "p1": 0.0691
+          },
+          {
+            "at": "analytics-heatmap@390x844",
+            "p1": 0.0695
+          },
+          {
+            "at": "analytics-heatmap-too-large@430x932",
+            "p1": 0.0698
+          },
+          {
+            "at": "analytics-heatmap-too-large@390x844",
+            "p1": 0.0695
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@430x932",
+            "p1": 0.0698
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@390x844",
+            "p1": 0.0844
+          },
+          {
+            "at": "analytics-heatmap-sparse@430x932",
+            "p1": 0.0691
+          },
+          {
+            "at": "analytics-heatmap-sparse@390x844",
+            "p1": 0.0695
+          }
+        ],
+        "p1MeasuredNowNotApplicable": [],
+        "currentCasesWithoutP1": 44
+      },
+      "longTasks": {
+        "p1": {
+          "measured": 218,
+          "withTasks": [
+            {
+              "at": "search-inspector-opened@2560x1440",
+              "interaction": "select a result to inspect it",
+              "count": 1,
+              "maxMs": 50
+            }
+          ]
+        },
+        "current": {
+          "measured": 413,
+          "withTasks": []
+        }
+      }
+    },
+    "linux": {
+      "environment": "Linux CI, the enforcement environment: against P1’s Windows values, so platform font metrics are part of every difference",
+      "navigation": {
+        "byTier": {
+          "A": {
+            "matched": 682,
+            "p1": {
+              "n": 682,
+              "median": 0.0039,
+              "p90": 0.083,
+              "max": 0.4325
+            },
+            "current": {
+              "n": 682,
+              "median": 0.0011,
+              "p90": 0.0043,
+              "max": 0.0646
+            },
+            "worse": 36
+          },
+          "B": {
+            "matched": 255,
+            "p1": {
+              "n": 255,
+              "median": 0.0597,
+              "p90": 0.1922,
+              "max": 0.386
+            },
+            "current": {
+              "n": 255,
+              "median": 0.0004,
+              "p90": 0.049,
+              "max": 0.216
+            },
+            "worse": 40
+          },
+          "C": {
+            "matched": 220,
+            "p1": {
+              "n": 220,
+              "median": 0.0887,
+              "p90": 0.1476,
+              "max": 0.2792
+            },
+            "current": {
+              "n": 220,
+              "median": 0,
+              "p90": 0.0567,
+              "max": 0.2516
+            },
+            "worse": 14
+          }
+        },
+        "largestP1Outliers": [
+          {
+            "at": "analytics-unavailable@1440x900",
+            "tier": "A",
+            "p1": 0.4325,
+            "current": 0
+          },
+          {
+            "at": "analytics-activity@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-occupancy@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-line-crossings@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-incomplete@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-complete-zero@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-no-scene@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-heatmap@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-heatmap-too-large@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-heatmap-sparse@1440x900",
+            "tier": "A",
+            "p1": 0.4323,
+            "current": 0
+          },
+          {
+            "at": "analytics-camera-unavailable@1440x900",
+            "tier": "A",
+            "p1": 0.4314,
+            "current": 0
+          },
+          {
+            "at": "processing-detail-analytics-stale@1024x768",
+            "tier": "B",
+            "p1": 0.386,
+            "current": 0.216
+          },
+          {
+            "at": "analytics-activity@1366x768",
+            "tier": "A",
+            "p1": 0.3579,
+            "current": 0.0112
+          },
+          {
+            "at": "analytics-occupancy@1366x768",
+            "tier": "A",
+            "p1": 0.3579,
+            "current": 0.0112
+          }
+        ],
+        "largestRegressions": [
+          {
+            "at": "search-analytics-not-analysed@430x932",
+            "tier": "C",
+            "p1": 0.0508,
+            "current": 0.1285,
+            "delta": 0.0777
+          },
+          {
+            "at": "processing-detail-analytics-stale@768x1024",
+            "tier": "B",
+            "p1": 0.1303,
+            "current": 0.1989,
+            "delta": 0.0686
+          },
+          {
+            "at": "processing-detail-analytics-failed@768x1024",
+            "tier": "B",
+            "p1": 0.1214,
+            "current": 0.1737,
+            "delta": 0.0523
+          },
+          {
+            "at": "search-analytics-not-analysed@390x844",
+            "tier": "C",
+            "p1": 0.036,
+            "current": 0.0876,
+            "delta": 0.0516
+          },
+          {
+            "at": "processing-detail-not-found@390x844",
+            "tier": "C",
+            "p1": 0,
+            "current": 0.0489,
+            "delta": 0.0489
+          },
+          {
+            "at": "processing-detail-completed@768x1024",
+            "tier": "B",
+            "p1": 0.0872,
+            "current": 0.1332,
+            "delta": 0.046
+          },
+          {
+            "at": "processing-detail-analytics-ready@768x1024",
+            "tier": "B",
+            "p1": 0.0872,
+            "current": 0.1332,
+            "delta": 0.046
+          },
+          {
+            "at": "processing-detail-not-found@430x932",
+            "tier": "C",
+            "p1": 0,
+            "current": 0.0403,
+            "delta": 0.0403
+          },
+          {
+            "at": "processing-detail-analytics-degraded@768x1024",
+            "tier": "B",
+            "p1": 0.0992,
+            "current": 0.1382,
+            "delta": 0.039
+          },
+          {
+            "at": "processing-detail-analytics-degraded@1024x768",
+            "tier": "B",
+            "p1": 0.1352,
+            "current": 0.1733,
+            "delta": 0.0381
+          },
+          {
+            "at": "search-analytics-not-analysed@1024x768",
+            "tier": "B",
+            "p1": 0.016,
+            "current": 0.0516,
+            "delta": 0.0356
+          },
+          {
+            "at": "processing-detail-completed@1024x768",
+            "tier": "B",
+            "p1": 0.1293,
+            "current": 0.1647,
+            "delta": 0.0354
+          },
+          {
+            "at": "processing-detail-analytics-ready@1024x768",
+            "tier": "B",
+            "p1": 0.1293,
+            "current": 0.1647,
+            "delta": 0.0354
+          },
+          {
+            "at": "processing-detail-video-unavailable@390x844",
+            "tier": "C",
+            "p1": 0.0035,
+            "current": 0.0359,
+            "delta": 0.0324
+          },
+          {
+            "at": "search-filtered@1366x768",
+            "tier": "A",
+            "p1": 0.0032,
+            "current": 0.0344,
+            "delta": 0.0312
+          }
+        ],
+        "dePlannedP1Cases": [
+          {
+            "at": "shell-rail-collapsed@1024x768",
+            "p1": 0
+          },
+          {
+            "at": "shell-rail-collapsed@768x1024",
+            "p1": 0
+          },
+          {
+            "at": "shell-rail-collapsed@430x932",
+            "p1": 0
+          },
+          {
+            "at": "shell-rail-collapsed@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-dirty@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-dirty@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-discard-dialog@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-discard-dialog@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-reload-dialog@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-reload-dialog@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-viewing-revision@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-viewing-revision@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-vertex-selected@430x932",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-vertex-selected@390x844",
+            "p1": 0
+          },
+          {
+            "at": "scene-editor-dense@430x932",
+            "p1": 0.0456
+          },
+          {
+            "at": "scene-editor-dense@390x844",
+            "p1": 0.0604
+          },
+          {
+            "at": "search-inspecting-grid@430x932",
+            "p1": 0.0908
+          },
+          {
+            "at": "search-inspecting-grid@390x844",
+            "p1": 0.081
+          },
+          {
+            "at": "analytics-occupancy@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-occupancy@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-line-crossings@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-line-crossings@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-incomplete@430x932",
+            "p1": 0.0238
+          },
+          {
+            "at": "analytics-incomplete@390x844",
+            "p1": 0.0251
+          },
+          {
+            "at": "analytics-complete-zero@430x932",
+            "p1": 0.0624
+          },
+          {
+            "at": "analytics-complete-zero@390x844",
+            "p1": 0.0435
+          },
+          {
+            "at": "analytics-no-scene@430x932",
+            "p1": 0.0287
+          },
+          {
+            "at": "analytics-no-scene@390x844",
+            "p1": 0.0251
+          },
+          {
+            "at": "analytics-unavailable@430x932",
+            "p1": 0.0254
+          },
+          {
+            "at": "analytics-unavailable@390x844",
+            "p1": 0.0268
+          },
+          {
+            "at": "analytics-heatmap@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-heatmap@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-heatmap-too-large@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-heatmap-too-large@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@390x844",
+            "p1": 0.0256
+          },
+          {
+            "at": "analytics-heatmap-sparse@430x932",
+            "p1": 0.0455
+          },
+          {
+            "at": "analytics-heatmap-sparse@390x844",
+            "p1": 0.0256
+          }
+        ],
+        "p1MeasuredNowNotApplicable": [],
+        "currentCasesWithoutP1": 573
+      },
+      "preparation": {
+        "byTier": {
+          "A": {
+            "matched": 35,
+            "p1": {
+              "n": 35,
+              "median": 0.0156,
+              "p90": 0.4179,
+              "max": 0.6472
+            },
+            "current": {
+              "n": 35,
+              "median": 0.0003,
+              "p90": 0.0141,
+              "max": 0.0338
+            },
+            "worse": 9
+          },
+          "B": {
+            "matched": 14,
+            "p1": {
+              "n": 14,
+              "median": 0.0565,
+              "p90": 0.1288,
+              "max": 0.1438
+            },
+            "current": {
+              "n": 14,
+              "median": 0.0014,
+              "p90": 0.0496,
+              "max": 0.0676
+            },
+            "worse": 2
+          },
+          "C": {
+            "matched": 4,
+            "p1": {
+              "n": 4,
+              "median": 0.015,
+              "p90": 0.1432,
+              "max": 0.1432
+            },
+            "current": {
+              "n": 4,
+              "median": 0.0009,
+              "p90": 0.0162,
+              "max": 0.0162
+            },
+            "worse": 1
+          }
+        },
+        "largestP1Outliers": [
+          {
+            "at": "scene-editor-viewing-revision@1440x900",
+            "tier": "A",
+            "p1": 0.6472,
+            "current": 0.0316
+          },
+          {
+            "at": "scene-editor-viewing-revision@1366x768",
+            "tier": "A",
+            "p1": 0.5778,
+            "current": 0.0338
+          },
+          {
+            "at": "analytics-heatmap-sparse@1440x900",
+            "tier": "A",
+            "p1": 0.4183,
+            "current": 0
+          },
+          {
+            "at": "analytics-heatmap@1440x900",
+            "tier": "A",
+            "p1": 0.4179,
+            "current": 0.0011
+          },
+          {
+            "at": "analytics-heatmap-too-large@1440x900",
+            "tier": "A",
+            "p1": 0.4179,
+            "current": 0.0006
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@1440x900",
+            "tier": "A",
+            "p1": 0.4179,
+            "current": 0.0003
+          },
+          {
+            "at": "analytics-heatmap@1366x768",
+            "tier": "A",
+            "p1": 0.3362,
+            "current": 0
+          },
+          {
+            "at": "analytics-heatmap-too-large@1366x768",
+            "tier": "A",
+            "p1": 0.3362,
+            "current": 0.0008
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@1366x768",
+            "tier": "A",
+            "p1": 0.3362,
+            "current": 0.0004
+          },
+          {
+            "at": "analytics-heatmap-sparse@1366x768",
+            "tier": "A",
+            "p1": 0.3362,
+            "current": 0
+          },
+          {
+            "at": "scene-editor-viewing-revision@1920x1080",
+            "tier": "A",
+            "p1": 0.1452,
+            "current": 0.0212
+          },
+          {
+            "at": "scene-editor-viewing-revision@768x1024",
+            "tier": "B",
+            "p1": 0.1438,
+            "current": 0.0496
+          },
+          {
+            "at": "search-inspector-opened@430x932",
+            "tier": "C",
+            "p1": 0.1432,
+            "current": 0.0009
+          },
+          {
+            "at": "search-inspector-opened@390x844",
+            "tier": "C",
+            "p1": 0.1377,
+            "current": 0
+          },
+          {
+            "at": "scene-editor-viewing-revision@1024x768",
+            "tier": "B",
+            "p1": 0.1288,
+            "current": 0.0676
+          }
+        ],
+        "largestRegressions": [
+          {
+            "at": "search-analytics-scene-degraded@430x932",
+            "tier": "C",
+            "p1": 0.014,
+            "current": 0.0162,
+            "delta": 0.0022
+          },
+          {
+            "at": "analytics-heatmap@1024x768",
+            "tier": "B",
+            "p1": 0.0009,
+            "current": 0.0025,
+            "delta": 0.0016
+          },
+          {
+            "at": "analytics-heatmap-sparse@1024x768",
+            "tier": "B",
+            "p1": 0.0009,
+            "current": 0.0025,
+            "delta": 0.0016
+          },
+          {
+            "at": "analytics-heatmap@1920x1080",
+            "tier": "A",
+            "p1": 0.0002,
+            "current": 0.0005,
+            "delta": 0.0003
+          },
+          {
+            "at": "analytics-heatmap-sparse@1920x1080",
+            "tier": "A",
+            "p1": 0.0002,
+            "current": 0.0005,
+            "delta": 0.0003
+          },
+          {
+            "at": "analytics-heatmap@2560x1080",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0003,
+            "delta": 0.0002
+          },
+          {
+            "at": "analytics-heatmap-sparse@2560x1080",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0003,
+            "delta": 0.0002
+          },
+          {
+            "at": "analytics-heatmap@2560x1440",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0002,
+            "delta": 0.0001
+          },
+          {
+            "at": "analytics-heatmap-too-large@2560x1080",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0002,
+            "delta": 0.0001
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@2560x1080",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0002,
+            "delta": 0.0001
+          },
+          {
+            "at": "analytics-heatmap-sparse@2560x1440",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0002,
+            "delta": 0.0001
+          },
+          {
+            "at": "analytics-heatmap-too-large@1920x1080",
+            "tier": "A",
+            "p1": 0.0002,
+            "current": 0.0003,
+            "delta": 0.0001
+          }
+        ],
+        "dePlannedP1Cases": [
+          {
+            "at": "scene-editor-viewing-revision@430x932",
+            "p1": 0.2855
+          },
+          {
+            "at": "scene-editor-viewing-revision@390x844",
+            "p1": 0.2103
+          },
+          {
+            "at": "analytics-heatmap@430x932",
+            "p1": 0.0691
+          },
+          {
+            "at": "analytics-heatmap@390x844",
+            "p1": 0.0695
+          },
+          {
+            "at": "analytics-heatmap-too-large@430x932",
+            "p1": 0.0698
+          },
+          {
+            "at": "analytics-heatmap-too-large@390x844",
+            "p1": 0.0695
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@430x932",
+            "p1": 0.0698
+          },
+          {
+            "at": "analytics-heatmap-evidence-unreadable@390x844",
+            "p1": 0.0844
+          },
+          {
+            "at": "analytics-heatmap-sparse@430x932",
+            "p1": 0.0691
+          },
+          {
+            "at": "analytics-heatmap-sparse@390x844",
+            "p1": 0.0695
+          }
+        ],
+        "p1MeasuredNowNotApplicable": [],
+        "currentCasesWithoutP1": 44
+      },
+      "longTasks": {
+        "p1": {
+          "measured": 218,
+          "withTasks": [
+            {
+              "at": "search-inspector-opened@2560x1440",
+              "interaction": "select a result to inspect it",
+              "count": 1,
+              "maxMs": 50
+            }
+          ]
+        },
+        "current": {
+          "measured": 413,
+          "withTasks": []
+        }
+      }
+    }
+  },
+  "windowsContinuity": {
+    "head": "abccc6744be6bd28b79c1c08f5ddcd8d11590e07",
+    "classes": [
+      {
+        "class": "camera-analytics @ A",
+        "p1": 0.4325,
+        "windows": 0.012,
+        "at": "analytics-activity@1440x900",
+        "withinP1": true
+      },
+      {
+        "class": "camera-analytics @ B",
+        "p1": 0.3012,
+        "windows": 0.02,
+        "at": "analytics-activity-narrow-band@768x900",
+        "withinP1": true
+      },
+      {
+        "class": "camera-analytics @ C",
+        "p1": 0.0624,
+        "windows": 0,
+        "at": "analytics-activity@430x932",
+        "withinP1": true
+      },
+      {
+        "class": "cameras @ A",
+        "p1": 0.024,
+        "windows": 0,
+        "at": "shell-rail-collapsed@1440x900",
+        "withinP1": true
+      },
+      {
+        "class": "cameras @ B",
+        "p1": 0.0296,
+        "windows": 0,
+        "at": "shell-rail-overlay@768x900",
+        "withinP1": true
+      },
+      {
+        "class": "cameras @ C",
+        "p1": 0.0393,
+        "windows": 0,
+        "at": "cameras@430x932",
+        "withinP1": true
+      },
+      {
+        "class": "import @ A",
+        "p1": 0,
+        "windows": 0,
+        "at": "import@1366x768",
+        "withinP1": true
+      },
+      {
+        "class": "import @ B",
+        "p1": 0.0762,
+        "windows": 0.0677,
+        "at": "import@1024x768",
+        "withinP1": true
+      },
+      {
+        "class": "import @ C",
+        "p1": 0.1056,
+        "windows": 0.0829,
+        "at": "import@390x844",
+        "withinP1": true
+      },
+      {
+        "class": "overview @ A",
+        "p1": 0.0297,
+        "windows": 0.0297,
+        "at": "overview-partial-failure@1366x768",
+        "withinP1": true
+      },
+      {
+        "class": "overview @ B",
+        "p1": 0.1236,
+        "windows": 0.0441,
+        "at": "overview-partial-failure@1024x768",
+        "withinP1": true
+      },
+      {
+        "class": "overview @ C",
+        "p1": 0.2085,
+        "windows": 0.0694,
+        "at": "overview-partial-failure@390x844",
+        "withinP1": true
+      },
+      {
+        "class": "processing-detail @ A",
+        "p1": 0.0489,
+        "windows": 0.0489,
+        "at": "processing-detail-analytics-stale@1366x768",
+        "withinP1": true
+      },
+      {
+        "class": "processing-detail @ B",
+        "p1": 0.386,
+        "windows": 0.2092,
+        "at": "processing-detail-analytics-stale@1024x768",
+        "withinP1": true
+      },
+      {
+        "class": "processing-detail @ C",
+        "p1": 0.2574,
+        "windows": 0.0922,
+        "at": "processing-detail-metadata-unavailable@390x844",
+        "withinP1": true
+      },
+      {
+        "class": "processing-queue @ A",
+        "p1": 0.0061,
+        "windows": 0.0064,
+        "at": "processing-queue-row-degraded@1366x768",
+        "withinP1": true
+      },
+      {
+        "class": "processing-queue @ B",
+        "p1": 0.0078,
+        "windows": 0.0079,
+        "at": "processing-queue-row-unavailable@1024x768",
+        "withinP1": true
+      },
+      {
+        "class": "processing-queue @ C",
+        "p1": 0.0207,
+        "windows": 0.0189,
+        "at": "processing-queue-row-degraded@390x844",
+        "withinP1": true
+      },
+      {
+        "class": "review @ A",
+        "p1": 0.1141,
+        "windows": 0.0058,
+        "at": "review-dense-markers@1366x768",
+        "withinP1": true
+      },
+      {
+        "class": "review @ B",
+        "p1": 0.285,
+        "windows": 0.0206,
+        "at": "review-overflow-bridging@768x1024",
+        "withinP1": true
+      },
+      {
+        "class": "review @ C",
+        "p1": 0.2792,
+        "windows": 0.0134,
+        "at": "review-narrow-band@600x900",
+        "withinP1": true
+      },
+      {
+        "class": "scene-editor @ A",
+        "p1": 0.0187,
+        "windows": 0.0009,
+        "at": "scene-editor-dense@1366x768",
+        "withinP1": true
+      },
+      {
+        "class": "scene-editor @ B",
+        "p1": 0.032,
+        "windows": 0.0082,
+        "at": "scene-editor-dense@768x1024",
+        "withinP1": true
+      },
+      {
+        "class": "scene-editor @ C",
+        "p1": 0.0604,
+        "windows": 0,
+        "at": "scene-editor@430x932",
+        "withinP1": true
+      },
+      {
+        "class": "search @ A",
+        "p1": 0.081,
+        "windows": 0.0359,
+        "at": "search-no-timezone@1366x768",
+        "withinP1": true
+      },
+      {
+        "class": "search @ B",
+        "p1": 0.1136,
+        "windows": 0.052,
+        "at": "search-no-timezone@1024x768",
+        "withinP1": true
+      },
+      {
+        "class": "search @ C",
+        "p1": 0.1757,
+        "windows": 0.1485,
+        "at": "search-no-timezone@390x844",
+        "withinP1": true
+      },
+      {
+        "class": "videos @ A",
+        "p1": 0.0296,
+        "windows": 0.0296,
+        "at": "videos-cameras-unavailable@1366x768",
+        "withinP1": true
+      },
+      {
+        "class": "videos @ B",
+        "p1": 0.1781,
+        "windows": 0.0426,
+        "at": "videos-cameras-unavailable@1024x768",
+        "withinP1": true
+      },
+      {
+        "class": "videos @ C",
+        "p1": 0.1335,
+        "windows": 0.0614,
+        "at": "videos-cameras-unavailable@390x844",
+        "withinP1": true
+      },
+      {
+        "class": "search: filter names unresolved @ A",
+        "p1": 0.0646,
+        "windows": 0.0646,
+        "at": "search-filtered-unresolved@1366x768",
+        "withinP1": true,
+        "note": "explicit class qualified above P1"
+      },
+      {
+        "class": "search: filter names unresolved @ B",
+        "p1": 0.1513,
+        "windows": 0.0971,
+        "at": "search-filtered-unresolved@1024x768",
+        "withinP1": true,
+        "note": "explicit class qualified above P1"
+      },
+      {
+        "class": "search: filter names unresolved @ C",
+        "p1": 0.2661,
+        "windows": 0.2146,
+        "at": "search-filtered-unresolved@390x844",
+        "withinP1": true,
+        "note": "explicit class qualified above P1"
+      },
+      {
+        "class": "review: scene geometry unavailable @ A",
+        "p1": 0.1295,
+        "windows": 0.049,
+        "at": "review-geometry-unavailable@1920x1080",
+        "withinP1": true,
+        "note": "explicit class qualified above P1"
+      },
+      {
+        "class": "review: scene geometry unavailable @ B",
+        "p1": 0.3087,
+        "windows": 0.1649,
+        "at": "review-geometry-unavailable@768x1024",
+        "withinP1": true,
+        "note": "explicit class qualified above P1"
+      },
+      {
+        "class": "review: scene geometry unavailable @ C",
+        "p1": 0.1476,
+        "windows": 0.1077,
+        "at": "review-geometry-unavailable@430x932",
+        "withinP1": true,
+        "note": "explicit class qualified above P1"
+      },
+      {
+        "class": "camera-analytics: switch to the heatmap",
+        "p1": 0.4183,
+        "windows": 0.0021,
+        "at": "analytics-heatmap@768x1024",
+        "withinP1": true
+      },
+      {
+        "class": "scene-editor: view revision 3 from the revision strip",
+        "p1": 0.6472,
+        "windows": 0.0604,
+        "at": "scene-editor-viewing-revision@1024x768",
+        "withinP1": true
+      },
+      {
+        "class": "search: select a result to inspect it",
+        "p1": 0.1432,
+        "windows": 0.0125,
+        "at": "search-inspector-opened-narrow-band@600x900",
+        "withinP1": true
+      },
+      {
+        "class": "search: scene refresh failure (names withdrawn)",
+        "p1": 0.015,
+        "windows": 0.017,
+        "at": "search-analytics-scene-degraded@430x932",
+        "withinP1": true,
+        "note": "explicit class qualified above P1"
+      },
+      {
+        "class": "review: refresh failure on returning to a stale Review",
+        "p1": null,
+        "windows": 0.0827,
+        "at": "review-refresh-degraded@390x844",
+        "withinP1": null
+      },
+      {
+        "class": "scene-editor: stacked failure notices (dense workbench)",
+        "p1": null,
+        "windows": 0.0921,
+        "at": "scene-editor-dense@768x1024",
+        "withinP1": null
+      },
+      {
+        "class": "review: open the runtime attestation and the record detail",
+        "p1": null,
+        "windows": 0.0005,
+        "at": "review-provenance-open@2560x1440",
+        "withinP1": null
+      }
+    ],
+    "outsideP1": [],
+    "longTasks": []
+  },
+  "verdict": "PASS"
+}
