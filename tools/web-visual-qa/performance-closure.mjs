@@ -92,7 +92,15 @@ function main() {
     try { candidate = JSON.parse(readFileSync(join(REPO, file), 'utf8')); } catch { continue; }
     if (!candidate?.implementationHead) continue;
     artifact ??= candidate;
-    try { git('merge-base', '--is-ancestor', candidate.implementationHead, 'HEAD'); } catch { continue; }
+    // An ancestor is comparable; so is a qualified head that a squash or
+    // rebase left outside this lineage, if its commit is still present: the
+    // trees are compared directly, and closure still requires every path that
+    // differs to be closure-safe. A head whose commit is absent is measured.
+    let comparable = false;
+    try { git('merge-base', '--is-ancestor', candidate.implementationHead, 'HEAD'); comparable = true; } catch {
+      try { git('cat-file', '-e', `${candidate.implementationHead}^{commit}`); comparable = true; } catch { comparable = false; }
+    }
+    if (!comparable) continue;
     artifact = candidate;
     isAncestor = true;
     changed = git('diff', '--name-only', candidate.implementationHead, 'HEAD').split('\n').filter(Boolean);
