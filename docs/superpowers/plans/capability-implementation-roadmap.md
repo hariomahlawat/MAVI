@@ -174,6 +174,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 ### Stage 4 — ANPR / OCR
 
 - **Objective.** "Show vehicles whose plate contains `KA01`" with every supporting plate crop, OCR reading/confidence and source frame/time.
+- **Plan.** `docs/superpowers/plans/2026-10-12-stage4-anpr-ocr.md` (implementation-ready: evidence-adequacy experiment, Model Selection protocol, contracts, PR sequence PR-1–PR-6).
 - **Preconditions.** Vehicle Tracks and the sealed Track Evidence Set (present); capability-binding v2 (present). Stage 2/3 semantics are useful but not hard dependencies.
 - **Evidence-first entry decision.** Before changing VisionJob, measure plate pixel size/clarity on real current `Representative`/`NearView`/`EarlyDiverse`/`LateDiverse` vehicle evidence. If the existing set supports useful ANPR, consume it unchanged. Only a demonstrated resolution/coverage gap may justify a later plate-specific source-evidence change.
 - **Flow.** `Vehicle Track → selected accepted Track evidence → plate detector → plate crop as sealed derived evidence → one or more OCR observations → immutable raw text/confidence → versioned normalisation → per-Track searchable plate summary`.
