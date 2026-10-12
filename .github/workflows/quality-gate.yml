@@ -111,7 +111,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.tooling != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # The envelope covers installing FFmpeg, which a slow package mirror has
+    # stretched past 11 minutes (S7), as well as the tests themselves.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -164,7 +166,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.dotnet != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # The envelope covers installing FFmpeg, which a slow package mirror has
+    # stretched past 11 minutes (S7), as well as the tests themselves.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -447,7 +451,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.visual != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The envelope covers installing FFmpeg, which a slow package mirror has
+    # stretched past 11 minutes (S7), as well as the tests themselves.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
