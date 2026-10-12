@@ -21,9 +21,17 @@ instrument is the one with the higher native EM in the top bin (ties: higher ove
 EM 0, leaves ``h_min`` NOT MEASURED.
 
 **ΔEM (§3.4.2).** For each instrument and cap, over text-usable, associated plates with native character height ≥
-``h_min``: ΔEM = 100 × (native exact − encoded exact) / n percentage points. A plate whose role was not admitted by
+``h_min``: ΔEM = 100 × (native agreeing − encoded agreeing) / n percentage points. A plate whose role was not admitted by
 the encoder, or that lies outside the crop, counts as not read exactly in that role (the loss is real). n below the
 support floor → insufficient.
+
+**Full-plate exact match versus visible-character agreement (protocol R6).** Every read records both:
+``exact`` — the normalised read equals a fully labelled truth (``None`` when the truth has masked characters, because
+a full-plate match cannot be established there) — and ``agreement`` — the R6 rule (equal length and every unmasked
+character equal; identical to ``exact`` for a fully labelled truth). ``h_min`` and ΔEM count ``agreement``, and the
+summary states their **basis**: ``full-plate`` when no plate of the population is masked, ``visible-character`` when
+every plate is, ``mixed`` otherwise. Full-plate EM is reported separately over the fully labelled plates only, so a
+visible-character figure is never presented as full-plate accuracy.
 """
 
 from __future__ import annotations
@@ -77,9 +85,11 @@ def read(instrument: Instrument, region: np.ndarray, truth_text: str | None) -> 
     except Exception as exc:  # noqa: BLE001 - an instrument failure is evidence, recorded and never hidden
         return {"error": f"instrument_error:{type(exc).__name__}"}
     result = normalise(reading.text)
-    exact = truth_text is not None and truths.text_matches(result.normalised, truth_text)
+    masked = truth_text is not None and truths.MASK in truth_text
+    agreement = truth_text is not None and truths.text_matches(result.normalised, truth_text)
+    exact = None if masked or truth_text is None else agreement
     return {"raw": reading.text, "normalised": result.normalised, "normalisationOutcome": result.outcome,
-            "confidence": reading.confidence, "exact": exact,
+            "confidence": reading.confidence, "exact": exact, "agreement": agreement,
             "cer": None if truth_text is None else measure.cer(result.normalised, truth_text,
                                                                masked=truths.MASK in truth_text)}
 
@@ -158,7 +168,21 @@ def _role(crop: np.ndarray, origin: tuple[int, int, int, int], plate_rect: tuple
 
 
 def _exact(entry: dict[str, Any] | None) -> bool:
+    """Agreement under R6 (full-plate exact match for a fully labelled truth)."""
+    return bool(entry) and entry.get("agreement") is True
+
+
+def _full_plate(entry: dict[str, Any] | None) -> bool:
     return bool(entry) and entry.get("exact") is True
+
+
+def _masked(row: dict[str, Any]) -> bool:
+    return row["truthText"] is not None and "*" in row["truthText"]
+
+
+def basis(rows: list[dict[str, Any]]) -> str:
+    masked = sum(_masked(row) for row in rows)
+    return "full-plate" if masked == 0 else ("visible-character" if masked == len(rows) else "mixed")
 
 
 def instrument_failed(rows: list[dict[str, Any]], instrument_id: str) -> int:
@@ -261,13 +285,27 @@ def _strata(population: list[dict[str, Any]]) -> dict[str, Callable[[dict[str, A
     }
 
 
+def _full_plate_table(rows: list[dict[str, Any]], instrument_ids: list[str]) -> dict[str, Any]:
+    """Full-plate exact match over fully labelled, associated plates only (never over masked truths)."""
+    population = [row for row in rows if row["textUsable"] and not _masked(row) and row["association"] != "unassociated"]
+    table: dict[str, Any] = {"n": len(population)}
+    for instrument_id in instrument_ids:
+        table[instrument_id] = {role: sum(_full_plate(row["reads"][instrument_id].get(role)) for row in population)
+                                for role in ("native", *ROLES)}
+    return table
+
+
 def summarise(rows: list[dict[str, Any]], instrument_ids: list[str]) -> dict[str, Any]:
     counts = {"plates": len(rows), "textUsable": sum(row["textUsable"] for row in rows),
               "textUnusable": sum(not row["textUsable"] for row in rows),
               "unassociated": sum(row["textUsable"] and row["association"] == "unassociated" for row in rows)}
     failures = {instrument_id: instrument_failed(rows, instrument_id) for instrument_id in instrument_ids}
     derivation = h_min(rows, instrument_ids)
-    summary: dict[str, Any] = {"counts": counts, "instrumentErrors": failures, "hMin": derivation}
+    usable = [row for row in rows if row["textUsable"]]
+    derivation["basis"] = basis(usable)
+    summary: dict[str, Any] = {"counts": counts, "instrumentErrors": failures, "hMin": derivation,
+                               "fullPlateExactMatch": _full_plate_table(rows, instrument_ids)}
+    counts["maskedTruth"] = sum(_masked(row) for row in usable)
     threshold = derivation["hMinPx"]
     if threshold is None:
         summary["encodingLoss"] = None
@@ -275,7 +313,7 @@ def summarise(rows: list[dict[str, Any]], instrument_ids: list[str]) -> dict[str
     eligible = [row for row in rows if row["textUsable"] and row["native"]["charHeightPx"] >= threshold]
     population = [row for row in eligible if row["association"] != "unassociated"]
     summary["population"] = {"atOrAboveHMin": len(eligible), "associated": len(population),
-                             "excludedUnassociated": len(eligible) - len(population)}
+                             "excludedUnassociated": len(eligible) - len(population), "basis": basis(population)}
     strata = _strata(population)
     loss: dict[str, Any] = {}
     for instrument_id in instrument_ids:

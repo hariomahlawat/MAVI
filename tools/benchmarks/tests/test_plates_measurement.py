@@ -131,9 +131,9 @@ def test_vehicle_association_prefers_the_smallest_containing_box():
 
 
 def _synthetic_row(height, native_exact, encoded_exact, association="dataset-vehicle-box", usable=True):
-    read = {"native": {"exact": native_exact}, "supplemental": {"exact": encoded_exact},
-            "representative": {"exact": encoded_exact}}
-    return {"itemId": f"seq{int(height)}/{id(read) % 1000:06d}", "textUsable": usable, "association": association, "vehicleClass": "car", "layout": "one-line",
+    read = {"native": {"agreement": native_exact}, "supplemental": {"agreement": encoded_exact},
+            "representative": {"agreement": encoded_exact}}
+    return {"itemId": f"seq{int(height)}/{id(read) % 1000:06d}", "textUsable": usable, "truthText": "AB1234", "association": association, "vehicleClass": "car", "layout": "one-line",
             "illumination": "day", "occluded": None,
             "native": {"charHeightPx": height, "blur": float(height), "skewDegrees": 0.0},
             "reads": {"a": read, "b": read}}
@@ -166,7 +166,8 @@ def test_encoding_loss_population_and_delta():
             + [_synthetic_row(40, False, False, usable=False)] * 7)
     summary = adequacy.summarise(rows, ["a", "b"])
     overall = summary["encodingLoss"]["a"]["supplemental"]["overall"]
-    assert summary["population"] == {"atOrAboveHMin": 65, "associated": 60, "excludedUnassociated": 5}
+    assert summary["population"] == {"atOrAboveHMin": 65, "associated": 60, "excludedUnassociated": 5,
+                                     "basis": "full-plate"}
     assert (overall["n"], overall["nativeExact"], overall["encodedExact"]) == (60, 60, 54)
     assert overall["distinctSources"] == 1  # every synthetic row of one height shares one sequence
     assert Fraction(overall["deltaEmPp"]["numerator"], overall["deltaEmPp"]["denominator"]) == 10
@@ -259,3 +260,19 @@ def test_exif_rotated_photo_is_read_as_displayed():
     assert measure.decode_image(data).shape[:2] == (40, 20)
     assert measure.display_size(measure_png := __import__("plate_fixtures").png(stored)) == (40, 20)
     assert measure.decode_image(measure_png).shape[:2] == (20, 40)
+
+
+def test_masked_truth_reports_agreement_never_full_plate_exact():
+    image = scene(1600, 1200)
+    item = still_item("img-m", image, (700, 900, 72, 24), "AB*234", {"x": 400, "y": 300, "width": 800, "height": 700})
+    row = adequacy.measure_item(item, image, [HeightInstrument("a", "AB9234", 10)])[0]
+    native = row["reads"]["a"]["native"]
+    assert native["agreement"] is True and native["exact"] is None
+    full = adequacy.measure_item(still_item("img-f", image, (700, 900, 72, 24), "AB1234",
+                                            {"x": 400, "y": 300, "width": 800, "height": 700}), image,
+                                 [HeightInstrument("a", "AB1234", 10)])[0]
+    assert full["reads"]["a"]["native"]["exact"] is True and full["reads"]["a"]["native"]["agreement"] is True
+    summary = adequacy.summarise([row, full], ["a"])
+    assert summary["hMin"]["basis"] == "mixed" and summary["counts"]["maskedTruth"] == 1
+    assert summary["fullPlateExactMatch"]["n"] == 1 and summary["fullPlateExactMatch"]["a"]["native"] == 1
+    assert adequacy.basis([row]) == "visible-character" and adequacy.basis([full]) == "full-plate"

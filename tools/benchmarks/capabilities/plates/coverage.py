@@ -62,7 +62,7 @@ def _clamped(box: tuple[float, float, float, float]) -> NormalizedBoundingBox:
 
 
 def _union(reads: dict[str, dict[str, Any]]) -> bool:
-    return any(entry.get("exact") is True for entry in reads.values())
+    return any(entry.get("agreement") is True for entry in reads.values())
 
 
 def evaluate_track(frames: list[PlateFrame], observations: list[EvidenceObservation] | None,
@@ -82,7 +82,7 @@ def evaluate_track(frames: list[PlateFrame], observations: list[EvidenceObservat
         truth_text = truths.truth_text(frame.plate)
         reads = {i.instrument_id: read(i, measure.region(image, rect), truth_text) for i in instruments}
         for instrument_id, entry in reads.items():
-            oracle_by[instrument_id] |= entry.get("exact") is True
+            oracle_by[instrument_id] |= entry.get("agreement") is True
         oracle_frames.append({"frameIndex": index, "charHeightPx": height, "reads": reads})
     evidence = []
     evidence_by = {instrument.instrument_id: False for instrument in instruments}
@@ -111,7 +111,7 @@ def evaluate_track(frames: list[PlateFrame], observations: list[EvidenceObservat
         truth_text = truths.truth_text(frame.plate)
         entry["reads"] = {i.instrument_id: read(i, region, truth_text) for i in instruments}
         for instrument_id, result in entry["reads"].items():
-            if result.get("exact") is True:
+            if result.get("agreement") is True:
                 evidence_by[instrument_id] = True
                 roles.add(observation.role)
         evidence.append(entry)
