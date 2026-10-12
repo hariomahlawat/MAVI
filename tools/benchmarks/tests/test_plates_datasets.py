@@ -246,3 +246,68 @@ def test_vehicle_candidates_must_bind_the_truth():
     with pytest.raises(S32Error):
         path = ROOT / "contracts" / "test-vectors" / "plate-normalisation-v1.json"  # not a candidates file
         cli._candidates(path, "0" * 64)
+
+
+# Bounded annotation (protocol R8) and the BDD plate-label adapter
+
+
+def _proposals():
+    def frame(path, plate, oracle=True, evidence=False):
+        return {"vehicleBox": [100.0, 100.0, 500.0, 400.0], "oracleCandidate": oracle, "evidenceFrame": evidence,
+                "imagePath": path, "plate": plate}
+    big = {"box": [250.0, 300.0, 330.0, 325.0], "confidence": 0.9}
+    small = {"box": [250.0, 300.0, 270.0, 306.0], "confidence": 0.8}
+    return {"schemaVersion": "benchmark-plate-proposals-v1", "descriptorSha256": "d" * 64, "tracks": [
+        {"sequenceId": "s1", "gtTrackId": "7", "nativeClass": "car", "maviTrackId": "m",
+         "frames": {"3": frame("img/a.jpg", big), "4": frame("img/b.jpg", small, evidence=True), "5": frame("img/c.jpg", None)}},
+        {"sequenceId": "s1", "gtTrackId": "8", "nativeClass": "truck", "maviTrackId": None,
+         "frames": {"3": frame("img/a.jpg", small)}},
+        {"sequenceId": "s0", "gtTrackId": "1", "nativeClass": "bus", "maviTrackId": None,
+         "frames": {"0": frame("img/z.jpg", big)}}]}
+
+
+def test_candidates_are_numbered_deterministically_and_need_a_wide_plate():
+    from tools.benchmarks.plates import annotate
+
+    found = annotate.candidates(_proposals())
+    assert [(c["candidate"], c["sequenceId"], c["gtTrackId"], c["bestFrame"]) for c in found] == [
+        ("T0001", "s0", "1", "0"), ("T0002", "s1", "7", "3")]
+
+
+def test_labels_keep_only_verified_text_and_accepted_geometry(tmp_path):
+    from tools.benchmarks.plates import annotate
+
+    proposals = tmp_path / "p.json"
+    proposals.write_text(json.dumps(_proposals()))
+    decisions = tmp_path / "d.json"
+    decisions.write_text(json.dumps({"verifier": {"method": "blind visual transcription"},
+                                     "texts": {"T0001": None, "T0002": "7ABC123"},
+                                     "rejectedGeometry": ["T0002/4"]}))
+    annotate.labels(proposals_path=proposals, decisions_path=decisions, out=tmp_path / "labels.json")
+    labels = json.loads((tmp_path / "labels.json").read_bytes())
+    t1, t2 = labels["tracks"]
+    assert t1["text"] is None and list(t1["frames"]) == ["0"]
+    assert t2["text"] == "7ABC123" and list(t2["frames"]) == ["3"]  # frame 4 rejected, frame 5 had no proposal
+    undecided = tmp_path / "u.json"
+    undecided.write_text(json.dumps({"verifier": {"method": "x"}, "texts": {"T0001": None}}))
+    with pytest.raises(S32Error, match="undecided:T0002"):
+        annotate.labels(proposals_path=proposals, decisions_path=undecided, out=tmp_path / "labels2.json")
+
+
+def test_bdd_plate_labels_become_sequence_truth(tmp_path):
+    from tools.benchmarks.datasets import bdd_plate_labels
+    from tools.benchmarks.plates import annotate
+
+    proposals = tmp_path / "p.json"
+    proposals.write_text(json.dumps(_proposals()))
+    decisions = tmp_path / "d.json"
+    decisions.write_text(json.dumps({"verifier": {"method": "blind"}, "texts": {"T0001": None, "T0002": "7ABC123"}}))
+    annotate.labels(proposals_path=proposals, decisions_path=decisions, out=tmp_path / "labels.json")
+    entries = {path: {"sha256": "e" * 64} for path in ("img/a.jpg", "img/b.jpg", "img/z.jpg")}
+    items = bdd_plate_labels.plate_items((tmp_path / "labels.json").read_bytes(), entries, "d" * 64,
+                                         lambda path: (1280, 720))
+    assert [item["itemId"] for item in items] == ["s0/000000/1", "s1/000003/7", "s1/000004/7"]
+    assert items[1]["plates"][0]["textUsable"] and items[1]["vehicleClass"] == "car"
+    assert items[0]["plates"][0]["textUnusableReason"] == "unlabelled" and items[0]["vehicleClass"] == "commercial"
+    with pytest.raises(S32Error, match="descriptor"):
+        bdd_plate_labels.plate_items((tmp_path / "labels.json").read_bytes(), entries, "0" * 64, lambda p: (1, 1))

@@ -101,7 +101,9 @@ def validate_document(document: Any) -> dict[str, Any]:
         linked = (item["sequenceId"], item["frameIndex"], item["gtTrackId"])
         if sequence:
             require(all(value is not None for value in linked), f"{CODE}:sequence_fields:{where}")
-            require(where == f"{item['sequenceId']}/{item['frameIndex']:06d}", f"{CODE}:item_id:{where}")
+            # One item per (frame, ground-truth track): several vehicles share a frame.
+            require(where == f"{item['sequenceId']}/{item['frameIndex']:06d}/{item['gtTrackId']}",
+                    f"{CODE}:item_id:{where}")
         else:
             require(all(value is None for value in linked), f"{CODE}:still_fields:{where}")
         box = item["vehicleBox"]

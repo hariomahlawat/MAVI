@@ -60,7 +60,7 @@ def load_spec(path: Path) -> dict[str, Any]:
     require(isinstance(spec, dict) and spec.get("schemaVersion") == SPEC_SCHEMA, f"{CODE}:schema")
     for key in ("instrumentId", "adapter", "role", "packages", "configuration", "modelFiles"):
         require(key in spec, f"{CODE}:field:{key}")
-    require(spec["role"] in ("plate-specific", "generic"), f"{CODE}:role")
+    require(spec["role"] in ("plate-specific", "generic", "annotation-plate-detector"), f"{CODE}:role")
     paths = [item["path"] for item in spec["modelFiles"]]
     require(paths == sorted(set(paths)), f"{CODE}:model_file_order")
     return spec

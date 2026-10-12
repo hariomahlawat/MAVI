@@ -33,7 +33,7 @@ from tools.benchmarks.core._stage3 import ROOT, artefacts
 from tools.benchmarks.core.identity import (
     S32Error, canonical_json, read_artefact, require, sha256_hex, tooling_identity, validate,
     write_once)
-from tools.benchmarks.datasets import uc3m_lp, ufpr_alpr, voc_plates
+from tools.benchmarks.datasets import bdd_plate_labels, uc3m_lp, ufpr_alpr, voc_plates
 
 RESULT = "benchmark-plate-adequacy-v1"
 PROTOCOL = "docs/qualification/stage4/adequacy-protocol.md"
@@ -72,7 +72,8 @@ def _truth(path: Path, descriptor_sha: str) -> tuple[dict[str, Any], str]:
 # truth
 
 
-def build_truth(descriptor_path: Path, source_root: Path, adapter_id: str, split: str) -> dict[str, Any]:
+def build_truth(descriptor_path: Path, source_root: Path, adapter_id: str, split: str,
+                labels_path: Path | None = None) -> dict[str, Any]:
     document, descriptor_sha, entries = _reconciled(descriptor_path, source_root)
     require(descriptors.split(document, split)["labelled"], f"descriptor_invalid:split_unlabelled:{split}")
     if adapter_id == ufpr_alpr.ADAPTER_ID:
@@ -84,6 +85,12 @@ def build_truth(descriptor_path: Path, source_root: Path, adapter_id: str, split
             items += found
             exclusions += refused
         kind, version = "sequence", ufpr_alpr.ADAPTER_VERSION
+    elif adapter_id == bdd_plate_labels.ADAPTER_ID:
+        require(labels_path is not None, "adapter_labels_required")
+        items = bdd_plate_labels.plate_items(
+            Path(labels_path).read_bytes(), entries, descriptor_sha,
+            lambda path: measure.display_size(descriptors.read_verified(entries, source_root, path)))
+        exclusions, kind, version = [], "sequence", bdd_plate_labels.ADAPTER_VERSION
     elif adapter_id == uc3m_lp.ADAPTER_ID:
         require(split == uc3m_lp.MEASUREMENT_SPLIT, f"adapter_split_reserved:{split}")
         items, exclusions = uc3m_lp.Uc3mLpAdapter().plate_items(source_root, entries, split)
@@ -163,8 +170,9 @@ def run_eb(*, truth_path: Path, descriptor_path: Path, source_root: Path, associ
            ) -> dict[str, Any]:
     document, descriptor_sha, entries = _reconciled(descriptor_path, source_root)
     truth, truth_sha = _truth(truth_path, descriptor_sha)
-    require(truth["kind"] == "sequence" and truth["split"] == ufpr_alpr.MEASUREMENT_SPLIT,
-            "plate_coverage_invalid:testing_sequences_only")
+    # Sequences of the release's declared evaluation split only (UFPR-ALPR testing, BDD100K MOT val).
+    require(truth["kind"] == "sequence" and descriptors.split(document, truth["split"])["role"] == "evaluation",
+            "plate_coverage_invalid:evaluation_sequences_only")
     ea, _, ea_sha = read_artefact(ea_path, RESULT, "plate_result_invalid")
     require(ea["kind"] == "encoding-loss", "plate_result_invalid:not_encoding_loss")
     h_min = ea["summary"]["hMin"]["hMinPx"]
@@ -267,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--source-root", type=Path, required=True)
     t.add_argument("--adapter", required=True)
     t.add_argument("--split", required=True)
+    t.add_argument("--labels", type=Path)
     t.add_argument("--out", type=Path, required=True)
     for name in ("ea", "eb"):
         c = commands.add_parser(name)
@@ -289,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "truth":
-            document = build_truth(args.descriptor, args.source_root, args.adapter, args.split)
+            document = build_truth(args.descriptor, args.source_root, args.adapter, args.split, args.labels)
             sha = _write(document, args.out, truths.SCHEMA)
         elif args.command == "ea":
             sha = _write(run_ea(truth_path=args.truth, descriptor_path=args.descriptor, source_root=args.source_root,

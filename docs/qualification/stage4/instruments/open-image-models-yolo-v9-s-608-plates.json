@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "benchmark-plate-instrument-v1",
+  "instrumentId": "open-image-models-yolo-v9-s-608-plates",
+  "adapter": "open-image-models-yolo-v9",
+  "role": "annotation-plate-detector",
+  "packages": {
+    "open-image-models": "0.6.0",
+    "onnxruntime": "1.31.0",
+    "numpy": "2.5.3",
+    "opencv-python": "5.0.0.93",
+    "opencv-python-headless": "5.0.0.93"
+  },
+  "configuration": {
+    "onnxModel": "yolo-v9-s-608-license-plates-end2end.onnx",
+    "classLabels": [
+      "License Plate"
+    ],
+    "confidence": 0.25,
+    "device": "cpu",
+    "threads": 1
+  },
+  "modelFiles": [
+    {
+      "path": "yolo-v9-s-608-license-plates-end2end.onnx",
+      "sha256": "2b878b38d9aa07b6ddc3ea75c4ffcb39869bc5c218e0a14002f60ab2f7b0be9a"
+    }
+  ],
+  "provenance": {
+    "source": "https://github.com/ankandrew/open-image-models/releases/download/assets/yolo-v9-s-608-license-plates-end2end.onnx (the open-image-models 0.6.0 hub entry)",
+    "retrievedOn": "2026-10-12",
+    "licence": "MIT (ankandrew/open-image-models)",
+    "exposure": "Annotation tooling only: proposes plate boxes for human-verifiable labelling. It is not a measuring instrument, never supplies plate text, and is not a Stage-4 selection candidate."
+  },
+  "note": "Pre-annotation plate detector for E-B labelling (protocol R8); its boxes become labels only after geometry verification."
+}

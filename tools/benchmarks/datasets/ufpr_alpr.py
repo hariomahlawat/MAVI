@@ -238,7 +238,7 @@ class UfprAlprAdapter:
             x, y, w, h = annotation["plateBox"]
             vx, vy, vw, vh = annotation["vehicle"]
             items.append({
-                "itemId": f"{sequence}/{index:06d}", "imagePath": path, "imageSha256": sha256_hex(image),
+                "itemId": f"{sequence}/{index:06d}/vehicle", "imagePath": path, "imageSha256": sha256_hex(image),
                 "frameSize": {"width": size[0], "height": size[1]}, "sequenceId": sequence, "frameIndex": index,
                 "gtTrackId": "vehicle", "vehicleBox": {"x": vx, "y": vy, "width": vw, "height": vh},
                 "vehicleClass": annotation["type"],

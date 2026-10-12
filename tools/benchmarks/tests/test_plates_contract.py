@@ -48,7 +48,7 @@ def test_separator_set_is_exactly_the_contract():
 
 
 def _truth(**changes):
-    item = {"itemId": "seq/000000", "imagePath": "a.png", "imageSha256": "1" * 64,
+    item = {"itemId": "seq/000000/vehicle", "imagePath": "a.png", "imageSha256": "1" * 64,
             "frameSize": {"width": 100, "height": 80}, "sequenceId": "seq", "frameIndex": 0, "gtTrackId": "vehicle",
             "vehicleBox": {"x": 10, "y": 10, "width": 80, "height": 60}, "vehicleClass": "car",
             "plates": [truths.plate("plate", truths.box_polygon(40, 50, 20, 8), "AB-1234", "one-line")]}
@@ -72,7 +72,7 @@ def test_valid_truth_passes():
     ({"items.0.plates.0.polygon": [[95, 50], [120, 50], [120, 58], [95, 58]]}, "polygon"),
     ({"items.0.plates.0.textUsable": False}, "text_usability"),
     ({"items.0.plates.0.layout": "two-line"}, "layout"),
-    ({"items.0.itemId": "seq/000001"}, "item_id"),
+    ({"items.0.itemId": "seq/000001/vehicle"}, "item_id"),
     ({"kind": "still"}, "still_fields"),
     ({"items.0.vehicleBox": {"x": 50, "y": 10, "width": 80, "height": 60}}, "vehicle_box"),
 ])
