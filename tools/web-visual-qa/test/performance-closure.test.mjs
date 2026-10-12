@@ -15,7 +15,7 @@ const artifact = (over = {}) => ({
 
 describe('the performance gate on a closure head', () => {
   it('carries the qualification across documentation and CI wiring only', () => {
-    const v = decide({ artifact: artifact(), isAncestor: true, changed: ['docs/reviews/register.md', ARTIFACT, '.github/workflows/quality-gate.yml'] });
+    const v = decide({ artifact: artifact(), isAncestor: true, changed: ['docs/reviews/register.md', ARTIFACT, '.github/workflows/quality-gate.yml', 'README.md', 'tools/web-visual-qa/README.md'] });
     assert.equal(v.mode, 'closure');
   });
 
