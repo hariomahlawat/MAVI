@@ -2,6 +2,7 @@
 # environment on CPython 3.12.10 (rapidocr-onnxruntime 1.4.4 needs Python < 3.13). Exact versions of the whole
 # environment as installed and verified on 2026-10-12. Never part of a MAVI Runtime Pack or the vision lock; Pillow
 # and numpy equal the vision runtime lock so the production evidence encoder runs exactly as in VisionJob.
+# open-image-models (MIT) is annotation tooling only: it proposes plate boxes for verified E-B labels (protocol R8).
 annotated-types==0.8.0
 anyio==4.15.1
 arrow==1.4.0
@@ -27,6 +28,7 @@ mdurl==0.1.2
 msgpack==1.2.3
 numpy==2.5.3
 onnxruntime==1.31.0
+open-image-models==0.6.0
 opencv-python==5.0.0.93
 opencv-python-headless==5.0.0.93
 packaging==26.3
