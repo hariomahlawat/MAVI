@@ -242,3 +242,20 @@ def test_masked_cer_treats_a_mask_as_any_character():
     assert measure.cer("2410JV7", "24*0JV*", masked=True) == 0
     assert measure.cer("2410JV", "24*0JV*", masked=True) == pytest.approx(1 / 7)
     assert measure.cer("2410JV7", "24*0JV*") == pytest.approx(2 / 7)
+
+
+def test_exif_rotated_photo_is_read_as_displayed():
+    import io
+
+    from PIL import Image
+
+    stored = scene(40, 20)  # stored landscape; orientation 6 displays it rotated to portrait
+    buffer = io.BytesIO()
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    Image.fromarray(stored).save(buffer, format="JPEG", quality=95, exif=exif)
+    data = buffer.getvalue()
+    assert measure.display_size(data) == (20, 40)
+    assert measure.decode_image(data).shape[:2] == (40, 20)
+    assert measure.display_size(measure_png := __import__("plate_fixtures").png(stored)) == (40, 20)
+    assert measure.decode_image(measure_png).shape[:2] == (20, 40)

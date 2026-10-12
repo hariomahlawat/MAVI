@@ -33,7 +33,7 @@ from typing import Any, Iterable
 from tools.benchmarks.capabilities.plates import truth as truths
 from tools.benchmarks.core import descriptor as descriptors
 from tools.benchmarks.core.identity import S32Error, require, sha256_hex
-from tools.benchmarks.datasets.bdd100k_mot import jpeg_size
+from tools.benchmarks.capabilities.plates.measure import display_size
 
 ADAPTER_ID = "uc3m-lp"
 ADAPTER_VERSION = "1"
@@ -134,7 +134,7 @@ class Uc3mLpAdapter:
         for stem in stems:
             image_path, annotation_path = f"{split}/{stem}.jpg", f"{split}/{stem}.json"
             image = descriptors.read_verified(entries, source_root, image_path)
-            size = jpeg_size(image, f"adapter_frame_invalid:{stem}")
+            size = display_size(image)  # annotations are in display orientation (EXIF applied)
             prefix = f"adapter_label_invalid:{stem}"
             try:
                 plates = parse(descriptors.read_verified(entries, source_root, annotation_path), size, prefix)

@@ -30,7 +30,7 @@ from typing import Any, Iterable
 from tools.benchmarks.capabilities.plates import truth as truths
 from tools.benchmarks.core import descriptor as descriptors
 from tools.benchmarks.core.identity import S32Error, require, sha256_hex
-from tools.benchmarks.datasets.bdd100k_mot import jpeg_size
+from tools.benchmarks.capabilities.plates.measure import display_size
 
 ADAPTER_ID = "voc-plates-datacluster"
 ADAPTER_VERSION = "1"
@@ -138,7 +138,7 @@ class VocPlatesAdapter:
         for stem in self.stems(entries):
             image_path, annotation_path = f"images/{stem}.jpg", f"Annotations/{stem}.xml"
             image = descriptors.read_verified(entries, source_root, image_path)
-            size = jpeg_size(image, f"adapter_frame_invalid:{stem}")
+            size = display_size(image)  # annotations are in display orientation (EXIF applied)
             prefix = f"adapter_label_invalid:{stem}"
             try:
                 plates = parse_annotation(descriptors.read_verified(entries, source_root, annotation_path), size,

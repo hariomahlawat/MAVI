@@ -30,13 +30,14 @@ VEHICLE_CLASSES = ("bus", "car", "motorcycle", "truck")
 
 def _image(source_root: Path, item: dict) -> "object":
     import numpy as np
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     data = (source_root / item["imagePath"]).read_bytes()
     if hashlib.sha256(data).hexdigest() != item["imageSha256"]:
         raise SystemExit(f"image hash mismatch: {item['imagePath']}")
     with Image.open(io.BytesIO(data)) as image:
-        return np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
+        # As displayed (EXIF orientation applied), exactly as the E-A decoder reads the image.
+        return np.asarray(ImageOps.exif_transpose(image).convert("RGB"), dtype=np.uint8).copy()
 
 
 def detect_all(runtime, profile, truth: dict, source_root: Path) -> dict:

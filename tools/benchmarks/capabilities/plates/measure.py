@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from io import BytesIO
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from mavi_vision.common.analytical import NormalizedBoundingBox
 from mavi_vision.evidence.encoder import EncodedImage, JpegLadderEncoder
@@ -38,10 +38,24 @@ def encoder_identity() -> dict[str, object]:
             "pillowVersion": Image.__version__}
 
 
+# EXIF orientations that swap width and height when applied (5: transpose, 6: rotate 270, 7: transverse, 8: rotate 90).
+_SWAPPING_ORIENTATIONS = (5, 6, 7, 8)
+
+
 def decode_image(data: bytes) -> np.ndarray:
-    """RGB uint8 pixels of an encoded image (PNG/JPEG), decoded once."""
+    """RGB uint8 pixels of an encoded image (PNG/JPEG), decoded once, **as displayed**: the EXIF orientation is applied
+    (phone photographs store rotated pixels; their annotations are in display orientation). Images without an
+    orientation tag — every decoded video frame and PNG — are unchanged."""
     with Image.open(BytesIO(data)) as image:
-        return np.asarray(image.convert("RGB"), dtype=np.uint8).copy()
+        return np.asarray(ImageOps.exif_transpose(image).convert("RGB"), dtype=np.uint8).copy()
+
+
+def display_size(data: bytes) -> tuple[int, int]:
+    """``(width, height)`` of an image as displayed (EXIF orientation applied), from its header."""
+    with Image.open(BytesIO(data)) as image:
+        width, height = image.size
+        orientation = image.getexif().get(0x0112, 1)
+    return (height, width) if orientation in _SWAPPING_ORIENTATIONS else (width, height)
 
 
 def normalised_box(box: dict[str, float], width: int, height: int) -> NormalizedBoundingBox:
