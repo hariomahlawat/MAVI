@@ -516,7 +516,10 @@ jobs:
     needs: scope
     if: needs.scope.outputs.visual != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # The sweep keeps its own 25-minute budget (its step, below); the job's
+    # envelope also covers setup, so a slow package mirror installing FFmpeg
+    # (14 minutes once, S7) cannot consume the sweep's time.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -566,6 +569,7 @@ jobs:
         working-directory: src/web/mavi-web
         run: npm run build
       - name: Run the visual-QA sweep shard
+        timeout-minutes: 25
         shell: bash
         env:
           SHARD_INDEX: ${{ matrix.shard }}
