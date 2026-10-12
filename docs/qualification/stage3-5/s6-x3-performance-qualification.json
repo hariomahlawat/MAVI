@@ -1,7 +1,7 @@
 {
   "schema": "mavi.stage3-5.x3-performance-qualification.v1",
   "generatedBy": "tools/web-visual-qa/performance-qualification.mjs",
-  "implementationHead": "abccc6744be6bd28b79c1c08f5ddcd8d11590e07",
+  "implementationHead": "05865b5fc09e76fafe1bed75695e897b3600b686",
   "p1": {
     "file": "docs/qualification/stage3-5/s2-p1-performance-baseline.json",
     "schema": "mavi.stage3-5.p1-baseline.v2",
@@ -16,7 +16,7 @@
   "environment": {
     "enforcement": {
       "where": "GitHub Actions ubuntu-latest, the Quality Gate (visual sweep aggregate + performance long tasks)",
-      "ciRun": "MAVI Quality Gate run 38196746332 (abccc674), attempt 1",
+      "ciRun": "MAVI Quality Gate run 38204091363 (05865b5f), attempt 1",
       "sweep": {
         "fullSweep": true,
         "executions": {
@@ -618,10 +618,10 @@
         "states": [
           "review-geometry-unavailable"
         ],
-        "reference": 0.0559,
+        "reference": 0.0605,
         "tolerance": 0.004,
-        "limit": 0.0599,
-        "definedBy": "Linux review-geometry-unavailable@1920x1080",
+        "limit": 0.0645,
+        "definedBy": "evidence: 0.0605 = review-geometry-unavailable@1440x900 with its two movements in one frame (Linux, MAVI Quality Gate run 38202495528, 06e16ec8); 0.0450 when they land in consecutive frames (eleven samples). Below P1 (0.127-0.1295 at Tier A).",
         "kind": "explicit-new",
         "environmentCalibrated": false,
         "p1": {
@@ -639,7 +639,7 @@
         "reference": 0.1247,
         "tolerance": 0.002,
         "limit": 0.1267,
-        "definedBy": "Linux review-geometry-unavailable@768x1024",
+        "definedBy": "evidence: 0.1247 = review-geometry-unavailable@768x1024 (consecutive frames; every sample), below P1 0.3087.",
         "kind": "explicit-new",
         "environmentCalibrated": false,
         "p1": {
@@ -657,7 +657,7 @@
         "reference": 0.1205,
         "tolerance": 0.0075,
         "limit": 0.128,
-        "definedBy": "Linux review-geometry-unavailable@430x932",
+        "definedBy": "evidence: 0.1205 = review-geometry-unavailable@430x932 (one movement; every sample), below P1 0.1476.",
         "kind": "explicit-new",
         "environmentCalibrated": false,
         "p1": {
@@ -912,7 +912,7 @@
         "A": {
           "n": 943,
           "median": 0.0007,
-          "p90": 0.0043,
+          "p90": 0.0044,
           "max": 0.0646
         },
         "B": {
@@ -925,7 +925,7 @@
           "n": 364,
           "median": 0,
           "p90": 0.0572,
-          "max": 0.2516
+          "max": 0.2347
         }
       },
       "bySurface": {
@@ -955,13 +955,13 @@
         },
         "processing-detail": {
           "n": 227,
-          "median": 0.0013,
+          "median": 0.0015,
           "p90": 0.1038,
           "max": 0.216
         },
         "processing-queue": {
           "n": 80,
-          "median": 0.0017,
+          "median": 0.002,
           "p90": 0.0143,
           "max": 0.0189
         },
@@ -981,7 +981,7 @@
           "n": 337,
           "median": 0.0011,
           "p90": 0.0254,
-          "max": 0.2516
+          "max": 0.2347
         },
         "videos": {
           "n": 117,
@@ -1067,13 +1067,13 @@
       "byTier": {
         "A": {
           "n": 60,
-          "median": 0.0005,
+          "median": 0.0003,
           "p90": 0.0316,
           "max": 0.0668
         },
         "B": {
           "n": 25,
-          "median": 0.0014,
+          "median": 0.0025,
           "p90": 0.0652,
           "max": 0.0911
         },
@@ -1089,7 +1089,7 @@
           "n": 42,
           "median": 0.0003,
           "p90": 0.0025,
-          "max": 0.0026
+          "max": 0.0027
         },
         "review": {
           "n": 18,
@@ -1111,6 +1111,20 @@
         }
       },
       "nearest": [
+        {
+          "key": "analytics-heatmap-unconfirmed-scene-unavailable|1024x768|anchor",
+          "value": 0.0027,
+          "limit": 0.0062,
+          "class": "camera-analytics: switch to the heatmap",
+          "headroom": 0.0035
+        },
+        {
+          "key": "analytics-heatmap-unconfirmed-scene-unavailable|768x1024|anchor",
+          "value": 0.0027,
+          "limit": 0.0062,
+          "class": "camera-analytics: switch to the heatmap",
+          "headroom": 0.0035
+        },
         {
           "key": "review-provenance-open|2560x1440|anchor",
           "value": 0.0005,
@@ -1161,25 +1175,11 @@
           "headroom": 0.0036
         },
         {
-          "key": "analytics-heatmap-sparse|1024x768|anchor",
-          "value": 0.0025,
+          "key": "analytics-heatmap-no-scene|768x1024|anchor",
+          "value": 0.0026,
           "limit": 0.0062,
           "class": "camera-analytics: switch to the heatmap",
-          "headroom": 0.0037
-        },
-        {
-          "key": "analytics-heatmap-sparse|768x1024|anchor",
-          "value": 0.0025,
-          "limit": 0.0062,
-          "class": "camera-analytics: switch to the heatmap",
-          "headroom": 0.0037
-        },
-        {
-          "key": "analytics-heatmap|1024x768|anchor",
-          "value": 0.0025,
-          "limit": 0.0062,
-          "class": "camera-analytics: switch to the heatmap",
-          "headroom": 0.0037
+          "headroom": 0.0036
         }
       ]
     },
@@ -1215,7 +1215,7 @@
               "p90": 0.0047,
               "max": 0.0646
             },
-            "worse": 29
+            "worse": 30
           },
           "B": {
             "matched": 255,
@@ -1231,7 +1231,7 @@
               "p90": 0.0439,
               "max": 0.2092
             },
-            "worse": 37
+            "worse": 30
           },
           "C": {
             "matched": 220,
@@ -1438,8 +1438,8 @@
             "at": "processing-detail-video-unavailable@430x932",
             "tier": "C",
             "p1": 0.0011,
-            "current": 0.0284,
-            "delta": 0.0273
+            "current": 0.0296,
+            "delta": 0.0285
           },
           {
             "at": "processing-detail-analytics-degraded@768x1024",
@@ -1618,11 +1618,11 @@
             },
             "current": {
               "n": 35,
-              "median": 0.0002,
+              "median": 0.0003,
               "p90": 0.0126,
               "max": 0.0302
             },
-            "worse": 2
+            "worse": 5
           },
           "B": {
             "matched": 14,
@@ -1638,7 +1638,7 @@
               "p90": 0.0442,
               "max": 0.0604
             },
-            "worse": 0
+            "worse": 1
           },
           "C": {
             "matched": 4,
@@ -1674,25 +1674,25 @@
             "at": "analytics-heatmap-sparse@1440x900",
             "tier": "A",
             "p1": 0.4183,
-            "current": 0
+            "current": 0.0009
           },
           {
             "at": "analytics-heatmap@1440x900",
             "tier": "A",
             "p1": 0.4179,
-            "current": 0.0009
+            "current": 0
           },
           {
             "at": "analytics-heatmap-too-large@1440x900",
             "tier": "A",
             "p1": 0.4179,
-            "current": 0.0005
+            "current": 0.0002
           },
           {
             "at": "analytics-heatmap-evidence-unreadable@1440x900",
             "tier": "A",
             "p1": 0.4179,
-            "current": 0.0002
+            "current": 0.0005
           },
           {
             "at": "analytics-heatmap@1366x768",
@@ -1716,7 +1716,7 @@
             "at": "analytics-heatmap-sparse@1366x768",
             "tier": "A",
             "p1": 0.3362,
-            "current": 0
+            "current": 0.0012
           },
           {
             "at": "scene-editor-viewing-revision@1920x1080",
@@ -1758,6 +1758,20 @@
             "delta": 0.003
           },
           {
+            "at": "analytics-heatmap-sparse@1024x768",
+            "tier": "B",
+            "p1": 0.0009,
+            "current": 0.0021,
+            "delta": 0.0012
+          },
+          {
+            "at": "analytics-heatmap@1920x1080",
+            "tier": "A",
+            "p1": 0.0002,
+            "current": 0.0004,
+            "delta": 0.0002
+          },
+          {
             "at": "analytics-heatmap-sparse@1920x1080",
             "tier": "A",
             "p1": 0.0002,
@@ -1766,6 +1780,20 @@
           },
           {
             "at": "analytics-heatmap@2560x1440",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0002,
+            "delta": 0.0001
+          },
+          {
+            "at": "analytics-heatmap-sparse@2560x1080",
+            "tier": "A",
+            "p1": 0.0001,
+            "current": 0.0002,
+            "delta": 0.0001
+          },
+          {
+            "at": "analytics-heatmap-sparse@2560x1440",
             "tier": "A",
             "p1": 0.0001,
             "current": 0.0002,
@@ -1831,7 +1859,14 @@
         },
         "current": {
           "measured": 413,
-          "withTasks": []
+          "withTasks": [
+            {
+              "at": "search-inspector-opened@430x932",
+              "interaction": "select a result to inspect it",
+              "count": 1,
+              "maxMs": 51
+            }
+          ]
         }
       }
     },
@@ -1850,10 +1885,10 @@
             "current": {
               "n": 682,
               "median": 0.0011,
-              "p90": 0.0043,
+              "p90": 0.0045,
               "max": 0.0646
             },
-            "worse": 36
+            "worse": 38
           },
           "B": {
             "matched": 255,
@@ -1865,11 +1900,11 @@
             },
             "current": {
               "n": 255,
-              "median": 0.0004,
+              "median": 0.0002,
               "p90": 0.049,
               "max": 0.216
             },
-            "worse": 40
+            "worse": 35
           },
           "C": {
             "matched": 220,
@@ -1883,9 +1918,9 @@
               "n": 220,
               "median": 0,
               "p90": 0.0567,
-              "max": 0.2516
+              "max": 0.2347
             },
-            "worse": 14
+            "worse": 13
           }
         },
         "largestP1Outliers": [
@@ -2260,7 +2295,7 @@
               "p90": 0.0141,
               "max": 0.0338
             },
-            "worse": 9
+            "worse": 7
           },
           "B": {
             "matched": 14,
@@ -2276,7 +2311,7 @@
               "p90": 0.0496,
               "max": 0.0676
             },
-            "worse": 2
+            "worse": 1
           },
           "C": {
             "matched": 4,
@@ -2318,7 +2353,7 @@
             "at": "analytics-heatmap@1440x900",
             "tier": "A",
             "p1": 0.4179,
-            "current": 0.0011
+            "current": 0
           },
           {
             "at": "analytics-heatmap-too-large@1440x900",
@@ -2403,13 +2438,6 @@
             "delta": 0.0016
           },
           {
-            "at": "analytics-heatmap-sparse@1024x768",
-            "tier": "B",
-            "p1": 0.0009,
-            "current": 0.0025,
-            "delta": 0.0016
-          },
-          {
             "at": "analytics-heatmap@1920x1080",
             "tier": "A",
             "p1": 0.0002,
@@ -2417,21 +2445,7 @@
             "delta": 0.0003
           },
           {
-            "at": "analytics-heatmap-sparse@1920x1080",
-            "tier": "A",
-            "p1": 0.0002,
-            "current": 0.0005,
-            "delta": 0.0003
-          },
-          {
             "at": "analytics-heatmap@2560x1080",
-            "tier": "A",
-            "p1": 0.0001,
-            "current": 0.0003,
-            "delta": 0.0002
-          },
-          {
-            "at": "analytics-heatmap-sparse@2560x1080",
             "tier": "A",
             "p1": 0.0001,
             "current": 0.0003,
@@ -2538,7 +2552,7 @@
     }
   },
   "windowsContinuity": {
-    "head": "abccc6744be6bd28b79c1c08f5ddcd8d11590e07",
+    "head": "05865b5fc09e76fafe1bed75695e897b3600b686",
     "classes": [
       {
         "class": "camera-analytics @ A",
@@ -2565,7 +2579,7 @@
         "class": "cameras @ A",
         "p1": 0.024,
         "windows": 0,
-        "at": "shell-rail-collapsed@1440x900",
+        "at": "shell-rail-collapsed@1366x768",
         "withinP1": true
       },
       {
@@ -2655,8 +2669,8 @@
       {
         "class": "processing-queue @ B",
         "p1": 0.0078,
-        "windows": 0.0079,
-        "at": "processing-queue-row-unavailable@1024x768",
+        "windows": 0.0056,
+        "at": "processing-queue-compact-band@1200x900",
         "withinP1": true
       },
       {
@@ -2802,7 +2816,7 @@
         "class": "camera-analytics: switch to the heatmap",
         "p1": 0.4183,
         "windows": 0.0021,
-        "at": "analytics-heatmap@768x1024",
+        "at": "analytics-heatmap-sparse@1024x768",
         "withinP1": true
       },
       {
@@ -2850,7 +2864,14 @@
       }
     ],
     "outsideP1": [],
-    "longTasks": []
+    "longTasks": [
+      {
+        "at": "search-inspector-opened@430x932",
+        "interaction": "select a result to inspect it",
+        "count": 1,
+        "maxMs": 51
+      }
+    ]
   },
   "verdict": "PASS"
 }
