@@ -134,8 +134,16 @@ const maxBy = (rows, f) => rows.reduce((b, c) => (f(c) !== null && (!b || f(c) >
  */
 export function deriveBudgets({ linux, windows, p1, stateSurface, linuxLongTasks = [], windowsLongTasks = [], decisions = DECISIONS }) {
   if (linux.length !== 2) throw new HarnessError('the calibration is two Linux samples of one head');
-  const heads = new Set(linux.map((r) => r.head));
-  if (heads.size !== 1) throw new HarnessError(`the Linux samples are of different heads: ${[...heads].join(', ')}`);
+  // One head throughout: every sweep and every long-task run is of the head
+  // being calibrated, or nothing is derived (the budgets and their metadata
+  // would mix implementation revisions).
+  const inputs = [
+    ...linux.map((r, i) => [`Linux sample ${i + 1}`, r]), ['the Windows sweep', windows],
+    ...linuxLongTasks.map((r, i) => [`Linux long-task run ${i + 1}`, r]), ...windowsLongTasks.map((r, i) => [`Windows long-task run ${i + 1}`, r]),
+  ];
+  for (const [what, r] of inputs) if (!r?.head) throw new HarnessError(`${what} names no head`);
+  const heads = new Set(inputs.map(([, r]) => r.head));
+  if (heads.size !== 1) throw new HarnessError(`the calibration mixes heads: ${inputs.map(([what, r]) => `${what} ${r.head.slice(0, 8)}`).join(', ')}`);
   const [L1, L2] = linux.map(ord);
   const W = ord(windows);
   const problems = [];

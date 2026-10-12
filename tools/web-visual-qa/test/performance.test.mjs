@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { PERFORMANCE_BUDGETS } from '../performance-budgets.mjs';
-import { DECISIONS } from '../performance-calibrate.mjs';
+import { DECISIONS, deriveBudgets } from '../performance-calibrate.mjs';
 import {
   caseKey, clsUnits, evaluatePerformance, longTaskLimit, navigationLimit, ordinaryPlan, preparationLimit,
   registerBlock, registerDisagreements, REGISTER_MARKERS, validateBudgets,
@@ -265,6 +265,18 @@ describe('the performance gate (X3)', () => {
     for (const [a, b] of [[0.0359, 0.004], [0.0876, 0.004], [0.0099, 0.002], [0.1681, 0.0075], [0.0162, 0.0035]]) {
       assert.equal(clsUnits(a) + clsUnits(b), Math.round((a + b) * 10000), `${a} + ${b}`);
     }
+  });
+});
+
+describe('the calibration (performance-calibrate.mjs)', () => {
+  it('refuses inputs of more than one head, or of none: budgets never mix implementation revisions', () => {
+    const run = (head) => ({ head, cases: [], workers: 1, longTaskLane: true });
+    const p1 = { cases: [] };
+    const args = (over = {}) => ({ linux: [run('h'), run('h')], windows: run('h'), p1, stateSurface: {}, linuxLongTasks: [run('h'), run('h')], windowsLongTasks: [run('h')], ...over });
+    assert.throws(() => deriveBudgets(args({ windows: run('other') })), /mixes heads: .*the Windows sweep other/);
+    assert.throws(() => deriveBudgets(args({ linuxLongTasks: [run('h'), run('old')] })), /Linux long-task run 2 old/);
+    assert.throws(() => deriveBudgets(args({ windowsLongTasks: [run(null)] })), /Windows long-task run 1 names no head/);
+    assert.doesNotThrow(() => deriveBudgets(args()));
   });
 });
 

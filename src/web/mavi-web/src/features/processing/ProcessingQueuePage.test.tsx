@@ -287,6 +287,9 @@ describe('ProcessingQueuePage', () => {
 
     expect(await within(rows[1]).findByText(/run status unavailable/i)).toBeInTheDocument();
     expect(within(rows[1]).queryByText(/Loading run/)).not.toBeInTheDocument();
+    // S6/X3: the failed row keeps its folded-values reserve, invisible, so the
+    // columns do not move back when the lookup fails.
+    expect(rows[1].querySelectorAll('.ledger-folded .queue-reserve[aria-hidden="true"]')).toHaveLength(3);
 
     vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: run('Failed', { failureCode: 'worker_watchdog_timeout' }) });
     await user.click(within(rows[1]).getByRole('button', { name: /retry/i }));
@@ -300,7 +303,9 @@ describe('ProcessingQueuePage', () => {
     const table = await screen.findByRole('table');
     const row = within(table).getAllByRole('row')[1];
     const reserve = row.querySelectorAll('.ledger-folded .queue-reserve');
-    expect(reserve).toHaveLength(2);
+    // Queued, Attempt and a Tracks value: the completed run's full shape.
+    expect(reserve).toHaveLength(3);
+    expect(reserve[2]).toHaveTextContent(/tracks$/);
     reserve.forEach((node) => expect(node).toHaveAttribute('aria-hidden', 'true'));
 
     pending.forEach((r) => r({ videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) }));
