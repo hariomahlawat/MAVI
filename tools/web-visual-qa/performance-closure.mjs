@@ -44,6 +44,7 @@ export const ARTIFACTS = Object.freeze(['docs/qualification/stage3-5/s7-closure-
 export const CLOSURE_SAFE = Object.freeze([
   /^docs\//,
   /^tools\/web-visual-qa\/README\.md$/,
+  /^README\.md$/,
   /^\.github\/workflows\/quality-gate\.yml$/,
   /^tools\/web-visual-qa\/performance-closure\.mjs$/,
   /^tools\/web-visual-qa\/test\/performance-closure\.test\.mjs$/,
