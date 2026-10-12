@@ -256,6 +256,20 @@ describe('the assertion manifest', () => {
     assert.ok(validateManifest(otherProducer).some((p) => p.includes('unknown producer "sweep"')));
   });
 
+  it('refuses anything measured/pending, under any owner, and any unaccepted surface after Stage 3.5 closure (S7, C2)', () => {
+    // The closed manifest itself: every entry blocking or not-applicable.
+    for (const [id, rule] of Object.entries(RULES)) {
+      for (const tier of ['A', 'B', 'C']) assert.notEqual(rule.tiers[tier].status, 'measured/pending', `${id} @ ${tier}`);
+    }
+    const later = clone();
+    later['page.horizontal-overflow'].tiers.C = { status: 'measured/pending', owner: 'S8 / a later slice' };
+    assert.ok(validateManifest(later).some((p) => p.includes('page.horizontal-overflow @ C: measured/pending after Stage 3.5 closure')));
+    const deferred = clone();
+    deferred['sample.future'] = { section: '§0', kind: 'future', execution: 'later', summary: 'a deferred obligation', tiers: { A: { status: 'measured/pending', owner: 'Stage 4' }, B: { status: 'not-applicable', reason: 'test' }, C: { status: 'not-applicable', reason: 'test' } } };
+    assert.ok(validateManifest(deferred).some((p) => p.includes('sample.future @ A: measured/pending after Stage 3.5 closure')));
+    assert.ok(validateManifest(RULES, null, { surfaces: notAccepted('videos') }).some((p) => p.includes('surface videos: not accepted after Stage 3.5 closure')));
+  });
+
   it('fails when a registered rule loses its implementation', () => {
     const implemented = implementedRules();
     implemented.delete('pressed.visible');

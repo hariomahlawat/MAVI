@@ -111,7 +111,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.tooling != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # The envelope covers installing FFmpeg, which a slow package mirror has
+    # stretched past 11 minutes (S7), as well as the tests themselves.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -141,13 +143,13 @@ jobs:
             ffmpeg -version | head -n 1
             exit 0
           fi
-          if sudo apt-get install -y ffmpeg; then
+          if sudo apt-get install -y --no-install-recommends ffmpeg; then
             exit 0
           fi
           sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
           sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Test Stage 3 measurement tooling
         # The S3.2b media tests build a throwaway pack around this FFmpeg; they must run, never skip, here.
         env:
@@ -164,7 +166,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.dotnet != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # The envelope covers installing FFmpeg, which a slow package mirror has
+    # stretched past 11 minutes (S7), as well as the tests themselves.
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -209,13 +213,13 @@ jobs:
             ffmpeg -version | head -n 1
             exit 0
           fi
-          if sudo apt-get install -y ffmpeg; then
+          if sudo apt-get install -y --no-install-recommends ffmpeg; then
             exit 0
           fi
           sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
           sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install Python worker dependencies
         run: |
           python -m pip install --upgrade pip
@@ -447,7 +451,9 @@ jobs:
     needs: scope
     if: needs.scope.outputs.visual != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The envelope covers installing FFmpeg, which a slow package mirror has
+    # stretched past 11 minutes (S7), as well as the tests themselves.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -481,13 +487,13 @@ jobs:
             ffmpeg -version | head -n 1
             exit 0
           fi
-          if sudo apt-get install -y ffmpeg; then
+          if sudo apt-get install -y --no-install-recommends ffmpeg; then
             exit 0
           fi
           sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
           sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install frontend dependencies
         working-directory: src/web/mavi-web
         run: npm ci
@@ -516,7 +522,10 @@ jobs:
     needs: scope
     if: needs.scope.outputs.visual != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # The sweep keeps its own 25-minute budget (its step, below); the job's
+    # envelope also covers setup, so a slow package mirror installing FFmpeg
+    # (14 minutes once, S7) cannot consume the sweep's time.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -552,13 +561,13 @@ jobs:
             ffmpeg -version | head -n 1
             exit 0
           fi
-          if sudo apt-get install -y ffmpeg; then
+          if sudo apt-get install -y --no-install-recommends ffmpeg; then
             exit 0
           fi
           sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
           sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install frontend dependencies
         working-directory: src/web/mavi-web
         run: npm ci
@@ -566,6 +575,7 @@ jobs:
         working-directory: src/web/mavi-web
         run: npm run build
       - name: Run the visual-QA sweep shard
+        timeout-minutes: 25
         shell: bash
         env:
           SHARD_INDEX: ${{ matrix.shard }}
@@ -657,7 +667,10 @@ jobs:
     needs: scope
     if: needs.scope.outputs.visual != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The measuring step keeps its own budget (below); the job's envelope
+    # also covers setup, so a slow package mirror installing FFmpeg cannot
+    # consume it (S7: 94 MB at 79 kB/s took 20 minutes on one runner).
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -693,13 +706,13 @@ jobs:
             ffmpeg -version | head -n 1
             exit 0
           fi
-          if sudo apt-get install -y ffmpeg; then
+          if sudo apt-get install -y --no-install-recommends ffmpeg; then
             exit 0
           fi
           sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
           sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install frontend dependencies
         working-directory: src/web/mavi-web
         run: npm ci
@@ -707,6 +720,7 @@ jobs:
         working-directory: src/web/mavi-web
         run: npm run build
       - name: Run the keyboard-journey shard
+        timeout-minutes: 20
         shell: bash
         env:
           SHARD_INDEX: ${{ matrix.shard }}
@@ -786,7 +800,10 @@ jobs:
     needs: scope
     if: needs.scope.outputs.visual != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The measuring step keeps its own budget (below); the job's envelope
+    # also covers setup, so a slow package mirror installing FFmpeg cannot
+    # consume it (S7: 94 MB at 79 kB/s took 20 minutes on one runner).
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
@@ -828,13 +845,13 @@ jobs:
             ffmpeg -version | head -n 1
             exit 0
           fi
-          if sudo apt-get install -y ffmpeg; then
+          if sudo apt-get install -y --no-install-recommends ffmpeg; then
             exit 0
           fi
           sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
           sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install frontend dependencies
         if: steps.mode.outputs.mode != 'closure'
         working-directory: src/web/mavi-web
@@ -844,6 +861,7 @@ jobs:
         working-directory: src/web/mavi-web
         run: npm run build
       - name: Run the long-task lane (one worker)
+        timeout-minutes: 30
         if: steps.mode.outputs.mode != 'closure'
         env:
           MAVI_VQA_OUT: tools/web-visual-qa/.performance/long-tasks
