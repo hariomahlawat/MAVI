@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { ARTIFACT, artifactProblems, ciRunId, decide } from '../performance-closure.mjs';
+import { ARTIFACT, ARTIFACTS, artifactProblems, ciRunId, decide } from '../performance-closure.mjs';
 
 const HEAD = '05865b5fc09e76fafe1bed75695e897b3600b686';
 const artifact = (over = {}) => ({
@@ -43,9 +43,12 @@ describe('the performance gate on a closure head', () => {
     assert.equal(ciRunId(artifact()), '38204091363');
   });
 
-  it('accepts the committed artifact as carriable evidence', () => {
-    const committed = JSON.parse(readFileSync(new URL(`../../../${ARTIFACT}`, import.meta.url), 'utf8'));
-    assert.deepEqual(artifactProblems(committed), []);
-    assert.equal(committed.verdict, 'PASS');
+  it('accepts every committed qualification as carriable evidence, newest first', () => {
+    assert.equal(ARTIFACTS.at(-1), ARTIFACT);
+    for (const file of ARTIFACTS) {
+      const committed = JSON.parse(readFileSync(new URL(`../../../${file}`, import.meta.url), 'utf8'));
+      assert.deepEqual(artifactProblems(committed), [], file);
+      assert.equal(committed.verdict, 'PASS', file);
+    }
   });
 });

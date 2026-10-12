@@ -3320,6 +3320,13 @@ export const STATES = [
   },
 
   {
+    // S7 (C2, §34 item 15 / §37.1): the Record while its video is still
+    // loading — the page's own loading presentation, the request held (the
+    // processing status beneath it is held with it).
+    name: 'processing-detail-loading', path: `/processing/${VIDEO}`, fullWidth: false, archetype: 'record',
+    holds: 'loading', api: { [`/api/videos/${VIDEO}`]: 'hang' }, expectText: 'Loading processing state',
+  },
+  {
     // A completed run: final counts, the results action, diagnostics closed.
     name: 'processing-detail-completed', path: `/processing/${VIDEO}`, fullWidth: false,
     archetype: 'record', expectText: 'north-gate-0800.mp4',
@@ -3381,6 +3388,15 @@ export const STATES = [
   // --- Workbench: declares full width, and must actually use it. `archetype`
   //     additionally measures it against the frozen section 4.3 rules. ---
   { name: 'scene-editor', path: `/cameras/${CAM}/scene`, fullWidth: true, archetype: 'workbench' },
+  {
+    // S7 (C2, §34 item 15 / §37.1): the Workbench while its scene is still
+    // loading — the page's own loading presentation (§37.1 page: the Context
+    // Bar with its identity, the region its loading), the request held. No
+    // archetype is composed until the scene arrives, as for
+    // scene-editor-unavailable.
+    name: 'scene-editor-loading', path: `/cameras/${CAM}/scene`, fullWidth: true,
+    holds: 'loading', api: { [`/api/cameras/${CAM}/scene`]: 'hang' }, expectText: 'Loading scene',
+  },
   {
     name: 'scene-editor-unconfigured', atTier: { C: { expectText: ['needs a display at least 768px wide', 'No revision saved yet'] } },
     path: `/cameras/${CAM}/scene`,
@@ -4333,6 +4349,10 @@ export const STATES = [
   // player takes the surplus on a wide display (section 25).
   // R6 (F18, F19): the identifiers are one closed disclosure away, and the
   // analytical identity is stated once, with no footer repeating it.
+  // S7 (C2, §34 item 15 / §37.1): Review while its Track is still loading — the
+  // page region's own loading presentation, the request held; no archetype is
+  // composed until the Track arrives.
+  { name: 'review-loading', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, holds: 'loading', api: { [`/api/tracks/${TRACK}`]: 'hang' }, expectText: 'Loading Track evidence' },
   { name: 'review', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: true, archetype: 'review', expectText: ['North Gate', 'Track summary', 'Record detail', 'Reference point', 'Asia/Kolkata'], forbidText: [TRACK, 'bbbbbbbb-bbbb', 'reference point:', 'Local track', 'persisted evidence'] },
   // A terminal Review state keeps the video the route names: `Search › {video} › Review` (§5).
   { name: 'review-track-missing', path: `/review/video/${VIDEO}?trackId=${TRACK}`, fullWidth: false, api: { [`/api/tracks/${TRACK}`]: { status: 404, body: { status: 404, code: 'track_not_found', detail: 'Track was not found.' } } }, expectText: ['Track was not found.', 'north-gate-0800.mp4'], forbidText: VIDEO },
