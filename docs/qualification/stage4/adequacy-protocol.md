@@ -10,6 +10,12 @@ exists is a protocol revision, recorded in the register (P3), and voids the resu
 
 **Class:** Development measurement evidence. Never Production qualification.
 
+**Revision 1 (2026-10-12, before any result).** Added rules R6 (masked labels) and R7 (detector vehicle candidates).
+They were made while onboarding the first real releases, before any instrument read a benchmark plate:
+- UC3M-LP anonymises characters in every plate;
+- the still-image releases carry no vehicle box.
+No threshold, floor or verdict rule changed.
+
 ## 1. Question
 
 Do MAVI's existing sealed evidence crops keep enough plate pixels and clarity for useful ANPR? The question is asked
@@ -86,6 +92,8 @@ by this protocol.
 | R3 | **ΔEM** = 100 × (native exact − encoded exact) / n percentage points, as an exact rational. Per instrument and cap, over text-usable, associated plates with native character height ≥ `h_min`. The verdict uses the **supplemental** cap; the Representative cap is reported beside it |
 | R4 | **C** = R_ev / R_oracle, with "an instrument" meaning the **union** of the two pinned instruments, in both oracle and evidence. Per-instrument C is reported beside it.<br>A ground-truth track without a MAVI Track stays in R_oracle and is not evidence-readable; its association state is recorded.<br>Tracks without a text-usable plate are counted separately and never enter R_oracle |
 | R5 | **Instrument failure.** Any instrument read error makes the verdict NOT MEASURED |
+| R6 | **Masked labels.** A release that anonymises characters labels each one `*`. Such a label is normalised position by position (ASCII only); masked positions are kept.<br>A read is **exact** only when its normalised text has exactly the truth's length **and** equals it at every unmasked position. CER treats a masked position as matching any character.<br>A label that is all masks is unusable (`fully-masked`).<br>Why: the masked pixels are identical in the native image and every encoded crop, so the rule leaves ΔEM's comparison intact; without it no plate of such a release could ever match |
+| R7 | **Detector vehicle candidates.** For releases without a vehicle box, the candidates are the production `RTMDetDetector` detections of the vehicle source classes (`car`, `truck`, `bus`, `motorcycle`) at or above the release pipeline profile's evidence `confidenceFloor` — the floor a detection must meet to be qualified evidence (ADR-013 §4).<br>They are produced by `tools/benchmarks/plates/vehicle_candidates.py` inside the vision Runtime Pack's environment, which starts the worker's own runtime composition. The candidates file binds the truth's SHA-256 and the runtime provenance |
 
 **Verdict** (precedence top-down; exact comparisons):
 

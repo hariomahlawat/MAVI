@@ -125,16 +125,19 @@ def laplacian_variance(rgb: np.ndarray) -> float | None:
     return float(lap.var())
 
 
-def levenshtein(a: str, b: str) -> int:
+def levenshtein(a: str, b: str, wildcard: str | None = None) -> int:
+    """Edit distance; a ``wildcard`` character in ``b`` substitutes for any character at no cost."""
     previous = list(range(len(b) + 1))
     for i, ca in enumerate(a, start=1):
         current = [i]
         for j, cb in enumerate(b, start=1):
-            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb)))
+            substitution = 0 if ca == cb or cb == wildcard else 1
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + substitution))
         previous = current
     return previous[-1]
 
 
-def cer(prediction: str | None, truth: str) -> float:
-    """Character error rate of a normalised prediction (``None`` — rejected or no reading — is all deletions)."""
-    return levenshtein(prediction or "", truth) / len(truth)
+def cer(prediction: str | None, truth: str, masked: bool = False) -> float:
+    """Character error rate of a normalised prediction (``None`` — rejected or no reading — is all deletions). With
+    ``masked``, a ``*`` in the truth is a known-unknown character that any read character matches."""
+    return levenshtein(prediction or "", truth, "*" if masked else None) / len(truth)

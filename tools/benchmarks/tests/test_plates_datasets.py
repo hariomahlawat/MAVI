@@ -11,7 +11,7 @@ from tools.benchmarks.capabilities.plates import instruments, truth as truths
 from tools.benchmarks.core import descriptor as descriptors
 from tools.benchmarks.core._stage3 import ROOT
 from tools.benchmarks.core.identity import S32Error, canonical_json, sha256_hex
-from tools.benchmarks.datasets import ufpr_alpr, voc_plates
+from tools.benchmarks.datasets import uc3m_lp, ufpr_alpr, voc_plates
 from tools.benchmarks.plates import cli
 from plate_fixtures import SpecHeightInstrument, jpeg, scene, ufpr_annotation, write_spec, write_ufpr
 
@@ -185,9 +185,64 @@ def test_truth_to_encoding_loss_to_verdict(tmp_path, fixture_adapter):
 
 @pytest.mark.parametrize("name,document", [
     ("ufpr-alpr", lambda: ufpr_alpr.descriptor()),
+    ("uc3m-lp", lambda: uc3m_lp.descriptor()),
     ("datacluster-indian-number-plates-sample",
      lambda: voc_plates.descriptor("2bb7cd4e46e58af4f6fa413ce8e205ac69e605a7")),
 ])
 def test_committed_descriptor_templates_are_the_adapters_descriptors(name, document):
     path = ROOT / "docs/qualification/stage4/benchmarks" / f"{name}.descriptor-template.json"
     assert path.read_bytes() == canonical_json(document())
+
+
+# UC3M-LP
+
+
+def _uc3m_json(stem, size=(320, 240), lp_id="AD-24*0JV*", polygon=((100, 120), (180, 118), (181, 140), (101, 142))):
+    return json.dumps({"imagePath": "unrelated.jpg", "imageWidth": size[0], "imageHeight": size[1],
+                       "lps": [{"lp_id": lp_id, "poly_coord": [list(p) for p in polygon], "characters": []}]}).encode()
+
+
+def _uc3m_tree(tmp_path, annotations, listed=None):
+    root = tmp_path / "uc3m"
+    (root / "test").mkdir(parents=True)
+    for stem, data in annotations.items():
+        (root / "test" / f"{stem}.jpg").write_bytes(jpeg(scene(320, 240)))
+        (root / "test" / f"{stem}.json").write_bytes(data)
+    (root / "test.txt").write_text("\n".join(listed if listed is not None else sorted(annotations)) + "\n")
+    frozen = descriptors.freeze(uc3m_lp.descriptor(), root)
+    return root, descriptors.reconcile(frozen, root)
+
+
+def test_uc3m_masked_plate_lighting_and_layout(tmp_path):
+    root, entries = _uc3m_tree(tmp_path, {"00001": _uc3m_json("00001"),
+                                          "00002": _uc3m_json("00002", lp_id="BN-1234***")})
+    items, exclusions = uc3m_lp.Uc3mLpAdapter().plate_items(root, entries, "test")
+    assert exclusions == []
+    first, second = items[0]["plates"][0], items[1]["plates"][0]
+    assert (first["text"], first["maskedCharacters"], first["illumination"], first["layout"]) == (
+        "24*0JV*", 2, "day", "one-line")
+    assert (second["illumination"], second["layout"], items[1]["vehicleClass"]) == ("night", "two-line", "motorcycle")
+    assert items[0]["vehicleBox"] is None and items[0]["imagePath"] == "test/00001.jpg"
+
+
+@pytest.mark.parametrize("data,reason", [
+    (_uc3m_json("x", size=(321, 240)), "size-mismatch"), (_uc3m_json("x", lp_id="FD-123"), "lp-id"),
+    (_uc3m_json("x", polygon=((1, 1), (2, 2), (3, 3))), "polygon"),
+    (_uc3m_json("x", polygon=((1, 1), (400, 2), (3, 3), (4, 4))), "polygon-outside-image"), (b"{", "json"),
+])
+def test_uc3m_refusals_are_listed(tmp_path, data, reason):
+    root, entries = _uc3m_tree(tmp_path, {"00001": data})
+    items, exclusions = uc3m_lp.Uc3mLpAdapter().plate_items(root, entries, "test")
+    assert items == [] and exclusions == [{"path": "test/00001.json", "reason": reason}]
+
+
+def test_uc3m_split_list_must_match_the_files(tmp_path):
+    root, entries = _uc3m_tree(tmp_path, {"00001": _uc3m_json("00001")}, listed=["00001", "00002"])
+    with pytest.raises(S32Error, match="split_list"):
+        uc3m_lp.Uc3mLpAdapter().plate_items(root, entries, "test")
+
+
+def test_vehicle_candidates_must_bind_the_truth():
+    with pytest.raises(S32Error):
+        path = ROOT / "contracts" / "test-vectors" / "plate-normalisation-v1.json"  # not a candidates file
+        cli._candidates(path, "0" * 64)

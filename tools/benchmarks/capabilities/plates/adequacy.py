@@ -77,10 +77,11 @@ def read(instrument: Instrument, region: np.ndarray, truth_text: str | None) -> 
     except Exception as exc:  # noqa: BLE001 - an instrument failure is evidence, recorded and never hidden
         return {"error": f"instrument_error:{type(exc).__name__}"}
     result = normalise(reading.text)
-    exact = truth_text is not None and result.normalised == truth_text
+    exact = truth_text is not None and truths.text_matches(result.normalised, truth_text)
     return {"raw": reading.text, "normalised": result.normalised, "normalisationOutcome": result.outcome,
             "confidence": reading.confidence, "exact": exact,
-            "cer": None if truth_text is None else measure.cer(result.normalised, truth_text)}
+            "cer": None if truth_text is None else measure.cer(result.normalised, truth_text,
+                                                               masked=truths.MASK in truth_text)}
 
 
 # Rows

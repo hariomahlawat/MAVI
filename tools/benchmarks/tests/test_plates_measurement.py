@@ -236,3 +236,9 @@ def test_association_states_are_exclusive():
              "ambiguousGt": [{"gtTrackId": "g1"}]}
     with pytest.raises(Exception, match="gt_state_duplicate"):
         coverage.association_states(entry)
+
+
+def test_masked_cer_treats_a_mask_as_any_character():
+    assert measure.cer("2410JV7", "24*0JV*", masked=True) == 0
+    assert measure.cer("2410JV", "24*0JV*", masked=True) == pytest.approx(1 / 7)
+    assert measure.cer("2410JV7", "24*0JV*") == pytest.approx(2 / 7)

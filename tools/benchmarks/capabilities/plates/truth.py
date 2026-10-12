@@ -6,6 +6,11 @@ naming the vehicle track of the sequence's ``vehicle_tracks`` ground truth). A p
 ``textUsable`` is exactly "the label normalises (``mavi-plate-normalisation-v1``) to ``ok``", so a label the
 normaliser rejects is visible and counted, never dropped.
 
+**Masked labels** (protocol §5 R6). Some releases anonymise characters (UC3M-LP blurs characters for GDPR and labels
+each as ``*``). ``*`` is a *known unknown*: the label is normalised position by position (ASCII only, so NFKC is the
+identity), masked positions are kept as ``*``, and a read matches only when it has exactly the truth's length and
+equals it at every unmasked position (``text_matches``). A label that is all masks is unusable (``fully-masked``).
+
 Geometry is in source pixels. A plate polygon is four corners TL, TR, BR, BL; datasets that label only boxes give an
 axis-aligned polygon, which makes their skew 0 (the oblique stratum is then unavailable for that dataset and is
 reported as such). The character-height proxy is the mean of the polygon's left and right edge lengths divided by the
@@ -25,18 +30,58 @@ CODE = "plate_truth_invalid"
 LAYOUT_LINES = {"one-line": 1, "two-line": 2, "unknown": None}
 
 
+MASK = "*"
+
+
+def _masked_normalise(text: str) -> tuple[str | None, str | None]:
+    """``(normalised text with masks, rejection reason)`` of a label containing ``MASK`` (ASCII labels only)."""
+    if not text.isascii():
+        return None, "non-alphanumeric"
+    kept = []
+    for character in text:
+        if character == MASK:
+            kept.append(MASK)
+            continue
+        result = normalise(character)
+        if result.outcome != OK and result.reason == "empty":
+            continue  # a separator
+        if result.outcome != OK:
+            return None, result.reason
+        kept.append(result.normalised)
+    value = "".join(kept)
+    if not value:
+        return None, "empty"
+    if set(value) == {MASK}:
+        return None, "fully-masked"
+    return value, None
+
+
 def text_usability(text: str | None) -> tuple[bool, str | None]:
     """``(textUsable, textUnusableReason)`` of a raw label."""
     if text is None:
         return False, "unlabelled"
+    if MASK in text:
+        value, reason = _masked_normalise(text)
+        return (True, None) if value is not None else (False, reason)
     result = normalise(text)
     return (True, None) if result.outcome == OK else (False, result.reason)
 
 
+def masked_count(text: str | None) -> int:
+    return 0 if text is None else text.count(MASK)
+
+
 def truth_text(plate: dict[str, Any]) -> str:
-    """The normalised ground-truth text of a text-usable plate."""
+    """The normalised ground-truth text of a text-usable plate (``MASK`` at masked positions)."""
     require(plate["textUsable"], f"{CODE}:text_unusable:{plate['plateId']}")
+    if MASK in plate["text"]:
+        return _masked_normalise(plate["text"])[0]  # type: ignore[return-value]
     return normalise(plate["text"]).normalised  # type: ignore[return-value]
+
+
+def text_matches(read: str | None, truth: str) -> bool:
+    """Exact match of a normalised read against the truth: equal length and equal at every unmasked position."""
+    return read is not None and len(read) == len(truth) and all(t in (MASK, r) for r, t in zip(read, truth))
 
 
 def _inside(point: list[float], width: int, height: int) -> bool:
@@ -72,7 +117,8 @@ def validate_document(document: Any) -> dict[str, Any]:
             require(right > left and bottom > top, f"{CODE}:polygon_degenerate:{where}:{plate['plateId']}")
             require(LAYOUT_LINES[plate["layout"]] == plate["lineCount"], f"{CODE}:layout:{where}:{plate['plateId']}")
             usable, reason = text_usability(plate["text"])
-            require(plate["textUsable"] == usable and plate["textUnusableReason"] == reason,
+            require(plate["textUsable"] == usable and plate["textUnusableReason"] == reason
+                    and plate["maskedCharacters"] == masked_count(plate["text"]),
                     f"{CODE}:text_usability:{where}:{plate['plateId']}")
     paths = [(entry["path"], entry["reason"]) for entry in document["exclusions"]]
     require(paths == sorted(set(paths)), f"{CODE}:exclusion_order")
@@ -85,7 +131,7 @@ def plate(plate_id: str, polygon: list[list[float]], text: str | None, layout: s
     usable, reason = text_usability(text)
     return {"plateId": plate_id, "polygon": polygon, "text": text, "lineCount": LAYOUT_LINES[layout],
             "layout": layout, "illumination": illumination, "occluded": occluded, "textUsable": usable,
-            "textUnusableReason": reason}
+            "textUnusableReason": reason, "maskedCharacters": masked_count(text)}
 
 
 def box_polygon(x: float, y: float, width: float, height: float) -> list[list[float]]:
@@ -123,4 +169,4 @@ def skew_degrees(polygon: list[list[float]]) -> float:
 
 
 __all__ = ["S32Error", "SCHEMA", "box_polygon", "char_height_px", "plate", "plate_height_px", "plate_width_px",
-           "polygon_rect", "skew_degrees", "text_usability", "truth_text", "validate_document"]
+           "polygon_rect", "skew_degrees", "text_matches", "text_usability", "truth_text", "validate_document"]

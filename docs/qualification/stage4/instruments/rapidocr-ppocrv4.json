@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "benchmark-plate-instrument-v1",
+  "instrumentId": "rapidocr-ppocrv4",
+  "adapter": "rapidocr-onnxruntime",
+  "role": "generic",
+  "packages": {
+    "onnxruntime": "1.31.0",
+    "numpy": "2.5.3",
+    "opencv-python": "5.0.0.93",
+    "opencv-python-headless": "5.0.0.93",
+    "Pillow": "11.3.0",
+    "rapidocr-onnxruntime": "1.4.4"
+  },
+  "configuration": {
+    "detModel": "ch_PP-OCRv4_det_infer.onnx",
+    "recModel": "ch_PP-OCRv4_rec_infer.onnx",
+    "clsModel": "ch_ppocr_mobile_v2.0_cls_infer.onnx",
+    "useDet": true,
+    "useCls": false,
+    "textScore": 0,
+    "device": "cpu",
+    "threads": 1
+  },
+  "modelFiles": [
+    {
+      "path": "ch_PP-OCRv4_det_infer.onnx",
+      "sha256": "d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9"
+    },
+    {
+      "path": "ch_PP-OCRv4_rec_infer.onnx",
+      "sha256": "48fc40f24f6d2a207a2b1091d3437eb3cc3eb6b676dc3ef9c37384005483683b"
+    },
+    {
+      "path": "ch_ppocr_mobile_v2.0_cls_infer.onnx",
+      "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"
+    }
+  ],
+  "provenance": {
+    "source": "The model files shipped inside the rapidocr-onnxruntime 1.4.4 wheel (PyPI, py3-none-any), rapidocr_onnxruntime/models/; ONNX conversions of PaddleOCR PP-OCRv4 detection/recognition and the mobile v2.0 angle classifier",
+    "retrievedOn": "2026-10-12",
+    "licence": "Apache-2.0 (RapidAI/RapidOCR; PaddleOCR models Apache-2.0)",
+    "exposure": "A generic Chinese/English scene-text recogniser; no plate-specific training is documented. Exposure to the benchmark images is not known."
+  },
+  "note": "Measuring instrument only (adequacy protocol \u00a76); never a Stage-4 selection candidate. The angle classifier file is pinned because the engine loads it at construction; it is not used (useCls false)."
+}

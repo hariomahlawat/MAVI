@@ -47,7 +47,7 @@
     "plate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["plateId", "polygon", "text", "lineCount", "layout", "illumination", "occluded", "textUsable", "textUnusableReason"],
+      "required": ["plateId", "polygon", "text", "lineCount", "layout", "illumination", "occluded", "textUsable", "textUnusableReason", "maskedCharacters"],
       "properties": {
         "plateId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
         "polygon": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/point"}},
@@ -57,7 +57,8 @@
         "illumination": {"enum": ["day", "night", "unknown"]},
         "occluded": {"type": ["boolean", "null"]},
         "textUsable": {"type": "boolean"},
-        "textUnusableReason": {"enum": [null, "unlabelled", "empty", "non-alphanumeric"]}
+        "textUnusableReason": {"enum": [null, "unlabelled", "empty", "non-alphanumeric", "fully-masked"]},
+        "maskedCharacters": {"type": "integer", "minimum": 0, "description": "Characters the release anonymised, labelled '*' (protocol §5 R6): a read matches only with the truth's length and every unmasked character."}
       }
     },
     "item": {

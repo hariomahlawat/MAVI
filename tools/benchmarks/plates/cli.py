@@ -33,7 +33,7 @@ from tools.benchmarks.core._stage3 import ROOT, artefacts
 from tools.benchmarks.core.identity import (
     S32Error, canonical_json, read_artefact, require, sha256_hex, tooling_identity, validate,
     write_once)
-from tools.benchmarks.datasets import ufpr_alpr, voc_plates
+from tools.benchmarks.datasets import uc3m_lp, ufpr_alpr, voc_plates
 
 RESULT = "benchmark-plate-adequacy-v1"
 PROTOCOL = "docs/qualification/stage4/adequacy-protocol.md"
@@ -84,6 +84,10 @@ def build_truth(descriptor_path: Path, source_root: Path, adapter_id: str, split
             items += found
             exclusions += refused
         kind, version = "sequence", ufpr_alpr.ADAPTER_VERSION
+    elif adapter_id == uc3m_lp.ADAPTER_ID:
+        require(split == uc3m_lp.MEASUREMENT_SPLIT, f"adapter_split_reserved:{split}")
+        items, exclusions = uc3m_lp.Uc3mLpAdapter().plate_items(source_root, entries, split)
+        kind, version = "still", uc3m_lp.ADAPTER_VERSION
     elif adapter_id == voc_plates.ADAPTER_ID:
         require(split == voc_plates.SPLIT, f"adapter_split_unknown:{split}")
         items, exclusions = voc_plates.VocPlatesAdapter().plate_items(source_root, entries)

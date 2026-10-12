@@ -142,3 +142,28 @@ def test_truth_document_is_not_mutated_by_validation():
     before = copy.deepcopy(document)
     truths.validate_document(document)
     assert document == before
+
+
+# Masked labels (protocol §5 R6)
+
+
+@pytest.mark.parametrize("label,usable,reason,truth", [
+    ("24*0JV*", True, None, "24*0JV*"), ("ab-1*3", True, None, "AB1*3"), ("**", False, "fully-masked", None),
+    ("KA–1*", False, "non-alphanumeric", None), ("Ké*", False, "non-alphanumeric", None),
+])
+def test_masked_label_usability(label, usable, reason, truth):
+    plate = truths.plate("p", truths.box_polygon(0, 0, 40, 10), label, "one-line")
+    assert (plate["textUsable"], plate["textUnusableReason"], plate["maskedCharacters"]) == (usable, reason,
+                                                                                            label.count("*"))
+    if usable:
+        assert truths.truth_text(plate) == truth
+
+
+@pytest.mark.parametrize("read,expected", [("2410JV7", True), ("24X0JV9", True), ("2410JV", False),
+                                           ("2410JV77", False), ("2410JW7", False), (None, False)])
+def test_masked_match_needs_length_and_every_unmasked_character(read, expected):
+    assert truths.text_matches(read, "24*0JV*") is expected
+
+
+def test_unmasked_match_is_plain_equality():
+    assert truths.text_matches("AB123", "AB123") and not truths.text_matches("AB124", "AB123")

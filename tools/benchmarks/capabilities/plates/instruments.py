@@ -104,8 +104,26 @@ class _Pinned:
         return {**body, "instrumentSha256": document_sha256(body)}
 
 
+def _single_thread_session_options():
+    """ONNX Runtime CPU session options for reproducible reads: one intra-op and one inter-op thread, sequential."""
+    import onnxruntime  # noqa: PLC0415 (benchmark environment only)
+
+    options = onnxruntime.SessionOptions()
+    options.intra_op_num_threads = 1
+    options.inter_op_num_threads = 1
+    options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+    return options
+
+
 class FastPlateOcr(_Pinned):
-    """``fast-plate-ocr`` (plate-specific recogniser, ONNX Runtime CPU) from pinned local model files."""
+    """``fast-plate-ocr`` (plate-specific recogniser, ONNX Runtime CPU) from pinned local model files.
+
+    Verified against fast-plate-ocr 1.1.0: ``LicensePlateRecognizer(onnx_model_path=, plate_config_path=,
+    providers=, sess_options=)``; ``run(array, return_confidence=True)`` returns ``PlatePrediction`` objects with
+    ``plate`` (padding removed by the library) and per-slot ``char_probs``. In-memory arrays must already be in the
+    model's colour mode (``image_color_mode`` of the plate config), so an RGB region is passed as RGB, or converted to
+    grey for a greyscale model. The confidence is the mean probability of the slots that produced characters.
+    """
 
     def __init__(self, spec: dict[str, Any], files: dict[str, Path]) -> None:
         super().__init__(spec, files)
@@ -114,59 +132,61 @@ class FastPlateOcr(_Pinned):
         configuration = spec["configuration"]
         self._model = LicensePlateRecognizer(onnx_model_path=str(files[configuration["onnxModel"]]),
                                              plate_config_path=str(files[configuration["plateConfig"]]),
-                                             device="cpu")
-        self._pad = configuration.get("padCharacter", "_")
+                                             providers=["CPUExecutionProvider"],
+                                             sess_options=_single_thread_session_options())
+        self._grey = self._model.config.image_color_mode == "grayscale"
 
     def read(self, region: np.ndarray) -> Reading:
-        import cv2  # noqa: PLC0415
+        image = region
+        if self._grey:
+            import cv2  # noqa: PLC0415
 
-        bgr = cv2.cvtColor(region, cv2.COLOR_RGB2BGR)
-        prediction = self._model.run(bgr, return_confidence=True)
-        plates, probabilities = _fast_plate_result(prediction)
-        text = plates[0].replace(self._pad, "")
-        confidence = float(np.mean(probabilities[0])) if probabilities is not None else None
+            image = cv2.cvtColor(region, cv2.COLOR_RGB2GRAY)[..., None]
+        prediction = self._model.run_one(np.ascontiguousarray(image), return_confidence=True)
+        text = prediction.plate
+        probabilities = prediction.char_probs
+        confidence = None
+        if probabilities is not None and len(text):
+            confidence = float(np.mean(np.asarray(probabilities, dtype=np.float64)[: len(text)]))
         return Reading(text, confidence)
 
 
-def _fast_plate_result(prediction: Any) -> tuple[list[str], Any]:
-    """``fast-plate-ocr`` result as ``(plates, per-character probabilities | None)`` across its result shapes."""
-    if isinstance(prediction, tuple) and len(prediction) == 2:
-        return list(prediction[0]), prediction[1]
-    items = list(prediction)
-    require(items, "instrument_error:empty_result")
-    first = items[0]
-    if hasattr(first, "plate"):
-        return [item.plate for item in items], [getattr(item, "char_probs", None) for item in items]
-    return [str(item) for item in items], None
-
-
 class RapidOcrRecogniser(_Pinned):
-    """``rapidocr-onnxruntime`` recognition only (PP-OCR recogniser, ONNX Runtime CPU) on the given region."""
+    """``rapidocr-onnxruntime`` (PP-OCRv4 detection + recognition, ONNX Runtime CPU) on the given plate region.
+
+    Verified against rapidocr-onnxruntime 1.4.4: an in-memory array is taken as BGR. Detection finds the text lines
+    of the region (so a two-row plate is read as two lines, top first, joined by LF); recognition reads each. No
+    angle classifier. ``text_score`` 0 keeps every recognised line (the instrument reports, it does not filter).
+    """
 
     def __init__(self, spec: dict[str, Any], files: dict[str, Path]) -> None:
         super().__init__(spec, files)
         from rapidocr_onnxruntime import RapidOCR  # noqa: PLC0415 (benchmark environment only)
 
         configuration = spec["configuration"]
-        self._engine = RapidOCR(rec_model_path=str(files[configuration["recModel"]]),
-                                rec_keys_path=str(files[configuration["recKeys"]]) if configuration.get("recKeys") else None,
-                                det_model_path=str(files[configuration["detModel"]]),
-                                cls_model_path=str(files[configuration["clsModel"]]))
-        self._two_line = configuration.get("twoLineSplit", "none")
+        self._engine = RapidOCR(det_model_path=str(files[configuration["detModel"]]),
+                                rec_model_path=str(files[configuration["recModel"]]),
+                                cls_model_path=str(files[configuration["clsModel"]]),
+                                det_use_cuda=False, rec_use_cuda=False, cls_use_cuda=False,
+                                intra_op_num_threads=1, inter_op_num_threads=1, text_score=0.0)
 
     def read(self, region: np.ndarray) -> Reading:
         import cv2  # noqa: PLC0415
 
-        bgr = cv2.cvtColor(region, cv2.COLOR_RGB2BGR)
-        result, _ = self._engine(bgr, use_det=False, use_cls=False, use_rec=True)
-        require(result, "instrument_error:empty_result")
-        text, score = result[0][0], result[0][1]
-        return Reading(str(text), float(score))
+        bgr = np.ascontiguousarray(cv2.cvtColor(region, cv2.COLOR_RGB2BGR))
+        result, _ = self._engine(bgr, use_det=True, use_cls=False, use_rec=True, text_score=0.0)
+        if not result:
+            return Reading("", None)
+        # Lines top to bottom (then left to right) by their box's top-left corner.
+        lines = sorted(result, key=lambda line: (min(p[1] for p in line[0]), min(p[0] for p in line[0])))
+        text = "\n".join(str(line[1]) for line in lines)
+        confidence = float(np.mean([float(line[2]) for line in lines]))
+        return Reading(text, confidence)
 
 
 ADAPTERS: dict[str, Callable[[dict[str, Any], dict[str, Path]], Instrument]] = {
     "fast-plate-ocr": FastPlateOcr,
-    "rapidocr-onnxruntime-rec": RapidOcrRecogniser,
+    "rapidocr-onnxruntime": RapidOcrRecogniser,
 }
 
 
