@@ -31,22 +31,26 @@ Facts below were read from the code at the baseline SHA, not from earlier plans.
       hard ┌────────────────────┼─────────────────────┐ hard
            ▼                    ▼                     ▼
  ┌──────────────────┐  ┌────────────────────┐  ┌───────────────────────┐
- │ 2 Visual         │  │ 7 Event / Behaviour│  │ 8 Richer Structured   │
- │   Attributes     │  │   Analytics        │  │   Search              │
+ │ 2 Visual         │  │ 7 Event / Behaviour│  │ 8 Structured Intel.   │
+ │   Attributes     │  │   Analytics        │  │   Query + aggregations│
  └────────┬─────────┘  └──────────▲─────────┘  └───────────┬───────────┘
    soft   │                       │ hard (2, 6 as inputs)  │ hard
           ▼                       │                        ▼
  ┌──────────────────┐             │             ┌───────────────────────┐
- │ 3 Expanded       │─────────────┘             │ 9 Natural-language    │
- │   classes        │                           │   translation         │
+ │ 3 Expanded       │─────────────┘             │ 9 Ask MAVI            │
+ │   classes        │                           │   (NL → stage-8 query)│
  └────────┬─────────┘                           └───────────────────────┘
    soft   │
           ▼
  ┌──────────────────┐        ┌───────────────────┐  hard  ┌───────────────────┐
  │ 4 ANPR / OCR     │        │ 5 Visual Similarity│───────▶│ 6 ReID / Entity   │
- └──────────────────┘        └───────────────────┘        │   candidates      │
-                                                          └─────────┬─────────┘
-                                                                    │ hard (attributable decisions)
+ └──────────────────┘        └─────────┬─────────┘        │   candidates      │
+                                 hard  │                  └───▲─────┬─────────┘
+                                       ▼          soft (face  │     │
+                             ┌───────────────────┐ cue)       │     │
+                             │5A Face            ├────────────┘     │
+                             │   Intelligence    │                  │
+                             └───────────────────┘                  │ hard (attributable decisions)
                                                                     ▼
                                                           ┌───────────────────┐
                                                           │10 Audited review /│
@@ -64,8 +68,11 @@ Facts below were read from the code at the baseline SHA, not from earlier plans.
 | 7 Events ← 1 Analytics | Hard | Events are rules over zones, dwell, crossings and time; without stage-1 facts there is nothing measurable to combine. |
 | 7 Events ← 2 Attributes, 6 Entity candidates | Hard for attribute- or entity-conditioned events; soft otherwise | Intrusion, loitering, wrong-way, stopped vehicle need only stage 1; co-occurrence and repeated visit across Tracks need 6. |
 | 6 ReID ← 5 Similarity | Hard | Candidate association is nearest-neighbour retrieval plus plausibility constraints; no embeddings, no candidates. |
-| 9 NL translation ← 8 Structured search | Hard | The translator emits stage-8 predicates; nothing to translate into otherwise. |
-| 8 Structured search ← 1, 2, 4 | Hard for the predicates each contributes; the search layer itself is incremental | Each stage adds its own predicates as it lands; stage 8 is the consolidation and query-composition work, not the first appearance of predicates. |
+| 5A Face ← 5 Similarity | Hard (infrastructure) | Face query reuses the vector storage/retrieval infrastructure Stage 5 qualifies; the face models themselves are separate capabilities. |
+| 6 ReID ← 5A Face | Soft | Face similarity is an additional Person cue where a usable face exists; never required for Vehicle ReID or face-absent Person Tracks. |
+| 5A gallery ← minimum attributable identity/audit (from 10) | Hard for enrolment/update only | Enrolling or changing an authorised person is an attributable identity mutation; query-by-face alone does not need it. |
+| 9 Ask MAVI ← 8 Structured query | Hard | The language model emits a stage-8 structured query; nothing to translate into otherwise, and no answer exists outside the stage-8 result. |
+| 8 Structured query ← 1, 2, 4, 5A, 7 | Hard for the predicates each contributes; the query layer itself is incremental | Each stage adds its own predicates as it lands; stage 8 is the consolidation and query-composition work, not the first appearance of predicates. |
 | 10 Review/cases ← 6 | Hard for Entity confirmation; soft for Track review alone | Writing `Track.EntityId` is an attributable operator decision; identity and audit exist for that. Plain confirm/reject could be built earlier but is deferred by product decision. |
 | 2 Attributes ↔ 3 Classes | Soft; **resolved for the current source by ADR-016** | Vehicle subclass could come from the detector's class vocabulary or from a Stage-2-style classifier. Accepted ADR-016 chose **detector-native**, so Stage-3 measurement proceeds in parallel with unfinished Stage 2. This roadmap pursues a classifier as a future replacement source only if the S3.2 measurement shows detector-native performance inadequate; introducing one needs a new ADR on source resolution (ADR-016 §6) and its own Model Pack qualification. |
 | 4 ANPR ← 3 Classes | Soft | Plate detection benefits from knowing a Track is a car/truck but works on the broad `Vehicle` class. |
@@ -206,6 +213,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 - **Preconditions.** Stage 5 vector/retrieval infrastructure stable; Person Tracks with accepted evidence; camera-local time authority. A usable face is optional — no face evidence means Unknown, not "not the same person".
 - **Domain/data.** `FaceObservation` binds Person Track/source Observation, face box/crop, landmarks/quality where supplied, detector provenance and timestamp. `FaceEmbedding` binds observation, embedding model/version/dimension/vector. `EnrolledPerson` stores operator-managed identity/display metadata and one or more reference-image/embedding records; an authorisation state is explicit metadata, not inferred from the face.
 - **Vision/AI.** Separate specialist face-detection/quality and face-embedding capabilities selected by measured face-search/verification performance. One framework/model family is not required. Pretrained candidates first; fine-tune only for a demonstrated operational gap.
+- **Evidence-first entry decision.** Measure usable-face coverage (face size, pose, blur) in the existing accepted Person evidence first. That evidence is selected model-neutrally, and ADR-013 §19 forbids a face-oriented selection criterion; any face-oriented evidence selection therefore requires an ADR-013 amendment justified by that measurement, not a silent VisionJob change.
 - **Pipeline placement.** Independent post-Track face role over accepted Person evidence. Face failure never invalidates the Track or ProcessingRun.
 - **API/UI.** `Find this face` from selected evidence or a transient query image; candidate appearances across camera/time; enrolled-person gallery search/match; every match shows observed/reference evidence and score/threshold context. Query images are transient unless deliberately enrolled.
 - **Persistence.** Face observations/embeddings plus enrolled-person/reference records; pgvector index decision measured at expected scale. No face crop/embedding is silently copied into a general Track identity field.
@@ -320,7 +328,7 @@ Reading the matrix: stages 1, 6, 7, 8, 9 and 10 can leave every qualified Vision
 | Geometry semantics instability (boundary rules, debounce) changing after facts are persisted | Medium | High: historical facts silently mean something else | Freeze rules in stage-1 §K; algorithm version on every fact; golden fixtures pinned; any rule change is a new algorithm version and a visible `Stale` state |
 | Analytics lifecycle complexity (states, retries, revisions) | Medium | Medium | Minimal state model; one analysis unit per (run, revision, version); reuse existing patterns (visibility sequence, advisory locks, attempt counting) rather than inventing new control-plane concepts |
 | Schema sprawl across stages (one table per fact family per stage) | Medium | Medium | Typed tables for searchable facts only; on-demand aggregates; a review of query patterns before each stage's indexes |
-| Model proliferation (attributes, plates, embeddings, language) each with packs and qualification | High | High | Prefer models on the existing Torch/MMCV graph; one capability binding per model under ADR-014 (a stage may bind several); separate roles/processes over lease-scoped sealed evidence per ADR-013; the dependency contract per PR |
+| Model proliferation (attributes, plates, embeddings, language) each with packs and qualification | High | High | Select per capability on measured technical performance (engineering principle 5b); existing-runtime reuse may break a near-tie but never outranks materially better accuracy; one capability binding per model under ADR-014 (a stage may bind several); separate roles/processes over lease-scoped sealed evidence per ADR-013; the dependency contract per PR |
 | Dependency growth (OCR engine, vector provider, language runtime) | Medium | High (offline discipline) | Justify against existing capability; offline pack and licence in the same PR; `verify_repo` fail-closed |
 | pgvector scale (index build, recall, memory) | Medium | Medium | Measure at expected Track volume before choosing the index; bound `k` and time windows |
 | False ReID associations presented as fact | Medium | High (operational trust) | Candidates only; scores and plausibility shown; confirmation attributable; precision metric as the exit gate |
@@ -337,10 +345,12 @@ Reading the matrix: stages 1, 6, 7, 8, 9 and 10 can leave every qualified Vision
 | Scene-configuration revision semantics (whole-configuration revisions, stable ids, activation, empty revision disables analytics) | Accepted in ADR-011 | Stage 1 Slice 0 — done; implemented in Slice 1; operator editor in Slice 2 |
 | Worker boundary for model-based stages (in detector/tracker worker vs separate worker over sealed evidence) | Yes, one ADR when stage 2 begins; stages 4 and 5 reference it | Stage 2 entry |
 | Embedding storage and index (pgvector column, index type, model versioning) | Yes | Stage 5 entry |
+| Face Intelligence: biometric data handling (access, retention, deletion, export), enrolled-gallery and candidate-match semantics, and any face-oriented evidence selection (an ADR-013 §19 amendment) | Yes | Stage 5A entry |
 | ReID / Entity semantics (candidate states, confirmation, `EntityId` write rules) | Yes | Stage 6 entry |
 | Operator identity, authorization and audit | Yes (ADR-010 per the deferred plan's Slice 0) | Stage 10 entry, or earlier if a mutation needs attribution |
 | Live ingestion architecture | Yes | Stage 11 entry |
-| Natural-language translation model and runtime | Probably a Model Pack qualification record rather than an ADR, unless a new runtime variant is introduced | Stage 9 entry |
+| Structured query/aggregation contract (typed operations, answer units and Track/Event/Entity cardinality) | Yes — the contract Advanced Search and Ask MAVI share (ADR-012 Decision 13) | Stage 8 entry |
+| Ask MAVI language model and runtime | Probably a Model Pack qualification record rather than an ADR, unless a new runtime variant is introduced | Stage 9 entry |
 
 No ADR is written by this planning task.
 
