@@ -167,7 +167,10 @@ def candidates(proposals: dict[str, Any], limit: int = SELECTED_TRACKS) -> list[
             for n, track in enumerate(chosen, start=1)]
 
 
-def sheets(*, proposals_path: Path, descriptor_path: Path, source_root: Path, out_dir: Path, per_sheet: int = 20) -> int:
+def sheets(*, proposals_path: Path, descriptor_path: Path, source_root: Path, out_dir: Path, per_sheet: int = 20,
+           texts_path: Path | None = None) -> int:
+    """Text sheets for every candidate, and geometry sheets — with ``texts_path`` (the recorded transcriptions), only
+    for the candidates transcribed legible, because a track without text never enters a measurement."""
     from PIL import Image, ImageDraw
 
     proposals = json.loads(Path(proposals_path).read_bytes())
@@ -199,8 +202,11 @@ def sheets(*, proposals_path: Path, descriptor_path: Path, source_root: Path, ou
         pixels = image(frame["imagePath"])
         rect = measure.pixel_rect(x1 - pad_x, y1 - pad_y, x2 + pad_x, y2 + pad_y, pixels.shape[1], pixels.shape[0])
         text_tiles.append(tile(measure.region(pixels, rect), track["candidate"], (360, 120)))
+    legible = None if texts_path is None else {k for k, v in json.loads(Path(texts_path).read_bytes()).items() if v}
     geometry_tiles = []
     for track in tracks:
+        if legible is not None and track["candidate"] not in legible:
+            continue
         for index in sorted(track["frames"], key=int):
             frame = track["frames"][index]
             if not frame["plate"]:
@@ -214,7 +220,7 @@ def sheets(*, proposals_path: Path, descriptor_path: Path, source_root: Path, ou
             draw.rectangle([x1 - rect.left, y1 - rect.top, x2 - rect.left, y2 - rect.top], outline=(255, 0, 0), width=2)
             geometry_tiles.append(tile(np.asarray(crop), f"{track['candidate']}/{int(index)}", (240, 180)))
     count = 0
-    for name, tiles, columns in (("text", text_tiles, 4), ("geometry", geometry_tiles, 6)):
+    for name, tiles, columns in ((("text", text_tiles, 4),) if legible is None else ()) + (("geometry", geometry_tiles, 6),):
         for start in range(0, len(tiles), per_sheet):
             chunk = tiles[start:start + per_sheet]
             w, h = chunk[0].size
@@ -243,8 +249,10 @@ def labels(*, proposals_path: Path, decisions_path: Path, out: Path) -> str:
     for track in candidates(proposals):
         text = texts.get(track["candidate"])
         require(track["candidate"] in texts, f"labels:undecided:{track['candidate']}")
-        frames = {index: frame["plate"]["box"] for index, frame in track["frames"].items()
-                  if frame["plate"] and f"{track['candidate']}/{int(index)}" not in rejected}
+        # Boxes are labels only where verified: a track transcribed illegible keeps none (its geometry is not
+        # verified and it can never enter a measurement).
+        frames = {} if text is None else {index: frame["plate"]["box"] for index, frame in track["frames"].items()
+                                          if frame["plate"] and f"{track['candidate']}/{int(index)}" not in rejected}
         tracks.append({"candidate": track["candidate"], "sequenceId": track["sequenceId"],
                        "gtTrackId": track["gtTrackId"], "nativeClass": track["nativeClass"], "text": text,
                        "frames": {index: {"plateBox": box, "imagePath": track["frames"][index]["imagePath"],
@@ -268,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
     s = commands.add_parser("sheets")
     for name in ("proposals", "descriptor", "source-root", "out-dir"):
         s.add_argument(f"--{name}", type=Path, required=True)
+    s.add_argument("--texts", type=Path)
     lab = commands.add_parser("labels")
     for name in ("proposals", "decisions", "out"):
         lab.add_argument(f"--{name}", type=Path, required=True)
@@ -278,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
                       model_root=args.model_root, out=args.out))
     elif args.command == "sheets":
         print(sheets(proposals_path=args.proposals, descriptor_path=args.descriptor, source_root=args.source_root,
-                     out_dir=args.out_dir))
+                     out_dir=args.out_dir, texts_path=args.texts))
     else:
         print(labels(proposals_path=args.proposals, decisions_path=args.decisions, out=args.out))
     return 0

@@ -290,7 +290,7 @@ def test_labels_keep_only_verified_text_and_accepted_geometry(tmp_path):
     annotate.labels(proposals_path=proposals, decisions_path=decisions, out=tmp_path / "labels.json")
     labels = json.loads((tmp_path / "labels.json").read_bytes())
     t1, t2 = labels["tracks"]
-    assert t1["text"] is None and list(t1["frames"]) == ["0"]
+    assert t1["text"] is None and list(t1["frames"]) == []  # illegible: no verified geometry is kept
     assert t2["text"] == "7ABC123" and list(t2["frames"]) == ["3"]  # frame 4 rejected, frame 5 had no proposal
     undecided = tmp_path / "u.json"
     undecided.write_text(json.dumps({"verifier": {"method": "x"}, "texts": {"T0001": None}}))
@@ -310,8 +310,7 @@ def test_bdd_plate_labels_become_sequence_truth(tmp_path):
     entries = {path: {"sha256": "e" * 64} for path in ("img/a.jpg", "img/b.jpg", "img/z.jpg")}
     items = bdd_plate_labels.plate_items((tmp_path / "labels.json").read_bytes(), entries, "d" * 64,
                                          lambda path: (1280, 720))
-    assert [item["itemId"] for item in items] == ["s0/000000/1", "s1/000003/7", "s1/000004/7"]
-    assert items[1]["plates"][0]["textUsable"] and items[1]["vehicleClass"] == "car"
-    assert items[0]["plates"][0]["textUnusableReason"] == "unlabelled" and items[0]["vehicleClass"] == "commercial"
+    assert [item["itemId"] for item in items] == ["s1/000003/7", "s1/000004/7"]
+    assert items[0]["plates"][0]["textUsable"] and items[0]["vehicleClass"] == "car"
     with pytest.raises(S32Error, match="descriptor"):
         bdd_plate_labels.plate_items((tmp_path / "labels.json").read_bytes(), entries, "0" * 64, lambda p: (1, 1))
