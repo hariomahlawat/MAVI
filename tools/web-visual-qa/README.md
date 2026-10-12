@@ -619,6 +619,16 @@ of the same head; `quality` requires both. `performance-qualification.mjs`
 generates `docs/qualification/stage3-5/s6-x3-performance-qualification.json`
 from the head's CI evidence (and, for continuity, a Windows run of the head).
 
+The qualification attaches to the **implementation head** the artifact names.
+A later **closure head** that changes only documentation or CI wiring carries
+it instead of sampling the same implementation again: both performance jobs
+first run `performance-closure.mjs --decide`, which chooses `closure` only when
+the artifact passed, its implementation head is an ancestor, and every path
+changed since is closure-safe (`CLOSURE_SAFE`); the `performance` job then
+confirms the implementation head's own Quality Gate run succeeded. Anything
+else — product, harness, budgets, fixtures, dependencies — is `measure`, the
+default whenever the decision is anything but `closure`.
+
 ## X2 (§23, plan §5.3): keyboard-only operator journeys
 
 `a11y.keyboard-journeys` is an assertion with its own producer (`producer:
