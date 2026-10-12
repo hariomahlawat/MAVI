@@ -3,6 +3,7 @@
 **Status:** Authoritative implementation-level roadmap. `capability-roadmap.md` answers *what we build next*; this document answers *how the stages depend on one another, what each changes technically, and what must be true before advancing*.  
 **Baseline:** `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d` (Scene Analytics Stage 1 / PR #70 merged and post-merge verified).  
 **Written:** 2026-09-20. Planning only; no feature code, migration, dependency or runtime change accompanies this document.  
+**Planning amendment:** 2026-10-12 — the forward capability architecture adds Stage 5A Face Intelligence, strengthens Stage 8 into deterministic structured intelligence/aggregation, makes Stage 9 the separate Ask MAVI operator surface, and records capability-specific specialist-model selection. No feature/runtime change is made by this amendment.  
 **Companion:** `2026-09-20-spatial-temporal-track-analytics.md` is the completed parent implementation-grade plan for stage 1; `2026-09-22-scene-analytics-s7-hardening-acceptance.md` is the closure plan; `docs/reviews/2026-09-22-scene-analytics-stage1-acceptance.md` is the final acceptance register. `docs/architecture/ui-ux-design-specification.md` is the adopted UI/UX specification. **UI-1 through UI-5 and Scene Analytics Slices 0–7 are merged. Stage 1 is fully closed: exit-gate items 1–20 PASS, including post-merge verification on `main@e38af446d4e287cb12a8cf3d881e0293f90f7d6d`.** The current capability is **Stage 2 — Visual Attributes** (status 2026-09-28: S1 merged, B1–B6 OPEN pending S1.4 evidence; S2a closed in PR #112; S2b closed through PR #114; PR #115 merged the accepted S2c plan at `main@677afb6b73edf436e23f8d275bb95a7d5b3badac`; S2c.0 closed through PR #116; S2c.1 task/corpus/labels tooling merged in PR #117 with F1 OPEN; S2c.2a candidate admissibility & credibility merged in PR #118; S2c.2b-1 quality/statistical protocol merged in PR #119; S2c.2b-2 architecture merged in PR #121 (`main@8b6614721ff3d0fe7a77cde66ce6051defcceb74`); protocol/validator/replay implementation merged in PR #122 (`main@7b8913982dc6796a1676de075cf1dc22a7676891`; `docs/qualification/stage2-s2c/s2c-2b2-implementation-record.md`); the real qualification execution plan merged in PR #123 (`main@d0db6efff201a003b9699cde675d8069259f980e`), with Slice A preparation recorded in `docs/qualification/stage2-s2c/real-qualification-execution-record.md` (both MSRs remain PLANNED)). **Stage 3 — Vehicle Subclass** ran in parallel as a bounded Development measurement under ADR-016 (S3.1, S3.2a, S3.2b-1, S3.2b-2 and S3.2b-3 complete; S3.2c complete with G1–G9 PASS (G6 by owner-accepted deviation; G9 baseline 0.6 / 3); S3.2d complete with H1–H5 PASS under ADR-017; X1 PASS selects global `{car}`; X2/X3 PASS (PR #179, merged `9ab499bd`, post-merge CI green); Stage 3 is complete; register `docs/reviews/2026-10-03-stage3-vehicle-subclass-acceptance.md`). Task 18 (`2026-09-18-task-18-phase1-production-qualification-rebaseline.md`) remains a separate, parallel qualification stream and is not a stage here.
 
 ## 0. The baseline this roadmap builds on
@@ -30,22 +31,26 @@ Facts below were read from the code at the baseline SHA, not from earlier plans.
       hard ┌────────────────────┼─────────────────────┐ hard
            ▼                    ▼                     ▼
  ┌──────────────────┐  ┌────────────────────┐  ┌───────────────────────┐
- │ 2 Visual         │  │ 7 Event / Behaviour│  │ 8 Richer Structured   │
- │   Attributes     │  │   Analytics        │  │   Search              │
+ │ 2 Visual         │  │ 7 Event / Behaviour│  │ 8 Structured Intel.   │
+ │   Attributes     │  │   Analytics        │  │   Query + aggregations│
  └────────┬─────────┘  └──────────▲─────────┘  └───────────┬───────────┘
    soft   │                       │ hard (2, 6 as inputs)  │ hard
           ▼                       │                        ▼
  ┌──────────────────┐             │             ┌───────────────────────┐
- │ 3 Expanded       │─────────────┘             │ 9 Natural-language    │
- │   classes        │                           │   translation         │
+ │ 3 Expanded       │─────────────┘             │ 9 Ask MAVI            │
+ │   classes        │                           │   (NL → stage-8 query)│
  └────────┬─────────┘                           └───────────────────────┘
    soft   │
           ▼
  ┌──────────────────┐        ┌───────────────────┐  hard  ┌───────────────────┐
  │ 4 ANPR / OCR     │        │ 5 Visual Similarity│───────▶│ 6 ReID / Entity   │
- └──────────────────┘        └───────────────────┘        │   candidates      │
-                                                          └─────────┬─────────┘
-                                                                    │ hard (attributable decisions)
+ └──────────────────┘        └─────────┬─────────┘        │   candidates      │
+                                 hard  │                  └───▲─────┬─────────┘
+                                       ▼          soft (face  │     │
+                             ┌───────────────────┐ cue)       │     │
+                             │5A Face            ├────────────┘     │
+                             │   Intelligence    │                  │
+                             └───────────────────┘                  │ hard (attributable decisions)
                                                                     ▼
                                                           ┌───────────────────┐
                                                           │10 Audited review /│
@@ -63,8 +68,11 @@ Facts below were read from the code at the baseline SHA, not from earlier plans.
 | 7 Events ← 1 Analytics | Hard | Events are rules over zones, dwell, crossings and time; without stage-1 facts there is nothing measurable to combine. |
 | 7 Events ← 2 Attributes, 6 Entity candidates | Hard for attribute- or entity-conditioned events; soft otherwise | Intrusion, loitering, wrong-way, stopped vehicle need only stage 1; co-occurrence and repeated visit across Tracks need 6. |
 | 6 ReID ← 5 Similarity | Hard | Candidate association is nearest-neighbour retrieval plus plausibility constraints; no embeddings, no candidates. |
-| 9 NL translation ← 8 Structured search | Hard | The translator emits stage-8 predicates; nothing to translate into otherwise. |
-| 8 Structured search ← 1, 2, 4 | Hard for the predicates each contributes; the search layer itself is incremental | Each stage adds its own predicates as it lands; stage 8 is the consolidation and query-composition work, not the first appearance of predicates. |
+| 5A Face ← 5 Similarity | Hard (infrastructure) | Face query reuses the vector storage/retrieval infrastructure Stage 5 qualifies; the face models themselves are separate capabilities. |
+| 6 ReID ← 5A Face | Soft | Face similarity is an additional Person cue where a usable face exists; never required for Vehicle ReID or face-absent Person Tracks. |
+| 5A gallery ← minimum attributable identity/audit (from 10) | Hard for enrolment/update only | Enrolling or changing an authorised person is an attributable identity mutation; query-by-face alone does not need it. |
+| 9 Ask MAVI ← 8 Structured query | Hard | The language model emits a stage-8 structured query; nothing to translate into otherwise, and no answer exists outside the stage-8 result. |
+| 8 Structured query ← 1, 2, 4, 5A, 7 | Hard for the predicates each contributes; the query layer itself is incremental | Each stage adds its own predicates as it lands; stage 8 is the consolidation and query-composition work, not the first appearance of predicates. |
 | 10 Review/cases ← 6 | Hard for Entity confirmation; soft for Track review alone | Writing `Track.EntityId` is an attributable operator decision; identity and audit exist for that. Plain confirm/reject could be built earlier but is deferred by product decision. |
 | 2 Attributes ↔ 3 Classes | Soft; **resolved for the current source by ADR-016** | Vehicle subclass could come from the detector's class vocabulary or from a Stage-2-style classifier. Accepted ADR-016 chose **detector-native**, so Stage-3 measurement proceeds in parallel with unfinished Stage 2. This roadmap pursues a classifier as a future replacement source only if the S3.2 measurement shows detector-native performance inadequate; introducing one needs a new ADR on source resolution (ADR-016 §6) and its own Model Pack qualification. |
 | 4 ANPR ← 3 Classes | Soft | Plate detection benefits from knowing a Track is a car/truck but works on the broad `Vehicle` class. |
@@ -150,7 +158,7 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
     - S3.2d-4: evidence-backed capability decision per class and evidence domain: benchmark-supported, Development-only, insufficiently supported, or deferred. The capability does not wait for its weakest class.
     - Register rows: H2 (S3.2d-1), H3 (S3.2d-2), H4 (S3.2d-3, may be NOT TRIGGERED on a technical rationale), H5 (S3.2d-4). X1 requires all of them with G8 and G9. They are evidence outcomes, not PR boundaries or approval stages; one implementation or benchmark run may satisfy several. Development benchmarking follows operating principle 6a (lightest adequate process; no Production qualification ceremony).
   - **Evaluation semantics for benchmarks** (plan §14 amendment): report GT tracks associated to MAVI Tracks, GT tracks MAVI never produced, MAVI Tracks without GT, ambiguous associations rejected, class confusion on valid associations, association coverage, MAVI resolved/undetermined coverage, per-class support, and dataset and domain identity. End-to-end detection and tracking performance and Track-conditional subclass classification are reported separately, never conflated.
-- **API/UI (PR #179, merged as `9ab499bd`; X2/X3 PASS).** `objectSubclass=car` is the only operator-facing subclass predicate; search and detail show `Vehicle · Car` only for release-profile Tracks allowed by X1. Truck, bus, motorcycle and any A2-profile `car` stay hidden; every pre-existing Vehicle search keeps its population (X3). Next (owner direction, 2026-10-07): a cross-cutting UI/UX Professionalisation Programme (working label Stage 3.5) precedes Stage 4. It does not renumber the capability stages. Its architecture is frozen in `docs/architecture/ui-ux-design-specification.md` v2.0 and the ADR-012 amendment of 2026-10-07; the slice sequence is `docs/superpowers/plans/2026-10-07-stage3-5-ui-ux-professionalisation.md` and the exit gate `docs/reviews/2026-10-07-stage3-5-ui-ux-professionalisation-acceptance.md`. **Complete 2026-10-12** (PR #209, merge commit `4143c40f`): every register row is PASS, including C1–C5; §34.2 staged conformance has expired and §34 items 1–17 are the normal frontend baseline. **Stage 4 (ANPR/OCR) is unblocked**: the register's closure, its Stage 3.5 precondition, is met. It touches no API contract, domain model, worker, binding or qualification decision.
+- **API/UI (PR #179, merged as `9ab499bd`; X2/X3 PASS).** `objectSubclass=car` is the only operator-facing subclass predicate; search and detail show `Vehicle · Car` only for release-profile Tracks allowed by X1. Truck, bus, motorcycle and any A2-profile `car` stay hidden; every pre-existing Vehicle search keeps its population (X3). **Stage 3.5 UI/UX Professionalisation is complete 2026-10-12** (PR #209 + closure PR #210, final `main@1468286d`): C1–C5 PASS; §34.2 has expired; §34 items 1–17 are the normal frontend baseline; **Stage 4 (ANPR/OCR) is unblocked**. It touched no API contract, domain model, worker, binding or qualification decision.
 - **Persistence.** Additive columns and constraints, already merged; no migration of historical rows.
 - **Offline/dependency.** No new model or runtime dependency for the detector-native route.
 - **Qualification.**
@@ -165,96 +173,113 @@ Conventions used in every stage: **Vision/AI** states which of {existing Track d
 
 ### Stage 4 — ANPR / OCR
 
-- **Objective.** "Show vehicles whose plate contains `KA01`" with the plate crop, all OCR readings and their confidences, and the frame they came from.
-- **Preconditions.** Vehicle Tracks with sealed thumbnails (present); stage 2/3 helpful but not required.
-- **Flow.** `Vehicle Track → plate detection on selected frames → plate crop as sealed evidence artefact → one or more OCR observations (raw text, confidence, engine version) → normalised candidate string per observation → searchable plate evidence`.
-- **Domain/data.** New `PlateObservation` aggregate (Track, source frame/offset, crop artefact, raw text, normalised text, confidence, engine and model versions) and a per-Track plate summary for search (best normalised candidate(s)). Normalisation rules (character folding, separator removal, regional grammar) are configuration with a version.
-- **Vision/AI.** New plate-detection model and an OCR engine (new native runtime); multiple observations per Track by design.
-- **Pipeline placement.** Worker pipeline step (needs frames), producing plate crops and OCR observations in the completion payload; or a separate plate worker reading sealed frames if OCR runtime isolation is needed. Decide by runtime footprint.
-- **API/UI.** `plateText` predicate with prefix/partial matching on normalised text; plate panel in inspector/Review listing every observation; never a single "the plate is X" assertion.
-- **Persistence.** New tables; trigram or prefix index on normalised text after measuring; historical Tracks require reprocessing to gain plates (on demand).
-- **Offline/dependency.** OCR engine as a native runtime dependency (lock, licence, offline pack, CPU and CUDA independence stated), plate-detection Model Pack, language/plate-format packs.
-- **Qualification.** New model and engine qualification with a plate corpus per region; worker pipeline change re-runs Task 10 matrices; runtime pack changes if the OCR engine is packed with the vision runtime (Task 12 and boundary gate).
-- **Performance.** OCR throughput per Track (bound frames evaluated per Track); index growth.
-- **Security/privacy.** Plate text is personal data in many jurisdictions: retention and access rules belong with stage 10's audit work; until then plate search is Development capability and the docs say so.
-- **Acceptance.** Partial plate search returns Tracks with evidence; conflicting readings are all visible; normalisation is reproducible.
-- **Non-goals.** Registration-database lookup; jurisdiction inference; treating one OCR result as truth.
-- **Exit gate.** OCR accuracy report frozen; offline pack verified disconnected; exact-head CI green.
+- **Objective.** "Show vehicles whose plate contains `KA01`" with every supporting plate crop, OCR reading/confidence and source frame/time.
+- **Preconditions.** Vehicle Tracks and the sealed Track Evidence Set (present); capability-binding v2 (present). Stage 2/3 semantics are useful but not hard dependencies.
+- **Evidence-first entry decision.** Before changing VisionJob, measure plate pixel size/clarity on real current `Representative`/`NearView`/`EarlyDiverse`/`LateDiverse` vehicle evidence. If the existing set supports useful ANPR, consume it unchanged. Only a demonstrated resolution/coverage gap may justify a later plate-specific source-evidence change.
+- **Flow.** `Vehicle Track → selected accepted Track evidence → plate detector → plate crop as sealed derived evidence → one or more OCR observations → immutable raw text/confidence → versioned normalisation → per-Track searchable plate summary`.
+- **Domain/data.** `PlateObservation` binds Track, source Observation/frame/offset, plate box, plate crop artefact, plate-detector confidence, raw OCR text, OCR confidence, normalised text, normalisation version and detector/OCR execution provenance. A Track retains multiple observations; the summary is a search acceleration, not replacement evidence.
+- **Vision/AI selection.** **Pretrained first.** Run a Model Selection Event over credible pretrained plate detectors and OCR recognisers/compositions. Technical ranking is driven primarily by end-to-end Track-level plate retrieval/recognition on representative surveillance evidence; detector mAP and OCR CER are diagnostic layers. Fine-tuning/training is Plan B, triggered only by a demonstrated gap. Framework reuse is an engineering consideration, not an accuracy entitlement.
+- **Pipeline placement.** Default to an independently startable `plates` post-Track role reading lease-scoped hash-verified accepted evidence, so ANPR failure never invalidates an already-completed ProcessingRun and detector/OCR runtimes can evolve independently. Move work into VisionJob only if measurement proves post-Track evidence insufficient and an ADR accepts that consequence.
+- **Measurement decomposition.** (A) detector quality against plate boxes; (B) OCR on ground-truth crops; (C) OCR on detected crops; (D) end-to-end Track-level partial/full plate search. This separates missed plates from OCR errors and selects the composition on the product outcome.
+- **API/UI.** `plateText` supports normalised prefix/partial matching; Search/Review show all observations and crops. Raw OCR is never overwritten by grammar-assisted interpretation. UI never states one unqualified "the plate is X" fact when readings conflict.
+- **Persistence/indexing.** New plate-observation/summary tables; trigram/prefix strategy chosen after measured query patterns. Existing Tracks gain ANPR through post-Track analysis where source evidence is sufficient rather than mandatory video reprocessing.
+- **Offline/dependency.** Plate detector and OCR runtime/model/language assets are explicit capability Model/Runtime Packs with hashes, locks, licence/provenance and disconnected installation. Different frameworks are permitted when the selected composition warrants them.
+- **Qualification.** Capability-scoped detector/OCR/composition evidence, regional plate corpus where required, reproducible normalisation, disconnected pack verification and applicable runtime/boundary gates. No Production inheritance.
+- **Performance.** Bound evidence observations evaluated per Track; measure throughput, CPU/GPU memory and projected system-scale scheduling rather than requiring every model resident simultaneously.
+- **Security/privacy.** Plate text is a potentially identifying cue; retention/access rules are explicit. Until the relevant Production/audit profile is qualified, plate search remains Development capability.
+- **Acceptance.** Partial plate search returns the correct Tracks with evidence; conflicting readings remain inspectable; raw/normalised text and provenance are reproducible.
+- **Non-goals.** Registration-database lookup; jurisdiction/owner inference; training merely to own a model; treating one OCR reading as truth.
+- **Exit gate.** Model Selection Record closed; end-to-end ANPR evaluation frozen; disconnected packs verified; exact-head CI and applicable qualification gates green.
 
 ### Stage 5 — Visual Similarity / query-by-example
 
-- **Objective.** From any Track, "Find Similar" returns ranked similarity candidates across cameras and time with side-by-side crops and a score. Candidates, not identities.
-- **Preconditions.** pgvector (present); the sealed Track Evidence Set from Stage 2 (Representative plus bounded supplemental roles, ADR-013); capability-binding v2 (ADR-014) so an `embedding` capability binds like any other.
-- **Domain/data.** `TrackEmbedding` (Track, crop observation, model name/version, dimension, vector, created). A Track may carry more than one embedding model over time.
-- **Vision/AI.** New embedding model (person and vehicle ReID backbones or one general model); embeddings computed in the worker from crops.
-- **Pipeline placement.** Worker step writing embeddings into the completion payload (bounded size) or a separate embedding worker over sealed crops; the latter is attractive because embedding models change more often than detectors and re-embedding without reprocessing video is valuable. Decide at stage entry.
-- **API/UI.** `GET`-style similarity query by Track id with optional camera/time constraints and `k`; `Find Similar` action in inspector and Review; results labelled "Similarity candidates".
-- **Persistence.** First vector column; index type (HNSW vs IVFFlat) chosen after measuring at expected volume; embedding version bound to results.
-- **Offline/dependency.** Embedding Model Pack; `pgvector` already enabled; possibly the `pgvector` .NET provider package (declared in the dependency contract).
-- **Qualification.** Embedding model qualification (retrieval metrics on a labelled corpus); index recall/latency measured; pipeline change re-runs Task 10 if in-worker.
-- **Performance.** Vector count = Tracks × models; ANN index build/maintenance; recall trade-offs.
-- **Security/privacy.** Embeddings of persons are biometric-adjacent; no export, no cross-installation sharing; retention policy stated.
-- **Acceptance.** Find Similar returns candidates with scores; the operator can reject or ignore; nothing is written to `EntityId`.
-- **Non-goals.** Face embeddings; automatic grouping.
-- **Exit gate.** Retrieval evaluation frozen; index decision recorded in a migration and ADR note; CI green.
+- **Objective.** From any Track, "Find Similar" returns ranked similarity candidates across cameras/time with side-by-side evidence and a score. Candidates, not identities.
+- **Preconditions.** pgvector (present); Track Evidence Set (present); capability-binding v2.
+- **Domain/data.** `TrackEmbedding` (Track, source observation, model/version, dimension, vector, created). Multiple embedding model versions may coexist with explicit identity.
+- **Vision/AI.** Benchmark credible pretrained person/vehicle appearance-embedding candidates under the Model Selection Record method; select on retrieval quality plus measured resource profile.
+- **Pipeline placement.** Prefer an independently leased embedding role over sealed crops so re-embedding does not require video reprocessing and model changes do not disturb VisionJob.
+- **API/UI.** Similarity query by Track id/evidence with camera/time constraints and `k`; `Find Similar` in inspector/Review; results labelled "Similarity candidates".
+- **Persistence.** First general Track vector column/table; HNSW vs IVFFlat chosen after measuring expected volume/recall/latency; embedding version bound to every result.
+- **Offline/dependency.** Embedding Model Pack/runtime as selected; pgvector already exists.
+- **Qualification.** Retrieval metrics on a labelled corpus; index recall/latency; offline pack verification.
+- **Security/privacy.** Person appearance embeddings are sensitive derived data; no export/cross-installation sharing by default; retention/access stated.
+- **Acceptance.** Find Similar returns ranked candidates with evidence/scores and no automatic `EntityId` write.
+- **Non-goals.** Face identity; automatic grouping.
+- **Exit gate.** Retrieval evaluation frozen; index decision recorded; CI green.
+
+### Stage 5A — Face Intelligence
+
+- **Objective.** Support "Has this face appeared here before?", "show all candidate appearances", and "is this a candidate match to an enrolled authorised person?" with source evidence, score and time/camera context.
+- **Preconditions.** Stage 5 vector/retrieval infrastructure stable; Person Tracks with accepted evidence; camera-local time authority. A usable face is optional — no face evidence means Unknown, not "not the same person".
+- **Domain/data.** `FaceObservation` binds Person Track/source Observation, face box/crop, landmarks/quality where supplied, detector provenance and timestamp. `FaceEmbedding` binds observation, embedding model/version/dimension/vector. `EnrolledPerson` stores operator-managed identity/display metadata and one or more reference-image/embedding records; an authorisation state is explicit metadata, not inferred from the face.
+- **Vision/AI.** Separate specialist face-detection/quality and face-embedding capabilities selected by measured face-search/verification performance. One framework/model family is not required. Pretrained candidates first; fine-tune only for a demonstrated operational gap.
+- **Evidence-first entry decision.** Measure usable-face coverage (face size, pose, blur) in the existing accepted Person evidence first. That evidence is selected model-neutrally, and ADR-013 §19 forbids a face-oriented selection criterion; any face-oriented evidence selection therefore requires an ADR-013 amendment justified by that measurement, not a silent VisionJob change.
+- **Pipeline placement.** Independent post-Track face role over accepted Person evidence. Face failure never invalidates the Track or ProcessingRun.
+- **API/UI.** `Find this face` from selected evidence or a transient query image; candidate appearances across camera/time; enrolled-person gallery search/match; every match shows observed/reference evidence and score/threshold context. Query images are transient unless deliberately enrolled.
+- **Persistence.** Face observations/embeddings plus enrolled-person/reference records; pgvector index decision measured at expected scale. No face crop/embedding is silently copied into a general Track identity field.
+- **Identity semantics.** Similarity to an enrolled authorised person is a **candidate known-person match**, not a silent hard identity assertion. Confirmed durable identity/Entity linkage remains attributable/audited. Gallery enrolment/update is itself an attributable mutation and may pull forward the minimum identity/audit plumbing from Stage 10.
+- **Qualification.** Detection coverage/quality, retrieval/verification ROC/precision-recall and false-match/false-non-match behaviour on representative conditions; threshold calibration is model/version/domain bound. Measure day/night, pose, blur, occlusion, face size and camera-domain slices where evidence supports them.
+- **Security/privacy.** Face images/embeddings are biometric-sensitive. Access, retention, deletion, gallery mutation and export policy are explicit before exposure.
+- **Acceptance.** Query-by-face retrieves candidate Person Tracks with evidence; previous appearances are navigable; enrolled-person candidate matching is explainable; Unknown is preserved when no usable face exists.
+- **Non-goals.** Hidden mass identity assignment; automatic hard merge; claiming identity from a single score without the qualified decision semantics.
+- **Exit gate.** Face model-selection/evaluation records frozen; gallery/query contracts tested; privacy/access controls for the Development capability present; exact-head CI green.
 
 ### Stage 6 — Person / Vehicle ReID and candidate Entity association
 
-- **Objective.** Propose that Track A (camera 1, 09:02) and Track B (camera 4, 09:07) are candidates for the same subject, with score, time/camera plausibility and evidence, for a human to confirm or dismiss.
-- **Preconditions.** Stage 5 stable; camera registry with time authority (present); for confirmation, stage 10's attributable identity.
-- **Domain/data.** `EntityCandidate` (pair or cluster of Tracks, score, plausibility factors, algorithm version, state proposed/dismissed/confirmed); `Entity` activated only on confirmation; `Track.EntityId` written only by a confirmed, attributable decision.
-- **Vision/AI.** Cross-camera association over stage-5 embeddings plus deterministic constraints (time gaps, camera adjacency configured by operators).
-- **Pipeline placement.** Application-side background stage (like stage-1 analytics) over persisted embeddings; no worker change.
-- **API/UI.** Candidate list per Track; candidate review surface; confirmation requires identity (stage 10).
-- **Persistence.** Candidate tables; Entity activation; adjacency configuration.
-- **Offline/dependency.** None beyond stage 5.
-- **Qualification.** Association precision/recall on a labelled multi-camera corpus; false-association rate is the headline metric.
-- **Performance.** Candidate generation is k-NN per Track within time windows; keep windows bounded.
-- **Security/privacy.** Entity association is the point where MAVI starts asserting persistent identity hypotheses; confirmation is attributable and auditable by construction.
-- **Acceptance.** Candidates shown with evidence; no automatic merge; confirming writes `EntityId` with an audit record.
-- **Non-goals.** Automatic hard merges; identity beyond pseudonymous Entities.
-- **Exit gate.** Corpus evaluation frozen; ADR on ReID/Entity semantics accepted.
+- **Objective.** Propose that Tracks across cameras/time are candidates for the same real-world subject, with the evidence factors shown for operator review.
+- **Preconditions.** Stage 5 stable; camera/time authority present. Stage 5A is an additional Person cue where available, not a hard dependency for Vehicle ReID or for Person Tracks without usable faces. Confirmation requires attributable identity/audit.
+- **Domain/data.** `EntityCandidate` carries pair/cluster, score, individual plausibility/evidence factors, algorithm version and state; `Entity` activates only on an attributable confirmation; `Track.EntityId` is written only by that decision.
+- **Vision/AI.** Appearance similarity plus deterministic time/camera plausibility; Person candidates may include face similarity and attributes as independently visible factors. No opaque single score may erase contradictory cues.
+- **Pipeline placement.** Application/background association over persisted evidence; no raw-video worker requirement.
+- **API/UI.** Candidate list and side-by-side evidence; confirm/dismiss attributable; explanation identifies which cues contributed.
+- **Persistence.** Candidate tables, Entity activation and camera-adjacency/configuration revisions.
+- **Qualification.** Association precision/recall and false-association rate on labelled multi-camera evidence; face-assisted and face-absent slices reported separately where used.
+- **Acceptance.** Candidates shown with evidence; no automatic merge; confirmation writes `EntityId` with audit.
+- **Non-goals.** Automatic hard merges; identity assertion beyond the evidence/confirmation policy.
+- **Exit gate.** Corpus evaluation frozen; ReID/Entity semantics ADR accepted.
 
 ### Stage 7 — Event / Behaviour Analytics
 
-- **Objective.** Measurable events over existing facts: intrusion (zone kind `restricted` + entry), loitering (already a stage-1 rule), wrong-way (crossing direction against a configured allowed direction), stopped vehicle in zone, repeated visit (same Entity candidate across Tracks), crowd build-up (occupancy above threshold), dispersal, group movement (co-moving Tracks), co-occurrence (two attribute- or entity-conditioned Tracks in one zone and window).
-- **Preconditions.** Stage 1 (hard); stages 2 and 6 for attribute- and entity-conditioned events.
-- **Domain/data.** Versioned rule definitions (configuration with revisions, like scene configuration) and `AnalyticEvent` records bound to inputs (Tracks, zone/line ids, revision), rule id/version and time.
+- **Objective.** Measurable events over persisted facts: intrusion, loitering, wrong-way, stopped vehicle, repeated visit, crowd build-up, dispersal, group movement and co-occurrence.
+- **Preconditions.** Stage 1 hard; later attributes/Entity facts only for rules that explicitly require them.
+- **Domain/data.** Versioned rule definitions and `AnalyticEvent` records bound to Tracks/Entities, geometry revisions, rule id/version and time.
 - **Vision/AI.** Deterministic rules; no model.
-- **Pipeline placement.** Same background analytics stage as stage 1, running after stage-1 facts exist for a run.
-- **API/UI.** Event search and timeline; event evidence explanation reusing stage-1 overlays.
-- **Persistence.** Event table with rule/revision binding; recomputation semantics identical to stage 1.
-- **Offline/dependency.** None.
-- **Qualification.** Deterministic fixtures per rule; no model evidence.
-- **Acceptance.** Each event type reproducible from fixtures; every event explainable.
-- **Non-goals.** "Anomaly detection", intent inference, learned behaviour models.
+- **Pipeline placement.** Application/background analytics after prerequisite facts exist.
+- **API/UI.** Event search/timeline and evidence explanation reusing overlays.
+- **Persistence.** Event table with rule/revision/input binding and deterministic recomputation semantics.
+- **Qualification.** Deterministic fixtures per rule.
+- **Acceptance.** Every exposed event is reproducible and explainable.
+- **Non-goals.** Intent inference or generic learned "anomaly" claims without measurable semantics.
 - **Exit gate.** Rule catalogue frozen for the increment; fixtures green.
 
-### Stage 8 — Richer Structured Search
+### Stage 8 — Structured Intelligence Query + Aggregations
 
-- **Objective.** Compose predicates from stages 1–7 (AND across families, OR within a family where meaningful), save searches, and keep results explainable and paginated.
-- **Preconditions.** Predicates from the preceding stages.
-- **Domain/data.** Saved-search definition (optional); no new facts.
-- **Pipeline placement.** Application search service and repository.
-- **API/UI.** Consolidated query model (still whitelist-validated, still fingerprinted), advanced filter builder, result explanation per predicate.
-- **Persistence.** Index review across fact tables driven by measured query patterns.
-- **Qualification.** None new; search contract tests.
-- **Non-goals.** Free text; natural language.
-- **Exit gate.** Query-composition contract frozen and tested; latency budget met on the development corpus.
+- **Objective.** Provide one deterministic query contract over capabilities from prior stages that can both retrieve evidence and answer bounded analytical questions.
+- **Preconditions.** Predicates/events from preceding stages.
+- **Query algebra.** Whitelisted predicates plus typed operations: `find`, `count`, `countDistinct`, `groupBy`, `timeBucket`, `first`, `last`, `top` and bounded `compare`. Operations have typed subjects/units; there is no arbitrary SQL or expression language.
+- **Cardinality semantics.** An event occurrence, Track and Entity are different units. Before confirmed Entity semantics support a unique-person claim, "how many people" is rendered truthfully as Person Tracks and, where relevant, crossing/event counts.
+- **Domain/data.** Versioned structured-query document + optional saved-search definition; query fingerprint/canonical form; typed result envelope that records answer unit, aggregation, scope and evidence/result references. No new analytical facts.
+- **Pipeline placement.** Application query service/repository over persisted facts and indexes.
+- **API/UI.** **Advanced Search** is the precise builder: composed filters, aggregations, canonical URL/query state where shareable, result explanation, pagination/drill-through and evidence links.
+- **Persistence.** Index review driven by measured query patterns; saved queries optional.
+- **Qualification.** Query-contract/golden tests; aggregation/cardinality fixtures; latency budget on the Development corpus.
+- **Non-goals.** Natural language; arbitrary SQL; LLM execution.
+- **Exit gate.** Query/aggregation contract frozen and tested; representative latency budget met.
 
-### Stage 9 — Natural-language Query Translation
+### Stage 9 — Ask MAVI / Natural-Language Intelligence Query
 
-- **Objective.** "People near the north gate for more than five minutes yesterday afternoon" becomes a visible, editable stage-8 structured query, then runs through the existing engine.
-- **Preconditions.** Stage 8; an offline-capable language model that runs on the qualified hardware.
-- **Domain/data.** None; translation is stateless. Camera and zone names are the vocabulary.
-- **Vision/AI.** New model (language), never the search engine itself.
-- **Pipeline placement.** Application service calling a local model runtime; the translated query is shown before execution and must validate against the whitelist.
-- **Offline/dependency.** Heavy model dependency and runtime; qualified as a Model Pack with its own runtime variant; no network.
-- **Qualification.** Translation accuracy on a frozen query corpus; refusal behaviour on untranslatable input.
-- **Security/privacy.** Prompts contain camera/zone names only; no media leaves the host.
-- **Non-goals.** Free-form answers; summarisation of footage.
-- **Exit gate.** Corpus evaluation frozen; translator cannot emit a predicate outside the whitelist (tested).
-
+- **Objective.** An operator asks ordinary questions such as "How many Person Tracks crossed Main Gate between 0800 and 1400?" or "Show vehicles whose plate contains KA01"; MAVI returns a concise factual answer, chart/table where useful, and links to the underlying evidence.
+- **Preconditions.** Stage 8 structured query/aggregation contract; an offline-capable language model that meets the translation corpus on qualified Development hardware.
+- **Architecture.** `operator utterance → local language model/function-call translation → Stage-8 schema validation/whitelist → deterministic query execution → typed result envelope → deterministic/templated answer rendering`. The language model interprets; MAVI computes.
+- **Conversation.** Follow-up questions are explicit transformations of the prior structured query/result scope, not hidden conversational facts. The current interpreted query remains inspectable.
+- **Vision/AI.** Benchmark compact local function-calling/structured-output models first; choose the smallest model that satisfies semantic translation/refusal requirements with acceptable latency. Model brand/size is not frozen in the roadmap.
+- **API/UI.** Separate top-level **Ask MAVI** Investigation surface with a simple question field, answer summary, optional chart/table, evidence/drill-through actions and a compact **Interpreted as** disclosure. Advanced Search remains available for power users and reproducibility.
+- **Grounding rule.** The model never executes SQL, never directly scans media, never invents counts/entities/plate/face facts, and never produces an answer unsupported by the typed deterministic result. Unsupported or ambiguous requests are refused or clarified.
+- **Offline/dependency.** Language Model/Runtime Pack, fully local; no network/telemetry. Prompts may contain the operator question and authorised MAVI vocabulary/reference labels required for translation; raw media/embeddings never leave the host.
+- **Qualification.** Frozen corpus of representative operator questions and follow-ups; exact/semantic translation accuracy, ambiguity/refusal behaviour, adversarial out-of-contract requests, and answer-grounding tests proving displayed facts equal deterministic result envelopes.
+- **Security/privacy.** Same access checks as the underlying query; Ask MAVI grants no new data authority.
+- **Non-goals.** LLM-generated analytical facts independent of query results; unrestricted database access; free-form footage summarisation; replacing specialist vision models.
+- **Exit gate.** Translation/grounding corpus passes; out-of-contract predicates cannot execute; offline runtime verified; exact-head CI green.
 ### Stage 10 — Audited Human Review / Cases
 
 - **Objective.** Attributable confirm/reject of Tracks, Entity confirmation (stage 6), append-only decision history, and cases collecting Tracks and notes. Design retained in `2026-09-20-audited-review-and-cases-plan.md`.
@@ -284,16 +309,17 @@ Impact classes: **none**, **additive** (new artefacts, existing evidence untouch
 | 1 Analytics | none | none | none (worker untouched; C6 evidence, once produced, is bound to the pipeline that ran and is unaffected by .NET-side analytics) | none | additive (new whitelisted predicates; fingerprint extended; existing queries unchanged) | additive (new tables) | additive | none | none for the frozen candidate's worker/runtime; the API/UI candidate changes, so Task 18's application-artefact identity changes if re-frozen |
 | 2 Attributes | new model qualification (attribute Model Pack) | requalification likely if new Python packages enter the lock; none if the model runs on the existing graph | same as CPU pack for the CUDA lock; C6/C7 E2E evidence must be re-executed for the changed pipeline | requalification likely (lock change) or none | additive | additive (`visual_attributes` populated; possible summary table) | additive | additive (new model in the kit) | potentially invalidated (worker pipeline change) |
 | 3 Classes | detector-native route (ADR-016): checkpoint, manifest and Model Pack unchanged; pipeline profile `1.3.0-candidate` re-derives the qualification record's policies (record `pending`); a future replacement source would be a new model qualification | none | none for runtime; pipeline evidence re-executed | none | additive (PR #179 X2/X3 PASS; merged `9ab499bd`, Stage 3 closed) | additive (subclass columns) | additive (PR #179 X2/X3 PASS; merged `9ab499bd`, Stage 3 closed) | none | potentially invalidated (pipeline output change) |
-| 4 ANPR/OCR | new model qualification (plate detector) | new runtime qualification (OCR engine in the pack) | new runtime qualification for the CUDA pack too | requalification likely | additive | additive | additive | additive (OCR engine, packs) | potentially invalidated |
-| 5 Similarity | new model qualification (embedding) | requalification likely (if in-worker) | as CPU pack | requalification likely | additive | additive (first vector column and index) | additive | additive | potentially invalidated if in-worker; none if separate embedding worker on sealed crops |
-| 6 ReID | none | none | none | none | additive | additive | additive | none | none |
+| 4 ANPR/OCR | new capability qualification (plate detector + OCR composition) | none if separate `plates` runtime family; new runtime qualification for any added family | as applicable to selected runtime | none for existing Vision lock when post-Track; requalification only if VisionJob changes | additive | additive (plate observations/summary) | additive | additive (plate/OCR Model/Runtime Packs) | none for frozen Vision worker if post-Track; application artefact changes if re-frozen |
+| 5 Similarity | new model qualification (appearance embedding) | none if separate embedding role; otherwise requalification likely | as applicable | none when separate | additive | additive (vector table/index) | additive | additive | none when separate post-Track role |
+| **5A Face Intelligence** | new qualifications (face detector/quality + face embedding as selected) | separate face runtime family preferred; qualify it independently | as applicable | none | additive | additive (face observations/embeddings/enrolled gallery) | additive | additive | none for existing Vision worker; biometric access/audit policy is new capability evidence |
+| 6 ReID | none unless association uses a new learned model | none | none | none | additive | additive | additive | none | none |
 | 7 Events | none | none | none | none | additive | additive | additive | none | none |
-| 8 Structured search | none | none | none | none | requalification likely of the **search contract tests** only (query model consolidation) | none or additive (indexes) | additive | none | none |
-| 9 NL translation | new model qualification (language model) | new runtime qualification (language runtime, possibly separate pack) | as applicable | none | none (emits existing predicates) | none | additive | additive | none |
+| 8 Structured intelligence query | none | none | none | none | query-contract tests requalified for consolidated predicates/aggregations | none or additive (indexes/saved queries) | additive | none | none |
+| 9 Ask MAVI | new model qualification (language/function-calling model) | new separate language runtime qualification | as applicable | none | none to underlying deterministic semantics; additive Ask-MAVI endpoint | none | additive | additive | none |
 | 10 Review/cases | none | none | none | none | additive | additive (audit, decisions, cases) | additive | none | none |
 | 11 Live | none | requalification likely (continuous-job worker behaviour) | requalification likely | requalification likely | additive | additive | additive | additive (VMS SDKs) | new Production profiles; existing evidence does not carry over |
 
-Reading the matrix: stages 1, 6, 7, 8 and 10 leave every qualified vision artefact untouched. Stages 2, 3, 4, 5 (in-worker) and 11 change the worker or its runtime and therefore re-open pipeline-level evidence; they should each be preceded by a decision on whether the work belongs in the detector/tracker worker or in a separate worker over sealed evidence, precisely to contain that re-opening.
+Reading the matrix: stages 1, 6, 7, 8, 9 and 10 can leave every qualified Vision artefact untouched when implemented through their declared separate/application-side boundaries. Stages 4, 5 and 5A are deliberately biased toward independent post-Track roles so specialist model/runtime changes do not reopen the base detector/tracker path. Stages 2, 3 and 11, and any later decision to move Stage-4/5/5A work into VisionJob, can change that path and therefore re-open the corresponding evidence; they should each be preceded by a decision on whether the work belongs in the detector/tracker worker or in a separate worker over sealed evidence, precisely to contain that re-opening.
 
 ## 4. Roadmap risk register
 
@@ -302,7 +328,7 @@ Reading the matrix: stages 1, 6, 7, 8 and 10 leave every qualified vision artefa
 | Geometry semantics instability (boundary rules, debounce) changing after facts are persisted | Medium | High: historical facts silently mean something else | Freeze rules in stage-1 §K; algorithm version on every fact; golden fixtures pinned; any rule change is a new algorithm version and a visible `Stale` state |
 | Analytics lifecycle complexity (states, retries, revisions) | Medium | Medium | Minimal state model; one analysis unit per (run, revision, version); reuse existing patterns (visibility sequence, advisory locks, attempt counting) rather than inventing new control-plane concepts |
 | Schema sprawl across stages (one table per fact family per stage) | Medium | Medium | Typed tables for searchable facts only; on-demand aggregates; a review of query patterns before each stage's indexes |
-| Model proliferation (attributes, plates, embeddings, language) each with packs and qualification | High | High | Prefer models on the existing Torch/MMCV graph; one capability binding per model under ADR-014 (a stage may bind several); separate roles/processes over lease-scoped sealed evidence per ADR-013; the dependency contract per PR |
+| Model proliferation (attributes, plates, embeddings, language) each with packs and qualification | High | High | Select per capability on measured technical performance (engineering principle 5b); existing-runtime reuse may break a near-tie but never outranks materially better accuracy; one capability binding per model under ADR-014 (a stage may bind several); separate roles/processes over lease-scoped sealed evidence per ADR-013; the dependency contract per PR |
 | Dependency growth (OCR engine, vector provider, language runtime) | Medium | High (offline discipline) | Justify against existing capability; offline pack and licence in the same PR; `verify_repo` fail-closed |
 | pgvector scale (index build, recall, memory) | Medium | Medium | Measure at expected Track volume before choosing the index; bound `k` and time windows |
 | False ReID associations presented as fact | Medium | High (operational trust) | Candidates only; scores and plausibility shown; confirmation attributable; precision metric as the exit gate |
@@ -319,10 +345,12 @@ Reading the matrix: stages 1, 6, 7, 8 and 10 leave every qualified vision artefa
 | Scene-configuration revision semantics (whole-configuration revisions, stable ids, activation, empty revision disables analytics) | Accepted in ADR-011 | Stage 1 Slice 0 — done; implemented in Slice 1; operator editor in Slice 2 |
 | Worker boundary for model-based stages (in detector/tracker worker vs separate worker over sealed evidence) | Yes, one ADR when stage 2 begins; stages 4 and 5 reference it | Stage 2 entry |
 | Embedding storage and index (pgvector column, index type, model versioning) | Yes | Stage 5 entry |
+| Face Intelligence: biometric data handling (access, retention, deletion, export), enrolled-gallery and candidate-match semantics, and any face-oriented evidence selection (an ADR-013 §19 amendment) | Yes | Stage 5A entry |
 | ReID / Entity semantics (candidate states, confirmation, `EntityId` write rules) | Yes | Stage 6 entry |
 | Operator identity, authorization and audit | Yes (ADR-010 per the deferred plan's Slice 0) | Stage 10 entry, or earlier if a mutation needs attribution |
 | Live ingestion architecture | Yes | Stage 11 entry |
-| Natural-language translation model and runtime | Probably a Model Pack qualification record rather than an ADR, unless a new runtime variant is introduced | Stage 9 entry |
+| Structured query/aggregation contract (typed operations, answer units and Track/Event/Entity cardinality) | Yes — the contract Advanced Search and Ask MAVI share (ADR-012 Decision 13) | Stage 8 entry |
+| Ask MAVI language model and runtime | Probably a Model Pack qualification record rather than an ADR, unless a new runtime variant is introduced | Stage 9 entry |
 
 No ADR is written by this planning task.
 
