@@ -46,7 +46,7 @@ plate retention/access policy and the Production audit profile (plan §8).
 | P13 | Model/Runtime Packs: hashes, licence notices, `verify_repo`, disconnected install | NOT STARTED | PR-6 |
 | P14 | Real end-to-end Track-level D through the product path, consistent with P5 | NOT STARTED | PR-6 |
 | P15 | Engineering budget and 500-camera projection (M-E, projected) | NOT STARTED | PR-6 |
-| P16 | Exact-head CI green for each Stage-4 PR | **PR-1: pending** | Recorded on the PR-1 head when CI completes |
+| P16 | Exact-head CI green for each Stage-4 PR | **PR-1: PASS (implementation head)** | PR #213 implementation head `150bd5ae4c38c74c99015c966cfb2d4f495bdd6d`: MAVI Quality Gate run 38258983601 success (benchmark-harness lane included), Task 10 Runtime Qualification 38258983558 success, Task 17 Acceptance Validation 38258983589 success, Qualification Tooling Windows 38258983535 success. This register update is documentation only |
 
 ## Shortest path to P3
 
