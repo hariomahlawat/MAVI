@@ -44,7 +44,8 @@
     "task": {
       "enum": [
         "box-tracking",
-        "detection"
+        "detection",
+        "plate-recognition"
       ]
     },
     "source": {
@@ -224,7 +225,8 @@
         "kind": {
           "enum": [
             "index-at-fps",
-            "per-frame-timestamp"
+            "per-frame-timestamp",
+            "still-images"
           ]
         },
         "fpsNumerator": {
