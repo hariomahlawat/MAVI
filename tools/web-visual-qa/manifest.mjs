@@ -564,6 +564,18 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
   if (implemented) {
     for (const id of implemented) if (!rules[id]) problems.push(`${id}: produced by code but not registered`);
   }
+  // Stage 3.5 is closed (S7, C2): §34.2 staged conformance has expired and
+  // §34 applies unqualified. Nothing may be measured/pending — on any rule, at
+  // any tier, under any owner — and every surface is accepted; a new
+  // obligation is blocking or not-applicable with its reason from the start.
+  for (const [id, entry] of Object.entries(rules)) {
+    for (const tier of TIERS) {
+      if (entry.tiers?.[tier]?.status === 'measured/pending') problems.push(`${id} @ ${tier}: measured/pending after Stage 3.5 closure (§34.2 has expired)`);
+    }
+  }
+  for (const [name, surface] of Object.entries(surfaces)) {
+    if (surface.accepted === false) problems.push(`surface ${name}: not accepted after Stage 3.5 closure (§34.2 has expired)`);
+  }
   for (const [name, surface] of Object.entries(surfaces)) {
     if (typeof surface.accepted !== 'boolean') problems.push(`surface ${name}: accepted must be true or false`);
     if (!/S[1-7]/.test(surface.owner ?? '')) problems.push(`surface ${name}: no owning slice`);
