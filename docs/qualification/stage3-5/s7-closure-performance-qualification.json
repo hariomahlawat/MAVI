@@ -1,7 +1,7 @@
 {
   "schema": "mavi.stage3-5.x3-performance-qualification.v1",
   "generatedBy": "tools/web-visual-qa/performance-qualification.mjs",
-  "implementationHead": "e1a7b974740f20b43b010d1f52ac6ae7f53fcd09",
+  "implementationHead": "d9bf83dee3a2eacc41466c106b7b682a690a5927",
   "p1": {
     "file": "docs/qualification/stage3-5/s2-p1-performance-baseline.json",
     "schema": "mavi.stage3-5.p1-baseline.v2",
@@ -16,40 +16,40 @@
   "environment": {
     "enforcement": {
       "where": "GitHub Actions ubuntu-latest, the Quality Gate (visual sweep aggregate + performance long tasks)",
-      "ciRun": "MAVI Quality Gate run 38216775091 (e1a7b974), attempt 1",
+      "ciRun": "MAVI Quality Gate run 38237733698 (d9bf83de), attempt 1",
       "sweep": {
         "fullSweep": true,
         "executions": {
-          "planned": 3746,
-          "scheduled": 3746,
-          "validCaptures": 3746,
+          "planned": 3800,
+          "scheduled": 3800,
+          "validCaptures": 3800,
           "byTier": {
             "A": {
-              "anchorCaptures": 980,
+              "anchorCaptures": 995,
               "probeCaptures": 13,
               "zoomCaptures": 11,
-              "spacingCaptures": 209,
-              "motionCaptures": 209,
+              "spacingCaptures": 212,
+              "motionCaptures": 212,
               "invalid": 0,
               "blocking": 0,
               "pending": 0
             },
             "B": {
-              "anchorCaptures": 376,
+              "anchorCaptures": 382,
               "probeCaptures": 67,
               "zoomCaptures": 0,
-              "spacingCaptures": 443,
-              "motionCaptures": 443,
+              "spacingCaptures": 449,
+              "motionCaptures": 449,
               "invalid": 0,
               "blocking": 0,
               "pending": 0
             },
             "C": {
-              "anchorCaptures": 328,
+              "anchorCaptures": 334,
               "probeCaptures": 56,
-              "zoomCaptures": 171,
-              "spacingCaptures": 220,
-              "motionCaptures": 220,
+              "zoomCaptures": 174,
+              "spacingCaptures": 223,
+              "motionCaptures": 223,
               "invalid": 0,
               "blocking": 0,
               "pending": 0
@@ -59,10 +59,10 @@
           "errored": [],
           "zoom": {
             "valid": {
-              "loads": 166,
+              "loads": 169,
               "transitions": 16
             },
-            "qualified": 182,
+            "qualified": 185,
             "workbenchException": [
               {
                 "surface": "scene-editor",
@@ -835,6 +835,7 @@
       "processing-detail-diagnostics",
       "processing-detail-failed-narrow-band",
       "processing-detail-invalid",
+      "processing-detail-loading",
       "processing-detail-long-identity",
       "processing-detail-long-identity-compact-band",
       "processing-detail-metadata-unavailable",
@@ -848,6 +849,7 @@
       "processing-queue-row-degraded-wide-font",
       "review-compact-band",
       "review-dense-facts",
+      "review-loading",
       "review-long-identity",
       "review-long-identity-compact-band",
       "review-long-identity-narrow-band",
@@ -860,6 +862,7 @@
       "scene-editor-drawer-boundaries",
       "scene-editor-drawing",
       "scene-editor-inactive",
+      "scene-editor-loading",
       "scene-editor-media-unavailable",
       "scene-editor-narrow-band",
       "scene-editor-object-selected",
@@ -900,7 +903,7 @@
     "faults": [],
     "findings": [],
     "cases": {
-      "sweep": 1820,
+      "sweep": 1847,
       "longTasks": 413
     },
     "navigation": {
@@ -908,8 +911,8 @@
         "A": {
           "n": 943,
           "median": 0.0007,
-          "p90": 0.0045,
-          "max": 0.0646
+          "p90": 0.0044,
+          "max": 0.068
         },
         "B": {
           "n": 423,
@@ -1063,13 +1066,13 @@
       "byTier": {
         "A": {
           "n": 60,
-          "median": 0.0005,
+          "median": 0.0003,
           "p90": 0.0316,
           "max": 0.0668
         },
         "B": {
           "n": 25,
-          "median": 0.0014,
+          "median": 0.0025,
           "p90": 0.0652,
           "max": 0.0911
         },
@@ -1085,7 +1088,7 @@
           "n": 42,
           "median": 0.0003,
           "p90": 0.0025,
-          "max": 0.0026
+          "max": 0.0027
         },
         "review": {
           "n": 18,
@@ -1107,6 +1110,13 @@
         }
       },
       "nearest": [
+        {
+          "key": "analytics-heatmap-unconfirmed-scene-unavailable|1024x768|anchor",
+          "value": 0.0027,
+          "limit": 0.0062,
+          "class": "camera-analytics: switch to the heatmap",
+          "headroom": 0.0035
+        },
         {
           "key": "review-provenance-open|2560x1440|anchor",
           "value": 0.0005,
@@ -1169,13 +1179,6 @@
           "limit": 0.0062,
           "class": "camera-analytics: switch to the heatmap",
           "headroom": 0.0037
-        },
-        {
-          "key": "analytics-heatmap|1024x768|anchor",
-          "value": 0.0025,
-          "limit": 0.0062,
-          "class": "camera-analytics: switch to the heatmap",
-          "headroom": 0.0037
         }
       ]
     },
@@ -1186,7 +1189,7 @@
     },
     "fonts": {
       "families": {
-        "DejaVu Sans": 1820
+        "DejaVu Sans": 1847
       },
       "documentFaces": 0,
       "custom": 0
@@ -1208,10 +1211,10 @@
             "current": {
               "n": 682,
               "median": 0.0011,
-              "p90": 0.0048,
-              "max": 0.0646
+              "p90": 0.0045,
+              "max": 0.068
             },
-            "worse": 38
+            "worse": 39
           },
           "B": {
             "matched": 255,
@@ -1227,7 +1230,7 @@
               "p90": 0.049,
               "max": 0.216
             },
-            "worse": 33
+            "worse": 34
           },
           "C": {
             "matched": 220,
@@ -1281,7 +1284,7 @@
             "at": "analytics-complete-zero@1440x900",
             "tier": "A",
             "p1": 0.4323,
-            "current": 0.0005
+            "current": 0
           },
           {
             "at": "analytics-no-scene@1440x900",
@@ -1614,11 +1617,11 @@
             },
             "current": {
               "n": 35,
-              "median": 0.0004,
+              "median": 0.0003,
               "p90": 0.0141,
               "max": 0.0338
             },
-            "worse": 10
+            "worse": 9
           },
           "B": {
             "matched": 14,
@@ -1682,7 +1685,7 @@
             "at": "analytics-heatmap-too-large@1440x900",
             "tier": "A",
             "p1": 0.4179,
-            "current": 0.0006
+            "current": 0.0003
           },
           {
             "at": "analytics-heatmap-evidence-unreadable@1440x900",
@@ -1700,7 +1703,7 @@
             "at": "analytics-heatmap-too-large@1366x768",
             "tier": "A",
             "p1": 0.3362,
-            "current": 0.0008
+            "current": 0.0004
           },
           {
             "at": "analytics-heatmap-evidence-unreadable@1366x768",
@@ -1797,13 +1800,6 @@
           },
           {
             "at": "analytics-heatmap@2560x1440",
-            "tier": "A",
-            "p1": 0.0001,
-            "current": 0.0002,
-            "delta": 0.0001
-          },
-          {
-            "at": "analytics-heatmap-too-large@2560x1080",
             "tier": "A",
             "p1": 0.0001,
             "current": 0.0002,
