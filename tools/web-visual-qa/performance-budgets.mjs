@@ -1268,8 +1268,8 @@ export const PERFORMANCE_BUDGETS = Object.freeze({
         "states": [
           "review-geometry-unavailable"
         ],
-        "reference": 0.0559,
-        "definedBy": "Linux review-geometry-unavailable@1920x1080",
+        "reference": 0.0605,
+        "definedBy": "evidence: 0.0605 = review-geometry-unavailable@1440x900 with its two movements in one frame (Linux, MAVI Quality Gate run 38202495528, 06e16ec8); 0.0450 when they land in consecutive frames (eleven samples). Below P1 (0.127-0.1295 at Tier A).",
         "kind": "explicit-new",
         "why": "The pinned scene revision cannot be loaded, so the zones, trip-line and crossing layer chips each state why beside the control and their row wraps (0.1247 at 768x1024, identical across samples). The normal path is the one kept still: X3 says loading quietly, so a review whose geometry arrives moves nothing (review@1024x768 0.0565-0.0748 to 0.0050); reserving three failure sentences on every load would undo that, and moving the reason off its chip would separate a statement from its control. A P1-ratcheted failure-path class (Linux 0.0559/0.1247/0.1205 against P1 0.1295/0.3087/0.1476), split out so it no longer sets the ordinary Review ceilings.",
         "evidence": {
@@ -1287,17 +1287,17 @@ export const PERFORMANCE_BUDGETS = Object.freeze({
             {
               "at": "review-geometry-unavailable@1920x1080",
               "value": 0.0559,
-              "headroom": 0.004
+              "headroom": 0.0086
             },
             {
               "at": "review-geometry-unavailable@1440x900",
               "value": 0.045,
-              "headroom": 0.0149
+              "headroom": 0.0195
             },
             {
               "at": "review-geometry-unavailable@1366x768",
               "value": 0.041,
-              "headroom": 0.0189
+              "headroom": 0.0235
             }
           ]
         }
@@ -1310,7 +1310,7 @@ export const PERFORMANCE_BUDGETS = Object.freeze({
           "review-geometry-unavailable"
         ],
         "reference": 0.1247,
-        "definedBy": "Linux review-geometry-unavailable@768x1024",
+        "definedBy": "evidence: 0.1247 = review-geometry-unavailable@768x1024 (consecutive frames; every sample), below P1 0.3087.",
         "kind": "explicit-new",
         "why": "The pinned scene revision cannot be loaded, so the zones, trip-line and crossing layer chips each state why beside the control and their row wraps (0.1247 at 768x1024, identical across samples). The normal path is the one kept still: X3 says loading quietly, so a review whose geometry arrives moves nothing (review@1024x768 0.0565-0.0748 to 0.0050); reserving three failure sentences on every load would undo that, and moving the reason off its chip would separate a statement from its control. A P1-ratcheted failure-path class (Linux 0.0559/0.1247/0.1205 against P1 0.1295/0.3087/0.1476), split out so it no longer sets the ordinary Review ceilings.",
         "evidence": {
@@ -1346,7 +1346,7 @@ export const PERFORMANCE_BUDGETS = Object.freeze({
           "review-geometry-unavailable"
         ],
         "reference": 0.1205,
-        "definedBy": "Linux review-geometry-unavailable@430x932",
+        "definedBy": "evidence: 0.1205 = review-geometry-unavailable@430x932 (one movement; every sample), below P1 0.1476.",
         "kind": "explicit-new",
         "why": "The pinned scene revision cannot be loaded, so the zones, trip-line and crossing layer chips each state why beside the control and their row wraps (0.1247 at 768x1024, identical across samples). The normal path is the one kept still: X3 says loading quietly, so a review whose geometry arrives moves nothing (review@1024x768 0.0565-0.0748 to 0.0050); reserving three failure sentences on every load would undo that, and moving the reason off its chip would separate a statement from its control. A P1-ratcheted failure-path class (Linux 0.0559/0.1247/0.1205 against P1 0.1295/0.3087/0.1476), split out so it no longer sets the ordinary Review ceilings.",
         "evidence": {

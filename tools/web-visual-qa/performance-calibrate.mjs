@@ -79,6 +79,17 @@ export const DECISIONS = Object.freeze({
     name: 'review: scene geometry unavailable',
     surface: 'review',
     states: ['review-geometry-unavailable'],
+    // The highest demonstrated legitimate value per tier. At Tiers A and B the
+    // rail moves in two or three consecutive frames (a <=0.011 shift of the
+    // layers row, then the facts); on a faster runner they can land in one,
+    // which scores higher: 1440x900 measured 0.0450 in eleven Linux samples
+    // across seven commits and 0.0605 once (06e16ec8, one frame).
+    references: { A: 0.0605, B: 0.1247, C: 0.1205 },
+    referenceEvidence: {
+      A: '0.0605 = review-geometry-unavailable@1440x900 with its two movements in one frame (Linux, MAVI Quality Gate run 38202495528, 06e16ec8); 0.0450 when they land in consecutive frames (eleven samples). Below P1 (0.127-0.1295 at Tier A).',
+      B: '0.1247 = review-geometry-unavailable@768x1024 (consecutive frames; every sample), below P1 0.3087.',
+      C: '0.1205 = review-geometry-unavailable@430x932 (one movement; every sample), below P1 0.1476.',
+    },
     why: 'The pinned scene revision cannot be loaded, so the zones, trip-line and crossing layer chips each state why beside the control and their row wraps (0.1247 at 768x1024, identical across samples). The normal path is the one kept still: X3 says loading quietly, so a review whose geometry arrives moves nothing (review@1024x768 0.0565-0.0748 to 0.0050); reserving three failure sentences on every load would undo that, and moving the reason off its chip would separate a statement from its control. A P1-ratcheted failure-path class (Linux 0.0559/0.1247/0.1205 against P1 0.1295/0.3087/0.1476), split out so it no longer sets the ordinary Review ceilings.',
   }],
   // Every preparation transition P1 never measured is qualified here, by
