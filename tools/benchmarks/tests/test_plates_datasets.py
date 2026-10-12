@@ -272,6 +272,10 @@ def test_candidates_are_numbered_deterministically_and_need_a_wide_plate():
     found = annotate.candidates(_proposals())
     assert [(c["candidate"], c["sequenceId"], c["gtTrackId"], c["bestFrame"]) for c in found] == [
         ("T0001", "s0", "1", "0"), ("T0002", "s1", "7", "3")]
+    # the bounded set: the widest plates first, re-numbered in (sequence, track) order; equal widths tie on ids
+    assert [c["gtTrackId"] for c in annotate.candidates(_proposals(), limit=1)] == ["1"]
+    # oracle frames are the widest-plate ones; evidence frames are always kept
+    assert set(found[1]["frames"]) == {"3", "4"}  # frame 5 had no proposal
 
 
 def test_labels_keep_only_verified_text_and_accepted_geometry(tmp_path):

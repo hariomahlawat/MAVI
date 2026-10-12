@@ -39,6 +39,11 @@ from tools.benchmarks.core._stage3 import artefacts
 VEHICLE_CLASSES = ("bus", "car", "motorcycle", "truck")
 MIN_VEHICLE_WIDTH = 200  # px: frames whose ground-truth vehicle is at least this wide are oracle candidates
 CANDIDATE_PLATE_WIDTH = 30  # px: a track enters text verification when its largest proposed plate is this wide
+# The bounded labelling set (R8, fixed before any label): the SELECTED_TRACKS candidates with the widest proposed plate
+# (ties: sequence, track), and per track its ORACLE_FRAMES widest-plate oracle frames plus every evidence frame. The
+# selection reads only the annotation detector's geometry — never MAVI's outcome and never an OCR instrument.
+SELECTED_TRACKS = 240
+ORACLE_FRAMES = 3
 PAD = 0.1  # detector input: the ground-truth vehicle box padded by 10 % per side (clamped)
 DETECTOR_CONFIDENCE = 0.25
 LABELS = "benchmark-plate-labels-v1"
@@ -143,15 +148,23 @@ def _plate_width(frame: dict[str, Any]) -> float:
     return frame["plate"]["box"][2] - frame["plate"]["box"][0] if frame["plate"] else 0.0
 
 
-def candidates(proposals: dict[str, Any]) -> list[dict[str, Any]]:
-    """Tracks whose largest proposed plate reaches ``CANDIDATE_PLATE_WIDTH``, in deterministic order, numbered."""
+def candidates(proposals: dict[str, Any], limit: int = SELECTED_TRACKS) -> list[dict[str, Any]]:
+    """The bounded labelling set, numbered in (sequence, track) order: the ``limit`` tracks with the widest proposed
+    plate (at least ``CANDIDATE_PLATE_WIDTH``); each keeps its ``ORACLE_FRAMES`` widest-plate oracle frames and every
+    evidence frame (``frames``), and names its widest-plate frame (``bestFrame``)."""
     found = []
     for track in proposals["tracks"]:
-        widths = [(_plate_width(f), int(i)) for i, f in track["frames"].items() if f["plate"] and f["oracleCandidate"]]
-        if widths and max(widths)[0] >= CANDIDATE_PLATE_WIDTH:
-            found.append({**track, "bestFrame": str(max(widths)[1])})
-    return [dict(track, candidate=f"T{n:04d}") for n, track in enumerate(sorted(
-        found, key=lambda t: (t["sequenceId"], t["gtTrackId"])), start=1)]
+        widths = sorted(((_plate_width(f), int(i)) for i, f in track["frames"].items()
+                         if f["plate"] and f["oracleCandidate"]), key=lambda w: (-w[0], w[1]))
+        if widths and widths[0][0] >= CANDIDATE_PLATE_WIDTH:
+            keep = {str(i) for _, i in widths[:ORACLE_FRAMES]} | {
+                i for i, f in track["frames"].items() if f["evidenceFrame"]}
+            frames = {i: f for i, f in track["frames"].items() if i in keep}
+            found.append({**track, "frames": frames, "bestFrame": str(widths[0][1]), "_width": widths[0][0]})
+    found.sort(key=lambda t: (-t["_width"], t["sequenceId"], t["gtTrackId"]))
+    chosen = sorted(found[:limit], key=lambda t: (t["sequenceId"], t["gtTrackId"]))
+    return [{**{k: v for k, v in track.items() if k != "_width"}, "candidate": f"T{n:04d}"}
+            for n, track in enumerate(chosen, start=1)]
 
 
 def sheets(*, proposals_path: Path, descriptor_path: Path, source_root: Path, out_dir: Path, per_sheet: int = 20) -> int:
