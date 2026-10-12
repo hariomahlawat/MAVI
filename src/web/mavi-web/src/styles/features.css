@@ -71,6 +71,11 @@
   .queue-counts__sep { display: none; }
   .queue-counts, .queue-counts--pending { display: flex; }
   .queue-reserve--counts { display: none; }
+  /* The folded values' reserve is a Tier B column width. A Tier C item lets
+     those values wrap under the identity when they do not fit beside it, and
+     whether they fit turns on a few pixels of the face: a reserve that guesses
+     the width can fit where the values then wrap (S6/X3), so it holds nothing. */
+  .ledger-folded .queue-reserve { display: none; }
 }
 .run-cell { display: grid; gap: var(--s-1); min-width: 160px; }
 /* In a Ledger the status cell is one column among six at 1366, so it takes the
@@ -167,8 +172,27 @@
   font-size: var(--fs-1); line-height: 1.45; color: var(--text-secondary);
 }
 .coverage > .icon { flex: 0 0 auto; margin-top: var(--stroke-2); }
-.coverage__body { display: grid; gap: var(--stroke-2); flex: 1 1 auto; min-width: 0; }
+.coverage__body { display: grid; gap: var(--stroke-2); flex: 1 1 auto; min-width: 0; container: coverage / inline-size; }
 .coverage__headline strong { color: var(--text-primary); font-weight: 600; }
+/* The identity — "Revision 4 · Engine v1", or the revision's short id when
+   the scene's names are withdrawn — must never change how many lines the
+   headline takes (S6/X3). Both texts are bounded: the count at most about 40
+   characters ("No processing runs in this search scope"), the identity about
+   30. A strip at least 80 characters wide in its own face holds both on one
+   line whichever the revision says, so there they share it; a narrower strip
+   gives the identity its own line, and one narrower than the identity itself
+   stacks revision over engine, so no text change can start a wrap. */
+.coverage__identity { display: flex; flex-wrap: wrap; column-gap: var(--s-2); }
+.coverage__identity > span { white-space: nowrap; }
+.coverage__engine::before { content: "·"; margin-right: var(--s-2); }
+@container coverage (width >= 80ch) {
+  .coverage__headline { display: flex; column-gap: var(--s-2); }
+  .coverage__identity::before { content: "·"; }
+}
+@container coverage (width < 34ch) {
+  .coverage__identity { flex-direction: column; }
+  .coverage__engine::before { content: none; }
+}
 .coverage__buckets { color: var(--text-primary); }
 .coverage--info { background: var(--status-info-soft); }
 .coverage--info > .icon { color: var(--status-info); }
@@ -311,7 +335,7 @@
 /* The frame is where the keyboard grammar acts, so its focus has to be as
    visible as any control's. */
 .evidence-player__frame:focus-visible { outline: var(--stroke-2) solid var(--focus-ring); outline-offset: var(--stroke-2); }
-.evidence-player__video { display: block; width: 100%; height: auto; max-height: 62vh; background: var(--evidence-matte); }
+.evidence-player__video { display: block; width: 100%; height: auto; max-height: 62vh; object-fit: contain; background: var(--evidence-matte); }
 .evidence-player--compact .evidence-player__video { max-height: 40vh; }
 
 /* Every overlay layer carries the halo (section 8.3). A violet box over bright
@@ -706,7 +730,17 @@
 
 /* What this surface puts in the shared toolbar band. */
 .scene-toolbar__refusal { color: var(--status-warn); font-size: var(--fs-1); }
-.scene-toolbar__readonly { color: var(--status-warn); font-size: var(--fs-1); }
+/* The note stands where the drawing tools stood and keeps their height (the
+   segmented control, hairline borders included), so the stage below does not
+   move when a past revision opens (§38; X3). */
+.scene-toolbar__readonly {
+  display: flex; align-items: center; min-height: calc(var(--control-h) + 2 * var(--stroke-hair));
+  /* It takes the row's remaining width and wraps there, never pushing the
+     band's actions to a row of their own: two lines fit the height it holds,
+     so two reasons (a past revision, an inactive camera) move nothing (X3). */
+  flex: 100 1 0; min-width: 0; line-height: 1.3;
+  color: var(--status-warn); font-size: var(--fs-1);
+}
 
 /* Stage */
 
@@ -846,7 +880,13 @@
 }
 .scene-reference__badge.is-current { border-color: var(--status-ok-border); background: var(--status-ok-soft); color: var(--status-ok); }
 .scene-reference__badge.is-empty { border-color: var(--border-subtle); background: transparent; color: var(--text-muted); }
-.scene-reference__file { color: var(--text-muted); font-size: var(--fs-0); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-reference__file { color: var(--text-muted); font-size: var(--fs-0); width: 160px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Both badge texts in one cell, the other unseen: the badge is the wider's width (X3). */
+.scene-reference__badge { display: inline-grid; }
+.scene-reference__badge-face { grid-area: 1 / 1; }
+.scene-reference__badge-ghost { visibility: hidden; }
+/* The inspector's Open, held while the Track's detail loads (X3). */
+.track-inspector__open-reserve { visibility: hidden; }
 
 .scene-navigator__empty { padding: var(--s-3); color: var(--text-muted); font-size: var(--fs-1); }
 .scene-navigator__group { padding: var(--s-2) var(--s-2) var(--s-1); }
@@ -885,8 +925,15 @@
   font: var(--fs-0)/1.5 var(--font-mono); overflow-wrap: anywhere;
 }
 .scene-navigator__item { min-width: 0; }
+/* A past revision loading (§36.3, §38): its rows, as many as the revision's
+   summary records, in the rows' own geometry, a bar where each name will be. */
+.scene-navigator__item--pending .scene-navigator__name { cursor: default; }
+.scene-navigator__item--pending .scene-navigator__name:hover { background: none; }
+.scene-navigator__bar { display: block; flex: 0 1 60%; height: 0.8em; border-radius: var(--r-1); background: var(--skeleton-bg); }
 .scene-navigator__coordinates { padding: 0 var(--s-2); color: var(--text-muted); font-size: var(--fs-0); }
 .scene-navigator__coordinates summary { cursor: pointer; min-height: var(--control-min-target); line-height: var(--control-min-target); }
+.scene-navigator__summary-space { min-height: var(--control-min-target); line-height: var(--control-min-target); }
+.scene-navigator__placeholder { visibility: hidden; }
 .scene-navigator__points { display: grid; gap: var(--s-px); padding: 0 0 var(--s-1) var(--s-3); list-style: none; font-family: var(--font-mono); line-height: 1.5; }
 
 /* The shared inspector body owns the padding; this owns the rhythm inside it. */
@@ -963,6 +1010,8 @@
    beside their fields; the presets are one group; a refusal is the band's
    one-line hint, described by the field that repairs it. */
 .analytics-window__presets { display: flex; gap: var(--s-1); }
+/* The interval's kept place on the heatmap: its width, nothing else (X3). */
+.analytics-window__reserve { display: inline-flex; visibility: hidden; }
 .analytics-window__label { color: var(--text-secondary); font-size: var(--fs-1); font-weight: 500; }
 .toolbar-band .analytics-window__problem { color: var(--status-err); }
 /* A wall time in the product's format (§24), in tabular figures. Its width is
@@ -1001,6 +1050,16 @@
   min-height: 0;
   height: 100%;
   padding: var(--s-4);
+}
+/* Stacked (§25 Tier B), the page scrolls and the stage would take whatever
+   height its content has — the activity chart, the map, a loading row, an
+   empty state — so changing report or reading a map moved the inspector below
+   it (0.13 at 1024x768 where the first baseline measured 0.001; X3). One
+   geometry instead, from the stage's width, for every report and state: the
+   map letterboxes in it as it does at Tier A, the chart fills it, and its
+   states are said inside it (§36.3, §38). */
+@media (min-width: 768px) and (max-width: 1100px) {
+  .analytics-stage { height: auto; aspect-ratio: 16 / 10; }
 }
 
 .activity-chart {
@@ -1188,7 +1247,11 @@
  * priority into the primary cell"). Each Ledger folds where its own
  * container is narrower than its unfolded table — the base inventory's
  * measured natural width plus the frame's 2px border (T1, measured at 1366
- * with every column visible) — so the fold is derived from the composition
+ * with every column visible), in the widest platform face the product is
+ * qualified under: Verdana's metrics, which bound the Linux CI's DejaVu Sans
+ * (X3: a floor measured in Segoe UI alone left a Linux table overflowing by a
+ * few pixels, folding only when its rows arrived and moving the page by
+ * 0.49) — so the fold is derived from the composition
  * it separates, never from a viewport figure, and holds at any rail state.
  * Tier A's narrowest working width (1366 with the rail expanded) is 1110px,
  * above every threshold here, so nothing folds there (§4.1). These widths
@@ -1197,9 +1260,10 @@
  * font — the Ledger folds on measurement as well (`useOverflowFold`). Below
  * the folded table's own width the body scrolls sideways, which §4.1 permits.
  * ------------------------------------------------------------------ */
-/* Videos: 968px unfolded. Recorded and Duration fold into the File cell; the
-   sort they carried moves to the toolbar's select. */
-@container ledger (max-width: 969px) {
+/* Videos: 968px unfolded in Segoe UI, 1029px in Verdana. Recorded and
+   Duration fold into the File cell; the sort they carried moves to the
+   toolbar's select. */
+@container ledger (max-width: 1030px) {
   .table--fold-videos .ledger-fold { display: none; }
   .table--fold-videos .ledger-folded { display: inline-flex; }
   /* Only Videos carries a sort select: its folded columns are sort keys. */
@@ -1210,14 +1274,15 @@
      (§25 Tier B: the band wraps to two rows at most; §38: no layout shift). */
   .toolbar-band:has(.ledger-sort) .toolbar-band__hint { flex-basis: 100%; }
 }
-/* Processing queue: 1011px unfolded. Queued, Attempt and Tracks fold into the
-   Video cell. */
-@container ledger (max-width: 1012px) {
+/* Processing queue: 1011px unfolded in Segoe UI, 1076px in Verdana. Queued,
+   Attempt and Tracks fold into the Video cell. */
+@container ledger (max-width: 1077px) {
   .table--fold-processing-queue .ledger-fold { display: none; }
   .table--fold-processing-queue .ledger-folded { display: inline-flex; }
 }
-/* Cameras: 685px unfolded. Timezone folds into the Name cell. */
-@container ledger (max-width: 686px) {
+/* Cameras: 685px unfolded in Segoe UI, 708px in Verdana. Timezone folds into
+   the Name cell. */
+@container ledger (max-width: 709px) {
   .table--fold-cameras .ledger-fold { display: none; }
   .table--fold-cameras .ledger-folded { display: inline-flex; }
 }

@@ -200,7 +200,11 @@ describe('Slice 4 Investigation analytics', () => {
 
     const strip = await screen.findByRole('region', { name: 'Analytics coverage' });
     expect(strip).toHaveTextContent('2 of 4 runs analysed');
-    expect(strip).toHaveTextContent('Revision 4 · Engine v1');
+    // The identity is its own line, its revision and engine each a unit (S6/X3).
+    expect(strip.querySelector('.coverage__identity .coverage__revision')).toHaveTextContent(/^Revision 4$/);
+    expect(strip.querySelector('.coverage__identity .coverage__engine')).toHaveTextContent(/^Engine v1$/);
+    // Read as two words, never "Revision 4Engine v1", whatever separator is drawn.
+    expect(strip.querySelector('.coverage__identity')?.textContent).toBe('Revision 4 Engine v1');
     expect(strip).toHaveTextContent('1 run not yet analysed · 1 run with analytics disabled by the scene revision');
     expect(strip).toHaveTextContent('17 Tracks analysed · 2 Tracks could not be analysed');
     expect(within(strip).getByRole('link', { name: 'Processing' })).toHaveAttribute('href', '/processing');

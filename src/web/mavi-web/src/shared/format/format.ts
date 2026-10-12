@@ -1,4 +1,4 @@
-import { formatDateTime, formatInstant } from '../time/time';
+import { dateTimeFormat, formatDateTime, formatInstant } from '../time/time';
 
 /**
  * Confidence density (section 24): an integer percent in a list, one decimal in
@@ -36,9 +36,11 @@ export function formatOffset(offsetMs: number, precision: OffsetPrecision = 'sec
 }
 
 /** Counts carry thousands separators and tabular figures (section 24). */
+// Made once: a count is formatted in every cell of a table (X3).
+const countFormat = new Intl.NumberFormat('en-IN');
 export function formatCount(value: number): string {
   if (!Number.isFinite(value)) return '—';
-  return new Intl.NumberFormat('en-IN').format(value);
+  return countFormat.format(value);
 }
 
 export function formatBytes(bytes: number): string {
@@ -78,7 +80,7 @@ export function compactTimestamp(
   if (!displayTimeZoneId) return value + ' UTC';
   try {
     const instant = new Date(value);
-    const yearHere = new Intl.DateTimeFormat('en-IN', { timeZone: displayTimeZoneId, year: 'numeric' });
+    const yearHere = dateTimeFormat('en-IN', { timeZone: displayTimeZoneId, year: 'numeric' });
     const sameYear = yearHere.format(instant) === yearHere.format(now);
     return formatInstant(value, displayTimeZoneId, {
       ...(sameYear ? {} : { year: 'numeric' }),

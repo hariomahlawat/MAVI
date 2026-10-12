@@ -2304,11 +2304,17 @@ const BASE_REVISION = JSON.parse(
 );
 const HISTORICAL_REVISION_ID = '66666666-6666-7666-8666-666666666663';
 
-/** Revision 3, the one the historical facts were measured against. */
+/**
+ * Revision 3, the one the historical facts were measured against — as the
+ * camera's history lists it (one zone, one trip line): a revision's record and
+ * its summary agree, as the server's do, so a revision loading is reserved in
+ * the geometry it then has (X3).
+ */
 const HISTORICAL_REVISION = {
   ...BASE_REVISION,
   revisionId: HISTORICAL_REVISION_ID,
   revisionNumber: 3,
+  zones: BASE_REVISION.zones.slice(0, 1),
 };
 
 /**
@@ -4504,6 +4510,11 @@ export const STATES = [
       const style = document.createElement('style');
       style.textContent = '.analytics-table, .analytics-table * { font-family: ${QUEUE_WIDE_FONT} !important; }';
       document.head.appendChild(style);
+      // The wide face is fixture setup; the operator's action is choosing the
+      // report. P1's method marks the action in a multi-step preparation, so
+      // the face's first use is not measured as the interaction's work (X3).
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      window.__vqa.mark('interaction-start');
       if (!(await ${LINE_METRIC})) return false;
       const heading = await until(() => Array.from(document.querySelectorAll('.analytics-table thead th'))
         .find((th) => th.textContent.trim() === 'Outbound'), 'the Outbound heading');

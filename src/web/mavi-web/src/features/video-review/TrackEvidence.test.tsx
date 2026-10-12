@@ -391,6 +391,14 @@ describe('Track evidence overlay', () => {
       expect(screen.queryByTestId('trajectory-sample')).not.toBeInTheDocument();
     });
 
+    it('says a persisted trajectory not yet fetched is loading, bound to the control and quiet in the row (§38; X3)', () => {
+      render(<TrackEvidence detail={detail} />);
+      expect(screen.getByRole('button', { name: 'Trajectory' })).toBeDisabled();
+      expect(describedText('Trajectory')).toContain('The persisted trajectory is loading.');
+      expect(describedText('Trajectory')).not.toContain('contains no samples');
+      expect(screen.getByText('The persisted trajectory is loading.')).toHaveClass('visually-hidden');
+    });
+
     it('stays distinct from a persisted artefact that yielded no samples', () => {
       render(<TrackEvidence detail={detail} trajectory={[]} />);
       const control = screen.getByRole('button', { name: 'Trajectory' });

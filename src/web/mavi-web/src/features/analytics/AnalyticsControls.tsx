@@ -226,7 +226,21 @@ export default function AnalyticsControls({
             ))}
           </select>
         </>
-      ) : null}
+      ) : (
+        // Not offered, but its place kept: the band then wraps the same way for
+        // every report, so switching to the heatmap moves nothing below it —
+        // with a wider platform face the band would otherwise drop from two
+        // rows to one and lift the whole stage (§38; X3). Unseen, unnamed and
+        // out of the tab order: a reserved width, not a control.
+        <span className="analytics-window__reserve" aria-hidden="true">
+          {/* A select is as wide as its widest option: the same options. */}
+          <select disabled tabIndex={-1} value={state.bucketSeconds} onChange={() => {}}>
+            {BUCKET_SECONDS.map((seconds) => (
+              <option key={seconds} value={seconds}>{`${bucketLabels[seconds] ?? `${seconds}s`} buckets`}</option>
+            ))}
+          </select>
+        </span>
+      )}
 
       <label className="visually-hidden" htmlFor={ids.objectClass}>Object class</label>
       <select

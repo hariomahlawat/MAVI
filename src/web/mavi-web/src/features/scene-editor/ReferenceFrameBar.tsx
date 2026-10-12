@@ -175,17 +175,20 @@ export default function ReferenceFrameBar({
         Use current frame
       </Button>
 
+      {/* The slot keeps one geometry whether a reference is pinned or not —
+          a past revision loading shows none, then its own — so the bar wraps
+          the same way in any face (§38; X3): the badge holds both of its
+          texts in one cell, the other unseen, and the file has its width. */}
       <span className="scene-reference__pinned">
-        {referencePinned ? (
-          <>
-            <span className={`scene-reference__badge${showingReference ? ' is-current' : ''}`}>
-              Reference · {formatOffset(savedOffsetMs as number, 'tenths')}
-            </span>
-            <span className="scene-reference__file">{savedVideo?.originalFileName ?? 'video unavailable'}</span>
-          </>
-        ) : (
-          <span className="scene-reference__badge is-empty">No reference frame</span>
-        )}
+        <span className={`scene-reference__badge${referencePinned ? (showingReference ? ' is-current' : '') : ' is-empty'}`}>
+          <span className="scene-reference__badge-face">
+            {referencePinned ? `Reference · ${formatOffset(savedOffsetMs as number, 'tenths')}` : 'No reference frame'}
+          </span>
+          <span className="scene-reference__badge-face scene-reference__badge-ghost" aria-hidden="true">
+            {referencePinned ? 'No reference frame' : `Reference · ${formatOffset(0, 'tenths')}`}
+          </span>
+        </span>
+        <span className="scene-reference__file">{referencePinned ? savedVideo?.originalFileName ?? 'video unavailable' : null}</span>
       </span>
 
       {referencePinned && !readOnly ? (

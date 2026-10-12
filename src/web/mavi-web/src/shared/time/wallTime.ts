@@ -22,11 +22,13 @@ type WallParts = {
  */
 export const WALL_TIME_FORMAT = 'YYYY-MM-DD HH:mm:ss';
 
+import { dateTimeFormat } from './time';
+
 const wallPattern = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 function createFormatter(timeZoneId: string): Intl.DateTimeFormat {
   try {
-    return new Intl.DateTimeFormat('en-CA-u-ca-gregory-nu-latn', {
+    return dateTimeFormat('en-CA-u-ca-gregory-nu-latn', {
       timeZone: timeZoneId,
       year: 'numeric',
       month: '2-digit',

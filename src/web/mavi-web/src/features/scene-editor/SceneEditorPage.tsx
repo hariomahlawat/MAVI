@@ -229,6 +229,9 @@ export default function SceneEditorPage() {
     : null;
   const blankDraft = useMemo(() => emptyDraft(), []);
   const shownDraft = readOnly ? (historicalDraft ?? blankDraft) : state.draft;
+  // The revision being opened, as the history already lists it: how many
+  // objects it has, so their rows are reserved while it loads.
+  const viewingSummary = readOnly ? scene.data?.history.find((entry) => entry.revisionNumber === viewingRevisionNumber) : undefined;
   const shownSelection: Selection = state.selection;
 
   // A control that belonged to a deleted object — its delete button, one of its
@@ -839,6 +842,7 @@ export default function SceneEditorPage() {
               historical={readOnly}
               pending={historicalPending}
               pendingLoading={historicalMissing && !historicalRevision.isError}
+              pendingCounts={viewingSummary ? { zones: viewingSummary.zoneCount, tripLines: viewingSummary.tripLineCount } : undefined}
               invalidKeys={invalidKeys}
               onSelect={(selection) => dispatch({ type: 'select', selection })}
               onDelete={(key) => {

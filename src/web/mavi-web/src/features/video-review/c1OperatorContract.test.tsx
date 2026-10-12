@@ -151,8 +151,10 @@ describe('C1 through the operator contract', () => {
 
   it('states the heatmap provenance the explanation states', () => {
     render(<HeatmapInspector response={heatmap} displayTimeZoneId="UTC" />);
-    expect(screen.getByText('Revision 1')).toBeInTheDocument();
-    expect(screen.getByText('Engine v1')).toBeInTheDocument();
+    // The explanation's own terms (its <dd>); the coverage strip above it
+    // names the same revision and engine on its identity line.
+    expect(screen.getByText('Revision 1', { selector: 'dd' })).toBeInTheDocument();
+    expect(screen.getByText('Engine v1', { selector: 'dd' })).toBeInTheDocument();
     expect(screen.getByText('41')).toBeInTheDocument();
   });
 });

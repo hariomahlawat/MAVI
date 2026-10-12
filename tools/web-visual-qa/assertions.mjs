@@ -1393,11 +1393,13 @@ export function workspaceAssertions(input) {
   if (archetype === 'workspace--ledger') {
     // The statement is the harness's own (T1's register), not the product's
     // markup: `below` is the region width under which the base inventory's
-    // unfolded table no longer fits (the container-query floor).
+    // unfolded table no longer fits (the container-query floor) in the widest
+    // platform face the product is qualified under (X3: Verdana's metrics,
+    // which bound the Linux CI's DejaVu Sans).
     const STATED = {
-      videos: { folds: ['Recorded', 'Duration'], keeps: ['File', 'Camera', 'Status', 'Actions'], below: 969, sortable: true },
-      'processing-queue': { folds: ['Queued', 'Attempt', 'Tracks'], keeps: ['Video', 'Status', 'Analytics', 'Actions'], below: 1012 },
-      cameras: { folds: ['Timezone'], keeps: ['Code', 'Name', 'State', 'Actions'], below: 686 },
+      videos: { folds: ['Recorded', 'Duration'], keeps: ['File', 'Camera', 'Status', 'Actions'], below: 1030, sortable: true },
+      'processing-queue': { folds: ['Queued', 'Attempt', 'Tracks'], keeps: ['Video', 'Status', 'Analytics', 'Actions'], below: 1077 },
+      cameras: { folds: ['Timezone'], keeps: ['Code', 'Name', 'State', 'Actions'], below: 709 },
     };
     const scroller = workspace.querySelector('.ledger-table');
     const table = scroller && scroller.querySelector('table');

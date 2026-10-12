@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { objectClassLabel, type TrackAnalyticsIdentity, type TrackSearchItem } from '../../api/tracks';
 import StatusBadge from '../../shared/components/StatusBadge';
@@ -29,7 +29,9 @@ import EvidencePlaceholder from '../../shared/evidence/EvidencePlaceholder';
  * uses. Without it `j` in a dense Grid moved the URL, the inspector and the
  * highlight while leaving the selected card outside the results viewport.
  */
-export default function TrackResultCard({
+// §38: memoised, so selecting a result re-renders the two cards whose
+// `selected` changed, not the whole grid.
+export default memo(function TrackResultCard({
   track,
   displayTimeZoneId,
   selected = false,
@@ -99,4 +101,4 @@ export default function TrackResultCard({
       </div>
     </article>
   );
-}
+});

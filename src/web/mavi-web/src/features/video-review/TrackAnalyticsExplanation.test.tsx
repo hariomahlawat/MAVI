@@ -319,7 +319,10 @@ describe('every state keeps its own words', () => {
 
   it('states a geometry failure as its own condition, not as missing facts', () => {
     const loading = show(analysedAnalytics(), { status: 'loading', revisionNumber: 4 });
-    expect(loading).toHaveTextContent('Loading scene revision 4');
+    // Said in the identity row, which stays: no paragraph comes and goes with
+    // the load and moves what is below the summary (§38; X3).
+    expect(loading).toHaveTextContent(/Scene revision 4 · .* · geometry loading/);
+    expect(loading.querySelectorAll('.analytics-summary__state')).toHaveLength(0);
 
     render(
       <TrackAnalyticsExplanation

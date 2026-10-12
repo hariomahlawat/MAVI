@@ -26,6 +26,7 @@ const SKELETON_CLASS = {
   list: 'skeleton skeleton--list',
   compactList: 'skeleton skeleton--compact-list',
   keyValue: 'skeleton skeleton--kv',
+  grid: 'skeleton skeleton--grid',
 } as const;
 
 export default function LoadingState({
@@ -45,10 +46,10 @@ export default function LoadingState({
   /**
    * The geometry the skeleton precedes: table rows, a whole Ledger table
    * (its header region, then table rows), a result-list row with a thumbnail,
-   * a compact list row, or a key/value row. Only `ledger` reserves a header:
+   * a compact list row, a result Grid card, or a key/value row. Only `ledger` reserves a header:
    * a list or a key/value block has none, so nothing else assumes one.
    */
-  pitch?: 'table' | 'ledger' | 'list' | 'compactList' | 'keyValue';
+  pitch?: 'table' | 'ledger' | 'list' | 'compactList' | 'keyValue' | 'grid';
 }) {
   const count = rows === 'default' ? DEFAULT_SKELETON_ROWS : rows;
   // Said through the enclosing StatusSlot's announcer where there is one; a

@@ -527,3 +527,50 @@ describe('focus is never brought into view under a sticky band (WCAG 2.4.11, X2)
     expect(rule?.[1]).toMatch(/scroll-padding-top:\s*var\(--table-head-h\)/);
   });
 });
+
+describe('§38: fonts do not swap and nothing animates continuously but the two it allows (X3)', () => {
+  // The source, read as text: the platform stack is all the product renders
+  // with, so there is nothing to download and nothing to swap.
+  const sources = import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+  const html = import.meta.glob('../../index.html', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+
+  it('declares no web font: no @font-face, no FontFace, no font loading, no font link', () => {
+    for (const file of cssFiles) expect(withoutComments(read(file)), file).not.toMatch(/@font-face|@import/i);
+    expect(Object.keys(sources).length).toBeGreaterThan(50);
+    for (const [file, text] of Object.entries(sources)) expect(text, file).not.toMatch(/new FontFace\b|document\.fonts\b|fonts\.load\(/);
+    const page = Object.values(html).join('\n');
+    expect(page).toContain('<div id="root">');
+    expect(page).not.toMatch(/<link[^>]+(font|woff)|fonts\.googleapis/i);
+  });
+
+  it('animates continuously only the processing pulse and the indeterminate progress', () => {
+    const keyframes = cssFiles.flatMap((file) => Array.from(withoutComments(read(file)).matchAll(/@keyframes\s+([a-z0-9-]+)/gi), (m) => m[1]));
+    expect(keyframes.sort()).toEqual(['pulse', 'spin']);
+    const infinite = cssFiles.flatMap((file) => Array.from(withoutComments(read(file)).matchAll(/animation:\s*([a-z0-9-]+)[^;]*\binfinite\b/gi), (m) => m[1]));
+    expect(infinite.sort()).toEqual(['pulse', 'spin']);
+  });
+});
+
+describe('geometry held across states and platform faces (§38; X3)', () => {
+  it('folds each Ledger from its first frame where its base table would not fit in the widest qualified face', () => {
+    const floor = (table: string) => new RegExp(`@container ledger \\(max-width: (\\d+)px\\) \\{\\s*\\.table--fold-${table} `).exec(featuresCss)?.[1];
+    // Segoe UI widths 968 / 1011 / 685; Verdana (which bounds DejaVu Sans) 1029 / 1076 / 708.
+    expect(floor('videos')).toBe('1030');
+    expect(floor('processing-queue')).toBe('1077');
+    expect(floor('cameras')).toBe('709');
+  });
+
+  it('gives the stacked analytics stage one geometry for every report and state', () => {
+    const block = /@media \(min-width: 768px\) and \(max-width: 1100px\) \{\s*\.analytics-stage \{([^}]*)\}/.exec(featuresCss);
+    expect(block?.[1]).toMatch(/aspect-ratio:\s*16 \/ 10/);
+  });
+
+  it('keeps the read-only note at the drawing tools\u2019 height', () => {
+    expect(/\.scene-toolbar__readonly \{([^}]*)\}/.exec(featuresCss)?.[1]).toMatch(/min-height:\s*calc\(var\(--control-h\) \+ 2 \* var\(--stroke-hair\)\)/);
+  });
+
+  it('holds the Queue\'s folded values\' width only at Tier B, never in a Tier C item that wraps them', () => {
+    const tierC = /@media \(width < 768px\) \{([^]*?)\n\}/.exec(featuresCss.slice(featuresCss.indexOf('.queue-reserve {')))?.[1] ?? '';
+    expect(tierC).toMatch(/\.ledger-folded \.queue-reserve \{ display: none; \}/);
+  });
+});

@@ -287,10 +287,30 @@ describe('ProcessingQueuePage', () => {
 
     expect(await within(rows[1]).findByText(/run status unavailable/i)).toBeInTheDocument();
     expect(within(rows[1]).queryByText(/Loading run/)).not.toBeInTheDocument();
+    // S6/X3: the failed row keeps its folded-values reserve, invisible, so the
+    // columns do not move back when the lookup fails.
+    expect(rows[1].querySelectorAll('.ledger-folded .queue-reserve[aria-hidden="true"]')).toHaveLength(3);
 
     vi.mocked(getProcessingStatus).mockResolvedValue({ videoStatus: 'Failed', latestRun: run('Failed', { failureCode: 'worker_watchdog_timeout' }) });
     await user.click(within(rows[1]).getByRole('button', { name: /retry/i }));
     expect(await within(rows[1]).findByText('worker_watchdog_timeout')).toBeInTheDocument();
+  });
+
+  it('holds the folded values\' width, hidden, while a row\'s run loads, and drops the reserve when it arrives (S6/X3)', async () => {
+    const pending: Array<(value: Awaited<ReturnType<typeof getProcessingStatus>>) => void> = [];
+    vi.mocked(getProcessingStatus).mockImplementation(() => new Promise((r) => { pending.push(r); }));
+    renderWithApp(<ProcessingQueuePage />, { route: '/processing' });
+    const table = await screen.findByRole('table');
+    const row = within(table).getAllByRole('row')[1];
+    const reserve = row.querySelectorAll('.ledger-folded .queue-reserve');
+    // Queued, Attempt and a Tracks value: the completed run's full shape.
+    expect(reserve).toHaveLength(3);
+    expect(reserve[2]).toHaveTextContent(/tracks$/);
+    reserve.forEach((node) => expect(node).toHaveAttribute('aria-hidden', 'true'));
+
+    pending.forEach((r) => r({ videoStatus: 'Processed', latestRun: run('Completed', { progressPercent: 100, tracksCreated: 42 }) }));
+    await waitFor(() => expect(row.querySelector('.ledger-folded .queue-reserve')).toBeNull());
+    expect(row.querySelectorAll('.ledger-folded .ledger-folded__value').length).toBeGreaterThan(0);
   });
 
   describe('M2: the run-status retry in the capped status cell', () => {

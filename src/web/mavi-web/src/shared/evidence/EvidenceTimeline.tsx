@@ -162,8 +162,10 @@ export default function EvidenceTimeline({
     const observer = new ResizeObserver(() => {
       setTrackWidth(element.getBoundingClientRect().width);
     });
+    // The first observation arrives after the browser lays the track out:
+    // reading it here would force that layout — of the whole surface just
+    // mounted with it — inside the operator's action (§38; X3).
     observer.observe(element);
-    setTrackWidth(element.getBoundingClientRect().width);
     return () => observer.disconnect();
   }, []);
 

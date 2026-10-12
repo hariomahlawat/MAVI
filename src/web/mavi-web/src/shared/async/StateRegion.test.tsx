@@ -167,6 +167,13 @@ describe('column (§37.1)', () => {
     expect(container.querySelectorAll('.skeleton__row')).toHaveLength(3);
   });
 
+  it('loads a result Grid as card skeletons, never a spinner (S6/X3, §38)', async () => {
+    const { container } = region({ kind: 'loading' }, 'column', { skeleton: { rows: 'default', pitch: 'grid' } });
+    expect(container.querySelector('.skeleton--grid')).not.toBeNull();
+    expect(container.querySelectorAll('.skeleton--grid .skeleton__row')).toHaveLength(8);
+    expect(container.querySelector('.spinner')).toBeNull();
+  });
+
   it('is one alert with its retry trailing inside it, never a detached button', async () => {
     const onRetry = vi.fn();
     region({ kind: 'unavailable', error: new Error('down') }, 'column', { onRetry });

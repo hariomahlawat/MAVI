@@ -106,16 +106,30 @@ const LOADING_PAIRS = [['cameras-loading', 'cameras'], ['videos-loading', 'video
 
 // --- Plan the run ---------------------------------------------------------------
 
-const onlyStates = list('states');
+// X3: the long-task lane (§38 "long tasks during the first interaction"):
+// every state that declares an operator interaction, at its ordinary anchors
+// and probes, on ONE lane — another lane's work on the same machine would be
+// measured as the interaction's (P1's method). It is blocking evidence only
+// whole and single-lane, so it takes no other selection and refuses workers.
+const longTaskLane = flag('long-tasks');
+if (longTaskLane) {
+  for (const other of ['states', 'tiers', 'widths', 'zoom', 'text-spacing', 'reduced-motion', 'shard', 'repeat']) {
+    if (process.argv.includes(`--${other}`)) fatal(`HARNESS ERROR: --long-tasks is the whole interaction plan; it takes no --${other}
+`);
+  }
+  if (arg('workers', '1') !== '1') fatal(`HARNESS ERROR: --long-tasks runs on one lane: lanes contend for the CPU and their work would be measured as the interaction's (--workers ${arg('workers')})
+`);
+}
+const onlyStates = longTaskLane ? STATES.filter((state) => state.interaction).map((state) => state.name) : list('states');
 const onlyTiers = list('tiers');
 const onlyWidths = list('widths')?.map(Number) ?? null;
-const onlyZoom = arg('zoom', null);
+const onlyZoom = longTaskLane ? 'none' : arg('zoom', null);
 if (onlyZoom !== null && onlyZoom !== 'only' && onlyZoom !== 'none') fatal(`--zoom takes "only" or "none", not "${onlyZoom}"`);
 // X1: the text-spacing lane (WCAG 1.4.12), `--text-spacing only|none` as `--zoom`.
-const onlyTextSpacing = arg('text-spacing', null);
+const onlyTextSpacing = longTaskLane ? 'none' : arg('text-spacing', null);
 if (onlyTextSpacing !== null && onlyTextSpacing !== 'only' && onlyTextSpacing !== 'none') fatal(`--text-spacing takes "only" or "none", not "${onlyTextSpacing}"`);
 // X4: the reduced-motion lane (§13), `--reduced-motion only|none` as `--zoom`.
-const onlyReducedMotion = arg('reduced-motion', null);
+const onlyReducedMotion = longTaskLane ? 'none' : arg('reduced-motion', null);
 if (onlyReducedMotion !== null && onlyReducedMotion !== 'only' && onlyReducedMotion !== 'none') fatal(`--reduced-motion takes "only" or "none", not "${onlyReducedMotion}"`);
 // A count that is not a positive integer is refused: NaN would plan cases and
 // run none of them.
@@ -137,7 +151,7 @@ if (shardArg !== null) {
 const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom && !onlyTextSpacing && !onlyReducedMotion && repeat === 1 && !STATES_MODULE;
 // A shard is never the full sweep by itself; aggregate.mjs is, over every shard.
 const fullSweep = completeSelection && !shard;
-const workers = positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
+const workers = longTaskLane ? 1 : positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
 
 const manifestProblems = validateManifest();
 if (manifestProblems.length) {
@@ -680,9 +694,12 @@ async function runCase(lane, c) {
     const first = (root) => root && Array.from(root.querySelectorAll('*')).find((el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getBoundingClientRect().width > 1 && !el.closest('.visually-hidden, [aria-hidden="true"], svg, select, option, script, style, noscript, template, video, audio, canvas, iframe, object'));
     const bar = first(document.querySelector('.context-bar'));
     const surface = first(document.querySelector('main .workspace') || document.querySelector('main .page') || document.querySelector('main'));
-    return { contextBar: bar ? path(bar) : null, content: surface ? path(surface) : null, declared: getComputedStyle(document.body).fontFamily };
+    // X3: the font faces the document holds (an @font-face, a FontFace): with
+    // none, nothing can arrive late and swap — the platform stack is resolved
+    // at layout, synchronously (§38 "fonts do not swap").
+    return { contextBar: bar ? path(bar) : null, content: surface ? path(surface) : null, declared: getComputedStyle(document.body).fontFamily, faces: document.fonts ? document.fonts.size : null };
   })()`);
-  const fonts = { declared: probes.declared, contextBar: null, content: null, status: 'measured', why: undefined };
+  const fonts = { declared: probes.declared, faces: probes.faces, contextBar: null, content: null, status: 'measured', why: undefined };
   if (!reached) { fonts.status = 'failed'; fonts.why = 'the declared state was not reached'; } else try {
     if (probes.contextBar) fonts.contextBar = await browser.platformFonts(probes.contextBar);
     if (probes.content) fonts.content = await browser.platformFonts(probes.content);
@@ -692,12 +709,10 @@ async function runCase(lane, c) {
     fonts.status = 'failed';
     fonts.why = String(error.message || error).split('\n')[0];
   }
-  // A measurement is "evaluated" only when it measured something.
-  markEvaluated(c, [
-    ...(perf.cls.status === 'measured' ? ['perf.cls'] : []),
-    ...(perf.longTasks.status === 'measured' ? ['perf.long-tasks'] : []),
-    ...(fonts.status === 'measured' ? ['typography.resolved-font'] : []),
-  ]);
+  // S6/X3: the measurements are recorded here, raw; whether they meet their
+  // budgets is the performance gate's to judge (performance.mjs, manifest
+  // producer 'performance'), over the whole sweep and the single-lane
+  // long-task run — never a case's own claim.
 
   // A capture of a state not reached is kept for diagnosis and named so.
   const capture = reached ? `${name}.png` : `${name}--UNREACHED.png`;
@@ -914,6 +929,9 @@ const report = {
   startedAt: new Date(started).toISOString(),
   durationMs,
   workers: lanes.length,
+  // X3: a single-lane run of the whole interaction plan, the only blocking
+  // evidence of long tasks (performance.mjs refuses any other).
+  longTaskLane,
   fullSweep,
   // A shard says which of how many it is and lists the whole plan beside its
   // own selection, so the aggregate can prove the plan ran exactly once.

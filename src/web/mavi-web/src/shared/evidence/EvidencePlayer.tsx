@@ -267,6 +267,12 @@ export default function EvidencePlayer({
           // stacked player (§25 Tier B) jumps down when the frame appears.
           width={declaredWidth > 0 ? declaredWidth : undefined}
           height={declaredHeight > 0 ? declaredHeight : undefined}
+          // And keeps it after: the attributes only stand in until the
+          // metadata arrives, when the file's own aspect would take over and
+          // move everything below a stacked player (§38 "media reserve their
+          // aspect"; X3). The frame is the declared one throughout; a file of
+          // another aspect is contained inside it, as the overlay projects.
+          style={declaredWidth > 0 && declaredHeight > 0 ? { aspectRatio: `${declaredWidth} / ${declaredHeight}` } : undefined}
           src={sourceUrl}
           poster={representative?.posterUrl}
           preload="metadata"
@@ -421,7 +427,7 @@ export default function EvidencePlayer({
                 {layer.label}
               </ToggleChip>
               {showReason ? (
-                <span className="evidence-layers__reason" id={reasonId}>{layer.unavailableReason}</span>
+                <span className={layer.unavailableReasonQuiet ? 'visually-hidden' : 'evidence-layers__reason'} id={reasonId}>{layer.unavailableReason}</span>
               ) : null}
               {layer.available ? (
                 // Visually hidden because the geometry is already on the frame

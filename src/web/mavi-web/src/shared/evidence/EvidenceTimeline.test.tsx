@@ -440,13 +440,16 @@ describe('the rail re-measures when its host changes width', () => {
    * jsdom implements neither `ResizeObserver` nor layout, so a resize has to be
    * staged: one stub that remembers the callback, and a rectangle the test
    * changes underneath it. The component sees exactly the sequence a real
-   * browser delivers — observe, then a callback after the box changed.
+   * browser delivers — a first observation once the element is observed
+   * (which the component waits for rather than forcing a layout to read;
+   * X3), then a callback after the box changed.
    */
   function stageResize(width: number) {
     const callbacks: Array<() => void> = [];
     class StubResizeObserver {
-      constructor(callback: () => void) { callbacks.push(callback); }
-      observe() {}
+      private readonly callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; callbacks.push(callback); }
+      observe() { this.callback(); }
       unobserve() {}
       disconnect() {}
     }
@@ -808,8 +811,10 @@ describe('the dense cursor follows the member, not its position', () => {
   it('keeps the same marker selected when a resize changes how many fit', async () => {
     const callbacks: Array<() => void> = [];
     class StubResizeObserver {
-      constructor(callback: () => void) { callbacks.push(callback); }
-      observe() {} unobserve() {} disconnect() {}
+      private readonly callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; callbacks.push(callback); }
+      // A real observer's first observation, as above.
+      observe() { this.callback(); } unobserve() {} disconnect() {}
     }
     vi.stubGlobal('ResizeObserver', StubResizeObserver);
     const setWidth = (width: number) => {
@@ -906,8 +911,10 @@ describe('a dense cluster survives the round trip through both hosts', () => {
   function stageResize(width: number) {
     const callbacks: Array<() => void> = [];
     class StubResizeObserver {
-      constructor(callback: () => void) { callbacks.push(callback); }
-      observe() {} unobserve() {} disconnect() {}
+      private readonly callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; callbacks.push(callback); }
+      // A real observer's first observation, as above.
+      observe() { this.callback(); } unobserve() {} disconnect() {}
     }
     vi.stubGlobal('ResizeObserver', StubResizeObserver);
     setWidth(width);
@@ -1097,8 +1104,10 @@ describe('transient state belongs to the subject that made it', () => {
   it('keeps the selection across a resize of the same subject', async () => {
     const callbacks: Array<() => void> = [];
     class StubResizeObserver {
-      constructor(callback: () => void) { callbacks.push(callback); }
-      observe() {} unobserve() {} disconnect() {}
+      private readonly callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; callbacks.push(callback); }
+      // A real observer's first observation, as above.
+      observe() { this.callback(); } unobserve() {} disconnect() {}
     }
     vi.stubGlobal('ResizeObserver', StubResizeObserver);
     const user = userEvent.setup();

@@ -26,8 +26,9 @@ describe('severity routing', () => {
     assert.equal(ledger.record(at('B', 1024), 'ledger.row-pitch', 'x').severity, 'blocking');
     assert.throws(() => ledger.record(at('C', 390), 'ledger.row-pitch', 'x'), /not applicable/);
     assert.equal(ledger.record(at('C', 390), 'page.horizontal-overflow', 'x').severity, 'blocking');
-    // A later slice's rule stays its owner's at Tier C.
-    assert.equal(ledger.record(at('C', 390), 'perf.cls', 'x').severity, 'measured/pending');
+    // X3: the performance rules are the performance gate's to prove; a sweep
+    // case can never claim one.
+    assert.throws(() => ledger.record(at('C', 390), 'perf.cls', 'x'), /produced by the performance runner/);
     // R6 fixed the rendered pin and made it blocking at Tier A; T1 at Tier B.
     // At Tier C the pin is released (§4.5.1), so it is not a rule there.
     assert.equal(ledger.record(at('A'), 'review.sticky-rendered', 'x').severity, 'blocking');
@@ -48,8 +49,8 @@ describe('severity routing', () => {
   });
 
   it('fails the run on a blocking finding and never on a measured/pending one', () => {
-    const ledger = createLedger(RULES, notAccepted('overview'));
-    ledger.record(at('C', 390), 'perf.cls', 'x');
+    const ledger = createLedger(RULES, notAccepted('overview', 'videos'));
+    ledger.record({ ...at('A'), surface: 'videos' }, 'containment.depth', 'x');
     ledger.record({ ...at('A'), surface: 'overview' }, 'containment.depth', 'x');
     assert.equal(exitStatus({ harnessErrors: [], blocking: ledger.blocking() }), 0);
     assert.equal(ledger.pending().length, 2);
@@ -69,7 +70,8 @@ describe('severity routing', () => {
     assert.ok(vacuous.includes('ledger.row-pitch @ Tier A'));
     ledger.markEvaluated(at('A'), ['ledger.row-pitch']);
     assert.ok(!ledger.vacuous().includes('ledger.row-pitch @ Tier A'));
-    // A rule that is only measured can never be "vacuous blocking".
+    // A rule another runner proves (X3's performance gate) is never the
+    // sweep's to leave vacuous.
     assert.ok(!vacuous.some((entry) => entry.startsWith('perf.')));
     assert.equal(Object.keys(ledger.coverage).length, Object.keys(RULES).length);
   });

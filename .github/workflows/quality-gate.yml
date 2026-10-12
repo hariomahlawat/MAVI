@@ -777,6 +777,185 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  performance-long-tasks:
+    # Stage 3.5 S6/X3 (§38): long tasks are measured here on ONE lane
+    # (run.mjs --long-tasks: every state that declares an operator
+    # interaction, at its ordinary anchors and probes), never in the sweep's
+    # contended lanes. In parallel with the sweep; judged by `performance`.
+    name: performance long tasks
+    needs: scope
+    if: needs.scope.outputs.visual != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          # The whole history: the closure decision compares this head with
+          # the qualified implementation head (performance-closure.mjs).
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/web/mavi-web/package-lock.json
+      # A head that changes nothing the product renders, the harness measures
+      # or the budgets set — the register, the qualification artifact, CI
+      # wiring — carries its implementation head's qualification instead of
+      # sampling the same implementation again (performance-closure.mjs);
+      # any other change is measured in full.
+      - name: Decide the performance gate's mode
+        id: mode
+        run: node tools/web-visual-qa/performance-closure.mjs --decide
+      - name: Locate Chromium
+        if: steps.mode.outputs.mode != 'closure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          test -n "$browser"
+          "$browser" --version
+          echo "MAVI_CHROMIUM=$browser" >> "$GITHUB_ENV"
+      - name: Ensure FFmpeg
+        if: steps.mode.outputs.mode != 'closure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version | head -n 1
+            exit 0
+          fi
+          if sudo apt-get install -y ffmpeg; then
+            exit 0
+          fi
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -iname '*google*' -delete
+          sudo sed -i '/dl\.google\.com/d' /etc/apt/sources.list || true
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y ffmpeg
+      - name: Install frontend dependencies
+        if: steps.mode.outputs.mode != 'closure'
+        working-directory: src/web/mavi-web
+        run: npm ci
+      - name: Build frontend (production)
+        if: steps.mode.outputs.mode != 'closure'
+        working-directory: src/web/mavi-web
+        run: npm run build
+      - name: Run the long-task lane (one worker)
+        if: steps.mode.outputs.mode != 'closure'
+        env:
+          MAVI_VQA_OUT: tools/web-visual-qa/.performance/long-tasks
+        run: node tools/web-visual-qa/run.mjs --long-tasks
+      # The lane's results (small): the performance gate judges them.
+      - name: Retain the long-task results
+        if: always() && steps.mode.outputs.mode != 'closure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-long-tasks
+          path: |
+            tools/web-visual-qa/.performance/long-tasks/results.json
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: error
+
+  performance:
+    # Stage 3.5 S6/X3 (§38): the performance budgets, judged in their own job
+    # (performance.mjs against performance-budgets.mjs, the one budget
+    # source): the full sweep's ordinary cases — navigation and preparation
+    # CLS, each against its own class, and the fonts — and the single-lane
+    # long-task run, both of this exact head and each planned case once. A
+    # finding or a harness fault fails this job, which `quality` requires: it
+    # is never folded into, or hidden by, the visual aggregate.
+    name: performance budgets
+    needs:
+      - scope
+      - visual-aggregate
+      - performance-long-tasks
+    # Judged even when the visual aggregate or the lane failed (a blocking
+    # visual finding fails both): a performance regression landing beside a
+    # visual one is still reported, never hidden behind it. Both upload their
+    # results with if: always(); missing or partial evidence is the gate's own
+    # fault (plan, full sweep, head), never a pass.
+    if: always() && needs.scope.outputs.visual != 'false' && needs.visual-aggregate.result != 'cancelled' && needs.visual-aggregate.result != 'skipped' && needs.performance-long-tasks.result != 'cancelled' && needs.performance-long-tasks.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # actions: read, for a closure head to confirm its implementation head's
+    # own Quality Gate run succeeded.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          # The whole history: the closure decision compares this head with
+          # the qualified implementation head (performance-closure.mjs).
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # A head that changes nothing the product renders, the harness measures
+      # or the budgets set — the register, the qualification artifact, CI
+      # wiring — carries its implementation head's qualification instead of
+      # sampling the same implementation again (performance-closure.mjs);
+      # any other change is measured in full.
+      - name: Decide the performance gate's mode
+        id: mode
+        run: node tools/web-visual-qa/performance-closure.mjs --decide
+      - name: Carry the implementation head's qualification (closure)
+        if: steps.mode.outputs.mode == 'closure'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ steps.mode.outputs.run }}
+          IMPLEMENTATION: ${{ steps.mode.outputs.implementation }}
+        run: |
+          set -euo pipefail
+          # The run the qualification artifact was generated from: of the
+          # implementation head, this workflow, and green.
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" --jq .head_sha)" = "$IMPLEMENTATION"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" --jq .name)" = "MAVI Quality Gate"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" --jq .conclusion)" = "success"
+          echo "closure: carries the X3 qualification of $IMPLEMENTATION (Quality Gate run $RUN, success)"
+      - name: Collect the sweep aggregate
+        if: steps.mode.outputs.mode != 'closure'
+        uses: actions/download-artifact@v4
+        with:
+          name: visual-qa-captures
+          path: performance-input/sweep
+      - name: Collect the long-task run
+        if: steps.mode.outputs.mode != 'closure'
+        uses: actions/download-artifact@v4
+        with:
+          name: performance-long-tasks
+          path: performance-input/long-tasks
+      - name: Judge the performance budgets
+        if: steps.mode.outputs.mode != 'closure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in performance-input/sweep/results.json performance-input/long-tasks/results.json; do
+            test "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).head))' "$f")" = "$MAVI_EXPECTED_SOURCE_SHA"
+          done
+          node tools/web-visual-qa/performance.mjs             --sweep performance-input/sweep/results.json             --long-tasks performance-input/long-tasks/results.json             --out tools/web-visual-qa/.performance/verdict
+      # The verdict (every case, its class, value, limit and headroom), for
+      # the qualification and a person.
+      - name: Retain the performance verdict
+        if: always() && steps.mode.outputs.mode != 'closure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-budgets
+          path: |
+            tools/web-visual-qa/.performance/verdict/performance.json
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: error
+
   quality:
     name: quality
     if: always()
@@ -794,6 +973,8 @@ jobs:
       - visual-aggregate
       - keyboard-journeys
       - keyboard-journeys-aggregate
+      - performance-long-tasks
+      - performance
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -856,6 +1037,8 @@ jobs:
           require visual-aggregate '${{ needs.visual-aggregate.result }}' '${{ needs.scope.outputs.visual }}'
           require keyboard-journeys '${{ needs.keyboard-journeys.result }}' '${{ needs.scope.outputs.visual }}'
           require keyboard-journeys-aggregate '${{ needs.keyboard-journeys-aggregate.result }}' '${{ needs.scope.outputs.visual }}'
+          require performance-long-tasks '${{ needs.performance-long-tasks.result }}' '${{ needs.scope.outputs.visual }}'
+          require performance '${{ needs.performance.result }}' '${{ needs.scope.outputs.visual }}'
       - name: Require one TRX per test project and the web JUnit
         shell: bash
         env:

@@ -10,13 +10,32 @@ function parseInstant(value: InstantInput): Date {
   return instant;
 }
 
+/**
+ * One formatter per locale and options, made once and reused. Building an
+ * `Intl.DateTimeFormat` costs far more than using one, and a table formats a
+ * timestamp in every cell: choosing the line crossings report built several
+ * hundred in one task, which made it a long task (§38 "no jank on
+ * interaction"; X3). A formatter that cannot be built (an invalid zone) still
+ * throws, and is not kept.
+ */
+const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
+export function dateTimeFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = locale + JSON.stringify(options);
+  let format = dateTimeFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, options);
+    dateTimeFormats.set(key, format);
+  }
+  return format;
+}
+
 // Explicit-zone presentation
 export function formatInstant(
   utcValue: InstantInput,
   displayTimeZoneId: string,
   options: Intl.DateTimeFormatOptions = {},
 ): string {
-  return new Intl.DateTimeFormat('en-IN', { ...options, timeZone: displayTimeZoneId }).format(parseInstant(utcValue));
+  return dateTimeFormat('en-IN', { ...options, timeZone: displayTimeZoneId }).format(parseInstant(utcValue));
 }
 
 export function formatDate(utcValue: InstantInput, displayTimeZoneId: string): string {

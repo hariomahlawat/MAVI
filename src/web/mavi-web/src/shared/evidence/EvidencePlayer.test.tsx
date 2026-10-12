@@ -81,6 +81,21 @@ function renderPlayer(overrides: Partial<React.ComponentProps<typeof EvidencePla
   );
 }
 
+describe('Evidence Player frame (§38: media reserve their aspect; X3)', () => {
+  it("keeps the declared aspect, before and after the metadata, whatever the file's own", () => {
+    renderPlayer({ declaredWidth: 1920, declaredHeight: 1080 });
+    expect(video()).toHaveAttribute('width', '1920');
+    expect(video()).toHaveAttribute('height', '1080');
+    // Inline, so the file's intrinsic aspect cannot replace it once loaded.
+    expect(video().style.aspectRatio).toBe('1920 / 1080');
+  });
+
+  it('declares no aspect it does not know', () => {
+    renderPlayer({ declaredWidth: 0, declaredHeight: 0 });
+    expect(video().style.aspectRatio).toBe('');
+  });
+});
+
 describe('Evidence Player transport', () => {
   it('uses no native browser controls', () => {
     renderPlayer();
@@ -362,6 +377,17 @@ describe('Evidence Player layers', () => {
     expect(unavailable).toBeDisabled();
     expect(descriptionOf('Trajectory').map((element) => element.textContent)).toContain('No trajectory was persisted.');
     expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  });
+
+  it('binds a transient reason without taking room in the row: the row keeps the geometry it will have (§12, §38; X3)', () => {
+    const quiet = layers.map((layer) => (layer.id === 'path'
+      ? { ...layer, unavailableReason: 'The pinned scene revision is loading.', unavailableReasonQuiet: true }
+      : layer));
+    renderPlayer({ layers: quiet });
+    const reason = descriptionOf('Trajectory').find((element) => element.textContent === 'The pinned scene revision is loading.');
+    expect(reason).toBeDefined();
+    expect(reason).toHaveClass('visually-hidden');
+    expect(reason).not.toHaveClass('evidence-layers__reason');
   });
 
   it('toggles a layer, marks the control pressed and remembers the choice', async () => {

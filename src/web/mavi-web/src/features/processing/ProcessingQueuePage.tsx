@@ -233,6 +233,25 @@ export default function ProcessingQueuePage() {
                                 <LedgerFoldedValue name="Tracks">{`${formatCount(run.tracksCreated)} tracks`}</LedgerFoldedValue>
                               ) : null}
                             </>
+                          ) : !run ? (
+                            // A row without its run — loading, or its lookup
+                            // failed — holds an invisible line of the folded
+                            // values' common shape (this year's timestamp, an
+                            // attempt, a Tracks value): drawn inline after the
+                            // identity, they otherwise widen the Video column
+                            // on arrival and push every column after it; and
+                            // a reserve withdrawn when the lookup fails would
+                            // move them back (S6/X3). Wider values (an older
+                            // run's year, larger counts) still widen it, but
+                            // reserving those would shrink the common row.
+                            // Measured under Segoe and Verdana at 1024/768.
+                            <>
+                              <span className="ledger-folded__value queue-reserve" aria-hidden="true">
+                                {compactTimestamp(new Date().toISOString(), displayZone)}
+                              </span>
+                              <span className="ledger-folded__value queue-reserve" aria-hidden="true">#1</span>
+                              <span className="ledger-folded__value queue-reserve" aria-hidden="true">0 tracks</span>
+                            </>
                           ) : null}
                         />
                       </td>

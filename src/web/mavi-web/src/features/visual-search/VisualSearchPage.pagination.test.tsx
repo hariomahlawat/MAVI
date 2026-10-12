@@ -77,6 +77,16 @@ describe('VisualSearchPage pagination and navigation guards', () => {
     vi.mocked(getTrack).mockImplementation(async (id) => detail(all.find((item) => item.id === id) ?? A, 7));
   });
 
+  it('keeps the inspector header’s composition while the Track detail loads: its number pending, its Open held (§38; X3)', async () => {
+    vi.mocked(searchTracks).mockResolvedValue({ items: [A, B], nextCursor: null });
+    vi.mocked(getTrack).mockImplementation(() => new Promise(() => {}));
+    renderWithApp(<Harness />, { route: '/search?track=' + A.id });
+    expect(await screen.findByRole('heading', { name: 'Person · Track …' })).toBeInTheDocument();
+    const reserve = document.querySelector('.track-inspector__open-reserve');
+    expect(reserve).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByRole('link', { name: /^Open/ })).not.toBeInTheDocument();
+  });
+
   it('stops automatic pagination after a transient continuation failure and offers an explicit retry', async () => {
     vi.mocked(searchTracks)
       .mockResolvedValueOnce({ items: [A, B], nextCursor: 'page-two' })

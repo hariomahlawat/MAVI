@@ -670,10 +670,10 @@ describe('Tier B (T1): rules that reject the pre-T1 compositions and pass the de
   const ledgerAt = (html, width, tier = 'B') => render(html, width, workspaceAssertions, { tier, width, archetype: 'ledger', surface: 'videos' });
   it('ledger.column-fold: blocks each Ledger fold defect and passes the designed compositions', async () => {
     const messages = (result) => fired(result, 'ledger.column-fold').map((f) => f.message).join('\n');
-    // Folding disabled: at a region under Videos' stated 969px, and scrolling sideways.
+    // Folding disabled: at a region under Videos' stated 1030px, and scrolling sideways.
     const unfolded = await ledgerAt(FOLDING_LEDGER({ region: 900, table: 1200 }), 1024);
     assert.ok(unfolded.evaluated.includes('ledger.column-fold'));
-    assert.match(messages(unfolded), /at or under its stated 969px, and Recorded, Duration have not folded/);
+    assert.match(messages(unfolded), /at or under its stated 1030px, and Recorded, Duration have not folded/);
     assert.match(messages(unfolded), /scrolls sideways .* while its stated fold column\(s\) Recorded, Duration are still shown/);
     // A transferred value removed.
     assert.match(messages(await ledgerAt(FOLDING_LEDGER({ region: 900, table: 800, folded: true, carried: false }), 1024)),

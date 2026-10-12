@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { formatTime } from './time';
+import { dateTimeFormat, formatTime } from './time';
+
+describe('formatters are made once (§38 no jank; X3)', () => {
+  it('returns the same formatter for the same locale and options, and another for others', () => {
+    const a = dateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric' });
+    expect(dateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric' })).toBe(a);
+    expect(dateTimeFormat('en-IN', { timeZone: 'UTC', year: 'numeric' })).not.toBe(a);
+  });
+
+  it('still refuses a zone it cannot use, every time, keeping nothing', () => {
+    expect(() => dateTimeFormat('en-IN', { timeZone: 'Not/AZone' })).toThrow(RangeError);
+    expect(() => dateTimeFormat('en-IN', { timeZone: 'Not/AZone' })).toThrow(RangeError);
+  });
+
+  it('formats as a new formatter would', () => {
+    expect(formatTime('2026-09-14T02:30:00Z', 'Asia/Kolkata')).toBe(new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).format(new Date('2026-09-14T02:30:00Z')));
+  });
+});
 
 describe('explicit timezone formatting', () => {
   it('formats a UTC instant in the configured Kolkata timezone', () => {

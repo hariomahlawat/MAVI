@@ -222,6 +222,43 @@ const CODES = { Enter: 'Enter', Tab: 'Tab', Escape: 'Escape', ' ': 'Space', Arro
 const codeOf = (key) => CODES[key] ?? (/^[0-9]$/.test(key) ? 'Digit' + key : /^[a-z]$/i.test(key) ? 'Key' + key.toUpperCase() : key);
 const tick = (ms) => new Promise((done) => setTimeout(done, ms));
 
+/** CDP's words for a node that no longer exists: the page replaced it. */
+const STALE_NODE = /Could not find node|No node with given id|Node with given id does not/i;
+
+/**
+ * Where focus stands, read in two steps: the page tags the focused element
+ * (journeyFocusState, which only reads and tags), then the accessibility tree
+ * names the tagged node. A control the product re-renders between the two — a
+ * button turning into its own busy label — no longer exists at the second
+ * step, and CDP says so: that is the read's race, not a finding.
+ *
+ * Only that error, and only once, starts the read again from the tag: focus
+ * is observed afresh, so what is judged — and recorded — is where focus stands
+ * after the redraw, named `reobserved`. Nothing acts in between: no key, no
+ * focus, no wait. A second stale read is a harness fault; any other error
+ * stands as it is. The judgement of the state (lost, hidden, the wrong
+ * control) is the caller's and is never retried: a read that succeeds is
+ * final.
+ */
+export async function readFocus(browser) {
+  let reobserved = null;
+  for (;;) {
+    const state = await browser.evaluate(toExpression(journeyFocusState));
+    if (reobserved) state.reobserved = reobserved;
+    if (state.onBody) return state;
+    try {
+      const [ax] = await browser.axNames('[data-vqa-journey-focus]');
+      state.name = ax?.name ?? ''; state.role = ax?.role ?? null;
+      return state;
+    } catch (error) {
+      const message = String(error?.message ?? error);
+      if (reobserved) throw new HarnessError(`the focused control was replaced while it was read, twice running: ${message}`);
+      if (!STALE_NODE.test(message)) throw error;
+      reobserved = `the focused control was replaced while it was read (${message}); focus read once more`;
+    }
+  }
+}
+
 /**
  * The operator a journey is given: keys and observations, nothing else. Every
  * key goes through the input pipeline; every wait polls a condition the page
@@ -246,14 +283,7 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
     step({ ...entry, observed: why, pass: false });
     throw new JourneyFailure(`${journeyId} @ ${viewport.label} step ${steps.length} (${entry.action}${entry.target ? ' ' + JSON.stringify(entry.target) : ''}): ${why}`);
   };
-  const focus = async () => {
-    const state = await browser.evaluate(toExpression(journeyFocusState));
-    if (!state.onBody) {
-      const [ax] = await browser.axNames('[data-vqa-journey-focus]');
-      state.name = ax?.name ?? ''; state.role = ax?.role ?? null;
-    }
-    return state;
-  };
+  const focus = () => readFocus(browser);
   const guards = async () => {
     const g = await browser.evaluate('(() => { const g = window.__vqaJourneyGuard || {}; return { pointer: (g.pointer || []).slice(), synthetic: (g.synthetic || []).slice(), document: g.document }; })()');
     const problems = [];
@@ -488,7 +518,8 @@ export function createOperator({ browser, server, record, journeyId, viewport, d
   return { op, steps, terminal: () => terminal };
 }
 
-const summary = (state) => (state.onBody ? '<body>' : `${state.role ?? state.tag} "${state.name ?? ''}"${state.within ? ` within "${state.within}"` : ''}`);
+// A focus read taken a second time after a redraw says so in the evidence.
+const summary = (state) => (state.onBody ? '<body>' : `${state.role ?? state.tag} "${state.name ?? ''}"${state.within ? ` within "${state.within}"` : ''}`) + (state.reobserved ? ' (read again after a redraw)' : '');
 const describeTarget = (t) => `${t.role ?? 'control'} named ${t.name instanceof RegExp ? t.name.toString() : JSON.stringify(t.name)}${t.row ? ` in the row of ${t.row instanceof RegExp ? t.row.toString() : JSON.stringify(t.row)}` : ''}${t.within ? ` within "${t.within}"` : ''}`;
 
 // --- Running ----------------------------------------------------------------------

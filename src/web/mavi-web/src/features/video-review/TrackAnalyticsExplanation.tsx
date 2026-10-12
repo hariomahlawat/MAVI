@@ -113,9 +113,13 @@ export default function TrackAnalyticsExplanation({
   displayTimeZoneId?: string;
   compact?: boolean;
 }) {
+  // The revision's geometry loading is said in the identity it belongs to, in
+  // the row that stays — not in a paragraph that leaves when it arrives and
+  // moves everything below the summary (X3).
   const identity = analytics.sceneRevisionId === null
     ? 'No scene revision'
-    : `Scene revision ${analytics.sceneRevisionNumber ?? '?'} · ${engineLabel(analytics.algorithmVersion)}`;
+    : `Scene revision ${analytics.sceneRevisionNumber ?? '?'} · ${engineLabel(analytics.algorithmVersion)}`
+      + (scene?.status === 'loading' ? ' · geometry loading' : '');
 
   const items: KeyValueItem[] = [
     { label: 'Status', value: STATUS_WORDS[analytics.status] },
@@ -280,11 +284,6 @@ export default function TrackAnalyticsExplanation({
 
       {/* Geometry problems are their own state. The facts stay; the outlines do
           not, and saying which is which is the whole point. */}
-      {scene?.status === 'loading' ? (
-        <p className="analytics-summary__state">
-          Loading scene revision {scene.revisionNumber} so the geometry can be drawn.
-        </p>
-      ) : null}
       {scene?.status === 'unavailable' ? (
         <Alert
           tone="warning"
