@@ -694,9 +694,12 @@ async function runCase(lane, c) {
     const first = (root) => root && Array.from(root.querySelectorAll('*')).find((el) => Array.from(el.childNodes).some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getBoundingClientRect().width > 1 && !el.closest('.visually-hidden, [aria-hidden="true"], svg, select, option, script, style, noscript, template, video, audio, canvas, iframe, object'));
     const bar = first(document.querySelector('.context-bar'));
     const surface = first(document.querySelector('main .workspace') || document.querySelector('main .page') || document.querySelector('main'));
-    return { contextBar: bar ? path(bar) : null, content: surface ? path(surface) : null, declared: getComputedStyle(document.body).fontFamily };
+    // X3: the font faces the document holds (an @font-face, a FontFace): with
+    // none, nothing can arrive late and swap — the platform stack is resolved
+    // at layout, synchronously (§38 "fonts do not swap").
+    return { contextBar: bar ? path(bar) : null, content: surface ? path(surface) : null, declared: getComputedStyle(document.body).fontFamily, faces: document.fonts ? document.fonts.size : null };
   })()`);
-  const fonts = { declared: probes.declared, contextBar: null, content: null, status: 'measured', why: undefined };
+  const fonts = { declared: probes.declared, faces: probes.faces, contextBar: null, content: null, status: 'measured', why: undefined };
   if (!reached) { fonts.status = 'failed'; fonts.why = 'the declared state was not reached'; } else try {
     if (probes.contextBar) fonts.contextBar = await browser.platformFonts(probes.contextBar);
     if (probes.content) fonts.content = await browser.platformFonts(probes.content);
@@ -706,12 +709,10 @@ async function runCase(lane, c) {
     fonts.status = 'failed';
     fonts.why = String(error.message || error).split('\n')[0];
   }
-  // A measurement is "evaluated" only when it measured something.
-  markEvaluated(c, [
-    ...(perf.cls.status === 'measured' ? ['perf.cls'] : []),
-    ...(perf.longTasks.status === 'measured' ? ['perf.long-tasks'] : []),
-    ...(fonts.status === 'measured' ? ['typography.resolved-font'] : []),
-  ]);
+  // S6/X3: the measurements are recorded here, raw; whether they meet their
+  // budgets is the performance gate's to judge (performance.mjs, manifest
+  // producer 'performance'), over the whole sweep and the single-lane
+  // long-task run — never a case's own claim.
 
   // A capture of a state not reached is kept for diagnosis and named so.
   const capture = reached ? `${name}.png` : `${name}--UNREACHED.png`;

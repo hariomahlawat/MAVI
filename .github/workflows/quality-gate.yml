@@ -777,14 +777,12 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-  performance:
-    # Stage 3.5 S6/X3 (§38): the performance budgets, in their own job. Long
-    # tasks are measured here on ONE lane (run.mjs --long-tasks: every state
-    # that declares an operator interaction, at its ordinary anchors and
-    # probes), never in the sweep's contended lanes; the sweep's ordinary
-    # cases supply navigation and preparation CLS and the resolved fonts.
-    # A failure here is the performance gate's own, required by quality.
-    name: performance budgets
+  performance-long-tasks:
+    # Stage 3.5 S6/X3 (§38): long tasks are measured here on ONE lane
+    # (run.mjs --long-tasks: every state that declares an operator
+    # interaction, at its ordinary anchors and probes), never in the sweep's
+    # contended lanes. In parallel with the sweep; judged by `performance`.
+    name: performance long tasks
     needs: scope
     if: needs.scope.outputs.visual != 'false'
     runs-on: ubuntu-latest
@@ -835,15 +833,72 @@ jobs:
         env:
           MAVI_VQA_OUT: tools/web-visual-qa/.performance/long-tasks
         run: node tools/web-visual-qa/run.mjs --long-tasks
-      # The lane's results (small), for the qualification and a person —
-      # diagnostic, never qualification evidence by themselves.
-      - name: Retain the performance evidence
+      # The lane's results (small): the performance gate judges them.
+      - name: Retain the long-task results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-long-tasks
+          path: |
+            tools/web-visual-qa/.performance/long-tasks/results.json
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: error
+
+  performance:
+    # Stage 3.5 S6/X3 (§38): the performance budgets, judged in their own job
+    # (performance.mjs against performance-budgets.mjs, the one budget
+    # source): the full sweep's ordinary cases — navigation and preparation
+    # CLS, each against its own class, and the fonts — and the single-lane
+    # long-task run, both of this exact head and each planned case once. A
+    # finding or a harness fault fails this job, which `quality` requires: it
+    # is never folded into, or hidden by, the visual aggregate.
+    name: performance budgets
+    needs:
+      - scope
+      - visual-aggregate
+      - performance-long-tasks
+    if: needs.scope.outputs.visual != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect the sweep aggregate
+        uses: actions/download-artifact@v4
+        with:
+          name: visual-qa-captures
+          path: performance-input/sweep
+      - name: Collect the long-task run
+        uses: actions/download-artifact@v4
+        with:
+          name: performance-long-tasks
+          path: performance-input/long-tasks
+      - name: Judge the performance budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in performance-input/sweep/results.json performance-input/long-tasks/results.json; do
+            test "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).head))' "$f")" = "$MAVI_EXPECTED_SOURCE_SHA"
+          done
+          node tools/web-visual-qa/performance.mjs             --sweep performance-input/sweep/results.json             --long-tasks performance-input/long-tasks/results.json             --out tools/web-visual-qa/.performance/verdict
+      # The verdict (every case, its class, value, limit and headroom), for
+      # the qualification and a person.
+      - name: Retain the performance verdict
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: performance-budgets
           path: |
-            tools/web-visual-qa/.performance/long-tasks/results.json
+            tools/web-visual-qa/.performance/verdict/performance.json
           include-hidden-files: true
           retention-days: 14
           if-no-files-found: error
@@ -865,6 +920,7 @@ jobs:
       - visual-aggregate
       - keyboard-journeys
       - keyboard-journeys-aggregate
+      - performance-long-tasks
       - performance
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -928,6 +984,7 @@ jobs:
           require visual-aggregate '${{ needs.visual-aggregate.result }}' '${{ needs.scope.outputs.visual }}'
           require keyboard-journeys '${{ needs.keyboard-journeys.result }}' '${{ needs.scope.outputs.visual }}'
           require keyboard-journeys-aggregate '${{ needs.keyboard-journeys-aggregate.result }}' '${{ needs.scope.outputs.visual }}'
+          require performance-long-tasks '${{ needs.performance-long-tasks.result }}' '${{ needs.scope.outputs.visual }}'
           require performance '${{ needs.performance.result }}' '${{ needs.scope.outputs.visual }}'
       - name: Require one TRX per test project and the web JUnit
         shell: bash

@@ -54,6 +54,10 @@
 
 export const TIERS = ['A', 'B', 'C'];
 export const STATUSES = ['blocking', 'measured/pending', 'not-applicable'];
+/** The runners other than the sweep that prove a rule by their own aggregate. */
+export const PRODUCERS = Object.freeze(['journeys', 'performance']);
+/** S6/X3: the rules the performance gate proves (performance.mjs). */
+export const PERFORMANCE_RULES = Object.freeze(['perf.cls', 'perf.long-tasks', 'typography.resolved-font']);
 export const KINDS = ['assertion', 'measurement', 'future'];
 
 const blocking = () => ({ status: 'blocking' });
@@ -293,20 +297,27 @@ export const RULES = {
   },
 
   // --- Measurements (P1, V5) ---------------------------------------------------
+  // S6/X3 (§38): the performance budgets. Each case keeps its raw
+  // measurement (navigation and preparation CLS, the interaction's long tasks,
+  // the resolved fonts and the font faces the document holds); these rules
+  // are what that measurement must satisfy, judged by the performance gate
+  // (performance.mjs against performance-budgets.mjs: the full sweep's
+  // ordinary cases, the single-lane long-task run) — never by a sweep case,
+  // whose lanes contend for the CPU. Nothing here is owned by X3 any more.
   'perf.cls': {
-    section: '§38', kind: 'measurement',
-    summary: 'Cumulative layout shift during the loading-to-content transition (Layout Instability API).',
-    tiers: { A: pending('S6 / X3 (budget set from the P1 baseline)'), B: pending('S6 / X3'), C: pending('S6 / X3') },
+    section: '§38', kind: 'assertion', producer: 'performance',
+    summary: 'Navigation CLS (loading to content) and preparation CLS (a declared state change), each judged on its own, stay within their frozen X3 budget class and tolerance (Layout Instability API).',
+    tiers: { A: blocking(), B: blocking(), C: blocking() },
   },
   'perf.long-tasks': {
-    section: '§38', kind: 'measurement',
-    summary: 'Long tasks during the state’s first interaction (Long Tasks API).',
-    tiers: { A: pending('S6 / X3 (budget set from the P1 baseline)'), B: pending('S6 / X3'), C: pending('S6 / X3') },
+    section: '§38', kind: 'assertion', producer: 'performance',
+    summary: 'A declared operator interaction, measured on one lane, raises no more long tasks, and none longer, than its frozen X3 class permits (Long Tasks API).',
+    tiers: { A: blocking(), B: blocking(), C: blocking() },
   },
   'typography.resolved-font': {
-    section: '§26, §32', kind: 'measurement',
-    summary: 'The rendered font family per state and anchor, recorded (never a pixel baseline).',
-    tiers: { A: pending('S6 / X3 (§38: fonts do not swap)'), B: pending('S6 / X3'), C: pending('S6 / X3') },
+    section: '§26, §32, §38', kind: 'assertion', producer: 'performance',
+    summary: 'The text renders in a platform font, and the document holds no font face that could arrive late and swap (§38 "fonts do not swap"); the resolved family is recorded as a diagnostic, never required to be one face across systems.',
+    tiers: { A: blocking(), B: blocking(), C: blocking() },
   },
 
   // T3 (S5): 200% browser page zoom at 1366x768 (§23). A zoom case is the
@@ -532,7 +543,12 @@ export function validateManifest(rules = RULES, implemented = null, { surfaces =
       // X2: the journeys are asserted; nothing stays owned by X2.
       if (/X2/.test(entry.tiers?.[tier]?.owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X2 after X2`);
     }
-    if (entry.producer !== undefined && entry.producer !== 'journeys') problems.push(`${id}: unknown producer "${entry.producer}"`);
+    if (entry.producer !== undefined && !PRODUCERS.includes(entry.producer)) problems.push(`${id}: unknown producer "${entry.producer}"`);
+    // X3: the performance budgets are asserted; nothing stays owned by X3.
+    for (const tier of TIERS) if (/X3/.test(entry.tiers?.[tier]?.owner ?? '')) problems.push(`${id} @ ${tier}: still owned by X3 after X3`);
+    if (PERFORMANCE_RULES.includes(id) && (entry.kind !== 'assertion' || entry.producer !== 'performance' || !TIERS.every((t) => entry.tiers?.[t]?.status === 'blocking'))) {
+      problems.push(`${id}: X3 asserts it through the performance gate, blocking at every tier`);
+    }
     if (id === 'a11y.keyboard-journeys' && (entry.kind !== 'assertion' || entry.producer !== 'journeys' || entry.tiers?.A?.status !== 'blocking' || entry.tiers?.B?.status !== 'blocking' || entry.tiers?.C?.status !== 'not-applicable')) {
       problems.push(`${id}: X2 asserts it through the journey runner, blocking at A and B, not applicable at C`);
     }

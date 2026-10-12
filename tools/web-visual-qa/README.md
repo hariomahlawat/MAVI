@@ -151,7 +151,7 @@ is drawn over a decoded frame (media decoding exposes no completion the page can
 await), and `search-analytics-scene-degraded` moves the page clock past the
 30-second stale time instead of sleeping through it.
 
-**Measurements** (P1, V5), recorded per capture, never pass/fail:
+**Measurements** (P1, V5), recorded per capture, raw — a case never judges its own (the performance gate does, below: *X3 (§38)*):
 cumulative layout shift during each loading-to-content transition (Layout
 Instability API): the navigation's, from its first loading presentation to the
 settled state (`perf.cls`), and — kept apart — one a preparation starts, from
@@ -556,6 +556,61 @@ delayed zero-duration animation moves nothing). Strict, as §13 reads: a non-zer
 duration fails even where no property or keyframes use it. Only the DOM present
 at the settled state is judged; tooltips and overlays the later probes open are
 covered by the universal `*` rule but not read.
+
+## X3 (§38): the performance budgets
+
+`perf.cls`, `perf.long-tasks` and `typography.resolved-font` are assertions
+with their own producer (`producer: 'performance'`), blocking at every tier.
+A case records its measurements raw (above); the **performance gate**
+(`performance.mjs`) judges them against the one budget source,
+`performance-budgets.mjs`, over the whole product — never a case its own, and
+never the sweep's contended lanes for long tasks. Nothing is owned by X3:
+`validateManifest` refuses an X3 owner anywhere.
+
+- **Navigation CLS** by surface × tier, **preparation CLS** by surface ×
+  transition (`by`): two families, each judged on its own, so a good
+  navigation never excuses a bad state change. An explicit class names its
+  states and is judged before its surface's. A new state on a known surface
+  and tier inherits that class; a new surface, or a new preparation
+  transition, has none and is a harness fault until it is qualified — a
+  navigation budget is never lent to a preparation.
+- **Long tasks**: the single-lane run (`run.mjs --long-tasks`, one worker:
+  every state that declares an interaction, at its ordinary anchors and
+  probes). Zero for every interaction but Search result selection (at most
+  one task of at most 65ms, P1's band). A run on more lanes, or not the lane,
+  is a fault.
+- **Fonts**: the text renders in a platform font and the document holds no
+  font face (`document.fonts.size`), so nothing can arrive late and swap. The
+  resolved family is a diagnostic; no family is required across systems.
+- Comparison in integer units (CLS in 1e-4, milliseconds whole): a value at
+  `reference + tolerance` passes, one unit over fails.
+- **Faults, not findings**: a measurement missing, `failed` or `unsupported`; a
+  planned case missing, unplanned or twice (the plan is derived from
+  `states.mjs`, not from the results); a case no class covers; a malformed
+  budget table; results of different heads. Exit 2 for a fault, 1 for a
+  finding.
+
+```bash
+node tools/web-visual-qa/performance.mjs --sweep <aggregate results.json> --long-tasks <long-task results.json> [--out <dir>]
+```
+
+The **budgets are generated, never typed**: `performance-calibrate.mjs` derives
+them from the P1 baseline and a same-head calibration — two Linux CI samples
+(the enforcement environment), an uncontended Windows sweep and two
+single-lane long-task runs (continuity with P1, which was measured on
+Windows) — and the owner's recorded decisions (`DECISIONS`: the tolerances and
+why, the explicit and environment-calibrated classes and why). Reference =
+min(P1 class maximum, Linux class maximum), the ratchet; tolerance from
+same-head repeatability per tier. It prints the review table and, with
+`--write`, regenerates `performance-budgets.mjs`; it refuses to write while
+the calibration contradicts a decision. The register's P1 row carries the
+budget block, and `test/performance.test.mjs` fails if they disagree.
+
+In CI, `performance-long-tasks` runs the lane in parallel with the sweep, and
+`performance` (*performance budgets*) judges the visual aggregate and that run
+of the same head; `quality` requires both. `performance-qualification.mjs`
+generates `docs/qualification/stage3-5/s6-x3-performance-qualification.json`
+from the head's CI evidence (and, for continuity, a Windows run of the head).
 
 ## X2 (§23, plan §5.3): keyboard-only operator journeys
 

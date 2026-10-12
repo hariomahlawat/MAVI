@@ -29,7 +29,7 @@ const ACCEPTED_ROWS = {
 export function implementedRules() {
   const ids = new Set();
   const RULE = "'([a-z0-9]+(?:\\.[a-z0-9-]+)+)'";
-  for (const file of ['assertions.mjs', 'run.mjs', 'a11y.mjs', 'journeys.mjs']) {
+  for (const file of ['assertions.mjs', 'run.mjs', 'a11y.mjs', 'journeys.mjs', 'performance.mjs']) {
     const text = source(file);
     for (const pattern of [
       new RegExp(`(?:fail|add|evaluated\\.add)\\(\\s*${RULE}`, 'g'),
@@ -87,24 +87,17 @@ describe('the assertion manifest', () => {
 
   it('blocks Tier B from T1 and Tier C from T2, and names the owner of what it measures', () => {
     // T1 (S5) promoted every rule that judges a Tier B composition, and T2 every
-    // rule that judges a Tier C one; a rule a later slice owns at Tier A stays
-    // measured against that owner at Tiers B and C.
-    const laterOwned = new Set(['perf.cls', 'perf.long-tasks', 'typography.resolved-font']);
+    // rule that judges a Tier C one; X3 (S6) promoted the performance budgets,
+    // the last rules a later slice owned.
     for (const [rule, entry] of Object.entries(RULES)) {
       const atB = entry.tiers.B;
-      if (laterOwned.has(rule)) {
-        assert.equal(atB.status, 'measured/pending', `${rule} @ B`);
-        assert.doesNotMatch(atB.owner, /T1/, `${rule} @ B is not T1's`);
-      } else if (atB.status !== 'not-applicable') {
+      if (atB.status !== 'not-applicable') {
         assert.equal(atB.status, 'blocking', `${rule} @ B is T1's and blocks`);
       }
       // No rule is left owned by T1 or T2: each is done or it is not.
       for (const tier of ['B', 'C']) assert.doesNotMatch(entry.tiers[tier].owner ?? '', /T1|T2/, `${rule} @ ${tier} still owned by T1 or T2`);
       const atC = entry.tiers.C;
-      if (laterOwned.has(rule)) {
-        assert.equal(atC.status, 'measured/pending', `${rule} @ C stays its owner's`);
-        assert.match(atC.owner, /S6/, `${rule} @ C owner`);
-      } else if (atC.status !== 'not-applicable') {
+      if (atC.status !== 'not-applicable') {
         assert.equal(atC.status, 'blocking', `${rule} @ C is T2's and blocks`);
       } else {
         assert.ok(atC.reason, `${rule} @ C not-applicable without a reason`);
@@ -158,8 +151,7 @@ describe('the assertion manifest', () => {
     assert.ok(problems.some((p) => p.includes('page.text-overlap: unknown lane "magnifier"')));
   });
 
-  it('keeps the later-slice rules measured with their owners named', () => {
-    assert.match(severityOf('perf.cls', 'A').owner, /X3/);
+  it('names the owner of a surface not yet accepted', () => {
     assert.match(severityOf('containment.depth', 'A', 'overview', { surfaces: notAccepted('overview') }).owner, /R1/);
   });
 
@@ -182,7 +174,7 @@ describe('the assertion manifest', () => {
   it('rejects a not-applicable entry without a reason, and a pending one without an owner', () => {
     const rules = clone();
     rules['page.width-discipline'].tiers.B = { status: 'not-applicable' };
-    rules['perf.cls'].tiers.A = { status: 'measured/pending' };
+    rules['page.horizontal-overflow'].tiers.A = { status: 'measured/pending' };
     const problems = validateManifest(rules);
     assert.ok(problems.some((p) => p.includes('not-applicable without a reason')));
     assert.ok(problems.some((p) => p.includes('without an owning slice')));
@@ -191,19 +183,49 @@ describe('the assertion manifest', () => {
   it('rejects a Tier C entry still owned by T2, and a measurement that blocks', () => {
     const rules = clone();
     rules['page.text-overlap'].tiers.C = { status: 'measured/pending', owner: 'S5 / T2 (Tier C degradation)' };
-    rules['perf.cls'].tiers.A = { status: 'blocking' };
+    rules['sample.measured'] = { section: '§0', kind: 'measurement', summary: 'a measurement', tiers: { A: { status: 'blocking' }, B: { status: 'not-applicable', reason: 'test' }, C: { status: 'not-applicable', reason: 'test' } } };
     const problems = validateManifest(rules);
     assert.ok(problems.some((p) => p.includes('page.text-overlap @ C: still owned by T2 after T2')));
-    assert.ok(problems.some((p) => p.includes('perf.cls: a measurement rule cannot block')));
+    assert.ok(problems.some((p) => p.includes('sample.measured: a measurement rule cannot block')));
     // Tier B blocking (T1) and Tier C blocking (T2) are the policy now, and valid.
     assert.deepEqual(validateManifest(RULES), []);
   });
 
   it('rejects a future rule without an execution policy', () => {
     const rules = clone();
-    rules['perf.cls'] = { ...rules['perf.cls'], kind: 'future' };
-    delete rules['perf.cls'].execution;
-    assert.ok(validateManifest(rules).some((p) => p.includes('perf.cls: future rule without an execution policy')));
+    rules['sample.future'] = { section: '§0', kind: 'future', summary: 'a future rule', tiers: { A: { status: 'measured/pending', owner: 'S9' }, B: { status: 'measured/pending', owner: 'S9' }, C: { status: 'measured/pending', owner: 'S9' } } };
+    assert.ok(validateManifest(rules).some((p) => p.includes('sample.future: future rule without an execution policy')));
+  });
+
+  it('asserts the performance budgets through the performance gate (X3): blocking at every tier, owned by nobody', () => {
+    for (const id of ['perf.cls', 'perf.long-tasks', 'typography.resolved-font']) {
+      const entry = RULES[id];
+      assert.equal(entry.kind, 'assertion', id);
+      assert.equal(entry.producer, 'performance', id);
+      for (const tier of ['A', 'B', 'C']) assert.equal(entry.tiers[tier].status, 'blocking', `${id} @ ${tier}`);
+    }
+    for (const [id, rule] of Object.entries(RULES)) {
+      for (const tier of ['A', 'B', 'C']) assert.doesNotMatch(rule.tiers[tier].owner ?? '', /X3/, `${id} @ ${tier}`);
+    }
+    // X3 negative 11: a raw measurement left pending on X3 is refused — as the
+    // old measurement, as a pending entry naming X3, anywhere an X3 owner
+    // appears, and under another producer.
+    const asMeasurement = clone();
+    asMeasurement['perf.cls'] = { ...asMeasurement['perf.cls'], kind: 'measurement', producer: undefined, tiers: { A: { status: 'measured/pending', owner: 'S6 / X3' }, B: { status: 'measured/pending', owner: 'S6 / X3' }, C: { status: 'measured/pending', owner: 'S6 / X3' } } };
+    const problems = validateManifest(asMeasurement);
+    assert.ok(problems.some((p) => p.includes('perf.cls @ A: still owned by X3 after X3')));
+    assert.ok(problems.some((p) => p.includes('perf.cls: X3 asserts it through the performance gate')));
+    const elsewhere = clone();
+    elsewhere['page.horizontal-overflow'].tiers.C = { status: 'measured/pending', owner: 'S6 / X3' };
+    assert.ok(validateManifest(elsewhere).some((p) => p.includes('page.horizontal-overflow @ C: still owned by X3 after X3')));
+    const fontPending = clone();
+    fontPending['typography.resolved-font'].tiers.B = { status: 'not-applicable', reason: 'diagnostic only' };
+    assert.ok(validateManifest(fontPending).some((p) => p.includes('typography.resolved-font: X3 asserts it through the performance gate')));
+    const otherProducer = clone();
+    otherProducer['perf.long-tasks'].producer = 'sweep';
+    const other = validateManifest(otherProducer);
+    assert.ok(other.some((p) => p.includes('unknown producer "sweep"')));
+    assert.ok(other.some((p) => p.includes('perf.long-tasks: X3 asserts it through the performance gate')));
   });
 
   it('asserts the keyboard journeys through the journey runner (X2): blocking at A and B, not applicable at C, owned by nobody', () => {
