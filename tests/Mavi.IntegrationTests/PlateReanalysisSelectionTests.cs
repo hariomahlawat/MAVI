@@ -106,6 +106,9 @@ public sealed class PlateReanalysisSelectionTests(PostgresFixture fixture)
         using (var refused = await host.ReanalysisAsync(Window(host)))
             Assert.Equal("plate_reanalysis_too_many_runs", await VisualAttributeApiHost.ProblemCodeAsync(refused));
         Assert.Equal(2, (await QueuedRunsAsync(host)).Count);
+        // A refused request is audited too: its scope and refusal code.
+        Assert.Contains("camera-window", Assert.Single(host.Logs.Entries, entry => entry.EventId.Id == 2126).Message, StringComparison.Ordinal);
+        Assert.Contains("plate_reanalysis_too_many_runs", host.Logs.Entries.Single(entry => entry.EventId.Id == 2126).Message, StringComparison.Ordinal);
     }
 
     [Fact]

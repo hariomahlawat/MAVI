@@ -97,6 +97,20 @@ public sealed class PlateContractTests
             var readings = vector.GetProperty("readings").EnumerateArray()
                 .Select(item => (Text: item.GetProperty("rawText").GetString()!, Confidence: item.GetProperty("confidence").GetDouble()))
                 .ToList();
+            if (vector.GetProperty("refused").GetBoolean())
+            {
+                // No strict order exists: some two readings rank after each other in neither direction.
+                Assert.Equal(JsonValueKind.Null, vector.GetProperty("rankedIndices").ValueKind);
+                Assert.Contains(
+                    from i in Enumerable.Range(0, readings.Count)
+                    from j in Enumerable.Range(0, readings.Count)
+                    where i < j
+                    select (readings[i], readings[j]),
+                    pair => !PlateContractRules.RanksAfter(pair.Item1.Confidence, pair.Item1.Text, pair.Item2.Confidence, pair.Item2.Text) &&
+                            !PlateContractRules.RanksAfter(pair.Item2.Confidence, pair.Item2.Text, pair.Item1.Confidence, pair.Item1.Text));
+                continue;
+            }
+
             var ranked = vector.GetProperty("rankedIndices").EnumerateArray().Select(item => readings[item.GetInt32()]).ToList();
             for (var index = 1; index < ranked.Count; index++)
             {

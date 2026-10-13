@@ -98,7 +98,12 @@ FAILURE_CODE_RETRYABLE: Final = {
     "plate_contract_violation": False,
     # The platform found a crop this worker reported unavailable intact at rest; the next attempt re-reads it.
     "plate_evidence_claim_contradicted": True,
+    # The platform refused the publication for good (plate_persistence_refused): a platform defect, not this
+    # worker's output; replaying cannot help.
+    "plate_publication_refused": False,
 }
+PERSISTENCE_REFUSED: Final = "plate_persistence_refused"
+PUBLICATION_REFUSED: Final = "plate_publication_refused"
 EVIDENCE_CLAIM_CONTRADICTED: Final = "plate_evidence_claim_contradicted"
 
 
@@ -158,6 +163,12 @@ def reading_rank_key(confidence: float, raw_text: str) -> tuple[float, bytes]:
     outside the Basic Multilingual Plane; UTF-16BE bytes compare exactly like UTF-16 code units.
     """
     return (-confidence, raw_text.encode("utf-16-be", "surrogatepass"))
+
+
+def has_strict_rank_order(readings) -> bool:
+    """Whether a plate's readings admit the contract's strict rank order: no two equal in confidence and raw text."""
+    keys = [reading_rank_key(item.confidence, item.raw_text) for item in readings]
+    return len(set(keys)) == len(keys)
 
 
 def is_raw_text(value: object) -> bool:

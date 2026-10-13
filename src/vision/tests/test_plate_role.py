@@ -372,6 +372,17 @@ def test_a_contradicted_evidence_claim_fails_the_attempt_as_retryable(parameters
     assert len(api.completions) == 1
 
 
+def test_a_platform_publication_refusal_is_not_blamed_on_the_worker_output(parameters) -> None:
+    from mavi_vision.plates.client import PlateApiError
+
+    refusal = PlateApiError("422", status_code=422, code=contracts.PERSISTENCE_REFUSED)
+    api = FakeApi(_lease(), complete=[refusal])
+    outcome = asyncio.run(_runner(api, parameters).run_once())
+    assert (outcome.status, outcome.failure_code) == ("failed", "plate_publication_refused")
+    assert contracts.FAILURE_CODE_RETRYABLE["plate_publication_refused"] is False
+    assert len(api.completions) == 1
+
+
 def test_contract_constants_match_the_platform() -> None:
     source = (ROOT / "src/platform/Mavi.Contracts/Worker/Plates/PlateContractRules.cs").read_text(encoding="utf-8")
     for constant, value in [

@@ -204,7 +204,13 @@ ORDER = _json(VECTORS / "plate-reading-order-v1.json")
 
 @pytest.mark.parametrize("vector", ORDER["vectors"], ids=lambda item: item["name"])
 def test_readings_rank_in_the_cross_language_order(vector: dict) -> None:
+    from mavi_vision.plates.inference import Reading
+
     readings = [(item["rawText"], item["confidence"]) for item in vector["readings"]]
+    assert contracts.has_strict_rank_order([Reading(text, confidence) for text, confidence in readings]) is not vector["refused"]
+    if vector["refused"]:
+        assert vector["rankedIndices"] is None
+        return
     ranked = sorted(range(len(readings)), key=lambda index: contracts.reading_rank_key(readings[index][1], readings[index][0]))
     assert ranked == vector["rankedIndices"]
 

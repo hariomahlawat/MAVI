@@ -227,6 +227,9 @@ public static class PlateContractRules
             // The platform found an evidence crop the worker reported unavailable intact at rest: the next
             // attempt re-reads it.
             ["plate_evidence_claim_contradicted"] = true,
+            // The platform refused the publication for good (plate_persistence_refused): a platform defect,
+            // not the worker's output. Replaying cannot help.
+            ["plate_publication_refused"] = false,
         };
 
     /// <summary>A completion's unavailable-evidence claim that the accepted object at rest contradicts.</summary>

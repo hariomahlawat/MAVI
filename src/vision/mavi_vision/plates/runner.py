@@ -29,6 +29,8 @@ from mavi_vision.plates.client import (
 )
 from mavi_vision.plates.contracts import (
     EVIDENCE_CLAIM_CONTRADICTED,
+    PERSISTENCE_REFUSED,
+    PUBLICATION_REFUSED,
     CompleteResponse,
     FailResponse,
     HeartbeatResponse,
@@ -215,6 +217,8 @@ class PlateRunner:
             except PlateLeaseLost:
                 raise
             except PlateApiError as exc:
+                if exc.code == PERSISTENCE_REFUSED:
+                    raise _AttemptFailed(PUBLICATION_REFUSED, "the platform refused the publication for good") from exc
                 if exc.code == EVIDENCE_CLAIM_CONTRADICTED:
                     raise _AttemptFailed(EVIDENCE_CLAIM_CONTRADICTED, "the platform found reported-unavailable evidence intact") from exc
                 if exc.status_code is not None and exc.status_code < 500:

@@ -295,18 +295,24 @@ public static class PlateEndpoints
         IOptions<PlateOptions> options,
         CancellationToken cancellationToken)
     {
+        var scope = request.ProcessingRunIds is not null ? "runs" : request.CameraId is not null ? "camera-window" : "unspecified";
         if (release.Resolution.Definition is not { } definition)
+        {
+            audit.ReanalysisRefused(scope, "plate_not_configured");
             return Problem(409, "plate_not_configured", "No plate analysis is configured in this release.");
+        }
+
         var result = await lifecycle.RequestReanalysisAsync(definition,
             new PlateReanalysisRequest(request.ProcessingRunIds, request.CameraId, request.FromUtc, request.ToUtc),
             options.Value.MaximumRunsPerReanalysisRequest, cancellationToken);
         if (!result.IsSuccess)
         {
             var status = result.Refusal!.Code == "processing_run_not_found" ? 404 : result.Refusal.Code == "plate_reanalysis_too_many_runs" ? 422 : 400;
+            audit.ReanalysisRefused(scope, result.Refusal.Code);
             return Problem(status, result.Refusal.Code, "The plate re-analysis request was rejected.");
         }
 
-        audit.ReanalysisRequested(request.ProcessingRunIds is null ? "camera-window" : "runs", result.RunsMatched, result.Queued,
+        audit.ReanalysisRequested(scope, result.RunsMatched, result.Queued,
             result.AlreadyQueued, result.NotEligible, result.SelectedRunIds);
         return Results.Accepted(value: new PlateReanalysisResponseContract(result.IdentityFingerprint, result.RunsMatched, result.Queued,
             result.AlreadyQueued, result.NotEligible, result.SelectedRunIds));

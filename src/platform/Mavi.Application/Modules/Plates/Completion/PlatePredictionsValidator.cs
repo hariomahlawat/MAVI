@@ -54,7 +54,11 @@ public static class PlatePredictionsValidator
         ValidatedPlateCompletion Completion);
 
     /// <summary>An error code, or none and the accepted crops the worker found missing or corrupt.</summary>
-    public sealed record Result(string? Error, IReadOnlyList<Guid> IntegrityIncidents);
+    public sealed record Result(string? Error, IReadOnlyList<Guid> IntegrityIncidents)
+    {
+        /// <summary>The reason the worker gave for each crop in <see cref="IntegrityIncidents"/>.</summary>
+        public IReadOnlyDictionary<Guid, string> ClaimedReasons { get; init; } = new Dictionary<Guid, string>();
+    }
 
     public static async Task<Result> ValidateAsync(Stream stream, Expectation expectation, CancellationToken cancellationToken)
     {
@@ -79,7 +83,7 @@ public static class PlatePredictionsValidator
                 if (machine.Error is not null) return new Result(machine.Error, []);
                 if (machine.IsDone)
                     return await OnlyWhitespaceRemainsAsync(stream, buffer.AsMemory(consumed, filled - consumed), cancellationToken)
-                        ? new Result(null, machine.IntegrityIncidents)
+                        ? new Result(null, machine.IntegrityIncidents) { ClaimedReasons = machine.ClaimedReasons }
                         : Invalid;
                 if (consumed > 0)
                 {
@@ -164,6 +168,8 @@ public static class PlatePredictionsValidator
         public bool IsDone => _phase == Phase.Done;
 
         public List<Guid> IntegrityIncidents { get; } = [];
+
+        public Dictionary<Guid, string> ClaimedReasons { get; } = [];
 
         public int Process(ReadOnlySpan<byte> data, bool final)
         {
@@ -287,7 +293,10 @@ public static class PlatePredictionsValidator
 
                 if (crop.Reason is { } reason) caused.Add(TrackReasonOfCrop[reason]);
                 if (crop.Status == PlateContractRules.CropUnavailable && IsIntegrityReason(crop.Reason))
+                {
                     IntegrityIncidents.Add(crop.ObservationId);
+                    ClaimedReasons[crop.ObservationId] = crop.Reason!;
+                }
                 if (crop.Status != PlateContractRules.CropScored) continue;
                 scored++;
                 foreach (var detection in crop.Detections)

@@ -115,12 +115,14 @@ public sealed partial class PlateCompletionService(
         }
 
         IReadOnlyList<Guid> claimedIncidents;
+        IReadOnlyDictionary<Guid, string> claimedReasons;
         await using (var stream = predictions)
         {
             var validation = await PlatePredictionsValidator.ValidateAsync(
                 stream, new PlatePredictionsValidator.Expectation(analysisId, identity, parameters, scope, completion), cancellationToken);
             if (validation.Error is not null) return PlateCompletionResult.Refused(422, validation.Error);
             claimedIncidents = validation.IntegrityIncidents;
+            claimedReasons = validation.ClaimedReasons;
         }
 
         // The worker's evidence_missing / evidence_integrity_failed crops are claims, not facts: each is
@@ -129,7 +131,7 @@ public sealed partial class PlateCompletionService(
         // publication window Phase A granted.
         if (claimedIncidents.Count > 0)
         {
-            var refusal = await ConfirmEvidenceClaimsAsync(analysisId, attempt, runId, claimedIncidents, cancellationToken);
+            var refusal = await ConfirmEvidenceClaimsAsync(analysisId, attempt, runId, claimedReasons, cancellationToken);
             if (refusal is not null) return refusal;
         }
 
@@ -168,6 +170,7 @@ public sealed partial class PlateCompletionService(
                 unit.CompletionDigest == completion.CompletionDigest)
             {
                 await transaction.RollbackAsync(publication);
+                RecordIncidents(analysisId, attempt, claimedIncidents);
                 return Replay(unit);
             }
 
@@ -217,7 +220,19 @@ public sealed partial class PlateCompletionService(
                     sibling.Supersede();
             }
 
-            await db.SaveChangesAsync(publication);
+            try
+            {
+                await db.SaveChangesAsync(publication);
+            }
+            catch (Exception exception) when (exception is DbUpdateException or Npgsql.PostgresException)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                LogPersistenceFailed(logger, analysisId, attempt, exception);
+                return IsConstraintViolation(exception)
+                    ? PlateCompletionResult.Refused(422, PersistenceRefusedCode)
+                    : PlateCompletionResult.Refused(503, "plate_persistence_failed");
+            }
+
             try
             {
                 if (BeforeCommit is not null) await BeforeCommit();
@@ -225,7 +240,10 @@ public sealed partial class PlateCompletionService(
             }
             catch (Exception exception) when (exception is DbUpdateException or InvalidOperationException or Npgsql.NpgsqlException or IOException)
             {
+                // The commit may have happened: the confirmed incidents are recorded now (once per crop), so a
+                // replay that finds the publication already committed loses nothing.
                 LogAmbiguousCommit(logger, analysisId, attempt, exception);
+                RecordIncidents(analysisId, attempt, claimedIncidents);
                 return PlateCompletionResult.Refused(503, "plate_publication_ambiguous");
             }
 
@@ -235,13 +253,7 @@ public sealed partial class PlateCompletionService(
         var end = clock.Elapsed;
         var timings = new PlateCompletionTimings(phaseA, artefact - phaseA, phaseB - artefact, end - phaseCStart,
             rowsWritten - phaseCStart, end - barrierAcquired);
-        if (claimedIncidents.Count > 0)
-        {
-            // Counted only for a publication that happened, once per crop however often it is reported again.
-            LogIntegrityReported(logger, analysisId, attempt, claimedIncidents.Count);
-            integrity.RecordCompletionIncidents(analysisId, claimedIncidents, timeProvider.GetUtcNow());
-        }
-
+        RecordIncidents(analysisId, attempt, claimedIncidents);
         LogPublished(logger, analysisId, attempt, published.Status, completion.Tracks.Count, timings.PhaseA.TotalMilliseconds,
             timings.ArtefactValidation.TotalMilliseconds, timings.PhaseB.TotalMilliseconds, timings.PhaseC.TotalMilliseconds,
             timings.PhaseCRowWrites.TotalMilliseconds, timings.BarrierHold.TotalMilliseconds);
@@ -300,10 +312,23 @@ public sealed partial class PlateCompletionService(
         Unreadable,
     }
 
-    private async Task<PlateCompletionResult?> ConfirmEvidenceClaimsAsync(
-        Guid analysisId, int attempt, Guid runId, IReadOnlyList<Guid> claimed, CancellationToken cancellationToken)
+    /// <summary>
+    /// Records a completion's confirmed integrity incidents in the operator health signal: once per crop
+    /// (the monitor de-duplicates), for a publication, a replay of it, or a commit whose outcome is unknown.
+    /// The signal is best-effort and in-process: a platform restart resets it, and an incident confirmed only
+    /// on a path a restart interrupted is not counted again.
+    /// </summary>
+    private void RecordIncidents(Guid analysisId, int attempt, IReadOnlyList<Guid> confirmed)
     {
-        var ids = claimed.Distinct().ToList();
+        if (confirmed.Count == 0) return;
+        LogIntegrityReported(logger, analysisId, attempt, confirmed.Count);
+        integrity.RecordCompletionIncidents(analysisId, confirmed, timeProvider.GetUtcNow());
+    }
+
+    private async Task<PlateCompletionResult?> ConfirmEvidenceClaimsAsync(
+        Guid analysisId, int attempt, Guid runId, IReadOnlyDictionary<Guid, string> claimed, CancellationToken cancellationToken)
+    {
+        var ids = claimed.Keys.ToList();
         var records = await (
                 from observation in db.Observations.AsNoTracking()
                 join track in db.Tracks.AsNoTracking() on observation.TrackId equals track.Id
@@ -315,13 +340,20 @@ public sealed partial class PlateCompletionService(
 
         foreach (var record in records)
         {
-            switch (await AtRestStateAsync(record.StorageKey, record.SizeBytes, record.Sha256, cancellationToken))
+            var state = await AtRestStateAsync(record.StorageKey, record.SizeBytes, record.Sha256, cancellationToken);
+            if (state == AtRest.Unreadable) return PlateCompletionResult.Refused(503, "plate_evidence_unreadable");
+            // The claim must name what the object at rest shows: missing is evidence_missing; present with the
+            // wrong size or SHA-256 is evidence_integrity_failed. Intact, or the other reason, contradicts it.
+            var confirmedReason = state switch
             {
-                case AtRest.Intact:
-                    LogClaimContradicted(logger, analysisId, attempt, record.Id);
-                    return PlateCompletionResult.Refused(422, PlateContractRules.EvidenceClaimContradictedCode);
-                case AtRest.Unreadable:
-                    return PlateCompletionResult.Refused(503, "plate_evidence_unreadable");
+                AtRest.Missing => "evidence_missing",
+                AtRest.Mismatch => "evidence_integrity_failed",
+                _ => null,
+            };
+            if (!string.Equals(confirmedReason, claimed[record.Id], StringComparison.Ordinal))
+            {
+                LogClaimContradicted(logger, analysisId, attempt, record.Id);
+                return PlateCompletionResult.Refused(422, PlateContractRules.EvidenceClaimContradictedCode);
             }
         }
 
@@ -417,6 +449,6 @@ public sealed partial class PlateCompletionService(
     private static partial void LogIntegrityReported(ILogger logger, Guid analysisId, int attempt, int crops);
 
     [LoggerMessage(EventId = 2105, EventName = "plate_evidence_claim_contradicted", Level = LogLevel.Warning,
-        Message = "Plate analysis {AnalysisId} attempt {Attempt}: the worker reported Observation {ObservationId} unavailable, but its accepted object is intact at rest; nothing was published.")]
+        Message = "Plate analysis {AnalysisId} attempt {Attempt}: the worker reported Observation {ObservationId} unavailable for a reason its accepted object at rest does not show; nothing was published.")]
     private static partial void LogClaimContradicted(ILogger logger, Guid analysisId, int attempt, Guid observationId);
 }

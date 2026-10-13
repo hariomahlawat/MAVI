@@ -50,7 +50,9 @@ public sealed record PlateIntegrityHealth(
 /// <summary>
 /// The operator-visible plate integrity signal (ADR-013 item 3): accepted evidence that is missing or
 /// whose bytes disagree with its record. A completion incident is one crop a worker reported missing or
-/// corrupt, counted once however often it is reported again.
+/// corrupt and the platform confirmed at rest, counted once however often it is reported again.
+/// Best-effort and in-process: the counts restart with the platform and are not reconciled with other
+/// instances; the authoritative record is each published Track outcome's reason.
 /// </summary>
 public sealed class PlateIntegrityMonitor
 {

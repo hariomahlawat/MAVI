@@ -350,6 +350,87 @@ public sealed class PlateApiTests(PostgresFixture fixture)
             Assert.Equal("requeued", (await failed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("outcome").GetString());
     }
 
+    [Theory]
+    [InlineData("missing at rest, claimed corrupt", true, "evidence_integrity_failed")]
+    [InlineData("shortened at rest, claimed missing", false, "evidence_missing")]
+    public async Task AClaimMustNameWhatTheObjectAtRestShows(string scenario, bool deleteIt, string claimedReason)
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        var run = await ActivateAndSeedAsync(host, persons: 0, vehicles: 1, crops: 1);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        var crop = run.Track(0).Observations[0];
+        if (deleteIt)
+            File.Delete(host.World.EvidencePath(crop.StorageKey));
+        else
+            await File.WriteAllBytesAsync(host.World.EvidencePath(crop.StorageKey), crop.Bytes[..^1]);
+
+        var built = PlateCompletionBuilder.Build(unit.Lease, (_, _) => PlateCropSpec.Unavailable(claimedReason));
+        using var refused = await host.UploadAndCompleteAsync(unit, built);
+        Assert.True(HttpStatusCode.UnprocessableEntity == refused.StatusCode, scenario);
+        Assert.Equal(PlateContractRules.EvidenceClaimContradictedCode, await CodeAsync(refused));
+        Assert.Equal(0, host.Factory.Services.GetRequiredService<PlateIntegrityMonitor>().Current.CompletionIncidents);
+    }
+
+    [Fact]
+    public async Task AnIncidentConfirmedBeforeAnAmbiguousCommitIsCountedOnceAcrossTheReplay()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        var run = await ActivateAndSeedAsync(host, persons: 0, vehicles: 2, crops: 1);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        var missing = run.Track(0).Observations[0];
+        File.Delete(host.World.EvidencePath(missing.StorageKey));
+        var built = PlateCompletionBuilder.Build(unit.Lease, (track, _) => unit.Lease.Tracks[track].TrackId == run.Track(0).TrackId
+            ? PlateCropSpec.Unavailable("evidence_missing")
+            : PlateCropSpec.Scored(PlateCompletionBuilder.DefaultProposal));
+        using (var uploaded = await host.UploadAsync(unit, built.Predictions))
+            Assert.Equal(HttpStatusCode.OK, uploaded.StatusCode);
+        var monitor = host.Factory.Services.GetRequiredService<PlateIntegrityMonitor>();
+
+        var (service, scope) = host.CompletionService(beforeCommit: () => throw new IOException("simulated loss of the commit"));
+        using (scope)
+            Assert.Equal("plate_publication_ambiguous", (await service.CompleteAsync(unit.AnalysisId, unit.Capability, built.Request, CancellationToken.None)).Code);
+        // The commit may have happened, so the confirmed incident is already counted.
+        Assert.Equal(1, monitor.Current.CompletionIncidents);
+
+        using (var replay = await host.CompleteAsync(unit, built.Request))
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        using (var again = await host.CompleteAsync(unit, built.Request))
+            Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Equal(1, monitor.Current.CompletionIncidents);
+    }
+
+    [Fact]
+    public async Task AConstraintViolationOnTheUnitsOwnUpdateIsRefusedForGoodAndTheWorkerReportsAPlatformRefusal()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        await ActivateAndSeedAsync(host, persons: 0, vehicles: 1, crops: 1);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        // Stand-in for a platform defect in the unit's own publication update (SQLSTATE 23514).
+        await using (var db = host.World.Read())
+            await db.Database.ExecuteSqlRawAsync("ALTER TABLE plate_analyses ADD CONSTRAINT ck_test_never_completed CHECK (status <> 'Completed') NOT VALID");
+
+        using (var refused = await host.UploadAndCompleteAsync(unit, PlateCompletionBuilder.Build(unit.Lease)))
+        {
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+            Assert.Equal(Mavi.Infrastructure.Plates.PlateCompletionService.PersistenceRefusedCode, await CodeAsync(refused));
+        }
+
+        await using (var db = host.World.Read())
+        {
+            Assert.Equal(PlateAnalysisStatus.Running, (await db.PlateAnalyses.AsNoTracking().SingleAsync()).Status);
+            Assert.Empty(await db.PlateTrackOutcomes.AsNoTracking().ToListAsync());
+        }
+
+        // The worker reports the platform's refusal with its own non-retryable code, not plate_output_invalid.
+        Assert.False(PlateContractRules.FailureCodeRetryable["plate_publication_refused"]);
+        using (var failed = await host.FailAsync(unit, "plate_publication_refused"))
+            Assert.Equal("failed", (await failed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("outcome").GetString());
+        Assert.Equal("plate_publication_refused", (await host.UnitAsync(unit.AnalysisId)).FailureCode);
+    }
+
     [Fact]
     public async Task IntegrityIncidentsAreCountedOnlyForAPublicationAndOncePerCrop()
     {
@@ -527,6 +608,44 @@ public sealed class PlateApiTests(PostgresFixture fixture)
         }
 
         Assert.Equal("Pending", (await host.ReadinessAsync(runs[0].RunId)).GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task ACropAbstainedForAnOcrOutputFaultKeepsItsProposalsAndTheRestOfTheRunPublishes()
+    {
+        // The worker abstains a crop whose recogniser emitted two equal readings (no strict rank order):
+        // ocr_output_invalid, its proposals kept without a plate. One bad crop never fails the run.
+        await using var host = await PlateApiHost.CreateAsync(fixture, T0);
+        var run = await ActivateAndSeedAsync(host, persons: 0, vehicles: 2, crops: 2);
+        await host.RunCycleAsync();
+        var unit = await host.LeaseAsync();
+        var faulty = (Track: 0, Crop: 0);
+        var built = PlateCompletionBuilder.Build(unit.Lease, (track, crop) => (track, crop) == faulty
+            ? PlateCropSpec.AbstainedWithProposals("ocr_output_invalid", PlateCompletionBuilder.DefaultProposal,
+                new PlateProposal(120, 20, 50, 12, 0.4, []))
+            : PlateCropSpec.Scored(PlateCompletionBuilder.DefaultProposal));
+
+        using (var completed = await host.UploadAndCompleteAsync(unit, built))
+            Assert.Equal(HttpStatusCode.OK, completed.StatusCode);
+        Assert.Equal("Ready", (await host.ReadinessAsync(run.RunId)).GetProperty("state").GetString());
+
+        await using var db = host.World.Read();
+        var outcomes = await db.PlateTrackOutcomes.AsNoTracking().ToListAsync();
+        Assert.Equal(2, outcomes.Count);
+        Assert.All(outcomes, outcome => Assert.Equal(PlateTrackOutcomeKind.Analysed, outcome.Outcome));
+        // Three crops read a plate; the abstained crop has no plate observation.
+        var faultyCrop = unit.Lease.Tracks[faulty.Track].Observations[faulty.Crop].ObservationId;
+        var observations = await db.PlateObservations.AsNoTracking().ToListAsync();
+        Assert.Equal(3, observations.Count);
+        Assert.DoesNotContain(observations, item => item.SourceObservationId == faultyCrop);
+        // The sealed artefact keeps the abstained crop's two proposals.
+        var analysis = await db.PlateAnalyses.AsNoTracking().SingleAsync();
+        var artifact = await db.Artifacts.AsNoTracking().SingleAsync(x => x.Id == analysis.PredictionArtifactId);
+        using var sealedPredictions = JsonDocument.Parse(await File.ReadAllBytesAsync(host.World.EvidencePath(artifact.StorageKey)));
+        var crop = sealedPredictions.RootElement.GetProperty("tracks").EnumerateArray().SelectMany(track => track.GetProperty("crops").EnumerateArray())
+            .Single(item => item.GetProperty("observationId").GetGuid() == faultyCrop);
+        Assert.Equal(("abstained", "ocr_output_invalid", 2), (crop.GetProperty("status").GetString(), crop.GetProperty("reason").GetString(),
+            crop.GetProperty("detections").GetArrayLength()));
     }
 
     [Fact]

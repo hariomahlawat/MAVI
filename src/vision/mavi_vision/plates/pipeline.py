@@ -49,6 +49,7 @@ from mavi_vision.plates.contracts import (
     LeaseObservation,
     LeaseTrack,
     is_raw_text,
+    has_strict_rank_order,
     raw_line_count,
     reading_rank_key,
 )
@@ -210,6 +211,11 @@ def analyse_crop(
                 raise OutputInvalid("plate_recogniser_output_exceeds_bound")
             if not all(isinstance(item, Reading) and is_raw_text(item.raw_text) and _probability(item.confidence)
                        for item in readings):
+                return abstained("ocr_output_invalid", width, height, _without_plates(recorded))
+            if not has_strict_rank_order(readings):
+                # Two readings equal in confidence and raw text admit no strict rank order, which the platform
+                # requires. That is an inference fault of this crop: it abstains (its proposals are kept, as for
+                # every abstention) and the rest of the Track and run still publish. Nothing is de-duplicated.
                 return abstained("ocr_output_invalid", width, height, _without_plates(recorded))
             plate = _plate(index, readings, parameters)
         detections.append(DetectionRecord((box.x, box.y, box.width, box.height), float(box.score), plate))

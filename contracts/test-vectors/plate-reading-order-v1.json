@@ -1,6 +1,6 @@
 {
   "schemaVersion": "mavi-plate-reading-order-v1",
-  "rule": "Readings of a plate are ranked by confidence, descending; equal confidences are ordered by raw text in ascending UTF-16 code-unit order (.NET string.CompareOrdinal; Python: the UTF-16BE bytes). The order is strict: two readings with equal confidence and equal raw text are refused (plate_reading_invalid).",
+  "rule": "Readings of a plate are ranked by confidence, descending; equal confidences are ordered by raw text in ascending UTF-16 code-unit order (.NET string.CompareOrdinal; Python: the UTF-16BE bytes). The order is strict: two readings with equal confidence and equal raw text are refused (plate_reading_invalid). A plate whose readings include such a duplicate has no rank order: the worker abstains that crop (ocr_output_invalid) and the platform refuses the sequence; vectors with \"refused\": true and \"rankedIndices\": null pin that.",
   "vectors": [
     {
       "name": "confidence decides first",
@@ -17,7 +17,8 @@
       "rankedIndices": [
         1,
         0
-      ]
+      ],
+      "refused": false
     },
     {
       "name": "ascii tie by code unit",
@@ -34,7 +35,8 @@
       "rankedIndices": [
         1,
         0
-      ]
+      ],
+      "refused": false
     },
     {
       "name": "a prefix ranks first",
@@ -51,7 +53,8 @@
       "rankedIndices": [
         1,
         0
-      ]
+      ],
+      "refused": false
     },
     {
       "name": "supplementary-plane tie: UTF-16 order, not code-point order",
@@ -68,7 +71,8 @@
       "rankedIndices": [
         1,
         0
-      ]
+      ],
+      "refused": false
     },
     {
       "name": "private-use vs supplementary tie: surrogates sort below U+E000",
@@ -85,7 +89,8 @@
       "rankedIndices": [
         1,
         0
-      ]
+      ],
+      "refused": false
     },
     {
       "name": "mixed: confidence, then code units",
@@ -112,7 +117,42 @@
         1,
         0,
         3
-      ]
+      ],
+      "refused": false
+    },
+    {
+      "name": "duplicate reading: equal confidence and raw text has no strict order",
+      "readings": [
+        {
+          "rawText": "KA01AB1234",
+          "confidence": 0.9
+        },
+        {
+          "rawText": "KA01AB1234",
+          "confidence": 0.9
+        }
+      ],
+      "rankedIndices": null,
+      "refused": true
+    },
+    {
+      "name": "duplicate behind a distinct best reading is still refused",
+      "readings": [
+        {
+          "rawText": "KA01AB1234",
+          "confidence": 0.95
+        },
+        {
+          "rawText": "\ud83d\ude00",
+          "confidence": 0.6
+        },
+        {
+          "rawText": "\ud83d\ude00",
+          "confidence": 0.6
+        }
+      ],
+      "rankedIndices": null,
+      "refused": true
     }
   ]
 }

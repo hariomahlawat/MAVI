@@ -43,6 +43,13 @@ public sealed partial class PlateAudit(ILogger<PlateAudit> logger, PlateIntegrit
         LogReanalysis(logger, scope, matched, queued, alreadyQueued, notEligible, selected);
     }
 
+    /// <summary>A refused explicit re-analysis request: its scope and the refusal code only.</summary>
+    public void ReanalysisRefused(string scope, string code) => LogReanalysisRefused(logger, scope, code);
+
+    [LoggerMessage(EventId = 2126, EventName = "plate_reanalysis_refused", Level = LogLevel.Warning,
+        Message = "Plate re-analysis requested by {Scope} was refused ({Code}); nothing was queued.")]
+    private static partial void LogReanalysisRefused(ILogger logger, string scope, string code);
+
     [LoggerMessage(EventId = 2120, EventName = "plate_evidence_read", Level = LogLevel.Information,
         Message = "Plate evidence read: analysis {AnalysisId} attempt {Attempt} Observation {ObservationId}, {Bytes} bytes, served.")]
     private static partial void LogEvidenceServed(ILogger logger, Guid analysisId, int attempt, Guid observationId, long bytes);

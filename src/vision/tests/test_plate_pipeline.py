@@ -152,6 +152,32 @@ def test_output_beyond_a_configured_bound_fails_the_attempt_and_is_never_truncat
         analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector([PlateBox(5, 5, 40, 10, 0.9)]), _Recogniser(four), PARAMETERS)
 
 
+@pytest.mark.parametrize("vector", [item for item in json.loads((ROOT / "contracts" / "test-vectors" / "plate-reading-order-v1.json")
+                                                         .read_text(encoding="utf-8"))["vectors"] if item["refused"]],
+                         ids=lambda item: item["name"])
+def test_a_duplicate_reading_abstains_its_crop_and_keeps_its_proposals(vector: dict) -> None:
+    readings = [Reading(item["rawText"], item["confidence"]) for item in vector["readings"]]
+    boxes = [PlateBox(5, 5, 40, 10, 0.9), PlateBox(60, 60, 40, 10, 0.4)]
+    record = analyse_crop(OBSERVATION, _verified(_jpeg()), _Detector(boxes), _Recogniser(readings), PARAMETERS)
+    assert (record.status, record.reason) == (contracts.CROP_ABSTAINED, "ocr_output_invalid")
+    # Nothing is dropped or de-duplicated into a plate: both proposals are kept, without a plate.
+    assert [detection.score for detection in record.detections] == [0.9, 0.4]
+    assert all(detection.plate is None for detection in record.detections)
+
+
+def test_one_crop_with_a_duplicate_reading_never_fails_its_track() -> None:
+    first, second = LEASE.tracks[0].observations[0], LEASE.tracks[0].observations[1]
+    track = LEASE.tracks[0].model_copy(update={"observations": (first, second)})
+    box = [PlateBox(5, 5, 40, 10, 0.9)]
+    duplicate = analyse_crop(first, _verified(_jpeg(), first), _Detector(box),
+                             _Recogniser([Reading("KA01AB1234", 0.9), Reading("KA01AB1234", 0.9)]), PARAMETERS)
+    honest = analyse_crop(second, _verified(_jpeg(), second), _Detector(box), _Recogniser([Reading("KA01AB1234", 0.9)]), PARAMETERS)
+    summary = summarise_track(track, (duplicate, honest))
+    assert duplicate.status == contracts.CROP_ABSTAINED and honest.status == contracts.CROP_SCORED
+    assert summary.outcome == contracts.TRACK_ANALYSED
+    assert [text.normalised_text for text in summary.texts] == ["KA01AB1234"]
+
+
 def test_the_count_bound_is_checked_before_the_items() -> None:
     # Over-bound output with a malformed item is still a contract violation, never an abstention.
     malformed = [PlateBox(10, 10, 40, 10, 0.3), PlateBox(5, 5, 40, 10, 0.9), PlateBox(-1, 60, 40, 10, 0.2)]

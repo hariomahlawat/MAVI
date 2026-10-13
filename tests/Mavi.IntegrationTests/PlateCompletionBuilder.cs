@@ -17,6 +17,9 @@ internal sealed record PlateCropSpec(string Status, string? Reason, int Width, i
     public static PlateCropSpec Scored(params PlateProposal[] proposals) => new("scored", null, 200, 150, proposals);
     public static PlateCropSpec Unavailable(string reason) => new("unavailable", reason, 0, 0, []);
     public static PlateCropSpec Abstained(string reason) => new("abstained", reason, 0, 0, []);
+
+    /// <summary>An inference abstention after decode and detection: the crop's proposals are kept, without a plate.</summary>
+    public static PlateCropSpec AbstainedWithProposals(string reason, params PlateProposal[] proposals) => new("abstained", reason, 200, 150, proposals);
     public static PlateCropSpec Excluded() => new("excluded", null, 0, 0, []);
 }
 
@@ -66,7 +69,7 @@ internal static class PlateCompletionBuilder
                 var spec = crop(trackIndex, cropIndex);
                 if (spec.Reason is { } reason) caused.Add(TrackReason[reason]);
                 var detections = new JsonArray();
-                var withDimensions = spec.Status == "scored";
+                var withDimensions = spec.Status == "scored" || (spec.Status == "abstained" && spec.Width > 0);
                 if (spec.Status == "scored")
                 {
                     scored++;
@@ -111,6 +114,19 @@ internal static class PlateCompletionBuilder
                         {
                             ["box"] = new JsonArray(proposal.X, proposal.Y, proposal.Width, proposal.Height),
                             ["plate"] = plate,
+                            ["score"] = proposal.Score,
+                        });
+                    }
+                }
+
+                if (spec.Status == "abstained")
+                {
+                    foreach (var proposal in spec.Proposals.OrderByDescending(item => item.Score).ThenBy(item => item.X).ThenBy(item => item.Y))
+                    {
+                        detections.Add(new JsonObject
+                        {
+                            ["box"] = new JsonArray(proposal.X, proposal.Y, proposal.Width, proposal.Height),
+                            ["plate"] = null,
                             ["score"] = proposal.Score,
                         });
                     }
