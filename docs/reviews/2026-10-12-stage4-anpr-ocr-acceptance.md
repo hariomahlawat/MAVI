@@ -2,10 +2,11 @@
 
 **Status:** **OPEN — evidence-adequacy verdict recorded: INADEQUATE** (Development measurement, 2026-10-13; frozen).
 - E-A and E-B were executed on real data with verified instruments. The frozen decision rule gives **INADEQUATE**: C = 51/77 = 0.662 < 0.70; encoding loss 0.97 pp and 1.95 pp, both ≤ 5 pp.
-- The ground truth for E-A and E-B is AI-verified (R8), and blind-re-verified by a second, independent AI agent (O5: no correction). **No human verification** has been performed.
-- The root cause is in `docs/qualification/stage4/adequacy-root-cause-2026-10-13.md`:
-  - selection — the frame-edge qualification floor excludes near views;
+- **O5 complete.** The ground truth is now **human-reviewed, AI-assisted**. Recomputed under the frozen protocol: C = 53/79 = 0.671, encoding loss 0.61 pp and 1.52 pp, **INADEQUATE (unchanged)**. The frozen AI-label result is preserved.
+- The root cause is in `docs/qualification/stage4/adequacy-root-cause-2026-10-13.md` (corrected after X1):
+  - selection: near views fail side- or top-edge contact (9 tracks), the sharpness floor (5) and NearView hysteresis (1); bottom contact blocks none;
   - tracking and association at 5 fps.
+- X1 (bottom-border exemption): 0/10 recovered, **rejected** by the owner.
 - PR-3 to PR-5 proceed; PR-6 is held (O3). Indian validation is split: O1A (tracking, IDD-X approved) and O1B (ANPR/OCR, OPEN). PR #213 stays Draft.
 
 **Date opened:** 2026-10-12\
@@ -37,7 +38,7 @@ plate retention/access policy and the Production audit profile (plan §8).
 | P3b | Instruments pinned and verified | **PASS** | `fast-plate-ocr` 1.1.0 (`cct-s-v2-global`, ONNX `384bbbd2…`, config `0335c74a…`; MIT) and `rapidocr-onnxruntime` 1.4.4 (PP-OCRv4 det `d2a7720d…`, rec `48fc40f2…`, cls `e47acedf…`; Apache-2.0). Both are verified against the real packages; the plate-specific adapter's colour handling was fixed. ONNX Runtime 1.31.0 runs on CPU, single-threaded and sequential. Specifications: `docs/qualification/stage4/instruments/*.json`. Environment: CPython 3.12.10, exact pins in `tools/benchmarks/plates/requirements-instruments.txt`, declared in the dependency policy (Development benchmark only); Pillow 11.3.0 and numpy 2.5.3 equal the vision lock. Pre-annotation detector (R8 geometry only, never an instrument): `open-image-models` 0.6.0, YOLOv9-s-608 plates `2b878b38…` (MIT) |
 | P3c | Level 3: E-A executed | **EXECUTED** | **BDD100K (verdict input):** result `cc718922…` (tooling `b45bdcdf`). `h_min` = **32 px** (reference: plate-specific; native EM by bin 0/6, 2/15, 10/39, 72/117, 271/308). ΔEM at the supplemental cap, n = 308 plates from 65 sequences, full-plate basis: **plate-specific 0.97 pp** (271 → 268), **generic 1.95 pp** (84 → 78). Representative cap: 0.97 pp and 2.27 pp. No instrument errors. **UC3M-LP:** result `5de0e349…`; the repeat has identical rows and summary. Executed, **not accepted**: anonymisation erases characters, so native agreement is 6/449 and 0/449 — a floor effect. Its formal ΔEM of 0 pp is excluded from the verdict. Post-hoc diagnostic (masks removed, plate-specific): native 233, supplemental 232, representative 223 of 449. **DataCluster Indian:** `589f9f5d…` (repeat identical). NOT MEASURED (24 plates in the top bin, below the floor of 50); diagnostic only |
 | P3d | Level 3: E-B executed | **EXECUTED** | BDD100K MOT val, the real MAVI Stage-3 H3 run on the release pipeline profile `afb03b6c…` (commit `35907342`; 200 exports with sealed evidence crops, each verified by SHA-256 and size; frame alignment checked). Association `bea73d13…/association.json`. Result `3db69e53…`. **R_oracle = 77** oracle-readable tracks (77 distinct vehicles), **R_ev = 51**, **C = 0.662**. The 26 failures are: matched but not readable 12; unmatchedGt 7; fragmentedGt 6; unverifiedGt 1. Evidence-readable tracks by role: Representative 48, NearView 43, LateDiverse 18, EarlyDiverse 14. Post-hoc diagnostic (not verdict evidence): among the 63 matched tracks, C = 51/63 = 0.81. 18 evidence observations had no verified plate label at their frame. Per-instrument C: plate-specific 51/77; generic 15/29 (insufficient) |
-| P3 | Level 4: evidence-adequacy verdict (plan §3.4) with strata; protocol hashed before results | **MEASURED: INADEQUATE — frozen; O5 independent re-verification found no correction (AI-only, not human-verified)** | Verdict `b740ce45…`: INADEQUATE, reason `coverage_below_0.70`. Protocol `docs/qualification/stage4/adequacy-protocol.md`, revision 1 (R6–R8 and the R6 clarification, all recorded before the results they govern; no threshold changed). Reproducibility: see *Reproduction and repeatability*. Limitations: E-B is US/Israel dashcam (BDD100K), 1280×720 at 5 fps labelled frames — **not Indian-domain validation**; the R8 labels are agent-verified, not human-verified; selection is bounded to the 240 widest-plate tracks |
+| P3 | Level 4: evidence-adequacy verdict (plan §3.4) with strata; protocol hashed before results | **MEASURED: INADEQUATE — confirmed on human-reviewed, AI-assisted labels (O5 complete): C = 53/79 = 0.671; frozen AI-label result C = 51/77 = 0.662 preserved** | Verdict `b740ce45…`: INADEQUATE, reason `coverage_below_0.70`. Protocol `docs/qualification/stage4/adequacy-protocol.md`, revision 1 (R6–R8 and the R6 clarification, all recorded before the results they govern; no threshold changed). Reproducibility: see *Reproduction and repeatability*. Limitations: E-B is US/Israel dashcam (BDD100K), 1280×720 at 5 fps labelled frames — **not Indian-domain validation**; the R8 labels are now human-reviewed, AI-assisted (O5 complete; `docs/qualification/stage4/o5-human-reviewed-recomputation-2026-10-13.md`); selection is bounded to the 240 widest-plate tracks |
 | P4 | MSR events PLANNED → PROTOCOL_FROZEN; entry criteria §4.2 met | NOT STARTED | Gated on P3 (plan §4.2 item 1) |
 | P5 | A–E measured; gates; technical ranking by D; consistent-wrong gate | NOT STARTED | PR-2 |
 | P6 | Licence/deployment determinations per profile; owner implementation choice | NOT STARTED | PR-2 |
@@ -100,9 +101,22 @@ MAVI is classified by the owner as a **non-commercial, open-source academic rese
 
 **Sensitivity check (diagnostic):** keep only plates both readers confirmed — the 5 unconfirmed failures are dropped, and the success rate 18/20 is extrapolated to the 51 successes. That gives C ≈ 45.9 / 66.9 ≈ **0.69**, still below 0.70.
 
-**Limitation.** **No human has reviewed the labels.** Both readers are AI models. They are independent of each other's output, of both OCR instruments and of MAVI, but not human. The retained sheets (`sheets/`, `geometry-legible/`, `o5/verifier/`) allow a later human audit.
+**Limitation at the time of this AI-only step:** no human had reviewed the labels (resolved by the O5 human review below). Both readers are AI models. They are independent of each other's output, of both OCR instruments and of MAVI, but not human. The retained sheets (`sheets/`, `geometry-legible/`, `o5/verifier/`) allow a later human audit.
 
-**Human audit (owner decision 2026-10-13): package prepared, verification PENDING.**
+**O5 COMPLETE (2026-10-13): labels are human-reviewed, AI-assisted.**
+- **Review:** an independent human reviewer inspected all 125 audit rows (decisions: accept 91, correct 6, reject 28) and agrees with the AI pre-review on 125/125.
+- **Record:** `O5_Human_Review_Completed.xlsx` `fa336951…`, record `human-review-record.json` `cc9d7e8f…`.
+- **Derived labels:** `labels-human-reviewed.json` `4764bb5f…`; the original `labels.json` and `audit-form.csv` are unchanged.
+- **Recomputation under the frozen protocol:**
+  - `h_min` 32 px; ΔEM 0.61 pp (plate-specific);
+  - R_oracle 77 → 79; R_ev 51 → 53; C = 0.671;
+  - **INADEQUATE (unchanged)**;
+  - verdict `6dc95563…`; the sensitivity variant is identical.
+- **Changed tracks:** only the 5 human-corrected illegible tracks. 2 enter R_oracle and are evidence-readable; 3 are usable but not oracle-readable.
+- **Full record:** `docs/qualification/stage4/o5-human-reviewed-recomputation-2026-10-13.md`.
+- The frozen AI-label result (`b740ce45…`) is preserved.
+
+*History (audit package as prepared):*
 - **Location:** `E:\MAVI-Controlled\Benchmarks\stage4-bdd-plates\o5\human-audit\` (outside Git; BDD100K imagery is not redistributed).
 - **Scope:** 100 tracks and 125 form rows:
   - all 26 failures;
@@ -118,7 +132,7 @@ MAVI is classified by the owner as a **non-commercial, open-source academic rese
   - Hashes: `index.html` `abdf9758…`, `manifest.json` `126f2a9d…` (every added asset hashed).
   - The unpatched package is kept in `o5\human-audit-original\`.
 - **Reviewer:** may be any independent competent person, not necessarily the owner.
-- **P3 acceptance remains pending** until the audit is completed and its impact assessed. Nothing in this register describes the AI verification as human verification.
+- *(Superseded by the completion above.)* Until the human review, nothing in this register described the AI verification as human verification.
 
 ### O3 — investigate the tracking misses first
 
@@ -179,7 +193,7 @@ The theoretical maximum of a selection-only remedy is 10/77, giving C = 61/77 = 
 BDD100K results are never presented as Indian-condition validation.
 
 **O1A — Indian native-frame-rate tracking validation: IDD-X APPROVED.**
-- **Protocol:** `docs/qualification/stage4/o1a-idd-x-tracking-design-2026-10-13.md` (Development, frozen at commit).
+- **Protocol:** `docs/qualification/stage4/o1a-idd-x-tracking-design-2026-10-13.md` (Development, frozen at commit `a00deb76`, SHA-256 `6f2f6365…`).
 - **Design:**
   - 25 fps native vs 5 fps decimated replays of the same recorded detections, through the unchanged release-profile tracker;
   - frozen association policy; ground-truth-side metrics only (association outcome, fragmentation, continuity, detection support);
