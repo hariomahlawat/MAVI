@@ -8,12 +8,18 @@ namespace Mavi.Application.Modules.Intelligence;
 /// analytics-dependent query. Item analytics are keyed by Track id rather than carried
 /// on <see cref="TrackSearchRow"/>, so the row the ordinary path projects from the
 /// database is untouched.
+/// <para>
+/// <paramref name="PlateCoverage"/> and <paramref name="ItemPlates"/> are set exactly for a query
+/// carrying a plate predicate (Stage 4), on the same terms.
+/// </para>
 /// </remarks>
 public sealed record TrackSearchPage(
     IReadOnlyList<TrackSearchRow> Items,
     string? NextCursor,
     TrackAnalyticsCoverage? Coverage = null,
-    IReadOnlyDictionary<Guid, TrackItemAnalytics>? ItemAnalytics = null);
+    IReadOnlyDictionary<Guid, TrackItemAnalytics>? ItemAnalytics = null,
+    TrackPlateCoverage? PlateCoverage = null,
+    IReadOnlyDictionary<Guid, TrackItemPlate>? ItemPlates = null);
 
 public sealed record TrackSearchRow(
     Guid Id,

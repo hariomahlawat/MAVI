@@ -14,6 +14,11 @@ namespace Mavi.Application.Modules.Intelligence;
 /// <see cref="ObjectClass.Vehicle"/>; <see cref="Canonical"/> makes that implication explicit,
 /// so <c>objectSubclass=car</c> and <c>objectClass=Vehicle&amp;objectSubclass=car</c> are one search.
 /// </para>
+/// <para>
+/// <paramref name="Plate"/> is the Stage-4 plate predicate (plan §5.4). Null leaves every pre-Stage-4
+/// path exactly as it was. When set it implies <see cref="ObjectClass.Vehicle"/> in the same way, and
+/// the search is paged by the v4 cursor whether or not analytic predicates are combined with it.
+/// </para>
 /// </remarks>
 public sealed record TrackSearchQuery(
     Guid? CameraId,
@@ -27,13 +32,16 @@ public sealed record TrackSearchQuery(
     string? Cursor,
     int Limit = 50,
     TrackAnalyticsQuery? Analytics = null,
-    string? ObjectSubclass = null)
+    string? ObjectSubclass = null,
+    TrackPlateQuery? Plate = null)
 {
     public bool IsAnalytic => Analytics is not null;
 
-    /// <summary>The canonical form: a subclass filter states its implied Vehicle class.</summary>
+    public bool IsPlate => Plate is not null;
+
+    /// <summary>The canonical form: a subclass or plate filter states its implied Vehicle class.</summary>
     public TrackSearchQuery Canonical =>
-        ObjectSubclass is not null && ObjectClass is null
+        (ObjectSubclass is not null || Plate is not null) && ObjectClass is null
             ? this with { ObjectClass = Domain.Intelligence.ObjectClass.Vehicle }
             : this;
 }
