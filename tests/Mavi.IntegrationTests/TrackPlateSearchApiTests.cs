@@ -377,7 +377,9 @@ public sealed class TrackPlateSearchApiTests(PostgresFixture fixture)
         var identity = TrackPlateSearchWorld.IdentityA(host.Factory.Services.GetRequiredService<IPlateRelease>());
         var run = await host.World.SeedRunAsync(persons: 0, vehicles: 2);
         await TrackPlateSearchWorld.AttachRepresentativesAsync(host.World.Read, run);
-        // The analysis publishes an outcome for the first Vehicle Track only.
+        // The analysis publishes an outcome for the first Vehicle Track only. Written straight into the database:
+        // PR-3's completion route refuses this state, so only a defect or a direct write could produce it, and
+        // the warning is the defence in depth for that case.
         var analysisId = await TrackPlateSearchWorld.PublishAsync(host.World.Read, Now, run.RunId, identity,
             [SeedPlateTrack.Analysed(run.Track(0).TrackId,
                 new SeedPlate(run.Track(0).Observations[0].ObservationId, 0.9, ("KA01AB1234", 0.9)))]);

@@ -52,7 +52,12 @@ public sealed record PlateCoverageResponse(
 /// <param name="UnavailableReason">The persisted reason of an <c>Unavailable</c> outcome.</param>
 /// <param name="Agreement">One of <see cref="TrackSearchContractRules.PlateAgreementValues"/>; present only for an <c>Analysed</c> Track.</param>
 /// <param name="Texts">The Track texts, best supported first; empty unless analysed with a searchable reading.</param>
-/// <param name="Observations">Every plate observation, Unreadable ones included, in evidence order.</param>
+/// <param name="Observations">
+/// Every plate observation, Unreadable ones included, in evidence order: the selected plate of each scored
+/// crop. An abstained crop — including an OCR-output-fault abstention, which keeps its detector proposals
+/// but not its readings (ADR-013 item 15) — and an excluded or unavailable crop have no entry; their record
+/// is the sealed <c>PlatePredictions</c> artefact.
+/// </param>
 /// <param name="Provenance">The default analysis that produced the facts; present only when <paramref name="Readiness"/> is <c>Ready</c>.</param>
 public sealed record TrackPlatesResponse(
     string Readiness,
@@ -100,7 +105,9 @@ public sealed record TrackPlateBoxResponse(int X, int Y, int Width, int Height, 
 /// One kept reading. <see cref="RawText"/> is the immutable OCR output (a two-line reading joins its
 /// lines with one LF); <see cref="NormalisedText"/> and <see cref="FormatClass"/> are present only
 /// when <see cref="NormalisationOutcome"/> is <c>ok</c>. A <c>rejected</c> reading stays visible and
-/// is never searchable.
+/// is never searchable. <see cref="Confidence"/> is the recogniser's confidence in the <b>whole</b>
+/// reading: Stage 4 records no per-character confidence (ADR-013 item 13), and nothing here implies one.
+/// Ranks follow confidence descending, ties by raw text in ordinal order (PR-3's reading order).
 /// </summary>
 public sealed record TrackPlateReadingResponse(
     int Rank,
