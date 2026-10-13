@@ -259,6 +259,73 @@ jobs:
           include-hidden-files: false
           if-no-files-found: warn
 
+  plate-search-scale:
+    # Stage 4 PR-4 (plan §2.8, cold review P1-2): the plate search at 10^6
+    # Tracks on the frozen skewed corpus, on CI PostgreSQL. Informational: it
+    # is NOT a `quality` lane and does not gate a merge. The 300 ms budget is
+    # judged on the pinned Development host only; this job asserts the
+    # intended plan shape of the real statements (EXPLAIN) and a catastrophic
+    # bound of 10x the budget (PlateSearchScaleMeasurementTests, mode ci), and
+    # retains the timings and plans. Record:
+    # docs/qualification/stage4/2026-10-13-plate-search-at-scale.md.
+    name: plate search at scale (informational)
+    needs: scope
+    if: needs.scope.outputs.dotnet != 'false'
+    runs-on: ubuntu-latest
+    # Seeding 10^6 Tracks and building the trigram index dominates.
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mavi_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d mavi_test"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      MAVI_TEST_DB_CONNECTION: Host=localhost;Port=5432;Database=mavi_test;Username=postgres;Password=postgres
+      # A scratch database of its own: the measurement never touches mavi_test.
+      MAVI_PLATE_SEARCH_SCALE_DB: Host=localhost;Port=5432;Database=mavi_plate_scale;Username=postgres;Password=postgres
+      MAVI_PLATE_SEARCH_SCALE_MODE: ci
+      MAVI_PLATE_SEARCH_SCALE_OUT: ${{ github.workspace }}/plate-search-scale
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.MAVI_EXPECTED_SOURCE_SHA }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact checked-out source head
+        run: test "$(git rev-parse HEAD)" = "$MAVI_EXPECTED_SOURCE_SHA"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build the integration tests
+        run: dotnet build tests/Mavi.IntegrationTests/Mavi.IntegrationTests.csproj --configuration Release
+      - name: Measure the plate search at scale
+        timeout-minutes: 35
+        run: >-
+          dotnet test tests/Mavi.IntegrationTests/Mavi.IntegrationTests.csproj
+          --configuration Release --no-build
+          --filter FullyQualifiedName~PlateSearchScaleMeasurementTests
+          --logger "trx;LogFileName=plate-search-scale.trx"
+          --logger "console;verbosity=detailed"
+          --results-directory plate-search-scale
+      - name: Retain the measurement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plate-search-scale
+          path: plate-search-scale/
+          include-hidden-files: false
+          retention-days: 14
+          if-no-files-found: warn
+
   python-vision:
     name: python vision
     needs: scope

@@ -442,6 +442,14 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
     /// (<c>LIKE … INCLUDING INDEXES</c>) and 200 000 analysed rows of Indian-format texts, because on a
     /// small table a sequential scan is genuinely cheaper and the planner rightly takes it. The latency
     /// budget at 10^6 rows is the measurement's question (docs/qualification/stage4), not this test's.
+    /// <para>
+    /// <b>Limit (cold review P3-5).</b> This EXPLAINs literal predicates of the repository's shapes on a
+    /// temporary table, not the repository's own parameterised statements. Those are EXPLAINed (ANALYZE,
+    /// BUFFERS), as the repository issues them with their real parameters, by
+    /// <c>PlateSearchScaleMeasurementTests</c> on the 10^6 corpus, where the planner's choice is meaningful; on
+    /// the small integration corpus the planner rightly prefers primary-key or sequential access, so a
+    /// real-statement EXPLAIN there would pin nothing about the indexes.
+    /// </para>
     /// </summary>
     [Theory]
     [InlineData("normalised_text LIKE '%KA01%'", "gin")]
