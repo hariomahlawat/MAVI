@@ -27,6 +27,10 @@
 .attention-note { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); color: var(--text-muted); font-size: var(--fs-1); }
 .overview-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr); gap: var(--s-4); align-items: start; }
 .overview-recent { display: grid; }
+/* Every state of Recent tracks holds the skeleton's height — RECENT_LIMIT (8)
+   rows at the recent-row pitch — so a short or empty answer moves nothing
+   below it (§38, X3 determinism). OverviewPage.test.tsx binds the 8. */
+.overview-recent-frame { min-height: calc(8 * var(--c-recent-row-h)); }
 .overview-recent__row {
   display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center;
   padding: var(--s-2) var(--s-4); border-bottom: 1px solid var(--border-subtle); text-decoration: none; color: inherit;

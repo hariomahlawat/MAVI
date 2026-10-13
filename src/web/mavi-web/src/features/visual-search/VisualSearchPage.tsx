@@ -693,6 +693,23 @@ export default function VisualSearchPage() {
   );
   const hasNotice = hasFailure(fromQuery(systemConfig)) || hasFailure(fromQuery(cameras)) || hasFailure(fromQuery(videos));
 
+  // The workspace is drawn once its supporting answers have settled (§38): the
+  // committed chips name cameras and videos and state the time scope in the
+  // display timezone, and the rail states the time format in it. Drawn before
+  // those answers, the chips and the rail re-wrap when they arrive and the
+  // header and results beneath move. Until then the page is its one loading
+  // presentation; a failed answer settles the hold and is said in its notice.
+  if (systemConfig.isPending || cameras.isPending || videos.isPending) {
+    return (
+      <section className="page page--full page--workspace">
+        <ContextBar surface="search" status={<DisplayTimeZone timeZoneId={displayTimeZoneId} />} />
+        <StateRegion kind="page" state={{ kind: 'loading' }} label="the search" loadingLabel="Loading search…">
+          {() => null}
+        </StateRegion>
+      </section>
+    );
+  }
+
   return (
     <section className="page page--full page--workspace">
       <ContextBar

@@ -13,7 +13,7 @@ import {
 import { getSystemConfig } from '../../api/system';
 import { listVideos, type VideoAsset } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
-import { combineStates } from '../../shared/async/asyncState';
+import { combineStates, holdUntilSettled } from '../../shared/async/asyncState';
 import { fromQuery } from '../../shared/async/fromQuery';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
@@ -493,14 +493,19 @@ export default function SceneEditorPage() {
   // whose retry re-requests what failed, and the Context Bar keeps the
   // surface's identity throughout. An unavailable scene API must never be
   // presented as an empty scene.
-  if (camera.data === undefined || scene.data === undefined) {
+  // The stage is laid out once the camera's video list has also settled: the
+  // reference strip beneath the frame is that list's region, and drawn first
+  // as a one-line loading row it grows to the strip (two rows where the band
+  // wraps) and moves the inspector below it (§38). A failed list settles the
+  // hold and is said in the strip's own region, as before.
+  if (camera.data === undefined || scene.data === undefined || videos.isPending) {
     return (
       <section className="page page--full page--workspace">
         {leaveGuard}
         <ContextBar surface="scene" object={cameraCrumb ? { label: cameraCrumb } : undefined} />
         <StateRegion
           kind="page"
-          state={combineStates(fromQuery(camera), fromQuery(scene))}
+          state={holdUntilSettled(combineStates(fromQuery(camera), fromQuery(scene)), !videos.isPending)}
           label="the scene"
           loadingLabel="Loading scene…"
           unavailableMessage={(error) => sceneErrorMessage(

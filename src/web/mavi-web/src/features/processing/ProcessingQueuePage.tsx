@@ -5,7 +5,7 @@ import { getSystemConfig } from '../../api/system';
 import { isFinalizationFailure, isFinalizing, listVideos } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
-import { hasFailure } from '../../shared/async/asyncState';
+import { hasFailure, holdUntilSettled } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import { ButtonLink } from '../../shared/components/Button';
 import DisplayTimeZone from '../../shared/components/DisplayTimeZone';
@@ -76,6 +76,13 @@ export default function ProcessingQueuePage() {
   );
   const ids = useMemo(() => rows.map((row) => row.id), [rows]);
   const processing = useVideoProcessing(ids);
+  // The queue's rows are drawn once, in their final layout: their timestamps
+  // need the display timezone and their camera cells the camera metadata.
+  // Drawn before either answer, a row re-wraps when it arrives and every row
+  // beneath moves (§38). Each row's run lookup is its own region (§37.1),
+  // reserved at its final shape while it loads, not this hold.
+  const ledgerState = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending);
+  const ledgerReady = ledgerState.kind !== 'loading';
 
   const counts = useMemo(() => {
     const result = { active: 0, failed: 0, completed: 0 };
@@ -102,7 +109,7 @@ export default function ProcessingQueuePage() {
                 {/* The invariant the page title used to carry: this is a
                     current picture, not a log of every run ever made. */}
                 Latest run per video — earlier runs are not listed here.
-                {videos.data ? (
+                {videos.data && ledgerReady ? (
                   <>
                     <span className="queue-counts__sep">{' · '}</span>
                     <span className="queue-counts">
@@ -111,7 +118,7 @@ export default function ProcessingQueuePage() {
                       <span>{formatCount(counts.completed)} completed</span>
                     </span>
                   </>
-                ) : videos.isPending ? (
+                ) : videos.isPending || !ledgerReady ? (
                   // At Tier C the counts are the band's own second line, so
                   // the line is there while they load: the list arriving below
                   // it moves nothing (§36.3). Above Tier C the counts follow
@@ -134,7 +141,8 @@ export default function ProcessingQueuePage() {
             )}
           />
         )}
-        notices={hasFailure(fromQuery(cameras)) || hasFailure(zoneState) ? (
+        // The notices arrive with the rows, not above a loading region they would push down.
+        notices={ledgerReady && (hasFailure(fromQuery(cameras)) || hasFailure(zoneState)) ? (
           <>
             <SupportingRequestNotice
               state={fromQuery(cameras)}
@@ -156,7 +164,7 @@ export default function ProcessingQueuePage() {
       >
         <StateRegion
           kind="column"
-          state={fromQuery(videos)}
+          state={ledgerState}
           label="processing state"
           loadingLabel="Loading processing state…"
           skeleton={LEDGER_SKELETON}

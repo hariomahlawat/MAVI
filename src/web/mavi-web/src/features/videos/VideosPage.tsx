@@ -7,7 +7,7 @@ import { getSystemConfig } from '../../api/system';
 import { isFinalizationFailure, isFinalizing, listVideos, queueProcessing } from '../../api/videos';
 import { queryKeys } from '../../app/queryClient';
 import { describeError, fromQuery } from '../../shared/async/fromQuery';
-import { hasFailure } from '../../shared/async/asyncState';
+import { hasFailure, holdUntilSettled } from '../../shared/async/asyncState';
 import StateRegion, { SupportingRequestNotice } from '../../shared/async/StateRegion';
 import Alert from '../../shared/components/Alert';
 import Button, { ButtonLink } from '../../shared/components/Button';
@@ -94,6 +94,12 @@ export default function VideosPage() {
     [rows],
   );
   const processing = useVideoProcessing(runStatusIds);
+  // The rows are drawn once, in their final layout: their timestamps need the
+  // display timezone and their camera cells the camera metadata. Drawn before
+  // either answer, a row re-wraps when it arrives and every row beneath moves
+  // (§38). A row's own run lookup is the row's region (§37.1), not this hold.
+  const ledgerState = holdUntilSettled(fromQuery(videos), !cameras.isPending && !systemConfig.isPending);
+  const ledgerReady = ledgerState.kind !== 'loading';
 
   // One mutation serves every row, so which rows are being queued, and which
   // one failed, is tracked per video: the mutation's own `variables` name only
@@ -144,9 +150,9 @@ export default function VideosPage() {
       // While the inventory loads the count's place is held by what is
       // happening, so a band that wraps its count to a second row (Tier B,
       // §25: two rows at most) does not move the rows when they arrive.
-      hint={videos.data
+      hint={videos.data && ledgerReady
         ? `${formatCount(rows.length)} of ${formatCount(total)} video${total === 1 ? '' : 's'}${filtered ? ' match the filters' : ''}`
-        : videos.isPending ? 'Loading videos…' : undefined}
+        : videos.isPending || !ledgerReady ? 'Loading videos…' : undefined}
     >
       <label className="visually-hidden" htmlFor="videos-text">Filter by file or camera</label>
       <input
@@ -217,10 +223,11 @@ export default function VideosPage() {
         actions={<ButtonLink to="/import" variant="primary" icon="upload">Import video</ButtonLink>}
       />
 
-      <LedgerLayout toolbar={toolbar} notices={hasNotices ? notices : null}>
+      {/* The notices arrive with the rows, not above a loading region they would push down. */}
+      <LedgerLayout toolbar={toolbar} notices={hasNotices && ledgerReady ? notices : null}>
         <StateRegion
           kind="column"
-          state={fromQuery(videos)}
+          state={ledgerState}
           label="videos"
           skeleton={LEDGER_SKELETON}
           isEmpty={(all) => all.length === 0}

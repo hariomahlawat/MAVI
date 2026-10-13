@@ -440,7 +440,9 @@ describe('ProcessingPage', () => {
       vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'Down.' }));
       render();
 
-      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      // The run is drawn with its analytics once they settle (§38) — here after
+      // the query's one retry — so the panel arrives with it.
+      const panel = (await screen.findByText('Scene analytics', {}, { timeout: 4000 })).closest('.panel') as HTMLElement;
       expect(await within(panel).findByText(/Analysis details are unavailable/, {}, { timeout: 4000 })).toBeInTheDocument();
       expect(within(panel).queryByText(/keeps refreshing until it does/)).not.toBeInTheDocument();
     });
@@ -466,7 +468,9 @@ describe('ProcessingPage', () => {
       vi.mocked(getRunAnalytics).mockRejectedValue(new ApiError({ status: 503, code: 'upstream_unavailable', detail: 'Down.' }));
       render();
 
-      const panel = (await screen.findByText('Scene analytics')).closest('.panel') as HTMLElement;
+      // The run is drawn with its analytics once they settle (§38) — here after
+      // the query's one retry — so the panel arrives with it.
+      const panel = (await screen.findByText('Scene analytics', {}, { timeout: 4000 })).closest('.panel') as HTMLElement;
       // The query retries once before failing terminally, so give it the retry.
       expect(await within(panel).findByText(/Analysis details are unavailable/, {}, { timeout: 4000 })).toBeInTheDocument();
       expect(within(panel).getByText('Analysed')).toBeInTheDocument();
@@ -550,8 +554,9 @@ describe('ProcessingPage', () => {
     vi.mocked(getVideo).mockRejectedValue(new ApiError({ status: 503, code: 'api_error', detail: 'Video store unavailable.' }));
     renderInShell();
 
-    // The run is still stated: only the file name is missing.
-    expect(await screen.findByRole('heading', { name: 'Processing run' })).toBeInTheDocument();
+    // The run is still stated: only the file name is missing. (The Record is
+    // drawn once the video's read has settled — here after its retry, §38.)
+    expect(await screen.findByRole('heading', { name: 'Processing run' }, { timeout: 4000 })).toBeInTheDocument();
     await waitFor(() => expect(getVideo).toHaveBeenCalled());
     await expectVideoIdentity(`Video ${videoId.slice(0, 8)}…`);
     expect(screen.queryByText('Video was not found.')).not.toBeInTheDocument();
@@ -566,7 +571,9 @@ describe('ProcessingPage', () => {
     }));
     renderInShell();
 
-    await screen.findByRole('heading', { name: 'Processing run' });
+    // §38: the Record loads as one presentation until its reads settle; the
+    // route keeps the video's identity meanwhile.
+    await screen.findByText('Loading processing state…');
     await expectVideoIdentity(`Video ${videoId.slice(0, 8)}…`);
 
     const record = await (original as typeof getVideo)(videoId);
