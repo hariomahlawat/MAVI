@@ -123,6 +123,16 @@ public static partial class TrackEndpoints
 
         // A Vehicle Track's plate evidence (Stage 4); a Person Track has none to read.
         var plates = await service.GetPlateDetailAsync(result.Row, cancellationToken);
+        if (plates is { Readiness: Domain.Plates.PlateReadinessState.Ready, Facts: { Outcome: null } missing })
+        {
+            // A published analysis gives every Vehicle Track of its run exactly one outcome (PR-3's completion
+            // invariant), so this is an integrity fault of persisted data. The wire shape stays the frozen one
+            // (reported as Unavailable without a reason, never invented facts); the operator learns of it here.
+            // Ids only: never a plate text.
+            LogPlateOutcomeMissing(loggerFactory.CreateLogger(typeof(TrackEndpoints).FullName!),
+                missing.Provenance.AnalysisId, result.Row.Id);
+        }
+
         return Results.Ok(ToDetail(result.Row, result.EvidenceSet!, result.Analytics!, plates));
     }
 
@@ -701,6 +711,10 @@ public static partial class TrackEndpoints
         ILogger logger,
         Guid trackId,
         TrackEvidenceSetInvariant invariant);
+
+    [LoggerMessage(EventId = 1422, EventName = "track_plate_outcome_missing", Level = LogLevel.Warning,
+        Message = "Plate analysis {AnalysisId} is the Ready default for the run of Vehicle Track {TrackId} but has no outcome for it; the detail reports it as unavailable.")]
+    private static partial void LogPlateOutcomeMissing(ILogger logger, Guid analysisId, Guid trackId);
 
     // The plate text is deliberately not a parameter of this message (plan §5.5): presence, match
     // mode and counts only. A test pins that no log record of a plate search carries the text.

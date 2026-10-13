@@ -549,7 +549,8 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
 
         var (detectorPack, ocrPack) = ModelPacks(header.CapabilitiesCanonical);
         return new TrackPlateFacts(
-            outcome?.Outcome ?? PlateTrackOutcomeKind.Unavailable,
+            // Null, never defaulted: a missing outcome is an integrity fault the caller reports and logs.
+            outcome?.Outcome,
             outcome?.Reason,
             texts,
             plates.Select(plate => new TrackPlateObservationRow(

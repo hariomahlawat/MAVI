@@ -364,6 +364,48 @@ public sealed class TrackPlateSearchApiTests(PostgresFixture fixture)
         Assert.False(person.TryGetProperty("plates", out _));
     }
 
+    /// <summary>
+    /// The impossible state (owner decision 2026-10-13): the run's default analysis is Ready but has no
+    /// outcome row for this Vehicle Track. The response keeps the frozen shape — an Unavailable outcome with
+    /// no reason, no agreement, empty texts and observations, the provenance — and the server logs a
+    /// warning (event 1422) naming the analysis and the Track, never a plate text.
+    /// </summary>
+    [Fact]
+    public async Task AReadyAnalysisWithoutTheTracksOutcomeKeepsTheShapeAndLogsAWarning()
+    {
+        await using var host = await PlateApiHost.CreateAsync(fixture, Now);
+        var identity = TrackPlateSearchWorld.IdentityA(host.Factory.Services.GetRequiredService<IPlateRelease>());
+        var run = await host.World.SeedRunAsync(persons: 0, vehicles: 2);
+        await TrackPlateSearchWorld.AttachRepresentativesAsync(host.World.Read, run);
+        // The analysis publishes an outcome for the first Vehicle Track only.
+        var analysisId = await TrackPlateSearchWorld.PublishAsync(host.World.Read, Now, run.RunId, identity,
+            [SeedPlateTrack.Analysed(run.Track(0).TrackId,
+                new SeedPlate(run.Track(0).Observations[0].ObservationId, 0.9, ("KA01AB1234", 0.9)))]);
+        var orphan = run.Track(1).TrackId;
+        var before = host.Logs.Entries.Count;
+
+        var plates = (await host.Client.GetFromJsonAsync<JsonElement>($"/api/tracks/{orphan}")).GetProperty("plates");
+
+        Assert.Equal(["readiness", "trackOutcome", "texts", "observations", "provenance"], plates.EnumerateObject().Select(member => member.Name));
+        Assert.Equal("Ready", plates.GetProperty("readiness").GetString());
+        Assert.Equal("Unavailable", plates.GetProperty("trackOutcome").GetString());
+        Assert.Empty(plates.GetProperty("texts").EnumerateArray());
+        Assert.Empty(plates.GetProperty("observations").EnumerateArray());
+        Assert.Equal(analysisId, plates.GetProperty("provenance").GetProperty("analysisId").GetGuid());
+
+        var warning = Assert.Single(host.Logs.Entries.Skip(before), entry => entry.EventId.Id == 1422);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Equal("track_plate_outcome_missing", warning.EventId.Name);
+        Assert.Contains(analysisId.ToString(), warning.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(orphan.ToString(), warning.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("KA01AB1234", warning.Message, StringComparison.Ordinal);
+
+        // A Track that has its outcome raises no warning.
+        var countBefore = host.Logs.Entries.Count(entry => entry.EventId.Id == 1422);
+        await host.Client.GetFromJsonAsync<JsonElement>($"/api/tracks/{run.Track(0).TrackId}");
+        Assert.Equal(countBefore, host.Logs.Entries.Count(entry => entry.EventId.Id == 1422));
+    }
+
     [Fact]
     public async Task PendingAndStaleVehicleDetailsCarryOnlyTheirReadiness()
     {
