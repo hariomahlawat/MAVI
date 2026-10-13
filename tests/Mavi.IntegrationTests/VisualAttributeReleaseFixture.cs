@@ -42,7 +42,7 @@ internal static class VisualAttributeReleaseFixture
         var bindings = binding["capabilityBindings"]!.AsArray();
         bindings.Add(Bound("person-attributes", personPack));
         bindings.Add(Bound("vehicle-attributes", vehiclePack));
-        return Encoding.UTF8.GetBytes(binding.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        return Encoding.UTF8.GetBytes(binding.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
     }
 
     /// <summary>Writes a binding for identity A or B to a file, for hosts configured by path.</summary>
@@ -84,7 +84,7 @@ internal static class VisualAttributeReleaseFixture
             ["attributeSchemaVersion"] = "1.0.0",
             ["attributes"] = attributes,
         };
-        var schemaBytes = Encoding.UTF8.GetBytes(schema.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        var schemaBytes = Encoding.UTF8.GetBytes(schema.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
         File.WriteAllBytes(Path.Combine(directory, "worst-shape-schema-v1.json"), schemaBytes);
         var profile = JsonNode.Parse(File.ReadAllText(PipelineProfile))!.AsObject();
         profile["attributeSchema"] = new JsonObject
@@ -93,7 +93,7 @@ internal static class VisualAttributeReleaseFixture
             ["sha256"] = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(schemaBytes)),
         };
         var path = Path.Combine(directory, "worst-shape-pipeline-v1.json");
-        File.WriteAllText(path, profile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
+        File.WriteAllText(path, profile.ToJsonString(new JsonSerializerOptions { WriteIndented = true, NewLine = "\n" }) + "\n");
         return path;
     }
 
