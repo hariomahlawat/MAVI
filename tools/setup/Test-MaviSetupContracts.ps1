@@ -102,6 +102,17 @@ try {
         throw "Developer offline-cache preparation does not include tools/requirements.txt."
     }
 
+    # The Stage-4 measuring-instrument environment (Development benchmark only) is packaged in the same cache:
+    # its CPython 3.12 wheels and its model payloads, installed offline by its own installer.
+    if ($cacheBuilderText -notmatch '(?s)pip\s+download.*-r\s+\$instrumentRequirements.*--only-binary' -or
+        $cacheBuilderText -notmatch 'instrument_env\.py"\)\s+fetch-payloads') {
+        throw "Developer offline-cache preparation does not include the benchmark instrument environment."
+    }
+    $instrumentInstallerText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\benchmarks\plates\Install-PlateInstrumentEnvironment.ps1") -Raw
+    if ($instrumentInstallerText -notmatch '(?s)pip\s+install\s+--no-index' -or $instrumentInstallerText -notmatch 'stage-models') {
+        throw "The benchmark instrument environment is not installed offline from the wheelhouse with verified models."
+    }
+
     $windowsSetupText = Get-Content -LiteralPath (Join-Path $repoRoot "tools\setup\Mavi.Setup.Windows.psm1") -Raw
     if ($windowsSetupText -notmatch '(?s)pip.*install.*--no-index.*-r.*\$toolsRequirements') {
         throw "Development setup does not install tools/requirements.txt from the offline wheelhouse."

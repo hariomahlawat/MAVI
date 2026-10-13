@@ -1,0 +1,223 @@
+"""Normalisation v1 (shared vectors), plate truth validation and the adequacy verdict boundaries."""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import json
+from fractions import Fraction
+
+import pytest
+
+from tools.benchmarks.capabilities.plates import truth as truths, verdict as verdicts
+from tools.benchmarks.core._stage3 import ROOT
+from tools.benchmarks.core.identity import S32Error
+from tools.benchmarks.plates import normalisation
+
+VECTOR_FILE = ROOT / "contracts" / "test-vectors" / "plate-normalisation-v1.json"
+VECTORS = json.loads(VECTOR_FILE.read_text(encoding="utf-8"))
+# Frozen for Stage 4 v1 (owner decision 2026-10-13, after the U+FFFE parity vectors). Plate-analysis identities bind
+# this SHA. Any semantic change needs a new normalisation id and vector file, never an edit of this one.
+FROZEN_V1_SHA256 = "6e505158a735a1c4c5d96ad33d08e4ddb0b98d456f0dd532a6af25de120bf935"
+
+
+@pytest.mark.parametrize("vector", VECTORS["vectors"], ids=[v["id"] for v in VECTORS["vectors"]])
+def test_normalisation_matches_the_shared_vector(vector):
+    result = normalisation.normalise(vector["raw"])
+    assert result.raw == vector["raw"]
+    assert (result.normalised, result.outcome, result.reason, result.format_class) == (
+        vector["normalised"], vector["outcome"], vector["reason"], vector["formatClass"])
+
+
+def test_vector_file_is_the_v1_contract():
+    assert VECTORS["schemaVersion"] == "plate-normalisation-test-vectors-v1"
+    assert VECTORS["normalisationId"] == normalisation.NORMALISATION_ID
+    ids = [v["id"] for v in VECTORS["vectors"]]
+    assert len(ids) == len(set(ids)) >= 30
+
+
+def test_vector_file_is_frozen():
+    assert hashlib.sha256(VECTOR_FILE.read_bytes()).hexdigest() == FROZEN_V1_SHA256
+
+
+def test_ill_formed_input_is_refused():
+    with pytest.raises(ValueError, match="ill_formed"):
+        normalisation.normalise("KA01\ud800AB")
+    with pytest.raises(TypeError):
+        normalisation.normalise(None)  # type: ignore[arg-type]
+
+
+def test_separator_set_is_exactly_the_contract():
+    rule = next(r for r in VECTORS["rules"] if r.startswith("4."))
+    for character in normalisation.SEPARATORS:
+        assert f"U+{ord(character):04X}" in rule
+
+
+# Plate truth
+
+
+def _truth(**changes):
+    item = {"itemId": "seq/000000/vehicle", "imagePath": "a.png", "imageSha256": "1" * 64,
+            "frameSize": {"width": 100, "height": 80}, "sequenceId": "seq", "frameIndex": 0, "gtTrackId": "vehicle",
+            "vehicleBox": {"x": 10, "y": 10, "width": 80, "height": 60}, "vehicleClass": "car",
+            "plates": [truths.plate("plate", truths.box_polygon(40, 50, 20, 8), "AB-1234", "one-line")]}
+    document = {"schemaVersion": truths.SCHEMA, "datasetId": "ufpr-alpr", "release": "r", "split": "testing",
+                "descriptorSha256": "2" * 64, "adapterId": "ufpr-alpr", "adapterVersion": "1", "kind": "sequence",
+                "normalisationId": "mavi-plate-normalisation-v1", "items": [item], "exclusions": []}
+    for path, value in changes.items():
+        target = document
+        keys = path.split(".")
+        for key in keys[:-1]:
+            target = target[int(key)] if key.isdigit() else target[key]
+        target[keys[-1]] = value
+    return document
+
+
+def test_valid_truth_passes():
+    assert truths.validate_document(_truth())["items"][0]["plates"][0]["textUsable"] is True
+
+
+@pytest.mark.parametrize("change,code", [
+    ({"items.0.plates.0.polygon": [[95, 50], [120, 50], [120, 58], [95, 58]]}, "polygon"),
+    ({"items.0.plates.0.textUsable": False}, "text_usability"),
+    ({"items.0.plates.0.layout": "two-line"}, "layout"),
+    ({"items.0.itemId": "seq/000001/vehicle"}, "item_id"),
+    ({"kind": "still"}, "still_fields"),
+    ({"items.0.vehicleBox": {"x": 50, "y": 10, "width": 80, "height": 60}}, "vehicle_box"),
+])
+def test_invalid_truth_is_refused(change, code):
+    with pytest.raises(S32Error, match=code):
+        truths.validate_document(_truth(**change))
+
+
+def test_unlabelled_and_rejected_labels_are_unusable_not_dropped():
+    assert truths.plate("p", truths.box_polygon(0, 0, 4, 2), None, "unknown")["textUnusableReason"] == "unlabelled"
+    rejected = truths.plate("p", truths.box_polygon(0, 0, 4, 2), "KA01–AB", "unknown")
+    assert (rejected["textUsable"], rejected["textUnusableReason"]) == (False, "non-alphanumeric")
+
+
+def test_geometry_proxies():
+    polygon = truths.box_polygon(0, 0, 40, 20)
+    assert truths.char_height_px(polygon, 2) == 10
+    assert truths.char_height_px(polygon, None) == 20
+    assert truths.plate_width_px(polygon) == 40
+    assert truths.skew_degrees(polygon) == 0
+    assert truths.skew_degrees([[0, 0], [10, 10], [10, 20], [0, 10]]) == pytest.approx(45)
+
+
+# Verdict
+
+
+def _decide(c=(85, 100), loss_a=Fraction(5), loss_b=Fraction(0), sufficient=True, errors=None):
+    return verdicts.decide(coverage=c, coverage_sufficient=sufficient, losses={"a": loss_a, "b": loss_b},
+                           losses_sufficient={"a": sufficient, "b": sufficient},
+                           instrument_errors=errors or {"a": 0, "b": 0})["verdict"]
+
+
+@pytest.mark.parametrize("c,loss,expected", [
+    ((85, 100), Fraction(5), "ADEQUATE"),
+    ((8499, 10000), Fraction(0), "MARGINAL"),
+    ((70, 100), Fraction(0), "MARGINAL"),
+    ((6999, 10000), Fraction(0), "INADEQUATE"),
+    ((100, 100), Fraction(501, 100), "MARGINAL"),
+    ((100, 100), Fraction(10), "MARGINAL"),
+    ((100, 100), Fraction(1001, 100), "INADEQUATE"),
+    ((100, 100), Fraction(-3), "ADEQUATE"),
+    ((75, 100), Fraction(11), "INADEQUATE"),
+])
+def test_verdict_boundaries(c, loss, expected):
+    assert _decide(c=c, loss_a=loss) == expected
+
+
+def test_no_data_is_not_measured_never_adequate():
+    assert _decide(c=None) == "NOT_MEASURED"
+    assert _decide(c=(0, 0)) == "NOT_MEASURED"
+    assert _decide(sufficient=False) == "NOT_MEASURED"
+    assert _decide(loss_b=None) == "NOT_MEASURED"
+    assert _decide(errors={"a": 1, "b": 0}) == "NOT_MEASURED"
+    assert verdicts.decide(coverage=(90, 100), coverage_sufficient=True, losses={}, losses_sufficient={},
+                           instrument_errors={})["verdict"] == "NOT_MEASURED"
+
+
+def test_inadequate_takes_precedence_and_keeps_every_reason():
+    result = verdicts.decide(coverage=(80, 100), coverage_sufficient=True, losses={"a": Fraction(12), "b": Fraction(6)},
+                             losses_sufficient={"a": True, "b": True}, instrument_errors={"a": 0, "b": 0})
+    assert result["verdict"] == "INADEQUATE"
+    assert result["reasons"] == ["encoding_loss_above_10pp:a", "coverage_below_0.85", "encoding_loss_above_5pp:b"]
+
+
+def test_truth_document_is_not_mutated_by_validation():
+    document = _truth()
+    before = copy.deepcopy(document)
+    truths.validate_document(document)
+    assert document == before
+
+
+# Masked labels (protocol §5 R6)
+
+
+@pytest.mark.parametrize("label,usable,reason,truth", [
+    ("24*0JV*", True, None, "24*0JV*"), ("ab-1*3", True, None, "AB1*3"), ("**", False, "fully-masked", None),
+    ("KA–1*", False, "non-alphanumeric", None), ("Ké*", False, "non-alphanumeric", None),
+])
+def test_masked_label_usability(label, usable, reason, truth):
+    plate = truths.plate("p", truths.box_polygon(0, 0, 40, 10), label, "one-line")
+    assert (plate["textUsable"], plate["textUnusableReason"], plate["maskedCharacters"]) == (usable, reason,
+                                                                                            label.count("*"))
+    if usable:
+        assert truths.truth_text(plate) == truth
+
+
+@pytest.mark.parametrize("read,expected", [("2410JV7", True), ("24X0JV9", True), ("2410JV", False),
+                                           ("2410JV77", False), ("2410JW7", False), (None, False)])
+def test_masked_match_needs_length_and_every_unmasked_character(read, expected):
+    assert truths.text_matches(read, "24*0JV*") is expected
+
+
+def test_unmasked_match_is_plain_equality():
+    assert truths.text_matches("AB123", "AB123") and not truths.text_matches("AB124", "AB123")
+
+
+# E-B input binding (review finding: the association envelope and the E-A instruments)
+
+def _binding():
+    association = {"envelope": {"dataset": {"descriptorSha256": "d" * 64},
+                                "mavi": {"exportSha256s": ["b" * 64, "a" * 64]}}}
+    ea = {"inputs": {"truth": "t" * 64, "instrumentSpecs": ["s" * 64, "r" * 64]},
+          "instruments": [{"instrumentId": "x", "instrumentSha256": "1" * 64}]}
+    return association, ea
+
+
+def test_coverage_inputs_bound_to_the_association_and_encoding_loss():
+    from tools.benchmarks.plates import cli
+    association, ea = _binding()
+    identities = [{"instrumentId": "x", "instrumentSha256": "1" * 64}]
+    cli.bind_coverage_inputs(association, "d" * 64, ["a" * 64, "b" * 64], ea, "t" * 64, ["r" * 64, "s" * 64],
+                             identities)
+    for change, reason in [
+            (dict(descriptor_sha="e" * 64), "association_descriptor"),
+            (dict(export_shas=["a" * 64]), "association_exports"),
+            (dict(truth_sha="u" * 64), "encoding_loss_truth"),
+            (dict(spec_shas=["r" * 64, "q" * 64]), "encoding_loss_instruments"),
+            (dict(identities=[{"instrumentId": "x", "instrumentSha256": "2" * 64}]), "encoding_loss_instruments")]:
+        arguments = dict(descriptor_sha="d" * 64, export_shas=["a" * 64, "b" * 64], truth_sha="t" * 64,
+                         spec_shas=["r" * 64, "s" * 64], identities=identities, **{})
+        arguments.update(change)
+        with pytest.raises(S32Error, match=reason):
+            cli.bind_coverage_inputs(association, arguments["descriptor_sha"], arguments["export_shas"], ea,
+                                     arguments["truth_sha"], arguments["spec_shas"], arguments["identities"])
+
+
+def test_pixel_adequacy_counts_encoded_heights_at_or_above_h_min():
+    from tools.benchmarks.capabilities.plates import adequacy
+
+    def row(native, rep, sup, admitted=True, inside=1.0):
+        role = lambda h: {"admitted": admitted, "plateInsideShare": inside, "charHeightPx": h}  # noqa: E731
+        return {"textUsable": True, "association": "dataset-vehicle-box", "native": {"charHeightPx": native},
+                "roles": {"representative": role(rep), "supplemental": role(sup)}}
+    rows = [row(40, 33, 40), row(40, 20, 35), row(20, 20, 20), row(40, 40, 40, admitted=False),
+            row(40, 40, 40, inside=0.0)]
+    result = adequacy.pixel_adequacy(rows, 32)
+    assert result["representative"]["allPlates"]["adequate"] == 1 and result["representative"]["allPlates"]["n"] == 5
+    assert result["supplemental"]["nativeAtOrAboveHMin"]["adequate"] == 2
+    assert result["supplemental"]["nativeAtOrAboveHMin"]["n"] == 4

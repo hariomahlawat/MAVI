@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/benchmark-plate-truth-v1.schema.json",
+  "title": "benchmark-plate-truth-v1",
+  "description": "Canonical plate ground truth of one dataset release split (Stage 4 PR-1; ADR-017 §11: the plate capability's own truth — plate region, transcription and text semantics). Written by a dataset adapter from verified source bytes; its identity is the SHA-256 of its canonical JSON. Development benchmark evidence only. Coordinates are source-image pixels; polygons are four corners, top-left, top-right, bottom-right, bottom-left. The raw label text is kept verbatim; its mavi-plate-normalisation-v1 outcome decides whether the plate is text-usable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "datasetId", "release", "split", "descriptorSha256", "adapterId", "adapterVersion", "kind", "normalisationId", "items", "exclusions"],
+  "properties": {
+    "schemaVersion": {"const": "benchmark-plate-truth-v1"},
+    "datasetId": {"$ref": "#/$defs/slug"},
+    "release": {"$ref": "#/$defs/text"},
+    "split": {"$ref": "#/$defs/slug"},
+    "descriptorSha256": {"$ref": "#/$defs/sha256"},
+    "adapterId": {"$ref": "#/$defs/slug"},
+    "adapterVersion": {"$ref": "#/$defs/text"},
+    "kind": {"enum": ["still", "sequence"]},
+    "normalisationId": {"const": "mavi-plate-normalisation-v1"},
+    "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "exclusions": {
+      "description": "Source annotations the adapter refused, each with a closed reason; never silently dropped.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {"path": {"$ref": "#/$defs/text"}, "reason": {"$ref": "#/$defs/slug"}}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "slug": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"},
+    "text": {"type": "string", "minLength": 1, "pattern": "^\\S(.*\\S)?$"},
+    "pixelBox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "number", "minimum": 0},
+        "y": {"type": "number", "minimum": 0},
+        "width": {"type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "point": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number", "minimum": 0}},
+    "plate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plateId", "polygon", "text", "lineCount", "layout", "illumination", "occluded", "textUsable", "textUnusableReason", "maskedCharacters"],
+      "properties": {
+        "plateId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"},
+        "polygon": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/point"}},
+        "text": {"type": ["string", "null"], "description": "The dataset's raw label; null when the dataset labels no text for this plate."},
+        "lineCount": {"enum": [1, 2, null]},
+        "layout": {"enum": ["one-line", "two-line", "unknown"]},
+        "illumination": {"enum": ["day", "night", "unknown"]},
+        "occluded": {"type": ["boolean", "null"]},
+        "textUsable": {"type": "boolean"},
+        "textUnusableReason": {"enum": [null, "unlabelled", "empty", "non-alphanumeric", "fully-masked"]},
+        "maskedCharacters": {"type": "integer", "minimum": 0, "description": "Characters the release anonymised, labelled '*' (protocol §5 R6): a read matches only with the truth's length and every unmasked character."}
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["itemId", "imagePath", "imageSha256", "frameSize", "sequenceId", "frameIndex", "gtTrackId", "vehicleBox", "vehicleClass", "plates"],
+      "properties": {
+        "itemId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,255}$"},
+        "imagePath": {"$ref": "#/$defs/text"},
+        "imageSha256": {"$ref": "#/$defs/sha256"},
+        "frameSize": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {"width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}
+        },
+        "sequenceId": {"type": ["string", "null"]},
+        "frameIndex": {"type": ["integer", "null"], "minimum": 0},
+        "gtTrackId": {"type": ["string", "null"]},
+        "vehicleBox": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/pixelBox"}]},
+        "vehicleClass": {"enum": ["car", "motorcycle", "commercial", "unknown"]},
+        "plates": {"type": "array", "items": {"$ref": "#/$defs/plate"}}
+      }
+    }
+  }
+}
