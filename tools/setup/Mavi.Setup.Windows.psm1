@@ -639,8 +639,50 @@ function Set-MaviIisSite {
     }
 
     Invoke-MaviCommand -FilePath $appCmd -Arguments @("set", "app", "$SiteName/", "/applicationPool:$AppPoolName")
+    Set-MaviIisSiteLogging -SiteName $SiteName
     Invoke-MaviCommand -FilePath $appCmd -Arguments @("start", "apppool", "/apppool.name:$AppPoolName") -AllowedExitCodes @(0,183)
     Invoke-MaviCommand -FilePath $appCmd -Arguments @("start", "site", "/site.name:$SiteName") -AllowedExitCodes @(0,183)
+}
+
+function Set-MaviIisSiteLogging {
+    # Idempotent: the MAVI site's own W3C log never records the query string, the Referer or cookies
+    # (Get-MaviIisLogFields). Plate text and cursors travel in query strings (ADR-013 item 20).
+    param([Parameter(Mandatory = $true)][string]$SiteName)
+
+    $appCmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
+    Invoke-MaviCommand -FilePath $appCmd -Arguments @(
+        "set", "site", "/site.name:$SiteName", "/logFile.logFormat:W3C", "/logFile.logExtFileFlags:$(Get-MaviIisLogFields)")
+    $privacy = Get-MaviIisSiteLogPrivacy -SiteName $SiteName
+    if (-not $privacy.Safe) {
+        throw "IIS request logging for '$SiteName' would record query strings: $($privacy.Detail)"
+    }
+}
+
+function Get-MaviIisSiteLogPrivacy {
+    # What the MAVI site's request logs actually record. Server-wide central logging, when enabled, replaces
+    # per-site logs, so its field set is checked too; central binary logging records full URIs and is unsafe.
+    param([Parameter(Mandatory = $true)][string]$SiteName)
+
+    $appCmd = Join-Path $env:windir "System32\inetsrv\appcmd.exe"
+    $central = (Invoke-MaviCommand -FilePath $appCmd -Arguments @(
+        "list", "config", "-section:system.applicationHost/log", "/text:centralLogFileMode") -CaptureOutput).StandardOutput.Trim()
+    if ($central -eq "CentralBinary") {
+        return [pscustomobject]@{ Safe = $false; Detail = "central binary logging records full request URIs" }
+    }
+    if ($central -eq "CentralW3C") {
+        $flags = (Invoke-MaviCommand -FilePath $appCmd -Arguments @(
+            "list", "config", "-section:system.applicationHost/log", "/text:centralW3CLogFile.logExtFileFlags") -CaptureOutput).StandardOutput.Trim()
+        return [pscustomobject]@{ Safe = (Test-MaviIisLogFieldsSafe -LogExtFileFlags $flags); Detail = "central W3C fields: $flags" }
+    }
+
+    $siteFlags = (Invoke-MaviCommand -FilePath $appCmd -Arguments @(
+        "list", "site", "/name:$SiteName", "/text:logFile.logExtFileFlags") -CaptureOutput).StandardOutput.Trim()
+    $format = (Invoke-MaviCommand -FilePath $appCmd -Arguments @(
+        "list", "site", "/name:$SiteName", "/text:logFile.logFormat") -CaptureOutput).StandardOutput.Trim()
+    if ($format -and $format -ne "W3C") {
+        return [pscustomobject]@{ Safe = $false; Detail = "site log format $format records full request URIs" }
+    }
+    return [pscustomobject]@{ Safe = (Test-MaviIisLogFieldsSafe -LogExtFileFlags $siteFlags); Detail = "site W3C fields: $siteFlags" }
 }
 
 function Ensure-MaviFirewallRule {

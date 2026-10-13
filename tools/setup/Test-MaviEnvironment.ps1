@@ -139,6 +139,12 @@ else {
     Add-Check -Name "IIS" -Passed (Test-Path -LiteralPath $appCmd -PathType Leaf) -Detail $appCmd
     $hostingModule = Join-Path $env:ProgramFiles "IIS\Asp.Net Core Module\V2\aspnetcorev2.dll"
     Add-Check -Name "ASP.NET Core Module" -Passed (Test-Path -LiteralPath $hostingModule -PathType Leaf) -Detail $hostingModule
+    # Plate text and cursors travel in query strings: the site's request log must not record them (ADR-013 item 20).
+    try {
+        $logPrivacy = Get-MaviIisSiteLogPrivacy -SiteName ([string]$profileDefaults.iisSiteName)
+        Add-Check -Name "IIS request-log privacy" -Passed $logPrivacy.Safe -Detail $(if ($logPrivacy.Safe) { $logPrivacy.Detail } else { "$($logPrivacy.Detail); re-run Setup-MAVI" })
+    }
+    catch { Add-Check -Name "IIS request-log privacy" -Passed $false -Detail $_.Exception.Message }
     if ($HttpPort -eq 0) { $HttpPort = [int]$profileDefaults.httpPort }
     $baseUrl = "http://127.0.0.1:$HttpPort"
     try {

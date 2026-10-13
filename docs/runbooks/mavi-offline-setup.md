@@ -288,7 +288,7 @@ Double-click:
 Setup-MAVI-Production.cmd
 ~~~
 
-Setup automatically verifies every bundle file; installs/repairs the isolated PostgreSQL runtime; starts MAVI-PostgreSQL-18 on port 55432; generates protected database credentials; creates the mavi database and pgvector extension; creates storage roots; writes and ACL-protects machine configuration; enables required IIS features; installs the ASP.NET Core Hosting Bundle when absent; deploys the qualified application; creates the dedicated MAVI application pool/site; starts MAVI; lets startup verify native dependencies and apply EF migrations; and validates both /api/health and the UI root.
+Setup automatically verifies every bundle file; installs/repairs the isolated PostgreSQL runtime; starts MAVI-PostgreSQL-18 on port 55432; generates protected database credentials; creates the mavi database and pgvector extension; creates storage roots; writes and ACL-protects machine configuration; enables required IIS features; installs the ASP.NET Core Hosting Bundle when absent; deploys the qualified application; creates the dedicated MAVI application pool/site, whose IIS request log records no query string, Referer or cookie (plate text and cursors travel in query strings; `Test-MaviEnvironment` fails if they are logged, including under server-wide central logging); starts MAVI; lets startup verify native dependencies and apply EF migrations; and validates both /api/health and the UI root.
 
 Default URL:
 
