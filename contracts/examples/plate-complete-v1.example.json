@@ -11,16 +11,16 @@
         "capabilityId": "ocr",
         "modelPackId": "mavi-model-v2-3333333333333333333333333333333333333333333333333333333333333333",
         "modelManifestSha256": "5555555555555555555555555555555555555555555555555555555555555555",
-        "qualificationId": null,
-        "qualificationSha256": null,
+        "qualificationId": "ocr-fixture",
+        "qualificationSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "verificationStatus": "unverified"
       },
       {
         "capabilityId": "plate-detector",
         "modelPackId": "mavi-model-v2-4444444444444444444444444444444444444444444444444444444444444444",
         "modelManifestSha256": "6666666666666666666666666666666666666666666666666666666666666666",
-        "qualificationId": null,
-        "qualificationSha256": null,
+        "qualificationId": "plate-detector-fixture",
+        "qualificationSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "verificationStatus": "unverified"
       }
     ],

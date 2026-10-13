@@ -37,8 +37,6 @@
   "$defs": {
     "uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "nullableSha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
-    "nullableText": { "type": ["string", "null"], "maxLength": 256 },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
     "provenance": {
       "type": "object",
@@ -63,8 +61,8 @@
               "capabilityId": { "enum": ["ocr", "plate-detector"] },
               "modelPackId": { "type": "string", "pattern": "^mavi-model-v2-[0-9a-f]{64}$" },
               "modelManifestSha256": { "$ref": "#/$defs/sha256" },
-              "qualificationId": { "$ref": "#/$defs/nullableText" },
-              "qualificationSha256": { "$ref": "#/$defs/nullableSha256" },
+              "qualificationId": { "type": "string", "maxLength": 64, "pattern": "^[a-z](?:[a-z0-9]|-(?=[a-z0-9]))*$" },
+              "qualificationSha256": { "$ref": "#/$defs/sha256" },
               "verificationStatus": { "enum": ["verified", "unverified"] }
             }
           }
