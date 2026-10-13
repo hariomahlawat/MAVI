@@ -51,7 +51,7 @@ plate retention/access policy and the Production audit profile (plan §8).
 | P13 | Model/Runtime Packs: hashes, licence notices, `verify_repo`, disconnected install | NOT STARTED | PR-6 |
 | P14 | Real end-to-end Track-level D through the product path, consistent with P5 | NOT STARTED | PR-6 |
 | P15 | Engineering budget and 500-camera projection (M-E, projected) | NOT STARTED | PR-6 |
-| P16 | Exact-head CI green for each Stage-4 PR | **PR-1: PASS (final content head)** | PR #213 final content head `2ff686ce5433eafb2748cf069565d2ab0d995969`: MAVI Quality Gate run 38352852989 success, Task 10 Runtime Qualification 38352852983 success, Task 17 Acceptance Validation 38352852986 success, Qualification Tooling Windows 38352852995 success (24 checks pass, 10 skipped, 0 failing). Earlier implementation head `150bd5ae`: runs 38258983601/558/589/535 success. This register update is documentation only; its own head's CI is reported on the PR |
+| P16 | Exact-head CI green for each Stage-4 PR | **PR-1: PASS (final content head)** | PR #213 final content head `a01b39211dd57427e70d1eda9e37d7dd061d84ae` (Codex review fixes): MAVI Quality Gate run 38355874050 success, Task 10 Runtime Qualification 38355874035 success, Task 17 Acceptance Validation 38355874138 success, Qualification Tooling Windows 38355874023 success (43 checks pass, 2 skipped, 0 failing). Earlier heads: `2ff686ce` (runs 38352852989/983/986/995) and implementation head `150bd5ae` (runs 38258983601/558/589/535), all success. This register update is documentation only and is not itself re-cited here; its own head's CI is reported on the PR |
 
 ## Evidence-adequacy results (2026-10-13)
 
