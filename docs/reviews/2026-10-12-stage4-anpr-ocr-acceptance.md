@@ -102,6 +102,24 @@ MAVI is classified by the owner as a **non-commercial, open-source academic rese
 
 **Limitation.** **No human has reviewed the labels.** Both readers are AI models. They are independent of each other's output, of both OCR instruments and of MAVI, but not human. The retained sheets (`sheets/`, `geometry-legible/`, `o5/verifier/`) allow a later human audit.
 
+**Human audit (owner decision 2026-10-13): package prepared, verification PENDING.**
+- **Location:** `E:\MAVI-Controlled\Benchmarks\stage4-bdd-plates\o5\human-audit\` (outside Git; BDD100K imagery is not redistributed).
+- **Scope:** 100 tracks and 125 form rows:
+  - all 26 failures;
+  - the 20-track success sample;
+  - the 28 borderline tracks;
+  - 32 disputed tracks;
+  - the 20-track illegible sample;
+  - 18 unlabelled evidence frames.
+- **Contents:**
+  - original frames, plate crops, sealed MAVI evidence crops, annotations and track identities;
+  - accept / correct / reject columns in `audit-form.csv` (`ae40d398…`, unfilled).
+- **Patch 1** added the original source frames, GT vehicle boxes and annotation-detector proposals for the 20 illegible rows (A035, A044, A077–A094).
+  - Hashes: `index.html` `abdf9758…`, `manifest.json` `126f2a9d…` (every added asset hashed).
+  - The unpatched package is kept in `o5\human-audit-original\`.
+- **Reviewer:** may be any independent competent person, not necessarily the owner.
+- **P3 acceptance remains pending** until the audit is completed and its impact assessed. Nothing in this register describes the AI verification as human verification.
+
 ### O3 — investigate the tracking misses first
 
 **Outcome:** `docs/qualification/stage4/adequacy-root-cause-2026-10-13.md`.
@@ -114,7 +132,13 @@ MAVI is classified by the owner as a **non-commercial, open-source academic rese
 
   All measured on **5 fps** labelled frames, so not representative of native-rate tracking.
 - **The 12 matched failures:**
-  - **selection 10** — the near frames are excluded by the frame-edge qualification floor (the vehicle box touches the border in 23 of 25 best frames, while the Track is present and the detector is confident);
+  - **selection 10** — near views fail evidence qualification. *Corrected after X1 from the selector's own records:*
+    - left, right or top edge contact blocks 9;
+    - the sharpness floor blocks 5;
+    - NearView hysteresis blocks 1;
+    - bottom contact alone blocks none.
+
+    The first statement, "the box touches the border (GT proxy)", was an unvalidated inference.
   - encoding 1;
   - frame quality 1.
 - **Recommendation:**
@@ -122,19 +146,42 @@ MAVI is classified by the owner as a **non-commercial, open-source academic rese
   2. re-measure tracking on native-frame-rate footage before any tracker change.
 - **Nothing is implemented. PR-6 stays held.**
 
+**X1 measured (2026-10-13):** `docs/qualification/stage4/x1-edge-margin-2026-10-13.md`.
+- **Candidate rule:** `x1-bottom-edge-exempt-vehicle-v1`. It is an experiment wrapper only; the release profile is unchanged.
+- **Inputs:** the same 200 sequences, labels, instruments and frozen rules.
+- **Run identities:** new ProcessingRun identities per arm and sequence.
+- **Reproducibility:** live = baseline replay = the platform's H3 evidence in 200/200 sequences, and the baseline evaluation equals the frozen E-B.
+
+**Results:**
+- C: 51/77 → **51/77**;
+- matched-Track C: 51/63 → 51/63;
+- **0 of 10** selection failures recovered;
+- 0 regressions;
+- 13 of 11,892 Vehicle evidence observations changed, all qualified.
+
+The theoretical maximum of a selection-only remedy is 10/77, giving C = 61/77 = 0.792 — **MARGINAL, not ADEQUATE**.
+
+**Recommendation:** reject X1 as formulated. Any revision (side/top-edge or sharpness qualification at near views) is a new owner decision. **PR-6 stays held.**
+
 ### O1 — Indian dataset
 
 Kept **OPEN**. BDD100K results are never presented as Indian-condition validation.
 
 Leads recorded in the search record:
-- IDD-X (IIIT Hyderabad, 85 h of 25 fps dual-view Hyderabad driving video with tracked boxes) — registration on the IIIT portal is required, and whether plates are unblurred is unconfirmed;
+- IDD-X (IIIT Hyderabad, 25 fps dual-view Hyderabad driving video with 25 Hz tracked boxes on important objects).
+  - **Owner approved registration on 2026-10-13.**
+  - Access is requested on India Data; the listing is "Private", 171 GB.
+  - Its Data User Agreement allows research use and forbids commercial use without consent; DPDPA 2023 applies.
+  - Plate visibility is unconfirmed.
+  - The registration information for the owner is in the search record. Nothing has been accepted on the owner's behalf;
 - the IITH accident CCTV dataset — terms not established.
 
 ### Development
 
 - PR-3 is authorised with stand-in models, independently of PR #213.
+  - First slice on branch `stage4/pr3-plate-lifecycle`, local and not pushed: the ADR-013 amendment, contracts, domain, migration and the Python fixture skeleton.
 - PR-4 and PR-5 follow their dependencies.
-- PR-6 is held pending O3.
+- PR-6 is held; X1 did not remedy O3, and further profile changes need owner approval.
 
 ## Reproduction and repeatability
 

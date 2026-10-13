@@ -52,3 +52,47 @@ No openly licensed **and currently obtainable** labelled ALPR video with per-fra
 | IDD-3D | LiDAR and camera | CC BY 4.0, but plates are blurred | Not usable for plates |
 | IITH accident dataset (Hyderabad CCTV, 30 fps) | Accident clips from city CCTV | Terms not established | Lead only |
 | Kaggle "Car number plate video" | A few clips | Apache-2.0, but Kaggle needs a login | Not obtainable without an account |
+
+### IDD-X — registration information for the owner (O1 approved 2026-10-13; nothing accepted on the owner's behalf)
+
+Read on 2026-10-13 from the public pages only. No account was created, no terms were accepted and no access was requested.
+
+**Sources:**
+- the project page `idd-x.github.io`;
+- the paper (arXiv 2404.08561, ICRA 2024, DOI 10.1109/ICRA57147.2024.10609989);
+- the IIIT INSAAN dataset list;
+- the India Data listing `india-data.org/dataset-details/99124475-fc84-46dc-9dad-f5e34c18f9e0`.
+
+| Question | Finding |
+|---|---|
+| Where access is requested | The project page directs users to **India Data** (IHub-Data, IIIT Hyderabad, "Data Foundation for Smart Mobility"). Listing: Access Type **Private**, Status Verified, 171 GB, "videos with text annotations", owner Ravi Kiran Sarvadevabhatla. Access is by **Request Access** after signing up. The older INSAAN portal also lists IDD-X (160 GB) behind a login (sign-up asks for name, email, affiliation and role) and says "License will be displayed before downloading a dataset". |
+| Licence / agreement | India Data **Data User Agreement** (read, not accepted). The terms relevant to MAVI are summarised below this table. |
+| Frame rate | Recorded at **25 fps**: front 2560×1440, rear 1920×1080. Important-object boxes are tracked "at the frequency of 25Hz for the entire duration of the driving scenario" (paper). Whether the release ships full-rate video or extracted frames is **not stated publicly**. The listing says "videos". |
+| Plate visibility | **Not stated anywhere publicly.** The paper does not mention anonymisation. The DUA requires DPDPA-compliant handling of personal data. Plate legibility can only be confirmed after access. |
+| Fit to E-B | It has native-rate tracks of Indian vehicles in dense traffic, which is exactly the O1/O3 gap. However, the annotations are boxes on *important objects* only, with no plate text or plate boxes. Using it for E-B would need bounded R8-style plate labelling under ADR-017, and tracking measurement would be limited to the annotated objects. |
+| Cost | No price is shown on the listing. The portal has a "Pricing Details" page. **If access requires payment, MAVI's authorisation excludes it.** |
+
+**The Data User Agreement's terms relevant to MAVI:**
+- a non-exclusive, non-transferable licence "for research, analysis, and other lawful purposes";
+- compliance with the DPDPA 2023;
+- attribution as the dataset metadata specifies;
+- no commercial use without prior written consent;
+- modification only if the dataset's own terms of use allow it, and no misrepresentation of the data;
+- respect for privacy, with sensitive personal data never shared without the data subjects' consent;
+- no warranty;
+- Indian law and courts;
+- the provider may amend the terms;
+- "By accessing or using any dataset … you agree".
+
+**Assessment on MAVI's classification (non-commercial, open-source academic research).** The research-use and non-commercial terms fit internal benchmark measurement. Three points need the owner's attention **before accepting**:
+1. **Derived labels.** R8 plate labels and plate crops are derived data. "Modification only if explicitly stated" should be confirmed with the provider, and MAVI must not redistribute them.
+2. **Personal data.** Plate text is personal data under the DPDPA. Labels and crops must stay outside Git and on controlled storage, as for BDD100K.
+3. **Amendable terms.** The terms can be amended, so preserve a dated copy of the DUA at acceptance (licence evidence).
+
+**For the owner to do (MAVI cannot do it):**
+1. Create an India Data account in your own name and affiliation.
+2. Read the DUA as displayed and decide whether to accept it.
+3. Press **Request Access** on the IDD-X listing, stating the purpose truthfully: non-commercial academic research benchmark of plate legibility in Indian traffic; no redistribution; data kept on controlled storage.
+4. If a price or institutional-eligibility condition appears, stop; it is outside the current authorisation.
+5. Before downloading, ask the provider whether plates are unblurred and whether full 25 fps video is included. If plates are anonymised, IDD-X is recorded as unusable for E-B and the Indian search continues.
+6. When access is granted, share only the download link or files. MAVI will then record the descriptor, hashes and licence evidence and run a small legibility check before any labelling.

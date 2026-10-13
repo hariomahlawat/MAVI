@@ -57,26 +57,41 @@ Each failure was checked against the native read at the same evidence frame (E-A
 
 The encoding stage is nearly lossless at this resolution: BDD vehicle crops are under 1024 px, so they are not downscaled. **The dominant crop-retention cause is which frames the selector keeps.**
 
-### Why the selector did not keep the near frames (10 tracks, best 1–3 native frames each, 25 frames)
+### Why the selector did not keep the near frames — corrected 2026-10-13 from the selector's own records
+
+> **Correction.** The first version of this section inferred the cause from the **ground-truth** vehicle box ("touches the frame edge in 23 of 25") and concluded that a near vehicle's box "runs off the bottom of the frame". That proxy was not validated. X1 re-ran selection with per-candidate qualification records (`docs/qualification/stage4/x1-edge-margin-2026-10-13.md`).
+>
+> Those records show, at the best oracle frames of the 10 tracks:
+> - MAVI's own box is under the edge floor on the **left, right or top** border in 9 tracks: right 6, left 3, top 1. The bottom border alone blocks **none**.
+> - The **sharpness floor** blocks 5 tracks, alone or with the edge (00121309 by sharpness alone, at 69–72 px plates).
+> - In 1 track (00125713), a qualified near frame was not kept because the NearView growth hysteresis (area > 1.25× the held view) rejected it.
+> - In 1 track (00115627), the Track was not yet present at its best frame.
+>
+> The trajectory-presence and detector-confidence observations below are unchanged. The edge statements are superseded.
 
 At the frames where the plate is largest:
-- the matched MAVI Track **is present** (a trajectory point exists) in 24 of 25;
-- the detector confidence is **0.58–0.89**, above the 0.5 evidence floor;
-- the ground-truth vehicle box **touches the frame edge** (edge margin ≤ 0.002) in **23 of 25**, and is within 0.044 of it in the other 2.
+- the matched MAVI Track **is present** in 24 of 25;
+- the detector confidence (Stage-3 diagnostic) is 0.58–0.89.
 
-The release profile's evidence selector requires `edgeMarginFloor` 0.005 for a qualified candidate (ADR-013 §4). That rule therefore **disqualifies exactly the closest views**. A vehicle near the camera has its box run off the bottom of the frame, while its plate is still wholly inside the frame.
+Per the selector's records (X1 baseline arm), the near frames fail qualification on **side or top edge contact** and/or **sharpness**, not on bottom contact.
 
-The Representative falls back to the best admissible frame, and the supplemental roles are qualified-only. So no role can hold a near view.
+The Representative falls back to the best admissible frame, and the supplemental roles are qualified-only. So no role holds those views.
 
 ## Findings
 
 1. **The INADEQUATE coverage is not caused by JPEG encoding.** E-A loss is ≤ 2 pp; 1 of 77 tracks is lost to encoding.
-2. **The largest single cause is the frame-edge qualification floor** (10 of 77 tracks; 13 % of oracle-readable vehicles). It excludes near views whose box touches the frame border. This floor is a numeric parameter of the frozen, model-neutral selection method. Re-deriving it, for example tolerating contact with the bottom border, is **alternative X1** (a new pipeline profile and ProcessingRun identity, with requalification per ADR-013 §6 and ADR-009). It needs no plate-aware selector (X3) and no ADR-013 §10 change (X2).
+2. **The largest single cause is evidence selection's qualification at near views** (10 of 77 tracks; 13 % of oracle-readable vehicles).
+   - *Corrected:*
+     - side- or top-edge contact blocks 9 of them;
+     - the sharpness floor blocks 5;
+     - NearView hysteresis blocks 1;
+     - bottom contact alone blocks none.
+   - X1 (bottom-border exemption) was measured: it recovers **0 of 10**, with no regressions (`x1-edge-margin-2026-10-13.md`).
 3. **Tracking and association account for 14 of 77** (18 %): fragmentation 6, detection confidence 4, association policy 4. These numbers come from **5 fps** derived video (BDD100K MOT labels frames at 5 fps). ByteTrack's association is sensitive to frame rate, so the share is **not** representative of MAVI at native 25–30 fps. X1–X3 cannot recover these.
 
 ## Recommended corrective action (evidence-supported; nothing is implemented)
 
-1. **Measure X1 (edge-margin floor) before anything else.** Run a bounded Development experiment:
+1. **Measure X1 (edge-margin floor) before anything else.** *Done 2026-10-13: 0/10 recovered; recommendation to reject as formulated (see the X1 record).* Run a bounded Development experiment:
    - re-derive `edgeMarginFloor`, for example 0 for the bottom border or role-specific for NearView, in a candidate pipeline profile;
    - re-run the existing E-B pipeline on the same BDD sequences and labels (new ProcessingRuns);
    - compare C under the same frozen rule.
