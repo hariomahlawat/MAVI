@@ -262,6 +262,17 @@ describe('a pinned data-response order (server.mjs `forward`)', () => {
     }
   });
 
+  it('refuses, unanswered, a request from a document served before the fixtures were reset', async () => {
+    await pinned.page('<main>page</main>', { api: { '/api/first': { ok: 1 } } });
+    const fresh = await pinned.browser.evaluate(`fetch('/api/first').then((r) => r.ok, () => 'refused')`);
+    assert.equal(fresh, true);
+    // The next case resets the fixtures while this document is still alive: its
+    // request would consume the next case's sequenced answers, so it is refused.
+    pinned.server.resetSequences();
+    const stale = await pinned.browser.evaluate(`fetch('/api/first').then((r) => r.ok, () => 'refused')`);
+    assert.equal(stale, 'refused');
+  });
+
   it('refuses an order it does not know', async () => {
     await assert.rejects(() => openBrowser({ responseOrder: 'shuffled' }), /unknown response order "shuffled"/);
   });

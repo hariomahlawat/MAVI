@@ -74,6 +74,22 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
   };
   /** `reverse`: the burst being gathered, its answers in arrival order. */
   let burst = null;
+  /** Bumped by resetSequences: a queued answer of an earlier epoch is dropped. */
+  let epoch = 0;
+  /**
+   * A pinned order holds answers, so a document the harness is leaving can
+   * still have a request on its way when the next case resets the fixtures;
+   * answered in the new epoch, it would consume the new case's sequenced
+   * fixtures (a previous page's poll taking the first answer of the next
+   * page's lookup). Each document carries the epoch it was served in, as a
+   * cookie its requests send back, and a request of an earlier epoch is
+   * refused unanswered.
+   */
+  const documentEpoch = () => (responseOrder === 'natural' ? {} : { 'set-cookie': `vqa-epoch=${epoch}; Path=/; SameSite=Lax` });
+  const staleDocument = (req) => {
+    const sent = /(?:^|;\s*)vqa-epoch=(\d+)/.exec(req.headers.cookie ?? '')?.[1];
+    return sent !== undefined && Number(sent) !== epoch;
+  };
 
   /**
    * Responses deliberately left unanswered to hold a loading state. They must
@@ -119,8 +135,10 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
     // fixtures.
     let abandoned = false;
     res.on('close', () => { if (!res.writableEnded) abandoned = true; });
+    const arrivedIn = epoch;
     const answer = () => {
       if (abandoned) return;
+      if (arrivedIn !== epoch) { res.destroy(); return; }
       try {
         handle(req, res);
       } catch (error) {
@@ -129,6 +147,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
         res.end();
       }
     };
+    if (responseOrder !== 'natural' && path.startsWith('/api/') && staleDocument(req)) { res.destroy(); return; }
     if (responseOrder !== 'natural' && req.method === 'GET' && path.startsWith('/api/') && !path.endsWith('/content')) {
       if (responseOrder === 'reverse') {
         if (!burst) {
@@ -382,7 +401,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
     // capture that followed began at the failure and `search-continuation-failed`
     // never had a first page to continue from.
     if (path === '/__blank') {
-      res.writeHead(200, { 'content-type': TYPES['.html'] });
+      res.writeHead(200, { 'content-type': TYPES['.html'], ...documentEpoch() });
       res.end('<!doctype html><title>blank</title>');
       return;
     }
@@ -394,7 +413,7 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
       createReadStream(asset).pipe(res);
       return;
     }
-    res.writeHead(200, { 'content-type': TYPES['.html'] });
+    res.writeHead(200, { 'content-type': TYPES['.html'], ...documentEpoch() });
     // The text-spacing lane (X1, WCAG 1.4.12): the operator's overrides are a
     // stylesheet in the document's head, in force before the first paint — as
     // a user stylesheet would be — and read back from computed style by the
@@ -425,7 +444,14 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
          * the failure instead of page one — which looks exactly like the state
          * failing at that width and is not.
          */
-        resetSequences() { sequenceCounts.clear(); requests.length = 0; received.clear(); },
+        resetSequences() {
+          sequenceCounts.clear(); requests.length = 0; received.clear();
+          // A pinned order's answers still queued belong to the scenario being
+          // reset (a previous document's poll, say): answered after the reset
+          // they would consume the next case's sequenced fixtures, which a
+          // natural-order server answered before it. They are dropped.
+          epoch += 1;
+        },
         /** X2: the API requests made since the last reset, oldest first. */
         requests: () => requests.map((r) => ({ ...r })),
         /** In-flight and started request counts, for the settle loop. */
