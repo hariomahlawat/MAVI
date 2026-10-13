@@ -36,7 +36,27 @@ const TYPES = {
 /** WCAG 1.4.12's overrides, as a user would apply them: no author style outranks them. */
 export const TEXT_SPACING_CSS = '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }';
 
-export function startServer({ distDir, fixtureDir, scenario, footage, textSpacing = () => false }) {
+/**
+ * The data-response order a run pins (X3 determinism). `natural` — the default
+ * and the gate's — answers each request as it arrives, so when the page sees
+ * concurrent responses, and so which intermediate layouts it paints, is left
+ * to scheduling. `forward` answers data GETs in the order they arrive, each no
+ * sooner than RESPONSE_SPACING_MS after the previous answer, so every
+ * intermediate layout of a load is painted and a case's CLS is a function of
+ * the bundle alone. A diagnostic and decision tool: a `forward` run is not
+ * gate evidence (performance.mjs).
+ */
+export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward']);
+export const RESPONSE_SPACING_MS = 120;
+/** When to answer a data GET arriving at `now`, given when the next answer may go (`nextAt`). */
+export function answerAt(order, now, nextAt) {
+  return order === 'forward' ? Math.max(now, nextAt) : now;
+}
+
+export function startServer({ distDir, fixtureDir, scenario, footage, textSpacing = () => false, responseOrder = 'natural' }) {
+  if (!RESPONSE_ORDERS.includes(responseOrder)) throw new Error(`unknown response order "${responseOrder}" (${RESPONSE_ORDERS.join(', ')})`);
+  /** The earliest the next data answer may go, for a pinned response order. */
+  let nextAnswerAt = 0;
   /**
    * Responses deliberately left unanswered to hold a loading state. They must
    * be released when that state ends: the browser allows only a handful of
@@ -76,13 +96,22 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
       res.on('close', finish);
       res.__vqaFinish = finish;
     }
-    try {
-      handle(req, res);
-    } catch (error) {
-      process.stderr.write(`  visual-qa server error on ${req.url}: ${error}\n`);
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
+    const answer = () => {
+      try {
+        handle(req, res);
+      } catch (error) {
+        process.stderr.write(`  visual-qa server error on ${req.url}: ${error}\n`);
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      }
+    };
+    if (responseOrder !== 'natural' && req.method === 'GET' && path.startsWith('/api/') && !path.endsWith('/content')) {
+      const now = Date.now();
+      const at = answerAt(responseOrder, now, nextAnswerAt);
+      nextAnswerAt = at + RESPONSE_SPACING_MS;
+      if (at > now) { setTimeout(answer, at - now); return; }
     }
+    answer();
   });
 
   function handle(req, res) {

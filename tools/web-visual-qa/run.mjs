@@ -77,7 +77,7 @@ const [
   { caseKey, createLedger, exitStatus, HarnessError, partitionCases, planCases, settle, sweepChecks, zoomQualification },
   { CONDITIONS, ensureFootage },
   { manifestSummary, OPERATOR_SURFACES, REDUCED_MOTION_CONDITION, RULES, TEXT_SPACING_CONDITION, TIERS, validateManifest, ZOOM_CONDITION },
-  { startServer },
+  { RESPONSE_ORDERS, startServer },
   { OBSERVERS, perfCollect, TRANSIENT },
   { ANCHORS, STATE_KEYS, STATES, TIER_POLICIES, tierOf, ZOOM },
   { tierCLedgerSemantics },
@@ -152,6 +152,12 @@ const completeSelection = !onlyStates && !onlyTiers && !onlyWidths && !onlyZoom 
 // A shard is never the full sweep by itself; aggregate.mjs is, over every shard.
 const fullSweep = completeSelection && !shard;
 const workers = longTaskLane ? 1 : positiveInt('workers', Math.min(4, Math.max(1, cpus().length - 1)));
+// X3 determinism: the data-response order this run pins (server.mjs). The
+// gate runs `natural`; `forward` (MAVI_VQA_RESPONSE_ORDER=forward) paints every
+// intermediate layout of a load, in request order, and its results say so.
+const responseOrder = process.env.MAVI_VQA_RESPONSE_ORDER || 'natural';
+if (!RESPONSE_ORDERS.includes(responseOrder)) fatal(`HARNESS ERROR: MAVI_VQA_RESPONSE_ORDER must be one of ${RESPONSE_ORDERS.join(', ')}, not "${responseOrder}"
+`);
 
 const manifestProblems = validateManifest();
 if (manifestProblems.length) {
@@ -219,6 +225,7 @@ async function openLane(index) {
     scenario: () => lane.scenario,
     footage: () => ensureFootage(MEDIA, lane.footage),
     textSpacing: () => lane.textSpacing,
+    responseOrder,
   });
   // A lane that fails part-way closes what it opened: a listening server left
   // behind would keep the process alive past the harness fault it reports.
@@ -933,6 +940,8 @@ const report = {
   // evidence of long tasks (performance.mjs refuses any other).
   longTaskLane,
   fullSweep,
+  // The data-response order the run pinned (server.mjs): `natural` is the gate's.
+  responseOrder,
   // A shard says which of how many it is and lists the whole plan beside its
   // own selection, so the aggregate can prove the plan ran exactly once.
   shard: shard ? { ...shard, completeSelection, planned: partition.planned, selected: partition.selectedKeys } : null,

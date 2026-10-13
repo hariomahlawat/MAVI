@@ -236,6 +236,14 @@ describe('the performance gate (X3)', () => {
     assert.ok(judge({ ltExtra: { head: 'other' } }).faults.some((f) => f.includes('different heads')));
   });
 
+  it('refuses a run that pinned its data-response order as gate evidence, and accepts a natural one', () => {
+    assert.ok(judge({ sweepExtra: { responseOrder: 'forward' } }).faults.some((f) => f.includes('the sweep pinned its data-response order (forward)')));
+    assert.ok(judge({ ltExtra: { responseOrder: 'forward' } }).faults.some((f) => f.includes('the long-task run pinned its data-response order (forward)')));
+    assert.deepEqual(judge({ sweepExtra: { responseOrder: 'natural' }, ltExtra: { responseOrder: 'natural' } }).faults, []);
+    // Results written before the order was recorded are natural-order runs.
+    assert.deepEqual(judge().faults, []);
+  });
+
   it('14. faults a planned case missing from the sweep or the long-task run, and an unplanned one present', () => {
     const plan = { sweep: new Set(['search|1366x768|anchor', 'search|1024x768|anchor']), longTasks: new Set(['search-inspector-opened|1366x768|anchor', 'search-inspector-opened|390x844|anchor']) };
     const v = judge({ plan, sweep: [sweepCase(), sweepCase({ viewport: '2560x1440' })] });

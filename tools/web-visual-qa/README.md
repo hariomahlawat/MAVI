@@ -90,6 +90,9 @@ a `.mavi-visual-qa-output` marker), and
 states added (the deliberately unreachable state of `test/run.test.mjs`); a run
 under it records `statesModule` and is never a full sweep.
 
+`MAVI_VQA_RESPONSE_ORDER` (`natural`, the default, or `forward`) pins the
+fixture server's data-response order; see *X3 (§38)* below.
+
 ## Harness v2 (Stage 3.5 S2)
 
 **The assertion manifest** (`manifest.mjs`, register V1) has one entry per rule
@@ -595,6 +598,31 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   `states.mjs`, not from the results); a case no class covers; a malformed
   budget table; results of different heads. Exit 2 for a fault, 1 for a
   finding.
+- **Attribution, recorded and never judged**: a measured CLS window lists the
+  data responses that landed in it (`cls.responses`: path and time) and each
+  counted shift says where its sources moved (`entries[].moves`, previous and
+  current rect); a long-task window lists the long animation frames that
+  overlap it (`longTasks.frames`: duration, style-and-layout time and the
+  scripts by entry point and source position). A finding can then be read from
+  its own artifact: a shift right after a late response is the page
+  re-laying out for that data; a long frame whose time is neither script nor
+  style and layout is not the page's code.
+- **Response order**: the fixture server answers in `natural` order, the
+  gate's: concurrent data requests are answered as they arrive, so which
+  intermediate layouts a load paints is left to scheduling, and an
+  order-dependent shift appears only in the runs that happen to paint it
+  (the 2026-10-13 determinism review, `docs/reviews/2026-10-13-x3-performance-gate-determinism.md`).
+  `MAVI_VQA_RESPONSE_ORDER=forward` pins it: data GETs are answered in the
+  order they arrive, each at least `RESPONSE_SPACING_MS` after the previous
+  answer, so every
+  intermediate layout is painted and a case's CLS is a function of the bundle
+  alone. It is a diagnostic and decision tool: the results record
+  `responseOrder`, and the gate faults a pinned-order run as evidence.
+- **One operator input per task**: a preparation that stands for several
+  operator inputs (the Import form's camera, time and file) dispatches each in
+  its own task, after a frame, as an operator's inputs arrive; dispatched back
+  to back they were one task, and the lane measured three inputs (and the
+  harness's own script) as one long task.
 
 ```bash
 node tools/web-visual-qa/performance.mjs --sweep <aggregate results.json> --long-tasks <long-task results.json> [--out <dir>]

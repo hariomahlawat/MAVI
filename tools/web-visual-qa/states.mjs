@@ -516,8 +516,16 @@ const FILL_IMPORT = ({ cameraValue, fileName, submit = false, until }) => `(asyn
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(element, value);
     element.dispatchEvent(new Event(element.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
   };
+  // X3 long tasks: an operator makes these three inputs as three events, each
+  // its own task with frames between them. Dispatched back to back they ran
+  // as ONE task, so the long-task lane measured three inputs' work (and this
+  // script's own) as a single task no operator causes. Each input now runs in
+  // its own task, a frame after the previous one, and each is measured in full.
+  const nextInput = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
   set(select, ${JSON.stringify(cameraValue)});
+  await nextInput();
   set(document.querySelector('input[type="datetime-local"]'), '2026-09-14T08:30');
+  await nextInput();
   const file = document.querySelector('input[type="file"]');
   const transfer = new DataTransfer();
   transfer.items.add(new File(['mp4'], ${JSON.stringify(fileName)}, { type: 'video/mp4' }));

@@ -223,6 +223,12 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
   if (!sweep) faults.push('no sweep results to judge');
   else if (sweep.fullSweep !== true) faults.push('the sweep results are not the full sweep: X3 is judged on the whole product');
   if (sweep && !sweep.head) faults.push('the sweep results name no head');
+  // X3 determinism: a run that pinned its data-response order (server.mjs
+  // `forward`) is a diagnostic of the bundle's intermediate layouts, measured
+  // against budgets calibrated on natural loads — never the gate's evidence.
+  for (const [what, r] of [['sweep', sweep], ['long-task run', longTasks]]) {
+    if (r && (r.responseOrder ?? 'natural') !== 'natural') faults.push(`the ${what} pinned its data-response order (${r.responseOrder}): only a natural-order run is the gate's evidence`);
+  }
   const ordinary = (sweep?.cases ?? []).filter(isOrdinary);
   const seen = new Map();
   for (const c of ordinary) seen.set(caseKey(c), (seen.get(caseKey(c)) ?? 0) + 1);

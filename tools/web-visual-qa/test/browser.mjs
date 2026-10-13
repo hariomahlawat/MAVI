@@ -11,11 +11,11 @@ import { launch } from '../cdp.mjs';
 import { startServer } from '../server.mjs';
 import { OBSERVERS } from '../settle.mjs';
 
-export async function openBrowser() {
+export async function openBrowser({ responseOrder = 'natural' } = {}) {
   const dist = mkdtempSync(join(tmpdir(), 'mavi-vqa-test-'));
   mkdirSync(join(dist, 'fixtures'), { recursive: true });
   const lane = { scenario: {} };
-  lane.server = await startServer({ distDir: dist, fixtureDir: join(dist, 'fixtures'), scenario: () => lane.scenario, footage: () => null });
+  lane.server = await startServer({ distDir: dist, fixtureDir: join(dist, 'fixtures'), scenario: () => lane.scenario, footage: () => null, responseOrder });
   // A browser that fails to start must not leave the server listening (it
   // would hold the test run open) or the temporary directory behind.
   try {

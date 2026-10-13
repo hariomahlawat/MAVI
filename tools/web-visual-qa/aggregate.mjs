@@ -157,6 +157,8 @@ const report = {
   head: first.head,
   statesModule: first.statesModule,
   fullSweep,
+  // X3: the data-response order the shards pinned; mixed orders are named, never merged.
+  responseOrder: [...new Set(shards.map((s) => s.responseOrder ?? 'natural'))].join('+'),
   manifest: manifestSummary(),
   shards: shards.map((s) => ({ index: s.shard.index, count: s.shard.count, file: s.file, cases: s.cases?.length ?? 0, durationMs: s.durationMs, workers: s.workers })),
   executions: {
