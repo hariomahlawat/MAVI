@@ -37,26 +37,44 @@ const TYPES = {
 export const TEXT_SPACING_CSS = '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }';
 
 /**
- * The data-response order a run pins (X3 determinism). `natural` — the default
- * and the gate's — answers each request as it arrives, so when the page sees
- * concurrent responses, and so which intermediate layouts it paints, is left
- * to scheduling. `forward` answers data GETs in the order they arrive, each no
- * sooner than RESPONSE_SPACING_MS after the previous answer, so every
+ * The data-response order a run pins (X3 determinism, 2026-10-13). With
+ * `natural` each request is answered as it arrives, so when the page sees
+ * concurrent responses — and so which intermediate layouts it paints — is left
+ * to scheduling. A pinned order answers data GETs (not media) one at a time,
+ * each no sooner than RESPONSE_SPACING_MS after the previous answer, so every
  * intermediate layout of a load is painted and a case's CLS is a function of
- * the bundle alone. A diagnostic and decision tool: a `forward` run is not
- * gate evidence (performance.mjs).
+ * the bundle alone:
+ * - `forward` (the gate's, performance.mjs): in the order the requests arrive;
+ * - `reverse` (the adversarial lane): the requests of one burst — those that
+ *   arrive within BURST_GATHER_MS of its first — in the opposite order.
  */
-export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward']);
+export const RESPONSE_ORDERS = Object.freeze(['natural', 'forward', 'reverse']);
 export const RESPONSE_SPACING_MS = 120;
-/** When to answer a data GET arriving at `now`, given when the next answer may go (`nextAt`). */
-export function answerAt(order, now, nextAt) {
-  return order === 'forward' ? Math.max(now, nextAt) : now;
-}
+export const BURST_GATHER_MS = 100;
 
 export function startServer({ distDir, fixtureDir, scenario, footage, textSpacing = () => false, responseOrder = 'natural' }) {
   if (!RESPONSE_ORDERS.includes(responseOrder)) throw new Error(`unknown response order "${responseOrder}" (${RESPONSE_ORDERS.join(', ')})`);
-  /** The earliest the next data answer may go, for a pinned response order. */
-  let nextAnswerAt = 0;
+  /**
+   * A pinned order's answers go one at a time from this queue: each is sent,
+   * then the next waits RESPONSE_SPACING_MS from that moment — measured from
+   * the send itself, so a timer that fires late (a loaded host) never brings
+   * the next answer closer to it.
+   */
+  const queue = [];
+  let pumping = false;
+  const pump = () => {
+    const answer = queue.shift();
+    if (!answer) { pumping = false; return; }
+    answer();
+    setTimeout(pump, RESPONSE_SPACING_MS);
+  };
+  const release = (answers) => {
+    queue.push(...answers);
+    if (!pumping) { pumping = true; pump(); }
+  };
+  /** `reverse`: the burst being gathered, its answers in arrival order. */
+  let burst = null;
+
   /**
    * Responses deliberately left unanswered to hold a loading state. They must
    * be released when that state ends: the browser allows only a handful of
@@ -96,7 +114,13 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
       res.on('close', finish);
       res.__vqaFinish = finish;
     }
+    // A held answer whose request the page already abandoned (it navigated
+    // away) is dropped: answering it would consume the next case's sequenced
+    // fixtures.
+    let abandoned = false;
+    res.on('close', () => { if (!res.writableEnded) abandoned = true; });
     const answer = () => {
+      if (abandoned) return;
       try {
         handle(req, res);
       } catch (error) {
@@ -106,10 +130,16 @@ export function startServer({ distDir, fixtureDir, scenario, footage, textSpacin
       }
     };
     if (responseOrder !== 'natural' && req.method === 'GET' && path.startsWith('/api/') && !path.endsWith('/content')) {
-      const now = Date.now();
-      const at = answerAt(responseOrder, now, nextAnswerAt);
-      nextAnswerAt = at + RESPONSE_SPACING_MS;
-      if (at > now) { setTimeout(answer, at - now); return; }
+      if (responseOrder === 'reverse') {
+        if (!burst) {
+          burst = [];
+          setTimeout(() => { const answers = burst.reverse(); burst = null; release(answers); }, BURST_GATHER_MS);
+        }
+        burst.push(answer);
+        return;
+      }
+      release([answer]);
+      return;
     }
     answer();
   });

@@ -9,7 +9,7 @@ import { describe, it } from 'node:test';
 import { PERFORMANCE_BUDGETS } from '../performance-budgets.mjs';
 import { DECISIONS, deriveBudgets } from '../performance-calibrate.mjs';
 import {
-  caseKey, clsUnits, evaluatePerformance, longTaskLimit, navigationLimit, ordinaryPlan, preparationLimit,
+  caseKey, clsUnits, evaluatePerformance, GATE_RESPONSE_ORDER, longTaskLimit, navigationLimit, ordinaryPlan, preparationLimit,
   registerBlock, registerDisagreements, REGISTER_MARKERS, validateBudgets,
 } from '../performance.mjs';
 
@@ -51,8 +51,8 @@ function sweepCase({ state = 'search', viewport = '1366x768', tier = 'A', kind =
 function ltCase({ state = 'search-inspector-opened', viewport = '1366x768', tier = 'A', interaction = 'select a result to inspect it', count = 0, maxMs = 0, status = 'measured' } = {}) {
   return { state, viewport, tier, kind: 'anchor', surface: 'search', valid: true, reached: true, perf: { longTasks: { status, interaction, count, maxMs, totalMs: count * maxMs } } };
 }
-const sweepOf = (cases, extra = {}) => ({ head: 'h', fullSweep: true, cases, ...extra });
-const lanesOf = (cases, extra = {}) => ({ head: 'h', longTaskLane: true, workers: 1, cases, ...extra });
+const sweepOf = (cases, extra = {}) => ({ head: 'h', fullSweep: true, responseOrder: 'forward', cases, ...extra });
+const lanesOf = (cases, extra = {}) => ({ head: 'h', longTaskLane: true, workers: 1, responseOrder: 'forward', cases, ...extra });
 const judge = ({ sweep = [sweepCase()], lt = [ltCase()], sweepExtra, ltExtra, plan = null, budgets = BUDGETS } = {}) =>
   evaluatePerformance({ sweep: sweepOf(sweep, sweepExtra), longTasks: lanesOf(lt, ltExtra), plan, budgets });
 const rules = (v) => v.findings.map((f) => f.rule);
@@ -236,12 +236,14 @@ describe('the performance gate (X3)', () => {
     assert.ok(judge({ ltExtra: { head: 'other' } }).faults.some((f) => f.includes('different heads')));
   });
 
-  it('refuses a run that pinned its data-response order as gate evidence, and accepts a natural one', () => {
-    assert.ok(judge({ sweepExtra: { responseOrder: 'forward' } }).faults.some((f) => f.includes('the sweep pinned its data-response order (forward)')));
-    assert.ok(judge({ ltExtra: { responseOrder: 'forward' } }).faults.some((f) => f.includes('the long-task run pinned its data-response order (forward)')));
-    assert.deepEqual(judge({ sweepExtra: { responseOrder: 'natural' }, ltExtra: { responseOrder: 'natural' } }).faults, []);
-    // Results written before the order was recorded are natural-order runs.
+  it('judges only a run whose data responses were answered in the gate’s pinned order', () => {
+    assert.equal(GATE_RESPONSE_ORDER, 'forward');
+    assert.ok(judge({ sweepExtra: { responseOrder: 'natural' } }).faults.some((f) => f.includes('the sweep answered its data requests in natural order')));
+    assert.ok(judge({ ltExtra: { responseOrder: undefined } }).faults.some((f) => f.includes('the long-task run answered its data requests in natural order')));
     assert.deepEqual(judge().faults, []);
+    // The adversarial lane is judged in its own order, against the same budgets.
+    const reverse = evaluatePerformance({ sweep: sweepOf([sweepCase()], { responseOrder: 'reverse' }), longTasks: lanesOf([ltCase()], { responseOrder: 'reverse' }), budgets: BUDGETS, responseOrder: 'reverse' });
+    assert.deepEqual(reverse.faults, []);
   });
 
   it('14. faults a planned case missing from the sweep or the long-task run, and an unplanned one present', () => {

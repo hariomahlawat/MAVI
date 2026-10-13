@@ -222,7 +222,10 @@ describe('a pinned data-response order (server.mjs `forward`)', () => {
   // each a spacing after the previous, every time.
   const TWO = `<main id="log"></main><script>
     const log = [];
-    const get = (name) => fetch('/api/' + name).then((r) => r.json()).then(() => { log.push([name, Math.round(performance.now())]); document.getElementById('log').textContent = log.map((e) => e[0]).join(','); });
+    // When each response reached the network layer (resource timing), not
+    // when a busy main thread got round to it.
+    const landed = (name) => Math.round(performance.getEntriesByName(location.origin + '/api/' + name)[0]?.responseEnd ?? -1);
+    const get = (name) => fetch('/api/' + name).then((r) => r.json()).then(() => { log.push([name, landed(name)]); log.sort((a, b) => a[1] - b[1]); document.getElementById('log').textContent = log.map((e) => e[0]).join(','); });
     Promise.all([get('first'), get('second'), get('third')]);
     window.__log = log;
   </script>`;
@@ -238,6 +241,22 @@ describe('a pinned data-response order (server.mjs `forward`)', () => {
       const log = await pinned.browser.evaluate('window.__log');
       assert.deepEqual(log.map((e) => e[0]), ['first', 'second', 'third']);
       for (let i = 1; i < log.length; i += 1) assert.ok(log[i][1] - log[i - 1][1] >= RESPONSE_SPACING_MS - 20, JSON.stringify(log));
+    }
+  });
+
+  it('answers one burst in the opposite order under `reverse`, a spacing apart, on every load', async () => {
+    const reversed = await openBrowser({ responseOrder: 'reverse' });
+    try {
+      for (let run = 0; run < 3; run += 1) {
+        await reversed.page(TWO, { api: { '/api/first': { ok: 1 }, '/api/second': { ok: 2 }, '/api/third': { ok: 3 } } });
+        const done = await settle(reversed, { expectText: 'third,second,first' }, { timeoutMs: 8000 });
+        assert.equal(done.ok, true, JSON.stringify(done));
+        const log = await reversed.browser.evaluate('window.__log');
+        assert.deepEqual(log.map((e) => e[0]), ['third', 'second', 'first']);
+        for (let i = 1; i < log.length; i += 1) assert.ok(log[i][1] - log[i - 1][1] >= RESPONSE_SPACING_MS - 20, JSON.stringify(log));
+      }
+    } finally {
+      await reversed.close();
     }
   });
 

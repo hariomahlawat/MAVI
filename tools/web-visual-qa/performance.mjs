@@ -16,7 +16,7 @@
  * rounding), long tasks in whole milliseconds — so a value at its limit
  * passes and one unit over fails, with no floating-point ambiguity.
  *
- *   node tools/web-visual-qa/performance.mjs --sweep <results.json> --long-tasks <results.json> [--out <dir>] [--qualification <file>]
+ *   node tools/web-visual-qa/performance.mjs --sweep <results.json> --long-tasks <results.json> [--out <dir>] [--response-order forward|reverse]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -202,7 +202,10 @@ const measurementFault = (key, what, m) => `${key}: ${what} ${m?.status ?? 'miss
  *
  * @param {{ sweep: object, longTasks: object, plan?: { sweep: Set<string>, longTasks: Set<string> }, budgets?: object }} input
  */
-export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = PERFORMANCE_BUDGETS }) {
+/** The data-response order the gate judges (server.mjs RESPONSE_ORDERS). */
+export const GATE_RESPONSE_ORDER = 'forward';
+
+export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = PERFORMANCE_BUDGETS, responseOrder = GATE_RESPONSE_ORDER }) {
   const faults = [];
   const findings = [];
   const rows = [];
@@ -223,11 +226,13 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
   if (!sweep) faults.push('no sweep results to judge');
   else if (sweep.fullSweep !== true) faults.push('the sweep results are not the full sweep: X3 is judged on the whole product');
   if (sweep && !sweep.head) faults.push('the sweep results name no head');
-  // X3 determinism: a run that pinned its data-response order (server.mjs
-  // `forward`) is a diagnostic of the bundle's intermediate layouts, measured
-  // against budgets calibrated on natural loads — never the gate's evidence.
+  // X3 determinism (2026-10-13): the gate judges runs whose data responses
+  // were answered in one pinned order (server.mjs), so every intermediate
+  // layout is painted and a case's CLS is a function of the bundle alone. A
+  // natural-order run leaves that to scheduling: it is not evidence.
   for (const [what, r] of [['sweep', sweep], ['long-task run', longTasks]]) {
-    if (r && (r.responseOrder ?? 'natural') !== 'natural') faults.push(`the ${what} pinned its data-response order (${r.responseOrder}): only a natural-order run is the gate's evidence`);
+    const order = r?.responseOrder ?? 'natural';
+    if (r && order !== responseOrder) faults.push(`the ${what} answered its data requests in ${order} order: the gate judges a ${responseOrder}-order run, where every intermediate layout is painted`);
   }
   const ordinary = (sweep?.cases ?? []).filter(isOrdinary);
   const seen = new Map();
@@ -359,7 +364,7 @@ async function main() {
   const sweep = arg('sweep') ? readJson(arg('sweep')) : null;
   const longTasks = arg('long-tasks') ? readJson(arg('long-tasks')) : null;
   const plan = ordinaryPlan(await import('./states.mjs'));
-  const verdict = evaluatePerformance({ sweep, longTasks, plan });
+  const verdict = evaluatePerformance({ sweep, longTasks, plan, responseOrder: arg('response-order', GATE_RESPONSE_ORDER) });
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, 'performance.json'), JSON.stringify({ schema: 'mavi.stage3-5.x3-performance-run.v1', head: sweep?.head ?? null, budgets: PERFORMANCE_BUDGETS.schema, ...verdict }, null, 2));
   const s = verdict.summary;
