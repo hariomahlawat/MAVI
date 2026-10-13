@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -61,7 +62,15 @@ const CLOSE_RADIUS_PX = 12;
  * Media transport lives below the frame rather than on it. The canvas is for
  * space, and scrubbing a video should never be a click that edits geometry.
  */
-export default function SceneCanvas({
+/**
+ * Memoised (X3 §38: the rename's first-interaction cost): the stage draws
+ * geometry, so an edit that changes no geometry — renaming an object, typing
+ * the revision note — does not re-render the SVG, the video and its overlay.
+ * The editor hands it a geometry-stable draft and stable callbacks.
+ */
+export default memo(SceneCanvas);
+
+function SceneCanvas({
   draft,
   tool,
   selection,

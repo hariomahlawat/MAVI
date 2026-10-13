@@ -8,6 +8,7 @@ import {
   getCameraSceneRevision,
   saveCameraScene,
   videoContentUrl,
+  type ScenePoint,
   type SceneRevision,
 } from '../../api/scene';
 import { getSystemConfig } from '../../api/system';
@@ -42,6 +43,9 @@ import { keyboardHeldElsewhere } from '../../shared/overlay/focus';
 import { SHELL_QUERIES, useMediaQuery } from '../../shared/overlay/useMediaQuery';
 import Panel from '../../shared/components/Panel';
 import { useUnsavedChangesGuard } from './useUnsavedChangesGuard';
+
+/** The stage's drawing while it is not editable: one object, so the memoised stage keeps it. */
+const NO_DRAWING = { kind: 'none' } as const;
 
 /** The frame the stage falls back to when no reference video is loaded. */
 const NEUTRAL_FRAME = { width: 16, height: 9 };
@@ -233,6 +237,12 @@ export default function SceneEditorPage() {
   // objects it has, so their rows are reserved while it loads.
   const viewingSummary = readOnly ? scene.data?.history.find((entry) => entry.revisionNumber === viewingRevisionNumber) : undefined;
   const shownSelection: Selection = state.selection;
+  // The stage draws geometry only (SceneCanvas is memoised): it is handed the
+  // same draft object until something it draws changes, so renaming an object
+  // or typing the note does not re-render it (§38, the rename's long task).
+  const canvasGeometryKey = JSON.stringify(shownDraft, (key, value) => (key === 'name' || key === 'note' ? undefined : value));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const canvasDraft = useMemo(() => shownDraft, [canvasGeometryKey]);
 
   // A control that belonged to a deleted object — its delete button, one of its
   // vertices in the inspector — leaves the page with it, and focus would fall
@@ -273,7 +283,10 @@ export default function SceneEditorPage() {
 
   const issues = useMemo(() => (readOnly ? [] : validateDraft(state.draft)), [readOnly, state.draft]);
   const issuesForKey = useMemo(() => issuesByKey(issues), [issues]);
-  const invalidKeys = useMemo(() => new Set(issuesForKey.keys()), [issuesForKey]);
+  // The same set while its members are the same (a stable stage prop, above).
+  const invalidKeysId = [...issuesForKey.keys()].sort().join('|');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const invalidKeys = useMemo(() => new Set(issuesForKey.keys()), [invalidKeysId]);
   const sceneIssues = issues.filter((issue) => issue.key === null);
 
   // An unfinished polygon is unsaved work the draft has not been told about
@@ -484,6 +497,84 @@ export default function SceneEditorPage() {
   // unavailable — is said by the region, never in place of the camera.
   const cameraCrumb = cameraIdentity(cameraId, camera.data);
 
+  // The stage's props are stable across edits it does not draw (SceneCanvas is
+  // memoised, §38): its callbacks, and its overlay, which depends only on the
+  // revision, media and invitation state below.
+  const closeZone = useCallback(() => dispatch({ type: 'closeZone' }), []);
+  const selectObject = useCallback((selection: Selection) => dispatch({ type: 'select', selection }), []);
+  const moveVertex = useCallback((key: string, vertexIndex: number, point: ScenePoint) => dispatch({ type: 'moveVertex', key, vertexIndex, point }), []);
+  const moveEndpoint = useCallback((key: string, endpoint: 'a' | 'b', point: ScenePoint) => dispatch({ type: 'moveEndpoint', key, endpoint, point }), []);
+  const configured = scene.data?.configured ?? false;
+  const invitationShown = editable && !configured && state.tool === 'select'
+    && shownDraft.zones.length === 0 && shownDraft.tripLines.length === 0;
+  const stageOverlay = useMemo(() => (
+                <>
+                  {/* The live region stays mounted and is written into, because
+                      one that appears already populated is routinely not
+                      announced — and entering read-only is exactly the mode
+                      change a screen-reader user must not miss. */}
+                  <div className={`scene-stage__banner${readOnly && !revisionUnavailable ? '' : ' is-idle'}`} role="status">
+                    {/* The revision's own request: loading said in place, in the
+                        shared loading grammar (§37.1, row), then its name — which
+                        a failed refresh of a revision already shown keeps. */}
+                    {readOnly && !revisionUnavailable ? (
+                      historicalMissing
+                        ? <span className="state-row state-row--loading">{`Loading revision ${viewingRevisionNumber}…`}</span>
+                        : `Viewing revision ${viewingRevisionNumber} — read only`
+                    ) : null}
+                  </div>
+                  {revisionRefreshFailed ? (
+                    <div className="scene-stage__refresh">
+                      <Alert
+                        tone="warning"
+                        actions={<Button size="sm" onClick={() => void historicalRevision.refetch()}>Retry</Button>}
+                      >
+                        {`Revision ${viewingRevisionNumber} could not be refreshed. It is shown as last loaded.`}
+                      </Alert>
+                    </div>
+                  ) : null}
+                  {/* A past revision that will not load leaves nothing to show:
+                      the stage says so, with its retry, instead of drawing the
+                      active geometry (or nothing) under the revision's name. */}
+                  {revisionUnavailable ? (
+                    <div className="scene-stage__state">
+                      <Alert
+                        tone="error"
+                        actions={<Button size="sm" onClick={() => void historicalRevision.refetch()}>Retry</Button>}
+                      >
+                        {sceneErrorMessage(historicalRevision.error, `Revision ${viewingRevisionNumber} could not be loaded.`)}
+                      </Alert>
+                    </div>
+                  ) : null}
+                  {revisionUnavailable ? null : (
+                    // Mounted empty so the failure, when it comes, is announced.
+                    <p className="scene-stage__media-note" role="status">
+                      {mediaFailed ? 'Reference video unavailable · geometry is shown on a blank frame and is unchanged' : null}
+                    </p>
+                  )}
+                  {/* The empty state invites the first object; once a tool is armed the
+                      operator has accepted the invitation, so it gets out of the way of
+                      the surface they are drawing on. */}
+                  {/* The mode strip is the drawing control (§4.3). An empty scene
+                      adds one invitation to it — the first zone, through the
+                      same tool — and steps aside once a tool is armed. */}
+                  {invitationShown ? (
+                    <div className={`scene-stage__intro${canvasVideoId && !mediaFailed ? '' : ' is-empty'}`}>
+                      <strong>No scene configured</strong>
+                      <span>
+                        {cameraVideos.length > 0
+                          ? 'Choose a reference video below and scrub to a clear frame. Zones and trip lines are drawn with the tools above.'
+                          : 'No imported video is available for this camera, so geometry is drawn on the normalised frame with the tools above.'}
+                      </span>
+                      <Button variant="primary" size="sm" onClick={() => dispatch({ type: 'setTool', tool: 'zone' })}>
+                        Draw a zone
+                      </Button>
+                    </div>
+                  ) : null}
+                </>
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [readOnly, revisionUnavailable, historicalMissing, viewingRevisionNumber, revisionRefreshFailed, historicalRevision.error, mediaFailed, invitationShown, canvasVideoId, cameraVideos.length]);
+
   if (!cameraId) return <>{leaveGuard}<NotFound camera={cameraCrumb} /></>;
 
   if (isCameraMissing(camera.error) || isCameraMissing(scene.error)) return <>{leaveGuard}<NotFound camera={cameraCrumb} /></>;
@@ -525,7 +616,6 @@ export default function SceneEditorPage() {
     );
   }
 
-  const configured = scene.data?.configured ?? false;
   const saveState = readOnly
     ? 'readonly' as const
     : saveMutation.isPending
@@ -712,10 +802,10 @@ export default function SceneEditorPage() {
         stage={(
           <>
             <SceneCanvas
-              draft={shownDraft}
+              draft={canvasDraft}
               tool={editable ? state.tool : 'select'}
               selection={shownSelection}
-              drawing={editable ? state.drawing : { kind: 'none' }}
+              drawing={editable ? state.drawing : NO_DRAWING}
               readOnly={!editable}
               videoSrc={canvasVideoId ? videoContentUrl(canvasVideoId) : null}
               videoRef={videoRef}
@@ -723,79 +813,13 @@ export default function SceneEditorPage() {
               frameHeight={canvasVideo?.height ?? NEUTRAL_FRAME.height}
               seekToMs={referenceOffsetForCanvas}
               invalidKeys={invalidKeys}
-              overlay={
-                <>
-                  {/* The live region stays mounted and is written into, because
-                      one that appears already populated is routinely not
-                      announced — and entering read-only is exactly the mode
-                      change a screen-reader user must not miss. */}
-                  <div className={`scene-stage__banner${readOnly && !revisionUnavailable ? '' : ' is-idle'}`} role="status">
-                    {/* The revision's own request: loading said in place, in the
-                        shared loading grammar (§37.1, row), then its name — which
-                        a failed refresh of a revision already shown keeps. */}
-                    {readOnly && !revisionUnavailable ? (
-                      historicalMissing
-                        ? <span className="state-row state-row--loading">{`Loading revision ${viewingRevisionNumber}…`}</span>
-                        : `Viewing revision ${viewingRevisionNumber} — read only`
-                    ) : null}
-                  </div>
-                  {revisionRefreshFailed ? (
-                    <div className="scene-stage__refresh">
-                      <Alert
-                        tone="warning"
-                        actions={<Button size="sm" onClick={() => void historicalRevision.refetch()}>Retry</Button>}
-                      >
-                        {`Revision ${viewingRevisionNumber} could not be refreshed. It is shown as last loaded.`}
-                      </Alert>
-                    </div>
-                  ) : null}
-                  {/* A past revision that will not load leaves nothing to show:
-                      the stage says so, with its retry, instead of drawing the
-                      active geometry (or nothing) under the revision's name. */}
-                  {revisionUnavailable ? (
-                    <div className="scene-stage__state">
-                      <Alert
-                        tone="error"
-                        actions={<Button size="sm" onClick={() => void historicalRevision.refetch()}>Retry</Button>}
-                      >
-                        {sceneErrorMessage(historicalRevision.error, `Revision ${viewingRevisionNumber} could not be loaded.`)}
-                      </Alert>
-                    </div>
-                  ) : null}
-                  {revisionUnavailable ? null : (
-                    // Mounted empty so the failure, when it comes, is announced.
-                    <p className="scene-stage__media-note" role="status">
-                      {mediaFailed ? 'Reference video unavailable · geometry is shown on a blank frame and is unchanged' : null}
-                    </p>
-                  )}
-                  {/* The empty state invites the first object; once a tool is armed the
-                      operator has accepted the invitation, so it gets out of the way of
-                      the surface they are drawing on. */}
-                  {/* The mode strip is the drawing control (§4.3). An empty scene
-                      adds one invitation to it — the first zone, through the
-                      same tool — and steps aside once a tool is armed. */}
-                  {editable && !configured && state.tool === 'select'
-                    && shownDraft.zones.length === 0 && shownDraft.tripLines.length === 0 ? (
-                    <div className={`scene-stage__intro${canvasVideoId && !mediaFailed ? '' : ' is-empty'}`}>
-                      <strong>No scene configured</strong>
-                      <span>
-                        {cameraVideos.length > 0
-                          ? 'Choose a reference video below and scrub to a clear frame. Zones and trip lines are drawn with the tools above.'
-                          : 'No imported video is available for this camera, so geometry is drawn on the normalised frame with the tools above.'}
-                      </span>
-                      <Button variant="primary" size="sm" onClick={() => dispatch({ type: 'setTool', tool: 'zone' })}>
-                        Draw a zone
-                      </Button>
-                    </div>
-                  ) : null}
-                </>
-              }
+              overlay={stageOverlay}
               onMediaFailed={setMediaFailed}
               onFrameClick={handleFrameClick}
-              onCloseZone={() => dispatch({ type: 'closeZone' })}
-              onSelect={(selection) => dispatch({ type: 'select', selection })}
-              onMoveVertex={(key, vertexIndex, point) => dispatch({ type: 'moveVertex', key, vertexIndex, point })}
-              onMoveEndpoint={(key, endpoint, point) => dispatch({ type: 'moveEndpoint', key, endpoint, point })}
+              onCloseZone={closeZone}
+              onSelect={selectObject}
+              onMoveVertex={moveVertex}
+              onMoveEndpoint={moveEndpoint}
             />
 
             {/* The video list is the reference bar's own region (§37.1): it loads,
