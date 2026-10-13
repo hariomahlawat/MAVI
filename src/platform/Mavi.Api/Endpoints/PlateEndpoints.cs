@@ -287,6 +287,11 @@ public static class PlateEndpoints
             });
     }
 
+    /// <summary>
+    /// <c>POST /api/plates/reanalysis</c>. Every request that reaches this handler is audited: accepted as event 2125
+    /// with the exact selected run ids, refused as event 2126 with its scope and refusal code. A body that fails JSON
+    /// binding is rejected by the framework before this handler runs and is not audited.
+    /// </summary>
     private static async Task<IResult> ReanalysisAsync(
         PlateReanalysisRequestContract request,
         IPlateRelease release,
