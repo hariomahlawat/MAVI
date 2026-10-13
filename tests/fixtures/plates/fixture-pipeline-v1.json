@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "mavi-plate-pipeline-v1",
+  "pipelineId": "plates-fixture",
+  "pipelineVersion": "1.0.0",
+  "developmentOnly": true,
+  "predictionsSchemaVersion": "mavi-plate-predictions-v1",
+  "normalisation": {
+    "id": "mavi-plate-normalisation-v1",
+    "sha256": "84368e30a745da23a68eaef2d6a2667a3f544bd6978ac0653ffb46ab3a1c4bad"
+  },
+  "summaryPolicy": {
+    "file": "fixture-summary-policy-v1.json",
+    "sha256": "1fb72dd2ce254a2190cd19290bc7304342d16bdacc417a03e7589cd202eecd1f"
+  },
+  "parameters": {
+    "file": "fixture-parameters-v1.json",
+    "sha256": "d19bf0705c880fdf49895f99ba95e5bda61843222d1111764173e877b0128e02"
+  }
+}

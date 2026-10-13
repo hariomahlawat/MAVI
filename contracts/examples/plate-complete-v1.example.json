@@ -1,0 +1,213 @@
+{
+  "schemaVersion": "mavi-plate-control-v1",
+  "analysisId": "019a1f00-0000-7000-8000-00000000a001",
+  "workerId": "plates-01",
+  "attemptCount": 1,
+  "provenance": {
+    "provenanceContract": "plate-complete-v1",
+    "roleId": "plates",
+    "capabilities": [
+      {
+        "capabilityId": "ocr",
+        "modelPackId": "mavi-model-v2-3333333333333333333333333333333333333333333333333333333333333333",
+        "modelManifestSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "qualificationId": null,
+        "qualificationSha256": null,
+        "verificationStatus": "unverified"
+      },
+      {
+        "capabilityId": "plate-detector",
+        "modelPackId": "mavi-model-v2-4444444444444444444444444444444444444444444444444444444444444444",
+        "modelManifestSha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "qualificationId": null,
+        "qualificationSha256": null,
+        "verificationStatus": "unverified"
+      }
+    ],
+    "runtimePackFamilyId": "mmdetection-phase1-v1",
+    "runtimeProfileSha256": "7777777777777777777777777777777777777777777777777777777777777777",
+    "runtimeVariant": "windows-x86_64-cpu",
+    "runtimePackId": null,
+    "runtimePackSource": "unpacked-environment",
+    "componentBindingSha256": "8888888888888888888888888888888888888888888888888888888888888888",
+    "pipelineProfileSha256": "87a0e81bb2caab15ea6c0f1424936fce3c5c6453d4ff8c47e57b1aafaf6bab57",
+    "configuredDevicePolicy": "cpu",
+    "actualDevice": "cpu",
+    "maviBuild": "0.0.0-dev",
+    "maviCommit": "9999999999999999999999999999999999999999"
+  },
+  "payload": {
+    "predictionArtifact": {
+      "mediaType": "application/json",
+      "sizeBytes": 4503,
+      "sha256": "7429fc6e7e7491dcb7326edfacfcd13d02306336e6cd6ae4db8cadccb8c55f2b"
+    },
+    "tracks": [
+      {
+        "trackId": "019a1f00-0000-7000-8000-000000000010",
+        "outcome": "analysed",
+        "reason": null,
+        "plateObservations": [
+          {
+            "sourceObservationId": "019a1f00-0000-7000-8000-000000000011",
+            "plateIndex": 0,
+            "box": {
+              "x": 70,
+              "y": 120,
+              "width": 64,
+              "height": 16
+            },
+            "cropWidth": 212,
+            "cropHeight": 168,
+            "detectorConfidence": 0.91,
+            "outcome": "read",
+            "readings": [
+              {
+                "rank": 0,
+                "rawText": "KA 01 AB 1234",
+                "rawLineCount": 1,
+                "confidence": 0.88
+              },
+              {
+                "rank": 1,
+                "rawText": "KA01AB1284",
+                "rawLineCount": 1,
+                "confidence": 0.61
+              }
+            ]
+          },
+          {
+            "sourceObservationId": "019a1f00-0000-7000-8000-000000000012",
+            "plateIndex": 0,
+            "box": {
+              "x": 150,
+              "y": 240,
+              "width": 118,
+              "height": 30
+            },
+            "cropWidth": 412,
+            "cropHeight": 330,
+            "detectorConfidence": 0.95,
+            "outcome": "read",
+            "readings": [
+              {
+                "rank": 0,
+                "rawText": "KA01AB1234",
+                "rawLineCount": 1,
+                "confidence": 0.97
+              }
+            ]
+          },
+          {
+            "sourceObservationId": "019a1f00-0000-7000-8000-000000000013",
+            "plateIndex": 0,
+            "box": {
+              "x": 141,
+              "y": 222,
+              "width": 104,
+              "height": 27
+            },
+            "cropWidth": 388,
+            "cropHeight": 301,
+            "detectorConfidence": 0.83,
+            "outcome": "read",
+            "readings": [
+              {
+                "rank": 0,
+                "rawText": "KA01AB1284",
+                "rawLineCount": 1,
+                "confidence": 0.7
+              }
+            ]
+          },
+          {
+            "sourceObservationId": "019a1f00-0000-7000-8000-000000000014",
+            "plateIndex": 0,
+            "box": {
+              "x": 130,
+              "y": 210,
+              "width": 90,
+              "height": 22
+            },
+            "cropWidth": 360,
+            "cropHeight": 290,
+            "detectorConfidence": 0.52,
+            "outcome": "unreadable",
+            "readings": []
+          }
+        ],
+        "texts": [
+          {
+            "bestPlate": {
+              "sourceObservationId": "019a1f00-0000-7000-8000-000000000012",
+              "plateIndex": 0
+            },
+            "supportCount": 2,
+            "maxConfidence": 0.97
+          },
+          {
+            "bestPlate": {
+              "sourceObservationId": "019a1f00-0000-7000-8000-000000000013",
+              "plateIndex": 0
+            },
+            "supportCount": 1,
+            "maxConfidence": 0.7
+          }
+        ]
+      },
+      {
+        "trackId": "019a1f00-0000-7000-8000-000000000020",
+        "outcome": "analysed",
+        "reason": null,
+        "plateObservations": [],
+        "texts": []
+      },
+      {
+        "trackId": "019a1f00-0000-7000-8000-000000000030",
+        "outcome": "analysed",
+        "reason": null,
+        "plateObservations": [
+          {
+            "sourceObservationId": "019a1f00-0000-7000-8000-000000000031",
+            "plateIndex": 0,
+            "box": {
+              "x": 90,
+              "y": 130,
+              "width": 52,
+              "height": 30
+            },
+            "cropWidth": 240,
+            "cropHeight": 190,
+            "detectorConfidence": 0.87,
+            "outcome": "read",
+            "readings": [
+              {
+                "rank": 0,
+                "rawText": "MH12\nDE 4321",
+                "rawLineCount": 2,
+                "confidence": 0.83
+              }
+            ]
+          }
+        ],
+        "texts": [
+          {
+            "bestPlate": {
+              "sourceObservationId": "019a1f00-0000-7000-8000-000000000031",
+              "plateIndex": 0
+            },
+            "supportCount": 1,
+            "maxConfidence": 0.83
+          }
+        ]
+      },
+      {
+        "trackId": "019a1f00-0000-7000-8000-000000000040",
+        "outcome": "unavailable",
+        "reason": "evidence_integrity_failed",
+        "plateObservations": [],
+        "texts": []
+      }
+    ]
+  }
+}

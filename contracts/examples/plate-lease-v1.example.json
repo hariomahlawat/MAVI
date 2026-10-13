@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "mavi-plate-control-v1",
+  "analysisId": "019a1f00-0000-7000-8000-00000000a001",
+  "processingRunId": "019a1f00-0000-7000-8000-000000000001",
+  "workerId": "plates-01",
+  "attemptCount": 1,
+  "leaseExpiresAtUtc": "2026-10-13T10:02:00Z",
+  "deadlineAtUtc": "2026-10-13T16:00:00Z",
+  "identity": {
+    "fingerprint": "e37f714e831c77195b745d0ca60b566a42b772b2401120fe6ec95e5e8ae01f4f",
+    "pipelineId": "plates-fixture",
+    "pipelineVersion": "1.0.0",
+    "predictionsSchemaVersion": "mavi-plate-predictions-v1",
+    "normalisation": {
+      "id": "mavi-plate-normalisation-v1",
+      "sha256": "84368e30a745da23a68eaef2d6a2667a3f544bd6978ac0653ffb46ab3a1c4bad"
+    },
+    "summaryPolicy": {
+      "id": "plate-track-text-rank0",
+      "version": "1.0.0",
+      "sha256": "1fb72dd2ce254a2190cd19290bc7304342d16bdacc417a03e7589cd202eecd1f"
+    },
+    "capabilities": [
+      {
+        "capabilityId": "ocr",
+        "modelPackId": "mavi-model-v2-3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      {
+        "capabilityId": "plate-detector",
+        "modelPackId": "mavi-model-v2-4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    ],
+    "parametersSha256": "d19bf0705c880fdf49895f99ba95e5bda61843222d1111764173e877b0128e02"
+  },
+  "tracks": [
+    {
+      "trackId": "019a1f00-0000-7000-8000-000000000010",
+      "objectClass": "vehicle",
+      "observations": [
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000011",
+          "role": "representative",
+          "evidenceRank": 0,
+          "sizeBytes": 41210,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000012",
+          "role": "near-view",
+          "evidenceRank": 1,
+          "sizeBytes": 120448,
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000013",
+          "role": "early-diverse",
+          "evidenceRank": 2,
+          "sizeBytes": 98304,
+          "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000014",
+          "role": "late-diverse",
+          "evidenceRank": 3,
+          "sizeBytes": 87012,
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      ]
+    },
+    {
+      "trackId": "019a1f00-0000-7000-8000-000000000020",
+      "objectClass": "vehicle",
+      "observations": [
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000021",
+          "role": "representative",
+          "evidenceRank": 0,
+          "sizeBytes": 30777,
+          "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000022",
+          "role": "near-view",
+          "evidenceRank": 1,
+          "sizeBytes": 101200,
+          "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ]
+    },
+    {
+      "trackId": "019a1f00-0000-7000-8000-000000000030",
+      "objectClass": "vehicle",
+      "observations": [
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000031",
+          "role": "representative",
+          "evidenceRank": 0,
+          "sizeBytes": 52001,
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000032",
+          "role": "near-view",
+          "evidenceRank": 1,
+          "sizeBytes": 133333,
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      ]
+    },
+    {
+      "trackId": "019a1f00-0000-7000-8000-000000000040",
+      "objectClass": "vehicle",
+      "observations": [
+        {
+          "observationId": "019a1f00-0000-7000-8000-000000000041",
+          "role": "near-view",
+          "evidenceRank": 1,
+          "sizeBytes": 77777,
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "description": "Cross-language pin of the PlatePredictions artefact and completion-body worst-case size bound (ADR-013 implementation amendment 2026-10-13, item 13). Both the .NET release parser and the Python loader compute exactly these numbers from the profile shape (maxDetectionsPerCrop, maxPlatesPerCrop, maxReadingsPerPlate) at 10,000 Tracks x 4 crops, and accept the profile only when both are at most maximumBytes (the 64 MiB cap).",
+  "maximumBytes": 67108864,
+  "vectors": [
+    {
+      "name": "fixture-profile",
+      "maxDetectionsPerCrop": 2,
+      "maxPlatesPerCrop": 1,
+      "maxReadingsPerPlate": 3,
+      "worstCaseArtifactBytes": 63044096,
+      "worstCaseCompletionBytes": 55376384,
+      "accepted": true
+    },
+    {
+      "name": "two-plates-one-reading",
+      "maxDetectionsPerCrop": 2,
+      "maxPlatesPerCrop": 2,
+      "maxReadingsPerPlate": 1,
+      "worstCaseArtifactBytes": 60484096,
+      "worstCaseCompletionBytes": 63056384,
+      "accepted": true
+    },
+    {
+      "name": "one-plate-three-readings-eight-detections",
+      "maxDetectionsPerCrop": 8,
+      "maxPlatesPerCrop": 1,
+      "maxReadingsPerPlate": 3,
+      "worstCaseArtifactBytes": 86084096,
+      "worstCaseCompletionBytes": 55376384,
+      "accepted": false
+    },
+    {
+      "name": "two-plates-two-readings",
+      "maxDetectionsPerCrop": 2,
+      "maxPlatesPerCrop": 2,
+      "maxReadingsPerPlate": 2,
+      "worstCaseArtifactBytes": 83524096,
+      "worstCaseCompletionBytes": 86096384,
+      "accepted": false
+    },
+    {
+      "name": "one-plate-four-readings",
+      "maxDetectionsPerCrop": 1,
+      "maxPlatesPerCrop": 1,
+      "maxReadingsPerPlate": 4,
+      "worstCaseArtifactBytes": 70724096,
+      "worstCaseCompletionBytes": 66896384,
+      "accepted": false
+    },
+    {
+      "name": "one-plate-three-readings-three-detections",
+      "maxDetectionsPerCrop": 3,
+      "maxPlatesPerCrop": 1,
+      "maxReadingsPerPlate": 3,
+      "worstCaseArtifactBytes": 66884096,
+      "worstCaseCompletionBytes": 55376384,
+      "accepted": true
+    },
+    {
+      "name": "eight-detections-two-plates",
+      "maxDetectionsPerCrop": 8,
+      "maxPlatesPerCrop": 2,
+      "maxReadingsPerPlate": 1,
+      "worstCaseArtifactBytes": 83524096,
+      "worstCaseCompletionBytes": 63056384,
+      "accepted": false
+    }
+  ]
+}
