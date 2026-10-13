@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "benchmark-plate-instrument-v1",
+  "instrumentId": "fast-plate-ocr-cct-s-v2-global",
+  "adapter": "fast-plate-ocr",
+  "role": "plate-specific",
+  "packages": {
+    "onnxruntime": "1.31.0",
+    "numpy": "2.5.3",
+    "opencv-python": "5.0.0.93",
+    "opencv-python-headless": "5.0.0.93",
+    "Pillow": "11.3.0",
+    "fast-plate-ocr": "1.1.0"
+  },
+  "configuration": {
+    "onnxModel": "cct_s_v2_global.onnx",
+    "plateConfig": "cct_s_v2_global_plate_config.yaml",
+    "device": "cpu",
+    "threads": 1
+  },
+  "modelFiles": [
+    {
+      "path": "cct_s_v2_global.onnx",
+      "sha256": "384bbbd2cea3ef54761d3df70822ef3a349ee1a112aeafddbe0e3ba06bc6e47b"
+    },
+    {
+      "path": "cct_s_v2_global_plate_config.yaml",
+      "sha256": "0335c74a305173bb6f393efed0fde03cadeaa0b649ed8e19f431016d8232d0a6"
+    }
+  ],
+  "provenance": {
+    "source": "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/cct_s_v2_global.onnx (and _plate_config.yaml); release 'HUB' (tag arg-plates, published 2024-04-08), the fast-plate-ocr 1.1.0 hub entry 'cct-s-v2-global-model'",
+    "retrievedOn": "2026-10-12",
+    "licence": "MIT (ankandrew/cnn-ocr-lp and ankandrew/fast-plate-ocr repositories)",
+    "exposure": "The global model's plate_regions list 65 regions including Brazil and excludes India: training exposure to UFPR-ALPR-like Brazilian plates is possible; Indian plates are out of its trained regions. Max 10 character slots, alphabet 0-9A-Z."
+  },
+  "note": "Measuring instrument only (adequacy protocol \u00a76); never a Stage-4 selection candidate."
+}

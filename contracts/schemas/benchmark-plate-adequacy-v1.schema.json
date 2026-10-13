@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mavi.local/contracts/benchmark-plate-adequacy-v1.schema.json",
+  "title": "benchmark-plate-adequacy-v1",
+  "description": "A Stage 4 evidence-adequacy result (plan §3; protocol docs/qualification/stage4/adequacy-protocol.md): E-A encoding loss (kind 'encoding-loss'), E-B Track evidence coverage (kind 'track-coverage') or the verdict (kind 'verdict'). Canonical JSON, written once; its identity is the SHA-256 of its bytes. Every input is bound by hash and the tooling by its committed identity. Development measurement evidence only, never qualification (ADR-017 §8–§9).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "protocol", "inputs", "tooling", "summary"],
+  "properties": {
+    "schemaVersion": {"const": "benchmark-plate-adequacy-v1"},
+    "kind": {"enum": ["encoding-loss", "track-coverage", "verdict"]},
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"const": "docs/qualification/stage4/adequacy-protocol.md"}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "inputs": {
+      "description": "Every input by role and SHA-256 (truth, descriptor, instrument specifications, association, exports, encoding-loss result, ...).",
+      "type": "object",
+      "additionalProperties": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "array", "items": {"$ref": "#/$defs/sha256"}}]}
+    },
+    "instruments": {"type": "array", "items": {"type": "object", "required": ["instrumentId", "instrumentSha256"]}},
+    "encoder": {"type": "object"},
+    "tooling": {
+      "type": "object",
+      "required": ["toolingCommit", "toolingSha256", "toolingFiles"],
+      "properties": {
+        "toolingCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "toolingSha256": {"$ref": "#/$defs/sha256"},
+        "toolingFiles": {"type": "array", "minItems": 1}
+      }
+    },
+    "rows": {"type": "array", "items": {"type": "object"}},
+    "summary": {"type": "object"}
+  },
+  "allOf": [
+    {"if": {"properties": {"kind": {"const": "verdict"}}}, "then": {"properties": {"summary": {"required": ["verdict", "reasons"]}}}},
+    {"if": {"properties": {"kind": {"enum": ["encoding-loss", "track-coverage"]}}}, "then": {"required": ["instruments", "rows"]}}
+  ],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

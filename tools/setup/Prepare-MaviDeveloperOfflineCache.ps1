@@ -16,6 +16,8 @@ $destination = [IO.Path]::GetFullPath($Destination)
 $nugetRoot = Join-Path $destination "nuget-packages"
 $npmRoot = Join-Path $destination "npm-cache"
 $pythonRoot = Join-Path $destination "python-wheelhouse"
+$instrumentWheelRoot = Join-Path $destination "python-benchmark-instruments-wheelhouse"
+$instrumentPayloadRoot = Join-Path $destination "benchmark-instrument-payloads"
 
 if (Test-Path -LiteralPath $destination) {
     Remove-Item -LiteralPath $destination -Recurse -Force
@@ -23,6 +25,8 @@ if (Test-Path -LiteralPath $destination) {
 New-Item -ItemType Directory -Path $nugetRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $npmRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $pythonRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $instrumentWheelRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $instrumentPayloadRoot -Force | Out-Null
 
 Push-Location $repoRoot
 try {
@@ -57,6 +61,19 @@ try {
         throw "Repository verification dependency download failed."
     }
 
+    # Stage-4 measuring-instrument environment (Development benchmark only; CPython 3.12, Windows x64 wheels) and
+    # the model payloads its instruments load. Installed offline by
+    # tools\benchmarks\plates\Install-PlateInstrumentEnvironment.ps1.
+    $instrumentRequirements = Join-Path $repoRoot "tools\benchmarks\plates\requirements-instruments.txt"
+    & $Python -m pip download --dest $instrumentWheelRoot -r $instrumentRequirements --only-binary=:all: --python-version 3.12 --implementation cp --platform win_amd64
+    if ($LASTEXITCODE -ne 0) {
+        throw "Benchmark instrument wheelhouse preparation failed."
+    }
+    & $Python (Join-Path $repoRoot "tools\benchmarks\plates\instrument_env.py") fetch-payloads --dest $instrumentPayloadRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Benchmark instrument model payload preparation failed."
+    }
+
     $visionRoot = Join-Path $repoRoot "src\vision"
     $visionEggInfo = Join-Path $visionRoot "mavi_vision.egg-info"
     Push-Location $visionRoot
@@ -87,6 +104,8 @@ $sourceInputs = [ordered]@{
     packageLockSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "src\web\mavi-web\package-lock.json") -Algorithm SHA256).Hash.ToLowerInvariant()
     visionPyprojectSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "src\vision\pyproject.toml") -Algorithm SHA256).Hash.ToLowerInvariant()
     toolsRequirementsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\requirements.txt") -Algorithm SHA256).Hash.ToLowerInvariant()
+    instrumentRequirementsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\benchmarks\plates\requirements-instruments.txt") -Algorithm SHA256).Hash.ToLowerInvariant()
+    instrumentPayloadsSha256 = (Get-FileHash -LiteralPath (Join-Path $repoRoot "tools\benchmarks\plates\instrument-payloads-v1.json") -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
 $nugetPackages = @()
@@ -171,12 +190,22 @@ foreach ($file in @(Get-ChildItem -LiteralPath $pythonRoot -File | Sort-Object N
     }
 }
 
+$instrumentArtifacts = @()
+foreach ($file in @(Get-ChildItem -LiteralPath $instrumentWheelRoot, $instrumentPayloadRoot -File -Recurse | Sort-Object FullName)) {
+    $instrumentArtifacts += [ordered]@{
+        path = $file.FullName.Substring($destination.Length).TrimStart('\').Replace('\', '/')
+        sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        sizeBytes = [long]$file.Length
+    }
+}
+
 $cacheManifest = [ordered]@{
     schemaVersion = "mavi-developer-offline-cache-v1"
     sourceInputs = $sourceInputs
     nugetPackages = @($nugetPackages)
     npmPackages = @($npmPackages)
     pythonArtifacts = @($pythonArtifacts)
+    benchmarkInstrumentArtifacts = @($instrumentArtifacts)
 }
 $cacheManifestPath = Join-Path $destination "developer-cache-manifest.json"
 $cacheManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $cacheManifestPath -Encoding UTF8
@@ -186,6 +215,7 @@ Write-Host "  Manifest: $cacheManifestPath"
 Write-Host "  NuGet packages : $($nugetPackages.Count)"
 Write-Host "  npm packages   : $($npmPackages.Count)"
 Write-Host "  Python artifacts: $($pythonArtifacts.Count)"
+Write-Host "  Benchmark instrument artifacts: $($instrumentArtifacts.Count)"
 Write-Host "  NuGet : $nugetRoot"
 Write-Host "  npm   : $npmRoot"
 Write-Host "  Python: $pythonRoot"

@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "benchmark-plate-instrument-payloads-v1",
+  "purpose": "Every model payload the Stage-4 measuring instruments and the R8 annotation detector load, with the source each is staged from. Connected preparation fetches 'url' payloads into the developer offline cache (verifying SHA-256); the offline installer stages every payload into the model root from that cache or from the installed wheel and verifies it against docs/qualification/stage4/instruments/<instrumentId>.json. Development benchmark only; never a Runtime Pack.",
+  "instruments": [
+    {
+      "instrumentId": "fast-plate-ocr-cct-s-v2-global",
+      "files": [
+        {
+          "path": "cct_s_v2_global.onnx",
+          "sha256": "384bbbd2cea3ef54761d3df70822ef3a349ee1a112aeafddbe0e3ba06bc6e47b",
+          "source": {"kind": "url", "url": "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/cct_s_v2_global.onnx"}
+        },
+        {
+          "path": "cct_s_v2_global_plate_config.yaml",
+          "sha256": "0335c74a305173bb6f393efed0fde03cadeaa0b649ed8e19f431016d8232d0a6",
+          "source": {"kind": "url", "url": "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates/cct_s_v2_global_plate_config.yaml"}
+        }
+      ]
+    },
+    {
+      "instrumentId": "open-image-models-yolo-v9-s-608-plates",
+      "files": [
+        {
+          "path": "yolo-v9-s-608-license-plates-end2end.onnx",
+          "sha256": "2b878b38d9aa07b6ddc3ea75c4ffcb39869bc5c218e0a14002f60ab2f7b0be9a",
+          "source": {"kind": "url", "url": "https://github.com/ankandrew/open-image-models/releases/download/assets/yolo-v9-s-608-license-plates-end2end.onnx"}
+        }
+      ]
+    },
+    {
+      "instrumentId": "rapidocr-ppocrv4",
+      "files": [
+        {
+          "path": "ch_PP-OCRv4_det_infer.onnx",
+          "sha256": "d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9",
+          "source": {"kind": "wheel", "member": "rapidocr_onnxruntime/models/ch_PP-OCRv4_det_infer.onnx"}
+        },
+        {
+          "path": "ch_PP-OCRv4_rec_infer.onnx",
+          "sha256": "48fc40f24f6d2a207a2b1091d3437eb3cc3eb6b676dc3ef9c37384005483683b",
+          "source": {"kind": "wheel", "member": "rapidocr_onnxruntime/models/ch_PP-OCRv4_rec_infer.onnx"}
+        },
+        {
+          "path": "ch_ppocr_mobile_v2.0_cls_infer.onnx",
+          "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+          "source": {"kind": "wheel", "member": "rapidocr_onnxruntime/models/ch_ppocr_mobile_v2.0_cls_infer.onnx"}
+        }
+      ]
+    }
+  ]
+}
