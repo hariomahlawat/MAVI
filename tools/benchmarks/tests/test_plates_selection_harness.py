@@ -166,9 +166,12 @@ def test_d_refuses_unlabelled_tracks_and_bootstrap_needs_clusters():
         ev.evaluate_tracks([ev.TrackItem("t", "s", None, None)], q.generate([], PARAMS))  # type: ignore[arg-type]
     items = [_item(f"t{i}", "KA01AB1234", ["KA01AB1234"], cluster=f"s{i}") for i in range(3)]
     queries = q.generate(["KA01AB1234"], PARAMS)
-    result = ev.paired_cluster_bootstrap(items, items, queries, replicates=10, seed=1)
+    result = ev.paired_cluster_bootstrap(items, items, queries, replicates=10, seed=1, required_clusters=60)
     assert result.outcome == "insufficient-clusters" and result.clusters == 3
-    small = ev.paired_cluster_bootstrap(items, items, queries, replicates=20, seed=1, minimum_clusters=2)
+    with pytest.raises(ValueError, match="absolute_minimum"):
+        ev.paired_cluster_bootstrap(items, items, queries, replicates=10, seed=1, required_clusters=2)
+    many = [_item(f"t{i}", "KA01AB1234", ["KA01AB1234"], cluster=f"s{i}") for i in range(60)]
+    small = ev.paired_cluster_bootstrap(many, many, queries, replicates=20, seed=1, required_clusters=60)
     assert small.difference == 0 and small.outcome == "not-superior"
 
 
@@ -178,9 +181,9 @@ def test_top_k_and_gates():
     assert ev.top_k(scores, 3, 50, "detector") == ["PD2-N", "PD2-S"]
     ocr = [ev.ComponentScore("OC2-B", True, 60, 0.8, 0.1, 0.2), ev.ComponentScore("OC2-A", True, 60, 0.8, 0.1, 0.2)]
     assert ev.top_k(ocr, 1, 50, "recogniser") == ["OC2-A"]
-    assert ev.baseline_gate(0.62, 0.60) == ev.PASS and ev.baseline_gate(0.61, 0.60) == ev.FAIL
+    assert ev.baseline_gate(0.64, 0.60) == ev.PASS and ev.baseline_gate(0.63, 0.60) == ev.FAIL
     assert ev.baseline_gate(None, 0.6) == ev.INSUFFICIENT
-    assert (ev.MPID, ev.MINIMUM_INDEPENDENT_CLUSTERS, ev.RANKING_OCR_CONFIDENCE_FLOOR) == (0.02, 60, 0.0)
+    assert (ev.MPID, ev.ABSOLUTE_MINIMUM_CLUSTERS, ev.RANKING_OCR_CONFIDENCE_FLOOR) == (0.04, 60, 0.0)
     params = ev.evaluation_parameters(0.25)
     assert (params.max_detections_per_crop, params.max_plates_per_crop, params.max_readings_per_plate) == (2, 1, 3)
 

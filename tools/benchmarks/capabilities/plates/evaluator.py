@@ -53,8 +53,10 @@ from tools.benchmarks.capabilities.plates.queries import CONTAINS, EXACT, NEGATI
 PLAN_COVERAGE_THRESHOLD = 0.95          # plan §4.4 A
 RANKING_OCR_CONFIDENCE_FLOOR = 0.0      # D6: the only floor that may affect D, gates or selection
 DIAGNOSTIC_OCR_FLOORS = (0.3, 0.5, 0.7)  # D6: diagnostics only; never D-score, gates or selection
-MPID = 0.02                             # D7a, on D-score
-MINIMUM_INDEPENDENT_CLUSTERS = 60       # D7b
+MPID = 0.04                             # D7a (revised 2026-10-13), on D-score
+ABSOLUTE_MINIMUM_CLUSTERS = 60          # D7b: an absolute floor only, never "adequately powered". The required
+                                        # D-ranking cluster count is frozen in the protocol from the final
+                                        # candidate-blind power calculation and passed as ``required_clusters``.
 CONSISTENT_WRONG_LIMIT = 0.02           # plan §4.5, N3
 CONSISTENT_WRONG_SUPPORT = 50           # N3
 P14_TOLERANCE = 0.02                    # N5 (PR-6 agreement), recorded here for the protocol
@@ -497,11 +499,11 @@ class Comparison:
 
 
 def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[TrackItem], queries: QuerySet,
-                             replicates: int, seed: int, mpid: float = MPID,
-                             minimum_clusters: int = MINIMUM_INDEPENDENT_CLUSTERS) -> Comparison:
+                             replicates: int, seed: int, required_clusters: int, mpid: float = MPID) -> Comparison:
     """Paired hierarchical bootstrap of D-score(a) − D-score(b) on the same Tracks: clusters with replacement, then
     Tracks with replacement inside each drawn cluster; 95 % percentile interval. ``superior`` needs the interval to
-    exclude zero **and** the observed difference ≥ ``mpid``; fewer than ``minimum_clusters`` clusters is
+    exclude zero **and** the observed difference ≥ ``mpid``. ``required_clusters`` is the protocol-frozen D-ranking
+    cluster count; it may not be below ``ABSOLUTE_MINIMUM_CLUSTERS``. Fewer clusters than required is
     ``insufficient-clusters`` (never a winner)."""
     by_id_b = {item.track_id: item for item in items_b}
     if [i.track_id for i in items_a] != [i.track_id for i in items_b]:
@@ -512,7 +514,9 @@ def paired_cluster_bootstrap(items_a: Sequence[TrackItem], items_b: Sequence[Tra
     names = sorted(clusters)
     a, b = evaluate_tracks(items_a, queries).d_score, evaluate_tracks(items_b, queries).d_score
     observed = None if a is None or b is None else a - b
-    if len(names) < minimum_clusters or observed is None:
+    if not (isinstance(required_clusters, int) and required_clusters >= ABSOLUTE_MINIMUM_CLUSTERS):
+        raise ValueError("required_clusters_below_absolute_minimum")
+    if len(names) < required_clusters or observed is None:
         return Comparison(observed, None, None, len(names), "insufficient-clusters")
     rng = random.Random(seed)
     differences = []

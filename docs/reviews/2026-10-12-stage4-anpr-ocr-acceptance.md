@@ -257,22 +257,35 @@ These are tooling corrections only. No frozen result, threshold or verdict chang
 
 ## Correction and repair record: A–D evaluators and query generator (2026-10-13)
 
-**Correction.** Plan §7 PR-1 listed, among PR-1's files:
+**Correction.** Plan §7 assigned these to PR-1:
 - the model-selection evaluators A–D (`tools/benchmarks/capabilities/plates/evaluator.py`);
 - the deterministic query generator (`queries.py`);
 - a query-generator determinism test.
 
-They were **not delivered with PR-1** (PR #213). PR-1 delivered the ground truth, the dataset adapters, the evidence-adequacy experiments E-A/E-B and the verdict. P1's "evaluators" covered those adequacy evaluators only. This was found while preparing PR-2, before any PR-2 protocol freeze or candidate run. **No PR-1 result, threshold, verdict or row status changes:** the adequacy measurement never used A–D.
+They were **omitted from PR-1** (PR #213). PR-1 delivered the ground truth, the dataset adapters, the evidence-adequacy experiments E-A/E-B and the verdict. P1's "evaluators" covered those adequacy evaluators only. The omission was found while preparing PR-2, before any PR-2 protocol freeze or candidate run.
+
+**This repair closes that PR-1 deliverable. It does not alter PR-1's frozen evidence, hashes, thresholds, calculations or INADEQUATE verdict, nor any P1–P3 row status.** The adequacy measurement never used A–D.
 
 **Repair.** The prerequisite branch `stage4/plate-harness-evaluators` adds the two modules on PR-3's merged rules:
 - `mavi_vision.plates.pipeline`: `analyse_crop`, `summarise_track`, the 2/1/3 bounds, reading order, `Read`/`Unreadable`, abstention reasons and the rank-0 Track-text summary;
 - the frozen `mavi-plate-normalisation-v1`;
 - reading-level confidence only.
 
-The owner's decided PR-2 values (2026-10-13: OCR floor 0 for ranking, diagnostic floors {0.3, 0.5, 0.7}, MPID 0.02, 60 clusters, consistent-wrong ≤ 2 % with support 50, N2 baseline gate, N4 tie-breaks, N8 closed-population D-score) are module constants the PR-2 protocol references. Values still open (query interior offset, negatives per plate, seed, ECE bins, bootstrap replicates and seed) are required parameters. Tests: `tools/benchmarks/tests/test_plates_selection_harness.py`, synthetic fixtures only; no dataset and no model is read.
+**Decided values (module constants):** the owner's PR-2 decisions of 2026-10-13, as revised, which the PR-2 protocol references:
+- OCR floor 0 for ranking, with diagnostic floors {0.3, 0.5, 0.7};
+- **MPID 0.04** on D-score;
+- consistent-wrong ≤ 2 % with support 50;
+- the N2 baseline gate;
+- the N4 tie-breaks;
+- the N8 closed-population D-score.
 
-**Gate.** This repair must merge before the PR-2 events reach `PROTOCOL_FROZEN` (plan §4.2 item 2). It is level 1 evidence (harness implemented and tested) and does not change P1–P3.
+60 independent clusters is recorded **only as an absolute minimum floor**. The D-ranking cluster count is a **required parameter** (`required_clusters`), frozen in the PR-2 protocol from its final candidate-blind power calculation.
 
+**Still-open values (required parameters):** query interior offset, negatives per plate, seed, ECE bins, bootstrap replicates and seed.
+
+**Tests:** `tools/benchmarks/tests/test_plates_selection_harness.py`, synthetic fixtures only; no dataset and no model is read.
+
+**Gate.** This repair must merge before the PR-2 events reach `PROTOCOL_FROZEN` (plan §4.2 item 2). It is level 1 evidence (harness implemented and tested).
 ## Reproduction and repeatability
 
 - **Hosts:** Windows 11 Development host (GTX 1650 Ti 4 GiB). Detector vehicle candidates run on the qualified CUDA vision runtime through the worker's own composition (`tools/benchmarks/plates/vehicle_candidates.py`). Instruments run on CPU, single-threaded, in CPython 3.12.10.
