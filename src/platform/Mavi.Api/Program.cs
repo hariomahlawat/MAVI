@@ -18,6 +18,8 @@ using Microsoft.AspNetCore.Server.IIS;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+// Request URLs may carry plate text (Stage 4 plan §5.5): never log them, whatever the configured level.
+builder.Logging.AddPlateTextLogPrivacy();
 builder.AddMaviMachineConfiguration();
 builder.Services.AddMaviInfrastructure(builder.Configuration);
 builder.Services.AddDatabaseMigrationStartup(builder.Configuration);
