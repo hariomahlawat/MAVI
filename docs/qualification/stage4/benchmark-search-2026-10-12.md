@@ -96,3 +96,12 @@ Read on 2026-10-13 from the public pages only. No account was created, no terms 
 4. If a price or institutional-eligibility condition appears, stop; it is outside the current authorisation.
 5. Before downloading, ask the provider whether plates are unblurred and whether full 25 fps video is included. If plates are anonymised, IDD-X is recorded as unusable for E-B and the Indian search continues.
 6. When access is granted, share only the download link or files. MAVI will then record the descriptor, hashes and licence evidence and run a small legibility check before any labelling.
+
+### Update 2026-10-13 (owner): O1 split into O1A and O1B
+
+- **IDD-X is approved for O1A** (Indian native-frame-rate tracking).
+  - Protocol: `o1a-idd-x-tracking-design-2026-10-13.md`.
+  - The organisation holds research/academic permission under the IIIT Hyderabad collaboration.
+- **IDD-X is excluded from O1B** (Indian ANPR/OCR): the distributed data has blurred licence plates, and the permission does not restore plate pixels.
+- **O1B stays OPEN:** keep searching for an admissible Indian video source with visible plates, or define a bounded, purpose-built Indian research corpus.
+- **No full 160 GB download.** Annotations come first, then only the deterministically selected front-view videos (an estimated 4–8 GB), and only if the portal allows selective acquisition.

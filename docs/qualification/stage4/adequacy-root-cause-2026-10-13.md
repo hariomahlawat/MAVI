@@ -91,12 +91,10 @@ The Representative falls back to the best admissible frame, and the supplemental
 
 ## Recommended corrective action (evidence-supported; nothing is implemented)
 
-1. **Measure X1 (edge-margin floor) before anything else.** *Done 2026-10-13: 0/10 recovered; recommendation to reject as formulated (see the X1 record).* Run a bounded Development experiment:
-   - re-derive `edgeMarginFloor`, for example 0 for the bottom border or role-specific for NearView, in a candidate pipeline profile;
-   - re-run the existing E-B pipeline on the same BDD sequences and labels (new ProcessingRuns);
-   - compare C under the same frozen rule.
-
-   The analysis predicts at most +10 of 77 tracks, which would take C from 0.662 to ≤ 0.79. Any profile change remains a pipeline-profile change with its requalification consequences. **This is the owner's O3 decision; PR-6 stays held.**
+1. **X1 (edge-margin floor): measured and REJECTED as formulated** (owner decision, 2026-10-13).
+   - Result: 0 of 10 recovered and 0 regressions (`x1-edge-margin-2026-10-13.md`).
+   - The bottom-border exemption is not implemented, and it is not broadened to the other borders.
+   - **Next authorised step:** a bounded, measurement-only diagnostic of the sharpness floor at large NearView crops. It asks why visibly useful large plate views fall below the generic 0.05 floor. The release profile and the acceptance criteria stay unchanged. **PR-6 stays held.**
 2. **Re-measure tracking on native-frame-rate footage before changing the tracker.** LSV-LP (25 fps, per-frame plate truth, admissible under MAVI's academic non-commercial classification) when its share is re-enabled, or an Indian 25 fps source (O1). That separates real tracker weakness from the 5 fps artefact.
 3. **No change to the encoder, the role byte caps (X1 encoder part) or the plate-aware role (X3) is indicated** by this evidence.
 

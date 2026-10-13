@@ -6,7 +6,7 @@
 - The root cause is in `docs/qualification/stage4/adequacy-root-cause-2026-10-13.md`:
   - selection — the frame-edge qualification floor excludes near views;
   - tracking and association at 5 fps.
-- PR-3 to PR-5 proceed; PR-6 is held (O3). Indian-condition validation stays OPEN (O1). PR #213 stays Draft.
+- PR-3 to PR-5 proceed; PR-6 is held (O3). Indian validation is split: O1A (tracking, IDD-X approved) and O1B (ANPR/OCR, OPEN). PR #213 stays Draft.
 
 **Date opened:** 2026-10-12\
 **Baseline:** `main@78ec81de514874ed7dc536f2eee19669d1cfec6b` (merge of PR #212, the Stage 4 plan)
@@ -142,7 +142,7 @@ MAVI is classified by the owner as a **non-commercial, open-source academic rese
   - encoding 1;
   - frame quality 1.
 - **Recommendation:**
-  1. measure X1 — re-derive `edgeMarginFloor` in a candidate pipeline profile (bounded Development experiment; upper-bound gain +10 tracks);
+  1. measure X1 (done; **rejected** — see below);
   2. re-measure tracking on native-frame-rate footage before any tracker change.
 - **Nothing is implemented. PR-6 stays held.**
 
@@ -161,20 +161,39 @@ MAVI is classified by the owner as a **non-commercial, open-source academic rese
 
 The theoretical maximum of a selection-only remedy is 10/77, giving C = 61/77 = 0.792 — **MARGINAL, not ADEQUATE**.
 
-**Recommendation:** reject X1 as formulated. Any revision (side/top-edge or sharpness qualification at near views) is a new owner decision. **PR-6 stays held.**
+**Owner decision (2026-10-13): X1 REJECTED as formulated.** It is accepted as valid diagnostic evidence, and its byte-identical repeat and all hashes are preserved.
+- The bottom-border exemption is not implemented in the release profile.
+- It is not broadened to the left, right or top borders.
+- **Next authorised selector investigation:** a bounded, measurement-only study of the sharpness floor at large NearView crops. The release profile and the frozen acceptance criteria stay unchanged.
+- Native-frame-rate evidence remains a prerequisite for any tracker change.
+- **PR-6 stays held.**
 
-### O1 — Indian dataset
+**Sharpness-floor diagnostic (measurement only):** `docs/qualification/stage4/sharpness-floor-diagnostic-2026-10-13.md` (result `f9930bca…`).
+- Of 230 readable plate frames (≥ 32 px) on matched Tracks, **26 (11.3 %) fail the 0.05 floor**; 84 % of all floor-failing frames are readable.
+- **Cause 1, dilution:** the plate region itself is sharp (median 0.099; 25 of 26 at or above the floor), while the whole-box mean is 0.040.
+- **Cause 2, scale dependence:** within-Track ρ(area, sharpness) has a median of −0.67 over 3,076 Tracks. At a fixed 128-px height, 19 of 26 pass.
+- **No profile or threshold change and no PR-6 decision.** Any scale-normalised revision is a separate owner decision.
 
-Kept **OPEN**. BDD100K results are never presented as Indian-condition validation.
+### O1 — Indian validation, split on 2026-10-13 (owner decision)
 
-Leads recorded in the search record:
-- IDD-X (IIIT Hyderabad, 25 fps dual-view Hyderabad driving video with 25 Hz tracked boxes on important objects).
-  - **Owner approved registration on 2026-10-13.**
-  - Access is requested on India Data; the listing is "Private", 171 GB.
-  - Its Data User Agreement allows research use and forbids commercial use without consent; DPDPA 2023 applies.
-  - Plate visibility is unconfirmed.
-  - The registration information for the owner is in the search record. Nothing has been accepted on the owner's behalf;
-- the IITH accident CCTV dataset — terms not established.
+BDD100K results are never presented as Indian-condition validation.
+
+**O1A — Indian native-frame-rate tracking validation: IDD-X APPROVED.**
+- **Protocol:** `docs/qualification/stage4/o1a-idd-x-tracking-design-2026-10-13.md` (Development, frozen at commit).
+- **Design:**
+  - 25 fps native vs 5 fps decimated replays of the same recorded detections, through the unchanged release-profile tracker;
+  - frozen association policy; ground-truth-side metrics only (association outcome, fragmentation, continuity, detection support);
+  - reference comparison against the BDD 5 fps observations.
+- **Minimum subset:** ≥ 200 ground-truth vehicle Tracks from ≥ 30 validation-split front-view videos; scenarios ≥ 2 s; deterministic selection; estimated 4–8 GB.
+- **Download gate:** nothing is downloaded until the owner confirms the portal allows selective acquisition (annotations first). The 160 GB archive is not downloaded.
+- **Permission:** the organisation holds research/academic permission under the IIIT Hyderabad collaboration; the India Data DUA also applies.
+
+**O1B — Indian ANPR/OCR validation: OPEN.**
+- IDD-X is **excluded**: the distributed data has blurred licence plates. The collaboration permission does not restore missing plate pixels.
+- The search continues for an admissible Indian video source with visible plates, or for a bounded, purpose-built Indian research corpus (ADR-017 §2).
+- Per plan §3.3, the Indian Track-level gap blocks neither PR #213 nor PR-3. PR-2's entry criterion (§4.2 item 3) needs an Indian **still** dataset release record.
+
+**Other leads:** the IITH accident CCTV dataset; terms not established.
 
 ### Development
 

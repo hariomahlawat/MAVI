@@ -178,7 +178,14 @@ All files are outside Git under `E:\MAVI-Controlled\Benchmarks\stage4-x1\`.
 
 **Example ProcessingRun id:** candidate `b1d0a191-2ed2269e` → `234a470d-a271-02e6-86b9-de3d411fc428`.
 
-## Conclusion and recommendation
+## Owner decision (2026-10-13)
+
+**X1 is REJECTED as formulated** and accepted as valid diagnostic evidence.
+- The bottom-border exemption is not implemented, and it is not broadened to the other borders.
+- **Next authorised step:** a bounded, measurement-only sharpness-floor diagnostic at large NearView crops.
+- **PR-6 stays held.**
+
+## Conclusion and recommendation (as submitted)
 
 **Reject X1 as formulated.** It is safe: no regressions, no unqualified evidence and a negligible footprint. But it addresses a border that blocks none of the failures, so it has no effect on E-B.
 
