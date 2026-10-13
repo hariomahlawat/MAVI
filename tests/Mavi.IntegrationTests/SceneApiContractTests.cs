@@ -480,7 +480,7 @@ public sealed class SceneApiContractTests(PostgresFixture database)
     // Test infrastructure
     private async Task<ApiTestFactory> CreateFactoryAsync()
     {
-        Assert.Equal(database.ConnectionString, Environment.GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION"));
+        Assert.Equal(database.ConnectionString, TestDatabase.ConnectionString);
         var factory = new ApiTestFactory();
         await factory.ResetAndMigrateAsync();
         return factory;

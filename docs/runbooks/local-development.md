@@ -363,6 +363,13 @@ dotnet test MAVI.sln
 
 In Visual Studio, after restarting with `MAVI_TEST_DB_CONNECTION` available, run **Test > Run All Tests**. Integration tests should no longer fail with `MAVI_TEST_DB_CONNECTION is required`.
 
+**Concurrent test runs.** The integration tests reset the schema of the database they use, so two runs against the same `mavi_test` at the same time (two worktrees, two agents, Visual Studio beside a terminal) corrupt each other — deadlocks, missing `__EFMigrationsHistory`, duplicate constraints — and those failures say nothing about the code. Give each concurrent run its own database with `MAVI_TEST_DB_RUN_ID`:
+
+- `MAVI_TEST_DB_RUN_ID=auto` — a stable database per checkout, `mavi_test_wt<12 hex of the repository path>`;
+- `MAVI_TEST_DB_RUN_ID=<id>` — a caller-chosen run (`mavi_test_<id>`; a long or non-`[a-z0-9]` id is shortened with a hash).
+
+The database is created on first use on the server `MAVI_TEST_DB_CONNECTION` names; that variable must still name `mavi_test`. A run only ever resets its own database, and `TestDatabase.DropIsolatedDatabaseAsync` drops only that run's derived database. Unset, the tests use `mavi_test` exactly as before (CI runs one job per server).
+
 ## Run the complete local quality checks
 
 ```powershell

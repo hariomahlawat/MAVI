@@ -114,11 +114,9 @@ public sealed class DatabaseStartupMigrationTests
 
     private static string GetTestConnectionString()
     {
-        var value = Environment.GetEnvironmentVariable("MAVI_TEST_DB_CONNECTION")
-            ?? throw new InvalidOperationException(
-                "MAVI_TEST_DB_CONNECTION is required for database startup migration tests.");
+        var value = TestDatabase.ConnectionString;
         var database = new NpgsqlConnectionStringBuilder(value).Database;
-        if (!string.Equals(database, "mavi_test", StringComparison.Ordinal))
+        if (!TestDatabase.IsTestDatabaseName(database))
             throw new InvalidOperationException(
                 "Database startup migration tests may use only mavi_test.");
         return value;
