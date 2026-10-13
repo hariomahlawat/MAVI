@@ -16,7 +16,8 @@
  * rounding), long tasks in whole milliseconds — so a value at its limit
  * passes and one unit over fails, with no floating-point ambiguity.
  *
- *   node tools/web-visual-qa/performance.mjs --sweep <results.json> --long-tasks <results.json> [--out <dir>] [--response-order forward|reverse]
+ *   node tools/web-visual-qa/performance.mjs --sweep <results.json> --long-tasks <results.json> [--out <dir>]
+ *   node tools/web-visual-qa/performance.mjs --ordinary-lane --response-order reverse --sweep <shard>,<shard>,... [--out <dir>]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -205,7 +206,24 @@ const measurementFault = (key, what, m) => `${key}: ${what} ${m?.status ?? 'miss
 /** The data-response order the gate judges (server.mjs RESPONSE_ORDERS). */
 export const GATE_RESPONSE_ORDER = 'forward';
 
-export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = PERFORMANCE_BUDGETS, responseOrder = GATE_RESPONSE_ORDER }) {
+/**
+ * The adversarial lane's sweep (X3 determinism): the ordinary cases only,
+ * measured in another pinned order (`reverse`), in shards. One sweep of one
+ * head and one order, every case ordinary; its completeness is the plan's
+ * check in evaluatePerformance, as for the full sweep.
+ */
+export function mergeOrdinaryShards(shards) {
+  const problems = [];
+  const heads = new Set(shards.map((s) => s.head));
+  const orders = new Set(shards.map((s) => s.responseOrder ?? 'natural'));
+  if (heads.size !== 1) problems.push(`the ordinary-lane shards are of ${heads.size} heads`);
+  if (orders.size !== 1) problems.push(`the ordinary-lane shards were answered in ${[...orders].join(' and ')} orders`);
+  const cases = shards.flatMap((s) => s.cases ?? []);
+  if (cases.some((c) => !isOrdinary(c))) problems.push('the ordinary lane holds a case that is not an anchor or a probe');
+  return { head: [...heads][0] ?? null, responseOrder: [...orders][0], ordinaryLane: true, fullSweep: false, problems, cases };
+}
+
+export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = PERFORMANCE_BUDGETS, responseOrder = GATE_RESPONSE_ORDER, ordinaryLane = false }) {
   const faults = [];
   const findings = [];
   const rows = [];
@@ -224,13 +242,18 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
   const stopped = (key, what) => `${key}: ${what} was measured at calibration and is now not-applicable — what it measured no longer happens or is no longer seen; requalify it`;
   // The sweep: the full sweep, each planned ordinary case exactly once.
   if (!sweep) faults.push('no sweep results to judge');
-  else if (sweep.fullSweep !== true) faults.push('the sweep results are not the full sweep: X3 is judged on the whole product');
+  else if (ordinaryLane) {
+    // The adversarial lane: its ordinary cases, complete by the plan, CLS only.
+    if (sweep.ordinaryLane !== true) faults.push('the ordinary lane was not merged from its shards (mergeOrdinaryShards)');
+    for (const problem of sweep.problems ?? []) faults.push(problem);
+    if (!plan) faults.push('the ordinary lane is judged against the plan, and none was given');
+  } else if (sweep.fullSweep !== true) faults.push('the sweep results are not the full sweep: X3 is judged on the whole product');
   if (sweep && !sweep.head) faults.push('the sweep results name no head');
   // X3 determinism (2026-10-13): the gate judges runs whose data responses
   // were answered in one pinned order (server.mjs), so every intermediate
   // layout is painted and a case's CLS is a function of the bundle alone. A
   // natural-order run leaves that to scheduling: it is not evidence.
-  for (const [what, r] of [['sweep', sweep], ['long-task run', longTasks]]) {
+  for (const [what, r] of [['sweep', sweep], ['long-task run', ordinaryLane ? null : longTasks]]) {
     const order = r?.responseOrder ?? 'natural';
     if (r && order !== responseOrder) faults.push(`the ${what} answered its data requests in ${order} order: the gate judges a ${responseOrder}-order run, where every intermediate layout is painted`);
   }
@@ -289,8 +312,10 @@ export function evaluatePerformance({ sweep, longTasks, plan = null, budgets = P
     rows.push(row);
   }
 
-  // Long tasks: the single-lane run, whole — never the sweep's lanes.
-  if (!longTasks) faults.push('no long-task results to judge');
+  // Long tasks: the single-lane run, whole — never the sweep's lanes. The
+  // ordinary (adversarial) lane judges CLS only: long tasks are the blocking
+  // lane's.
+  if (ordinaryLane) { /* not judged here */ } else if (!longTasks) faults.push('no long-task results to judge');
   else {
     if (longTasks.longTaskLane !== true) faults.push('the long-task results are not the long-task lane (run.mjs --long-tasks)');
     if (longTasks.workers !== 1) faults.push(`the long-task results were measured on ${longTasks.workers} lanes: only a single-lane run is evidence (lanes contend for the CPU)`);
@@ -361,10 +386,16 @@ const readJson = (file) => JSON.parse(readFileSync(resolve(file), 'utf8'));
 
 async function main() {
   const out = resolve(arg('out', join(HERE, '.performance')));
-  const sweep = arg('sweep') ? readJson(arg('sweep')) : null;
+  // --ordinary-lane: the adversarial lane, its shards' results comma-separated
+  // in --sweep, judged for CLS in --response-order (reverse).
+  const ordinaryLane = process.argv.includes('--ordinary-lane');
+  const sweepFiles = arg('sweep') ? arg('sweep').split(',').filter(Boolean) : [];
+  const sweep = ordinaryLane
+    ? mergeOrdinaryShards(sweepFiles.map(readJson))
+    : sweepFiles.length ? readJson(sweepFiles[0]) : null;
   const longTasks = arg('long-tasks') ? readJson(arg('long-tasks')) : null;
   const plan = ordinaryPlan(await import('./states.mjs'));
-  const verdict = evaluatePerformance({ sweep, longTasks, plan, responseOrder: arg('response-order', GATE_RESPONSE_ORDER) });
+  const verdict = evaluatePerformance({ sweep, longTasks, plan, responseOrder: arg('response-order', GATE_RESPONSE_ORDER), ordinaryLane });
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, 'performance.json'), JSON.stringify({ schema: 'mavi.stage3-5.x3-performance-run.v1', head: sweep?.head ?? null, budgets: PERFORMANCE_BUDGETS.schema, ...verdict }, null, 2));
   const s = verdict.summary;

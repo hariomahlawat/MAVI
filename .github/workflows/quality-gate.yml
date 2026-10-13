@@ -603,6 +603,28 @@ jobs:
           include-hidden-files: true
           retention-days: 14
           if-no-files-found: warn
+      # X3 determinism (2026-10-13): the adversarial lane — this shard's
+      # ordinary cases again, data responses answered in reverse order, for
+      # `performance` to judge their CLS (performance.mjs --ordinary-lane). Its
+      # visual findings are the forward sweep's (--keep); a fault still fails.
+      - name: Run the reverse-order ordinary lane shard
+        if: success() || failure()
+        timeout-minutes: 20
+        shell: bash
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          MAVI_VQA_RESPONSE_ORDER: reverse
+          MAVI_VQA_OUT: tools/web-visual-qa/.performance/reverse
+        run: node tools/web-visual-qa/run.mjs --workers 3 --shard "$SHARD_INDEX/$SHARD_COUNT" --zoom none --text-spacing none --reduced-motion none --keep
+      - name: Retain the reverse-order lane shard
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-reverse-shard-${{ matrix.shard }}
+          path: tools/web-visual-qa/.performance/reverse/results.json
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: error
 
   visual-aggregate:
     # The full sweep's verdict from its shards (aggregate.mjs): the same head,
@@ -967,6 +989,26 @@ jobs:
             test "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).head))' "$f")" = "$MAVI_EXPECTED_SOURCE_SHA"
           done
           node tools/web-visual-qa/performance.mjs             --sweep performance-input/sweep/results.json             --long-tasks performance-input/long-tasks/results.json             --out tools/web-visual-qa/.performance/verdict
+      # X3 determinism: the reverse-order lane's CLS, against the same budgets.
+      - name: Collect the reverse-order lane
+        if: (success() || failure()) && steps.mode.outputs.mode != 'closure'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: performance-reverse-shard-*
+          path: performance-input/reverse
+      - name: Judge the reverse-order lane (CLS)
+        if: (success() || failure()) && steps.mode.outputs.mode != 'closure'
+        shell: bash
+        env:
+          SHARD_COUNT: '4'
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(find performance-input/reverse -name results.json | sort)
+          test "${#files[@]}" = "$SHARD_COUNT"
+          for f in "${files[@]}"; do
+            test "$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).head))' "$f")" = "$MAVI_EXPECTED_SOURCE_SHA"
+          done
+          node tools/web-visual-qa/performance.mjs --ordinary-lane --response-order reverse --sweep "$(IFS=,; echo "${files[*]}")" --out tools/web-visual-qa/.performance/reverse-verdict
       # The verdict (every case, its class, value, limit and headroom), for
       # the qualification and a person.
       - name: Retain the performance verdict
@@ -976,6 +1018,7 @@ jobs:
           name: performance-budgets
           path: |
             tools/web-visual-qa/.performance/verdict/performance.json
+            tools/web-visual-qa/.performance/reverse-verdict/performance.json
           include-hidden-files: true
           retention-days: 14
           if-no-files-found: error

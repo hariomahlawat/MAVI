@@ -90,8 +90,9 @@ a `.mavi-visual-qa-output` marker), and
 states added (the deliberately unreachable state of `test/run.test.mjs`); a run
 under it records `statesModule` and is never a full sweep.
 
-`MAVI_VQA_RESPONSE_ORDER` (`natural`, the default, or `forward`) pins the
-fixture server's data-response order; see *X3 (§38)* below.
+`MAVI_VQA_RESPONSE_ORDER` (`natural`, the default, `forward` — the gate's —
+or `reverse`) pins the fixture server's data-response order; see *X3 (§38)*
+below.
 
 ## Harness v2 (Stage 3.5 S2)
 
@@ -607,20 +608,28 @@ never the sweep's contended lanes for long tasks. Nothing is owned by X3:
   its own artifact: a shift right after a late response is the page
   re-laying out for that data; a long frame whose time is neither script nor
   style and layout is not the page's code.
-- **Response order**: the fixture server answers in `natural` order, the
-  gate's: concurrent data requests are answered as they arrive, so which
-  intermediate layouts a load paints is left to scheduling, and an
-  order-dependent shift appears only in the runs that happen to paint it
-  (the 2026-10-13 determinism review, `docs/reviews/2026-10-13-x3-performance-gate-determinism.md`).
-  `MAVI_VQA_RESPONSE_ORDER=forward` pins it: data GETs are answered in the
-  order they arrive, each at least `RESPONSE_SPACING_MS` after the previous
-  answer, so every
-  intermediate layout is painted and a case's CLS is a function of the bundle
-  alone. It is a diagnostic and decision tool: the results record
-  `responseOrder`, and the gate faults a pinned-order run as evidence.
+- **Response order** (owner decision, 2026-10-13): the gate judges runs whose
+  data responses were answered in one pinned order, so every intermediate
+  layout of a load is painted and a case's CLS is a function of the bundle
+  alone (`docs/reviews/2026-10-13-x3-performance-gate-determinism.md`). With
+  `MAVI_VQA_RESPONSE_ORDER` the fixture server answers data GETs (not media)
+  one at a time, `RESPONSE_SPACING_MS` apart: `forward` in the order they
+  arrive — the blocking sweep and long-task lane run it, and the judge faults
+  any other order (`GATE_RESPONSE_ORDER`) — or `reverse`, each burst's
+  requests in the opposite order: the adversarial lane, the sweep shards'
+  ordinary cases again, judged for CLS only (`performance.mjs --ordinary-lane
+  --response-order reverse --sweep <shard>,…`). `natural` (the default for
+  local runs and the journeys) answers as requests arrive. Under a pinned
+  order a document carries the epoch it was served in (a cookie), and a
+  request from a document the harness has left is refused, so it cannot take
+  the next case's sequenced answers.
+- **Drawn once**: the product draws a region when every answer that decides
+  its final layout has settled (`holdUntilSettled`, §38), so the pinned order
+  measures the loading-to-content transition, not a provisional layout.
 - **One operator input per task**: a preparation that stands for several
   operator inputs (the Import form's camera, time and file) dispatches each in
-  its own task, after a frame, as an operator's inputs arrive; dispatched back
+  its own task, after a frame, as an operator's inputs arrive (the zone
+  drawing's two vertex clicks likewise); dispatched back
   to back they were one task, and the lane measured three inputs (and the
   harness's own script) as one long task.
 
