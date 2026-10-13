@@ -37,9 +37,11 @@ public sealed class TestDatabaseTests
     [Fact]
     public void EachWorktreeDerivesItsOwnStableDatabase()
     {
-        var first = TestDatabase.WorktreeRunId(@"E:\work\MAVI2\.claude\worktrees\agent-a");
-        var again = TestDatabase.WorktreeRunId(@"E:\work\MAVI2\.claude\worktrees\agent-a\");
-        var other = TestDatabase.WorktreeRunId(@"E:\work\MAVI2\.claude\worktrees\agent-b");
+        // Paths in the host's own form: a trailing separator is the host's, so the test holds on Windows and Linux.
+        var root = Path.Combine(Path.GetTempPath(), "work", "MAVI2", ".claude", "worktrees");
+        var first = TestDatabase.WorktreeRunId(Path.Combine(root, "agent-a"));
+        var again = TestDatabase.WorktreeRunId(Path.Combine(root, "agent-a") + Path.DirectorySeparatorChar);
+        var other = TestDatabase.WorktreeRunId(Path.Combine(root, "agent-b"));
 
         Assert.Equal(first, again);
         Assert.NotEqual(first, other);
