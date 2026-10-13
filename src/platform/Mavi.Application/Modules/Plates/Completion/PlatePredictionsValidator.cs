@@ -431,8 +431,7 @@ public static class PlatePredictionsValidator
                 if (index > 0)
                 {
                     var prior = plate.Readings[index - 1];
-                    if (reading.Confidence > prior.Confidence ||
-                        (reading.Confidence == prior.Confidence && string.CompareOrdinal(reading.RawText, prior.RawText) <= 0))
+                    if (!PlateContractRules.RanksAfter(prior.Confidence, prior.RawText!, reading.Confidence, reading.RawText!))
                         return false;
                 }
             }

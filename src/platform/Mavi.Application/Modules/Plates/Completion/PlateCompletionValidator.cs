@@ -215,8 +215,7 @@ public static class PlateCompletionValidator
             if (index > 0)
             {
                 var prior = readings[index - 1];
-                if (confidence > prior.Confidence!.Value ||
-                    (confidence == prior.Confidence.Value && string.CompareOrdinal(reading.RawText, prior.RawText) <= 0))
+                if (!PlateContractRules.RanksAfter(prior.Confidence!.Value, prior.RawText!, confidence, reading.RawText!))
                     return (null, "plate_reading_invalid");
             }
 

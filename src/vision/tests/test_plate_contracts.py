@@ -197,3 +197,23 @@ def test_the_lease_example_parses() -> None:
     assert lease.schema_version == contracts.CONTROL_VERSION
     assert [item.capability_id for item in lease.identity.capabilities] == list(contracts.CAPABILITIES)
     assert all(track.object_class == "vehicle" for track in lease.tracks)
+
+
+ORDER = _json(VECTORS / "plate-reading-order-v1.json")
+
+
+@pytest.mark.parametrize("vector", ORDER["vectors"], ids=lambda item: item["name"])
+def test_readings_rank_in_the_cross_language_order(vector: dict) -> None:
+    readings = [(item["rawText"], item["confidence"]) for item in vector["readings"]]
+    ranked = sorted(range(len(readings)), key=lambda index: contracts.reading_rank_key(readings[index][1], readings[index][0]))
+    assert ranked == vector["rankedIndices"]
+
+
+def test_the_pipeline_ranks_a_supplementary_plane_tie_in_utf16_order() -> None:
+    from mavi_vision.plates.inference import Reading
+    from mavi_vision.plates.pipeline import _plate
+
+    parameters = load_parameters((ROOT / "tests" / "fixtures" / "plates" / "fixture-parameters-v1.json").read_bytes())
+    plate = _plate(0, [Reading("\uff21", 0.9), Reading("\U0001f600", 0.9)], parameters)
+    # U+1F600 is the surrogate pair D83D DE00, below U+FF21 in UTF-16 order (code-point order says the reverse).
+    assert [item.raw_text for item in plate.readings] == ["\U0001f600", "\uff21"]

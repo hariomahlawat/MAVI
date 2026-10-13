@@ -80,6 +80,28 @@ public sealed class PlateContractTests
     }
 
     [Fact]
+    public void ReadingsRankInTheCrossLanguageOrder()
+    {
+        using var document = JsonDocument.Parse(Bytes("contracts/test-vectors/plate-reading-order-v1.json"));
+        foreach (var vector in document.RootElement.GetProperty("vectors").EnumerateArray())
+        {
+            var readings = vector.GetProperty("readings").EnumerateArray()
+                .Select(item => (Text: item.GetProperty("rawText").GetString()!, Confidence: item.GetProperty("confidence").GetDouble()))
+                .ToList();
+            var ranked = vector.GetProperty("rankedIndices").EnumerateArray().Select(item => readings[item.GetInt32()]).ToList();
+            for (var index = 1; index < ranked.Count; index++)
+            {
+                var (prior, current) = (ranked[index - 1], ranked[index]);
+                Assert.True(PlateContractRules.RanksAfter(prior.Confidence, prior.Text, current.Confidence, current.Text), vector.GetProperty("name").GetString());
+                Assert.False(PlateContractRules.RanksAfter(current.Confidence, current.Text, prior.Confidence, prior.Text), vector.GetProperty("name").GetString());
+            }
+        }
+
+        // Strict: an equal reading never ranks after itself.
+        Assert.False(PlateContractRules.RanksAfter(0.9, "KA01", 0.9, "KA01"));
+    }
+
+    [Fact]
     public void TheBoundVectorsMatchTheContractArithmetic()
     {
         using var document = JsonDocument.Parse(Bytes("contracts/test-vectors/plate-artifact-bound-v1.json"));

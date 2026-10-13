@@ -50,6 +50,7 @@ from mavi_vision.plates.contracts import (
     LeaseTrack,
     is_raw_text,
     raw_line_count,
+    reading_rank_key,
 )
 from mavi_vision.plates.inference import (
     CropDecodeError,
@@ -220,7 +221,7 @@ def _without_plates(recorded: list[PlateBox]) -> tuple[DetectionRecord, ...]:
 
 
 def _plate(index: int, readings: list[Reading], parameters: PlateParameters) -> PlateRecord:
-    ordered = sorted(readings, key=lambda item: (-item.confidence, item.raw_text))
+    ordered = sorted(readings, key=lambda item: reading_rank_key(item.confidence, item.raw_text))
     ranked = tuple(
         RankedReading(rank, item.raw_text, raw_line_count(item.raw_text), float(item.confidence)) for rank, item in enumerate(ordered)
     )

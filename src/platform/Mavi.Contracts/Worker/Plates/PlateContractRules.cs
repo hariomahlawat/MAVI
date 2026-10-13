@@ -242,6 +242,16 @@ public static class PlateContractRules
     public static bool IsPlateCapability(string? value) => value is CapabilityOcr or CapabilityPlateDetector;
 
     /// <summary>
+    /// The rank order of one plate's readings (vector <c>contracts/test-vectors/plate-reading-order-v1.json</c>):
+    /// confidence descending, and equal confidences by raw text in ascending UTF-16 code-unit order
+    /// (<see cref="string.CompareOrdinal(string, string)"/>; the worker compares UTF-16BE bytes). Strict: a
+    /// reading equal to the one before it in confidence and raw text is out of order.
+    /// </summary>
+    public static bool RanksAfter(double priorConfidence, string priorRawText, double confidence, string rawText) =>
+        confidence < priorConfidence ||
+        (confidence == priorConfidence && string.CompareOrdinal(rawText, priorRawText) > 0);
+
+    /// <summary>
     /// Raw OCR text admissible on the wire (ADR-013 item 13): 1–32 well-formed UTF-16 code units; no C0
     /// control character except LF and no DEL (PostgreSQL text cannot hold NUL, and control characters are
     /// not readings); at most one LF, never first or last, so two non-empty lines at most. Any other

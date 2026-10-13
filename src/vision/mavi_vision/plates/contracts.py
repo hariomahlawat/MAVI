@@ -147,6 +147,16 @@ def utf16_length(text: str) -> int:
     return sum(2 if ord(character) > 0xFFFF else 1 for character in text)
 
 
+def reading_rank_key(confidence: float, raw_text: str) -> tuple[float, bytes]:
+    """The rank order of one plate's readings (vector ``contracts/test-vectors/plate-reading-order-v1.json``).
+
+    Confidence descending, then raw text in ascending UTF-16 code-unit order -- the platform's
+    ``string.CompareOrdinal``. Python's ``str`` order is code-point order, which differs for characters
+    outside the Basic Multilingual Plane; UTF-16BE bytes compare exactly like UTF-16 code units.
+    """
+    return (-confidence, raw_text.encode("utf-16-be", "surrogatepass"))
+
+
 def is_raw_text(value: object) -> bool:
     """The wire rule for raw OCR text (ADR-013 item 13), identical to ``PlateContractRules.IsRawText``."""
     if not isinstance(value, str) or not 1 <= utf16_length(value) <= MAXIMUM_RAW_TEXT_LENGTH:
