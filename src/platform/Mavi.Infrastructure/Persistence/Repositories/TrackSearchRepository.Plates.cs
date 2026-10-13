@@ -57,7 +57,7 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         var snapshotUtc = timeProvider.GetUtcNow().ToUniversalTime();
 
         var plateCoverage = await ComputePlateCoverageAsync(
-            BaseCandidates(query, snapshotVisibilitySequence), preferredFingerprint, snapshotVisibilitySequence, cancellationToken);
+            query, preferredFingerprint, snapshotVisibilitySequence, cancellationToken);
 
         TrackPlateSearchRepositoryPage page;
         if (query.Analytics is { } analytics)
@@ -139,13 +139,12 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
                 [], snapshotUtc, snapshotVisibilitySequence, plateCoverage, new Dictionary<Guid, TrackItemPlate>());
         }
 
-        var rows = await BuildQuery(
-                query,
-                snapshotVisibilitySequence,
-                keyset,
-                candidates => WherePlateMatches(candidates, plate, fingerprint, snapshotVisibilitySequence))
-            .Take(take)
-            .ToArrayAsync(cancellationToken);
+        var matching = await MatchingTrackIdsAsync(plate, fingerprint, snapshotVisibilitySequence, cancellationToken);
+        var rows = matching.Length == 0
+            ? []
+            : await BuildQuery(query, snapshotVisibilitySequence, keyset, candidates => WhereTrackIn(candidates, matching))
+                .Take(take)
+                .ToArrayAsync(cancellationToken);
         var itemPlates = await ExplainPlatesAsync(rows, plate, fingerprint, snapshotVisibilitySequence, cancellationToken);
         return new TrackPlateSearchRepositoryPage(rows, snapshotUtc, snapshotVisibilitySequence, plateCoverage, itemPlates);
     }
@@ -172,9 +171,12 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
                 identity, analyticsCoverage, new Dictionary<Guid, TrackItemAnalytics>());
         }
 
-        var (rows, itemAnalytics) = await FetchPageAsync(
-            query, analytics, identity, scope, snapshotVisibilitySequence, keyset, take, cancellationToken,
-            candidates => WherePlateMatches(candidates, plate, fingerprint, snapshotVisibilitySequence));
+        var matching = await MatchingTrackIdsAsync(plate, fingerprint, snapshotVisibilitySequence, cancellationToken);
+        var (rows, itemAnalytics) = matching.Length == 0
+            ? ([], new Dictionary<Guid, TrackItemAnalytics>())
+            : await FetchPageAsync(
+                query, analytics, identity, scope, snapshotVisibilitySequence, keyset, take, cancellationToken,
+                candidates => WhereTrackIn(candidates, matching));
         var itemPlates = await ExplainPlatesAsync(rows, plate, fingerprint, snapshotVisibilitySequence, cancellationToken);
         return new TrackPlateSearchRepositoryPage(
             rows, snapshotUtc, snapshotVisibilitySequence, plateCoverage, itemPlates, identity, analyticsCoverage, itemAnalytics);
@@ -212,18 +214,34 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
         return texts.Where(row => EF.Functions.Like(row.NormalisedText, pattern));
     }
 
-    private IQueryable<TrackCandidate> WherePlateMatches(
-        IQueryable<TrackCandidate> candidates,
+    /// <summary>
+    /// Step one of the predicate: the Tracks whose pinned, snapshot-visible analysis has a matching text,
+    /// driven from the text index. The analysis must belong to the Track's own run (checked through the
+    /// Track's row), so nothing is widened.
+    /// </summary>
+    /// <remarks>
+    /// Two steps on purpose (measured, plan §2.8; docs/qualification/stage4/2026-10-13-plate-search-at-scale.md).
+    /// As one correlated EXISTS or one IN subquery beside the base candidate chain, the query has more
+    /// relations than PostgreSQL's join-collapse limit, and at 10^6 Tracks the planner joined the whole
+    /// chain before semi-joining the few matching texts (0.45–1.0 s). Resolving the matching ids first
+    /// and handing the chain <c>id = ANY(@ids)</c> lets it probe tracks by primary key.
+    /// </remarks>
+    private Task<Guid[]> MatchingTrackIdsAsync(
         TrackPlateQuery plate,
         string fingerprint,
-        long snapshotVisibilitySequence)
-    {
-        var texts = MatchingTexts(plate);
-        var analyses = VisiblePlateAnalyses(fingerprint, snapshotVisibilitySequence);
-        return candidates.Where(x => texts.Any(text =>
-            text.TrackId == x.track.Id
-            && analyses.Any(analysis => analysis.Id == text.AnalysisId && analysis.ProcessingRunId == x.run.Id)));
-    }
+        long snapshotVisibilitySequence,
+        CancellationToken cancellationToken) =>
+        (from text in MatchingTexts(plate)
+         join analysis in VisiblePlateAnalyses(fingerprint, snapshotVisibilitySequence) on text.AnalysisId equals analysis.Id
+         join track in db.Tracks.AsNoTracking() on text.TrackId equals track.Id
+         where track.ProcessingRunId == analysis.ProcessingRunId
+         select text.TrackId)
+        .Distinct()
+        .ToArrayAsync(cancellationToken);
+
+    /// <summary>Step two: the base chain, every other filter, keyset and ordering, over those Tracks only.</summary>
+    private static IQueryable<TrackCandidate> WhereTrackIn(IQueryable<TrackCandidate> candidates, Guid[] trackIds) =>
+        candidates.Where(x => trackIds.Contains(x.track.Id));
 
     /// <summary>
     /// The bounded explanation for the rows of this page and no others: one query keyed on the page's
@@ -299,61 +317,160 @@ public sealed partial class TrackSearchRepository : ITrackPlateSearchRepository
     /// the PR-3 readiness rule as of the snapshot, and its Tracks counted into that bucket.
     /// </summary>
     private async Task<TrackPlateCoverage> ComputePlateCoverageAsync(
-        IQueryable<TrackCandidate> candidates,
+        TrackSearchQuery query,
         string? fingerprint,
         long snapshotVisibilitySequence,
         CancellationToken cancellationToken)
     {
-        var tracksByRun = await candidates
-            .Where(x => x.track.ObjectClass == Domain.Intelligence.ObjectClass.Vehicle)
-            .GroupBy(x => x.run.Id)
-            .Select(group => new { RunId = group.Key, Tracks = group.Count() })
-            .ToListAsync(cancellationToken);
-        var inScope = tracksByRun.Sum(run => run.Tracks);
-        if (fingerprint is null)
-            return new TrackPlateCoverage(null, inScope, 0, 0, 0, 0, inScope);
-        if (tracksByRun.Count == 0)
+        var runIds = await RunsInScope(query, snapshotVisibilitySequence).ToArrayAsync(cancellationToken);
+        if (runIds.Length == 0)
             return TrackPlateCoverage.Empty(fingerprint);
+        if (fingerprint is null)
+        {
+            var all = (await VehicleTrackCounts(query, runIds).ToListAsync(cancellationToken)).Sum(row => row.Tracks);
+            return new TrackPlateCoverage(null, all, 0, 0, 0, 0, all);
+        }
 
-        var runIds = tracksByRun.Select(run => run.RunId).ToArray();
         var analyses = (await db.PlateAnalyses.AsNoTracking()
                 .Where(analysis => runIds.Contains(analysis.ProcessingRunId))
-                .Select(analysis => new { analysis.Id, analysis.ProcessingRunId, analysis.IdentityFingerprint, analysis.Status, analysis.VisibilitySequence })
+                .Select(analysis => new
+                {
+                    analysis.Id,
+                    analysis.ProcessingRunId,
+                    analysis.IdentityFingerprint,
+                    analysis.Status,
+                    analysis.VisibilitySequence,
+                    Tracks = analysis.TracksAnalysed + analysis.TracksUnavailable,
+                })
                 .ToListAsync(cancellationToken))
             .ToLookup(analysis => analysis.ProcessingRunId);
 
-        int ready = 0, pending = 0, failed = 0, stale = 0, notConfigured = 0;
-        foreach (var run in tracksByRun)
-        {
-            var state = PlateCoverageRule.Classify(
-                run.RunId,
+        var states = runIds.ToDictionary(
+            runId => runId,
+            runId => PlateCoverageRule.Classify(
+                runId,
                 fingerprint,
-                analyses[run.RunId]
+                analyses[runId]
                     .Select(analysis => new PlateCoverageAnalysis(analysis.Id, analysis.IdentityFingerprint, analysis.Status, analysis.VisibilitySequence))
                     .ToArray(),
-                snapshotVisibilitySequence);
-            switch (state)
+                snapshotVisibilitySequence));
+
+        // A Ready run's pinned analysis has exactly one Track outcome per Vehicle Track of the run (PR-3's
+        // completion invariant), so without a Track-level filter its header counts are the run's Vehicle
+        // Tracks and those runs need no Track scan. Measured (plan §2.8): scanning 10^6 Tracks to count
+        // them costs ~240 ms. Any other run, and every run under a Track-level filter, is counted.
+        var counts = new Dictionary<Guid, int>();
+        if (!HasTrackLevelFilter(query))
+        {
+            foreach (var (runId, state) in states.Where(pair => pair.Value == PlateReadinessState.Ready))
+                counts[runId] = analyses[runId].Single(analysis => analysis.IdentityFingerprint == fingerprint).Tracks;
+        }
+
+        var uncounted = runIds.Where(runId => !counts.ContainsKey(runId)).ToArray();
+        if (uncounted.Length > 0)
+        {
+            foreach (var row in await VehicleTrackCounts(query, uncounted).ToListAsync(cancellationToken))
+                counts[row.RunId] = row.Tracks;
+        }
+
+        int ready = 0, pending = 0, failed = 0, stale = 0, notConfigured = 0;
+        foreach (var (runId, tracks) in counts)
+        {
+            switch (states[runId])
             {
                 case PlateReadinessState.Ready:
-                    ready += run.Tracks;
+                    ready += tracks;
                     break;
                 case PlateReadinessState.Failed:
-                    failed += run.Tracks;
+                    failed += tracks;
                     break;
                 case PlateReadinessState.Stale:
-                    stale += run.Tracks;
+                    stale += tracks;
                     break;
                 case PlateReadinessState.NotConfigured:
-                    notConfigured += run.Tracks;
+                    notConfigured += tracks;
                     break;
                 default:
                     // Pending; NotApplicable cannot occur for a run with a Vehicle Track in scope.
-                    pending += run.Tracks;
+                    pending += tracks;
                     break;
             }
         }
 
-        return new TrackPlateCoverage(fingerprint, inScope, ready, pending, failed, stale, notConfigured);
+        return new TrackPlateCoverage(fingerprint, ready + pending + failed + stale + notConfigured, ready, pending, failed, stale, notConfigured);
+    }
+
+    private static bool HasTrackLevelFilter(TrackSearchQuery query) =>
+        query.FromUtc is not null || query.ToUtc is not null || query.MinimumDurationMs is not null ||
+        query.MinimumConfidence is not null || query.ObjectSubclass is not null;
+
+    public sealed record RunTrackCount(Guid RunId, int Tracks);
+
+    /// <summary>The Vehicle Tracks of the base candidate scope per run (<see cref="RunsInScope"/> then <see cref="VehicleTrackCounts"/>).</summary>
+    internal async Task<List<RunTrackCount>> VehicleTracksByRunAsync(TrackSearchQuery query, long snapshotVisibilitySequence) =>
+        await VehicleTrackCounts(query, await RunsInScope(query, snapshotVisibilitySequence).ToArrayAsync()).ToListAsync();
+
+    /// <summary>
+    /// The Vehicle Tracks of the base candidate scope, counted per run, without joining each Track to
+    /// its run, video and camera. It is the same scope as <see cref="AnalyticsScopeQuery.BaseCandidates"/>
+    /// decomposed into its two levels: the runs it admits (completed, visible inside the snapshot, the
+    /// latest of their video, and the run, video and camera filters), and the Track-level filters over
+    /// those runs' Tracks. Measured (plan §2.8): counting 10^6 Tracks through the per-Track joins and the
+    /// per-Track latest-run anti-join cost ~435 ms; this shape scans the Tracks once. A test pins its
+    /// counts to the base chain's for every filter.
+    /// </summary>
+    internal IQueryable<Guid> RunsInScope(TrackSearchQuery query, long snapshotVisibilitySequence)
+    {
+        var scope = AnalyticsScopeRequest.From(query);
+        var visible = db.ProcessingRuns.AsNoTracking().Where(run =>
+            run.Status == Domain.Processing.ProcessingRunStatus.Completed &&
+            run.CompletedAtUtc != null &&
+            run.VisibilitySequence != null &&
+            run.VisibilitySequence <= snapshotVisibilitySequence);
+        var runs =
+            from run in visible
+            join video in db.VideoAssets.AsNoTracking() on run.VideoAssetId equals video.Id
+            select new { run, video };
+        if (scope.ProcessingRunId is { } runId)
+        {
+            runs = runs.Where(x => x.run.Id == runId);
+        }
+        else
+        {
+            runs = runs.Where(x => !visible.Any(other =>
+                other.VideoAssetId == x.video.Id && other.VisibilitySequence > x.run.VisibilitySequence));
+        }
+
+        if (scope.CameraId is { } cameraId)
+            runs = runs.Where(x => x.video.CameraId == cameraId);
+        if (scope.VideoAssetId is { } videoId)
+            runs = runs.Where(x => x.video.Id == videoId);
+        return runs.Select(x => x.run.Id);
+    }
+
+    /// <summary>The Track-level half: the Vehicle Tracks of the given runs that pass every Track filter, per run.</summary>
+    internal IQueryable<RunTrackCount> VehicleTrackCounts(TrackSearchQuery query, Guid[] runIds)
+    {
+        var scope = AnalyticsScopeRequest.From(query);
+        var tracks = db.Tracks.AsNoTracking().Where(track =>
+            track.ObjectClass == Domain.Intelligence.ObjectClass.Vehicle && runIds.Contains(track.ProcessingRunId));
+        if (scope.FromUtc is { } fromUtc)
+            tracks = tracks.Where(track => track.EndTimestampUtc >= fromUtc);
+        if (scope.ToUtc is { } toUtc)
+            tracks = tracks.Where(track => track.StartTimestampUtc < toUtc);
+        if (scope.MinimumDurationMs is { } minimumDurationMs)
+            tracks = tracks.Where(track => track.DurationMs >= minimumDurationMs);
+        if (scope.MinimumConfidence is { } minimumConfidence)
+            tracks = tracks.Where(track => track.MeanConfidence >= minimumConfidence);
+        if (scope.ObjectSubclass is { } subclass)
+        {
+            var approvedSource = VehicleSubclassExposurePolicy.ApprovedSource;
+            tracks = tracks.Where(track => track.ObjectSubclass == subclass && track.ObjectSubclassSource == approvedSource);
+        }
+
+        return tracks
+            .GroupBy(track => track.ProcessingRunId)
+            .Select(group => new RunTrackCount(group.Key, group.Count()));
     }
 
     // --- Detail ------------------------------------------------------------------------------

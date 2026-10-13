@@ -112,7 +112,8 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
 
     /// <summary>
     /// A first page and its continuation each cost a fixed number of SELECTs whatever the page size: one
-    /// coverage count, one analyses read, the page, and one explanation keyed on the page's Tracks.
+    /// read of the runs in scope, one of their plate analyses (every run is Ready, so no Track count), the
+    /// matching Track ids, the page, and one explanation keyed on the page's Tracks.
     /// </summary>
     [Fact]
     public async Task APageCostsTheSameStatementsForTwoRowsOrTwenty()
@@ -148,7 +149,7 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
         Assert.Equal(2, small.Rows);
         Assert.Equal(20, large.Rows);
         Assert.Equal(small.Statements, large.Statements);
-        Assert.Equal(4, small.Statements);
+        Assert.Equal(5, small.Statements);
     }
 
     /// <summary>A Track's plate facts cost the same five statements for one plate observation or four.</summary>
@@ -189,6 +190,63 @@ public sealed class TrackPlateSearchRepositoryTests(PostgresFixture fixture)
             large.Facts.Observations.Select(observation => observation.Role.ToString()));
         Assert.Equal(5, small.Statements);
         Assert.Equal(small.Statements, large.Statements);
+    }
+
+    /// <summary>
+    /// The coverage denominator is the base candidate chain decomposed for speed; for every ordinary filter
+    /// it must count exactly the Vehicle Tracks the chain itself admits, per run.
+    /// </summary>
+    [Fact]
+    public async Task TheCoverageCountEqualsTheBaseChainForEveryFilter()
+    {
+        using var world = await VisualAttributeWorld.CreateAsync(fixture, Now);
+        var first = await world.SeedRunAsync(persons: 2, vehicles: 3);
+        var second = await world.SeedRunAsync(persons: 1, vehicles: 2);
+        var hidden = await world.SeedRunAsync(persons: 0, vehicles: 4, visible: false);
+        await using (var db = fixture.CreateDbContext())
+        {
+            // A newer visible run of the first run's video supersedes it in the latest-run scope.
+            var video = await db.ProcessingRuns.Where(run => run.Id == first.RunId).Select(run => run.VideoAssetId).SingleAsync();
+            await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE processing_runs SET video_asset_id = {video} WHERE id = {second.RunId}");
+            await db.Database.ExecuteSqlInterpolatedAsync($"UPDATE tracks SET video_asset_id = {video}, mean_confidence = 0.5, duration_ms = 1000, end_offset_ms = 1000 WHERE id = {second.Track(1).TrackId}");
+        }
+
+        long snapshot;
+        await using (var db = fixture.CreateDbContext())
+            snapshot = await TrackPlateSearchWorld.NextSequenceAsync(db);
+
+        var baseQuery = PlateQuery("KA01");
+        TrackSearchQuery[] scopes =
+        [
+            baseQuery,
+            baseQuery with { ProcessingRunId = first.RunId },
+            baseQuery with { ProcessingRunId = hidden.RunId },
+            baseQuery with { CameraId = world.CameraId },
+            baseQuery with { CameraId = Guid.CreateVersion7() },
+            baseQuery with { MinimumConfidence = 0.7 },
+            baseQuery with { MinimumDurationMs = 2_000 },
+            baseQuery with { FromUtc = Now.AddDays(1) },
+            baseQuery with { ToUtc = Now.AddDays(-1) },
+            baseQuery with { ObjectSubclass = "car" },
+        ];
+
+        await using var context = fixture.CreateDbContext();
+        var repository = new TrackSearchRepository(context, world.Clock);
+        foreach (var scope in scopes)
+        {
+            var expected = (await AnalyticsScopeQuery.BaseCandidates(context, AnalyticsScopeRequest.From(scope), snapshot)
+                    .Where(x => x.track.ObjectClass == ObjectClass.Vehicle)
+                    .Select(x => x.run.Id)
+                    .ToListAsync())
+                .GroupBy(id => id)
+                .ToDictionary(group => group.Key, group => group.Count());
+            var actual = (await repository.VehicleTracksByRunAsync(scope, snapshot))
+                .ToDictionary(row => row.RunId, row => row.Tracks);
+            Assert.Equal(expected.OrderBy(pair => pair.Key), actual.OrderBy(pair => pair.Key));
+        }
+
+        // The control: the filters above are not all vacuous.
+        Assert.Equal(2, (await repository.VehicleTracksByRunAsync(baseQuery, snapshot)).Single().Tracks);
     }
 
     // --- Migration and access paths ----------------------------------------------------------------
